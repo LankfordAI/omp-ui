@@ -4,7 +4,7 @@
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --linux",
     "test": "vitest run --passWithNoTests",
