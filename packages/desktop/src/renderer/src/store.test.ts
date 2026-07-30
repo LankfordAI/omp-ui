@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState } from "@omp-ui/core/types";
+import type { BackendState, LiveState } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import type { RpcTabState } from "./store";
 
@@ -24,15 +24,25 @@ const mockBackend = {
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
-  removeSession: vi.fn(),
+  deleteSession: vi.fn(),
   ptyWrite: vi.fn(),
   ptyResize: vi.fn(),
 };
 
+// Dialog text is an assertable part of a destructive action's contract, so the
+// stubs record what they were asked; `confirm` accepts unless a case says no.
+const prompts: string[] = [];
+const alerts: string[] = [];
+
 const windowStub = {
   ompBackend: mockBackend,
-  alert: () => {},
-  confirm: () => true,
+  alert: (msg: string): void => {
+    alerts.push(msg);
+  },
+  confirm: (msg: string): boolean => {
+    prompts.push(msg);
+    return true;
+  },
   get setTimeout() {
     return globalThis.setTimeout;
   },
@@ -76,7 +86,7 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
   };
 }
 
-function stateWithRecord(sessionId: string | null): BackendState {
+function stateWithRecord(sessionId: string | null, live: LiveState = "live"): BackendState {
   return {
     defaultMode: "rpc-ui",
     projects: [
@@ -95,7 +105,7 @@ function stateWithRecord(sessionId: string | null): BackendState {
             cachedModified: null,
             title: "New session",
             status: null,
-            live: "live",
+            live,
           },
         ],
       },
@@ -136,6 +146,13 @@ async function driveBoot(
 
 beforeEach(() => {
   sent.length = 0;
+  prompts.length = 0;
+  alerts.length = 0;
+  // Cases that answer "no" overwrite confirm; reinstall the default each time.
+  windowStub.confirm = (msg: string): boolean => {
+    prompts.push(msg);
+    return true;
+  };
   backendState = { projects: [], defaultMode: "rpc-ui" };
   useStore.setState({ state: null, tabs: [], activeTabId: null, exited: {}, rpc: {} });
   vi.clearAllMocks();
@@ -745,5 +762,73 @@ describe("prompting, slash commands, and session ops", () => {
     expect(useStore.getState().rpc[TAB]!.bashLines).toEqual(["b"]);
     useStore.getState().clearBash(TAB);
     expect(useStore.getState().rpc[TAB]!.bashLines).toEqual([]);
+  });
+});
+
+describe("deleteSession", () => {
+  it("refuses a live session without prompting or calling the backend", async () => {
+    useStore.setState({ state: stateWithRecord("sess-1", "live") });
+    await useStore.getState().deleteSession(TAB);
+
+    expect(mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(prompts).toEqual([]);
+    expect(alerts[0]).toMatch(/still running — terminate it/);
+  });
+
+  it("does nothing when the confirm is dismissed", async () => {
+    windowStub.confirm = () => false;
+    useStore.setState({ state: stateWithRecord("sess-1", "dormant") });
+    await useStore.getState().deleteSession(TAB);
+
+    expect(mockBackend.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("drops the tab, its rpc slot, and its exit code once the backend confirms", async () => {
+    useStore.setState({
+      state: stateWithRecord("sess-1", "dormant"),
+      tabs: [
+        { tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false },
+        { tabId: "other", mode: "pty", projectCwd: "/p", hidden: false },
+      ],
+      activeTabId: TAB,
+      exited: { [TAB]: 1 },
+      rpc: { [TAB]: tabState() },
+    });
+
+    await useStore.getState().deleteSession(TAB);
+
+    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+    expect(prompts[0]).toMatch(/transcript and artifacts are erased/);
+    const st = useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual(["other"]);
+    expect(st.rpc[TAB]).toBeUndefined();
+    expect(st.exited[TAB]).toBeUndefined();
+    // Focus falls to a surviving visible tab rather than going blank.
+    expect(st.activeTabId).toBe("other");
+  });
+
+  it("keeps the tab and surfaces the error when the backend delete fails", async () => {
+    mockBackend.deleteSession.mockRejectedValueOnce(new Error("EBUSY"));
+    useStore.setState({
+      state: stateWithRecord("sess-1", "dormant"),
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      activeTabId: TAB,
+      rpc: { [TAB]: tabState() },
+    });
+
+    await useStore.getState().deleteSession(TAB);
+
+    const st = useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual([TAB]);
+    expect(st.rpc[TAB]).toBeDefined();
+    expect(alerts[0]).toBe("EBUSY");
+  });
+
+  it("omits the file warning for a record whose files are already gone", async () => {
+    useStore.setState({ state: stateWithRecord("sess-1", "missing") });
+    await useStore.getState().deleteSession(TAB);
+
+    expect(prompts[0]).not.toMatch(/transcript and artifacts/);
+    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
   });
 });

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  deleteSessionFiles,
   findNewestSessionFile,
   resolveSessionLocation,
   unarchiveSession,
@@ -150,5 +151,65 @@ describe("unarchiveSession", () => {
     await expect(
       unarchiveSession(sessionsRoot, archiveRoot, LINEAGE, SESSION_ID),
     ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("deleteSessionFiles", () => {
+  it("removes the lineage dir from both roots, artifacts included", async () => {
+    const { sessionsRoot, archiveRoot } = mkRoots();
+    const active = writeActive(sessionsRoot);
+    const artifacts = path.join(sessionsRoot, LINEAGE, path.basename(active, ".jsonl"));
+    fs.mkdirSync(artifacts, { recursive: true });
+    fs.writeFileSync(path.join(artifacts, "__advisor.jsonl"), "advisor");
+    const gz = writeArchived(archiveRoot);
+
+    const removed = await deleteSessionFiles(sessionsRoot, archiveRoot, LINEAGE);
+
+    expect(removed).toEqual([
+      path.join(sessionsRoot, LINEAGE),
+      path.join(archiveRoot, LINEAGE),
+    ]);
+    expect(fs.existsSync(active)).toBe(false);
+    expect(fs.existsSync(artifacts)).toBe(false);
+    expect(fs.existsSync(gz)).toBe(false);
+    // Only the lineage dir goes — the roots themselves are shared with omp.
+    expect(fs.existsSync(sessionsRoot)).toBe(true);
+    expect(fs.existsSync(archiveRoot)).toBe(true);
+  });
+
+  it("reports only the dirs that existed", async () => {
+    const { sessionsRoot, archiveRoot } = mkRoots();
+    writeArchived(archiveRoot);
+    expect(await deleteSessionFiles(sessionsRoot, archiveRoot, LINEAGE)).toEqual([
+      path.join(archiveRoot, LINEAGE),
+    ]);
+  });
+
+  it("is a no-op for an already-vanished lineage", async () => {
+    const { sessionsRoot, archiveRoot } = mkRoots();
+    expect(await deleteSessionFiles(sessionsRoot, archiveRoot, LINEAGE)).toEqual([]);
+  });
+
+  // The name comes from a hand-editable registry and feeds a recursive delete.
+  it("throws on a traversal name and touches nothing outside the roots", async () => {
+    const { sessionsRoot, archiveRoot } = mkRoots();
+    const sentinel = path.join(sessionsRoot, "..", "..", "keep-me.txt");
+    fs.writeFileSync(sentinel, "precious");
+    const evil = `omp-ui--x/../../evil--11111111-2222-3333-4444-555555555555`;
+
+    await expect(deleteSessionFiles(sessionsRoot, archiveRoot, evil)).rejects.toThrow(
+      /refusing to delete non-lineage dir name/,
+    );
+    expect(fs.readFileSync(sentinel, "utf8")).toBe("precious");
+  });
+
+  it("throws rather than deleting a plain relative name", async () => {
+    const { sessionsRoot, archiveRoot } = mkRoots();
+    const dir = path.join(sessionsRoot, "-Documents-Repos-omp-ui");
+    fs.mkdirSync(dir, { recursive: true });
+    await expect(
+      deleteSessionFiles(sessionsRoot, archiveRoot, "-Documents-Repos-omp-ui"),
+    ).rejects.toThrow(/refusing to delete/);
+    expect(fs.existsSync(dir)).toBe(true);
   });
 });

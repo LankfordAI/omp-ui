@@ -138,6 +138,15 @@ describe("lineage dir names", () => {
     expect(isLineageDirName("omp-ui--no-uuid-here")).toBe(false);
     expect(isLineageDirName("omp-ui--slug--not-a-uuid-at-all--------")).toBe(false);
   });
+
+  // The predicate gates a recursive delete, so a name that could escape the
+  // sessions root must never pass, however well-formed its prefix and suffix.
+  it("rejects names containing a path separator", () => {
+    const uuid = "11111111-2222-3333-4444-555555555555";
+    expect(isLineageDirName(`omp-ui--x/../../etc--${uuid}`)).toBe(false);
+    expect(isLineageDirName(`omp-ui--x\\..\\..--${uuid}`)).toBe(false);
+    expect(isLineageDirName(`omp-ui--a/b--${uuid}`)).toBe(false);
+  });
 });
 
 describe("resolveOmpBinary", () => {

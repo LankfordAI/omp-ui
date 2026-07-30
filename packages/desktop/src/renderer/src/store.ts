@@ -114,7 +114,8 @@ interface UiStore {
   terminate(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
   resumeDead(tabId: string): Promise<void>;
-  prune(tabId: string): Promise<void>;
+  /** Confirms, then erases the record and its files on disk. Irreversible. */
+  deleteSession(tabId: string): Promise<void>;
   bootRpcTab(tabId: string): Promise<void>;
   rpcCommand(tabId: string, cmd: Record<string, unknown>): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
@@ -456,13 +457,31 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
-    async prune(tabId) {
-      await backend.removeSession(tabId);
+    async deleteSession(tabId) {
+      const rec = findRecord(get().state, tabId);
+      if (!rec) return;
+      // The row keeps its button enabled while live so the trash can never
+      // looks broken; the backend would reject anyway, so say why up front
+      // rather than opening a confirm that cannot succeed.
+      if (rec.live === "live") {
+        window.alert("This session is still running — terminate it before deleting.");
+        return;
+      }
+      const label = rec.live === "missing" ? "" : " Its transcript and artifacts are erased.";
+      if (!window.confirm(`Delete "${rec.title}" permanently?${label} This cannot be undone.`)) {
+        return;
+      }
+      try {
+        await backend.deleteSession(tabId);
+      } catch (err) {
+        alertError(err);
+        return;
+      }
       const tab = get().rpc[tabId];
       if (tab) {
         for (const pending of tab.pendingCommands.values()) {
           clearTimeout(pending.timer);
-          pending.reject(new Error("tab pruned"));
+          pending.reject(new Error("session deleted"));
         }
       }
       set((s) => {
@@ -473,7 +492,7 @@ export const useStore = create<UiStore>()((set, get) => {
           s.activeTabId === tabId
             ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
             : s.activeTabId;
-        return { rpc, tabs, activeTabId };
+        return { rpc, tabs, activeTabId, exited: dropExited(s.exited, tabId) };
       });
     },
 

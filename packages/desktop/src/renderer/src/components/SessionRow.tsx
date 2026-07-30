@@ -11,7 +11,7 @@ const LIVE_TONE: Record<LiveState, Tone> = {
   missing: "rose",
 };
 
-const MISSING_HINT = "session files are gone from disk — prune the record";
+const MISSING_HINT = "session files are gone from disk — delete the record";
 
 /**
  * Coarse relative time. A sidebar row is scanned, not read: minutes and hours
@@ -40,7 +40,7 @@ function absoluteTime(iso: string | null): string {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-function IconPrune() {
+function IconTrash() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -60,7 +60,7 @@ function IconPrune() {
 export function SessionRow({ s }: { s: SessionSummary }) {
   const openSession = useStore((st) => st.openSession);
   const switchMode = useStore((st) => st.switchMode);
-  const prune = useStore((st) => st.prune);
+  const deleteSession = useStore((st) => st.deleteSession);
   const activeTabId = useStore((st) => st.activeTabId);
 
   const missing = s.live === "missing";
@@ -131,16 +131,20 @@ export function SessionRow({ s }: { s: SessionSummary }) {
             {rpc ? "rpc" : "term"}
           </Chip>
         </button>
-        {missing && (
-          <IconButton
-            label="prune the record (files on disk are kept)"
-            tone="rose"
-            onClick={() => void prune(s.tabId)}
-            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
-          >
-            <IconPrune />
-          </IconButton>
-        )}
+        <IconButton
+          label={
+            s.live === "live"
+              ? "delete session (terminate it first)"
+              : missing
+                ? "delete this session's record"
+                : "delete session and its files"
+          }
+          tone="rose"
+          onClick={() => void deleteSession(s.tabId)}
+          className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
+        >
+          <IconTrash />
+        </IconButton>
       </div>
     </div>
   );

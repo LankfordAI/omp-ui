@@ -6,6 +6,7 @@ export { spawnOmp, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export {
+  deleteSessionFiles,
   findNewestSessionFile,
   resolveSessionLocation,
   unarchiveSession,

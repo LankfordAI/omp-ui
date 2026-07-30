@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { dialog, ipcMain, type BrowserWindow } from "electron";
 import {
+  deleteSessionFiles,
   getArchiveRoot,
   getSessionsRoot,
   hydrateSessionFile,
@@ -106,9 +107,19 @@ export class MainBackend {
     ipcMain.handle(CH.sessionSwitchMode, (_e, tabId: string, mode: SessionMode) =>
       this.switchMode(tabId, mode),
     );
-    ipcMain.handle(CH.sessionRemove, async (_e, tabId: string) => {
+    ipcMain.handle(CH.sessionDelete, async (_e, tabId: string) => {
       if (this.live.has(tabId)) throw new Error("session is live — terminate it first");
+      const record = this.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) return;
       this.stopWatcher(tabId);
+      // Files first: a failed delete must leave the record so the row stays
+      // visible and retryable, rather than orphaning the transcript on disk.
+      try {
+        await deleteSessionFiles(this.sessionsRoot, this.archiveRoot, record.lineageDir);
+      } catch (err) {
+        this.startWatcher(record);
+        throw err;
+      }
       this.registry.removeSession(tabId);
       await this.broadcast();
     });
@@ -244,7 +255,7 @@ export class MainBackend {
       record.lineageDir,
       record.sessionId,
     );
-    if (loc.where === "missing") throw new Error("session files are gone — prune from sidebar");
+    if (loc.where === "missing") throw new Error("session files are gone — delete it from the sidebar");
     if (loc.where === "archived") {
       let sessionId = record.sessionId;
       if (!sessionId) {

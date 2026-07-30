@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
+import { isLineageDirName } from "./paths";
 
 export type SessionLocation =
   | { where: "active" | "archived"; filePath: string }
@@ -113,4 +114,34 @@ export async function unarchiveSession(
     await fs.promises.rename(archivedArtifacts, path.join(activeDir, name));
   }
   return restored;
+}
+
+/**
+ * Irreversibly deletes a lineage's files from both roots: the `.jsonl`s, their
+ * sibling artifacts dirs, and the archived `.gz`s. One record owns one lineage
+ * dir (ADR-0003), so the dir *is* the delete unit — no per-file surgery.
+ *
+ * The name is validated first. It comes from the registry, a hand-editable JSON
+ * file, and it feeds a recursive delete: a value containing a separator or `..`
+ * would escape the roots. Rejected names throw rather than deleting anything.
+ * Returns the dirs that actually existed and are now gone.
+ */
+export async function deleteSessionFiles(
+  sessionsRoot: string,
+  archiveRoot: string,
+  lineageDir: string,
+): Promise<string[]> {
+  if (!isLineageDirName(lineageDir)) {
+    throw new Error(`refusing to delete non-lineage dir name ${JSON.stringify(lineageDir)}`);
+  }
+  const removed: string[] = [];
+  for (const root of [sessionsRoot, archiveRoot]) {
+    const dir = path.join(root, lineageDir);
+    // The name is separator-free, so this holds unless the check above lied.
+    if (path.dirname(dir) !== root) throw new Error(`refusing to delete outside ${root}: ${dir}`);
+    if (!fs.existsSync(dir)) continue;
+    await fs.promises.rm(dir, { recursive: true, force: true });
+    removed.push(dir);
+  }
+  return removed;
 }

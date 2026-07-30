@@ -8,7 +8,7 @@ export const CH = {
   sessionSpawn: "session:spawn",
   sessionTerminate: "session:terminate",
   sessionSwitchMode: "session:switchMode",
-  sessionRemove: "session:remove",
+  sessionDelete: "session:delete",
   ptyWrite: "pty:write",
   ptyResize: "pty:resize",
   rpcSend: "rpc:send",

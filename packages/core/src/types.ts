@@ -71,8 +71,12 @@ export interface OmpBackend {
   spawnSession(req: SpawnRequest): Promise<{ tabId: string }>;
   terminateSession(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
-  /** Prunes a session record from the registry (files on disk are kept). */
-  removeSession(tabId: string): Promise<void>;
+  /**
+   * Deletes a session: the registry record plus its lineage files in the active
+   * and archive roots (transcript + artifacts). Irreversible; rejects while the
+   * session is live.
+   */
+  deleteSession(tabId: string): Promise<void>;
   ptyWrite(tabId: string, data: string): void;
   ptyResize(tabId: string, cols: number, rows: number): void;
   rpcSend(tabId: string, command: object): void;

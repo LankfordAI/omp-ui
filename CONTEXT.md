@@ -9,7 +9,9 @@ an embedded OMP TUI (Phase 1), with optional native transcript rendering
 **Session**:
 An on-disk OMP transcript: one `<timestamp>_<uuidv7>.jsonl` file plus its
 optional sibling artifacts directory, identified by the UUID in its header.
-omp-ui reads and resumes sessions; it never edits them.
+omp-ui reads and resumes sessions; it never edits their contents. The one write
+it performs is destructive and explicit: a user-confirmed delete that erases the
+whole lineage dir from the active and archive roots.
 _Avoid_: conversation, chat, thread
 
 **Live session**:

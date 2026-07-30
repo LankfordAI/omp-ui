@@ -413,7 +413,14 @@ The sidebar is **registry-driven**, not a filesystem walk: omp-ui's own state
 maps each registered project to the sessions it launched there. Hydrate each
 owned session from its `.jsonl` (header/title-slot for `title`, tail for
 `status`) and watch the file for changes (title-slot rewrites); watch for
-external deletion too (mark the entry missing, offer to prune).
+external deletion too (mark the entry missing).
+
+Every session row carries a delete affordance (`session:delete`): it drops the
+registry record **and** removes the lineage dir from both the active and archive
+roots — transcript plus artifacts, since one record owns one lineage dir
+(ADR-0003). Files go first, so a failed delete leaves the row visible and
+retryable instead of orphaning the transcript. Live sessions are refused;
+terminate first.
 
 ```ts
 // packages/core/src/sessions.ts

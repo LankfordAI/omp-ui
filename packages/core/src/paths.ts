@@ -57,7 +57,10 @@ export function getArchiveRoot(sessionsRoot: string): string {
 }
 
 // ADR-0003: per-lineage session dirs, direct children of the sessions root.
-const LINEAGE_DIR_RE = /^omp-ui--.+-[0-9a-f-]{36}$/;
+// The char class excludes both separators deliberately: this predicate gates a
+// recursive delete (archive.ts:deleteSessionFiles), and a `.+` here would let a
+// corrupt registry value like `omp-ui--x/../..--<uuid>` escape the root.
+const LINEAGE_DIR_RE = /^omp-ui--[^/\\]+-[0-9a-f-]{36}$/;
 
 function slugify(projectCwd: string): string {
   const slug = path
