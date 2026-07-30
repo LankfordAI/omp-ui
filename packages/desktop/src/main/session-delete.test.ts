@@ -99,6 +99,19 @@ const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(nu
 const readRegistry = (): { sessions: unknown[] } =>
   JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));
 
+/**
+ * The two in-flight maps the delete guard consults. They are private to
+ * MainBackend and there is no public way to fake a running session, so these
+ * tests reach in deliberately — the cast names the real shape of fields this
+ * file owns, rather than asserting a shape onto external data.
+ */
+interface BackendInternals {
+  live: Map<string, unknown>;
+  spawning: Set<string>;
+}
+const internals = (backend: InstanceType<typeof MainBackend>): BackendInternals =>
+  backend as unknown as BackendInternals;
+
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
 });
@@ -128,7 +141,19 @@ describe("session:delete", () => {
   it("refuses while the session is live and keeps every file", async () => {
     const { backend, sessionsRoot } = setup();
     // Stand in for a running process the way spawnPty would register one.
-    (backend as unknown as { live: Map<string, unknown> }).live.set("tab-1", { kind: "pty" });
+    internals(backend).live.set("tab-1", { kind: "pty" });
+
+    await expect(invoke(CH.sessionDelete, "tab-1")).rejects.toThrow(/live — terminate it first/);
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);
+    expect(readRegistry().sessions).toHaveLength(1);
+  });
+
+  // The resume path awaits (unarchive/hydrate) before it registers the session
+  // as live, so `live` alone leaves a window where the files are deletable
+  // while an omp process is already being launched against them.
+  it("refuses while a resume spawn is still in flight", async () => {
+    const { backend, sessionsRoot } = setup();
+    internals(backend).spawning.add("tab-1");
 
     await expect(invoke(CH.sessionDelete, "tab-1")).rejects.toThrow(/live — terminate it first/);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);

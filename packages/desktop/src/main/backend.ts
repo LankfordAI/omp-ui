@@ -108,7 +108,12 @@ export class MainBackend {
       this.switchMode(tabId, mode),
     );
     ipcMain.handle(CH.sessionDelete, async (_e, tabId: string) => {
-      if (this.live.has(tabId)) throw new Error("session is live — terminate it first");
+      // `spawning` matters as much as `live`: prepareResume awaits before
+      // live.set, so a delete landing in that window would unlink the lineage
+      // dir out from under an omp process that is about to write to it.
+      if (this.live.has(tabId) || this.spawning.has(tabId)) {
+        throw new Error("session is live — terminate it first");
+      }
       const record = this.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) return;
       this.stopWatcher(tabId);
