@@ -27,7 +27,12 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     try {
-      term.loadAddon(new WebglAddon());
+      const webgl = new WebglAddon();
+      // GPU process restart (driver reset, suspend, OOM) kills the WebGL
+      // context; disposing the addon restores the DOM renderer so the
+      // terminal keeps rendering instead of showing a dead canvas.
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
     } catch {
       // WebGL unavailable — silently stay on the DOM renderer.
     }
