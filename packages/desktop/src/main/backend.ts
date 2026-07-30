@@ -3,11 +3,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { dialog, ipcMain, type BrowserWindow } from "electron";
 import {
+  base64Bytes,
+  bracketedImagePaste,
   deleteSessionFiles,
+  formatAdvisorRole,
   getArchiveRoot,
   getSessionsRoot,
   hydrateSessionFile,
   mintLineageDirName,
+  parseAdvisorRole,
+  readOmpAdvisorDefaults,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -15,7 +20,12 @@ import {
   spawnOmp,
   unarchiveSession,
   watchLineageDir,
+  writeAdvisorOverlay,
+  writeImageToScratch,
+  MAX_IMAGE_BYTES,
+  type AdvisorDefaults,
   type BackendState,
+  type ImageAttachment,
   type LiveState,
   type OwnedSessionRecord,
   type ProjectGroup,
@@ -128,6 +138,18 @@ export class MainBackend {
       this.registry.removeSession(tabId);
       await this.broadcast();
     });
+    ipcMain.handle(
+      CH.sessionSetAdvisor,
+      (_e, tabId: string, advisor: boolean, advisorModel: string | null) =>
+        this.setSessionAdvisor(tabId, advisor, advisorModel),
+    );
+    ipcMain.handle(
+      CH.advisorDefaults,
+      (_e, projectCwd: string): AdvisorDefaults => this.advisorDefaults(projectCwd),
+    );
+    ipcMain.handle(CH.ptyPasteImage, (_e, tabId: string, image: ImageAttachment) =>
+      this.ptyPasteImage(tabId, image),
+    );
     ipcMain.on(CH.ptyWrite, (_e, tabId: string, data: string) => {
       this.live.get(tabId)?.pty?.write(data);
     });
@@ -184,12 +206,23 @@ export class MainBackend {
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           advisor: req.advisor,
+          // The composer may pin a model at launch; otherwise omp's own
+          // `modelRoles.advisor` decides and no overlay is written.
+          advisorModel: req.advisorModel ?? null,
           cachedTitle: null,
           cachedModified: null,
         });
       }
-      if (record.mode !== req.mode) {
-        record = this.registry.updateSession(record.tabId, { mode: req.mode }) ?? record;
+      const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
+      if (record.mode !== req.mode) patch.mode = req.mode;
+      // A resume carries the caller's advisor intent; `undefined` means "keep
+      // whatever the record already says" so a plain reopen is not a reset.
+      if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
+        patch.advisorModel = req.advisorModel;
+      }
+      if (req.advisor !== record.advisor && req.resumeTabId) patch.advisor = req.advisor;
+      if (Object.keys(patch).length > 0) {
+        record = this.registry.updateSession(record.tabId, patch) ?? record;
       }
 
       return req.mode === "rpc-ui" ? this.spawnRpc(record) : await this.spawnPty(record, req);
@@ -202,15 +235,17 @@ export class MainBackend {
     record: OwnedSessionRecord,
     req: SpawnRequest,
   ): Promise<{ tabId: string }> {
+    const absLineageDir = path.join(this.sessionsRoot, record.lineageDir);
     const ptyHandle = spawnOmp({
       id: record.tabId,
       cwd: record.projectCwd,
-      lineageDir: path.join(this.sessionsRoot, record.lineageDir),
+      lineageDir: absLineageDir,
       ompPath: this.ompPath!,
       resumeSessionId: record.sessionId ?? undefined,
       cols: req.cols,
       rows: req.rows,
       advisor: record.advisor,
+      configOverlays: this.advisorOverlays(record, absLineageDir),
     });
     const entry: LiveEntry = { kind: "pty", pty: ptyHandle, record };
     this.live.set(record.tabId, entry);
@@ -238,6 +273,7 @@ export class MainBackend {
       ompPath: this.ompPath!,
       resumeSessionId: record.sessionId ?? undefined,
       advisor: record.advisor,
+      configOverlays: this.advisorOverlays(record, absLineageDir),
       onFrame: (frame) => this.send(CH.rpcFrame, record.tabId, frame),
       onExit: (code) => {
         if (this.live.get(record.tabId) === entry) this.live.delete(record.tabId);
@@ -250,6 +286,88 @@ export class MainBackend {
     this.startWatcher(record);
     void this.broadcast();
     return { tabId: record.tabId };
+  }
+
+  /**
+   * The `--config` overlays a spawn needs to honour this session's advisor
+   * model. Written (or cleared) on every spawn so the file on disk always
+   * matches the record — a stale overlay would silently outvote the record.
+   */
+  private advisorOverlays(record: OwnedSessionRecord, absLineageDir: string): string[] {
+    const role = record.advisorModel === null ? null : parseAdvisorRole(record.advisorModel);
+    try {
+      const overlay = writeAdvisorOverlay(absLineageDir, role);
+      return overlay === null ? [] : [overlay];
+    } catch (err) {
+      // omp rejects a missing/malformed `--config` at startup, so a failed
+      // write must degrade to omp's own advisor config rather than take the
+      // whole session down with it.
+      console.warn("[advisor] could not write the model overlay:", err);
+      return [];
+    }
+  }
+
+  /** omp's own advisor defaults, so the composer can show what it inherits. */
+  private advisorDefaults(projectCwd: string): AdvisorDefaults {
+    const defaults = readOmpAdvisorDefaults(projectCwd);
+    return {
+      enabled: defaults.enabled,
+      model: defaults.role === null ? null : formatAdvisorRole(defaults.role),
+    };
+  }
+
+  /**
+   * Re-pins a session's advisor. omp resolves both `advisor.enabled` and the
+   * `advisor` role at process start and never re-reads them, so a live session
+   * has to be relaunched — the same kill-and-`--resume` dance as a mode switch,
+   * and for the same reason: sessions are durable, so this loses nothing.
+   */
+  private async setSessionAdvisor(
+    tabId: string,
+    advisor: boolean,
+    advisorModel: string | null,
+  ): Promise<void> {
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return;
+    if (record.advisor === advisor && record.advisorModel === advisorModel) return;
+    this.registry.setSessionAdvisor(tabId, advisor, advisorModel);
+    const entry = this.live.get(tabId);
+    if (!entry) {
+      // Dormant: the next launch picks the new values up from the record.
+      await this.broadcast();
+      return;
+    }
+    entry.restarting = true;
+    entry.pty?.kill();
+    entry.rpc?.kill();
+    this.live.delete(tabId);
+    await this.spawn({
+      projectCwd: record.projectCwd,
+      mode: record.mode,
+      advisor,
+      advisorModel,
+      cols: 80,
+      rows: 24,
+      resumeTabId: tabId,
+    });
+  }
+
+  /**
+   * Delivers a pasted image to a PTY session. The PTY carries no byte channel,
+   * so the bytes go to a scratch file and omp's TUI editor is handed the path
+   * as a bracketed paste — it loads the file and attaches a real image block.
+   */
+  private async ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void> {
+    const pty = this.live.get(tabId)?.pty;
+    if (!pty) throw new Error("session is not running in terminal mode");
+    if (base64Bytes(image.data) > MAX_IMAGE_BYTES) {
+      throw new Error(`image is over omp's ${MAX_IMAGE_BYTES / (1024 * 1024)} MB input limit`);
+    }
+    const file = writeImageToScratch(image);
+    pty.write(bracketedImagePaste(file));
+    // The scratch file outlives this call on purpose: omp reads it after the
+    // paste is delivered, and it also backs the transcript's image blob.
+    await Promise.resolve();
   }
 
   /** Unarchives / adopts as needed so spawn can --resume the right session. */

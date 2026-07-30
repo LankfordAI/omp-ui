@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
+import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 
 // Dev/test seam: opt-in CDP endpoint for programmatic renderer inspection.
@@ -94,6 +95,8 @@ if (!app.requestSingleInstanceLock()) {
       return;
     }
     backend?.killAll();
+    // Pasted-image scratch files are only ever needed by a live omp process.
+    clearImageScratch();
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

@@ -14,6 +14,10 @@ const api: OmpBackend = {
   terminateSession: (tabId) => ipcRenderer.invoke(CH.sessionTerminate, tabId),
   switchMode: (tabId, mode) => ipcRenderer.invoke(CH.sessionSwitchMode, tabId, mode),
   deleteSession: (tabId) => ipcRenderer.invoke(CH.sessionDelete, tabId),
+  setSessionAdvisor: (tabId, advisor, advisorModel) =>
+    ipcRenderer.invoke(CH.sessionSetAdvisor, tabId, advisor, advisorModel),
+  getAdvisorDefaults: (projectCwd) => ipcRenderer.invoke(CH.advisorDefaults, projectCwd),
+  ptyPasteImage: (tabId, image) => ipcRenderer.invoke(CH.ptyPasteImage, tabId, image),
   ptyWrite: (tabId, data) => ipcRenderer.send(CH.ptyWrite, tabId, data),
   ptyResize: (tabId, cols, rows) => ipcRenderer.send(CH.ptyResize, tabId, cols, rows),
   rpcSend: (tabId, command) => ipcRenderer.send(CH.rpcSend, tabId, command),
