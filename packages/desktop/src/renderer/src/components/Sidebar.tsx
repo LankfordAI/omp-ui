@@ -1,138 +1,435 @@
-import type { ProjectGroup, SessionMode, SessionSummary } from "@omp-ui/core/types";
+import { useMemo, useState } from "react";
+import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
+import { cn } from "../lib/cn";
 import { useStore } from "../store";
+import { SessionRow } from "./SessionRow";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, Label } from "./ui";
 
-const LIVE_CHIP: Record<SessionSummary["live"], string> = {
-  live: "bg-green-500",
-  dormant: "bg-neutral-500",
-  archived: "bg-amber-500",
-  missing: "bg-red-500",
-};
+/* ------------------------------------------------------------------- icons */
 
-function formatModified(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+function IconSearch() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="7" cy="7" r="4" />
+      <path d="M10.2 10.2 13 13" />
+    </svg>
+  );
 }
 
-function SessionRow({ s }: { s: SessionSummary }) {
-  const openSession = useStore((st) => st.openSession);
-  const switchMode = useStore((st) => st.switchMode);
-  const prune = useStore((st) => st.prune);
-  const missing = s.live === "missing";
+function IconClose() {
   return (
-    <div className="group flex items-center gap-2 px-2 py-1 text-xs hover:bg-neutral-800/60">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${LIVE_CHIP[s.live]}`} title={s.live} />
-      <button
-        className={`min-w-0 flex-1 truncate text-left ${missing ? "cursor-default text-neutral-600" : "hover:text-white"}`}
-        onClick={() => {
-          if (!missing) void openSession(s.tabId);
-        }}
-        title={s.title}
-      >
-        {s.title}
-      </button>
-      {s.status && <span className="shrink-0 text-[10px] text-neutral-500">{s.status}</span>}
-      <button
-        className="shrink-0 rounded border border-neutral-700 px-1 text-[10px] uppercase text-neutral-400 hover:border-neutral-500 disabled:opacity-30"
-        title="switch mode"
-        disabled={missing}
-        onClick={() => void switchMode(s.tabId, s.mode === "pty" ? "rpc-ui" : "pty")}
-      >
-        {s.mode === "pty" ? "term" : "rpc"}
-      </button>
-      {missing ? (
-        <button
-          className="shrink-0 rounded bg-red-900/60 px-1 text-[10px] text-red-200 hover:bg-red-800"
-          title="prune the record (files are kept)"
-          onClick={() => void prune(s.tabId)}
-        >
-          prune
-        </button>
-      ) : (
-        <span className="shrink-0 text-[10px] text-neutral-600">{formatModified(s.cachedModified)}</span>
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+    </svg>
+  );
+}
+
+function IconPlus() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+/* -------------------------------------------------------------- primitives */
+
+/**
+ * The advisor toggle. A native checkbox cannot be styled into this palette, so
+ * this is a real `role="switch"` button — keyboard and AT get the same affordance.
+ */
+function Switch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-3.5 w-[26px] shrink-0 rounded-full border p-px",
+        "transition-colors duration-200",
+        checked ? "border-signal-dim bg-signal-wash" : "border-line-strong bg-line",
       )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "block size-2.5 rounded-full transition-transform duration-200",
+          checked ? "translate-x-3 bg-signal" : "translate-x-0 bg-ink-dim",
+        )}
+      />
+    </button>
+  );
+}
+
+/** Three pulsing bars — the honest "we have not heard from the backend yet". */
+function SkeletonRows() {
+  return (
+    <div className="space-y-2 px-3 py-3">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="animate-pulse space-y-1.5" style={{ animationDelay: `${i * 120}ms` }}>
+          <div className="h-2.5 rounded bg-line-soft" style={{ width: `${72 - i * 14}%` }} />
+          <div className="h-2 w-1/3 rounded bg-line-soft" />
+        </div>
+      ))}
     </div>
   );
 }
 
-function ProjectSection({ group }: { group: ProjectGroup }) {
+/* ---------------------------------------------------------------- helpers */
+
+function liveCount(sessions: SessionSummary[]): number {
+  let n = 0;
+  for (const s of sessions) if (s.live === "live") n += 1;
+  return n;
+}
+
+/** Two-letter monogram for the collapsed rail. */
+function initials(name: string): string {
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+interface FilteredGroup {
+  group: ProjectGroup;
+  sessions: SessionSummary[];
+}
+
+/**
+ * A session survives the filter when either its own title or its project name
+ * matches — typing a project name should reveal that project's whole list.
+ */
+function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return groups.map((group) => ({ group, sessions: group.sessions }));
+  const out: FilteredGroup[] = [];
+  for (const group of groups) {
+    const projectHit = group.project.name.toLowerCase().includes(q);
+    const sessions = projectHit
+      ? group.sessions
+      : group.sessions.filter((s) => s.title.toLowerCase().includes(q));
+    if (projectHit || sessions.length > 0) out.push({ group, sessions });
+  }
+  return out;
+}
+
+/* --------------------------------------------------------- project section */
+
+function ProjectSection({ group, sessions }: FilteredGroup) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const toggleAdvisor = useStore((st) => st.toggleAdvisor);
+  const [open, setOpen] = useState(true);
+
   const { project } = group;
+  const live = liveCount(sessions);
+
   return (
-    <div className="border-b border-neutral-800/60 py-1">
-      <div className="flex items-center gap-2 px-2 py-1">
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold" title={project.path}>
-          {project.name}
-        </span>
-        <label className="flex shrink-0 items-center gap-1 text-[10px] text-neutral-500">
-          <input
-            type="checkbox"
-            className="h-3 w-3"
-            checked={project.advisor}
-            onChange={(e) => void toggleAdvisor(project.path, e.target.checked)}
-          />
-          advisor
-        </label>
-        <button
-          className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] hover:bg-neutral-700"
-          onClick={() => void newSession(project.path)}
-        >
-          + session
-        </button>
-        <button
-          className="shrink-0 rounded px-1 text-[10px] text-neutral-500 hover:text-red-400"
-          title="remove project"
-          onClick={() => void removeProject(project.path)}
-        >
-          ✕
-        </button>
+    <section className="pb-1">
+      <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
+        <div className="group/proj flex items-start gap-1.5">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            title={project.path}
+            className="mt-px flex min-w-0 flex-1 items-start gap-1.5 text-left"
+          >
+            <Chevron open={open} className="mt-1 text-ink-dim" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate font-display text-xs font-semibold text-ink">
+                  {project.name}
+                </span>
+                <Chip mono title={`${sessions.length} sessions`}>
+                  {sessions.length}
+                </Chip>
+                {live > 0 && (
+                  <Chip mono tone="signal" title={`${live} live`}>
+                    <Dot tone="signal" pulse />
+                    {live}
+                  </Chip>
+                )}
+              </span>
+              <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-faint">
+                {project.path}
+              </span>
+            </span>
+          </button>
+
+          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100">
+            <Switch
+              checked={project.advisor}
+              onChange={(next) => void toggleAdvisor(project.path, next)}
+              label={project.advisor ? "advisor on" : "advisor off"}
+            />
+            <IconButton label="new session" onClick={() => void newSession(project.path)}>
+              <IconPlus />
+            </IconButton>
+            <IconButton
+              label="remove project"
+              tone="rose"
+              onClick={() => void removeProject(project.path)}
+            >
+              <IconClose />
+            </IconButton>
+          </div>
+        </div>
       </div>
-      {group.sessions.map((s) => (
-        <SessionRow key={s.tabId} s={s} />
-      ))}
-      {group.sessions.length === 0 && (
-        <div className="px-2 pb-1 text-[10px] text-neutral-600">no sessions yet</div>
+
+      {open && (
+        <div className="space-y-px px-1.5">
+          {sessions.map((s) => (
+            <SessionRow key={s.tabId} s={s} />
+          ))}
+          {sessions.length === 0 && (
+            <p className="px-3 py-1 text-[11px] text-ink-faint italic">no sessions yet</p>
+          )}
+        </div>
       )}
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------- rail (thin) */
+
+function CollapsedRail({ groups }: { groups: ProjectGroup[] }) {
+  const newSession = useStore((st) => st.newSession);
+  return (
+    <div className="flex flex-col items-center gap-2 py-3">
+      {groups.map((g) => {
+        const live = liveCount(g.sessions);
+        return (
+          <button
+            key={g.project.path}
+            type="button"
+            title={`${g.project.name} — ${g.sessions.length} sessions, ${live} live`}
+            onClick={() => void newSession(g.project.path)}
+            className={cn(
+              "animate-slide-in relative grid size-9 place-items-center rounded-md border",
+              "border-line bg-raised font-display text-[11px] font-semibold text-ink-mid",
+              "transition-colors duration-150 hover:border-line-strong hover:text-ink",
+            )}
+          >
+            {initials(g.project.name)}
+            {live > 0 && (
+              <span className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full border border-signal-dim bg-signal-wash font-mono text-[9px] text-signal tabular-nums">
+                {live}
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ sidebar */
 
 export function Sidebar() {
   const state = useStore((st) => st.state);
   const addProject = useStore((st) => st.addProject);
   const setDefaultMode = useStore((st) => st.setDefaultMode);
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const groups = state?.projects ?? null;
+  const filtered = useMemo(() => applyFilter(groups ?? [], query), [groups, query]);
+
+  const matchCount = filtered.reduce((n, f) => n + f.sessions.length, 0);
+  const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
+  const totalLive = (groups ?? []).reduce((n, g) => n + liveCount(g.sessions), 0);
+  const filtering = query.trim().length > 0;
+  const mode = state?.defaultMode ?? "pty";
+
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r border-neutral-800 bg-neutral-950">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
-        <span className="text-sm font-semibold">omp-ui</span>
-        <button
-          className="rounded bg-neutral-800 px-2 py-1 text-xs hover:bg-neutral-700"
-          onClick={() => void addProject()}
-        >
-          + project
-        </button>
-      </div>
-      <div className="flex items-center gap-2 border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400">
-        <span>new sessions:</span>
-        <select
-          className="rounded bg-neutral-800 px-1 py-0.5 text-[11px]"
-          value={state?.defaultMode ?? "pty"}
-          onChange={(e) => void setDefaultMode(e.target.value as SessionMode)}
-        >
-          <option value="pty">terminal</option>
-          <option value="rpc-ui">native</option>
-        </select>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {state?.projects.map((g) => <ProjectSection key={g.project.path} group={g} />)}
-        {state && state.projects.length === 0 && (
-          <div className="p-4 text-xs text-neutral-500">
-            No projects yet — add one to start a session.
-          </div>
+    <aside
+      className={cn(
+        "grain flex shrink-0 flex-col border-r border-line bg-sunken",
+        "transition-[width] duration-200 ease-out-quint",
+        collapsed ? "w-14" : "w-[17rem]",
+      )}
+    >
+      {/* -------- header -------- */}
+      <header
+        className={cn(
+          "flex shrink-0 items-center border-b border-line",
+          collapsed ? "flex-col gap-2 px-2 py-2" : "gap-2 px-3 py-2.5",
         )}
-      </div>
+      >
+        {!collapsed && (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
+            <span className="truncate font-display text-sm font-semibold tracking-tight text-ink">
+              omp<span className="text-ink-dim">-ui</span>
+            </span>
+          </span>
+        )}
+        {collapsed && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />}
+        {!collapsed && (
+          <IconButton label="add project" onClick={() => void addProject()}>
+            <IconPlus />
+          </IconButton>
+        )}
+        <IconButton
+          label={collapsed ? "expand sidebar" : "collapse sidebar"}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <Chevron open={false} className={cn("size-3.5", !collapsed && "rotate-180")} />
+        </IconButton>
+      </header>
+
+      {collapsed ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {groups && <CollapsedRail groups={groups} />}
+        </div>
+      ) : (
+        <>
+          {/* -------- filter + default mode -------- */}
+          <div className="shrink-0 space-y-2 border-b border-line px-3 py-2.5">
+            <div className="flex items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
+              <span className="shrink-0 text-ink-faint">
+                <IconSearch />
+              </span>
+              <input
+                type="text"
+                value={query}
+                spellCheck={false}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="filter sessions…"
+                aria-label="filter sessions"
+                className={cn(
+                  "min-w-0 flex-1 bg-transparent py-1.5 text-xs text-ink",
+                  "placeholder:font-mono placeholder:text-ink-faint focus:outline-none",
+                )}
+              />
+              {filtering && (
+                <>
+                  <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
+                    {matchCount}
+                  </span>
+                  <IconButton label="clear filter" onClick={() => setQuery("")} className="size-5">
+                    <IconClose />
+                  </IconButton>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <Label>new sessions</Label>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  size="xs"
+                  variant={mode === "pty" ? "solid" : "ghost"}
+                  tone={mode === "pty" ? "iris" : "neutral"}
+                  title="new sessions open in the terminal"
+                  onClick={() => void setDefaultMode("pty")}
+                >
+                  terminal
+                </Button>
+                <Button
+                  size="xs"
+                  variant={mode === "rpc-ui" ? "solid" : "ghost"}
+                  tone={mode === "rpc-ui" ? "iris" : "neutral"}
+                  title="new sessions open in the native RPC view"
+                  onClick={() => void setDefaultMode("rpc-ui")}
+                >
+                  native
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* -------- project list -------- */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {groups === null && <SkeletonRows />}
+            {groups !== null && groups.length === 0 && (
+              <Empty
+                title="No projects yet"
+                hint="Point omp-ui at a repository and every session you start there shows up here."
+                action={
+                  <Button variant="solid" onClick={() => void addProject()}>
+                    Add project
+                  </Button>
+                }
+              />
+            )}
+            {groups !== null && groups.length > 0 && filtered.length === 0 && (
+              <Empty
+                title={`Nothing matches “${query.trim()}”`}
+                hint="No session title or project name contains that."
+                action={
+                  <Button variant="ghost" onClick={() => setQuery("")}>
+                    clear filter
+                  </Button>
+                }
+              />
+            )}
+            {filtered.map((f) => (
+              <ProjectSection key={f.group.project.path} group={f.group} sessions={f.sessions} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* -------- footer -------- */}
+      <footer
+        className={cn(
+          "flex shrink-0 items-center border-t border-line text-[10px] text-ink-faint",
+          collapsed ? "flex-col gap-1 px-2 py-2" : "gap-2 px-3 py-2",
+        )}
+      >
+        <span className="flex items-center gap-1.5">
+          <Dot tone={totalLive > 0 ? "signal" : "neutral"} pulse={totalLive > 0} />
+          <span className="font-mono tabular-nums">{totalLive}</span>
+          {!collapsed && <span>live</span>}
+        </span>
+        {!collapsed && (
+          <span className="ml-auto font-mono tabular-nums" title="sessions on record">
+            {totalSessions} session{totalSessions === 1 ? "" : "s"}
+          </span>
+        )}
+      </footer>
     </aside>
   );
 }

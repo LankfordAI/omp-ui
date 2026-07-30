@@ -2,9 +2,10 @@
 
 A cross-platform desktop GUI for [Oh My Pi](https://github.com/can1357/oh-my-pi) — the `omp` coding agent.
 
-**Project sidebar on the left. Embedded OMP TUI in the main pane.** Jump between
-repos without managing a fleet of terminal windows. Full advisor integration,
-session management, and optional native rendering via `--mode=rpc-ui`.
+**Project sidebar on the left. Either an embedded OMP TUI or a native
+transcript in the main pane.** Jump between repos without managing a fleet of
+terminal windows. Full advisor integration, session management, and a native
+rendering mode over `--mode=rpc-ui`.
 
 Think **T3 Code, but for Oh My Pi**: a launcher and session manager for `omp`,
 not a browser of your `~/.omp` history — the sidebar tracks only sessions
@@ -17,29 +18,31 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 ## Architecture (three phases)
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│  omp-ui desktop (Electron — packages/desktop)              │
-│  ┌──────────┐  ┌────────────────────────────────────────┐  │
-│  │ Sidebar  │  │  Main pane                             │  │
-│  │ Projects │  │  ┌──────────────────────────────────┐  │  │
-│  │ Sessions │  │  │  xterm.js terminal               │  │  │
-│  │          │  │  │  (Phase 1: PTY-embedded OMP TUI) │  │  │
-│  └──────────┘  │  └──────────────────────────────────┘  │  │
-│                │                                        │  │
-│                │  ┌──────────────────────────────────┐  │  │
-│                │  │  Native transcript (Phase 2)     │  │  │
-│                │  │  (--mode=rpc-ui JSON protocol)   │  │  │
-│                │  └──────────────────────────────────┘  │  │
-│                └────────────────────────────────────────┘  │
-└───────────────────────┬────────────────────────────────────┘
-                        │ Electron IPC (OmpBackend interface)
-┌───────────────────────▼────────────────────────────────────┐
-│  packages/core — plain Node, zero Electron imports         │
-│  PTY manager (node-pty) · rpc-ui client · session scanner  │
-└───────────────────────┬────────────────────────────────────┘
-                        ▼  node-pty / child_process
-              omp --cwd=<project>   omp --resume=<session-id>
+┌──────────────┬────────────────────────────────────────┬─────────────┐
+│ Sidebar      │ TabBar                                 │             │
+│              ├────────────────────────────────────────┤  Inspector  │
+│ Projects     │ Session HUD    liveness · context ·    │    Rail     │
+│ Sessions     │                spend · controls        │             │
+│              ├────────────────────────────────────────┤  Todos      │
+│ filter       │                                        │  Console    │
+│ live dots    │  Transcript (rpc-ui)   or   xterm.js   │  Agents     │
+│ mode chips   │  markdown · tool cards      (PTY TUI)  │  Session    │
+│              │  diffs · advisories                    │             │
+│ collapses    ├────────────────────────────────────────┤  collapses  │
+│ to icons     │ Composer   steer · queue · /commands   │  to icons   │
+└──────────────┴────────────────────────────────────────┴─────────────┘
+         Electron IPC (OmpBackend interface) │
+┌────────────────────────────────────────────▼────────────────────────┐
+│  packages/core — plain Node, zero Electron imports                  │
+│  PTY manager (node-pty) · rpc-ui client/codec · session scanner     │
+└────────────────────────────────────────────┬────────────────────────┘
+                                             ▼  node-pty / child_process
+                        omp --cwd=<project>   omp --resume=<session-id>
 ```
+
+A command palette (`Ctrl/⌘+K`) searches every session, project, and tab
+action. Design tokens and the primitive vocabulary are fixed by
+[ADR-0004](docs/adr/0004-design-tokens-and-primitives.md).
 
 ### Phase 1: PTY Embed
 Spawn `omp` under a [node-pty](https://github.com/microsoft/node-pty) PTY (the
@@ -50,10 +53,13 @@ every keybinding, theme, and skill works. Build in ~2 weeks.
 **Files:** `docs/phase-1-pty-embed.md`
 
 ### Phase 2: RPC-UI Native Render
-Switch the main pane to `--mode=rpc-ui` — OMP's headless JSON protocol over
-stdin/stdout. Same project sidebar, but the main pane renders
-`<advisory>` blocks, diffs, and todos as native components instead of terminal text.
-Build in ~1.5–2 weeks.
+`--mode=rpc-ui` is OMP's headless JSON protocol over stdin/stdout. The main
+pane renders the `AgentSessionEvent` stream as native components: markdown
+assistant text, per-tool cards with live partial output, line-numbered diffs,
+advisor cards by severity, and a usage receipt per turn. The session HUD and
+inspector rail expose the command surface — model and thinking level, steering
+/ follow-up / interrupt modes, compaction, auto-retry, branch, export, todos,
+subagents, bash, and all 49 slash commands through a fuzzy palette.
 
 **Files:** `docs/phase-2-rpc-ui.md`
 

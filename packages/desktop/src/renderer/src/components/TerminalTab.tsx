@@ -2,10 +2,47 @@ import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { registerTermWriter, useStore } from "../store";
+import { Button } from "./ui";
+
+/**
+ * xterm renders into a canvas, so it cannot read Tailwind classes — the palette
+ * has to be handed over as literal colours. These are the only raw hex values
+ * in the renderer, and every one is a copy of a token in `src/style.css`, which
+ * stays the source of truth: change it there first, then mirror it here.
+ *
+ * `background` is the `surface` plane so the terminal sits on the same black as
+ * the pane around it. ANSI is harmonized with the accent set rather than a
+ * stock 16-colour scheme: mint for green, copper for yellow, rose for red,
+ * iris for magenta/blue.
+ */
+const TERM_THEME = {
+  background: "#14171b", // --color-surface
+  foreground: "#e8ecf1", // --color-ink
+  cursor: "#4ade9f", // --color-signal
+  cursorAccent: "#14171b",
+  selectionBackground: "#9d8cf559", // --color-iris @ 35%
+  selectionInactiveBackground: "#9d8cf52e",
+  black: "#0e1013", // --color-sunken
+  red: "#f2748c", // --color-rose
+  green: "#4ade9f", // --color-signal
+  yellow: "#f0a868", // --color-copper
+  blue: "#7fa9f0",
+  magenta: "#9d8cf5", // --color-iris
+  cyan: "#66d9d2",
+  white: "#a8b2bf", // --color-ink-mid
+  brightBlack: "#4a5361", // --color-ink-faint
+  brightRed: "#f79bab",
+  brightGreen: "#7ceebc",
+  brightYellow: "#f7c493",
+  brightBlue: "#a5c5f7",
+  brightMagenta: "#bcb0f9",
+  brightCyan: "#93e8e3",
+  brightWhite: "#e8ecf1", // --color-ink
+} satisfies ITheme;
 
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -17,10 +54,17 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     const host = hostRef.current;
     if (!host) return;
     const term = new Terminal({
-      fontFamily: "monospace",
-      fontSize: 13,
-      scrollback: 5000,
-      theme: { background: "#121212" },
+      fontFamily: '"JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace',
+      fontSize: 12.5,
+      lineHeight: 1.45,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      // The host div paints the same colour, so transparency buys nothing and
+      // costs the WebGL renderer its fast path.
+      allowTransparency: false,
+      scrollback: 10000,
+      smoothScrollDuration: 0,
+      theme: TERM_THEME,
     });
     const fit = new FitAddon();
     term.open(host);
@@ -69,17 +113,16 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   }, [active, tabId]);
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={hostRef} className="h-full w-full pl-1 pt-1" />
+    <div className="relative h-full w-full bg-surface p-2">
+      <div ref={hostRef} className="h-full w-full" />
       {exitCode !== undefined && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-neutral-900/85">
-          <p className="text-sm text-neutral-400">agent exited (code {exitCode})</p>
-          <button
-            className="rounded bg-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-600"
-            onClick={() => void resumeDead(tabId)}
-          >
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-blur-sm">
+          <p className="font-display text-sm text-ink-mid">
+            agent exited <span className="font-mono tabular-nums text-rose">(code {exitCode})</span>
+          </p>
+          <Button tone="signal" variant="outline" onClick={() => void resumeDead(tabId)}>
             resume session
-          </button>
+          </Button>
         </div>
       )}
     </div>

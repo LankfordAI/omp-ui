@@ -2,7 +2,32 @@ import { create } from "zustand";
 import type { BackendState, SessionMode, SessionSummary } from "@omp-ui/core/types";
 import { backend } from "./backend";
 import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
-import { historyToItems, markerItem, reduceEvent, type RenderItem } from "./lib/transcript";
+import { arrField, field, strField } from "./lib/fields";
+import {
+  emptySessionRuntime,
+  parseCommandList,
+  parseModelInfo,
+  parseModelList,
+  parseSessionRuntime,
+  parseSessionStats,
+  parseSubagents,
+  parseTodoPhases,
+  type ModelInfo,
+  type PromptRoute,
+  type SessionRuntime,
+  type SessionStats,
+  type SlashCommandInfo,
+  type SubagentInfo,
+  type TodoPhase,
+} from "./lib/rpc-types";
+import { generateTitleFromPrompt, isLowSignalTitleInput, isUntitled } from "./lib/session-title";
+import {
+  historyToItems,
+  markerItem,
+  noticeItem,
+  reduceEvent,
+  type RenderItem,
+} from "./lib/transcript";
 
 export interface TabInfo {
   tabId: string;
@@ -22,15 +47,31 @@ export interface PendingCommand {
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
   items: RenderItem[];
-  todos: unknown[];
-  model: unknown | null;
-  availableModels: unknown[];
-  sessionStats: unknown | null;
+  todos: TodoPhase[];
+  model: ModelInfo | null;
+  availableModels: ModelInfo[];
+  commands: SlashCommandInfo[];
+  session: SessionRuntime;
+  stats: SessionStats | null;
+  subagents: SubagentInfo[];
+  /** Extension setStatus/setWidget/setTitle text, keyed by widget/status key. */
+  extensionStatus: Record<string, string>;
   /** Not rendered — mutated in place. */
   pendingCommands: Map<string, PendingCommand>;
   extensionQueue: unknown[];
   bashLines: string[];
+  /** Slash-command output, newest last. */
+  commandOutput: string[];
+  /** True while any rpc command is in flight. */
+  busy: boolean;
   error?: string;
+  /**
+   * The first user message worth titling from. Set on the first substantive
+   * prompt, cleared once the rename lands.
+   */
+  initialPrompt: string | null;
+  /** Whether this tab's session has been auto-titled (or was already named). */
+  hasRenamed: boolean;
 }
 
 function freshRpcTabState(): RpcTabState {
@@ -40,10 +81,18 @@ function freshRpcTabState(): RpcTabState {
     todos: [],
     model: null,
     availableModels: [],
-    sessionStats: null,
+    commands: [],
+    session: emptySessionRuntime(),
+    stats: null,
+    subagents: [],
+    extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
     bashLines: [],
+    commandOutput: [],
+    busy: false,
+    initialPrompt: null,
+    hasRenamed: false,
   };
 }
 
@@ -72,6 +121,43 @@ interface UiStore {
   answerExtension(tabId: string, request: unknown, response: Record<string, unknown>): void;
   runBash(tabId: string, command: string): Promise<void>;
   abortBash(tabId: string): Promise<void>;
+  /** Offer a user message as the auto-title source; low-signal text defers. */
+  setInitialPrompt(tabId: string, prompt: string): void;
+  /** Auto-title the session from the stored prompt. */
+  renameSession(tabId: string): void;
+
+  /** Routes on status: ready → prompt, running → steer|follow_up per `route`. */
+  sendPrompt(tabId: string, message: string, route?: PromptRoute): Promise<void>;
+  abortAgent(tabId: string): Promise<void>;
+  abortAndPrompt(tabId: string, message: string): Promise<void>;
+
+  setModel(tabId: string, model: ModelInfo): Promise<void>;
+  cycleModel(tabId: string): Promise<void>;
+  setThinkingLevel(tabId: string, level: string): Promise<void>;
+  cycleThinkingLevel(tabId: string): Promise<void>;
+
+  setSteeringMode(tabId: string, mode: string): Promise<void>;
+  setFollowUpMode(tabId: string, mode: string): Promise<void>;
+  setInterruptMode(tabId: string, mode: string): Promise<void>;
+
+  setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
+  setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
+  abortRetry(tabId: string): Promise<void>;
+  compactSession(tabId: string): Promise<void>;
+
+  exportHtml(tabId: string): Promise<void>;
+  branchSession(tabId: string): Promise<void>;
+  renameSessionTo(tabId: string, name: string): Promise<void>;
+  newRpcSession(tabId: string): Promise<void>;
+
+  /** `line` may include args, e.g. "/advisor on". Leading "/" optional. */
+  runSlashCommand(tabId: string, line: string): Promise<void>;
+  setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
+  refreshState(tabId: string): Promise<void>;
+  refreshStats(tabId: string): Promise<void>;
+  refreshSubagents(tabId: string): Promise<void>;
+  clearCommandOutput(tabId: string): void;
+  clearBash(tabId: string): void;
 }
 
 // One IPC data listener total; each TerminalTab registers its writer here.
@@ -111,6 +197,27 @@ let initialized = false;
 /** A new rpc process emits exactly one ready frame — that's the boot signal. */
 const rpcBooting = new Set<string>();
 
+/** setStatus/setWidget/setTitle carry their text under different keys. */
+function extensionStatusEntry(frame: object): { key: string; text: string | undefined } | null {
+  const method = strField(frame, "method");
+  const id = strField(frame, "id") ?? "";
+  if (method === "setWidget") {
+    const lines = arrField(frame, "widgetLines").filter((l): l is string => typeof l === "string");
+    return {
+      key: strField(frame, "widgetKey") ?? id,
+      // `widgetLines: undefined` is the protocol's "clear this widget".
+      text: field(frame, "widgetLines") === undefined ? undefined : lines.join("\n"),
+    };
+  }
+  if (method === "setStatus") {
+    return { key: strField(frame, "statusKey") ?? id, text: strField(frame, "statusText") };
+  }
+  if (method === "setTitle") {
+    return { key: strField(frame, "widgetKey") ?? id, text: strField(frame, "title") };
+  }
+  return null;
+}
+
 export const useStore = create<UiStore>()((set, get) => {
   const patchRpc = (tabId: string, patch: Partial<RpcTabState>): void => {
     set((s) => {
@@ -130,18 +237,53 @@ export const useStore = create<UiStore>()((set, get) => {
       ? resp.data
       : resp;
 
+  /**
+   * Every store method routes failures here: the tab keeps its status (a
+   * rejected `set_model` must not wedge a live session into "error") but the
+   * message surfaces instead of vanishing into a swallowed catch. Resolves to
+   * the response frame, or `null` — which a real response never is — on failure.
+   */
+  const runCommand = async (tabId: string, cmd: Record<string, unknown>): Promise<unknown> => {
+    try {
+      const resp = await get().rpcCommand(tabId, cmd);
+      // A later success retires a transient failure banner, but never a fatal
+      // one — `status: "error"` means the process itself is gone.
+      const tab = get().rpc[tabId];
+      if (tab?.error !== undefined && tab.status !== "error") patchRpc(tabId, { error: undefined });
+      return resp;
+    } catch (err) {
+      patchRpc(tabId, { error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  };
+
+  const appendItem = (tabId: string, item: RenderItem): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    patchRpc(tabId, { items: [...tab.items, item] });
+  };
+
+  const patchSession = (tabId: string, patch: Partial<SessionRuntime>): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    patchRpc(tabId, { session: { ...tab.session, ...patch } });
+  };
+
   const applyRpcState = (tabId: string, resp: unknown): void => {
     const tab = get().rpc[tabId];
     const payload = respData(resp);
     if (!tab || payload === null || typeof payload !== "object") return;
     patchRpc(tabId, {
       todos:
-        "todoPhases" in payload && Array.isArray(payload.todoPhases)
-          ? payload.todoPhases
-          : tab.todos,
-      model: "model" in payload ? payload.model : tab.model,
-      sessionStats: payload,
+        "todoPhases" in payload ? parseTodoPhases(field(payload, "todoPhases")) : tab.todos,
+      model: parseModelInfo(field(payload, "model")) ?? tab.model,
+      session: parseSessionRuntime(payload, tab.session),
     });
+  };
+
+  const loadHistory = async (tabId: string): Promise<void> => {
+    const resp = await get().rpcCommand(tabId, { type: "get_messages" });
+    patchRpc(tabId, { items: historyToItems(arrField(respData(resp), "messages")) });
   };
 
   return {
@@ -358,38 +500,29 @@ export const useStore = create<UiStore>()((set, get) => {
             },
             (err: unknown) => (err instanceof Error ? err : new Error(String(err))),
           );
+        // allSettled, not all: a missing subagent bus or a slow stats read must
+        // never leave the tab stuck in "starting".
         const boots: Promise<unknown>[] = [
           get()
             .rpcCommand(tabId, { type: "get_available_models" })
             .then((resp) => {
-              const payload = respData(resp);
-              const models =
-                payload !== null &&
-                typeof payload === "object" &&
-                "models" in payload &&
-                Array.isArray(payload.models)
-                  ? payload.models
-                  : [];
-              patchRpc(tabId, { availableModels: models });
+              patchRpc(tabId, { availableModels: parseModelList(respData(resp)) });
             }),
+          get()
+            .rpcCommand(tabId, { type: "get_available_commands" })
+            .then((resp) => {
+              patchRpc(tabId, { commands: parseCommandList(respData(resp)) });
+            }),
+          get()
+            .rpcCommand(tabId, { type: "get_session_stats" })
+            .then((resp) => {
+              patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+            }),
+          // "progress" | "events" are the only legal levels; progress is the
+          // cheap one — per-agent status, not every subagent token.
+          get().rpcCommand(tabId, { type: "set_subagent_subscription", level: "progress" }),
         ];
-        if (rec?.sessionId) {
-          boots.push(
-            get()
-              .rpcCommand(tabId, { type: "get_messages" })
-              .then((resp) => {
-                const payload = respData(resp);
-                const messages =
-                  payload !== null &&
-                  typeof payload === "object" &&
-                  "messages" in payload &&
-                  Array.isArray(payload.messages)
-                    ? payload.messages
-                    : [];
-                patchRpc(tabId, { items: historyToItems(messages) });
-              }),
-          );
-        }
+        if (rec?.sessionId) boots.push(loadHistory(tabId));
         await Promise.allSettled(boots);
         if (stateFailure) {
           patchRpc(tabId, { status: "error", error: `get_state failed: ${stateFailure.message}` });
@@ -418,8 +551,15 @@ export const useStore = create<UiStore>()((set, get) => {
         }, 30_000);
         tab.pendingCommands.set(id, { resolve, reject, timer });
       });
+      patchRpc(tabId, { busy: true });
       backend.rpcSend(tabId, { ...cmd, id });
-      return promise;
+      // The map is the ref count: both settle paths remove their entry before
+      // settling, so concurrent commands can't clear `busy` for each other.
+      return promise.finally(() => {
+        if ((get().rpc[tabId]?.pendingCommands.size ?? 0) === 0) {
+          patchRpc(tabId, { busy: false });
+        }
+      });
     },
 
     handleRpcFrame(tabId, frame) {
@@ -449,34 +589,74 @@ export const useStore = create<UiStore>()((set, get) => {
         case "rpc_chunk":
           return; // reassembled in main — never expected here
         case "session_info_update":
-          patchRpc(tabId, { sessionStats: frame });
+          patchRpc(tabId, { session: parseSessionRuntime(frame, tab.session) });
           return;
         case "config_update":
-          patchRpc(tabId, { model: frame });
+          patchRpc(tabId, {
+            model: parseModelInfo(field(frame, "model")) ?? tab.model,
+            session: parseSessionRuntime(frame, tab.session),
+          });
           return;
+        case "available_commands_update":
+          patchRpc(tabId, { commands: parseCommandList(frame) });
+          return;
+        case "subagent_lifecycle":
+        case "subagent_progress":
+        case "subagent_event": {
+          const payload = field(frame, "payload");
+          const progress = field(payload, "progress");
+          const name =
+            strField(payload, "agent") ??
+            strField(progress, "agent") ??
+            strField(payload, "id") ??
+            "subagent";
+          const status = strField(payload, "status") ?? strField(progress, "status");
+          const label = status ? `subagent ${name}: ${status}` : `subagent ${name}`;
+          // Progress frames repeat every heartbeat — collapse an identical
+          // consecutive label instead of stamping the transcript each time.
+          const last = tab.items.at(-1);
+          if (!(last?.kind === "marker" && last.label === label)) {
+            appendItem(tabId, markerItem(label, "copper"));
+          }
+          void get().refreshSubagents(tabId);
+          return;
+        }
+        case "extension_error": {
+          const text = strField(frame, "error") ?? "extension error";
+          appendItem(tabId, {
+            ...noticeItem(text, "error"),
+            source: strField(frame, "extensionPath"),
+          });
+          return;
+        }
         case "command_output": {
-          const text =
-            "text" in frame && typeof frame.text === "string"
-              ? frame.text
-              : "output" in frame && typeof frame.output === "string"
-                ? frame.output
-                : "";
-          patchRpc(tabId, { bashLines: [...tab.bashLines, text] });
+          const text = strField(frame, "text") ?? strField(frame, "output") ?? "";
+          patchRpc(tabId, {
+            bashLines: [...tab.bashLines, text],
+            commandOutput: [...tab.commandOutput, text],
+          });
           return;
         }
         case "extension_ui_request": {
           const action = routeExtensionRequest(frame);
           if (action.action === "dialog") {
             patchRpc(tabId, { extensionQueue: [...tab.extensionQueue, frame] });
-          } else {
-            backend.rpcSend(
-              tabId,
-              extensionCancelResponse("id" in frame ? frame.id : undefined),
-            );
-            const method = "method" in frame && typeof frame.method === "string" ? frame.method : "?";
-            patchRpc(tabId, {
-              items: [...tab.items, markerItem(`extension ${method} auto-cancelled`)],
-            });
+            return;
+          }
+          // Every non-dialog method is answered immediately — omp blocks on the
+          // reply — but status/widget/title text is recorded first, because it
+          // is the extension's actual output, not an interaction to decline.
+          const entry = extensionStatusEntry(frame);
+          if (entry) {
+            const extensionStatus = { ...tab.extensionStatus };
+            if (entry.text === undefined || entry.text === "") delete extensionStatus[entry.key];
+            else extensionStatus[entry.key] = entry.text;
+            patchRpc(tabId, { extensionStatus });
+          }
+          backend.rpcSend(tabId, extensionCancelResponse("id" in frame ? frame.id : undefined));
+          if (!entry) {
+            const method = strField(frame, "method") ?? "?";
+            appendItem(tabId, markerItem(`extension ${method} auto-cancelled`));
           }
           return;
         }
@@ -484,30 +664,42 @@ export const useStore = create<UiStore>()((set, get) => {
           patchRpc(tabId, { status: "ready" });
           return;
         case "omp_ui_error": {
-          const message =
-            "message" in frame && typeof frame.message === "string"
-              ? frame.message
-              : "omp rpc error";
+          const message = strField(frame, "message") ?? "omp rpc error";
           patchRpc(tabId, { status: "error", error: message });
           return;
         }
         case "host_tool_call":
-          // v0 registers no host tools — answer with an error, never hang the agent.
+          // No host tools are registered — answer with an error, never hang the agent.
           backend.rpcSend(tabId, {
             type: "host_tool_result",
             id: "id" in frame ? frame.id : undefined,
             error: "omp-ui does not register host tools",
           });
           return;
+        case "host_uri_request":
+          // Same discipline: omp awaits a result for every uri request.
+          backend.rpcSend(tabId, {
+            type: "host_uri_result",
+            id: "id" in frame ? frame.id : undefined,
+            error: "omp-ui registers no uri schemes",
+          });
+          return;
         default: {
           // The AgentSessionEvent stream — the actual transcript.
-          const items = reduceEvent(tab.items, frame);
-          patchRpc(tabId, { items });
+          patchRpc(tabId, { items: reduceEvent(tab.items, frame) });
+          if (type === "thinking_level_changed") {
+            const level = strField(frame, "thinkingLevel");
+            if (level) patchSession(tabId, { thinkingLevel: level });
+          }
           if (type === "agent_start") {
             patchRpc(tabId, { status: "running" });
           }
           if (type === "agent_end") {
             if (tab.status === "running") patchRpc(tabId, { status: "ready" });
+
+            // The transcript's first substantive prompt names the session.
+            if (tab.initialPrompt && !tab.hasRenamed) get().renameSession(tabId);
+
             // Refresh todoPhases/contextUsage/isStreaming after each agent run.
             void get()
               .rpcCommand(tabId, { type: "get_state" })
@@ -534,14 +726,7 @@ export const useStore = create<UiStore>()((set, get) => {
       const tab = get().rpc[tabId];
       if (!tab) return;
       const payload = respData(resp);
-      const text =
-        payload !== null && typeof payload === "object"
-          ? "output" in payload && typeof payload.output === "string"
-            ? payload.output
-            : "error" in payload && typeof payload.error === "string"
-              ? payload.error
-              : ""
-          : "";
+      const text = strField(payload, "output") ?? strField(payload, "error") ?? "";
       if (text) patchRpc(tabId, { bashLines: [...tab.bashLines, text] });
     },
 
@@ -549,6 +734,221 @@ export const useStore = create<UiStore>()((set, get) => {
       await get()
         .rpcCommand(tabId, { type: "abort_bash" })
         .catch(() => {});
+    },
+
+    setInitialPrompt(tabId, prompt) {
+      const tab = get().rpc[tabId];
+      if (!tab || tab.initialPrompt || tab.hasRenamed) return;
+      // A resumed or user-named session owns its title — never overwrite it.
+      // Decided here, at prompt time, because `set_session_name` writes with
+      // source "user" and omp then refuses every later auto title.
+      if (!isUntitled(findRecord(get().state, tabId)?.title)) {
+        patchRpc(tabId, { hasRenamed: true });
+        return;
+      }
+      // A greeting or bare ack would latch permanently — defer to the next
+      // prompt instead (same policy as omp's own titling).
+      if (isLowSignalTitleInput(prompt)) return;
+      patchRpc(tabId, { initialPrompt: prompt });
+    },
+
+    renameSession(tabId) {
+      const tab = get().rpc[tabId];
+      if (!tab || !tab.initialPrompt || tab.hasRenamed) return;
+      // Latch before sending so a second agent_end can't double-rename.
+      patchRpc(tabId, { hasRenamed: true });
+      const name = generateTitleFromPrompt(tab.initialPrompt);
+      void get()
+        .rpcCommand(tabId, { type: "set_session_name", name })
+        .then(() => {
+          patchRpc(tabId, { initialPrompt: null });
+        })
+        .catch((err: unknown) => {
+          // Release the latch so the next agent_end retries.
+          patchRpc(tabId, { hasRenamed: false });
+          console.warn("[session-rename] set_session_name failed:", err);
+        });
+    },
+
+    async sendPrompt(tabId, message, route = "steer") {
+      const tab = get().rpc[tabId];
+      if (!tab) return;
+      // Titling reads the first substantive prompt, whichever route it took.
+      get().setInitialPrompt(tabId, message);
+      const type =
+        tab.status === "running" ? (route === "follow_up" ? "follow_up" : "steer") : "prompt";
+      await runCommand(tabId, { type, message });
+    },
+
+    async abortAgent(tabId) {
+      await runCommand(tabId, { type: "abort" });
+    },
+
+    async abortAndPrompt(tabId, message) {
+      get().setInitialPrompt(tabId, message);
+      await runCommand(tabId, { type: "abort_and_prompt", message });
+    },
+
+    async setModel(tabId, model) {
+      const resp = await runCommand(tabId, {
+        type: "set_model",
+        provider: model.provider,
+        modelId: model.id,
+      });
+      if (resp === null) return;
+      patchRpc(tabId, { model: parseModelInfo(respData(resp)) ?? model });
+    },
+
+    async cycleModel(tabId) {
+      const resp = await runCommand(tabId, { type: "cycle_model" });
+      if (resp === null) return;
+      const data = respData(resp);
+      const model = parseModelInfo(field(data, "model"));
+      if (model) patchRpc(tabId, { model });
+      const level = strField(data, "thinkingLevel");
+      if (level) patchSession(tabId, { thinkingLevel: level });
+    },
+
+    async setThinkingLevel(tabId, level) {
+      const resp = await runCommand(tabId, { type: "set_thinking_level", level });
+      if (resp === null) return;
+      patchSession(tabId, { thinkingLevel: level });
+    },
+
+    async cycleThinkingLevel(tabId) {
+      const resp = await runCommand(tabId, { type: "cycle_thinking_level" });
+      if (resp === null) return;
+      const level = strField(respData(resp), "level");
+      if (level) patchSession(tabId, { thinkingLevel: level });
+    },
+
+    async setSteeringMode(tabId, mode) {
+      const resp = await runCommand(tabId, { type: "set_steering_mode", mode });
+      if (resp === null) return;
+      patchSession(tabId, { steeringMode: mode });
+    },
+
+    async setFollowUpMode(tabId, mode) {
+      const resp = await runCommand(tabId, { type: "set_follow_up_mode", mode });
+      if (resp === null) return;
+      patchSession(tabId, { followUpMode: mode });
+    },
+
+    async setInterruptMode(tabId, mode) {
+      const resp = await runCommand(tabId, { type: "set_interrupt_mode", mode });
+      if (resp === null) return;
+      patchSession(tabId, { interruptMode: mode });
+    },
+
+    async setAutoCompaction(tabId, enabled) {
+      const resp = await runCommand(tabId, { type: "set_auto_compaction", enabled });
+      if (resp === null) return;
+      patchSession(tabId, { autoCompactionEnabled: enabled });
+    },
+
+    async setAutoRetry(tabId, enabled) {
+      await runCommand(tabId, { type: "set_auto_retry", enabled });
+    },
+
+    async abortRetry(tabId) {
+      await runCommand(tabId, { type: "abort_retry" });
+    },
+
+    async compactSession(tabId) {
+      appendItem(tabId, markerItem("compacting context", "copper"));
+      const resp = await runCommand(tabId, { type: "compact" });
+      if (resp === null) return;
+      // `data.summary` is the entire compacted history — noted, never rendered.
+      appendItem(tabId, markerItem("context compacted", "copper"));
+      await get().refreshState(tabId);
+      await get().refreshStats(tabId);
+    },
+
+    async exportHtml(tabId) {
+      const resp = await runCommand(tabId, { type: "export_html" });
+      if (resp === null) return;
+      const path = strField(respData(resp), "path");
+      appendItem(tabId, noticeItem(path ? `exported to ${path}` : "export finished", "info"));
+    },
+
+    async branchSession(tabId) {
+      // `branch` needs the entry to branch from; the last user message is the
+      // only one a "branch this session" button can mean.
+      const listed = await runCommand(tabId, { type: "get_branch_messages" });
+      if (listed === null) return;
+      const entryId = strField(arrField(respData(listed), "messages").at(-1), "entryId");
+      if (!entryId) {
+        patchRpc(tabId, { error: "no user message to branch from" });
+        return;
+      }
+      const resp = await runCommand(tabId, { type: "branch", entryId });
+      if (resp === null) return;
+      if (field(respData(resp), "cancelled") === true) return;
+      // The session id changes; the record catches up via the watcher broadcast.
+      await loadHistory(tabId).catch(() => {});
+      await get().refreshState(tabId);
+    },
+
+    async renameSessionTo(tabId, name) {
+      const resp = await runCommand(tabId, { type: "set_session_name", name });
+      if (resp === null) return;
+      // A user-chosen name is final — the auto-titler must not overwrite it.
+      patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
+    },
+
+    async newRpcSession(tabId) {
+      const resp = await runCommand(tabId, { type: "new_session" });
+      if (resp === null) return;
+      if (field(respData(resp), "cancelled") === true) return;
+      patchRpc(tabId, {
+        items: [],
+        todos: [],
+        stats: null,
+        subagents: [],
+        commandOutput: [],
+        initialPrompt: null,
+        hasRenamed: false,
+      });
+      await get().refreshState(tabId);
+    },
+
+    async runSlashCommand(tabId, line) {
+      const message = line.startsWith("/") ? line : `/${line}`;
+      if (message.trim() === "/") return;
+      // Output arrives asynchronously as command_output frames.
+      await runCommand(tabId, { type: "prompt", message });
+    },
+
+    async setTodos(tabId, phases) {
+      const resp = await runCommand(tabId, { type: "set_todos", phases });
+      if (resp === null) return;
+      patchRpc(tabId, { todos: parseTodoPhases(field(respData(resp), "todoPhases")) });
+    },
+
+    async refreshState(tabId) {
+      const resp = await runCommand(tabId, { type: "get_state" });
+      if (resp === null) return;
+      applyRpcState(tabId, resp);
+    },
+
+    async refreshStats(tabId) {
+      const resp = await runCommand(tabId, { type: "get_session_stats" });
+      if (resp === null) return;
+      patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+    },
+
+    async refreshSubagents(tabId) {
+      const resp = await runCommand(tabId, { type: "get_subagents" });
+      if (resp === null) return;
+      patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
+    },
+
+    clearCommandOutput(tabId) {
+      patchRpc(tabId, { commandOutput: [] });
+    },
+
+    clearBash(tabId) {
+      patchRpc(tabId, { bashLines: [] });
     },
   };
 });

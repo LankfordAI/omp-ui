@@ -15,3 +15,14 @@ export function numField(obj: unknown, key: string): number | undefined {
   const value = field(obj, key);
   return typeof value === "number" ? value : undefined;
 }
+
+export function boolField(obj: unknown, key: string): boolean | undefined {
+  const value = field(obj, key);
+  return typeof value === "boolean" ? value : undefined;
+}
+
+/** Absent or non-array reads as empty — callers iterate without a guard. */
+export function arrField(obj: unknown, key: string): unknown[] {
+  const value = field(obj, key);
+  return Array.isArray(value) ? value : [];
+}

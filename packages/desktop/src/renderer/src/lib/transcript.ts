@@ -1,3 +1,4 @@
+import { field, numField, strField } from "./fields";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 
 export interface AdvisorNote {
@@ -17,6 +18,20 @@ export interface AssistantItem {
   text: string;
   thinking: string;
   streaming: boolean;
+  /** message_end only — absent while streaming. */
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+    cost: number;
+  };
+  model?: string;
+  provider?: string;
+  stopReason?: string;
+  durationMs?: number;
+  ttftMs?: number;
 }
 export interface ToolItem {
   kind: "tool";
@@ -25,8 +40,18 @@ export interface ToolItem {
   name: string;
   args: unknown;
   status: "running" | "done" | "error";
+  /** tool_execution_start.intent — the human headline ("Reading hello.txt"). */
+  intent?: string;
   resultText?: string;
+  /** tool_execution_update.partialResult text, while running. */
+  partialText?: string;
   diff?: DiffRow[];
+  /** edit/write details.path, or read details.meta.source.value. */
+  path?: string;
+  /** edit/write details.op. */
+  op?: string;
+  /** bash details.wallTimeMs. */
+  wallTimeMs?: number;
   notes?: AdvisorNote[];
 }
 export interface AdvisoryItem {
@@ -38,6 +63,8 @@ export interface NoticeItem {
   kind: "notice";
   id: string;
   text: string;
+  level?: "info" | "warn" | "error";
+  source?: string;
 }
 export interface IrcItem {
   kind: "irc";
@@ -49,6 +76,7 @@ export interface MarkerItem {
   kind: "marker";
   id: string;
   label: string;
+  tone?: "neutral" | "signal" | "copper" | "rose";
 }
 
 export type RenderItem =
@@ -61,8 +89,12 @@ export type RenderItem =
   | MarkerItem;
 
 let counter = 0;
-export function markerItem(label: string): MarkerItem {
-  return { kind: "marker", id: `marker-${++counter}`, label };
+export function markerItem(label: string, tone?: MarkerItem["tone"]): MarkerItem {
+  return { kind: "marker", id: `marker-${++counter}`, label, tone };
+}
+
+export function noticeItem(text: string, level?: NoticeItem["level"]): NoticeItem {
+  return { kind: "notice", id: `notice-${++counter}`, text, level };
 }
 
 function isObj(value: unknown): value is Record<string, unknown> {
@@ -92,6 +124,45 @@ function thinkingFromContent(content: unknown): string {
     .join("\n");
 }
 
+/**
+ * The accounting tail of an assistant `message_end`. Deliberately narrow: the
+ * same message carries `providerPayload`, a multi-megabyte raw response that
+ * must never reach a render item.
+ */
+function assistantMeta(message: Record<string, unknown>): Partial<AssistantItem> {
+  const usageRaw = field(message, "usage");
+  const usage =
+    usageRaw !== null && typeof usageRaw === "object"
+      ? {
+          input: numField(usageRaw, "input") ?? 0,
+          output: numField(usageRaw, "output") ?? 0,
+          cacheRead: numField(usageRaw, "cacheRead") ?? 0,
+          cacheWrite: numField(usageRaw, "cacheWrite") ?? 0,
+          total: numField(usageRaw, "totalTokens") ?? 0,
+          cost: numField(field(usageRaw, "cost"), "total") ?? 0,
+        }
+      : undefined;
+  return {
+    usage,
+    model: strField(message, "model"),
+    provider: strField(message, "provider"),
+    stopReason: strField(message, "stopReason"),
+    durationMs: numField(message, "duration"),
+    ttftMs: numField(message, "ttft"),
+  };
+}
+
+/** Per-tool `result.details`: edit/write carry `path`/`op`, read hides it under meta.source. */
+function detailFacts(details: unknown): Pick<ToolItem, "path" | "op" | "wallTimeMs"> {
+  return {
+    path:
+      strField(details, "path") ??
+      strField(field(field(details, "meta"), "source"), "value"),
+    op: strField(details, "op"),
+    wallTimeMs: numField(details, "wallTimeMs"),
+  };
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -104,6 +175,14 @@ function notesFromDetails(details: unknown): AdvisorNote[] {
     .map((n) => ({ note: str(n.note) ?? "", severity: str(n.severity), advisor: str(n.advisor) }))
     .filter((n) => n.note.length > 0);
 }
+
+/** omp says "warning"; the render surface says "warn". Unknown levels drop. */
+const NOTICE_LEVELS: Record<string, NoticeItem["level"] | undefined> = {
+  info: "info",
+  warn: "warn",
+  warning: "warn",
+  error: "error",
+};
 
 const warnedTypes = new Set<string>();
 function warnOnce(type: string): void {
@@ -197,10 +276,13 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     case "message_end": {
       const message = isObj(event.message) ? event.message : null;
       if (message && isAdvisorMessage(message)) return appendAdvisory(items, message);
+      // `providerPayload` also lives on the message and is megabytes wide —
+      // only these accounting fields are ever lifted out of it.
+      const meta = message && str(message.role) === "assistant" ? assistantMeta(message) : {};
       const idx = lastStreamingAssistant(items);
       if (idx !== -1) {
         const item = items[idx] as AssistantItem;
-        return replaceAt(items, idx, { ...item, streaming: false });
+        return replaceAt(items, idx, { ...item, ...meta, streaming: false });
       }
       // No streaming item (resumed mid-stream) — render the final message.
       if (message && str(message.role) === "assistant") {
@@ -212,6 +294,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
             text: textFromContent(message.content),
             thinking: thinkingFromContent(message.content),
             streaming: false,
+            ...meta,
           },
         ];
       }
@@ -229,13 +312,24 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           name: str(event.toolName) ?? "tool",
           args: event.args,
           status: "running",
+          intent: str(event.intent),
         },
       ];
     }
 
-    case "tool_execution_update":
-      // Partial args/results streaming — v0 renders on end.
-      return items;
+    case "tool_execution_update": {
+      const toolCallId = str(event.toolCallId);
+      const idx = toolCallId
+        ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
+        : -1;
+      if (idx === -1) return items;
+      const item = items[idx] as ToolItem;
+      const partial = isObj(event.partialResult) ? event.partialResult : null;
+      const partialText = partial ? textFromContent(partial.content) : "";
+      // Status stays `running` — an update is progress, never completion.
+      if (!partialText) return items;
+      return replaceAt(items, idx, { ...item, partialText });
+    }
 
     case "tool_execution_end": {
       const toolCallId = str(event.toolCallId);
@@ -248,6 +342,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         resultText: result ? textFromContent(result.content) : undefined,
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
+        ...detailFacts(details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -271,50 +366,77 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     }
 
     case "agent_start":
-      return [...items, markerItem("agent started")];
+      return [...items, markerItem("agent started", "neutral")];
     case "agent_end":
-      return [...items, markerItem("agent finished")];
+      return [...items, markerItem("agent finished", "signal")];
+    // Turn boundaries are pure ceremony in a rendered transcript: one prompt
+    // produced eight of them in a live smoke test, drowning the actual content.
+    // The tool-call/assistant cards already show where each turn's work went,
+    // and agent_start/agent_end still bracket the exchange.
     case "turn_start":
-      return [...items, markerItem("turn started")];
     case "turn_end":
-      return [...items, markerItem("turn finished")];
+      return items;
     case "auto_compaction_start":
-      return [...items, markerItem("auto-compaction started")];
+      return [...items, markerItem("auto-compaction started", "copper")];
     case "auto_compaction_end":
-      return [...items, markerItem("auto-compaction finished")];
+      return [...items, markerItem("auto-compaction finished", "copper")];
     case "auto_retry_start":
-      return [...items, markerItem("auto-retry started")];
+      return [...items, markerItem("auto-retry started", "copper")];
     case "auto_retry_end":
-      return [...items, markerItem("auto-retry finished")];
+      return [...items, markerItem("auto-retry finished", "copper")];
     case "retry_fallback_applied":
-      return [...items, markerItem("retry fallback applied")];
+      return [...items, markerItem("retry fallback applied", "copper")];
+    // omp emits `retry_fallback_succeeded`; `retry_succeeded` is the older name.
+    case "retry_fallback_succeeded":
     case "retry_succeeded":
-      return [...items, markerItem("retry succeeded")];
+      return [...items, markerItem("retry succeeded", "signal")];
     case "todo_reminder":
-      return [...items, markerItem("todo reminder")];
+      return [...items, markerItem("todo reminder", "copper")];
     case "todo_auto_clear":
       return [...items, markerItem("todos cleared")];
+    case "ttsr_triggered": {
+      const rules = Array.isArray(event.rules) ? event.rules : [];
+      const named = rules.map((r) => str(field(r, "name")) ?? "?").join(", ");
+      return [
+        ...items,
+        markerItem(named ? `rule interrupt: ${named}` : "rule interrupt", "copper"),
+      ];
+    }
     case "thinking_level_changed":
       return [
         ...items,
-        markerItem(`thinking level: ${str(event.level) ?? str(event.thinkingLevel) ?? "?"}`),
+        markerItem(`thinking level: ${str(event.thinkingLevel) ?? str(event.level) ?? "?"}`),
       ];
     case "goal_updated":
       return [...items, markerItem("goal updated")];
 
     case "notice": {
       const text = str(event.message) ?? str(event.text) ?? str(event.notice) ?? "";
-      return [...items, { kind: "notice", id: `notice-${++counter}`, text }];
+      return [
+        ...items,
+        {
+          ...noticeItem(text, NOTICE_LEVELS[str(event.level) ?? ""]),
+          source: str(event.source),
+        },
+      ];
     }
 
     case "irc_message": {
+      // The payload is a CustomMessage: `from`/`message` live under `details`.
+      const message = isObj(event.message) ? event.message : null;
+      const details = message && isObj(message.details) ? message.details : null;
       return [
         ...items,
         {
           kind: "irc",
           id: `irc-${++counter}`,
-          from: str(event.from) ?? str(event.nick) ?? "irc",
-          text: str(event.text) ?? str(event.message) ?? "",
+          from: str(details?.from) ?? str(event.from) ?? str(event.nick) ?? "irc",
+          text:
+            str(details?.message) ??
+            str(details?.body) ??
+            (message ? textFromContent(message.content) : undefined) ??
+            str(event.text) ??
+            "",
         },
       ];
     }
@@ -348,6 +470,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         text: textFromContent(raw.content),
         thinking: thinkingFromContent(raw.content),
         streaming: false,
+        ...assistantMeta(raw),
       });
       for (const block of contentBlocks(raw.content)) {
         if (block.type === "toolCall") {
@@ -380,6 +503,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         resultText: textFromContent(raw.content),
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
+        ...detailFacts(details),
       };
     }
   }

@@ -195,24 +195,55 @@ output exists but is only used by `modes/patch.ts`.) Parse the numbered format
 
 ### Todo List
 
-OMP's todo tool emits phase data. The `set_todos` command and todo-related
-events provide the structured data:
+**Verified against v17.1.8 — the phase field is `tasks`, not `items`:**
 
-```tsx
-<TodoList phases={phases} onUpdate={setTodos} />
+```jsonc
+{ "todoPhases": [ { "phase": "Foundation",
+                    "tasks": [ { "content": "…", "status": "pending" } ] } ] }
 ```
+
+`status` ∈ `pending` | `in_progress` | `completed`. `set_todos` takes the same
+`{ phases: [{ phase, tasks }] }` shape and **errors** on an `items` key
+(`undefined is not an object (evaluating 'i.tasks.map')`). Reading `items` is
+the difference between a working panel and a silently empty one.
 
 ### Model Selector
 
-```tsx
-// get_available_models returns model objects with thinking levels
-// set_model selects one
-<ModelSelector
-  models={availableModels}
-  currentModel={currentModel}
-  onSelect={(model) => sendCommand({ type: "set_model", ... })}
-/>
-```
+`get_available_models` returned **414 models** on the dev machine, so a
+`<select>` is unusable — this needs a searchable palette. Model objects carry
+`{ id, name, provider, api, reasoning, input, cost, contextWindow, maxTokens,
+thinking: { mode, efforts } }`; `cost` is USD **per million tokens**. Select
+with `{ type: "set_model", provider, modelId: model.id }`.
+
+### Other corrections found by probing a live process
+
+The inventory above is otherwise accurate, but these details differ from what
+the prose (and in two cases omp's own `.d.ts`) implies:
+
+- `tool_execution_start` carries **`intent`** — a human label ("Reading
+  hello.txt"). Replayed history has no `intent`, but the same text survives as
+  the tool's own `i` argument.
+- `tool_execution_update` carries **`partialResult.content`**: tool output
+  streams, so "render on end" leaves bash and subagents looking frozen.
+- Assistant `message_end.message` carries `usage`, `model`, `provider`,
+  `stopReason`, `duration`, and `ttft` — plus a large `providerPayload` that
+  must never reach the renderer.
+- `irc_message` nests its payload as a `CustomMessage`: `from`/`text` live under
+  `message.details`, **not** top-level.
+- omp emits `retry_fallback_succeeded`, not `retry_succeeded`.
+- `thinking_level_changed` carries `thinkingLevel`; `cycle_thinking_level`
+  replies with `data.level`.
+- `set_subagent_subscription` accepts **only** `level: "progress" | "events"`.
+- Live queue-mode values are `one-at-a-time` | `all-at-once` (steering,
+  follow-up) and `immediate` | `queue` (interrupt) — omp's bundled `.d.ts`
+  claims `all`/`immediate`/`wait`, which is wrong. Read the current value
+  rather than hardcoding a pair.
+- Slash commands run as `{ type: "prompt", message: "/stats" }`, reply
+  `{ data: { agentInvoked: false } }`, and emit their output as separate
+  `command_output` frames.
+- On boot omp sends `extension_ui_request` with `method: "setWidget"` /
+  `"setStatus"`. They still require a reply — omp blocks — but their text is
+  worth surfacing rather than discarding.
 
 ## Architecture Changes
 

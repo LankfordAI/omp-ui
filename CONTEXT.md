@@ -46,3 +46,41 @@ The sequence of sessions one spawned `omp` process produces: the initial
 session plus every `/new` and `/branch` it switches into (omp replaces the
 session file in-process). A lineage shares one pinned session dir.
 _Avoid_: tab history
+
+**Render item**:
+One entry in the native transcript, reduced from the `AgentSessionEvent`
+stream by `lib/transcript.ts`: `user`, `assistant`, `tool`, `advisory`,
+`notice`, `irc`, or `marker`. Items are derived state — the session file stays
+the source of truth, and an unknown event type adds nothing rather than
+breaking the transcript.
+_Avoid_: message, bubble, row
+
+**Marker**:
+A hairline lifecycle rule in the transcript (`agent started`, compaction,
+retry). Turn boundaries deliberately emit none: one live prompt produced eight
+of them, burying the actual content.
+_Avoid_: divider, separator, system message
+
+**Usage receipt**:
+The dim one-line footer under an assistant message — model, in/out tokens,
+cache reads, cost, ttft, duration — lifted from `message_end.usage`. It is a
+receipt, not telemetry: one line, quiet, hover to raise contrast.
+_Avoid_: stats line, metrics, footer
+
+**Signal accent**:
+The mint token reserved for agent liveness and success (ADR-0004). Spending it
+on chrome destroys the property that a glance answers "is it working?".
+_Avoid_: primary colour, brand colour, green
+
+**Inspector rail**:
+The right-hand pane in an rpc-ui tab, with four panes — Todos, Console,
+Agents, Session. Collapses to an icon strip that keeps its badge counts, and
+remembers its selected pane per tab.
+_Avoid_: right sidebar, panel, drawer
+
+**Session HUD**:
+The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
+meter, spend, and the session controls (compact, auto-compact, export, branch,
+new, refresh, queue modes). Model and thinking level live in the composer
+instead, next to the text they affect.
+_Avoid_: toolbar, header, status bar
