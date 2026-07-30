@@ -101,6 +101,7 @@ function stateWithRecord(sessionId: string | null, live: LiveState = "live"): Ba
             launchedAt: "t",
             mode: "rpc-ui",
             advisor: false,
+            advisorModel: null,
             cachedTitle: null,
             cachedModified: null,
             title: "New session",

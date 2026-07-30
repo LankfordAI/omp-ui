@@ -11,6 +11,11 @@ export interface UserItem {
   kind: "user";
   id: string;
   text: string;
+  /**
+   * Image blocks on the message. omp re-encodes on ingest (a PNG comes back as
+   * webp), so the mime type here is omp's, not the clipboard's.
+   */
+  images?: { data: string; mimeType: string }[];
 }
 export interface AssistantItem {
   kind: "assistant";
@@ -115,6 +120,22 @@ function textFromContent(content: unknown): string {
     .filter((b) => b.type === "text" && typeof b.text === "string")
     .map((b) => b.text as string)
     .join("\n");
+}
+
+/**
+ * Image blocks off a user message. Returns undefined rather than an empty array
+ * so a text-only message carries no key at all — `UserItem` is compared by
+ * identity in places, and an always-present `[]` would be noise.
+ */
+function imagesFromContent(content: unknown): UserItem["images"] {
+  const images: NonNullable<UserItem["images"]> = [];
+  for (const block of contentBlocks(content)) {
+    if (block.type !== "image") continue;
+    const data = str(block.data);
+    if (data === undefined) continue;
+    images.push({ data, mimeType: str(block.mimeType) ?? "image/png" });
+  }
+  return images.length > 0 ? images : undefined;
 }
 
 function thinkingFromContent(content: unknown): string {
@@ -230,7 +251,12 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (role === "user") {
         return [
           ...items,
-          { kind: "user", id: `user-${++counter}`, text: textFromContent(message.content) },
+          {
+            kind: "user",
+            id: `user-${++counter}`,
+            text: textFromContent(message.content),
+            images: imagesFromContent(message.content),
+          },
         ];
       }
       if (role === "assistant") {
@@ -460,7 +486,12 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
     }
     const role = str(raw.role);
     if (role === "user") {
-      items.push({ kind: "user", id: `user-${++counter}`, text: textFromContent(raw.content) });
+      items.push({
+        kind: "user",
+        id: `user-${++counter}`,
+        text: textFromContent(raw.content),
+        images: imagesFromContent(raw.content),
+      });
       continue;
     }
     if (role === "assistant") {

@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import type { BackendState, SessionMode, SessionSummary } from "@omp-ui/core/types";
+import type {
+  AdvisorDefaults,
+  BackendState,
+  ImageAttachment,
+  SessionMode,
+  SessionSummary,
+} from "@omp-ui/core/types";
 import { backend } from "./backend";
 import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
 import { arrField, field, strField } from "./lib/fields";
@@ -102,6 +108,8 @@ interface UiStore {
   activeTabId: string | null;
   exited: Record<string, number>;
   rpc: Record<string, RpcTabState>;
+  /** omp's advisor defaults, keyed by project cwd — see loadAdvisorDefaults. */
+  advisorDefaults: Record<string, AdvisorDefaults>;
   init(): Promise<void>;
   addProject(): Promise<void>;
   removeProject(path: string): Promise<void>;
@@ -128,9 +136,25 @@ interface UiStore {
   renameSession(tabId: string): void;
 
   /** Routes on status: ready → prompt, running → steer|follow_up per `route`. */
-  sendPrompt(tabId: string, message: string, route?: PromptRoute): Promise<void>;
+  sendPrompt(
+    tabId: string,
+    message: string,
+    route?: PromptRoute,
+    images?: ImageAttachment[],
+  ): Promise<void>;
   abortAgent(tabId: string): Promise<void>;
-  abortAndPrompt(tabId: string, message: string): Promise<void>;
+  abortAndPrompt(tabId: string, message: string, images?: ImageAttachment[]): Promise<void>;
+
+  /**
+   * omp's own advisor defaults for a project, cached per cwd. Read from omp's
+   * config because the rpc protocol reports no advisor state at all.
+   */
+  loadAdvisorDefaults(projectCwd: string): Promise<void>;
+  /**
+   * Re-pins this session's advisor. Relaunches a live session — omp binds both
+   * `advisor.enabled` and the `advisor` role at process start.
+   */
+  setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): Promise<void>;
 
   setModel(tabId: string, model: ModelInfo): Promise<void>;
   cycleModel(tabId: string): Promise<void>;
@@ -293,6 +317,7 @@ export const useStore = create<UiStore>()((set, get) => {
     activeTabId: null,
     exited: {},
     rpc: {},
+    advisorDefaults: {},
 
     async init() {
       if (initialized) return;
@@ -789,23 +814,45 @@ export const useStore = create<UiStore>()((set, get) => {
         });
     },
 
-    async sendPrompt(tabId, message, route = "steer") {
+    async sendPrompt(tabId, message, route = "steer", images) {
       const tab = get().rpc[tabId];
       if (!tab) return;
       // Titling reads the first substantive prompt, whichever route it took.
       get().setInitialPrompt(tabId, message);
       const type =
         tab.status === "running" ? (route === "follow_up" ? "follow_up" : "steer") : "prompt";
-      await runCommand(tabId, { type, message });
+      // `images` is omitted entirely when empty: omp's own client sends no key
+      // rather than an empty array, and every byte here is on one JSON line.
+      await runCommand(tabId, images?.length ? { type, message, images } : { type, message });
     },
 
     async abortAgent(tabId) {
       await runCommand(tabId, { type: "abort" });
     },
 
-    async abortAndPrompt(tabId, message) {
+    async abortAndPrompt(tabId, message, images) {
       get().setInitialPrompt(tabId, message);
-      await runCommand(tabId, { type: "abort_and_prompt", message });
+      const type = "abort_and_prompt";
+      await runCommand(tabId, images?.length ? { type, message, images } : { type, message });
+    },
+
+    async loadAdvisorDefaults(projectCwd) {
+      if (get().advisorDefaults[projectCwd]) return;
+      try {
+        const defaults = await backend.getAdvisorDefaults(projectCwd);
+        set((s) => ({ advisorDefaults: { ...s.advisorDefaults, [projectCwd]: defaults } }));
+      } catch {
+        // A missing or unreadable omp config is not an error worth a dialog —
+        // the toggle just shows no inherited default.
+      }
+    },
+
+    async setSessionAdvisor(tabId, advisor, advisorModel) {
+      try {
+        await backend.setSessionAdvisor(tabId, advisor, advisorModel);
+      } catch (err) {
+        alertError(err);
+      }
     },
 
     async setModel(tabId, model) {

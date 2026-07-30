@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
+import type { ImageAttachment } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
+import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
 import type { PromptRoute } from "../lib/rpc-types";
 import { useStore } from "../store";
+import { AdvisorControl } from "./AdvisorControl";
 import { ModelSelector } from "./ModelSelector";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import { Button, Chip, IconButton, Label, ProgressSweep } from "./ui";
@@ -44,6 +55,13 @@ export function Composer({ tabId }: { tabId: string }) {
   const [effortMenu, setEffortMenu] = useState(false);
   /** Errors are store-owned, so dismissal remembers the message it hid. */
   const [dismissed, setDismissed] = useState<string | null>(null);
+  /**
+   * Images pasted into this draft, in paste order. They ride the same frame as
+   * the text — omp appends them after the text block — and are cleared with it.
+   */
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  /** Why a pasted item was refused (over omp's 20 MB ceiling, unreadable). */
+  const [pasteError, setPasteError] = useState<string | null>(null);
 
   const box = useRef<HTMLTextAreaElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
@@ -59,6 +77,12 @@ export function Composer({ tabId }: { tabId: string }) {
   const isSlash = trimmed.startsWith("/");
   const commandWord = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : null;
   const paletteOpen = !dead && commandWord !== null && commandWord !== dismissedFor;
+  /**
+   * omp reports vision support as `model.input` containing "image". A model
+   * without it would silently drop the blocks, so the affordance says so
+   * instead of failing quietly.
+   */
+  const vision = useStore((s) => s.rpc[tabId]?.model?.input?.includes("image") ?? true);
 
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
@@ -97,26 +121,52 @@ export function Composer({ tabId }: { tabId: string }) {
   const submit = useCallback(
     (route: PromptRoute | "interrupt") => {
       const message = text.trim();
-      if (message === "" || dead) return;
+      // An image with no words is a legitimate prompt ("what is this?"), so
+      // emptiness is judged on the whole draft, not the text alone.
+      if ((message === "" && images.length === 0) || dead) return;
       // Consecutive duplicates make ↑ recall useless.
-      if (history.current[history.current.length - 1] !== message) history.current.push(message);
+      if (message !== "" && history.current[history.current.length - 1] !== message) {
+        history.current.push(message);
+      }
       recall.current = null;
       setText("");
+      setImages([]);
+      setPasteError(null);
       setDismissedFor(null);
       setDismissed(storeError ?? null);
 
-      // A leading "/" is a command, never a prompt — even mid-run.
+      // A leading "/" is a command, never a prompt — even mid-run. Commands take
+      // no images, so any attached here would be silently dropped by omp;
+      // holding them back would be worse, since the draft is already cleared.
       if (message.startsWith("/")) {
         void runSlashCommand(tabId, message);
       } else if (route === "interrupt") {
-        void abortAndPrompt(tabId, message);
+        void abortAndPrompt(tabId, message, images);
       } else {
-        void sendPrompt(tabId, message, route);
+        void sendPrompt(tabId, message, route, images);
       }
       box.current?.focus();
     },
-    [text, dead, storeError, tabId, runSlashCommand, abortAndPrompt, sendPrompt],
+    [text, images, dead, storeError, tabId, runSlashCommand, abortAndPrompt, sendPrompt],
   );
+
+  /**
+   * Intercepts an image paste. Text pastes are left entirely alone — the
+   * textarea's own handling is what the user expects, and a clipboard carrying
+   * both (copying an image out of a rich editor) should still paste its text.
+   */
+  const onPaste = useCallback(async (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!hasClipboardImage(e.clipboardData)) return;
+    // Chromium would otherwise insert the image's *filename* as text.
+    e.preventDefault();
+    const { images: pasted, rejected } = await readClipboardImages(e.clipboardData);
+    if (pasted.length > 0) setImages((prev) => [...prev, ...pasted]);
+    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
+  }, []);
+
+  const dropImage = useCallback((index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   /** Applies a palette pick: run it now, or complete the line for its argument. */
   const pick = useCallback(
@@ -184,7 +234,8 @@ export function Composer({ tabId }: { tabId: string }) {
       ? "steer the agent…"
       : "message the agent…   /  for commands";
 
-  const canSend = trimmed !== "" && !dead;
+  // An image alone is sendable: "what is this?" is in the picture, not the text.
+  const canSend = (trimmed !== "" || images.length > 0) && !dead;
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
@@ -227,6 +278,40 @@ export function Composer({ tabId }: { tabId: string }) {
             dead && "opacity-50",
           )}
         >
+          {images.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
+              {images.map((image, i) => (
+                <span key={i} className="group/att relative">
+                  <img
+                    src={`data:${image.mimeType};base64,${image.data}`}
+                    alt={`attachment ${i + 1}`}
+                    title={image.mimeType}
+                    className="size-12 rounded border border-line-strong bg-sunken object-cover"
+                  />
+                  <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
+                    <IconButton
+                      label={`remove attachment ${i + 1}`}
+                      tone="rose"
+                      onClick={() => dropImage(i)}
+                      className="size-4 rounded-full border border-line-strong bg-overlay"
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className="size-2.5">
+                        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+                      </svg>
+                    </IconButton>
+                  </span>
+                </span>
+              ))}
+              <Label className="ml-0.5">
+                {images.length} image{images.length === 1 ? "" : "s"}
+              </Label>
+              {!vision && (
+                <Chip tone="copper" title="the selected model accepts text only — omp will drop these">
+                  model has no vision
+                </Chip>
+              )}
+            </div>
+          )}
           <textarea
             ref={box}
             rows={1}
@@ -239,6 +324,7 @@ export function Composer({ tabId }: { tabId: string }) {
               recall.current = null;
             }}
             onKeyDown={onKeyDown}
+            onPaste={(e) => void onPaste(e)}
             className={cn(
               "block w-full resize-none bg-transparent px-3 py-2 outline-none",
               "text-sm leading-relaxed placeholder:text-ink-faint",
@@ -291,6 +377,8 @@ export function Composer({ tabId }: { tabId: string }) {
                 </div>
               )}
             </span>
+
+            <AdvisorControl tabId={tabId} disabled={dead} />
 
             {queued > 0 && (
               <Chip mono tone="copper" title="messages waiting for the current turn to finish">
@@ -380,6 +468,23 @@ export function Composer({ tabId }: { tabId: string }) {
             {error}
           </span>
           <IconButton label="dismiss error" tone="rose" onClick={() => setDismissed(error)}>
+            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+            </svg>
+          </IconButton>
+        </div>
+      )}
+
+      {pasteError !== null && (
+        <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+          <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
+            <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
+            <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
+          </svg>
+          <span className="min-w-0 flex-1 break-words" data-selectable>
+            {pasteError}
+          </span>
+          <IconButton label="dismiss paste warning" onClick={() => setPasteError(null)}>
             <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3">
               <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
             </svg>

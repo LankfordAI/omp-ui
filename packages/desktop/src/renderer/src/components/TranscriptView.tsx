@@ -103,11 +103,27 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
 /* ------------------------------------------------------------ small kinds */
 
 function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
+  const images = item.images ?? [];
   return (
     <div className="animate-rise flex flex-col items-end gap-1">
       {first && <Label>you</Label>}
-      <div className="max-w-[72%] rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
-        <Markdown text={item.text} />
+      <div className="max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
+        {item.text !== "" && <Markdown text={item.text} />}
+        {images.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {images.map((image, i) => (
+              <img
+                // Index-keyed deliberately: a message's image list is fixed
+                // once rendered, and the base64 payload is far too long a key.
+                key={i}
+                src={`data:${image.mimeType};base64,${image.data}`}
+                alt={`attached image ${i + 1}`}
+                title={`${image.mimeType} — image ${i + 1} of ${images.length}`}
+                className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
