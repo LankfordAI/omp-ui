@@ -25,8 +25,6 @@ function isProjectRecord(value: unknown): value is ProjectRecord {
     typeof value.path === "string" &&
     "name" in value &&
     typeof value.name === "string" &&
-    "advisor" in value &&
-    typeof value.advisor === "boolean" &&
     "addedAt" in value &&
     typeof value.addedAt === "string"
   );
@@ -161,7 +159,6 @@ export class Registry {
     const record: ProjectRecord = {
       path: projectPath,
       name: path.basename(projectPath),
-      advisor: false,
       addedAt: new Date().toISOString(),
     };
     this.#data.projects.push(record);
@@ -176,17 +173,9 @@ export class Registry {
     this.#save();
   }
 
-  setProjectAdvisor(projectPath: string, advisor: boolean): void {
-    const project = this.#data.projects.find((p) => p.path === projectPath);
-    if (!project) return;
-    project.advisor = advisor;
-    this.#save();
-  }
-
   /**
-   * Records a session's advisor choice. Kept beside `setProjectAdvisor` because
-   * they answer different questions: the project flag seeds *new* sessions, this
-   * one re-pins an existing lineage.
+   * Records a session's advisor state. Sessions own this, not projects: omp
+   * binds the advisor per process, and the composer toggles it per session.
    */
   setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): void {
     const record = this.#data.sessions.find((s) => s.tabId === tabId);

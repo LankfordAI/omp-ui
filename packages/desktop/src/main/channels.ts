@@ -3,7 +3,6 @@ export const CH = {
   stateGet: "state:get",
   projectAdd: "project:add",
   projectRemove: "project:remove",
-  projectSetAdvisor: "project:setAdvisor",
   settingsSetDefaultMode: "settings:setDefaultMode",
   sessionSpawn: "session:spawn",
   sessionTerminate: "session:terminate",

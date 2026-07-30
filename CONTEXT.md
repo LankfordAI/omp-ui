@@ -83,6 +83,23 @@ _Avoid_: right sidebar, panel, drawer
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,
-new, refresh, queue modes). Model and thinking level live in the composer
-instead, next to the text they affect.
+new, refresh, queue modes). Model, thinking level, and the advisor live in the
+composer instead, next to the text they affect.
 _Avoid_: toolbar, header, status bar
+
+**Advisor pin**:
+A session's own advisor state — on/off plus an optional `model[:level]`
+selector — recorded on its session record and delivered to omp as a `--config`
+overlay at spawn (ADR-0005). omp binds the advisor once at process start, so
+changing a pin relaunches the session. A null model pin defers to omp's
+`modelRoles.advisor`; it is never an empty string, which would mean *no*
+advisor model. Projects have no advisor flag: scope is the session.
+_Avoid_: advisor setting, advisor config, project advisor
+
+**Attachment**:
+An image on an outgoing prompt. In rpc-ui it rides the prompt frame's `images`
+as bare base64; in a terminal tab it cannot ride the PTY at all, so it becomes
+a scratch file whose path is handed to omp's TUI as a bracketed paste
+(ADR-0006). omp re-encodes on ingest, so what returns in the transcript is
+omp's mime type, not the clipboard's.
+_Avoid_: upload, file, media

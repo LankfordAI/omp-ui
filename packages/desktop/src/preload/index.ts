@@ -8,7 +8,6 @@ const api: OmpBackend = {
   getState: () => ipcRenderer.invoke(CH.stateGet),
   addProject: () => ipcRenderer.invoke(CH.projectAdd),
   removeProject: (path) => ipcRenderer.invoke(CH.projectRemove, path),
-  setProjectAdvisor: (path, advisor) => ipcRenderer.invoke(CH.projectSetAdvisor, path, advisor),
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
   spawnSession: (req) => ipcRenderer.invoke(CH.sessionSpawn, req),
   terminateSession: (tabId) => ipcRenderer.invoke(CH.sessionTerminate, tabId),

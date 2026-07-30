@@ -64,7 +64,7 @@ describe("Registry.load", () => {
       file,
       JSON.stringify({
         schemaVersion: 1,
-        projects: [{ path: 42 }, { path: "/abs/proj", name: "proj", advisor: false, addedAt: "t" }],
+        projects: [{ path: 42 }, { path: "/abs/proj", name: "proj", addedAt: "t" }],
         sessions: [sessionRecord(), { tabId: null }],
       }),
     );
@@ -85,7 +85,7 @@ describe("Registry persistence", () => {
 
     const reloaded = Registry.load(file);
     expect(reloaded.projects).toHaveLength(1);
-    expect(reloaded.projects[0]).toMatchObject({ path: "/abs/proj", name: "proj", advisor: false });
+    expect(reloaded.projects[0]).toMatchObject({ path: "/abs/proj", name: "proj" });
     expect(reloaded.sessions).toHaveLength(1);
     expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-1", sessionId: null });
     expect(reloaded.defaultMode).toBe("rpc-ui");
@@ -120,11 +120,39 @@ describe("Registry mutations", () => {
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-b"]);
   });
 
-  it("setProjectAdvisor flips the flag", () => {
+  it("setSessionAdvisor records the flag and the pinned model together", () => {
     const reg = Registry.load(tmpFile());
-    reg.addProject("/abs/proj");
-    reg.setProjectAdvisor("/abs/proj", true);
-    expect(reg.projects[0]!.advisor).toBe(true);
+    reg.addSession(sessionRecord());
+    reg.setSessionAdvisor("tab-1", true, "openrouter/anthropic/claude-opus-5:high");
+    expect(reg.sessions[0]).toMatchObject({
+      advisor: true,
+      advisorModel: "openrouter/anthropic/claude-opus-5:high",
+    });
+    // Turning it off must not silently drop the model the user picked — the
+    // next "on" should come back with the same advisor.
+    reg.setSessionAdvisor("tab-1", false, "openrouter/anthropic/claude-opus-5:high");
+    expect(reg.sessions[0]).toMatchObject({
+      advisor: false,
+      advisorModel: "openrouter/anthropic/claude-opus-5:high",
+    });
+  });
+
+  it("setSessionAdvisor survives a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.setSessionAdvisor("tab-1", true, "a/b");
+    expect(Registry.load(file).sessions[0]).toMatchObject({ advisor: true, advisorModel: "a/b" });
+  });
+
+  it("keeps records written before advisorModel existed, defaulting it to null", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.advisorModel;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]!.advisorModel).toBeNull();
   });
 
   it("updateSession applies partial patches", () => {

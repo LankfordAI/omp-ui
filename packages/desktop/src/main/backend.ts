@@ -104,10 +104,6 @@ export class MainBackend {
       this.registry.removeProject(projectPath);
       await this.broadcast();
     });
-    ipcMain.handle(CH.projectSetAdvisor, async (_e, projectPath: string, advisor: boolean) => {
-      this.registry.setProjectAdvisor(projectPath, advisor);
-      await this.broadcast();
-    });
     ipcMain.handle(CH.settingsSetDefaultMode, async (_e, mode: SessionMode) => {
       this.registry.setDefaultMode(mode);
       await this.broadcast();
@@ -289,20 +285,25 @@ export class MainBackend {
   }
 
   /**
-   * The `--config` overlays a spawn needs to honour this session's advisor
-   * model. Written (or cleared) on every spawn so the file on disk always
-   * matches the record — a stale overlay would silently outvote the record.
+   * The `--config` overlays a spawn needs to honour this session's advisor.
+   * Rewritten on every spawn so the file on disk always matches the record — a
+   * stale overlay would silently outvote it.
+   *
+   * The record's `advisor` flag is passed explicitly rather than relying on
+   * `--advisor`, because that flag can only ever turn the advisor *on*: with
+   * `advisor.enabled: true` in omp's own config, a session the user switched off
+   * would come back up with the advisor running.
    */
   private advisorOverlays(record: OwnedSessionRecord, absLineageDir: string): string[] {
     const role = record.advisorModel === null ? null : parseAdvisorRole(record.advisorModel);
     try {
-      const overlay = writeAdvisorOverlay(absLineageDir, role);
+      const overlay = writeAdvisorOverlay(absLineageDir, role, record.advisor);
       return overlay === null ? [] : [overlay];
     } catch (err) {
       // omp rejects a missing/malformed `--config` at startup, so a failed
       // write must degrade to omp's own advisor config rather than take the
       // whole session down with it.
-      console.warn("[advisor] could not write the model overlay:", err);
+      console.warn("[advisor] could not write the overlay:", err);
       return [];
     }
   }

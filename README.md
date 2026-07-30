@@ -48,7 +48,9 @@ action. Design tokens and the primitive vocabulary are fixed by
 Spawn `omp` under a [node-pty](https://github.com/microsoft/node-pty) PTY (the
 same PTY layer VS Code, Hyper, and Tabby use). Raw PTY bytes stream via
 Electron IPC into `xterm.js` in the renderer. OMP's TUI runs unmodified —
-every keybinding, theme, and skill works. Build in ~2 weeks.
+every keybinding, theme, and skill works. Pasting an image is bridged to the
+TUI's own bracketed-paste path ([ADR-0006](docs/adr/0006-image-paste-in-both-modes.md)),
+since a PTY carries no byte channel. Build in ~2 weeks.
 
 **Files:** `docs/phase-1-pty-embed.md`
 
@@ -56,10 +58,14 @@ every keybinding, theme, and skill works. Build in ~2 weeks.
 `--mode=rpc-ui` is OMP's headless JSON protocol over stdin/stdout. The main
 pane renders the `AgentSessionEvent` stream as native components: markdown
 assistant text, per-tool cards with live partial output, line-numbered diffs,
-advisor cards by severity, and a usage receipt per turn. The session HUD and
-inspector rail expose the command surface — model and thinking level, steering
-/ follow-up / interrupt modes, compaction, auto-retry, branch, export, todos,
-subagents, bash, and all 49 slash commands through a fuzzy palette.
+advisor cards by severity, and a usage receipt per turn. The composer carries
+the controls that belong beside the text — model, thinking level, an advisor
+on/off with its own model picker
+([ADR-0005](docs/adr/0005-session-scoped-advisor-via-config-overlay.md)), and
+pasted image attachments — while the session HUD and inspector rail expose the
+rest: steering / follow-up / interrupt modes, compaction, auto-retry, branch,
+export, todos, subagents, bash, and all 49 slash commands through a fuzzy
+palette.
 
 **Files:** `docs/phase-2-rpc-ui.md`
 

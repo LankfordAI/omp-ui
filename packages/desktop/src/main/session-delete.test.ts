@@ -70,7 +70,7 @@ function setup(): {
       schemaVersion: 1,
       settings: { defaultMode: "pty" },
       projects: [
-        { path: "/proj", name: "proj", advisor: false, addedAt: "2026-07-29T00:00:00.000Z" },
+        { path: "/proj", name: "proj", addedAt: "2026-07-29T00:00:00.000Z" },
       ],
       sessions: [
         {

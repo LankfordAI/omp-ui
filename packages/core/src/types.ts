@@ -27,7 +27,6 @@ export interface ImageAttachment {
 export interface ProjectRecord {
   path: string;
   name: string;
-  advisor: boolean;
   addedAt: string;
 }
 
@@ -93,7 +92,6 @@ export interface OmpBackend {
   getState(): Promise<BackendState>;
   addProject(): Promise<ProjectRecord | null>;
   removeProject(path: string): Promise<void>;
-  setProjectAdvisor(path: string, advisor: boolean): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
   spawnSession(req: SpawnRequest): Promise<{ tabId: string }>;
   terminateSession(tabId: string): Promise<void>;

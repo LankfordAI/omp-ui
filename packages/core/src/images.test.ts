@@ -82,38 +82,59 @@ describe("bracketedImagePaste", () => {
 });
 
 describe("writeAdvisorOverlay", () => {
-  it("pins modelRoles.advisor as a strict-loadable YAML mapping", () => {
+  it("pins both the enable flag and the model as strict-loadable YAML", () => {
     const dir = tmpDir();
-    const file = writeAdvisorOverlay(dir, { model: "openrouter/anthropic/claude-opus-5", level: "high" });
+    const file = writeAdvisorOverlay(
+      dir,
+      { model: "openrouter/anthropic/claude-opus-5", level: "high" },
+      true,
+    );
     expect(file).toBe(advisorOverlayPath(dir));
     expect(fs.readFileSync(file!, "utf8")).toBe(
-      'modelRoles:\n  advisor: "openrouter/anthropic/claude-opus-5:high"\n',
+      'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "openrouter/anthropic/claude-opus-5:high"\n',
     );
   });
 
-  it("removes the overlay for a null role instead of pinning an empty one", () => {
+  it("writes enabled: false, the only way to turn the advisor off", () => {
+    // Omitting `--advisor` does NOT disable it: the flag only ever sets
+    // advisor.enabled=true, so a config saying true keeps it on. Verified
+    // against omp v17.1.8 — without this line the composer's "off" is a no-op.
+    const dir = tmpDir();
+    const file = writeAdvisorOverlay(dir, null, false)!;
+    expect(fs.readFileSync(file, "utf8")).toBe("advisor:\n  enabled: false\n");
+  });
+
+  it("omits modelRoles for a null role instead of pinning an empty one", () => {
     // An overlay setting the role to "" resolves to no advisor model at all,
     // which is not the same as deferring to omp's own config.
     const dir = tmpDir();
-    const file = writeAdvisorOverlay(dir, { model: "a/b" })!;
-    expect(writeAdvisorOverlay(dir, null)).toBeNull();
+    const file = writeAdvisorOverlay(dir, null, true)!;
+    expect(fs.readFileSync(file, "utf8")).toBe("advisor:\n  enabled: true\n");
+  });
+
+  it("removes the overlay when the session states no preference at all", () => {
+    const dir = tmpDir();
+    const file = writeAdvisorOverlay(dir, { model: "a/b" }, true)!;
+    expect(writeAdvisorOverlay(dir, null, null)).toBeNull();
     expect(fs.existsSync(file)).toBe(false);
   });
 
   it("is idempotent when there was never an overlay", () => {
-    expect(writeAdvisorOverlay(tmpDir(), null)).toBeNull();
+    expect(writeAdvisorOverlay(tmpDir(), null, null)).toBeNull();
   });
 
   it("creates the lineage dir so --config cannot fail on a missing file", () => {
     // omp treats a missing `--config` overlay as a hard startup error.
     const dir = path.join(tmpDir(), "not-yet");
-    const file = writeAdvisorOverlay(dir, { model: "a/b" })!;
+    const file = writeAdvisorOverlay(dir, { model: "a/b" }, true)!;
     expect(fs.existsSync(file)).toBe(true);
   });
 
   it("escapes a quote in the selector rather than emitting broken YAML", () => {
     const dir = tmpDir();
-    const file = writeAdvisorOverlay(dir, { model: 'a/b"c' })!;
-    expect(fs.readFileSync(file, "utf8")).toBe('modelRoles:\n  advisor: "a/b\\"c"\n');
+    const file = writeAdvisorOverlay(dir, { model: 'a/b"c' }, true)!;
+    expect(fs.readFileSync(file, "utf8")).toBe(
+      'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "a/b\\"c"\n',
+    );
   });
 });

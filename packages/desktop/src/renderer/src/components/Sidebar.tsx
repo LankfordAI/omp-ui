@@ -61,44 +61,6 @@ function IconPlus() {
 
 /* -------------------------------------------------------------- primitives */
 
-/**
- * The advisor toggle. A native checkbox cannot be styled into this palette, so
- * this is a real `role="switch"` button — keyboard and AT get the same affordance.
- */
-function Switch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      title={label}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative h-3.5 w-[26px] shrink-0 rounded-full border p-px",
-        "transition-colors duration-200",
-        checked ? "border-signal-dim bg-signal-wash" : "border-line-strong bg-line",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "block size-2.5 rounded-full transition-transform duration-200",
-          checked ? "translate-x-3 bg-signal" : "translate-x-0 bg-ink-dim",
-        )}
-      />
-    </button>
-  );
-}
-
 /** Three pulsing bars — the honest "we have not heard from the backend yet". */
 function SkeletonRows() {
   return (
@@ -157,7 +119,6 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
 function ProjectSection({ group, sessions }: FilteredGroup) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
-  const toggleAdvisor = useStore((st) => st.toggleAdvisor);
   const [open, setOpen] = useState(true);
 
   const { project } = group;
@@ -197,11 +158,6 @@ function ProjectSection({ group, sessions }: FilteredGroup) {
           </button>
 
           <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100">
-            <Switch
-              checked={project.advisor}
-              onChange={(next) => void toggleAdvisor(project.path, next)}
-              label={project.advisor ? "advisor on" : "advisor off"}
-            />
             <IconButton label="new session" onClick={() => void newSession(project.path)}>
               <IconPlus />
             </IconButton>

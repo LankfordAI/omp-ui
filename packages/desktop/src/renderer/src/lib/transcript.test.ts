@@ -47,6 +47,59 @@ describe("reduceEvent message lifecycle", () => {
     expect(a).toMatchObject({ text: "Hi there", thinking: "hmm", streaming: false });
   });
 
+  it("keeps image blocks on a pasted user message", () => {
+    // The shape omp actually emits: images follow the single text block, and
+    // omp re-encodes on ingest, so a pasted PNG comes back as webp.
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "what colour?" },
+          { type: "image", data: "AAAB", mimeType: "image/webp" },
+          { type: "image", data: "AAAC", mimeType: "image/png" },
+        ],
+      },
+    });
+    expect(items[0]).toMatchObject({
+      kind: "user",
+      text: "what colour?",
+      images: [
+        { data: "AAAB", mimeType: "image/webp" },
+        { data: "AAAC", mimeType: "image/png" },
+      ],
+    });
+  });
+
+  it("carries images on a text-free user message", () => {
+    // An image alone is a legitimate prompt, so it must not reduce to nothing.
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "image", data: "AAAB", mimeType: "image/png" }] },
+    });
+    expect(items[0]).toMatchObject({ kind: "user", text: "" });
+    expect((items[0] as { images?: unknown[] }).images).toHaveLength(1);
+  });
+
+  it("leaves images undefined on a text-only message", () => {
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "plain" }] },
+    });
+    expect((items[0] as { images?: unknown[] }).images).toBeUndefined();
+  });
+
+  it("drops an image block with no data rather than rendering a broken img", () => {
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "x" }, { type: "image", mimeType: "image/png" }],
+      },
+    });
+    expect((items[0] as { images?: unknown[] }).images).toBeUndefined();
+  });
+
   it("creates a streaming item when deltas arrive without message_start", () => {
     const items = reduceEvent([], {
       type: "message_update",
@@ -434,6 +487,25 @@ describe("historyToItems", () => {
     expect(items[3]).toMatchObject({
       kind: "advisory",
       notes: [{ note: "nitpick", severity: "nit", advisor: "style" }],
+    });
+  });
+
+  it("restores images on a resumed session's user messages", () => {
+    // Reopening a session goes through get_messages, not the event stream, so
+    // the attachments have to survive that path too or they vanish on resume.
+    const items = historyToItems([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          { type: "image", data: "AAAB", mimeType: "image/webp" },
+        ],
+      },
+    ]);
+    expect(items[0]).toMatchObject({
+      kind: "user",
+      text: "what is this?",
+      images: [{ data: "AAAB", mimeType: "image/webp" }],
     });
   });
 

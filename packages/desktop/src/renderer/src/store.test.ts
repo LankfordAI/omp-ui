@@ -19,7 +19,9 @@ const mockBackend = {
   onPtyExit: vi.fn(),
   addProject: vi.fn(),
   removeProject: vi.fn(),
-  setProjectAdvisor: vi.fn(),
+  setSessionAdvisor: vi.fn(),
+  getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -91,7 +93,7 @@ function stateWithRecord(sessionId: string | null, live: LiveState = "live"): Ba
     defaultMode: "rpc-ui",
     projects: [
       {
-        project: { path: "/p", name: "p", advisor: false, addedAt: "t" },
+        project: { path: "/p", name: "p", addedAt: "t" },
         sessions: [
           {
             tabId: TAB,

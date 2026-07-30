@@ -113,7 +113,6 @@ interface UiStore {
   init(): Promise<void>;
   addProject(): Promise<void>;
   removeProject(path: string): Promise<void>;
-  toggleAdvisor(path: string, advisor: boolean): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
   newSession(projectCwd: string): Promise<void>;
   openSession(tabId: string): Promise<void>;
@@ -356,23 +355,26 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
-    async toggleAdvisor(path, advisor) {
-      await backend.setProjectAdvisor(path, advisor);
-    },
-
     async setDefaultMode(mode) {
       await backend.setDefaultMode(mode);
     },
 
     async newSession(projectCwd) {
-      const { state } = get();
-      const project = state?.projects.find((p) => p.project.path === projectCwd)?.project;
-      const mode = state?.defaultMode ?? "pty";
+      const mode = get().state?.defaultMode ?? "pty";
+      // omp's own config decides whether a fresh session starts with the
+      // advisor — the composer's toggle then owns it per session. Awaited so a
+      // first-ever session in a project doesn't launch before the default is
+      // known and silently come up advisor-off.
+      await get().loadAdvisorDefaults(projectCwd);
+      const defaults = get().advisorDefaults[projectCwd];
       try {
         const { tabId } = await backend.spawnSession({
           projectCwd,
           mode,
-          advisor: project?.advisor ?? false,
+          advisor: defaults?.enabled ?? false,
+          // Null, not the default model: pinning it here would freeze this
+          // session against a later edit to omp's config.
+          advisorModel: null,
           cols: 80,
           rows: 24,
         });
