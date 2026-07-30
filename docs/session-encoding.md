@@ -1,50 +1,160 @@
-# Session Encoding Reference
+# Session Storage & Encoding Reference
 
-OMP encodes project paths into session directory names under `~/.omp/sessions/`.
-This document captures the encoding rules verified from `src/session/session-paths.ts`
-so the sidebar can decode them if needed — though the recommended approach is to
-**read session headers** (encoding-agnostic).
+How OMP stores sessions on disk, verified against
+`@oh-my-pi/pi-coding-agent` **v17.1.8**
+(`src/session/session-paths.ts`, `session-listing.ts`, `session-entries.ts`,
+`session-manager.ts`; `@oh-my-pi/pi-utils/src/dirs.ts`) and against a live
+install. Re-verify on upgrade — an older release used a different directory
+format (see [Legacy format & migration](#legacy-format--migration)).
 
-## Directory Layout
+**Recommended approach for the sidebar: parse session files, not directory
+names.** Everything in the [Directory encoding](#directory-encoding) section is
+provided for debugging and raw filesystem listing only.
+
+## Sessions root
+
+Default: **`~/.omp/agent/sessions/`** (note the `agent/` level).
+
+Resolution order (`getSessionsDir()` → `dirs.agentSubdir(agentDir, "sessions", "data")`):
+
+1. `PI_CONFIG_DIR` — config root name (default `.omp`)
+2. `PI_CODING_AGENT_DIR` — full agent-dir override
+3. `OMP_PROFILE` / `PI_PROFILE` — named profiles live at
+   `~/.omp/profiles/<profile>/agent/sessions`
+4. Linux only: if `XDG_DATA_HOME` is set, the root flattens to
+   `$XDG_DATA_HOME/omp/sessions` (the `agent/` prefix is dropped)
+
+The CLI flag **`--session-dir <path>`** pins the directory used for both storage
+and `--resume` lookup. The GUI can pass this to every spawned `omp` and scan
+exactly that directory — no guessing.
+
+## Directory layout
 
 ```
-~/.omp/sessions/
-├── --home-user-projects-myrepo--          ← home-relative: /home/user/projects/myrepo
-│   ├── 2026-07-28-10-30-00_a1b2c3d4.jsonl
-│   └── 2026-07-28-09-15-00_e5f6g7h8.jsonl
-├── --tmp-omp-sandbox--                    ← /tmp/omp-sandbox
-│   └── 2026-07-28-08-00-00_i9j0k1l2.jsonl
-└── --var-www-html--                       ← /var/www/html
-    └── 2026-07-28-07-00-00_m3n4o5p6.jsonl
+~/.omp/agent/sessions/
+├── -Documents-Repos-LankfordAI-omp-ui/        ← project under $HOME
+│   ├── 2026-07-29T16-18-42-427Z_019faeab-cc7b-7000-8bfc-67242a2869d8.jsonl
+│   └── 2026-07-29T16-18-42-427Z_019faeab-cc7b-7000-8bfc-67242a2869d8/   ← artifacts dir
+│       ├── __advisor.jsonl                     ← advisor transcript(s)
+│       └── PublishGate.jsonl                   ← named subagent transcript
+├── -tmp/                                      ← the temp root itself (/tmp)
+│   └── …
+└── --var-www-html--/                          ← outside $HOME and tmp: legacy format
+    └── …
 ```
 
-## Encoding Rules
+Each session is a `<timestamp>_<uuidv7>.jsonl` file plus an optional sibling
+**artifacts directory** of the same name minus `.jsonl`:
 
-Verified from `getDefaultSessionDirName()` and helper functions in
-`session-paths.ts`:
+- `__advisor[.<slug>].jsonl` — per-advisor transcripts (one recorder per advisor)
+- `<agentId>.jsonl` — named subagent transcripts (e.g. `PublishGate.jsonl`)
 
-### 1. Home-relative paths
-When the cwd is under `$HOME`:
-- **Encoding**: `path.relative($HOME, cwd)` → replace `/`, `\`, `:` with `-`
-- **Format**: `--<encoded-relative>--`
-- **Examples**:
-  - `/home/user/projects/myrepo` → `--home-user-projects-myrepo--`
-  - `/home/user` → `--` (the home dir itself, encoded `home` becomes `--home--`)
+The sidebar should treat the artifacts dir as part of the session: advisor and
+subagent activity is first-class data for the UI, not noise. (OMP deletes them
+together — `deleteSessionWithArtifacts`.)
 
-### 2. Temp-root paths
-When the cwd is under the system temp directory (`$TMPDIR`, `/tmp`, etc.):
-- **Encoding**: `path.relative(tmpRoot, cwd)` → replace `/`, `\`, `:` with `-`
-- **Format**: `--tmp-<encoded-relative>--`
-- **Examples**:
-  - `/tmp/omp-sandbox` → `--tmp-omp-sandbox--`
-  - `/var/folders/xx/yy/T/myproject` → `--tmp-var-folders-xx-yy-T-myproject--`
+## Session filenames
 
-### 3. Absolute paths (elsewhere)
-When the cwd is outside `$HOME` and temp:
-- **Encoding**: `resolvedCwd` with leading `/`, `\`, `:` stripped, then all `/` and
-  `:` replaced with `-`
-- **Format**: `--<sanitized-absolute-path>--`
-- **Examples**:
+```
+<fileSafeTimestamp>_<uuidv7>.jsonl
+```
+
+`fileSafeTimestamp` = `date.toISOString()` with `:` and `.` replaced by `-`
+(`session-manager.ts:93`). Example:
+`2026-07-29T16-18-42-427Z_019faeab-cc7b-7000-8bfc-67242a2869d8.jsonl`.
+
+`--resume <arg>` (case-insensitive) matches a prefix of any of
+(`session-listing.ts:662`):
+
+1. the session UUID (`019faeab…`)
+2. the full basename (`2026-07-29T16-…`)
+3. the basename portion after the last `_` (same UUID)
+
+…or a direct file path. A UUID prefix is the natural choice for the GUI.
+
+## Session file format (v3)
+
+Newline-delimited JSON. The first line is **optionally** a fixed-width title
+slot; the header follows it (slot present) or is line 1 (slot absent).
+OMP's own loader (`session-loader.ts:25` `splitTitleSlot`) treats the slot as
+optional, and slotless files exist — so the single rule for finding the header
+is: **scan the first lines for the one with `"type":"session"`.** Never skip a
+fixed byte count.
+
+| Line | Content |
+|---|---|
+| Title slot (optional) | Exactly 256 bytes including the newline when present: `{"type":"title","v":1,"title":"…","source":"auto"\|"user","updatedAt":"…","pad":"…"}`. Rewritten in place when the title changes (`pad` keeps the line fixed-width). |
+| Session header | `{"type":"session","version":3,"id":"<uuidv7>","timestamp":"<ISO>","cwd":"…","title"?,"titleSource"?,"additionalDirectories"?,"parentSession"?}` |
+| Entries | Each `{"type":…,"id","parentId","timestamp",…}`: `message`, `model_change`, `thinking_level_change`, `title_change`, … |
+
+What the header gives the sidebar: `id`, `cwd`, `timestamp` (created), `title`
+(may be absent early; also check the title-slot line, which the loader folds
+into the header when present), `parentSession` (forks). What it does **not** give:
+
+- **`model`** — lives in subsequent `model_change` entries
+- **`status`** — derived by OMP from the file *tail*: the last assistant turn's
+  end state (`complete` | `interrupted` | `aborted` | `error` | `pending` |
+  `unknown`; see `SessionStatus` in `session-listing.ts`)
+- **`messageCount`**, **`firstMessage`** — counted/extracted by scanning
+
+For reference, OMP's own scanner (`session-listing.ts`) reads a 4 KiB prefix
+for header + title + first message and a 32 KiB tail for status. Its
+`SessionInfo`:
+
+```ts
+interface SessionInfo {
+  path: string;
+  id: string;
+  cwd: string;
+  title?: string;
+  parentSessionPath?: string;   // fork parent
+  created: Date;
+  modified: Date;
+  messageCount: number;
+  size: number;                 // bytes, for compact list rendering
+  firstMessage: string;
+  allMessagesText: string;
+  status?: SessionStatus;
+}
+```
+
+Note there is no `model` field — a sidebar showing the model must parse
+`model_change` entries itself.
+
+Also on disk: orphaned-write backups named
+`<basename>.jsonl.<snowflake>.bak` (OMP promotes them back to the primary on
+scan; the sidebar can ignore `*.bak`) and a `.draft-only-session` marker for
+draft sessions.
+
+## Directory encoding
+
+Verified from `getDefaultSessionDirName()` in `session-paths.ts`. The cwd is
+first **canonicalized** via `resolveEquivalentPath` (symlink/alias targets
+collapse to one directory name — e.g. a symlinked home or macOS
+`/tmp → /private/tmp`).
+
+### 1. cwd under `$HOME` (or `$HOME` itself)
+
+- **Encoding**: `-` + `path.relative($HOME, cwd)` with `/`, `\`, `:` → `-`
+- `$HOME` itself → literally `-`
+- Examples:
+  - `/home/user/projects/myrepo` → `-projects-myrepo`
+  - `/home/alankford/Documents/Repos/LankfordAI/omp-ui` →
+    `-Documents-Repos-LankfordAI-omp-ui` (verified live)
+
+### 2. cwd under the temp root (`os.tmpdir()`)
+
+- **Encoding**: `-tmp` + `-` + temp-relative with `/`, `\`, `:` → `-`
+- The temp root itself → `-tmp`
+- Examples:
+  - `/tmp` → `-tmp` (verified live)
+  - `/tmp/omp-sandbox` → `-tmp-omp-sandbox`
+
+### 3. cwd anywhere else — legacy absolute format (still live)
+
+- **Encoding**: strip the leading `/` or `\`, replace `/`, `\`, `:` with `-`,
+  wrap in `--`
+- Examples:
   - `/var/www/html` → `--var-www-html--`
   - `/mnt/data/projects/api` → `--mnt-data-projects-api--`
 
@@ -57,41 +167,31 @@ function encodeRelativeSessionDirName(prefix: string, relative: string): string 
         ? (prefix.endsWith("-") ? `${prefix}${encoded}` : `${prefix}-${encoded}`)
         : prefix;
 }
+// home:  encodeRelativeSessionDirName("-", homeRelative)
+// temp:  encodeRelativeSessionDirName("-tmp", tempRelative)
+// else:  `--${absolute.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`
 ```
 
 ### Decoding
 
-To reverse the encoding:
-1. Strip leading `--` and trailing `--`
-2. If starts with `tmp-`, it's a temp-root path → strip `tmp-`, resolve relative to temp root
-3. If starts with `home`, it's a home-relative path → prepend `$HOME/`
-4. Otherwise, reconstruct by replacing `-` with `/`
+Decoding is **lossy** — `-` in real path components is indistinguishable from a
+separator (`/home/user/my-project` → `-my-project` ≈ `/home/user/my/project`).
+Do not decode; read the `cwd` from each session's header instead. If a raw
+directory listing must be shown, display the encoded name as-is.
 
-**Warning**: Decoding is lossy if project paths contain `-` characters. For example:
-- `/home/user/my-project` encodes to `--home-user-my-project--`
-- This could also decode to `/home/user/my/project` (with `/` between `my` and `project`)
+## Legacy format & migration
 
-**Recommendation**: Decode by trying `path.resolve($HOME, decoded)` and checking if the
-directory exists. Fall back to showing the raw directory name if decoding fails.
+Releases before the current one encoded **home** paths as
+`--<homeEncoded>-<relative>--` (e.g. `--home-user-projects-myrepo--`). On first
+access to a sessions root, `migrateHomeSessionDirs()` renames these in place:
+`--home-user-projects-myrepo--` → `-projects-myrepo`, `--home-user--` → `-`.
 
-## Recommended Approach: Read Session Headers
+Consequences for the GUI:
 
-Each session `.jsonl` file starts with a JSON header:
-
-```json
-{"type":"session","version":...,"cwd":"/home/user/projects/myrepo",...}
-```
-
-**Always parse the `cwd` from this header instead of decoding the directory name.**
-This is:
-- Encoding-agnostic (survives OMP encoding changes)
-- Not lossy (the exact cwd is stored)
-- Simpler (no decode/reconstruct logic)
-
-The sidebar should:
-1. List directories under `~/.omp/sessions/`
-2. For each `.jsonl` file, read the first JSON line to get `cwd`, `title`, `status`
-3. Group sessions by the `cwd` from the header
-
-**Verify on upgrade**: If a future OMP version changes the directory encoding, the
-sidebar still works because it reads headers, not directory names.
+- **Directory names can change under a running sidebar** when an upgraded OMP
+  first touches a sessions root. Watch the root and rescan rather than caching
+  names.
+- The `--…--` wrapper is **not** purely historical: rule 3 above still produces
+  it for paths outside home and temp. Both shapes coexist.
+- If the sidebar finds sessions in a `--home-…--` directory, an old OMP wrote
+  them; the header `cwd` is still authoritative.

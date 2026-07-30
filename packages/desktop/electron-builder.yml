@@ -1,0 +1,14 @@
+appId: ai.lankford.omp-ui
+productName: omp-ui
+executableName: omp-ui
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+npmRebuild: false
+linux:
+  target: AppImage
+  category: Development

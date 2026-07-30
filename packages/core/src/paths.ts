@@ -1,0 +1,103 @@
+import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+// Ported from @oh-my-pi/pi-utils src/dirs.ts (v17.1.8): profile validation.
+const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const WINDOWS_RESERVED_BASENAME_RE = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i;
+
+/**
+ * Mirrors omp's readProfileFromEnvSafe: OMP_PROFILE wins over PI_PROFILE when
+ * defined (an explicitly-empty OMP_PROFILE selects the default profile);
+ * invalid names resolve to undefined. Never throws.
+ */
+export function resolveProfile(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const raw = env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE;
+  if (raw === undefined || raw === "") return undefined;
+  if (!PROFILE_NAME_RE.test(raw) || WINDOWS_RESERVED_BASENAME_RE.test(raw)) return undefined;
+  return raw;
+}
+
+/**
+ * Exact port of omp's sessions-root resolution (pi-utils src/dirs.ts:228-330).
+ * Call lazily at every use — the XDG branch is existence-gated and can flip
+ * while the app runs.
+ */
+export function getSessionsRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const home = os.homedir();
+  const profile = resolveProfile(env);
+  const configName = env.PI_CONFIG_DIR || ".omp"; // directory NAME under $HOME
+  const configRoot = profile
+    ? path.join(home, configName, "profiles", profile)
+    : path.join(home, configName);
+  const defaultAgent = path.join(configRoot, "agent");
+  // PI_CODING_AGENT_DIR applies only to the DEFAULT profile (ignored when a
+  // named profile is active).
+  const agentDir =
+    !profile && env.PI_CODING_AGENT_DIR ? path.resolve(env.PI_CODING_AGENT_DIR) : defaultAgent;
+  const isDefault = agentDir === defaultAgent;
+  if ((process.platform === "linux" || process.platform === "darwin") && isDefault) {
+    const xdg = env.XDG_DATA_HOME;
+    if (xdg) {
+      // XDG flattens the agent/ prefix, and only applies if the dir ALREADY EXISTS.
+      const candidate = profile ? path.join(xdg, "omp", "profiles", profile) : path.join(xdg, "omp");
+      try {
+        if (fs.existsSync(candidate)) return path.join(candidate, "sessions");
+      } catch {
+        // fall through to the default
+      }
+    }
+  }
+  return path.join(agentDir, "sessions");
+}
+
+export function getArchiveRoot(sessionsRoot: string): string {
+  return path.join(path.dirname(sessionsRoot), "archive", "sessions");
+}
+
+// ADR-0003: per-lineage session dirs, direct children of the sessions root.
+const LINEAGE_DIR_RE = /^omp-ui--.+-[0-9a-f-]{36}$/;
+
+function slugify(projectCwd: string): string {
+  const slug = path
+    .basename(projectCwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  return slug || "project";
+}
+
+export function mintLineageDirName(projectCwd: string): string {
+  return `omp-ui--${slugify(projectCwd)}--${randomUUID()}`;
+}
+
+export function isLineageDirName(name: string): boolean {
+  return LINEAGE_DIR_RE.test(name);
+}
+
+/**
+ * Electron launched from a .desktop/AppImage may lack ~/.bun/bin on PATH, so
+ * resolution checks an explicit override, then PATH, then known install spots.
+ * First existing hit wins; null → caller surfaces a user-facing error.
+ */
+export function resolveOmpBinary(env: NodeJS.ProcessEnv = process.env): string | null {
+  const candidates: string[] = [];
+  if (env.OMP_UI_OMP_PATH) candidates.push(env.OMP_UI_OMP_PATH);
+  for (const dir of (env.PATH ?? "").split(path.delimiter)) {
+    if (dir) candidates.push(path.join(dir, "omp"));
+  }
+  const home = os.homedir();
+  candidates.push(path.join(home, ".bun", "bin", "omp"));
+  candidates.push("/usr/local/bin/omp");
+  candidates.push(path.join(home, ".local", "bin", "omp"));
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // keep looking
+    }
+  }
+  return null;
+}
