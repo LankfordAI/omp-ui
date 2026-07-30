@@ -25,6 +25,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "pty",
     advisor: false,
+    advisorModel: null,
     cachedTitle: null,
     cachedModified: null,
     ...patch,

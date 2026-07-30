@@ -12,6 +12,18 @@ export type SessionStatus =
 export type SessionMode = "pty" | "rpc-ui";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
+/**
+ * A pasted image, shaped exactly like omp's `ImageContent` (minus the
+ * OpenAI-only `detail` hint). `data` is bare base64 — never a `data:` URL.
+ * Lives here rather than in images.ts because the renderer imports this file
+ * type-only and images.ts pulls in node:fs.
+ */
+export interface ImageAttachment {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
 export interface ProjectRecord {
   path: string;
   name: string;
@@ -29,6 +41,12 @@ export interface OwnedSessionRecord {
   launchedAt: string;
   mode: SessionMode;
   advisor: boolean;
+  /**
+   * The `advisor` role this session pins, as omp's `model[:level]` selector.
+   * Null defers to omp's own config. omp binds the role at process start, so
+   * this is applied as a `--config` overlay at spawn and changing it respawns.
+   */
+  advisorModel: string | null;
   cachedTitle: string | null;
   cachedModified: string | null;
 }
@@ -53,9 +71,18 @@ export interface SpawnRequest {
   projectCwd: string;
   mode: SessionMode;
   advisor: boolean;
+  /** omp `model[:level]` selector for the advisor role; null uses omp's config. */
+  advisorModel?: string | null;
   cols: number;
   rows: number;
   resumeTabId?: string;
+}
+
+/** omp's own advisor defaults, read from its config (see core/omp-config.ts). */
+export interface AdvisorDefaults {
+  enabled: boolean;
+  /** `modelRoles.advisor` as written, or null when omp resolves it in code. */
+  model: string | null;
 }
 
 /**
@@ -77,6 +104,20 @@ export interface OmpBackend {
    * session is live.
    */
   deleteSession(tabId: string): Promise<void>;
+  /**
+   * Re-pins a session's advisor state. omp binds both the enable flag and the
+   * `advisor` role at process start, so a live session is respawned with
+   * `--resume`; a dormant one just records the choice for its next launch.
+   */
+  setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): Promise<void>;
+  /** omp's own advisor defaults for a project (global config + project overlay). */
+  getAdvisorDefaults(projectCwd: string): Promise<AdvisorDefaults>;
+  /**
+   * Writes pasted image bytes to a scratch file and delivers its path to the
+   * PTY as a bracketed paste — omp's TUI loads the file itself. The PTY carries
+   * no byte channel, so this is the only route for terminal-mode images.
+   */
+  ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void>;
   ptyWrite(tabId: string, data: string): void;
   ptyResize(tabId: string, cols: number, rows: number): void;
   rpcSend(tabId: string, command: object): void;

@@ -6,6 +6,29 @@ export { spawnOmp, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export {
+  advisorOverlayPath,
+  writeAdvisorOverlay,
+} from "./advisor-overlay";
+export {
+  formatAdvisorRole,
+  getOmpAgentDir,
+  parseAdvisorRole,
+  readOmpAdvisorDefaults,
+  type AdvisorRole,
+  type OmpAdvisorDefaults,
+} from "./omp-config";
+export {
+  base64Bytes,
+  bracketedImagePaste,
+  clearImageScratch,
+  imageExtension,
+  imageScratchDir,
+  isSupportedImageMime,
+  writeImageToScratch,
+  MAX_IMAGE_BYTES,
+  SUPPORTED_IMAGE_MIME_TYPES,
+} from "./images";
+export {
   deleteSessionFiles,
   findNewestSessionFile,
   resolveSessionLocation,

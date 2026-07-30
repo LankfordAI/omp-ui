@@ -22,10 +22,13 @@ export function spawnOmp(opts: {
   cols: number;
   rows: number;
   advisor?: boolean;
+  /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
+  configOverlays?: string[];
 }): PtyHandle {
   const args = ["--cwd", opts.cwd, "--session-dir", opts.lineageDir];
   if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
   if (opts.advisor) args.push("--advisor");
+  for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
 
   fs.mkdirSync(opts.lineageDir, { recursive: true });
 

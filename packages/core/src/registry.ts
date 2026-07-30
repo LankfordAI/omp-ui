@@ -50,6 +50,12 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     isSessionMode(value.mode) &&
     "advisor" in value &&
     typeof value.advisor === "boolean" &&
+    // advisorModel post-dates the first schema-1 records, so absent is legal
+    // and normalized to null by `parseRegistryData` — requiring it here would
+    // silently drop every session written before the advisor picker shipped.
+    (!("advisorModel" in value) ||
+      typeof value.advisorModel === "string" ||
+      value.advisorModel === null) &&
     "cachedTitle" in value &&
     (typeof value.cachedTitle === "string" || value.cachedTitle === null) &&
     "cachedModified" in value &&
@@ -70,7 +76,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
   const sessionsValue = "sessions" in raw ? raw.sessions : [];
   if (!Array.isArray(projectsValue) || !Array.isArray(sessionsValue)) return null;
   const projects = projectsValue.filter(isProjectRecord);
-  const sessions = sessionsValue.filter(isOwnedSessionRecord);
+  const sessions = sessionsValue
+    .filter(isOwnedSessionRecord)
+    .map((s) => ({ ...s, advisorModel: s.advisorModel ?? null }));
   const settings =
     "settings" in raw &&
     raw.settings !== null &&
@@ -172,6 +180,19 @@ export class Registry {
     const project = this.#data.projects.find((p) => p.path === projectPath);
     if (!project) return;
     project.advisor = advisor;
+    this.#save();
+  }
+
+  /**
+   * Records a session's advisor choice. Kept beside `setProjectAdvisor` because
+   * they answer different questions: the project flag seeds *new* sessions, this
+   * one re-pins an existing lineage.
+   */
+  setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): void {
+    const record = this.#data.sessions.find((s) => s.tabId === tabId);
+    if (!record) return;
+    record.advisor = advisor;
+    record.advisorModel = advisorModel;
     this.#save();
   }
 

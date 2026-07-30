@@ -25,6 +25,8 @@ export interface RpcClientOpts {
   ompPath: string;
   resumeSessionId?: string;
   advisor?: boolean;
+  /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
+  configOverlays?: string[];
   onFrame: (frame: unknown) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
@@ -82,6 +84,7 @@ export class RpcClient {
     const args = ["--mode=rpc-ui", "--cwd", opts.cwd, "--session-dir", opts.lineageDir];
     if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
     if (opts.advisor) args.push("--advisor");
+    for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
     // Same shim-proofing as spawnOmp: keep the resolved binary's dir on PATH.
     const env = {
       ...process.env,
