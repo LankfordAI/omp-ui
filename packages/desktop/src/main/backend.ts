@@ -338,11 +338,7 @@ export class MainBackend {
       await this.broadcast();
       return;
     }
-    entry.restarting = true;
-    entry.pty?.kill();
-    entry.rpc?.kill();
-    this.live.delete(tabId);
-    await this.spawn({
+    await this.relaunch(entry, {
       projectCwd: record.projectCwd,
       mode: record.mode,
       advisor,
@@ -379,7 +375,16 @@ export class MainBackend {
       record.lineageDir,
       record.sessionId,
     );
-    if (loc.where === "missing") throw new Error("session files are gone — delete it from the sidebar");
+    if (loc.where === "missing") {
+      // omp writes the transcript lazily, on the first turn, so a session
+      // relaunched before it has said anything has no file yet — and a record
+      // that never had a `sessionId` never had one to lose. That is a fresh
+      // start, not a loss: spawn proceeds with no `--resume` and omp opens the
+      // session it was always going to. Only a record that *did* name a
+      // session and can no longer find it has actually lost something.
+      if (record.sessionId === null) return record;
+      throw new Error("session files are gone — delete it from the sidebar");
+    }
     if (loc.where === "archived") {
       let sessionId = record.sessionId;
       if (!sessionId) {
@@ -430,11 +435,7 @@ export class MainBackend {
     }
     // Live: kill + relaunch in the new mode with --resume (sessions are
     // durable — this is a relaunch, not a loss).
-    entry.restarting = true;
-    entry.pty?.kill();
-    entry.rpc?.kill();
-    this.live.delete(tabId);
-    await this.spawn({
+    await this.relaunch(entry, {
       projectCwd: record.projectCwd,
       mode,
       advisor: record.advisor,
@@ -442,6 +443,31 @@ export class MainBackend {
       rows: 24,
       resumeTabId: tabId,
     });
+  }
+
+  /**
+   * Kills a live session and spawns it again with `--resume`. The one way to
+   * change anything omp binds at process start (its mode, its advisor).
+   *
+   * `restarting` suppresses the old process's exit so the renderer does not
+   * flash a dead tab mid-swap — which means a failed respawn would otherwise
+   * be silent, leaving the tab looking live over a corpse. So the notice is
+   * re-sent by hand on that path, and only that path.
+   */
+  private async relaunch(entry: LiveEntry, req: SpawnRequest): Promise<void> {
+    const tabId = req.resumeTabId!;
+    entry.restarting = true;
+    entry.pty?.kill();
+    entry.rpc?.kill();
+    this.live.delete(tabId);
+    try {
+      await this.spawn(req);
+    } catch (err) {
+      // -1 is the same code spawnRpc's own exit path uses for "no status".
+      this.send(CH.ptyExit, tabId, -1);
+      await this.broadcast();
+      throw err;
+    }
   }
 
   private startWatcher(record: OwnedSessionRecord): void {

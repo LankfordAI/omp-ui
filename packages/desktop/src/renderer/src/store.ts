@@ -853,7 +853,14 @@ export const useStore = create<UiStore>()((set, get) => {
       try {
         await backend.setSessionAdvisor(tabId, advisor, advisorModel);
       } catch (err) {
-        alertError(err);
+        // Changing the advisor relaunches the agent, so a failure here means
+        // the session is down, not merely that a setting did not stick. Say
+        // that, rather than surfacing the bare IPC error.
+        const reason = err instanceof Error ? err.message : String(err);
+        window.alert(
+          `Could not ${advisor ? "enable" : "disable"} the advisor: ${reason}\n\n` +
+            "The agent has stopped — resume the session to continue.",
+        );
       }
     },
 
