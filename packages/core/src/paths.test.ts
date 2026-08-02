@@ -6,6 +6,7 @@ import {
   getArchiveRoot,
   getSessionsRoot,
   isLineageDirName,
+  managedOmpPath,
   mintLineageDirName,
   resolveOmpBinary,
   resolveProfile,
@@ -157,30 +158,58 @@ describe("resolveOmpBinary", () => {
     return bin;
   }
 
+  // Pin the managed dir to a nonexistent tmp path so the default under
+  // $HOME (which could exist on a developer machine) never skews these.
+  function noManaged(env: Record<string, string> = {}): Record<string, string> {
+    return { OMP_UI_INSTALL_DIR: path.join(mkTmp(), "nonexistent"), ...env };
+  }
+
   it("prefers OMP_UI_OMP_PATH over PATH", () => {
     const override = fixtureOmp(path.join(mkTmp(), "override"));
     const onPath = fixtureOmp(path.join(mkTmp(), "onpath"));
     expect(
-      resolveOmpBinary({ OMP_UI_OMP_PATH: override, PATH: path.dirname(onPath) }),
+      resolveOmpBinary(noManaged({ OMP_UI_OMP_PATH: override, PATH: path.dirname(onPath) })),
     ).toBe(override);
   });
 
   it("finds omp on PATH in order", () => {
     const first = fixtureOmp(path.join(mkTmp(), "a"));
     const second = fixtureOmp(path.join(mkTmp(), "b"));
-    const env = { PATH: [path.dirname(first), path.dirname(second)].join(path.delimiter) };
+    const env = noManaged({ PATH: [path.dirname(first), path.dirname(second)].join(path.delimiter) });
     expect(resolveOmpBinary(env)).toBe(first);
   });
 
   it("skips a nonexistent override and falls through to PATH", () => {
     const onPath = fixtureOmp(path.join(mkTmp(), "onpath"));
     expect(
-      resolveOmpBinary({ OMP_UI_OMP_PATH: "/nonexistent/omp", PATH: path.dirname(onPath) }),
+      resolveOmpBinary(noManaged({ OMP_UI_OMP_PATH: "/nonexistent/omp", PATH: path.dirname(onPath) })),
     ).toBe(onPath);
   });
 
+  it("prefers the app-managed copy over PATH", () => {
+    const managed = fixtureOmp(path.join(mkTmp(), "managed"));
+    const onPath = fixtureOmp(path.join(mkTmp(), "onpath"));
+    // The managed candidate is whatever the env's OMP_UI_INSTALL_DIR says.
+    const env = {
+      OMP_UI_INSTALL_DIR: path.dirname(managed),
+      PATH: path.dirname(onPath),
+    };
+    expect(resolveOmpBinary(env)).toBe(managed);
+  });
+
+  it("lets an explicit OMP_UI_OMP_PATH win over the managed copy", () => {
+    const managed = fixtureOmp(path.join(mkTmp(), "managed"));
+    const override = fixtureOmp(path.join(mkTmp(), "override"));
+    const env = {
+      OMP_UI_INSTALL_DIR: path.dirname(managed),
+      OMP_UI_OMP_PATH: override,
+      PATH: "",
+    };
+    expect(resolveOmpBinary(env)).toBe(override);
+  });
+
   it("falls back to known install locations when PATH misses", () => {
-    const result = resolveOmpBinary({ PATH: "" });
+    const result = resolveOmpBinary(noManaged({ PATH: "" }));
     const fallbacks = [
       path.join(home, ".bun", "bin", "omp"),
       "/usr/local/bin/omp",
@@ -188,5 +217,16 @@ describe("resolveOmpBinary", () => {
     ];
     const expected = fallbacks.find((f) => fs.existsSync(f)) ?? null;
     expect(result).toBe(expected);
+  });
+});
+
+describe("managedOmpPath", () => {
+  it("defaults under the user data home, overridable via OMP_UI_INSTALL_DIR", () => {
+    expect(managedOmpPath({})).toBe(
+      path.join(home, ".local", "share", "omp-ui", "bin", "omp"),
+    );
+    expect(managedOmpPath({ OMP_UI_INSTALL_DIR: "/custom/bin" })).toBe(
+      path.join("/custom/bin", "omp"),
+    );
   });
 });

@@ -80,21 +80,44 @@ export function isLineageDirName(name: string): boolean {
   return LINEAGE_DIR_RE.test(name);
 }
 
+const OMP_BIN = process.platform === "win32" ? "omp.exe" : "omp";
+
+/**
+ * The directory omp-ui installs and updates its own private copy of the omp
+ * binary into (overridable via `OMP_UI_INSTALL_DIR`). App-scoped under the
+ * user's data home, so it never collides with a bun-global or Homebrew omp.
+ */
+export function managedOmpDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.OMP_UI_INSTALL_DIR || path.join(os.homedir(), ".local", "share", "omp-ui", "bin");
+}
+
+/** The managed binary path itself. */
+export function managedOmpPath(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(managedOmpDir(env), OMP_BIN);
+}
+
 /**
  * Electron launched from a .desktop/AppImage may lack ~/.bun/bin on PATH, so
- * resolution checks an explicit override, then PATH, then known install spots.
- * First existing hit wins; null → caller surfaces a user-facing error.
+ * resolution checks an explicit override, then the app-managed copy, then PATH,
+ * then known install spots. First existing hit wins; null → caller surfaces a
+ * user-facing error.
+ *
+ * The app-managed copy ranks above PATH on purpose: once omp-ui installs or
+ * updates it, resolveOmpBinary returns it regardless of where a previous omp
+ * lived (bun global, Homebrew, …), so an update actually takes effect instead
+ * of silently losing to a stale copy earlier on PATH.
  */
 export function resolveOmpBinary(env: NodeJS.ProcessEnv = process.env): string | null {
   const candidates: string[] = [];
   if (env.OMP_UI_OMP_PATH) candidates.push(env.OMP_UI_OMP_PATH);
+  candidates.push(managedOmpPath(env));
   for (const dir of (env.PATH ?? "").split(path.delimiter)) {
-    if (dir) candidates.push(path.join(dir, "omp"));
+    if (dir) candidates.push(path.join(dir, OMP_BIN));
   }
   const home = os.homedir();
-  candidates.push(path.join(home, ".bun", "bin", "omp"));
-  candidates.push("/usr/local/bin/omp");
-  candidates.push(path.join(home, ".local", "bin", "omp"));
+  candidates.push(path.join(home, ".bun", "bin", OMP_BIN));
+  candidates.push(path.join("/usr/local/bin", OMP_BIN));
+  candidates.push(path.join(home, ".local", "bin", OMP_BIN));
   for (const candidate of candidates) {
     try {
       if (fs.existsSync(candidate)) return candidate;
