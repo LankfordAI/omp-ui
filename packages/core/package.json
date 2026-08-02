@@ -3,7 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./types": "./src/types.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./plan": "./src/plan.ts",
+    "./advisor-stats": "./src/advisor-stats.ts"
+  },
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"

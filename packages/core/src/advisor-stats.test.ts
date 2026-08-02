@@ -1,0 +1,77 @@
+import { describe, expect, it } from "vitest";
+import { parseAdvisorStats } from "./advisor-stats";
+
+describe("parseAdvisorStats", () => {
+  it("reads a published stats view", () => {
+    expect(
+      parseAdvisorStats(
+        JSON.stringify({
+          available: true,
+          configured: true,
+          active: true,
+          model: "openrouter/anthropic/claude-opus-5",
+          contextWindow: 200000,
+          contextTokens: 41234,
+          cost: 0.4132,
+          totalTokens: 901200,
+        }),
+      ),
+    ).toEqual({
+      available: true,
+      configured: true,
+      active: true,
+      model: "openrouter/anthropic/claude-opus-5",
+      contextWindow: 200000,
+      contextTokens: 41234,
+      cost: 0.4132,
+      totalTokens: 901200,
+    });
+  });
+
+  it("treats absent numeric fields as zero without throwing", () => {
+    expect(parseAdvisorStats(JSON.stringify({ available: true, model: "a/b" }))).toEqual({
+      available: true,
+      configured: false,
+      active: false,
+      model: "a/b",
+      contextWindow: 0,
+      contextTokens: 0,
+      cost: 0,
+      totalTokens: 0,
+    });
+  });
+
+  it("never reports a non-boolean truthy as active/configured", () => {
+    const stats = parseAdvisorStats(
+      JSON.stringify({ available: true, active: "yes", configured: 1 }),
+    );
+    expect(stats?.active).toBe(false);
+    expect(stats?.configured).toBe(false);
+  });
+
+  it("carries the unavailable reason so the UI can omit rather than fake zeros", () => {
+    const stats = parseAdvisorStats(
+      JSON.stringify({ available: false, unavailable: "no active omp session" }),
+    );
+    expect(stats).toEqual({
+      available: false,
+      unavailable: "no active omp session",
+      configured: false,
+      active: false,
+      model: null,
+      contextWindow: 0,
+      contextTokens: 0,
+      cost: 0,
+      totalTokens: 0,
+    });
+  });
+
+  it("treats missing, malformed, and unknown payloads as no stats", () => {
+    expect(parseAdvisorStats(undefined)).toBeNull();
+    expect(parseAdvisorStats("")).toBeNull();
+    expect(parseAdvisorStats("not json")).toBeNull();
+    expect(parseAdvisorStats("[]")).toBeNull();
+    // An empty payload is neither available nor a reason — no stats at all.
+    expect(parseAdvisorStats(JSON.stringify({}))).toBeNull();
+  });
+});
