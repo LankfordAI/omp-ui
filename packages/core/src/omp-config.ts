@@ -19,8 +19,8 @@ import { resolveProfile } from "./paths";
  * costs a neutral toggle, while a thrown error would break tab boot.
  */
 
-/** The `advisor` role's model, plus omp's `:<level>` thinking suffix if present. */
-export interface AdvisorRole {
+/** A `modelRoles.<role>` value: the model plus omp's `:<level>` suffix if present. */
+export interface ModelRole {
   /** `provider/model` with any `:<level>` suffix stripped. */
   model: string;
   /** omp's thinking-level suffix (`high`, `low`, …), when the value carried one. */
@@ -34,7 +34,7 @@ export interface OmpAdvisorDefaults {
    * `modelRoles.advisor`. Null when unset: omp then resolves the `slow`
    * priority chain in code, and there is no literal for omp-ui to display.
    */
-  role: AdvisorRole | null;
+  role: ModelRole | null;
 }
 
 /**
@@ -63,7 +63,7 @@ const CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
  */
 const LEVEL_RE = /^[a-z]+$/;
 
-export function parseAdvisorRole(value: string): AdvisorRole | null {
+export function parseModelRole(value: string): ModelRole | null {
   const trimmed = value.trim();
   if (trimmed === "") return null;
   const colon = trimmed.lastIndexOf(":");
@@ -77,7 +77,7 @@ export function parseAdvisorRole(value: string): AdvisorRole | null {
 }
 
 /** Re-joins a role back into omp's `model[:level]` selector form. */
-export function formatAdvisorRole(role: AdvisorRole): string {
+export function formatModelRole(role: ModelRole): string {
   return role.level === undefined ? role.model : `${role.model}:${role.level}`;
 }
 
@@ -140,21 +140,28 @@ function nestedScalar(text: string, parent: string, key: string): string | undef
   return undefined;
 }
 
-/** Reads one config file's advisor facts, or null when it does not exist. */
-function readConfigFile(filePath: string): Partial<OmpAdvisorDefaults> | null {
-  let text: string;
+/** The config layers omp merges, lowest priority first; missing files drop out. */
+function configLayers(projectCwd: string, env: NodeJS.ProcessEnv): string[] {
+  const agentDir = getOmpAgentDir(env);
+  const texts: string[] = [];
+  for (const name of CONFIG_FILENAMES) {
+    const text = readConfigText(path.join(agentDir, name));
+    if (text !== null) {
+      texts.push(text);
+      break; // config.yml wins over config.yaml, as in omp.
+    }
+  }
+  const project = readConfigText(path.join(projectCwd, ".omp", "config.yml"));
+  if (project !== null) texts.push(project);
+  return texts;
+}
+
+function readConfigText(filePath: string): string | null {
   try {
-    text = fs.readFileSync(filePath, "utf8");
+    return fs.readFileSync(filePath, "utf8");
   } catch {
     return null;
   }
-  const out: Partial<OmpAdvisorDefaults> = {};
-  const enabled = nestedScalar(text, "advisor", "enabled");
-  if (enabled === "true") out.enabled = true;
-  else if (enabled === "false") out.enabled = false;
-  const role = nestedScalar(text, "modelRoles", "advisor");
-  if (role !== undefined) out.role = parseAdvisorRole(role);
-  return out;
 }
 
 /**
@@ -166,22 +173,37 @@ export function readOmpAdvisorDefaults(
   projectCwd: string,
   env: NodeJS.ProcessEnv = process.env,
 ): OmpAdvisorDefaults {
-  const agentDir = getOmpAgentDir(env);
-  const layers: (Partial<OmpAdvisorDefaults> | null)[] = [];
-  for (const name of CONFIG_FILENAMES) {
-    const hit = readConfigFile(path.join(agentDir, name));
-    if (hit) {
-      layers.push(hit);
-      break; // config.yml wins over config.yaml, as in omp.
-    }
-  }
-  layers.push(readConfigFile(path.join(projectCwd, ".omp", "config.yml")));
-
   const merged: OmpAdvisorDefaults = { enabled: false, role: null };
-  for (const layer of layers) {
-    if (!layer) continue;
-    if (layer.enabled !== undefined) merged.enabled = layer.enabled;
-    if (layer.role !== undefined) merged.role = layer.role;
+  for (const text of configLayers(projectCwd, env)) {
+    const enabled = nestedScalar(text, "advisor", "enabled");
+    if (enabled === "true") merged.enabled = true;
+    else if (enabled === "false") merged.enabled = false;
+    const role = nestedScalar(text, "modelRoles", "advisor");
+    if (role !== undefined) merged.role = parseModelRole(role);
   }
   return merged;
+}
+
+/**
+ * The first of `roles` that `projectCwd`'s effective config actually binds —
+ * omp's own role-chain semantics, where an earlier role wins and an unset one
+ * falls through. Null when the config names none of them, which the caller
+ * spells as "let omp resolve its own".
+ */
+export function readOmpModelRole(
+  projectCwd: string,
+  roles: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): ModelRole | null {
+  const layers = configLayers(projectCwd, env);
+  for (const role of roles) {
+    // Later layers win, so the project's value overrides the global one.
+    let resolved: ModelRole | null = null;
+    for (const text of layers) {
+      const value = nestedScalar(text, "modelRoles", role);
+      if (value !== undefined) resolved = parseModelRole(value);
+    }
+    if (resolved !== null) return resolved;
+  }
+  return null;
 }

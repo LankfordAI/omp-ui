@@ -145,14 +145,59 @@ describe("Registry mutations", () => {
     expect(Registry.load(file).sessions[0]).toMatchObject({ advisor: true, advisorModel: "a/b" });
   });
 
-  it("keeps records written before advisorModel existed, defaulting it to null", () => {
+  it("remembers the complete model and advisor tuples per project", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord());
+
+    reg.setSessionModel("tab-1", "openrouter/anthropic/claude-opus-5", "high");
+    reg.setSessionAdvisor("tab-1", false, "openrouter/openai/gpt-5.6:medium");
+
+    expect(reg.sessions[0]).toMatchObject({
+      model: "openrouter/anthropic/claude-opus-5",
+      thinkingLevel: "high",
+      advisor: false,
+      advisorModel: "openrouter/openai/gpt-5.6:medium",
+    });
+    expect(Registry.load(file).projects[0]).toMatchObject({
+      lastModel: "openrouter/anthropic/claude-opus-5",
+      lastThinkingLevel: "high",
+      lastAdvisor: false,
+      lastAdvisorModel: "openrouter/openai/gpt-5.6:medium",
+    });
+  });
+
+  it("keeps projects written before lastModel existed, defaulting them to null", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [{ path: "/proj", name: "proj", addedAt: "t" }],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.projects[0]).toMatchObject({
+      path: "/proj",
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+    });
+  });
+
+  it("keeps legacy sessions and defaults missing preferences to null", () => {
     const file = tmpFile();
     const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.model;
+    delete legacy.thinkingLevel;
     delete legacy.advisorModel;
     fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
     const reg = Registry.load(file);
     expect(reg.sessions).toHaveLength(1);
-    expect(reg.sessions[0]!.advisorModel).toBeNull();
+    expect(reg.sessions[0]).toMatchObject({ model: null, thinkingLevel: null, advisorModel: null });
   });
 
   it("updateSession applies partial patches", () => {
@@ -193,5 +238,89 @@ describe("Registry snapshots", () => {
       (first[0] as { name: string }).name = "mutated";
     }).toThrow(TypeError);
     expect(reg.projects[0]!.name).toBe("proj");
+  });
+});
+
+describe("Model favorites", () => {
+  it("getFavorites returns empty array on new registry", () => {
+    const reg = Registry.load(tmpFile());
+    expect(reg.getFavorites()).toEqual([]);
+  });
+
+  it("toggleFavorite adds a key on first call", () => {
+    const reg = Registry.load(tmpFile());
+    reg.toggleFavorite("anthropic/claude-opus-5");
+    expect(reg.getFavorites()).toEqual(["anthropic/claude-opus-5"]);
+  });
+
+  it("toggleFavorite round-trips through Registry.load", () => {
+    const file = tmpFile();
+    const reg1 = Registry.load(file);
+    reg1.toggleFavorite("anthropic/claude-opus-5");
+    reg1.toggleFavorite("openai/gpt-4o");
+    // Reload from disk
+    const reg2 = Registry.load(file);
+    expect(reg2.getFavorites()).toEqual(["anthropic/claude-opus-5", "openai/gpt-4o"]);
+  });
+
+  it("toggleFavorite toggles off on second call", () => {
+    const file = tmpFile();
+    const reg1 = Registry.load(file);
+    reg1.toggleFavorite("anthropic/claude-opus-5");
+    reg1.toggleFavorite("anthropic/claude-opus-5");
+    const reg2 = Registry.load(file);
+    expect(reg2.getFavorites()).toEqual([]);
+  });
+
+  it("parseRegistryData defaults modelFavorites to empty when missing", () => {
+    // Upgrade path for existing registry files without modelFavorites
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { defaultMode: "pty" },
+        projects: [],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getFavorites()).toEqual([]);
+  });
+
+  it("parseRegistryData preserves existing modelFavorites", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: {
+          defaultMode: "pty",
+          modelFavorites: ["anthropic/claude-opus-5", "openai/gpt-4o"],
+        },
+        projects: [],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getFavorites()).toEqual(["anthropic/claude-opus-5", "openai/gpt-4o"]);
+  });
+
+  it("parseRegistryData drops non-string entries from modelFavorites", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: {
+          defaultMode: "pty",
+          modelFavorites: ["anthropic/claude-opus-5", 42, null, "openai/gpt-4o"],
+        },
+        projects: [],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getFavorites()).toEqual(["anthropic/claude-opus-5", "openai/gpt-4o"]);
   });
 });

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { formatAdvisorRole, type AdvisorRole } from "./omp-config";
+import { formatModelRole, type ModelRole } from "./omp-config";
 
 /**
  * omp binds the advisor at process start and never re-reads it: editing a
@@ -39,7 +39,7 @@ export function advisorOverlayPath(lineageDir: string): string {
  */
 export function writeAdvisorOverlay(
   lineageDir: string,
-  role: AdvisorRole | null,
+  role: ModelRole | null,
   /**
    * The session's advisor state. `null` defers to omp's config entirely (used
    * for a session that has never expressed a preference).
@@ -52,7 +52,7 @@ export function writeAdvisorOverlay(
   // A model pin is pointless with the advisor off, and omp would resolve it
   // anyway — but it is harmless and keeps the file a faithful mirror of the
   // record, so a later "on" needs no second write.
-  if (role !== null) lines.push("modelRoles:", `  advisor: ${quote(formatAdvisorRole(role))}`);
+  if (role !== null) lines.push("modelRoles:", `  advisor: ${quote(formatModelRole(role))}`);
   if (lines.length === 0) {
     try {
       fs.rmSync(file);

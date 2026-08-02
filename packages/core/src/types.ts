@@ -28,6 +28,14 @@ export interface ProjectRecord {
   path: string;
   name: string;
   addedAt: string;
+  /** Main model most recently used in this project. */
+  lastModel: string | null;
+  /** Main-model thinking level most recently used in this project. */
+  lastThinkingLevel?: string | null;
+  /** Advisor state most recently used in this project; null defers to omp config. */
+  lastAdvisor?: boolean | null;
+  /** Advisor model most recently used, including its optional `:level` suffix. */
+  lastAdvisorModel: string | null;
 }
 
 export interface OwnedSessionRecord {
@@ -39,6 +47,10 @@ export interface OwnedSessionRecord {
   projectCwd: string;
   launchedAt: string;
   mode: SessionMode;
+  /** Main model selected for this session, as omp's `provider/id` selector. */
+  model?: string | null;
+  /** Main-model thinking level selected for this session. */
+  thinkingLevel?: string | null;
   advisor: boolean;
   /**
    * The `advisor` role this session pins, as omp's `model[:level]` selector.
@@ -64,6 +76,7 @@ export interface ProjectGroup {
 export interface BackendState {
   projects: ProjectGroup[];
   defaultMode: SessionMode;
+  modelFavorites: string[];
 }
 
 export interface SpawnRequest {
@@ -82,6 +95,21 @@ export interface AdvisorDefaults {
   enabled: boolean;
   /** `modelRoles.advisor` as written, or null when omp resolves it in code. */
   model: string | null;
+}
+
+/**
+ * Snapshot of the omp install/update situation (see core/omp-update.ts). Kept
+ * inline here rather than imported so this file stays dependency-free for the
+ * renderer's type-only import.
+ */
+export interface OmpUpdateInfo {
+  /** Resolved omp binary path, or null when omp is not installed/not found. */
+  installPath: string | null;
+  installedVersion: string | null;
+  latestVersion: string | null;
+  /** True when both versions are known and installed < latest. */
+  updateAvailable: boolean;
+  error: string | null;
 }
 
 /**
@@ -111,6 +139,27 @@ export interface OmpBackend {
   /** omp's own advisor defaults for a project (global config + project overlay). */
   getAdvisorDefaults(projectCwd: string): Promise<AdvisorDefaults>;
   /**
+   * Records the main model and thinking level for both this session and the
+   * next session in its project. Null values defer to omp's config.
+   */
+  setSessionModel(
+    tabId: string,
+    model: string | null,
+    thinkingLevel: string | null,
+  ): Promise<void>;
+  /**
+   * Titles a first user prompt with omp's own small model (the `tiny`/`commit`/
+   * `smol` role chain). Resolves to null whenever the model declines or the run
+   * fails — the caller keeps its derived title in that case.
+   */
+  generateTitle(projectCwd: string, prompt: string): Promise<string | null>;
+  /**
+   * Reads a plan artifact for the review pane, by absolute path. Confined to
+   * the session's lineage dir by the implementation; null when the file is
+   * absent or out of bounds.
+   */
+  readPlanFile(tabId: string, absPath: string): Promise<string | null>;
+  /**
    * Writes pasted image bytes to a scratch file and delivers its path to the
    * PTY as a bracketed paste — omp's TUI loads the file itself. The PTY carries
    * no byte channel, so this is the only route for terminal-mode images.
@@ -123,4 +172,13 @@ export interface OmpBackend {
   onPtyExit(cb: (tabId: string, exitCode: number) => void): void;
   onRpcFrame(cb: (tabId: string, frame: object) => void): void;
   onStateChanged(cb: (state: BackendState) => void): void;
+  toggleFavorite(key: string): Promise<void>;
+  /** Snapshot of the omp install/update situation (see checkOmpUpdate). */
+  checkOmpUpdate(): Promise<OmpUpdateInfo>;
+  /**
+   * Installs (or updates) the app-managed omp binary to the latest published
+   * release. No auto-apply — the implementation prompts the user first.
+   * Resolves with the resulting state.
+   */
+  applyOmpUpdate(): Promise<OmpUpdateInfo>;
 }

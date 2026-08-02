@@ -4,13 +4,13 @@ import type { OwnedSessionRecord, ProjectRecord, SessionMode } from "./types";
 
 interface RegistryData {
   schemaVersion: 1;
-  settings: { defaultMode: SessionMode };
+  settings: { defaultMode: SessionMode; modelFavorites: string[] };
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
 }
 
 function emptyRegistry(): RegistryData {
-  return { schemaVersion: 1, settings: { defaultMode: "pty" }, projects: [], sessions: [] };
+  return { schemaVersion: 1, settings: { defaultMode: "pty", modelFavorites: [] }, projects: [], sessions: [] };
 }
 
 function isSessionMode(value: unknown): value is SessionMode {
@@ -26,7 +26,19 @@ function isProjectRecord(value: unknown): value is ProjectRecord {
     "name" in value &&
     typeof value.name === "string" &&
     "addedAt" in value &&
-    typeof value.addedAt === "string"
+    typeof value.addedAt === "string" &&
+    // Preference fields post-date the first schema-1 records. Missing values
+    // are legal and normalized by `parseRegistryData`.
+    (!("lastModel" in value) || value.lastModel === null || typeof value.lastModel === "string") &&
+    (!("lastThinkingLevel" in value) ||
+      value.lastThinkingLevel === null ||
+      typeof value.lastThinkingLevel === "string") &&
+    (!("lastAdvisor" in value) ||
+      value.lastAdvisor === null ||
+      typeof value.lastAdvisor === "boolean") &&
+    (!("lastAdvisorModel" in value) ||
+      value.lastAdvisorModel === null ||
+      typeof value.lastAdvisorModel === "string")
   );
 }
 
@@ -46,6 +58,10 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     typeof value.launchedAt === "string" &&
     "mode" in value &&
     isSessionMode(value.mode) &&
+    (!("model" in value) || typeof value.model === "string" || value.model === null) &&
+    (!("thinkingLevel" in value) ||
+      typeof value.thinkingLevel === "string" ||
+      value.thinkingLevel === null) &&
     "advisor" in value &&
     typeof value.advisor === "boolean" &&
     // advisorModel post-dates the first schema-1 records, so absent is legal
@@ -73,18 +89,40 @@ function parseRegistryData(raw: unknown): RegistryData | null {
   const projectsValue = "projects" in raw ? raw.projects : [];
   const sessionsValue = "sessions" in raw ? raw.sessions : [];
   if (!Array.isArray(projectsValue) || !Array.isArray(sessionsValue)) return null;
-  const projects = projectsValue.filter(isProjectRecord);
+  const projects = projectsValue
+    .filter(isProjectRecord)
+    .map((p) => ({
+      ...p,
+      lastModel: p.lastModel ?? null,
+      lastThinkingLevel: p.lastThinkingLevel ?? null,
+      lastAdvisor: p.lastAdvisor ?? null,
+      lastAdvisorModel: p.lastAdvisorModel ?? null,
+    }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
-    .map((s) => ({ ...s, advisorModel: s.advisorModel ?? null }));
-  const settings =
-    "settings" in raw &&
-    raw.settings !== null &&
-    typeof raw.settings === "object" &&
-    "defaultMode" in raw.settings &&
-    isSessionMode(raw.settings.defaultMode)
-      ? { defaultMode: raw.settings.defaultMode }
-      : { defaultMode: "pty" as SessionMode };
+    .map((s) => ({
+      ...s,
+      model: s.model ?? null,
+      thinkingLevel: s.thinkingLevel ?? null,
+      advisorModel: s.advisorModel ?? null,
+    }));
+  const settingsObj =
+    "settings" in raw && raw.settings !== null && typeof raw.settings === "object"
+      ? raw.settings
+      : undefined;
+  const rawDefaultMode: SessionMode | undefined =
+    settingsObj !== undefined && "defaultMode" in settingsObj && isSessionMode(settingsObj.defaultMode)
+      ? settingsObj.defaultMode
+      : undefined;
+  const favRaw =
+    settingsObj !== undefined && "modelFavorites" in settingsObj
+      ? settingsObj.modelFavorites
+      : undefined;
+  const settings: RegistryData["settings"] = {
+    defaultMode: rawDefaultMode ?? ("pty" as SessionMode),
+    modelFavorites:
+      Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
+  };
   return { schemaVersion: 1, settings, projects, sessions };
 }
 
@@ -160,6 +198,10 @@ export class Registry {
       path: projectPath,
       name: path.basename(projectPath),
       addedAt: new Date().toISOString(),
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
     };
     this.#data.projects.push(record);
     this.#save();
@@ -173,15 +215,43 @@ export class Registry {
     this.#save();
   }
 
-  /**
-   * Records a session's advisor state. Sessions own this, not projects: omp
-   * binds the advisor per process, and the composer toggles it per session.
-   */
+  /** Records an advisor choice for this session and the next one in its project. */
   setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): void {
     const record = this.#data.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
+    const project = this.#data.projects.find((p) => p.path === record.projectCwd);
+    if (
+      record.advisor === advisor &&
+      record.advisorModel === advisorModel &&
+      project?.lastAdvisor === advisor &&
+      project.lastAdvisorModel === advisorModel
+    ) return;
     record.advisor = advisor;
     record.advisorModel = advisorModel;
+    if (project) {
+      project.lastAdvisor = advisor;
+      project.lastAdvisorModel = advisorModel;
+    }
+    this.#save();
+  }
+
+  /** Records the main model choice for this session and the next one in its project. */
+  setSessionModel(tabId: string, model: string | null, thinkingLevel: string | null): void {
+    const record = this.#data.sessions.find((s) => s.tabId === tabId);
+    if (!record) return;
+    const project = this.#data.projects.find((p) => p.path === record.projectCwd);
+    if (
+      record.model === model &&
+      record.thinkingLevel === thinkingLevel &&
+      project?.lastModel === model &&
+      project.lastThinkingLevel === thinkingLevel
+    ) return;
+    record.model = model;
+    record.thinkingLevel = thinkingLevel;
+    if (project) {
+      project.lastModel = model;
+      project.lastThinkingLevel = thinkingLevel;
+    }
     this.#save();
   }
 
@@ -209,6 +279,18 @@ export class Registry {
 
   setDefaultMode(mode: SessionMode): void {
     this.#data.settings.defaultMode = mode;
+    this.#save();
+  }
+
+  getFavorites(): string[] {
+    return [...this.#data.settings.modelFavorites];
+  }
+
+  toggleFavorite(key: string): void {
+    const current = this.#data.settings.modelFavorites;
+    const idx = current.indexOf(key);
+    this.#data.settings.modelFavorites =
+      idx === -1 ? [...current, key] : current.filter((k) => k !== key);
     this.#save();
   }
 }

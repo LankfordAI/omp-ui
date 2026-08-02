@@ -3,10 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  formatAdvisorRole,
+  formatModelRole,
   getOmpAgentDir,
-  parseAdvisorRole,
+  parseModelRole,
   readOmpAdvisorDefaults,
+  readOmpModelRole,
 } from "./omp-config";
 
 const tmpDirs: string[] = [];
@@ -20,16 +21,16 @@ afterEach(() => {
   for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("parseAdvisorRole", () => {
+describe("parseModelRole", () => {
   it("splits omp's :level thinking suffix off the model id", () => {
-    expect(parseAdvisorRole("openrouter/anthropic/claude-opus-5:high")).toEqual({
+    expect(parseModelRole("openrouter/anthropic/claude-opus-5:high")).toEqual({
       model: "openrouter/anthropic/claude-opus-5",
       level: "high",
     });
   });
 
   it("keeps a bare selector whole", () => {
-    expect(parseAdvisorRole("openrouter/openai/gpt-5.6-luna")).toEqual({
+    expect(parseModelRole("openrouter/openai/gpt-5.6-luna")).toEqual({
       model: "openrouter/openai/gpt-5.6-luna",
     });
   });
@@ -37,18 +38,18 @@ describe("parseAdvisorRole", () => {
   it("leaves a non-level colon suffix on the model id", () => {
     // OpenRouter ships ids like `model:exacto`; splitting it would resolve to a
     // different model, so only a bare alphabetic tail counts as a level.
-    expect(parseAdvisorRole("openrouter/openai/gpt-5:exacto-2")).toEqual({
+    expect(parseModelRole("openrouter/openai/gpt-5:exacto-2")).toEqual({
       model: "openrouter/openai/gpt-5:exacto-2",
     });
   });
 
   it("treats an empty selector as unset", () => {
-    expect(parseAdvisorRole("   ")).toBeNull();
+    expect(parseModelRole("   ")).toBeNull();
   });
 
-  it("round-trips through formatAdvisorRole", () => {
+  it("round-trips through formatModelRole", () => {
     for (const value of ["a/b:high", "a/b", "x/y:exacto-2"]) {
-      expect(formatAdvisorRole(parseAdvisorRole(value)!)).toBe(value);
+      expect(formatModelRole(parseModelRole(value)!)).toBe(value);
     }
   });
 });
@@ -143,5 +144,48 @@ describe("readOmpAdvisorDefaults", () => {
       enabled: false,
       role: null,
     });
+  });
+});
+
+describe("readOmpModelRole", () => {
+  function agentDir(config: string | null): NodeJS.ProcessEnv {
+    const root = tmpDir();
+    const agent = path.join(root, "agent");
+    fs.mkdirSync(agent, { recursive: true });
+    if (config !== null) fs.writeFileSync(path.join(agent, "config.yml"), config);
+    return { PI_CODING_AGENT_DIR: agent };
+  }
+
+  it("takes the first role the config actually binds", () => {
+    // `tiny` is unset, so the chain must fall through to `smol` rather than
+    // stopping at the first name it was asked about.
+    const env = agentDir("modelRoles:\n  smol: a/smol\n  default: a/default\n");
+    expect(readOmpModelRole(tmpDir(), ["tiny", "commit", "smol"], env)).toEqual({
+      model: "a/smol",
+    });
+  });
+
+  it("prefers an earlier role over a later one", () => {
+    const env = agentDir("modelRoles:\n  tiny: a/tiny:medium\n  smol: a/smol\n");
+    expect(readOmpModelRole(tmpDir(), ["tiny", "commit", "smol"], env)).toEqual({
+      model: "a/tiny",
+      level: "medium",
+    });
+  });
+
+  it("lets the project config override the global binding for the same role", () => {
+    const env = agentDir("modelRoles:\n  tiny: global/tiny\n");
+    const project = tmpDir();
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(project, ".omp", "config.yml"),
+      "modelRoles:\n  tiny: project/tiny\n",
+    );
+    expect(readOmpModelRole(project, ["tiny", "smol"], env)).toEqual({ model: "project/tiny" });
+  });
+
+  it("returns null when the config binds none of the roles", () => {
+    const env = agentDir("modelRoles:\n  default: a/default\n");
+    expect(readOmpModelRole(tmpDir(), ["tiny", "commit", "smol"], env)).toBeNull();
   });
 });
