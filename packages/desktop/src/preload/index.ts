@@ -16,6 +16,11 @@ const api: OmpBackend = {
   setSessionAdvisor: (tabId, advisor, advisorModel) =>
     ipcRenderer.invoke(CH.sessionSetAdvisor, tabId, advisor, advisorModel),
   getAdvisorDefaults: (projectCwd) => ipcRenderer.invoke(CH.advisorDefaults, projectCwd),
+  setSessionModel: (tabId, model, thinkingLevel) =>
+    ipcRenderer.invoke(CH.sessionSetModel, tabId, model, thinkingLevel),
+  generateTitle: (projectCwd, prompt) =>
+    ipcRenderer.invoke(CH.titleGenerate, projectCwd, prompt),
+  readPlanFile: (tabId, absPath) => ipcRenderer.invoke(CH.planRead, tabId, absPath),
   ptyPasteImage: (tabId, image) => ipcRenderer.invoke(CH.ptyPasteImage, tabId, image),
   ptyWrite: (tabId, data) => ipcRenderer.send(CH.ptyWrite, tabId, data),
   ptyResize: (tabId, cols, rows) => ipcRenderer.send(CH.ptyResize, tabId, cols, rows),
@@ -27,6 +32,9 @@ const api: OmpBackend = {
   onRpcFrame: (cb) =>
     ipcRenderer.on(CH.rpcFrame, (_e, tabId: string, frame: object) => cb(tabId, frame)),
   onStateChanged: (cb) => ipcRenderer.on(CH.stateChanged, (_e, state) => cb(state)),
+  toggleFavorite: (key) => ipcRenderer.invoke(CH.favoritesToggle, key),
+  checkOmpUpdate: () => ipcRenderer.invoke(CH.ompUpdateCheck),
+  applyOmpUpdate: () => ipcRenderer.invoke(CH.ompUpdateApply),
 };
 
 contextBridge.exposeInMainWorld("ompBackend", api);

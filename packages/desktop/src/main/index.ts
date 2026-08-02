@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
 import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
+import { runOmpLaunchUpdateCheck } from "./omp-update";
 
 // Dev/test seam: opt-in CDP endpoint for programmatic renderer inspection.
 if (process.env.OMP_UI_CDP_PORT) {
@@ -60,7 +61,13 @@ if (!app.requestSingleInstanceLock()) {
       width: 1600,
       height: 1000,
       title: "omp-ui",
-      backgroundColor: "#121212",
+      backgroundColor: "#0a0b0d",
+      // The GTK frame + menu bar clash with the renderer's chrome. Hidden
+      // title bar + overlay keeps native window controls (drawn in app
+      // colors); the renderer supplies the drag region. Alt reveals the menu.
+      titleBarStyle: "hidden",
+      titleBarOverlay: { color: "#0a0b0d", symbolColor: "#a8b2bf", height: 36 },
+      autoHideMenuBar: true,
       webPreferences: {
         preload: join(__dirname, "../preload/index.js"),
         contextIsolation: true,
@@ -85,6 +92,11 @@ if (!app.requestSingleInstanceLock()) {
     } else {
       void win.loadFile(join(__dirname, "../renderer/index.html"));
     }
+
+    // omp install/update check: ask the user (never auto-apply) before any
+    // download, then refresh the backend's resolved binary so a just-installed
+    // omp is used without an app restart.
+    void runOmpLaunchUpdateCheck(win, () => be.refreshOmpPath());
   });
 
   // Explicit kill, never SIGHUP reliance (ConPTY has no hangup semantics) —

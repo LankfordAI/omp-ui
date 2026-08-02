@@ -73,6 +73,8 @@ function setup(opts: { materialized: boolean }): {
           projectCwd: "/proj",
           launchedAt: "2026-07-29T16:18:42.427Z",
           mode: "rpc-ui",
+          model: "openrouter/openai/gpt-5.6",
+          thinkingLevel: "high",
           advisor: true,
           advisorModel: null,
           cachedTitle: null,
@@ -90,8 +92,14 @@ function setup(opts: { materialized: boolean }): {
 }
 
 const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
-const readRegistry = (): { sessions: { advisor: boolean; advisorModel: string | null }[] } =>
-  JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));
+const readRegistry = (): {
+  sessions: {
+    model: string | null;
+    thinkingLevel: string | null;
+    advisor: boolean;
+    advisorModel: string | null;
+  }[];
+} => JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));
 
 /**
  * `live` and the launch seam are private. These tests reach in deliberately:
@@ -107,6 +115,15 @@ interface BackendInternals {
   live: Map<string, unknown>;
   ompPath: string | null;
   spawnRpc(record: { tabId: string }): { tabId: string };
+  configOverlays(
+    record: {
+      model?: string | null;
+      thinkingLevel?: string | null;
+      advisor: boolean;
+      advisorModel: string | null;
+    },
+    lineageDir: string,
+  ): string[];
 }
 const internals = (backend: InstanceType<typeof MainBackend>): BackendInternals =>
   backend as unknown as BackendInternals;
@@ -138,15 +155,17 @@ describe("session:setAdvisor", () => {
 
     await expect(invoke(CH.sessionSetAdvisor, "tab-1", false, null)).resolves.toBeUndefined();
 
-    expect(readRegistry().sessions[0]).toMatchObject({ advisor: false, advisorModel: null });
+    expect(readRegistry().sessions[0]).toMatchObject({
+      model: "openrouter/openai/gpt-5.6",
+      thinkingLevel: "high",
+      advisor: false,
+      advisorModel: null,
+    });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ tabId: "tab-1", advisor: false });
   });
 
   it("still refuses when a materialized session's files really are gone", async () => {
-    // The guard must not become a blanket "carry on": a record that named a
-    // session and can no longer find it HAS lost its transcript, and silently
-    // starting a fresh one would look like the history evaporated.
     const { backend, sessionsRoot } = setup({ materialized: true });
     const calls = captureSpawn(backend);
     internals(backend).live.set("tab-1", { kind: "rpc-ui" });
@@ -158,8 +177,24 @@ describe("session:setAdvisor", () => {
     expect(calls).toEqual([]);
   });
 
+  it("reapplies the session's main model and thinking level after an advisor toggle", async () => {
+    const { backend, sessionsRoot } = setup({ materialized: false });
+    captureSpawn(backend);
+    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+
+    await invoke(CH.sessionSetAdvisor, "tab-1", false, null);
+
+    const record = readRegistry().sessions[0]!;
+    const overlays = internals(backend).configOverlays(record, path.join(sessionsRoot, LINEAGE));
+    const modelOverlay = overlays.find((file) => path.basename(file) === "omp-ui-model.yml");
+    expect(modelOverlay).toBeDefined();
+    expect(fs.readFileSync(modelOverlay!, "utf8")).toBe(
+      'modelRoles:\n  default: "openrouter/openai/gpt-5.6:high"\n',
+    );
+  });
+
   it("tells the renderer the agent died when the relaunch fails", async () => {
-    // The old process was already killed with `restarting` set, which
+    // The old process was already killed with `suppressExit` set, which
     // deliberately swallows its exit. If the relaunch then fails, nothing else
     // will ever report it — the tab would sit there looking live over a dead
     // process, with no way back short of restarting the app.

@@ -6,13 +6,15 @@ import {
   base64Bytes,
   bracketedImagePaste,
   deleteSessionFiles,
-  formatAdvisorRole,
+  formatModelRole,
+  generateTitleWithOmp,
   getArchiveRoot,
   getSessionsRoot,
   hydrateSessionFile,
   mintLineageDirName,
-  parseAdvisorRole,
+  parseModelRole,
   readOmpAdvisorDefaults,
+  readOmpModelRole,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -21,8 +23,12 @@ import {
   unarchiveSession,
   watchLineageDir,
   writeAdvisorOverlay,
+  writeDefaultModelOverlay,
+  writePlanExtension,
+  writeAdvisorStatsExtension,
   writeImageToScratch,
   MAX_IMAGE_BYTES,
+  TITLE_MODEL_ROLES,
   type AdvisorDefaults,
   type BackendState,
   type ImageAttachment,
@@ -33,7 +39,9 @@ import {
   type SessionMode,
   type SessionSummary,
   type SpawnRequest,
+  type OmpUpdateInfo,
 } from "@omp-ui/core";
+import { applyOmpUpdate as mainApplyOmpUpdate, checkOmpUpdate as mainCheckOmpUpdate } from "./omp-update";
 import { CH } from "./channels";
 
 interface LiveEntry {
@@ -41,18 +49,49 @@ interface LiveEntry {
   pty?: PtyHandle;
   rpc?: RpcClient;
   record: OwnedSessionRecord;
-  /** Set during a mode-switch kill so no pty:exit reaches the renderer. */
-  restarting?: boolean;
+  /** Suppresses this process's pty:exit — set for a mode-switch kill and for a delete. */
+  suppressExit?: boolean;
+  /** Resolves once the child's exit has been observed. */
+  readonly exited: Promise<void>;
+  /** Resolver for `exited`, called from the exit handler. */
+  readonly markExited: () => void;
 }
+
+function liveEntry(fields: Omit<LiveEntry, "exited" | "markExited">): LiveEntry {
+  let markExited = (): void => {};
+  const exited = new Promise<void>((resolve) => {
+    markExited = () => resolve();
+  });
+  return { ...fields, exited, markExited };
+}
+
+/** True when `p` settles inside `ms`. Bounded wait, no dangling timer. */
+function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    p.then(() => true),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** How long omp gets to exit on its own before the delete escalates. */
+const GRACEFUL_EXIT_MS = 3_000;
+const SIGKILL_EXIT_MS = 2_000;
 
 /** The only owner of live session state; the renderer mirrors via broadcasts. */
 export class MainBackend {
   private readonly live = new Map<string, LiveEntry>();
   private readonly registry: Registry;
-  private readonly ompPath = resolveOmpBinary();
+  private ompPath = resolveOmpBinary();
   private readonly watchers = new Map<string, () => void>();
-  /** In-flight resume spawns — closed before the first await (double-click race). */
-  private readonly spawning = new Set<string>();
+  /**
+   * In-flight resume spawns, keyed by tab — registered before the first await
+   * (double-click race). The value settles when the spawn does, so a delete
+   * arriving mid-spawn can wait for the process to exist and then kill it.
+   */
+  private readonly spawning = new Map<string, Promise<void>>();
 
   constructor(
     private readonly win: BrowserWindow,
@@ -63,6 +102,14 @@ export class MainBackend {
 
   get liveCount(): number {
     return this.live.size;
+  }
+
+  /**
+   * Re-resolves the omp binary after an install/update so the fresh managed
+   * copy (which ranks above PATH) is picked up without an app restart.
+   */
+  refreshOmpPath(): void {
+    this.ompPath = resolveOmpBinary();
   }
 
   // Resolved lazily at every use — the XDG branch is existence-gated and can
@@ -108,32 +155,23 @@ export class MainBackend {
       this.registry.setDefaultMode(mode);
       await this.broadcast();
     });
+    ipcMain.handle(CH.favoritesToggle, async (_e, key: string) => {
+      this.registry.toggleFavorite(key);
+      await this.broadcast();
+    });
+    ipcMain.handle(
+      CH.sessionSetModel,
+      (_e, tabId: string, model: string | null, thinkingLevel: string | null) => {
+        this.registry.setSessionModel(tabId, model, thinkingLevel);
+        void this.broadcast();
+      },
+    );
     ipcMain.handle(CH.sessionSpawn, (_e, req: SpawnRequest) => this.spawn(req));
     ipcMain.handle(CH.sessionTerminate, (_e, tabId: string) => this.terminate(tabId));
     ipcMain.handle(CH.sessionSwitchMode, (_e, tabId: string, mode: SessionMode) =>
       this.switchMode(tabId, mode),
     );
-    ipcMain.handle(CH.sessionDelete, async (_e, tabId: string) => {
-      // `spawning` matters as much as `live`: prepareResume awaits before
-      // live.set, so a delete landing in that window would unlink the lineage
-      // dir out from under an omp process that is about to write to it.
-      if (this.live.has(tabId) || this.spawning.has(tabId)) {
-        throw new Error("session is live — terminate it first");
-      }
-      const record = this.registry.sessions.find((s) => s.tabId === tabId);
-      if (!record) return;
-      this.stopWatcher(tabId);
-      // Files first: a failed delete must leave the record so the row stays
-      // visible and retryable, rather than orphaning the transcript on disk.
-      try {
-        await deleteSessionFiles(this.sessionsRoot, this.archiveRoot, record.lineageDir);
-      } catch (err) {
-        this.startWatcher(record);
-        throw err;
-      }
-      this.registry.removeSession(tabId);
-      await this.broadcast();
-    });
+    ipcMain.handle(CH.sessionDelete, (_e, tabId: string) => this.deleteSession(tabId));
     ipcMain.handle(
       CH.sessionSetAdvisor,
       (_e, tabId: string, advisor: boolean, advisorModel: string | null) =>
@@ -142,6 +180,12 @@ export class MainBackend {
     ipcMain.handle(
       CH.advisorDefaults,
       (_e, projectCwd: string): AdvisorDefaults => this.advisorDefaults(projectCwd),
+    );
+    ipcMain.handle(CH.titleGenerate, (_e, projectCwd: string, prompt: string) =>
+      this.generateTitle(projectCwd, prompt),
+    );
+    ipcMain.handle(CH.planRead, (_e, tabId: string, absPath: string) =>
+      this.readPlanFile(tabId, absPath),
     );
     ipcMain.handle(CH.ptyPasteImage, (_e, tabId: string, image: ImageAttachment) =>
       this.ptyPasteImage(tabId, image),
@@ -155,6 +199,18 @@ export class MainBackend {
     ipcMain.on(CH.rpcSend, (_e, tabId: string, cmd: object) => {
       this.live.get(tabId)?.rpc?.send(cmd);
     });
+    ipcMain.handle(CH.ompUpdateCheck, () => this.checkOmpUpdate());
+    ipcMain.handle(CH.ompUpdateApply, () => this.applyOmpUpdate());
+  }
+
+  /** Snapshot of the omp install/update situation. */
+  checkOmpUpdate(): Promise<OmpUpdateInfo> {
+    return mainCheckOmpUpdate();
+  }
+
+  /** Installs or updates the app-managed omp binary (user prompted first). */
+  applyOmpUpdate(): Promise<OmpUpdateInfo> {
+    return mainApplyOmpUpdate(this.win, { onApplied: () => this.refreshOmpPath() });
   }
 
   async hydrateAll(): Promise<void> {
@@ -175,11 +231,17 @@ export class MainBackend {
     // process for the same session would corrupt the .jsonl. The in-flight
     // set closes the race window before the first await (live.set happens
     // after async prepareResume).
+    let spawnSettled = (): void => {};
     if (req.resumeTabId) {
       if (this.live.has(req.resumeTabId) || this.spawning.has(req.resumeTabId)) {
         return { tabId: req.resumeTabId };
       }
-      this.spawning.add(req.resumeTabId);
+      this.spawning.set(
+        req.resumeTabId,
+        new Promise<void>((resolve) => {
+          spawnSettled = () => resolve();
+        }),
+      );
     }
     try {
       if (!this.ompPath) {
@@ -194,6 +256,7 @@ export class MainBackend {
         if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
         record = await this.prepareResume(existing);
       } else {
+        const project = this.registry.projects.find((p) => p.path === req.projectCwd);
         record = this.registry.addSession({
           tabId: randomUUID(),
           sessionId: null,
@@ -201,13 +264,16 @@ export class MainBackend {
           projectCwd: req.projectCwd,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
+          model: project?.lastModel ?? null,
+          thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
-          // The composer may pin a model at launch; otherwise omp's own
-          // `modelRoles.advisor` decides and no overlay is written.
           advisorModel: req.advisorModel ?? null,
           cachedTitle: null,
           cachedModified: null,
         });
+        // The launched values are now the project's last session parameters,
+        // even when they originated in omp config rather than an explicit click.
+        this.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
       }
       const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
       if (record.mode !== req.mode) patch.mode = req.mode;
@@ -221,9 +287,12 @@ export class MainBackend {
         record = this.registry.updateSession(record.tabId, patch) ?? record;
       }
 
-      return req.mode === "rpc-ui" ? this.spawnRpc(record) : await this.spawnPty(record, req);
+      return req.mode === "rpc-ui" ? this.spawnRpc(record, req) : await this.spawnPty(record, req);
     } finally {
-      if (req.resumeTabId) this.spawning.delete(req.resumeTabId);
+      if (req.resumeTabId) {
+        this.spawning.delete(req.resumeTabId);
+        spawnSettled();
+      }
     }
   }
 
@@ -241,16 +310,17 @@ export class MainBackend {
       cols: req.cols,
       rows: req.rows,
       advisor: record.advisor,
-      configOverlays: this.advisorOverlays(record, absLineageDir),
+      configOverlays: this.configOverlays(record, absLineageDir),
     });
-    const entry: LiveEntry = { kind: "pty", pty: ptyHandle, record };
+    const entry = liveEntry({ kind: "pty", pty: ptyHandle, record });
     this.live.set(record.tabId, entry);
     ptyHandle.onData((data) => this.send(CH.ptyData, record.tabId, data));
     ptyHandle.onExit(({ exitCode }) => {
+      entry.markExited();
       // Identity-checked: a mode-switch respawn may already have replaced
       // this entry — deleting then would orphan the new live session.
       if (this.live.get(record.tabId) === entry) this.live.delete(record.tabId);
-      if (!entry.restarting) this.send(CH.ptyExit, record.tabId, exitCode);
+      if (!entry.suppressExit) this.send(CH.ptyExit, record.tabId, exitCode);
       void this.broadcast();
     });
     this.startWatcher(record);
@@ -258,22 +328,24 @@ export class MainBackend {
     return { tabId: record.tabId };
   }
 
-  private spawnRpc(record: OwnedSessionRecord): { tabId: string } {
+  private spawnRpc(record: OwnedSessionRecord, req: SpawnRequest): { tabId: string } {
     const absLineageDir = path.join(this.sessionsRoot, record.lineageDir);
     // Exactly like PTY (ADR-0003) — and the dir must exist for the watcher.
     fs.mkdirSync(absLineageDir, { recursive: true });
-    const entry: LiveEntry = { kind: "rpc-ui", record };
+    const entry = liveEntry({ kind: "rpc-ui", record });
     entry.rpc = new RpcClient({
       cwd: record.projectCwd,
       lineageDir: absLineageDir,
       ompPath: this.ompPath!,
       resumeSessionId: record.sessionId ?? undefined,
       advisor: record.advisor,
-      configOverlays: this.advisorOverlays(record, absLineageDir),
+      configOverlays: this.configOverlays(record, absLineageDir),
+      extensions: this.planExtensions(absLineageDir),
       onFrame: (frame) => this.send(CH.rpcFrame, record.tabId, frame),
       onExit: (code) => {
+        entry.markExited();
         if (this.live.get(record.tabId) === entry) this.live.delete(record.tabId);
-        if (!entry.restarting) this.send(CH.ptyExit, record.tabId, code ?? -1);
+        if (!entry.suppressExit) this.send(CH.ptyExit, record.tabId, code ?? -1);
         void this.broadcast();
       },
       onError: (msg) => this.send(CH.rpcFrame, record.tabId, { type: "omp_ui_error", message: msg }),
@@ -284,27 +356,72 @@ export class MainBackend {
     return { tabId: record.tabId };
   }
 
-  /**
-   * The `--config` overlays a spawn needs to honour this session's advisor.
-   * Rewritten on every spawn so the file on disk always matches the record — a
-   * stale overlay would silently outvote it.
-   *
-   * The record's `advisor` flag is passed explicitly rather than relying on
-   * `--advisor`, because that flag can only ever turn the advisor *on*: with
-   * `advisor.enabled: true` in omp's own config, a session the user switched off
-   * would come back up with the advisor running.
-   */
-  private advisorOverlays(record: OwnedSessionRecord, absLineageDir: string): string[] {
-    const role = record.advisorModel === null ? null : parseAdvisorRole(record.advisorModel);
+  /** Rewrites spawn overlays from the session record on every launch. */
+  private configOverlays(record: OwnedSessionRecord, absLineageDir: string): string[] {
+    const overlays: string[] = [];
+    const advisorRole = record.advisorModel === null ? null : parseModelRole(record.advisorModel);
     try {
-      const overlay = writeAdvisorOverlay(absLineageDir, role, record.advisor);
-      return overlay === null ? [] : [overlay];
+      const overlay = writeAdvisorOverlay(absLineageDir, advisorRole, record.advisor);
+      if (overlay !== null) overlays.push(overlay);
     } catch (err) {
-      // omp rejects a missing/malformed `--config` at startup, so a failed
-      // write must degrade to omp's own advisor config rather than take the
-      // whole session down with it.
       console.warn("[advisor] could not write the overlay:", err);
-      return [];
+    }
+    const model = record.model ?? null;
+    if (model !== null) {
+      const selector =
+        record.thinkingLevel == null ? model : `${model}:${record.thinkingLevel}`;
+      try {
+        const overlay = writeDefaultModelOverlay(absLineageDir, parseModelRole(selector));
+        if (overlay !== null) overlays.push(overlay);
+      } catch (err) {
+        console.warn("[model] could not write the default-model overlay:", err);
+      }
+    }
+    return overlays;
+  }
+
+  /**
+   * The `-e` extensions an rpc-ui spawn needs (plan mode, advisor stats). Both
+   * are rewritten on every spawn so a stale copy from an older omp-ui build can
+   * never outvote the current wire contract. A failed write degrades to a
+   * session without that feature — omp rejects a missing `-e` path at startup,
+   * so shipping the arg anyway would take the whole session down.
+   */
+  private planExtensions(absLineageDir: string): string[] {
+    const extensions: string[] = [];
+    try {
+      extensions.push(writePlanExtension(absLineageDir));
+    } catch (err) {
+      console.warn("[plan] could not write the plan extension:", err);
+    }
+    try {
+      extensions.push(writeAdvisorStatsExtension(absLineageDir));
+    } catch (err) {
+      console.warn("[advisor] could not write the advisor-stats extension:", err);
+    }
+    return extensions;
+  }
+
+  /**
+   * Reads a plan artifact for the review pane. The path arrives from the
+   * renderer, which got it from the agent's own plan slug, so it is confined to
+   * the session's own lineage dir before any read — a crafted `local://`
+   * name must not turn this channel into an arbitrary file reader.
+   */
+  private async readPlanFile(tabId: string, absPath: string): Promise<string | null> {
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return null;
+    const root = path.resolve(this.sessionsRoot, record.lineageDir);
+    const resolved = path.resolve(absPath);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      console.warn("[plan] refusing to read outside the lineage dir:", resolved);
+      return null;
+    }
+    try {
+      return await fs.promises.readFile(resolved, "utf8");
+    } catch {
+      // The agent may not have written the file yet — absent is not an error.
+      return null;
     }
   }
 
@@ -313,8 +430,32 @@ export class MainBackend {
     const defaults = readOmpAdvisorDefaults(projectCwd);
     return {
       enabled: defaults.enabled,
-      model: defaults.role === null ? null : formatAdvisorRole(defaults.role),
+      model: defaults.role === null ? null : formatModelRole(defaults.role),
     };
+  }
+
+  /**
+   * Titles a prompt with omp's own small model. Null on every failure path —
+   * no omp binary, a model the config names but the machine cannot reach, a
+   * timeout, or a greeting the model declines to title. The renderer falls
+   * back to its derived title, so this must never throw across IPC.
+   */
+  private async generateTitle(projectCwd: string, prompt: string): Promise<string | null> {
+    if (!this.ompPath) return null;
+    // The config's own role chain, so the title comes from whichever small
+    // model the user already configured for omp's own titling.
+    const role = readOmpModelRole(projectCwd, TITLE_MODEL_ROLES);
+    try {
+      return await generateTitleWithOmp({
+        ompPath: this.ompPath,
+        projectCwd,
+        model: role === null ? null : formatModelRole(role),
+        prompt,
+      });
+    } catch (err) {
+      console.warn("[title] model titling failed:", err);
+      return null;
+    }
   }
 
   /**
@@ -330,8 +471,12 @@ export class MainBackend {
   ): Promise<void> {
     const record = this.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
-    if (record.advisor === advisor && record.advisorModel === advisorModel) return;
+    const changed = record.advisor !== advisor || record.advisorModel !== advisorModel;
     this.registry.setSessionAdvisor(tabId, advisor, advisorModel);
+    if (!changed) {
+      await this.broadcast();
+      return;
+    }
     const entry = this.live.get(tabId);
     if (!entry) {
       // Dormant: the next launch picks the new values up from the record.
@@ -424,6 +569,59 @@ export class MainBackend {
     // The record stays; the broadcast fires on process exit.
   }
 
+  /**
+   * Erases a session's record and its files. A live session is stopped first
+   * rather than refused: the user asked for the session to be gone, and making
+   * them terminate it by hand is a step with no decision in it.
+   *
+   * The process must actually be reaped before the files go — omp writes its
+   * transcript on the way out, and unlinking the lineage dir under a live
+   * writer would recreate it (or lose the delete). `spawning` matters as much
+   * as `live`: prepareResume awaits before live.set, so a delete landing in
+   * that window has to wait for the spawn to finish before it can kill it.
+   */
+  async deleteSession(tabId: string): Promise<void> {
+    const inFlight = this.spawning.get(tabId);
+    if (inFlight) await inFlight;
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return;
+    const entry = this.live.get(tabId);
+    if (entry) await this.killAndReap(tabId, entry);
+    this.stopWatcher(tabId);
+    // Files first: a failed delete must leave the record so the row stays
+    // visible and retryable, rather than orphaning the transcript on disk.
+    try {
+      await deleteSessionFiles(this.sessionsRoot, this.archiveRoot, record.lineageDir);
+    } catch (err) {
+      this.startWatcher(record);
+      throw err;
+    }
+    this.registry.removeSession(tabId);
+    await this.broadcast();
+  }
+
+  /**
+   * Stops a live session and waits for the child to be reaped, escalating to
+   * SIGKILL if omp does not honour the default signal. Throws when even that
+   * fails — the caller must not unlink files out from under a live writer.
+   *
+   * The exit is suppressed: the tab is about to disappear, so a "session
+   * exited" notice would be noise about a session the user just deleted.
+   */
+  private async killAndReap(tabId: string, entry: LiveEntry): Promise<void> {
+    entry.suppressExit = true;
+    entry.pty?.kill();
+    entry.rpc?.kill();
+    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return;
+    entry.pty?.kill("SIGKILL");
+    entry.rpc?.kill("SIGKILL");
+    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) return;
+    // Un-suppress: the process outlived us, so the tab is still live and the
+    // renderer must keep showing it that way.
+    entry.suppressExit = false;
+    throw new Error(`session ${tabId} did not exit — its files were left alone`);
+  }
+
   async switchMode(tabId: string, mode: SessionMode): Promise<void> {
     const record = this.registry.sessions.find((s) => s.tabId === tabId);
     if (!record || record.mode === mode) return;
@@ -449,14 +647,14 @@ export class MainBackend {
    * Kills a live session and spawns it again with `--resume`. The one way to
    * change anything omp binds at process start (its mode, its advisor).
    *
-   * `restarting` suppresses the old process's exit so the renderer does not
+   * `suppressExit` hides the old process's exit so the renderer does not
    * flash a dead tab mid-swap — which means a failed respawn would otherwise
    * be silent, leaving the tab looking live over a corpse. So the notice is
    * re-sent by hand on that path, and only that path.
    */
   private async relaunch(entry: LiveEntry, req: SpawnRequest): Promise<void> {
     const tabId = req.resumeTabId!;
-    entry.restarting = true;
+    entry.suppressExit = true;
     entry.pty?.kill();
     entry.rpc?.kill();
     this.live.delete(tabId);
@@ -528,7 +726,7 @@ export class MainBackend {
       groups.push({ project, sessions });
     }
     groups.sort((a, b) => a.project.addedAt.localeCompare(b.project.addedAt));
-    return { projects: groups, defaultMode: this.registry.defaultMode };
+    return { projects: groups, defaultMode: this.registry.defaultMode, modelFavorites: this.registry.getFavorites() };
   }
 
   private async summarize(record: OwnedSessionRecord): Promise<SessionSummary> {

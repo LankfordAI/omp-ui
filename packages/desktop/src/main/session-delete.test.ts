@@ -100,17 +100,51 @@ const readRegistry = (): { sessions: unknown[] } =>
   JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));
 
 /**
- * The two in-flight maps the delete guard consults. They are private to
+ * The two in-flight collections the delete path consults. They are private to
  * MainBackend and there is no public way to fake a running session, so these
  * tests reach in deliberately — the cast names the real shape of fields this
  * file owns, rather than asserting a shape onto external data.
  */
+interface FakeLive {
+  kind: string;
+  pty: { kill: (signal?: string) => void };
+  exited: Promise<void>;
+  markExited: () => void;
+  suppressExit?: boolean;
+}
 interface BackendInternals {
-  live: Map<string, unknown>;
-  spawning: Set<string>;
+  live: Map<string, FakeLive>;
+  spawning: Map<string, Promise<void>>;
 }
 const internals = (backend: InstanceType<typeof MainBackend>): BackendInternals =>
   backend as unknown as BackendInternals;
+
+/**
+ * Stands in for a running process the way spawnPty registers one: `exited`
+ * settles only when the fake honours a signal, so a delete really does have to
+ * reap it. `diesOn` picks which signal the fake obeys ("never" = neither).
+ */
+function fakeLive(diesOn: "default" | "SIGKILL" | "never"): FakeLive & { signals: string[] } {
+  const signals: string[] = [];
+  let markExited = (): void => {};
+  const exited = new Promise<void>((resolve) => {
+    markExited = () => resolve();
+  });
+  return {
+    kind: "pty",
+    signals,
+    exited,
+    markExited,
+    pty: {
+      kill: (signal?: string) => {
+        signals.push(signal ?? "default");
+        const obeys =
+          diesOn === "default" ? signal === undefined : diesOn === "SIGKILL" && signal === "SIGKILL";
+        if (obeys) markExited();
+      },
+    },
+  };
+}
 
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
@@ -138,26 +172,89 @@ describe("session:delete", () => {
     expect(fs.existsSync(archiveRoot)).toBe(true);
   });
 
-  it("refuses while the session is live and keeps every file", async () => {
+  it("stops a live session, then erases the record and its files", async () => {
     const { backend, sessionsRoot } = setup();
-    // Stand in for a running process the way spawnPty would register one.
-    internals(backend).live.set("tab-1", { kind: "pty" });
+    const live = fakeLive("default");
+    internals(backend).live.set("tab-1", live);
 
-    await expect(invoke(CH.sessionDelete, "tab-1")).rejects.toThrow(/live — terminate it first/);
-    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);
-    expect(readRegistry().sessions).toHaveLength(1);
+    await invoke(CH.sessionDelete, "tab-1");
+
+    expect(live.signals).toEqual(["default"]);
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
+    expect(readRegistry().sessions).toEqual([]);
+    // The tab is going away — an exit notice would be noise about a session
+    // the user just deleted.
+    expect(sent.filter((m) => m.channel === CH.ptyExit)).toEqual([]);
+  });
+
+  it("escalates to SIGKILL when omp ignores the first signal", async () => {
+    vi.useFakeTimers();
+    try {
+      const { backend, sessionsRoot } = setup();
+      const live = fakeLive("SIGKILL");
+      internals(backend).live.set("tab-1", live);
+
+      const done = invoke(CH.sessionDelete, "tab-1") as Promise<void>;
+      await vi.advanceTimersByTimeAsync(3_000);
+      await done;
+
+      expect(live.signals).toEqual(["default", "SIGKILL"]);
+      expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
+      expect(readRegistry().sessions).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Unlinking the lineage dir under a live writer would lose the delete (or
+  // see omp recreate it), so an unkillable process keeps its files.
+  it("keeps the session when even SIGKILL does not reap the process", async () => {
+    vi.useFakeTimers();
+    try {
+      const { backend, sessionsRoot } = setup();
+      const live = fakeLive("never");
+      internals(backend).live.set("tab-1", live);
+
+      const done = invoke(CH.sessionDelete, "tab-1") as Promise<void>;
+      const settled = expect(done).rejects.toThrow(/did not exit/);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settled;
+
+      expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);
+      expect(readRegistry().sessions).toHaveLength(1);
+      // Still live, so its exit must reach the renderer again.
+      expect(live.suppressExit).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // The resume path awaits (unarchive/hydrate) before it registers the session
-  // as live, so `live` alone leaves a window where the files are deletable
-  // while an omp process is already being launched against them.
-  it("refuses while a resume spawn is still in flight", async () => {
+  // as live, so a delete arriving in that window has to wait for the spawn
+  // rather than race the process that is about to own these files.
+  it("waits for an in-flight resume spawn before deleting", async () => {
     const { backend, sessionsRoot } = setup();
-    internals(backend).spawning.add("tab-1");
+    const live = fakeLive("default");
+    let spawnDone = (): void => {};
+    internals(backend).spawning.set(
+      "tab-1",
+      new Promise<void>((resolve) => {
+        spawnDone = () => resolve();
+      }),
+    );
 
-    await expect(invoke(CH.sessionDelete, "tab-1")).rejects.toThrow(/live — terminate it first/);
+    const done = invoke(CH.sessionDelete, "tab-1") as Promise<void>;
+    // Nothing may happen while the spawn is still in flight.
+    await Promise.resolve();
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);
-    expect(readRegistry().sessions).toHaveLength(1);
+
+    internals(backend).live.set("tab-1", live);
+    internals(backend).spawning.delete("tab-1");
+    spawnDone();
+    await done;
+
+    expect(live.signals).toEqual(["default"]);
+    expect(readRegistry().sessions).toEqual([]);
   });
 
   it("keeps the record when the files cannot be deleted, so the row stays retryable", async () => {
