@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import type {
   AssistantItem,
@@ -258,10 +258,14 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
         ? (last.partialText?.length ?? 0) + (last.resultText?.length ?? 0)
         : 0;
 
-  useEffect(() => {
-    // Reading up the transcript must not be interrupted by new output.
+  // Pin flush to the newest line, but only while the user is still following
+  // the stream. A synchronous clamp (never `scrollIntoView`) is deliberate: it
+  // cannot race Chromium's native scroll anchoring back and forth a few
+  // pixels, so a streaming tail stays glued to the bottom instead of bobbing.
+  useLayoutEffect(() => {
     if (!atBottom) return;
-    endRef.current?.scrollIntoView({ block: "end" });
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [items.length, tailLength, atBottom]);
 
   return (
@@ -273,7 +277,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
           if (!el) return;
           setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
         }}
-        className="h-full overflow-y-auto px-4 py-4"
+        className="h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
       >
         <div className="mx-auto flex max-w-4xl flex-col gap-4">
           {items.length === 0 && (
