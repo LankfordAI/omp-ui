@@ -51,10 +51,17 @@ Verified against omp 17.1.8 by driving a real `--mode=rpc-ui` process:
   at all*. When the key is unset omp falls back in code to the `slow` priority
   chain, so there is no literal for the UI to display; the picker says as much
   instead of inventing one.
-- **Defaults are read from omp's config, not stored by omp-ui.** New sessions
-  inherit `advisor.enabled` from `~/.omp/agent/config.yml` overlaid by
-  `<cwd>/.omp/config.yml`, so editing omp's config keeps working. A session
-  that has never expressed a preference gets no overlay at all.
+- **Defaults are read from omp's config until the user has a last-used value.**
+  A project with no remembered advisor state inherits `advisor.enabled` from
+  omp's global + project config. Thereafter the last on/off choice, model, and
+  advisor thinking suffix seed each new session.
+- **All five composer parameters are remembered per project.**
+  `lastModel`, `lastThinkingLevel`, `lastAdvisor`, and `lastAdvisorModel` (whose
+  selector includes advisor thinking level) recreate the prior setup. The
+  session record also carries its main model and thinking level. Advisor
+  relaunches therefore reapply that session tuple instead of accidentally
+  reverting the main model to a project or omp default. Resumes use the same
+  record-backed overlays, making the toggle independent of main-model choice.
 - **`--config` is a strict loader**: a missing or malformed overlay is a hard
   startup error. The overlay is therefore written before spawn, and a failed
   write degrades to omp's own advisor config rather than taking the session

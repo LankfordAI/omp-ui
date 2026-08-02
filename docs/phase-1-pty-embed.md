@@ -419,8 +419,9 @@ Every session row carries a delete affordance (`session:delete`): it drops the
 registry record **and** removes the lineage dir from both the active and archive
 roots — transcript plus artifacts, since one record owns one lineage dir
 (ADR-0003). Files go first, so a failed delete leaves the row visible and
-retryable instead of orphaning the transcript. Live sessions are refused;
-terminate first.
+retryable instead of orphaning the transcript. A live session is stopped as
+part of the delete (graceful signal, then SIGKILL); if the process cannot be
+reaped, the files are left alone and the delete fails.
 
 ```ts
 // packages/core/src/sessions.ts

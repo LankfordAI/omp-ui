@@ -84,17 +84,21 @@ _Avoid_: right sidebar, panel, drawer
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,
 new, refresh, queue modes). Model, thinking level, and the advisor live in the
-composer instead, next to the text they affect.
+composer instead, next to the text they affect. With the advisor enabled, a
+second, quieter `adv` context/cost readout sits beside the main usage — it is
+delivered by a generated `-e` extension (ADR-0008), never a text parse.
 _Avoid_: toolbar, header, status bar
 
-**Advisor pin**:
-A session's own advisor state — on/off plus an optional `model[:level]`
-selector — recorded on its session record and delivered to omp as a `--config`
-overlay at spawn (ADR-0005). omp binds the advisor once at process start, so
-changing a pin relaunches the session. A null model pin defers to omp's
-`modelRoles.advisor`; it is never an empty string, which would mean *no*
-advisor model. Projects have no advisor flag: scope is the session.
-_Avoid_: advisor setting, advisor config, project advisor
+**Session parameter memory**:
+The five composer parameters — main model, main thinking level, advisor on/off,
+advisor model, and advisor thinking level — are remembered per project and
+seed the next session. Each live session also records its own main model and
+thinking level, so the advisor's required relaunch reapplies them instead of
+falling back to a different model. Advisor model + level remain one omp
+`model[:level]` selector; a null selector defers to `modelRoles.advisor` and is
+never the empty string. The advisor state itself remains session-scoped; the
+project fields are only last-used defaults for a new session.
+_Avoid_: global advisor setting, resetting model on advisor toggle
 
 **Attachment**:
 An image on an outgoing prompt. In rpc-ui it rides the prompt frame's `images`
@@ -103,3 +107,34 @@ a scratch file whose path is handed to omp's TUI as a bracketed paste
 (ADR-0006). omp re-encodes on ingest, so what returns in the transcript is
 omp's mime type, not the clipboard's.
 _Avoid_: upload, file, media
+
+**Auto-title**:
+The name a new session gets from its first substantive prompt. rpc-ui mode
+never titles itself, so omp-ui asks omp's own small model — a stateless
+`omp -p` run on the `tiny`/`commit`/`smol` role its config binds — and pushes
+the answer with `set_session_name`. A greeting is not substantive: titling
+defers rather than latch, because `set_session_name` writes source `"user"`
+and omp refuses every later title. When the model declines or is unreachable,
+a mechanically derived title from the prompt stands in.
+_Avoid_: session name generation, summary, label
+
+**Plan mode**:
+A session state in which omp explores read-only and drafts an execution spec
+instead of editing. omp's rpc protocol cannot express it at all, so omp-ui
+drives it through an extension generated into the lineage dir and passed as
+`-e` at spawn (ADR-0007). It toggles in-process — unlike the advisor pin, it
+never respawns the session. The read-only guarantee is omp's own write guard,
+not omp-ui's.
+_Avoid_: planning mode, read-only mode, plan-first
+
+**Plan review**:
+The gate between drafting and implementing. The agent submits by writing its
+plan's slug to `xd://propose`, which blocks it until the user answers execute
+or refine. Execute lands a single verdict and the renderer dispatches the
+implementation into a chosen context — the same session, the same session
+after compacting its context, or a freshly spawned session seeded with the
+plan — as a normal prompt. Refine sends the agent back to revise the draft,
+optionally carrying the user's revision notes (text + images). Every exit from
+the review pane answers; abandoning it (Escape, scrim) means refine without
+notes, because that is the verdict that keeps the working tree read-only.
+_Avoid_: plan approval dialog, confirmation, plan prompt
