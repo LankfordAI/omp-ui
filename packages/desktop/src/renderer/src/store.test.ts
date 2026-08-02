@@ -91,6 +91,7 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planConcernsWait: null,
     advisorStats: null,
     ...patch,
   };
@@ -649,6 +650,214 @@ describe("handleRpcFrame routing", () => {
     );
     expect(prompt).toBeDefined();
     expect(prompt!.cmd.message).toContain("Implement it now");
+    await flushMicrotasks();
+  });
+
+  /** An advisor review card as it lands over the live stream. */
+  const advisorReviewFrame = (note: string, severity: string, advisor: string) => ({
+    type: "message_end",
+    message: {
+      role: "custom",
+      customType: "advisor",
+      content: "<advisory/>",
+      details: { notes: [{ note, severity, advisor }] },
+    },
+  });
+
+  /** Opens a plan review ready for a verdict. */
+  const openReview = (id: string) => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id,
+      method: "select",
+      title: "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+  };
+
+  it("holds execute for the drafting turn's advisor review, then folds its concerns", async () => {
+    // Configured advisor = a review of the plan turn is on its way after the verdict.
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          advisorStats: {
+            available: true,
+            configured: true,
+            active: true,
+            model: "m",
+            contextWindow: 200000,
+            contextTokens: 0,
+            cost: 0,
+            totalTokens: 0,
+          },
+        }),
+      },
+    });
+    openReview("c1");
+    useStore.getState().executePlan(TAB, "existing");
+    // The verdict lands immediately — omp's agent is blocked on it.
+    const verdict = sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(verdict!.cmd).toMatchObject({ id: "c1", value: "execute" });
+    // …but the implementation waits for the review: the turn that produced the
+    // plan is still ending, so its review cannot have landed yet.
+    expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    // The advisor reviews the now-finished plan turn.
+    useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("Hardcoded key", "blocker", "security"));
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message)).toContain("advisor flagged");
+    expect(String(prompt!.cmd.message)).toContain("Hardcoded key");
+    expect(String(prompt!.cmd.message)).toContain("[blocker]");
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.planConcernsWait).toBeNull();
+    expect(tab.items.at(-1)).toMatchObject({ kind: "notice", text: expect.stringContaining("1 concern") });
+  });
+
+  it("executes immediately, and reads no transcript, when the fold is off", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          items: [
+            {
+              kind: "advisory",
+              id: "advisory-stale",
+              notes: [{ note: "old unrelated nit", severity: "nit", advisor: "style" }],
+            },
+          ],
+          advisorStats: {
+            available: true,
+            configured: true,
+            active: true,
+            model: "m",
+            contextWindow: 200000,
+            contextTokens: 0,
+            cost: 0,
+            totalTokens: 0,
+          },
+        }),
+      },
+    });
+    openReview("c2");
+    useStore.getState().executePlan(TAB, "existing", false);
+    await flushMicrotasks();
+    const prompt = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
+    expect(prompt).toBeDefined();
+    // Stale pre-verdict advisories are never folded onto a fresh verdict.
+    expect(String(prompt!.cmd.message)).not.toContain("old unrelated nit");
+  });
+
+  it("skips the wait entirely when the session has no configured advisor", () => {
+    useStore.setState({ rpc: { [TAB]: tabState({ advisorStats: null }) } });
+    openReview("c3");
+    useStore.getState().executePlan(TAB, "existing");
+    expect(sent.find((s) => s.cmd.type === "prompt")).toBeDefined();
+  });
+
+  it("refine stays immediate: user notes steer at once, never waiting on a review", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          advisorStats: {
+            available: true,
+            configured: true,
+            active: true,
+            model: "m",
+            contextWindow: 200000,
+            contextTokens: 0,
+            cost: 0,
+            totalTokens: 0,
+          },
+        }),
+      },
+    });
+    openReview("c4");
+    useStore.getState().refinePlan(TAB, { text: "drop the API layer" });
+    expect(sent.find((s) => s.cmd.type === "extension_ui_response")!.cmd).toMatchObject({
+      id: "c4",
+      value: "refine",
+    });
+    // The planner revises in this same turn (the extension tells it to), so
+    // there is no review to wait for — the user's notes steer immediately.
+    const steer = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
+    expect(steer!.cmd.streamingBehavior).toBe("steer");
+    expect(String(steer!.cmd.message)).toContain("drop the API layer");
+    expect(useStore.getState().rpc[TAB]!.planConcernsWait).toBeNull();
+  });
+
+  it("times out the execute concern wait and implements without concerns", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({
+        rpc: {
+          [TAB]: tabState({
+            advisorStats: {
+              available: true,
+              configured: true,
+              active: true,
+              model: "m",
+              contextWindow: 200000,
+              contextTokens: 0,
+              cost: 0,
+              totalTokens: 0,
+            },
+          }),
+        },
+      });
+      openReview("c5");
+      useStore.getState().executePlan(TAB, "existing");
+      // The review never lands; the bounded deadline settles the wait.
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushMicrotasks();
+      const prompt = sent.find(
+        (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+      );
+      expect(prompt).toBeDefined();
+      expect(String(prompt!.cmd.message)).not.toContain("advisor flagged");
+      expect(useStore.getState().rpc[TAB]!.planConcernsWait).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("seeds a fresh implementation session with the folded concerns", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          advisorStats: {
+            available: true,
+            configured: true,
+            active: true,
+            model: "m",
+            contextWindow: 200000,
+            contextTokens: 0,
+            cost: 0,
+            totalTokens: 0,
+          },
+        }),
+      },
+    });
+    openReview("c6");
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("pin the toolchain", "concern", "ops"));
+    await flushMicrotasks();
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ projectCwd: "/p", mode: "rpc-ui" }),
+    );
+    // Boot the fresh tab to ready — resolves the spawn's readiness wait.
+    useStore.setState({
+      rpc: { ...useStore.getState().rpc, "fresh-tab": tabState({ status: "ready", planText: null }) },
+    });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt" && String(s.cmd.message).includes("Implement it now"),
+    );
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message)).toContain("pin the toolchain");
     await flushMicrotasks();
   });
 

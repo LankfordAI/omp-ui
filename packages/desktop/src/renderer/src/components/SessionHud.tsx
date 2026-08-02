@@ -3,7 +3,7 @@ import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { cn } from "../lib/cn";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
-import { Button, Chip, Dot, IconButton, Label, Meter, Panel, type Tone } from "./ui";
+import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Switch, type Tone } from "./ui";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -83,40 +83,6 @@ function Segmented({
         );
       })}
     </div>
-  );
-}
-
-function PillSwitch({
-  on,
-  onChange,
-  label,
-  title,
-}: {
-  on: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      title={title ?? label}
-      onClick={() => onChange(!on)}
-      className={cn(
-        "relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
-        on ? "border-signal-dim bg-signal-wash" : "border-line bg-raised hover:border-line-strong",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-1/2 size-2.5 -translate-y-1/2 rounded-full transition-[left] duration-150",
-          on ? "left-4 bg-signal" : "left-0.5 bg-ink-faint",
-        )}
-      />
-    </button>
   );
 }
 
@@ -400,7 +366,7 @@ function ModesPopover({ tabId }: { tabId: string }) {
               >
                 abort retry
               </Button>
-              <PillSwitch
+              <Switch
                 on={autoRetry}
                 label="auto-retry"
                 title="retry transient provider errors automatically"
@@ -530,7 +496,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <IconCompact />
           <span className="hidden lg:inline">compact</span>
         </Button>
-        <PillSwitch
+        <Switch
           on={session?.autoCompactionEnabled ?? false}
           label="auto-compact"
           title="auto-compact when the context window fills"

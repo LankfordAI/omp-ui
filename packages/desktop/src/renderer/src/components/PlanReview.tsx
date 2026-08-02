@@ -5,7 +5,7 @@ import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
 import type { PlanExecutionContext } from "../store";
 import { useStore } from "../store";
 import { Markdown } from "./Markdown";
-import { Button, CopyButton, IconButton, Label, Modal } from "./ui";
+import { Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
@@ -34,6 +34,7 @@ const CONTEXTS: Array<{
 export function PlanReview({ tabId }: { tabId: string }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
   const planText = useStore((s) => s.rpc[tabId]?.planText);
+  const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
 
@@ -42,6 +43,13 @@ export function PlanReview({ tabId }: { tabId: string }) {
   const [changes, setChanges] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [pasteError, setPasteError] = useState<string | null>(null);
+  /**
+   * Fold the advisor's review of the plan turn (it lands only after an execute
+   * verdict lets the turn end) into the implementation prompt. Inert on
+   * sessions with no configured advisor. Refine stays immediate: the planner
+   * revises in this same session, where the advisor's notes already land.
+   */
+  const [addressAdvisor, setAddressAdvisor] = useState(true);
 
   if (!review) return null;
   const { request } = review;
@@ -53,7 +61,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
   // Escape/scrim: the safe verdict without committing half-typed notes — a
   // draft in the box is not something to blast at the planner by accident.
   const dismiss = () => refinePlan(tabId);
-  const execute = () => executePlan(tabId, context);
+  const execute = () => executePlan(tabId, context, addressAdvisor);
 
   const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!hasClipboardImage(e.clipboardData)) return;
@@ -177,6 +185,23 @@ export function PlanReview({ tabId }: { tabId: string }) {
             {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}
           </div>
         </div>
+
+        {advisorConfigured && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
+            <div className="min-w-0">
+              <span className="block text-[11px] font-medium text-ink">address advisor concerns</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                The advisor reviews the plan after you answer; on execute its concerns ride the
+                implementation prompt. Refine stays immediate — the planner revises here.
+              </span>
+            </div>
+            <Switch
+              on={addressAdvisor}
+              onChange={setAddressAdvisor}
+              label="address advisor concerns in the implementation prompt"
+            />
+          </div>
+        )}
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">

@@ -118,6 +118,11 @@ export interface RpcTabState {
   /** Plan markdown for the review pane, read off disk. */
   planText: string | null;
   /**
+   * A settled plan verdict waiting for the drafting turn's advisor review
+   * before dispatch. Null except in the bounded window after execute/refine.
+   */
+  planConcernsWait: PlanConcernsWait | null;
+  /**
    * Advisor spend and context, published by the generated advisor-stats
    * extension over `setStatus` (see core/advisor-stats-extension.ts). Null until
    * the extension first reports; `available: false` means it could not drive
@@ -148,6 +153,7 @@ function freshRpcTabState(): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planConcernsWait: null,
     advisorStats: null,
   };
 }
@@ -241,13 +247,18 @@ interface UiStore {
    * this replies, so it must be answered on every exit from the review pane.
    * `context` picks where implementation runs: the same session (`existing`),
    * the same session after compacting its context (`compacted`), or a freshly
-   * spawned session seeded with the plan (`fresh`).
+   * spawned session seeded with the plan (`fresh`). `addressAdvisor` (default
+   * true) holds dispatch for the drafting turn's advisor review (which lands
+   * only after the execute verdict lets the turn end) and folds any concerns
+   * into the implementation prompt.
    */
-  executePlan(tabId: string, context: PlanExecutionContext): void;
+  executePlan(tabId: string, context: PlanExecutionContext, addressAdvisor?: boolean): void;
   /**
    * Refuses a plan review, sending the agent back to revise the draft.
    * `notes` (optional text + images) are delivered to the planner as revision
-   * instructions; with none this is a plain, no-notes refinement.
+   * instructions; with none this is a plain, no-notes refinement. The revision
+   * stays immediate — the planner revises in this same session, where the
+   * advisor's injected notes are already visible.
    */
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
   /** Loads the plan markdown for the review pane. */
@@ -314,6 +325,57 @@ const lastContextRefresh = new Map<string, number>();
 const EXECUTION_PROMPT =
   "The plan review is complete — execute the approved plan now. It is set as this " +
   "session's reference.";
+
+/**
+ * Renders advisor concerns as an explicit instruction block for the
+ * planner/implementer, or null when there are none. Reads standalone review
+ * cards from the transcript slice passed in; tool-attached notes are excluded
+ * because they echo the same findings inline on a tool result, and folding both
+ * would double-promote a single review into paired instructions. Severity
+ * survives so the agent can prioritise.
+ */
+function advisorConcernsBlock(items: RenderItem[]): string | null {
+  const notes = items.flatMap((item) => (item.kind === "advisory" ? item.notes : []));
+  if (notes.length === 0) return null;
+  const lines = notes.map((note) => {
+    const severity = note.severity ?? "note";
+    const who = note.advisor ? ` (${note.advisor})` : "";
+    return `- [${severity}]${who} ${note.note}`;
+  });
+  return "The advisor flagged these concerns about the plan. Address them:\n\n" + lines.join("\n");
+}
+
+/** Appends the advisor block to a dispatch prompt, when there is one. */
+function withConcerns(base: string, concerns: string | null): string {
+  return concerns ? `${base}\n\n${concerns}` : base;
+}
+
+/**
+ * How long after a plan verdict to let the drafting turn's advisor review land
+ * before dispatching anyway. omp runs the advisor async to the primary loop,
+ * so the review of the plan turn arrives a moment after the turn ends — a
+ * short bound is plenty, and a session with a slow advisor proceeds unblocked.
+ */
+const PLAN_CONCERNS_WAIT_MS = 15_000;
+
+/**
+ * The pending post-execute handoff: we answered the gate, the plan turn is
+ * ending, and dispatch waits for that turn's advisor review before firing.
+ * Deliberately execute-only: on refine the extension keeps the planner in the
+ * same turn ("revise, then propose again"), so its review cannot land while a
+ * deferred steer waits — and the revising planner already sees the injected
+ * notes in this same session.
+ */
+interface PlanConcernsWait {
+  /** Execution context chosen on the review pane. */
+  context: PlanExecutionContext;
+  /** Plan text for the fresh execute context — captured before the pane closes. */
+  planText: string | null;
+  /** Item count when the verdict was answered — only cards appended after it count. */
+  baseline: number;
+  /** The bounded settle deadline; cleared when the wait settles or the tab resets. */
+  timer: number;
+}
 
 /** Polls `rpc[tabId]` until `pred` holds (or the bounded deadline passes). */
 function pollUntil(
@@ -435,11 +497,111 @@ export const useStore = create<UiStore>()((set, get) => {
     return true;
   };
 
+  /** Clears a pending concern handoff and its settle deadline. */
+  const resetPlanConcernsWait = (tabId: string): void => {
+    const wait = get().rpc[tabId]?.planConcernsWait;
+    if (wait) window.clearTimeout(wait.timer);
+    patchRpc(tabId, { planConcernsWait: null });
+  };
+
+  /**
+   * The drafting turn's advisor review cannot exist while the review gate is
+   * open: omp's advisor reviews a turn after it ends, and the gate blocks
+   * inside the plan turn itself (the extension's `select` resolves only on the
+   * verdict). So the verdict is answered first, then we wait — bounded — for
+   * that turn's review to land and fold its concerns into the follow-on
+   * dispatch. Returns false when no wait starts (no configured advisor), in
+   * which case dispatch proceeds immediately untouched.
+   */
+  const beginPlanConcernsWait = (
+    tabId: string,
+    intent: Omit<PlanConcernsWait, "baseline" | "timer">,
+  ): boolean => {
+    const tab = get().rpc[tabId];
+    // Only wait when an advisor is positively configured — otherwise no review
+    // is coming and the bound would only stall dispatch.
+    if (!tab || tab.advisorStats?.configured !== true) return false;
+    resetPlanConcernsWait(tabId);
+    const baseline = get().rpc[tabId]!.items.length;
+    const timer = window.setTimeout(() => {
+      // Forced settle: the review never landed — proceed without concerns.
+      void settlePlanConcerns(tabId, get().rpc[tabId]?.items ?? [], true);
+    }, PLAN_CONCERNS_WAIT_MS);
+    patchRpc(tabId, { planConcernsWait: { ...intent, baseline, timer } });
+    appendItem(
+      tabId,
+      noticeItem(
+        "verdict accepted — waiting for the advisor's review before the next step",
+        "info",
+      ),
+    );
+    return true;
+  };
+
+  /**
+   * Settles a pending handoff when the drafting turn's review lands (a new
+   * advisory after the verdict's item baseline) or the bounded deadline forces
+   * it. Folds any review that landed into the dispatch; a forced settle with no
+   * review dispatches clean.
+   */
+  const settlePlanConcerns = (tabId: string, items: RenderItem[], force: boolean): void => {
+    const wait = get().rpc[tabId]?.planConcernsWait;
+    if (!wait) return;
+    const fresh = items.slice(wait.baseline);
+    if (!force && !fresh.some((item) => item.kind === "advisory")) return;
+    resetPlanConcernsWait(tabId);
+    const concerns = advisorConcernsBlock(fresh);
+    if (concerns) {
+      const count = fresh.reduce(
+        (n, item) => n + (item.kind === "advisory" ? item.notes.length : 0),
+        0,
+      );
+      appendItem(
+        tabId,
+        noticeItem(
+          `advisor's review folded into the implementation (${count} concern${count === 1 ? "" : "s"})`,
+          "info",
+        ),
+      );
+    }
+    dispatchExecutePlan(tabId, wait.context, wait.planText, concerns);
+  };
+
+  /** Sends the implementation prompt for a settled execute verdict. */
+  const dispatchExecutePlan = (
+    tabId: string,
+    context: PlanExecutionContext,
+    planText: string | null,
+    concerns: string | null,
+  ): void => {
+    if (context === "fresh") {
+      void spawnFreshImplementation(tabId, planText, concerns);
+      return;
+    }
+    if (context === "compacted") {
+      // `compact` runs between turns, so the just-accepted plan turn must end
+      // (it has by now) before compacting, then prompt the implementer.
+      void (async () => {
+        await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
+        await get().compactSession(tabId);
+        await get().sendPrompt(tabId, withConcerns(EXECUTION_PROMPT, concerns), "prompt");
+      })();
+      return;
+    }
+    // Existing context: followUp queues the prompt until the current turn
+    // ends, so it races nothing — the implementer runs in this same session.
+    void get().sendPrompt(tabId, withConcerns(EXECUTION_PROMPT, concerns), "follow_up");
+  };
+
   /**
    * Spawns a fresh rpc-ui session in the plan's project, seeds it with the
    * plan text as its first prompt, and surfaces it as the active tab.
    */
-  const spawnFreshImplementation = async (srcTabId: string, planText: string | null): Promise<void> => {
+  const spawnFreshImplementation = async (
+    srcTabId: string,
+    planText: string | null,
+    concerns: string | null = null,
+  ): Promise<void> => {
     const rec = findRecord(get().state, srcTabId);
     if (!rec) return;
     const projectCwd = rec.projectCwd;
@@ -475,11 +637,8 @@ export const useStore = create<UiStore>()((set, get) => {
     );
     await pollUntil(freshId, (t) => t?.status === "ready");
     const lead = "A plan was approved for this project. Implement it now.";
-    await get().sendPrompt(
-      freshId,
-      planText ? `${lead}\n\n${planText}\n\nProceed with the implementation.` : lead,
-      "prompt",
-    );
+    const seed = planText ? `${lead}\n\n${planText}\n\nProceed with the implementation.` : lead;
+    await get().sendPrompt(freshId, withConcerns(seed, concerns), "prompt");
   };
 
   const applyRpcState = (tabId: string, resp: unknown): void => {
@@ -743,6 +902,8 @@ export const useStore = create<UiStore>()((set, get) => {
       if (rpcBooting.has(tabId)) return;
       rpcBooting.add(tabId);
       try {
+        // A pending concern handoff belongs to the session that just went away.
+        resetPlanConcernsWait(tabId);
         patchRpc(tabId, freshRpcTabState());
         // The tab may not exist in state yet — ensure the slot exists.
         if (!get().rpc[tabId]) {
@@ -978,7 +1139,11 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
         default: {
           // The AgentSessionEvent stream — the actual transcript.
-          patchRpc(tabId, { items: reduceEvent(tab.items, frame) });
+          const nextItems = reduceEvent(tab.items, frame);
+          patchRpc(tabId, { items: nextItems });
+          // A pending plan-concerns wait settles the moment the drafting turn's
+          // review card lands after the verdict (or its bounded deadline fires).
+          settlePlanConcerns(tabId, nextItems, false);
           if (type === "thinking_level_changed") {
             const level = strField(frame, "thinkingLevel");
             if (level) {
@@ -1292,7 +1457,9 @@ export const useStore = create<UiStore>()((set, get) => {
         plan: null,
         planReview: null,
         planText: null,
+        planConcernsWait: null,
       });
+      resetPlanConcernsWait(tabId);
       await get().refreshState(tabId);
     },
 
@@ -1305,31 +1472,22 @@ export const useStore = create<UiStore>()((set, get) => {
       });
     },
 
-    executePlan(tabId, context) {
+    executePlan(tabId, context, addressAdvisor = true) {
       // The fresh context embeds the plan text in the new session's prompt, so
       // capture it before the gate's answer clears the pane.
       const planText = get().rpc[tabId]?.planText ?? null;
       // Answer the gate first — omp's agent is blocked on the reply, so every
       // exit from the review pane must land its verdict before any dispatch.
       if (!answerPlanSelect(tabId, PLAN_EXECUTE)) return;
-      if (context === "fresh") {
-        void spawnFreshImplementation(tabId, planText);
+      // The drafting turn's review lands after the verdict, so hold dispatch
+      // for it when the user wants the advisor's concerns actioned. Execute
+      // only: the execute ToolResult tells the agent to stop and wait, so this
+      // turn ends and its review genuinely follows — refine keeps the planner
+      // in the same turn and is left immediate.
+      if (addressAdvisor && beginPlanConcernsWait(tabId, { context, planText })) {
         return;
       }
-      if (context === "compacted") {
-        // `compact` runs between turns, so we must wait for the just-accepted
-        // plan turn to end before compacting, then prompt the implementer.
-        void (async () => {
-          await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
-          await get().compactSession(tabId);
-          await get().sendPrompt(tabId, EXECUTION_PROMPT, "prompt");
-        })();
-        return;
-      }
-      // Existing context: followUp queues the prompt until the current turn
-      // ends, so it races nothing — the accepted plan turn finishes, then the
-      // implementer runs in this same session.
-      void get().sendPrompt(tabId, EXECUTION_PROMPT, "follow_up");
+      dispatchExecutePlan(tabId, context, planText, null);
     },
 
     refinePlan(tabId, notes) {

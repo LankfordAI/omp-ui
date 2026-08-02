@@ -260,6 +260,41 @@ export function Label({ children, className }: { children: ReactNode; className?
   );
 }
 
+/** An on/off toggle — the shared boolean switch for all feature controls. */
+export function Switch({
+  on,
+  onChange,
+  label,
+  title,
+}: {
+  on: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      title={title ?? label}
+      onClick={() => onChange(!on)}
+      className={cn(
+        "relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
+        on ? "border-signal-dim bg-signal-wash" : "border-line bg-raised hover:border-line-strong",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-1/2 size-2.5 -translate-y-1/2 rounded-full transition-[left] duration-150",
+          on ? "left-4 bg-signal" : "left-0.5 bg-ink-faint",
+        )}
+      />
+    </button>
+  );
+}
+
 /** An indeterminate activity bar — the honest signal for "streaming". */
 export function ProgressSweep({ tone = "signal" }: { tone?: Tone }) {
   return (

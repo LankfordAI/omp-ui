@@ -137,4 +137,10 @@ plan — as a normal prompt. Refine sends the agent back to revise the draft,
 optionally carrying the user's revision notes (text + images). Every exit from
 the review pane answers; abandoning it (Escape, scrim) means refine without
 notes, because that is the verdict that keeps the working tree read-only.
+Because the advisor reviews a turn only after it ends, the plan turn's review
+can outlive the gate — so on execute, a session with a configured advisor
+answers the verdict first, waits (bounded) for that review to land, then folds
+its concerns into the implementation prompt in every context; refine stays
+immediate because the planner revises in situ, where the advisor's notes
+already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
