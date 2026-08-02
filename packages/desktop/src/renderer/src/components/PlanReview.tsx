@@ -2,7 +2,7 @@ import { useState, type KeyboardEvent } from "react";
 import type { ImageAttachment } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
-import type { PlanExecutionContext } from "../store";
+import type { PlanExecutionContext } from "../lib/plan-concerns";
 import { useStore } from "../store";
 import { Markdown } from "./Markdown";
 import { Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";

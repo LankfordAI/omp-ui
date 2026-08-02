@@ -91,7 +91,6 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
-    planConcernsWait: null,
     advisorStats: null,
     ...patch,
   };
@@ -711,7 +710,6 @@ describe("handleRpcFrame routing", () => {
     expect(String(prompt!.cmd.message)).toContain("Hardcoded key");
     expect(String(prompt!.cmd.message)).toContain("[blocker]");
     const tab = useStore.getState().rpc[TAB]!;
-    expect(tab.planConcernsWait).toBeNull();
     expect(tab.items.at(-1)).toMatchObject({ kind: "notice", text: expect.stringContaining("1 concern") });
   });
 
@@ -783,7 +781,6 @@ describe("handleRpcFrame routing", () => {
     const steer = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
     expect(steer!.cmd.streamingBehavior).toBe("steer");
     expect(String(steer!.cmd.message)).toContain("drop the API layer");
-    expect(useStore.getState().rpc[TAB]!.planConcernsWait).toBeNull();
   });
 
   it("times out the execute concern wait and implements without concerns", async () => {
@@ -815,7 +812,6 @@ describe("handleRpcFrame routing", () => {
       );
       expect(prompt).toBeDefined();
       expect(String(prompt!.cmd.message)).not.toContain("advisor flagged");
-      expect(useStore.getState().rpc[TAB]!.planConcernsWait).toBeNull();
     } finally {
       vi.useRealTimers();
     }

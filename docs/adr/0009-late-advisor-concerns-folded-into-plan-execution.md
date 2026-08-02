@@ -36,14 +36,19 @@ The two verdicts differ in whether they end the turn:
 
 Only execute waits. The renderer answers the verdict immediately (omp's agent
 is blocked on it), snapshots the transcript item baseline, and — when the
-session has a **configured advisor** — waits, bounded (15s), for the first
-standalone `advisory` card appended after the baseline. When it lands, the
-notes are folded into the implementation prompt as explicit instructions
-(severity preserved), in every execute context: same session, same session
-after compaction, or the freshly spawned session seeded with the plan. If the
-bounded deadline passes without a review, dispatch proceeds clean, unfiltered.
-A per-review switch in the pane, default on, disables the wait and restores
-today's immediate dispatch; sessions without a configured advisor never wait.
+session has a **configured advisor** — waits, bounded (15s), for advisor
+findings appended after the baseline. A finding can arrive in either of two
+shapes: a standalone `advisory` card and/or notes attached to the plan turn's
+tool result. The settle trigger and the fold are one function that reads the
+same collection — every finding appended after the baseline, deduplicated on
+`advisor|severity|note` — so either delivery shape settles the wait and no
+review is double-folded. On settle, the notes are folded into the
+implementation prompt as explicit instructions (severity preserved), in every
+execute context: same session, same session after compaction, or the freshly
+spawned session seeded with the plan. If the bounded deadline passes without a
+review, dispatch proceeds clean, unfiltered. A per-review switch in the pane,
+default on, disables the wait and restores today's immediate dispatch;
+sessions without a configured advisor never wait.
 
 ## Why not the obvious routes
 
@@ -68,7 +73,7 @@ today's immediate dispatch; sessions without a configured advisor never wait.
   session proceeds cleanly; switch off (or no configured advisor) and behavior
   is exactly today's.
 - **Only the drafting turn's review is folded.** The baseline excludes every
-  card already present at the verdict, so older findings are never promoted
+  finding already present at the verdict, so older findings are never promoted
   onto the current decision.
 - **Refine is untouched.** Its user notes steer immediately; the advisor's
   input remains the injected notes in the revising session.
