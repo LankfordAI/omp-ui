@@ -7,7 +7,7 @@ export interface RpcChildProcess {
   stdin: Writable;
   stdout: Readable;
   stderr: Readable;
-  kill(): void;
+  kill(signal?: NodeJS.Signals): void;
   onExit(cb: (code: number | null) => void): void;
   onSpawnError(cb: (err: Error) => void): void;
 }
@@ -27,6 +27,8 @@ export interface RpcClientOpts {
   advisor?: boolean;
   /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
   configOverlays?: string[];
+  /** Extra `-e` extensions — the plan-mode driver (see plan-extension.ts). */
+  extensions?: string[];
   onFrame: (frame: unknown) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
@@ -47,7 +49,7 @@ function defaultSpawn(ompPath: string, args: string[], env: NodeJS.ProcessEnv): 
     stdin: proc.stdin,
     stdout: proc.stdout,
     stderr: proc.stderr,
-    kill: () => proc.kill(),
+    kill: (signal) => proc.kill(signal),
     onExit: (cb) => proc.on("exit", (code) => cb(code)),
     onSpawnError: (cb) => proc.on("error", cb),
   };
@@ -85,6 +87,7 @@ export class RpcClient {
     if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
     if (opts.advisor) args.push("--advisor");
     for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
+    for (const extension of opts.extensions ?? []) args.push("-e", extension);
     // Same shim-proofing as spawnOmp: keep the resolved binary's dir on PATH.
     const env = {
       ...process.env,
@@ -120,10 +123,10 @@ export class RpcClient {
     this.#proc.stdin.write(`${JSON.stringify(cmd)}\n`);
   }
 
-  kill(): void {
+  kill(signal?: NodeJS.Signals): void {
     this.#dead = true;
     clearTimeout(this.#readyTimer);
-    this.#proc.kill();
+    this.#proc.kill(signal);
   }
 
   #onFrame(frame: unknown): void {

@@ -9,7 +9,8 @@ export interface PtyHandle {
   onExit(cb: (e: { exitCode: number; signal?: number }) => void): void;
   write(data: string): void;
   resize(cols: number, rows: number): void;
-  kill(): void;
+  /** Default is the adapter's own (SIGHUP); pass "SIGKILL" to escalate. */
+  kill(signal?: string): void;
 }
 
 export function spawnOmp(opts: {
@@ -57,6 +58,6 @@ export function spawnOmp(opts: {
     onExit: (cb) => proc.onExit(cb),
     write: (d) => proc.write(d),
     resize: (c, r) => proc.resize(c, r),
-    kill: () => proc.kill(),
+    kill: (signal) => proc.kill(signal),
   });
 }
