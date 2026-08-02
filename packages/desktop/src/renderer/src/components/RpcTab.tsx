@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { Composer } from "./Composer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
 import { InspectorRail } from "./InspectorRail";
+import { PlanReview } from "./PlanReview";
 import { SessionHud } from "./SessionHud";
 import { TranscriptView } from "./TranscriptView";
 import { Button, Chip, CopyButton, Panel, ProgressSweep } from "./ui";
@@ -74,12 +75,15 @@ export function RpcTab({ tabId }: { tabId: string; active: boolean }) {
           ) : (
             <TranscriptView items={rpc?.items ?? []} />
           )}
+          {/* Docked, not modal: the user may need to scroll the transcript to
+              answer, so the question must not cover it. */}
+          <ExtensionDialogHost tabId={tabId} />
           <Composer tabId={tabId} />
         </div>
         <InspectorRail tabId={tabId} />
       </div>
 
-      <ExtensionDialogHost tabId={tabId} />
+      <PlanReview tabId={tabId} />
 
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-blur-sm">

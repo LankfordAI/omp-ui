@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { cn } from "../lib/cn";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
@@ -179,6 +180,16 @@ export function IconRefresh() {
   );
 }
 
+function IconPlan() {
+  return (
+    <Svg>
+      <path {...S} d="M4.5 2.5h5l3 3v8a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z" />
+      <path {...S} d="M9.5 2.5v3h3" />
+      <path {...S} d="M6.5 9.5l1.25 1.25 2.25-2.5" />
+    </Svg>
+  );
+}
+
 function IconSliders() {
   return (
     <Svg>
@@ -257,6 +268,33 @@ function ContextCluster({ usage }: { usage: ContextUsage }) {
         )}
       >
         {percent.toFixed(1)}%
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The second context/cost readout, for the advisor. Quiet and neutral (never
+ * the signal accent — this is chrome, not liveness): an `adv` tag, a compact
+ * context meter, the fill percent, and cost. Hidden until the extension has
+ * published real stats.
+ */
+function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
+  const window = stats.contextWindow > 0 ? stats.contextWindow : 0;
+  const percent = window > 0 ? (stats.contextTokens / window) * 100 : 0;
+  const exact =
+    `advisor${stats.model ? ` · ${stats.model}` : ""}: ` +
+    `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
+    ` (${percent.toFixed(2)}%) · ${formatCost(stats.cost)}`;
+  return (
+    <div className="hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex" title={exact}>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">adv</span>
+      <Meter fraction={window > 0 ? stats.contextTokens / window : 0} className="w-14" title={exact} />
+      <span className="font-mono text-[10px] tabular-nums text-ink-dim" title={exact}>
+        {percent.toFixed(1)}%
+      </span>
+      <span className="font-mono text-[10px] tabular-nums text-ink-faint" title={exact}>
+        {formatCost(stats.cost)}
       </span>
     </div>
   );
@@ -394,6 +432,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const newRpcSession = useStore((s) => s.newRpcSession);
   const refreshState = useStore((s) => s.refreshState);
   const refreshStats = useStore((s) => s.refreshStats);
+  const refreshAdvisorStats = useStore((s) => s.refreshAdvisorStats);
+  const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
+  const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
+  const plan = useStore((s) => s.rpc[tabId]?.plan);
+  const setPlanMode = useStore((s) => s.setPlanMode);
 
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
   const face = STATUS[status] ?? STATUS.starting;
@@ -413,11 +456,26 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </span>
       )}
 
+      {plan?.enabled && (
+        <Chip tone="iris" className="shrink-0" title={plan.planFilePath ?? "drafting a plan"}>
+          plan
+        </Chip>
+      )}
+
       <TitleField tabId={tabId} title={title ?? "untitled"} />
 
       <span className="min-w-0 flex-1" />
 
       {usage && <ContextCluster usage={usage} />}
+
+      {/* `available:true` is emitted for both on and off sessions (off reports
+          configured:false), so the record flag alone was the gate — and it can be
+          stale after an advisor-toggle relaunch. The extension's `configured` is
+          omp's own runtime truth for "advisor is enabled", so a genuinely-running
+          advisor shows even if the record lags; an off session stays hidden. */}
+      {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && (
+        <AdvisorCluster stats={advisorStats} />
+      )}
 
       {stats && (
         <div
@@ -441,6 +499,26 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       <div className="flex shrink-0 items-center gap-1 border-l border-line-soft pl-2.5">
+        <Button
+          size="xs"
+          variant={plan?.enabled ? "solid" : "ghost"}
+          tone="iris"
+          // The extension reaches omp's plan API through unsupported surface,
+          // so it reports `unavailable` rather than letting the toggle lie.
+          disabled={plan?.unavailable !== undefined}
+          title={
+            plan?.unavailable
+              ? `plan mode unavailable: ${plan.unavailable}`
+              : plan?.enabled
+                ? "leave plan mode (restores write access)"
+                : "plan first: the agent explores read-only and drafts a plan for review"
+          }
+          onClick={() => void setPlanMode(tabId, !(plan?.enabled ?? false))}
+        >
+          <IconPlan />
+          <span className="hidden lg:inline">plan</span>
+        </Button>
+        <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <Button
           size="xs"
           variant="ghost"
@@ -473,6 +551,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
           onClick={() => {
             void refreshState(tabId);
             void refreshStats(tabId);
+            // The advisor refresh rides a slash prompt, which a live turn could
+            // misfile as a steer — the extension auto-publishes at the next
+            // turn boundary, so never force it while running.
+            if (status !== "running" && session?.isStreaming !== true) {
+              void refreshAdvisorStats(tabId);
+            }
           }}
         >
           <IconRefresh />

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -10,12 +11,18 @@ import {
 import type { ImageAttachment } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
+import {
+  keywordColors,
+  magicKeywordSegments,
+  SHIMMER_FRAME_MS,
+  SHIMMER_PERIOD_MS,
+} from "../lib/magic-keywords";
 import type { PromptRoute } from "../lib/rpc-types";
 import { useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { ModelSelector } from "./ModelSelector";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
-import { Button, Chip, IconButton, Label, ProgressSweep } from "./ui";
+import { Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -62,10 +69,16 @@ export function Composer({ tabId }: { tabId: string }) {
   const [images, setImages] = useState<ImageAttachment[]>([]);
   /** Why a pasted item was refused (over omp's 20 MB ceiling, unreadable). */
   const [pasteError, setPasteError] = useState<string | null>(null);
+  /** Whether the box has focus — omp shimmers a keyword only while it does. */
+  const [focused, setFocused] = useState(false);
+  /** Gradient rotation ∈ [0,1); 0 is the static palette. */
+  const [phase, setPhase] = useState(0);
 
   const box = useRef<HTMLTextAreaElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
   const effortAnchor = useRef<HTMLSpanElement | null>(null);
+  /** The highlight layer under the (transparent-text) textarea. */
+  const mirror = useRef<HTMLDivElement | null>(null);
   /** Sent messages, newest last. */
   const history = useRef<string[]>([]);
   /** Index into `history` while walking it; null when not recalling. */
@@ -84,6 +97,24 @@ export function Composer({ tabId }: { tabId: string }) {
    */
   const vision = useStore((s) => s.rpc[tabId]?.model?.input?.includes("image") ?? true);
 
+  /**
+   * omp's magic keywords ("orchestrate" and friends) each append a hidden
+   * notice that steers the turn, and the gradient is the only sign the word did
+   * anything — so the composer paints them exactly as omp's own editor does.
+   */
+  const segments = useMemo(() => magicKeywordSegments(text), [text]);
+  const glowing = segments.some((s) => s.keyword !== null);
+  /** Painted runs: one span per prose segment, one per keyword character. */
+  const runs = useMemo(
+    () =>
+      segments.flatMap((seg) =>
+        seg.keyword === null
+          ? [{ text: seg.text, color: undefined as string | undefined }]
+          : keywordColors(seg.keyword, phase).map((color, c) => ({ text: seg.text[c]!, color })),
+      ),
+    [segments, phase],
+  );
+
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
   useLayoutEffect(() => {
@@ -100,7 +131,27 @@ export function Composer({ tabId }: { tabId: string }) {
     const max = line * MAX_ROWS + padding + border;
     el.style.height = `${Math.min(wanted, max)}px`;
     el.style.overflowY = wanted > max ? "auto" : "hidden";
+    // Resizing fires no scroll event, so the mirror has to be told.
+    if (mirror.current !== null) mirror.current.scrollTop = el.scrollTop;
   }, [text]);
+
+  // The shimmer runs only while focused with a keyword on screen, matching omp's
+  // editor; everything else shows the static phase-0 palette.
+  useEffect(() => {
+    if (!focused || !glowing) {
+      setPhase(0);
+      return;
+    }
+    // A 14fps colour cycle is exactly what reduced-motion asks us not to run.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setPhase(0);
+      return;
+    }
+    const tick = () => setPhase((Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS);
+    tick();
+    const timer = window.setInterval(tick, SHIMMER_FRAME_MS);
+    return () => window.clearInterval(timer);
+  }, [focused, glowing]);
 
   // A dead tab has no agent to configure; and a menu left open behind a click
   // elsewhere is a stuck menu.
@@ -312,71 +363,108 @@ export function Composer({ tabId }: { tabId: string }) {
               )}
             </div>
           )}
-          <textarea
-            ref={box}
-            rows={1}
-            value={text}
-            disabled={dead}
-            placeholder={placeholder}
-            spellCheck={false}
-            onChange={(e) => {
-              setText(e.target.value);
-              recall.current = null;
-            }}
-            onKeyDown={onKeyDown}
-            onPaste={(e) => void onPaste(e)}
-            className={cn(
-              "block w-full resize-none bg-transparent px-3 py-2 outline-none",
-              "text-sm leading-relaxed placeholder:text-ink-faint",
-              isSlash ? "font-mono" : "font-sans",
-            )}
-          />
+          {/* The mirror draws the glyphs; the textarea above it owns the caret,
+              selection, and every interaction. Their box metrics must stay
+              identical or the paint drifts off the text. */}
+          <div className="relative">
+            <div
+              ref={mirror}
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-0 overflow-hidden",
+                "whitespace-pre-wrap break-words px-3 py-2 text-sm leading-relaxed text-ink",
+                isSlash ? "font-mono" : "font-sans",
+              )}
+            >
+              {runs.map((run, i) => (
+                <span key={i} style={run.color === undefined ? undefined : { color: run.color }}>
+                  {run.text}
+                </span>
+              ))}
+              {/* pre-wrap swallows a trailing newline; the textarea keeps its
+                  empty last line, so the mirror needs one too. */}
+              {text.endsWith("\n") && "\u200b"}
+            </div>
+            <textarea
+              ref={box}
+              rows={1}
+              value={text}
+              disabled={dead}
+              placeholder={placeholder}
+              spellCheck={false}
+              onChange={(e) => {
+                setText(e.target.value);
+                recall.current = null;
+              }}
+              onKeyDown={onKeyDown}
+              onPaste={(e) => void onPaste(e)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onScroll={(e) => {
+                // Past MAX_ROWS the box scrolls internally; the mirror follows.
+                if (mirror.current !== null) mirror.current.scrollTop = e.currentTarget.scrollTop;
+              }}
+              className={cn(
+                "relative block w-full resize-none bg-transparent px-3 py-2 outline-none",
+                "text-sm leading-relaxed placeholder:text-ink-faint",
+                // Transparent glyphs over the mirror; the selection tint must stay
+                // translucent or it paints the highlighted text out.
+                "text-transparent caret-ink selection:bg-iris-dim/40 selection:text-transparent",
+                isSlash ? "font-mono" : "font-sans",
+              )}
+            />
+          </div>
 
           <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
-            <ModelSelector tabId={tabId} disabled={dead} />
+            <Capsule className="min-w-0">
+              <ModelSelector tabId={tabId} disabled={dead} />
 
-            <span ref={effortAnchor} className="relative">
-              <button
-                type="button"
-                disabled={dead}
-                title={
-                  efforts.length > 0
-                    ? `thinking level — click to cycle, right-click to pick (${efforts.join(", ")})`
-                    : "thinking level — click to cycle"
-                }
-                onClick={() => void cycleThinkingLevel(tabId)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  if (efforts.length > 0) setEffortMenu(!effortMenu);
-                }}
-                className="rounded disabled:pointer-events-none disabled:opacity-35"
-              >
-                <Chip mono tone="iris">{thinkingLevel ?? "think —"}</Chip>
-              </button>
-              {effortMenu && (
-                <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
-                  <span className="px-1.5 pb-1 pt-0.5">
-                    <Label>thinking</Label>
-                  </span>
-                  {efforts.map((effort) => (
-                    <button
-                      key={effort}
-                      type="button"
-                      onClick={() => {
-                        setEffortMenu(false);
-                        void setThinkingLevel(tabId, effort);
-                      }}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
-                        effort === thinkingLevel ? "text-iris" : "text-ink-mid",
-                      )}
-                    >
-                      {effort}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </span>
+              <span ref={effortAnchor} className="relative flex">
+                <button
+                  type="button"
+                  disabled={dead}
+                  title={
+                    efforts.length > 0
+                      ? `thinking level — click to cycle, right-click to pick (${efforts.join(", ")})`
+                      : "thinking level — click to cycle"
+                  }
+                  onClick={() => void cycleThinkingLevel(tabId)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (efforts.length > 0) setEffortMenu(!effortMenu);
+                  }}
+                  className={cn(
+                    CAPSULE_SEGMENT,
+                    "rounded-r-[5px] font-mono text-[11px] tabular-nums text-iris",
+                  )}
+                >
+                  {thinkingLevel ?? "think —"}
+                </button>
+                {effortMenu && (
+                  <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
+                    <span className="px-1.5 pb-1 pt-0.5">
+                      <Label>thinking</Label>
+                    </span>
+                    {efforts.map((effort) => (
+                      <button
+                        key={effort}
+                        type="button"
+                        onClick={() => {
+                          setEffortMenu(false);
+                          void setThinkingLevel(tabId, effort);
+                        }}
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                          effort === thinkingLevel ? "text-iris" : "text-ink-mid",
+                        )}
+                      >
+                        {effort}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </span>
+            </Capsule>
 
             <AdvisorControl tabId={tabId} disabled={dead} />
 

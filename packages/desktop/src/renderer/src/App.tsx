@@ -2,19 +2,37 @@ import { useEffect } from "react";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { RpcTab } from "./components/RpcTab";
 import { Sidebar } from "./components/Sidebar";
-import { TabBar } from "./components/TabBar";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button } from "./components/ui";
 import { formatHotkey } from "./lib/hotkeys";
-import { useStore } from "./store";
+import { findRecord, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
-const HINTS: [combo: string, what: string][] = [
-  ["mod+k", "command palette"],
-  ["mod+w", "hide tab"],
-  ["mod+1", "focus tab n"],
-  ["mod+shift+]", "next tab"],
-];
+const HINTS: [combo: string, what: string][] = [["mod+k", "command palette"]];
+
+/**
+ * The native frame is hidden (titleBarStyle: "hidden" + overlay controls in
+ * main/index.ts), so this strip IS the window title bar: it carries the drag
+ * region and echoes the active session title the way an OS frame would.
+ * Height matches the 36px titleBarOverlay so the native controls sit flush.
+ */
+function TitleBar() {
+  const title = useStore((s) =>
+    s.activeTabId ? (findRecord(s.state, s.activeTabId)?.title ?? null) : null,
+  );
+
+  return (
+    <header className="relative flex h-9 shrink-0 select-none items-center justify-center border-b border-line bg-void [app-region:drag]">
+      {title ? (
+        <span className="max-w-[50%] truncate text-xs text-ink-dim">{title}</span>
+      ) : (
+        <span className="font-display text-xs font-semibold tracking-tight text-ink-mid">
+          omp<span className="text-ink-faint">-ui</span>
+        </span>
+      )}
+    </header>
+  );
+}
 
 function Welcome() {
   const addProject = useStore((s) => s.addProject);
@@ -71,33 +89,35 @@ export default function App() {
 
   return (
     // `relative` anchors the CommandPalette's `absolute inset-0` scrim.
-    <div className="relative flex h-screen overflow-hidden bg-void font-sans text-ink">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TabBar />
-        <div className="relative min-h-0 flex-1">
-          {/*
-           * Every tab stays mounted and is toggled with `display` only: hiding
-           * a tab must not unmount it, or its xterm instance and rpc state die
-           * with it and the session becomes unrecoverable in place.
-           */}
-          {tabs.map((t) => {
-            const shown = t.tabId === activeTabId && !t.hidden;
-            return (
-              <div
-                key={t.tabId}
-                className="absolute inset-0"
-                style={{ display: shown ? "block" : "none" }}
-              >
-                {t.mode === "rpc-ui" ? (
-                  <RpcTab tabId={t.tabId} active={shown} />
-                ) : (
-                  <TerminalTab tabId={t.tabId} active={shown} />
-                )}
-              </div>
-            );
-          })}
-          {visibleTabs.length === 0 && <Welcome />}
+    <div className="relative flex h-screen flex-col overflow-hidden bg-void font-sans text-ink">
+      <TitleBar />
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            {/*
+             * Every tab stays mounted and is toggled with `display` only: hiding
+             * a tab must not unmount it, or its xterm instance and rpc state die
+             * with it and the session becomes unrecoverable in place.
+             */}
+            {tabs.map((t) => {
+              const shown = t.tabId === activeTabId && !t.hidden;
+              return (
+                <div
+                  key={t.tabId}
+                  className="absolute inset-0"
+                  style={{ display: shown ? "block" : "none" }}
+                >
+                  {t.mode === "rpc-ui" ? (
+                    <RpcTab tabId={t.tabId} active={shown} />
+                  ) : (
+                    <TerminalTab tabId={t.tabId} active={shown} />
+                  )}
+                </div>
+              );
+            })}
+            {visibleTabs.length === 0 && <Welcome />}
+          </div>
         </div>
       </div>
       <CommandPalette />

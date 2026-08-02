@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
+import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { Button, Chevron, Chip, Dot, Empty, IconButton, Label } from "./ui";
@@ -116,10 +117,26 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
 
 /* --------------------------------------------------------- project section */
 
-function ProjectSection({ group, sessions }: FilteredGroup) {
+function ProjectSection({ group, sessions, query }: FilteredGroup & { query: string }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
+  const activeTabId = useStore((st) => st.activeTabId);
   const [open, setOpen] = useState(true);
+  const [visible, setVisible] = useState(PAGE);
+
+  // ProjectSection is keyed by project path, so state survives filter edits: a
+  // page opened before typing would otherwise describe a list that no longer
+  // exists. Adjusting during render (rather than in an effect) means the stale
+  // count is never painted.
+  const [lastQuery, setLastQuery] = useState(query);
+  if (query !== lastQuery) {
+    setLastQuery(query);
+    setVisible(PAGE);
+  }
+
+  const activeIndex = sessions.findIndex((s) => s.tabId === activeTabId);
+  const { shown, remaining } = sessionWindow(sessions.length, visible, activeIndex);
+  const page = sessions.slice(0, shown);
 
   const { project } = group;
   const live = liveCount(sessions);
@@ -174,11 +191,35 @@ function ProjectSection({ group, sessions }: FilteredGroup) {
 
       {open && (
         <div className="space-y-px px-1.5">
-          {sessions.map((s) => (
+          {page.map((s) => (
             <SessionRow key={s.tabId} s={s} />
           ))}
           {sessions.length === 0 && (
             <p className="px-3 py-1 text-[11px] text-ink-faint italic">no sessions yet</p>
+          )}
+          {sessions.length > PAGE && (
+            <div className="flex items-center gap-2 px-3 pt-1 pb-0.5">
+              <span className="font-mono text-[10px] text-ink-faint tabular-nums">
+                showing {shown} of {sessions.length}
+              </span>
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                {visible > PAGE && shown > PAGE && (
+                  <Button size="xs" variant="ghost" onClick={() => setVisible(PAGE)}>
+                    show less
+                  </Button>
+                )}
+                {remaining > 0 && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setVisible(shown + PAGE)}
+                    title={`${remaining} more session${remaining === 1 ? "" : "s"} in ${project.name}`}
+                  >
+                    show {Math.min(PAGE, remaining)} more
+                  </Button>
+                )}
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -362,7 +403,12 @@ export function Sidebar() {
               />
             )}
             {filtered.map((f) => (
-              <ProjectSection key={f.group.project.path} group={f.group} sessions={f.sessions} />
+              <ProjectSection
+                key={f.group.project.path}
+                group={f.group}
+                sessions={f.sessions}
+                query={query}
+              />
             ))}
           </div>
         </>

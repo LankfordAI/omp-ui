@@ -1,10 +1,14 @@
 /**
- * Session auto-titling for rpc-ui tabs.
+ * Session auto-titling for rpc-ui tabs: the low-signal gate, and the derived
+ * title used when the model cannot supply one.
  *
  * omp titles itself only in the TUI (`input-controller.ts` #maybeStartTitleGeneration);
  * `--mode=rpc-ui` never does — verified against omp v17.1.8, where a full
- * prompt/agent_end cycle leaves the title slot empty. So omp-ui derives the
- * title itself and pushes it with `set_session_name`.
+ * prompt/agent_end cycle leaves the title slot empty. So omp-ui titles the
+ * session itself: `core/title-model.ts` asks omp's own small model, and
+ * {@link generateTitleFromPrompt} below is the fallback for a model that
+ * declines, errors, or is unreachable. Either way the result is pushed with
+ * `set_session_name`.
  *
  * That command lands with source `"user"`, and SessionManager.setSessionName
  * refuses every later `"auto"` title once a `"user"` one exists
@@ -44,8 +48,11 @@ const XML_BLOCK = /<([a-zA-Z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g;
  * True when a first user message is too low-signal to title from (greeting,
  * ack, bare number, or empty once code and punctuation are stripped).
  *
- * Port of omp's `isLowSignalTitleInput`: paired XML blocks and fenced code are
- * dropped first, so a message that is only a pasted snippet also defers.
+ * Follows omp's `isLowSignalTitleInput`, with one deliberate divergence: omp's
+ * `stripCodeBlocks` restores the original message when stripping leaves under
+ * 12 chars, so omp titles a first message that is *only* a pasted snippet.
+ * omp-ui defers instead — a snippet with no prose is not a task, and the title
+ * omp-ui writes lands with source "user" and can never be superseded.
  */
 export function isLowSignalTitleInput(message: string): boolean {
   const cleaned = message.replace(XML_BLOCK, " ").replace(FENCED_CODE_BLOCK, " ");
@@ -70,9 +77,10 @@ const MAX_TITLE_CHARS = 60;
 const MIN_SENTENCE_CHARS = 14;
 
 /**
- * Derives a concise session title from a user prompt: strips conversational
+ * Fallback title, derived mechanically from the prompt: strips conversational
  * prefixes, cuts at the first real sentence boundary, else truncates on a word
- * boundary.
+ * boundary. Used only when omp's small model produced nothing — it reads like
+ * a trimmed prompt, not a summary, which is exactly why the model runs first.
  */
 export function generateTitleFromPrompt(prompt: string): string {
   // Collapse whitespace (multi-line prompts, extra spaces)

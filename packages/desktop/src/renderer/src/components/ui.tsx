@@ -173,6 +173,54 @@ export function Dot({
   );
 }
 
+const TONE_CAPSULE: Record<Tone, string> = {
+  neutral: "border-line bg-raised divide-line",
+  signal: "border-signal-dim/50 bg-signal-wash divide-signal-dim/40",
+  copper: "border-copper-dim/50 bg-copper-wash divide-copper-dim/40",
+  rose: "border-rose-dim/50 bg-rose-wash divide-rose-dim/40",
+  iris: "border-iris-dim/50 bg-iris-wash divide-iris-dim/40",
+};
+
+/**
+ * A segmented control cluster: one bordered pill, hairline dividers between
+ * segments. Children are flat segments (buttons/spans) — they bring no border
+ * of their own. NOT overflow-hidden: segments may anchor dropdown menus, so
+ * interactive segments must round their own outer corner via
+ * `first:rounded-l-[5px] last:rounded-r-[5px]` (see CAPSULE_SEGMENT).
+ */
+export function Capsule({
+  children,
+  tone = "neutral",
+  title,
+  className,
+}: {
+  children: ReactNode;
+  tone?: Tone;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex h-6 min-w-0 shrink-0 items-stretch divide-x rounded-md border",
+        TONE_CAPSULE[tone],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Shared classes for an interactive capsule segment. */
+export const CAPSULE_SEGMENT = cn(
+  "flex min-w-0 items-center gap-1 px-1.5",
+  "first:rounded-l-[5px] last:rounded-r-[5px]",
+  "transition-colors duration-150 hover:bg-hover",
+  "disabled:pointer-events-none disabled:opacity-35",
+);
+
 /* ------------------------------------------------------------------- Panel */
 
 /** A raised surface with a machined top edge. */
@@ -381,5 +429,20 @@ export function Empty({
       {hint && <p className="max-w-xs text-xs leading-relaxed text-ink-faint">{hint}</p>}
       {action}
     </div>
+  );
+}
+
+/** Star icon for favorites. `filled` renders a solid star; outline otherwise. */
+export function StarIcon({ filled, className }: { filled?: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-3.5", className)}>
+      <path
+        d="M8 1.5l1.76 3.57 3.94.57-2.85 2.78.67 3.93L8 10.27 4.48 12.35l.67-3.93L2.3 5.64l3.94-.57L8 1.5z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth={1.2}
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

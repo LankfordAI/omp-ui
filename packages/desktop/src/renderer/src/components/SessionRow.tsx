@@ -1,7 +1,7 @@
 import type { LiveState, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { useStore } from "../store";
-import { Chip, Dot, IconButton, type Tone } from "./ui";
+import { Button, Chip, Dot, IconButton, type Tone } from "./ui";
 
 /** Liveness reads as colour before it reads as text — mint only when alive. */
 const LIVE_TONE: Record<LiveState, Tone> = {
@@ -57,10 +57,28 @@ function IconTrash() {
   );
 }
 
+function IconPower() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
+      <path d="M8 2V7.5" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+      <path
+        d="M4.6 4.6a4.8 4.8 0 106.8 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.4}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function SessionRow({ s }: { s: SessionSummary }) {
   const openSession = useStore((st) => st.openSession);
   const switchMode = useStore((st) => st.switchMode);
   const deleteSession = useStore((st) => st.deleteSession);
+  const terminate = useStore((st) => st.terminate);
+  const resumeDead = useStore((st) => st.resumeDead);
+  const exited = useStore((st) => st.exited[s.tabId]);
   const activeTabId = useStore((st) => st.activeTabId);
 
   const missing = s.live === "missing";
@@ -131,10 +149,31 @@ export function SessionRow({ s }: { s: SessionSummary }) {
             {rpc ? "rpc" : "term"}
           </Chip>
         </button>
+        {!missing && s.live === "live" ? (
+          <IconButton
+            label="stop the agent (session stays resumable)"
+            tone="copper"
+            onClick={() => void terminate(s.tabId)}
+            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
+          >
+            <IconPower />
+          </IconButton>
+        ) : !missing && exited !== undefined ? (
+          <Button
+            size="xs"
+            tone="signal"
+            variant="outline"
+            onClick={() => void resumeDead(s.tabId)}
+            title={`resume ${s.title}`}
+            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
+          >
+            resume
+          </Button>
+        ) : null}
         <IconButton
           label={
             s.live === "live"
-              ? "delete session (terminate it first)"
+              ? "stop the agent and delete this session"
               : missing
                 ? "delete this session's record"
                 : "delete session and its files"

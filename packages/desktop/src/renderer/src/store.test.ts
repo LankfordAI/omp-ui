@@ -6,7 +6,7 @@ import type { RpcTabState } from "./store";
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
 const sent: Array<{ tabId: string; cmd: Record<string, unknown> }> = [];
-let backendState: BackendState = { projects: [], defaultMode: "rpc-ui" };
+let backendState: BackendState = { projects: [], defaultMode: "rpc-ui", modelFavorites: [] };
 
 const mockBackend = {
   getState: vi.fn(async () => backendState),
@@ -20,13 +20,17 @@ const mockBackend = {
   addProject: vi.fn(),
   removeProject: vi.fn(),
   setSessionAdvisor: vi.fn(),
+  setSessionModel: vi.fn(async () => {}),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  generateTitle: vi.fn(async (): Promise<string | null> => null),
+  readPlanFile: vi.fn(async (): Promise<string | null> => "# Plan\n\nstep one\n"),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
+  toggleFavorite: vi.fn(),
   ptyWrite: vi.fn(),
   ptyResize: vi.fn(),
 };
@@ -84,6 +88,10 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     busy: false,
     initialPrompt: null,
     hasRenamed: false,
+    plan: null,
+    planReview: null,
+    planText: null,
+    advisorStats: null,
     ...patch,
   };
 }
@@ -91,9 +99,10 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
 function stateWithRecord(sessionId: string | null, live: LiveState = "live"): BackendState {
   return {
     defaultMode: "rpc-ui",
+    modelFavorites: [],
     projects: [
       {
-        project: { path: "/p", name: "p", addedAt: "t" },
+        project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
         sessions: [
           {
             tabId: TAB,
@@ -156,7 +165,7 @@ beforeEach(() => {
     prompts.push(msg);
     return true;
   };
-  backendState = { projects: [], defaultMode: "rpc-ui" };
+  backendState = { projects: [], defaultMode: "rpc-ui", modelFavorites: [] };
   useStore.setState({ state: null, tabs: [], activeTabId: null, exited: {}, rpc: {} });
   vi.clearAllMocks();
 });
@@ -252,6 +261,30 @@ describe("bootRpcTab", () => {
     expect(commands).not.toContain("get_messages");
   });
 
+  it("arms the advisor-stats extension even when the record's advisor flag is false", async () => {
+    // A stale/false record (race with the broadcast after an advisor-toggle
+    // relaunch) must not skip the arm: the runtime readout depends on it.
+    // driveBoot drains `sent` wave-by-wave, so the fire-and-forget arm (pushed
+    // after Promise.allSettled) must be captured during the drain, not after.
+    backendState = stateWithRecord(null); // records built with advisor:false
+    useStore.setState({ state: backendState });
+    const boot = useStore.getState().bootRpcTab(TAB);
+    const arms: unknown[] = [];
+    for (let wave = 0; wave < 5; wave++) {
+      await flushMicrotasks();
+      for (const { cmd } of sent.splice(0)) {
+        if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats") arms.push(cmd);
+        respond(TAB, cmd, {});
+      }
+    }
+    await boot;
+    for (const { cmd } of sent.splice(0)) {
+      if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats") arms.push(cmd);
+      respond(TAB, cmd, {});
+    }
+    expect(arms).toHaveLength(1);
+  });
+
   it("reports error, not ready, when get_state fails", async () => {
     backendState = stateWithRecord("s");
     useStore.setState({ state: backendState });
@@ -312,9 +345,12 @@ describe("handleRpcFrame routing", () => {
     expect(tab.error).toBe("handshake failed");
   });
 
-  it("agent_end refreshes get_state", () => {
+  it("agent_end refreshes get_state and get_session_stats", () => {
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
     expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+    // get_session_stats carries the HUD cost/token totals; without this the
+    // boot-time snapshot (a fresh session reads $0) lingers forever.
+    expect(sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
   });
 
   it("agent_start flips status to running; prompt_result back to ready", () => {
@@ -322,6 +358,37 @@ describe("handleRpcFrame routing", () => {
     expect(useStore.getState().rpc[TAB]!.status).toBe("running");
     useStore.getState().handleRpcFrame(TAB, { type: "prompt_result" });
     expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
+  });
+
+  it("refreshes get_state live on message_end while the agent runs", () => {
+    useStore.setState({ rpc: { [`${TAB}-live`]: tabState({ status: "running" }) } });
+    useStore.getState().handleRpcFrame(`${TAB}-live`, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "first turn" }] },
+    });
+    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+  });
+
+  it("throttles a burst of message_ends to one live get_state", () => {
+    useStore.setState({ rpc: { [`${TAB}-burst`]: tabState({ status: "running" }) } });
+    const end = (text: string) =>
+      useStore.getState().handleRpcFrame(`${TAB}-burst`, {
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text }] },
+      });
+    end("a");
+    end("b");
+    end("c");
+    expect(sent.filter((s) => s.cmd.type === "get_state")).toHaveLength(1);
+  });
+
+  it("does not refresh get_state on message_end while idle", () => {
+    useStore.setState({ rpc: { [`${TAB}-idle`]: tabState({ status: "ready" }) } });
+    useStore.getState().handleRpcFrame(`${TAB}-idle`, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    });
+    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(false);
   });
 
   it("folds session events into render items", () => {
@@ -396,6 +463,206 @@ describe("handleRpcFrame routing", () => {
     expect(useStore.getState().rpc[TAB]!.items).toEqual([
       expect.objectContaining({ kind: "marker", label: "extension notify auto-cancelled" }),
     ]);
+  });
+
+  it("claims the plan status frame as state, not as displayed text", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p1",
+      method: "setStatus",
+      statusKey: "omp-ui:plan",
+      statusText: JSON.stringify({
+        enabled: true,
+        planFilePath: "local://a-plan.md",
+        planAbsPath: "/lineage/local/a-plan.md",
+        approved: false,
+      }),
+    });
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.plan).toMatchObject({ enabled: true, planFilePath: "local://a-plan.md" });
+    // Plan state drives the toggle; it must never leak into the status chips.
+    expect(tab.extensionStatus).toEqual({});
+  });
+
+  it("claims the advisor-stats frame as state, not as displayed text", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "a1",
+      method: "setStatus",
+      statusKey: "omp-ui:advisorStats",
+      statusText: JSON.stringify({
+        available: true,
+        configured: true,
+        active: true,
+        model: "openrouter/anthropic/claude-opus-5",
+        contextWindow: 200000,
+        contextTokens: 40123,
+        cost: 0.41,
+        totalTokens: 900000,
+      }),
+    });
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.advisorStats).toMatchObject({
+      available: true,
+      cost: 0.41,
+      contextTokens: 40123,
+      contextWindow: 200000,
+    });
+    // Advisor stats are state, never a status chip.
+    expect(tab.extensionStatus).toEqual({});
+    expect(tab.advisorStats?.active).toBe(true);
+  });
+
+  it("refreshAdvisorStats asks the extension over a slash command", async () => {
+    const pending = useStore.getState().refreshAdvisorStats(TAB);
+    const entry = sent.pop()!;
+    expect(entry.cmd).toMatchObject({
+      type: "prompt",
+      message: "/omp-ui-advisor-stats",
+    });
+    // The extension answers by publishing a setStatus frame, not a response —
+    // settle the command so the method promise resolves.
+    respond(TAB, entry.cmd, {});
+    await pending;
+  });
+
+  it("routes a plan review to the review pane instead of the generic dialog", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p2",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "add auth",
+          planFilePath: "local://auth-plan.md",
+          planAbsPath: "/lineage/local/auth-plan.md",
+        }),
+      options: ["approve", "refine"],
+    });
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.planReview?.request).toMatchObject({ planFilePath: "local://auth-plan.md" });
+    expect(tab.extensionQueue).toHaveLength(0);
+    // The agent is blocked on this select — nothing may answer it early.
+    expect(sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+  });
+
+  it("executing a review answers with the execute verdict and closes the pane", async () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p3",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    useStore.getState().executePlan(TAB, "existing");
+    const response = sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "p3", value: "execute" });
+    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
+    await flushMicrotasks();
+  });
+
+  it("executing in the existing session queues an implementation prompt there", async () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p3b",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    useStore.getState().executePlan(TAB, "existing");
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === TAB &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    // followUp queues the prompt until the just-accepted plan turn ends, so it
+    // races nothing — the implementer runs after the planner stops.
+    expect(prompt!.cmd.streamingBehavior).toBe("followUp");
+    await flushMicrotasks();
+  });
+
+  it("refining a review answers with the refine verdict and sends no prompt", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p4",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    useStore.getState().refinePlan(TAB);
+    const response = sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "p4", value: "refine" });
+    expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+  });
+
+  it("refining with notes steers the planner with the requested changes", async () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p4b",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    useStore.getState().refinePlan(TAB, { text: "drop the API layer" });
+    const prompt = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
+    expect(prompt).toBeDefined();
+    expect(prompt!.cmd.streamingBehavior).toBe("steer");
+    expect(prompt!.cmd.message).toContain("drop the API layer");
+    await flushMicrotasks();
+  });
+
+  it("executing in a fresh session spawns a new tab seeded with the plan", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p7",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "t",
+          planFilePath: "local://p.md",
+          planAbsPath: "/lineage/local/p.md",
+        }),
+    });
+    // Let the plan file read resolve so executePlan captures the plan text.
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    const response = sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "p7", value: "execute" });
+    await flushMicrotasks();
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ projectCwd: "/p", mode: "rpc-ui" }),
+    );
+    // Boot the fresh tab to ready — resolves the spawn's readiness wait.
+    useStore.setState({
+      rpc: { ...useStore.getState().rpc, "fresh-tab": tabState({ status: "ready", planText: null }) },
+    });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === "fresh-tab" && s.cmd.type === "prompt" && String(s.cmd.message).includes("# Plan"),
+    );
+    expect(prompt).toBeDefined();
+    expect(prompt!.cmd.message).toContain("Implement it now");
+    await flushMicrotasks();
+  });
+
+  it("still shows a plain select dialog when the title is not a plan review", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p5",
+      method: "select",
+      title: "pick one",
+      options: ["a", "b"],
+    });
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.planReview).toBeNull();
+    expect(tab.extensionQueue).toHaveLength(1);
   });
 
   it("answers stray host_tool_call with an error result", () => {
@@ -501,34 +768,43 @@ describe("auto-title gating (setInitialPrompt)", () => {
     sent.length = 0;
   });
 
-  it("accepts a substantive first prompt as the title source", () => {
+  it("renames immediately from a substantive first prompt, no agent_end needed", async () => {
     useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
+    // Latched and renamed synchronously — the title goes out as soon as the
+    // prompt is offered, not when the first run ends.
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe("Refactor the auth module");
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(false);
+    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
+    await flushMicrotasks();
+    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    expect(rename!.cmd.name).toBe("Refactor the auth module");
   });
 
-  it("defers on a greeting, then titles from the next real prompt", () => {
+  it("defers on a greeting, then titles from the next real prompt", async () => {
     useStore.getState().setInitialPrompt(TAB, "hi!");
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
     expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(false);
 
     // agent_end on the greeting turn must not name the session.
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     expect(sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
 
     useStore.getState().setInitialPrompt(TAB, "Add pagination to the sessions list");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     const rename = sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Add pagination to the sessions list");
   });
 
-  it("keeps the first substantive prompt when more arrive before agent_end", () => {
+  it("keeps the first substantive prompt as the title source", () => {
+    // The first prompt latches and renames; a second prompt must not displace it.
     useStore.getState().setInitialPrompt(TAB, "Fix the login redirect");
     useStore.getState().setInitialPrompt(TAB, "Actually, fix logout too");
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe("Fix the login redirect");
+    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
   });
 
-  it("never titles a session that already has a user-visible name", () => {
+  it("never titles a session that already has a user-visible name", async () => {
     const base = stateWithRecord("sess-1");
     backendState = {
       ...base,
@@ -548,17 +824,19 @@ describe("auto-title gating (setInitialPrompt)", () => {
     expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
     useStore.getState().setInitialPrompt(TAB, "Add pagination to the list");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     expect(sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
   });
 
-  it("titles a session whose record is still the 'New session' placeholder", () => {
+  it("titles a session whose record is still the 'New session' placeholder", async () => {
     useStore.getState().setInitialPrompt(TAB, "Create a login page with OAuth");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     const rename = sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Create a login page with OAuth");
   });
 
-  it("titles from the captured prompt even if omp renamed mid-turn", () => {
+  it("titles from the captured prompt even if omp renamed mid-turn", async () => {
     useStore.getState().setInitialPrompt(TAB, "Build a feature for the app");
     const base = stateWithRecord("sess-1");
     backendState = {
@@ -573,6 +851,7 @@ describe("auto-title gating (setInitialPrompt)", () => {
     useStore.setState({ state: backendState });
 
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     const rename = sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Build a feature for the app");
   });
@@ -591,6 +870,7 @@ describe("auto-title end-to-end", () => {
   it("sends set_session_name once, then clears the stored prompt", async () => {
     useStore.getState().setInitialPrompt(TAB, "Create a login page with OAuth");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
 
     const rename = sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Create a login page with OAuth");
@@ -601,12 +881,14 @@ describe("auto-title end-to-end", () => {
 
     // A later turn must not rename again.
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     expect(sent.splice(0).find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
   });
 
   it("retries on the next agent_end when set_session_name fails", async () => {
     useStore.getState().setInitialPrompt(TAB, "Add a new API endpoint");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
 
     const firstBatch = sent.splice(0);
     expect(firstBatch.find((s) => s.cmd.type === "set_session_name")).toBeTruthy();
@@ -620,7 +902,48 @@ describe("auto-title end-to-end", () => {
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe("Add a new API endpoint");
 
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
     expect(sent.splice(0).find((s) => s.cmd.type === "set_session_name")).toBeTruthy();
+  });
+
+  it("titles from omp's small model rather than the raw prompt", async () => {
+    // The whole point of routing through the model: the title is a summary,
+    // not a copy of the prompt.
+    mockBackend.generateTitle.mockResolvedValueOnce("Add sessions list pagination");
+    useStore
+      .getState()
+      .setInitialPrompt(TAB, "can you add pagination to the sessions list please");
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
+
+    expect(mockBackend.generateTitle).toHaveBeenCalledWith(
+      "/p",
+      "can you add pagination to the sessions list please",
+    );
+    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    expect(rename!.cmd.name).toBe("Add sessions list pagination");
+  });
+
+  it("falls back to the derived title when the model declines", async () => {
+    // null covers every failure path in main: no omp, bad model, timeout, or a
+    // `<title/>` answer. A session must still get named.
+    mockBackend.generateTitle.mockResolvedValueOnce(null);
+    useStore.getState().setInitialPrompt(TAB, "Can you fix the login redirect");
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
+
+    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    expect(rename!.cmd.name).toBe("Fix the login redirect");
+  });
+
+  it("falls back to the derived title when the model call rejects", async () => {
+    mockBackend.generateTitle.mockRejectedValueOnce(new Error("ipc died"));
+    useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    await flushMicrotasks();
+
+    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    expect(rename!.cmd.name).toBe("Refactor the auth module");
   });
 });
 
@@ -639,15 +962,23 @@ describe("prompting, slash commands, and session ops", () => {
     }
   };
 
-  it("sendPrompt uses prompt when ready and steer while running", async () => {
+  it("sendPrompt always sends the prompt frame, with steer as the streaming behaviour", async () => {
     const ready = useStore.getState().sendPrompt(TAB, "do the thing");
-    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "do the thing" });
+    expect(sent[0]!.cmd).toMatchObject({
+      type: "prompt",
+      message: "do the thing",
+      streamingBehavior: "steer",
+    });
     await settleAll();
     await ready;
 
     useStore.setState({ rpc: { [TAB]: tabState({ status: "running" }) } });
     const steering = useStore.getState().sendPrompt(TAB, "actually, wait");
-    expect(sent[0]!.cmd).toMatchObject({ type: "steer", message: "actually, wait" });
+    expect(sent[0]!.cmd).toMatchObject({
+      type: "prompt",
+      message: "actually, wait",
+      streamingBehavior: "steer",
+    });
     await settleAll();
     await steering;
   });
@@ -655,14 +986,24 @@ describe("prompting, slash commands, and session ops", () => {
   it("sendPrompt honours an explicit follow_up route while running", async () => {
     useStore.setState({ rpc: { [TAB]: tabState({ status: "running" }) } });
     const promise = useStore.getState().sendPrompt(TAB, "and then this", "follow_up");
-    expect(sent[0]!.cmd).toMatchObject({ type: "follow_up", message: "and then this" });
+    expect(sent[0]!.cmd).toMatchObject({
+      type: "prompt",
+      message: "and then this",
+      streamingBehavior: "followUp",
+    });
     await settleAll();
     await promise;
   });
 
-  it("sendPrompt still feeds the auto-titler", async () => {
+  it("sendPrompt feeds the auto-titler immediately, no agent_end needed", async () => {
     const promise = useStore.getState().sendPrompt(TAB, "Refactor the auth module");
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe("Refactor the auth module");
+    // Flush once so the async rename's set_session_name lands, then capture it
+    // before settleAll consumes the sent queue.
+    await flushMicrotasks();
+    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    expect(rename!.cmd.name).toBe("Refactor the auth module");
+    // settleAll answers the prompt (and the rename) so sendPrompt resolves.
     await settleAll();
     await promise;
   });
@@ -713,6 +1054,55 @@ describe("prompting, slash commands, and session ops", () => {
     await settleAll(model);
     await promise;
     expect(useStore.getState().rpc[TAB]!.model).toMatchObject({ id: "claude-opus-5" });
+  });
+
+  it("setModel remembers the model with the current thinking level", async () => {
+    backendState = stateWithRecord(null);
+    useStore.setState({
+      state: backendState,
+      rpc: {
+        [TAB]: tabState({
+          session: { ...emptySessionRuntime(), thinkingLevel: "high" },
+        }),
+      },
+    });
+    const model = { id: "claude-opus-5", name: "Opus 5", provider: "anthropic" };
+    const promise = useStore.getState().setModel(TAB, model);
+    await settleAll(model);
+    await promise;
+    expect(mockBackend.setSessionModel).toHaveBeenCalledWith(
+      TAB,
+      "anthropic/claude-opus-5",
+      "high",
+    );
+  });
+
+  it("setThinkingLevel remembers the level without changing the main model", async () => {
+    useStore.setState({
+      rpc: { [TAB]: tabState({ model: { id: "m1", name: "M1", provider: "p" } }) },
+    });
+    const promise = useStore.getState().setThinkingLevel(TAB, "max");
+    await settleAll({});
+    await promise;
+    expect(mockBackend.setSessionModel).toHaveBeenCalledWith(TAB, "p/m1", "max");
+  });
+
+  it("setAdvisorModel persists the advisor tuple through one backend call", async () => {
+    await useStore.getState().setAdvisorModel(TAB, "openrouter/a/b:high");
+    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, "openrouter/a/b:high");
+  });
+
+  it("newSession restores the last advisor status and model", async () => {
+    backendState = stateWithRecord(null);
+    const project = backendState.projects[0]!.project;
+    project.lastAdvisor = false;
+    project.lastAdvisorModel = "openrouter/a/b:high";
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "new-tab" });
+    useStore.setState({ state: backendState, advisorDefaults: { "/p": { enabled: true, model: null } } });
+    await useStore.getState().newSession("/p");
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ advisor: false, advisorModel: "openrouter/a/b:high" }),
+    );
   });
 
   it("exportHtml pushes the returned path as a notice", async () => {
@@ -769,13 +1159,19 @@ describe("prompting, slash commands, and session ops", () => {
 });
 
 describe("deleteSession", () => {
-  it("refuses a live session without prompting or calling the backend", async () => {
-    useStore.setState({ state: stateWithRecord("sess-1", "live") });
+  it("deletes a live session after warning that its agent is stopped", async () => {
+    useStore.setState({
+      state: stateWithRecord("sess-1", "live"),
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      activeTabId: TAB,
+      rpc: { [TAB]: tabState() },
+    });
     await useStore.getState().deleteSession(TAB);
 
-    expect(mockBackend.deleteSession).not.toHaveBeenCalled();
-    expect(prompts).toEqual([]);
-    expect(alerts[0]).toMatch(/still running — terminate it/);
+    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+    expect(prompts[0]).toMatch(/running agent is stopped/);
+    expect(alerts).toEqual([]);
+    expect(useStore.getState().tabs).toEqual([]);
   });
 
   it("does nothing when the confirm is dismissed", async () => {

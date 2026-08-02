@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { extensionCancelResponse, routeExtensionRequest } from "./extension-router";
 
 describe("routeExtensionRequest", () => {
-  it("routes select/confirm/input to dialogs", () => {
-    for (const method of ["select", "confirm", "input"]) {
+  it("routes select/confirm/input/editor to dialogs", () => {
+    for (const method of ["select", "confirm", "input", "editor"]) {
       expect(routeExtensionRequest({ type: "extension_ui_request", id: "1", method })).toEqual({
         action: "dialog",
         method,
@@ -13,7 +13,6 @@ describe("routeExtensionRequest", () => {
 
   it("auto-cancels every other method", () => {
     for (const method of [
-      "editor",
       "notify",
       "setStatus",
       "setWidget",

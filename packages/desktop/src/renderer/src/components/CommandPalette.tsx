@@ -84,7 +84,6 @@ export function CommandPalette() {
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
   const addProject = useStore((s) => s.addProject);
-  const hideTab = useStore((s) => s.hideTab);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
 
@@ -146,23 +145,15 @@ export function CommandPalette() {
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
       out.push(
         {
-          id: "tab:hide",
-          group: "Tab",
-          name: "Hide tab",
-          desc: `${title} — keeps running in the background`,
-          hint: "mod+w",
-          run: () => hideTab(tab.tabId),
-        },
-        {
-          id: "tab:terminate",
-          group: "Tab",
+          id: "session:terminate",
+          group: "Session",
           name: "Terminate agent",
           desc: `${title} — the session stays resumable`,
           run: () => void terminate(tab.tabId),
         },
         {
-          id: "tab:mode",
-          group: "Tab",
+          id: "session:mode",
+          group: "Session",
           name: `Switch to ${other === "pty" ? "terminal" : "native"} mode`,
           desc: `${title} — restarts the process`,
           run: () => void switchMode(tab.tabId, other),
@@ -171,7 +162,7 @@ export function CommandPalette() {
     }
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, addProject, hideTab, terminate, switchMode]);
+  }, [state, tabs, activeTabId, openSession, newSession, addProject, terminate, switchMode]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

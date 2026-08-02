@@ -6,6 +6,22 @@ import type {
   SessionMode,
   SessionSummary,
 } from "@omp-ui/core/types";
+import {
+  parsePlanReviewTitle,
+  parsePlanStatus,
+  PLAN_COMMAND,
+  PLAN_EXECUTE,
+  PLAN_REFINE,
+  PLAN_STATUS_KEY,
+  type PlanReviewRequest,
+  type PlanStatus,
+} from "@omp-ui/core/plan";
+import {
+  parseAdvisorStats,
+  ADVISOR_STATS_COMMAND,
+  ADVISOR_STATS_KEY,
+  type AdvisorStatsView,
+} from "@omp-ui/core/advisor-stats";
 import { backend } from "./backend";
 import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
 import { arrField, field, strField } from "./lib/fields";
@@ -49,6 +65,15 @@ export interface PendingCommand {
   timer: number;
 }
 
+/** Where an approved plan is implemented, chosen on the review pane. */
+export type PlanExecutionContext = "existing" | "compacted" | "fresh";
+
+/** Optional revision instructions sent back to the planner on refine. */
+export interface PlanRevisionNotes {
+  text: string;
+  images?: ImageAttachment[];
+}
+
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
@@ -78,6 +103,27 @@ export interface RpcTabState {
   initialPrompt: string | null;
   /** Whether this tab's session has been auto-titled (or was already named). */
   hasRenamed: boolean;
+  /**
+   * Plan-mode state, published by the generated plan extension over `setStatus`
+   * (see core/plan-extension.ts). Null until the extension first reports — a
+   * session whose omp cannot drive plan mode reports `unavailable` instead.
+   */
+  plan: PlanStatus | null;
+  /**
+   * The plan awaiting the user's verdict. omp's agent is *blocked* on this:
+   * the extension's `select` does not resolve until `executePlan`/`refinePlan`
+   * replies, so it must be answered on every path out of the review pane.
+   */
+  planReview: { request: PlanReviewRequest; frame: unknown } | null;
+  /** Plan markdown for the review pane, read off disk. */
+  planText: string | null;
+  /**
+   * Advisor spend and context, published by the generated advisor-stats
+   * extension over `setStatus` (see core/advisor-stats-extension.ts). Null until
+   * the extension first reports; `available: false` means it could not drive
+   * omp's surface (or has not run a turn yet) and the HUD omits the element.
+   */
+  advisorStats: AdvisorStatsView | null;
 }
 
 function freshRpcTabState(): RpcTabState {
@@ -99,6 +145,10 @@ function freshRpcTabState(): RpcTabState {
     busy: false,
     initialPrompt: null,
     hasRenamed: false,
+    plan: null,
+    planReview: null,
+    planText: null,
+    advisorStats: null,
   };
 }
 
@@ -114,6 +164,7 @@ interface UiStore {
   addProject(): Promise<void>;
   removeProject(path: string): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
+  toggleFavorite(key: string): Promise<void>;
   newSession(projectCwd: string): Promise<void>;
   openSession(tabId: string): Promise<void>;
   focusTab(tabId: string): void;
@@ -134,7 +185,7 @@ interface UiStore {
   /** Auto-title the session from the stored prompt. */
   renameSession(tabId: string): void;
 
-  /** Routes on status: ready → prompt, running → steer|follow_up per `route`. */
+  /** Always the `prompt` frame; `route` picks omp's `streamingBehavior` for a busy agent. */
   sendPrompt(
     tabId: string,
     message: string,
@@ -154,9 +205,14 @@ interface UiStore {
    * `advisor.enabled` and the `advisor` role at process start.
    */
   setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): Promise<void>;
+  /**
+   * Explicitly pins a session's advisor model (or null to return to omp's
+   * configured advisor). A deliberate choice, so it is also remembered per
+   * project for future new sessions — null clears that memory.
+   */
+  setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
 
   setModel(tabId: string, model: ModelInfo): Promise<void>;
-  cycleModel(tabId: string): Promise<void>;
   setThinkingLevel(tabId: string, level: string): Promise<void>;
   cycleThinkingLevel(tabId: string): Promise<void>;
 
@@ -174,11 +230,35 @@ interface UiStore {
   renameSessionTo(tabId: string, name: string): Promise<void>;
   newRpcSession(tabId: string): Promise<void>;
 
+  /**
+   * Turns plan mode on or off for this tab. Drives the generated extension's
+   * slash command rather than an rpc command — omp's rpc protocol has no plan
+   * surface at all (see core/plan-extension.ts).
+   */
+  setPlanMode(tabId: string, enabled: boolean): Promise<void>;
+  /**
+   * Accepts a pending plan review and executes it. The agent is blocked until
+   * this replies, so it must be answered on every exit from the review pane.
+   * `context` picks where implementation runs: the same session (`existing`),
+   * the same session after compacting its context (`compacted`), or a freshly
+   * spawned session seeded with the plan (`fresh`).
+   */
+  executePlan(tabId: string, context: PlanExecutionContext): void;
+  /**
+   * Refuses a plan review, sending the agent back to revise the draft.
+   * `notes` (optional text + images) are delivered to the planner as revision
+   * instructions; with none this is a plain, no-notes refinement.
+   */
+  refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
+  /** Loads the plan markdown for the review pane. */
+  loadPlanText(tabId: string, absPath: string | null): Promise<void>;
+
   /** `line` may include args, e.g. "/advisor on". Leading "/" optional. */
   runSlashCommand(tabId: string, line: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;
+  refreshAdvisorStats(tabId: string): Promise<void>;
   refreshSubagents(tabId: string): Promise<void>;
   clearCommandOutput(tabId: string): void;
   clearBash(tabId: string): void;
@@ -220,6 +300,46 @@ let initialized = false;
 
 /** A new rpc process emits exactly one ready frame — that's the boot signal. */
 const rpcBooting = new Set<string>();
+
+/**
+ * Minimum gap between mid-run get_state refreshes, keyed by tab. Context only
+ * grows at turn boundaries, and an agent run fires several per-turn
+ * message_ends in quick succession — throttle to one authoritative snapshot
+ * per boundary window instead of one rpc call per frame.
+ */
+const CONTEXT_REFRESH_MS = 500;
+const lastContextRefresh = new Map<string, number>();
+
+/** The implementation prompt sent to whichever context executes an approved plan. */
+const EXECUTION_PROMPT =
+  "The plan review is complete — execute the approved plan now. It is set as this " +
+  "session's reference.";
+
+/** Polls `rpc[tabId]` until `pred` holds (or the bounded deadline passes). */
+function pollUntil(
+  tabId: string,
+  pred: (tab: RpcTabState | undefined) => boolean,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const read = (): RpcTabState | undefined => useStore.getState().rpc[tabId];
+  if (pred(read())) return Promise.resolve();
+  // A subscription — not a timer loop — so readiness resolves the moment state
+  // changes, with no wall-clock sampling. (new Promise, not withResolvers: the
+  // web lib here is ES2022 and the rest of the file builds resolvers this way.)
+  return new Promise<void>((resolve) => {
+    const timer = window.setTimeout(() => {
+      unsubscribe();
+      resolve();
+    }, timeoutMs);
+    const unsubscribe = useStore.subscribe(() => {
+      if (pred(read())) {
+        window.clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
 
 /** setStatus/setWidget/setTitle carry their text under different keys. */
 function extensionStatusEntry(frame: object): { key: string; text: string | undefined } | null {
@@ -293,16 +413,108 @@ export const useStore = create<UiStore>()((set, get) => {
     patchRpc(tabId, { session: { ...tab.session, ...patch } });
   };
 
+  /**
+   * Answers the blocked plan-review `select` and clears the pane. Returns
+   * false when there is no pending review to answer, so callers skip dispatch.
+   */
+  const answerPlanSelect = (tabId: string, value: string): boolean => {
+    const tab = get().rpc[tabId];
+    if (!tab?.planReview) return false;
+    const request = tab.planReview.frame;
+    const id =
+      request !== null && typeof request === "object" && "id" in request
+        ? request.id
+        : undefined;
+    // omp's agent is blocked on this reply — clear the pane only after sending.
+    backend.rpcSend(tabId, {
+      type: "extension_ui_response",
+      id,
+      value,
+    });
+    patchRpc(tabId, { planReview: null, planText: null });
+    return true;
+  };
+
+  /**
+   * Spawns a fresh rpc-ui session in the plan's project, seeds it with the
+   * plan text as its first prompt, and surfaces it as the active tab.
+   */
+  const spawnFreshImplementation = async (srcTabId: string, planText: string | null): Promise<void> => {
+    const rec = findRecord(get().state, srcTabId);
+    if (!rec) return;
+    const projectCwd = rec.projectCwd;
+    // A fresh implementation session inherits the complete last-used advisor
+    // tuple for this project, falling back to omp only before the first choice.
+    await get().loadAdvisorDefaults(projectCwd);
+    const defaults = get().advisorDefaults[projectCwd];
+    const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
+    const lastAdvisorModel = project?.lastAdvisorModel ?? defaults?.model ?? null;
+    const advisor = project?.lastAdvisor ?? defaults?.enabled ?? false;
+    let freshId: string;
+    try {
+      ({ tabId: freshId } = await backend.spawnSession({
+        projectCwd,
+        mode: "rpc-ui",
+        advisor,
+        advisorModel: lastAdvisorModel,
+        cols: 80,
+        rows: 24,
+      }));
+    } catch (err) {
+      alertError(err);
+      return;
+    }
+    set((s) => ({
+      tabs: [...s.tabs, { tabId: freshId, mode: "rpc-ui", projectCwd, hidden: false }],
+      activeTabId: freshId,
+      exited: dropExited(s.exited, freshId),
+    }));
+    appendItem(
+      srcTabId,
+      noticeItem("plan approved — implementation dispatched to a fresh session", "info"),
+    );
+    await pollUntil(freshId, (t) => t?.status === "ready");
+    const lead = "A plan was approved for this project. Implement it now.";
+    await get().sendPrompt(
+      freshId,
+      planText ? `${lead}\n\n${planText}\n\nProceed with the implementation.` : lead,
+      "prompt",
+    );
+  };
+
   const applyRpcState = (tabId: string, resp: unknown): void => {
     const tab = get().rpc[tabId];
     const payload = respData(resp);
     if (!tab || payload === null || typeof payload !== "object") return;
+    const model = parseModelInfo(field(payload, "model")) ?? tab.model;
+    const session = parseSessionRuntime(payload, tab.session);
     patchRpc(tabId, {
-      todos:
-        "todoPhases" in payload ? parseTodoPhases(field(payload, "todoPhases")) : tab.todos,
-      model: parseModelInfo(field(payload, "model")) ?? tab.model,
-      session: parseSessionRuntime(payload, tab.session),
+      todos: "todoPhases" in payload ? parseTodoPhases(field(payload, "todoPhases")) : tab.todos,
+      model,
+      session,
     });
+    if (model) {
+      void backend
+        .setSessionModel(tabId, `${model.provider}/${model.id}`, session.thinkingLevel)
+        .catch(() => {});
+    }
+  };
+
+  /**
+   * Live context-meter tick. Fired on each per-turn `message_end` while the
+   * agent is mid-run, so the HUD tracks the growing context instead of only
+   * snapping to the final value at `agent_end`. Same `get_state` source as the
+   * closing refresh — just throttled so a burst of turn boundaries costs one
+   * snapshot, not one per frame.
+   */
+  const refreshLiveContext = (tabId: string): void => {
+    const now = Date.now();
+    if (now - (lastContextRefresh.get(tabId) ?? -Infinity) < CONTEXT_REFRESH_MS) return;
+    lastContextRefresh.set(tabId, now);
+    void get()
+      .rpcCommand(tabId, { type: "get_state" })
+      .then((resp) => applyRpcState(tabId, resp))
+      .catch(() => {});
   };
 
   const loadHistory = async (tabId: string): Promise<void> => {
@@ -359,22 +571,25 @@ export const useStore = create<UiStore>()((set, get) => {
       await backend.setDefaultMode(mode);
     },
 
+    async toggleFavorite(key) {
+      await backend.toggleFavorite(key);
+    },
+
     async newSession(projectCwd) {
       const mode = get().state?.defaultMode ?? "pty";
-      // omp's own config decides whether a fresh session starts with the
-      // advisor — the composer's toggle then owns it per session. Awaited so a
-      // first-ever session in a project doesn't launch before the default is
-      // known and silently come up advisor-off.
+      // Carry the project's complete last-used advisor tuple into the new
+      // session. Before any explicit choice, omp's configured default wins.
       await get().loadAdvisorDefaults(projectCwd);
       const defaults = get().advisorDefaults[projectCwd];
+      const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
+      const lastAdvisorModel = project?.lastAdvisorModel ?? defaults?.model ?? null;
+      const advisor = project?.lastAdvisor ?? defaults?.enabled ?? false;
       try {
         const { tabId } = await backend.spawnSession({
           projectCwd,
           mode,
-          advisor: defaults?.enabled ?? false,
-          // Null, not the default model: pinning it here would freeze this
-          // session against a later edit to omp's config.
-          advisorModel: null,
+          advisor,
+          advisorModel: lastAdvisorModel,
           cols: 80,
           rows: 24,
         });
@@ -487,15 +702,16 @@ export const useStore = create<UiStore>()((set, get) => {
     async deleteSession(tabId) {
       const rec = findRecord(get().state, tabId);
       if (!rec) return;
-      // The row keeps its button enabled while live so the trash can never
-      // looks broken; the backend would reject anyway, so say why up front
-      // rather than opening a confirm that cannot succeed.
-      if (rec.live === "live") {
-        window.alert("This session is still running — terminate it before deleting.");
-        return;
-      }
+      // A live session is not refused: the backend stops the agent as part of
+      // the delete. The confirm says so, because that is the part the user
+      // cannot undo by reopening the tab.
+      const running = rec.live === "live" ? " Its running agent is stopped." : "";
       const label = rec.live === "missing" ? "" : " Its transcript and artifacts are erased.";
-      if (!window.confirm(`Delete "${rec.title}" permanently?${label} This cannot be undone.`)) {
+      if (
+        !window.confirm(
+          `Delete "${rec.title}" permanently?${running}${label} This cannot be undone.`,
+        )
+      ) {
         return;
       }
       try {
@@ -570,6 +786,14 @@ export const useStore = create<UiStore>()((set, get) => {
         ];
         if (rec?.sessionId) boots.push(loadHistory(tabId));
         await Promise.allSettled(boots);
+        // Arm the advisor-stats extension (its first slash run sets its `ui`
+        // channel, after which it auto-publishes at each turn end). Armed for
+        // every session, not just advisor-on ones: the extension is always loaded,
+        // this one shot is cheap and idempotent, and it publishes `available:false`
+        // for an advisor-off session that the HUD simply hides. Gating on the
+        // record flag would let a stale `advisor` (race with the broadcast after the
+        // advisor-toggle relaunch) skip the arm and starve the readout forever.
+        void get().refreshAdvisorStats(tabId);
         if (stateFailure) {
           patchRpc(tabId, { status: "error", error: `get_state failed: ${stateFailure.message}` });
         } else {
@@ -637,12 +861,17 @@ export const useStore = create<UiStore>()((set, get) => {
         case "session_info_update":
           patchRpc(tabId, { session: parseSessionRuntime(frame, tab.session) });
           return;
-        case "config_update":
-          patchRpc(tabId, {
-            model: parseModelInfo(field(frame, "model")) ?? tab.model,
-            session: parseSessionRuntime(frame, tab.session),
-          });
+        case "config_update": {
+          const model = parseModelInfo(field(frame, "model")) ?? tab.model;
+          const session = parseSessionRuntime(frame, tab.session);
+          patchRpc(tabId, { model, session });
+          if (model) {
+            void backend
+              .setSessionModel(tabId, `${model.provider}/${model.id}`, session.thinkingLevel)
+              .catch(() => {});
+          }
           return;
+        }
         case "available_commands_update":
           patchRpc(tabId, { commands: parseCommandList(frame) });
           return;
@@ -684,6 +913,24 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
         }
         case "extension_ui_request": {
+          // Plan mode rides the extension channel, so it is claimed before the
+          // generic routing: the review dialog must reach the plan pane rather
+          // than the raw select dialog, and the status frame is state, not text.
+          const review = parsePlanReviewTitle(strField(frame, "title"));
+          if (review) {
+            patchRpc(tabId, { planReview: { request: review, frame } });
+            void get().loadPlanText(tabId, review.planAbsPath);
+            return;
+          }
+          const entry = extensionStatusEntry(frame);
+          if (entry?.key === PLAN_STATUS_KEY) {
+            patchRpc(tabId, { plan: parsePlanStatus(entry.text) });
+            return;
+          }
+          if (entry?.key === ADVISOR_STATS_KEY) {
+            patchRpc(tabId, { advisorStats: parseAdvisorStats(entry.text) });
+            return;
+          }
           const action = routeExtensionRequest(frame);
           if (action.action === "dialog") {
             patchRpc(tabId, { extensionQueue: [...tab.extensionQueue, frame] });
@@ -692,7 +939,6 @@ export const useStore = create<UiStore>()((set, get) => {
           // Every non-dialog method is answered immediately — omp blocks on the
           // reply — but status/widget/title text is recorded first, because it
           // is the extension's actual output, not an interaction to decline.
-          const entry = extensionStatusEntry(frame);
           if (entry) {
             const extensionStatus = { ...tab.extensionStatus };
             if (entry.text === undefined || entry.text === "") delete extensionStatus[entry.key];
@@ -735,15 +981,29 @@ export const useStore = create<UiStore>()((set, get) => {
           patchRpc(tabId, { items: reduceEvent(tab.items, frame) });
           if (type === "thinking_level_changed") {
             const level = strField(frame, "thinkingLevel");
-            if (level) patchSession(tabId, { thinkingLevel: level });
+            if (level) {
+              patchSession(tabId, { thinkingLevel: level });
+              const model = get().rpc[tabId]?.model;
+              if (model) {
+                void backend
+                  .setSessionModel(tabId, `${model.provider}/${model.id}`, level)
+                  .catch(() => {});
+              }
+            }
           }
           if (type === "agent_start") {
             patchRpc(tabId, { status: "running" });
           }
+          // Context grows at turn boundaries — tick the HUD meter live while
+          // the agent is still mid-run, not just once at agent_end.
+          if (type === "message_end" && tab.status === "running") {
+            refreshLiveContext(tabId);
+          }
           if (type === "agent_end") {
             if (tab.status === "running") patchRpc(tabId, { status: "ready" });
 
-            // The transcript's first substantive prompt names the session.
+            // Retry net: a rename that failed at prompt time (hasRenamed was
+            // released) gets another shot at the next turn boundary.
             if (tab.initialPrompt && !tab.hasRenamed) get().renameSession(tabId);
 
             // Refresh todoPhases/contextUsage/isStreaming after each agent run.
@@ -751,6 +1011,12 @@ export const useStore = create<UiStore>()((set, get) => {
               .rpcCommand(tabId, { type: "get_state" })
               .then((resp) => applyRpcState(tabId, resp))
               .catch(() => {});
+
+            // Session cost/token totals live on get_session_stats, which is
+            // fetched once at boot — a fresh session reads $0 there. Refresh
+            // it per run so the HUD cost counter updates instead of freezing
+            // at $0.0000 for the whole session.
+            void get().refreshStats(tabId);
           }
         }
       }
@@ -796,24 +1062,42 @@ export const useStore = create<UiStore>()((set, get) => {
       // prompt instead (same policy as omp's own titling).
       if (isLowSignalTitleInput(prompt)) return;
       patchRpc(tabId, { initialPrompt: prompt });
+      // Name the session as soon as the first substantive prompt is sent, not
+      // when the first run finishes. `renameSession` guards on hasRenamed so
+      // the concurrent agent_end path stays a harmless no-op (or a retry).
+      get().renameSession(tabId);
     },
 
     renameSession(tabId) {
       const tab = get().rpc[tabId];
       if (!tab || !tab.initialPrompt || tab.hasRenamed) return;
-      // Latch before sending so a second agent_end can't double-rename.
+      const prompt = tab.initialPrompt;
+      // Latch before the first await so a second agent_end can't double-rename.
       patchRpc(tabId, { hasRenamed: true });
-      const name = generateTitleFromPrompt(tab.initialPrompt);
-      void get()
-        .rpcCommand(tabId, { type: "set_session_name", name })
-        .then(() => {
+      const projectCwd = findRecord(get().state, tabId)?.projectCwd;
+      void (async () => {
+        // omp's small model writes the title; the derived one is the fallback
+        // for a model that declines, errors, or isn't reachable. Never both —
+        // `set_session_name` is a one-shot latch (source "user").
+        const modelTitle = projectCwd
+          ? await backend.generateTitle(projectCwd, prompt).catch((err: unknown) => {
+              console.warn("[session-rename] model titling failed:", err);
+              return null;
+            })
+          : null;
+        // The tab can die or be renamed by hand while the model thinks.
+        const current = get().rpc[tabId];
+        if (!current || current.initialPrompt !== prompt) return;
+        const name = modelTitle ?? generateTitleFromPrompt(prompt);
+        try {
+          await get().rpcCommand(tabId, { type: "set_session_name", name });
           patchRpc(tabId, { initialPrompt: null });
-        })
-        .catch((err: unknown) => {
+        } catch (err) {
           // Release the latch so the next agent_end retries.
           patchRpc(tabId, { hasRenamed: false });
           console.warn("[session-rename] set_session_name failed:", err);
-        });
+        }
+      })();
     },
 
     async sendPrompt(tabId, message, route = "steer", images) {
@@ -821,11 +1105,15 @@ export const useStore = create<UiStore>()((set, get) => {
       if (!tab) return;
       // Titling reads the first substantive prompt, whichever route it took.
       get().setInitialPrompt(tabId, message);
-      const type =
-        tab.status === "running" ? (route === "follow_up" ? "follow_up" : "steer") : "prompt";
+      // Always the `prompt` frame, never `steer`/`follow_up`: only AgentSession.prompt
+      // builds the magic-keyword notices (orchestrate/ultrathink/workflowz), so those
+      // frames would silently drop the keyword mid-run. `streamingBehavior` is what
+      // omp's own TUI passes, and omp ignores it while the agent is idle.
+      const streamingBehavior = route === "follow_up" ? "followUp" : "steer";
+      const cmd = { type: "prompt", message, streamingBehavior };
       // `images` is omitted entirely when empty: omp's own client sends no key
       // rather than an empty array, and every byte here is on one JSON line.
-      await runCommand(tabId, images?.length ? { type, message, images } : { type, message });
+      await runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
     },
 
     async abortAgent(tabId) {
@@ -864,6 +1152,12 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
+    async setAdvisorModel(tabId, selector) {
+      // setSessionAdvisor persists the complete advisor tuple for both this
+      // session and the next one; selecting a model also enables the advisor.
+      await get().setSessionAdvisor(tabId, true, selector);
+    },
+
     async setModel(tabId, model) {
       const resp = await runCommand(tabId, {
         type: "set_model",
@@ -871,30 +1165,40 @@ export const useStore = create<UiStore>()((set, get) => {
         modelId: model.id,
       });
       if (resp === null) return;
-      patchRpc(tabId, { model: parseModelInfo(respData(resp)) ?? model });
-    },
-
-    async cycleModel(tabId) {
-      const resp = await runCommand(tabId, { type: "cycle_model" });
-      if (resp === null) return;
-      const data = respData(resp);
-      const model = parseModelInfo(field(data, "model"));
-      if (model) patchRpc(tabId, { model });
-      const level = strField(data, "thinkingLevel");
-      if (level) patchSession(tabId, { thinkingLevel: level });
+      const selected = parseModelInfo(respData(resp)) ?? model;
+      patchRpc(tabId, { model: selected });
+      const thinkingLevel = get().rpc[tabId]?.session.thinkingLevel ?? null;
+      await backend.setSessionModel(
+        tabId,
+        `${selected.provider}/${selected.id}`,
+        thinkingLevel,
+      );
     },
 
     async setThinkingLevel(tabId, level) {
       const resp = await runCommand(tabId, { type: "set_thinking_level", level });
       if (resp === null) return;
       patchSession(tabId, { thinkingLevel: level });
+      const model = get().rpc[tabId]?.model;
+      await backend.setSessionModel(
+        tabId,
+        model ? `${model.provider}/${model.id}` : null,
+        level,
+      );
     },
 
     async cycleThinkingLevel(tabId) {
       const resp = await runCommand(tabId, { type: "cycle_thinking_level" });
       if (resp === null) return;
       const level = strField(respData(resp), "level");
-      if (level) patchSession(tabId, { thinkingLevel: level });
+      if (!level) return;
+      patchSession(tabId, { thinkingLevel: level });
+      const model = get().rpc[tabId]?.model;
+      await backend.setSessionModel(
+        tabId,
+        model ? `${model.provider}/${model.id}` : null,
+        level,
+      );
     },
 
     async setSteeringMode(tabId, mode) {
@@ -983,8 +1287,76 @@ export const useStore = create<UiStore>()((set, get) => {
         commandOutput: [],
         initialPrompt: null,
         hasRenamed: false,
+        // A new session in this tab is a new plan lifecycle: the old plan
+        // belongs to the session that just went away.
+        plan: null,
+        planReview: null,
+        planText: null,
       });
       await get().refreshState(tabId);
+    },
+
+    async setPlanMode(tabId, enabled) {
+      // The extension owns the state; the UI never assumes the toggle took —
+      // it re-renders when the extension publishes its status frame.
+      await runCommand(tabId, {
+        type: "prompt",
+        message: `/${PLAN_COMMAND} ${enabled ? "on" : "off"}`,
+      });
+    },
+
+    executePlan(tabId, context) {
+      // The fresh context embeds the plan text in the new session's prompt, so
+      // capture it before the gate's answer clears the pane.
+      const planText = get().rpc[tabId]?.planText ?? null;
+      // Answer the gate first — omp's agent is blocked on the reply, so every
+      // exit from the review pane must land its verdict before any dispatch.
+      if (!answerPlanSelect(tabId, PLAN_EXECUTE)) return;
+      if (context === "fresh") {
+        void spawnFreshImplementation(tabId, planText);
+        return;
+      }
+      if (context === "compacted") {
+        // `compact` runs between turns, so we must wait for the just-accepted
+        // plan turn to end before compacting, then prompt the implementer.
+        void (async () => {
+          await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
+          await get().compactSession(tabId);
+          await get().sendPrompt(tabId, EXECUTION_PROMPT, "prompt");
+        })();
+        return;
+      }
+      // Existing context: followUp queues the prompt until the current turn
+      // ends, so it races nothing — the accepted plan turn finishes, then the
+      // implementer runs in this same session.
+      void get().sendPrompt(tabId, EXECUTION_PROMPT, "follow_up");
+    },
+
+    refinePlan(tabId, notes) {
+      if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
+      const text = notes?.text?.trim() ?? "";
+      const images = notes?.images;
+      if (text === "" && !images?.length) return;
+      // The planner's current turn continues after the refine verdict; the
+      // notes steer it live, and omp appends images after the text block.
+      const message = text
+        ? `Revise the plan to incorporate these requested changes:\n\n${text}`
+        : "Revise the plan per the attached change notes.";
+      void get().sendPrompt(tabId, message, "steer", images);
+    },
+
+    async loadPlanText(tabId, absPath) {
+      if (!absPath) {
+        patchRpc(tabId, { planText: null });
+        return;
+      }
+      try {
+        patchRpc(tabId, { planText: await backend.readPlanFile(tabId, absPath) });
+      } catch {
+        // The pane falls back to the plan's path — a failed read must never
+        // strand the review, because the agent is waiting on the verdict.
+        patchRpc(tabId, { planText: null });
+      }
     },
 
     async runSlashCommand(tabId, line) {
@@ -1010,6 +1382,13 @@ export const useStore = create<UiStore>()((set, get) => {
       const resp = await runCommand(tabId, { type: "get_session_stats" });
       if (resp === null) return;
       patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+    },
+
+    async refreshAdvisorStats(tabId) {
+      // The extension answers by publishing over setStatus. Until omp has run a
+      // turn the session is uncaptured, so it reports a live-session wait which
+      // the HUD treats as "not yet" rather than an error.
+      await runCommand(tabId, { type: "prompt", message: `/${ADVISOR_STATS_COMMAND}` });
     },
 
     async refreshSubagents(tabId) {
