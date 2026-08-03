@@ -176,6 +176,42 @@ describe("TranscriptView follow mode", () => {
     act(() => root.unmount());
   });
 
+  it("scrolling back to the exact bottom resumes follow", () => {
+    const three = [assistant("a1", "one"), assistant("a2", "two"), assistant("a3", "three")];
+    const { el, root, scroller } = renderPinned(three, 1800, 500);
+    scrollTo(scroller, 300);
+    expect(el.textContent).toContain("jump to latest");
+
+    // scrollTop 1800 is exactly the value the last pin wrote (the clamped
+    // max, where a browser terminates "reach the bottom"). Without the guard
+    // removal this event is misread as the pin's echo and follow stays off.
+    scrollTo(scroller, 1800);
+    expect(el.textContent).not.toContain("jump to latest");
+    expect(scroller.scrollTop).toBe(1800);
+    act(() => root.unmount());
+  });
+
+  it("resumes follow at the exact bottom and re-pins through a burst", () => {
+    const three = [assistant("a1", "one"), assistant("a2", "two"), assistant("a3", "three")];
+    const { el, root, scroller } = renderPinned(three, 1800, 500);
+    scrollTo(scroller, 300);
+    expect(el.textContent).toContain("jump to latest");
+
+    // Exact-bottom re-entry resumes follow.
+    scrollTo(scroller, 1800);
+    expect(el.textContent).not.toContain("jump to latest");
+    expect(scroller.scrollTop).toBe(1800);
+
+    // A burst arriving right after re-entry must stay pinned.
+    setGeometry(scroller, 2000, 500);
+    act(() => {
+      root.render(<TranscriptView items={[...three, assistant("a4", "four")]} />);
+    });
+    expect(scroller.scrollTop).toBe(2000);
+    expect(el.textContent).not.toContain("jump to latest");
+    act(() => root.unmount());
+  });
+
   it("jump to latest resumes follow", () => {
     const three = [assistant("a1", "one"), assistant("a2", "two"), assistant("a3", "three")];
     const { el, root, scroller } = renderPinned(three, 1800, 500);

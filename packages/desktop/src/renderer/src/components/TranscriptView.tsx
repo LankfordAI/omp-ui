@@ -274,9 +274,6 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
-  // What our own pin last set, so its scroll-event echo is not read as user
-  // intent; null until the first pin runs.
-  const pinnedScrollTopRef = useRef<number | null>(null);
   // Last observed scrollTop, for scroll direction.
   const lastScrollTopRef = useRef(0);
 
@@ -289,8 +286,11 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-    // Read back the clamped value so the echo check compares against reality.
-    pinnedScrollTopRef.current = el.scrollTop;
+    // Recording the clamped target in `lastScrollTopRef` makes this pin's own
+    // scroll-event echo report `prev === current`, so it can never be read as
+    // an upward user scroll — no separate echo guard is needed (a positional
+    // one would swallow a genuine scroll back to the exact bottom and keep
+    // follow mode off).
     lastScrollTopRef.current = el.scrollTop;
   }
 
@@ -340,8 +340,6 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
           if (!el) return;
           const prev = lastScrollTopRef.current;
           lastScrollTopRef.current = el.scrollTop;
-          // Echo of our own pin: not user intent.
-          if (el.scrollTop === pinnedScrollTopRef.current) return;
           const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
           if (distance <= AT_BOTTOM_SLACK) {
             updateFollowing(true); // reached the bottom: resume following
