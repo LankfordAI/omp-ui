@@ -7,21 +7,19 @@ jobs:
   probe:
     runs-on: [self-hosted, gfx1201]
     steps:
-      - name: Probe user namespace support
+      - name: Probe root bwrap path
         run: |
-          echo "--- id / container check"
-          id
-          test -f /.dockerenv && echo "in docker container" || echo "no /.dockerenv"
-          echo "--- sysctls (may not exist)"
-          sysctl kernel.unprivileged_userns_clone 2>&1 || true
-          sysctl kernel.apparmor_restrict_unprivileged_userns 2>&1 || true
-          sysctl user.max_user_namespaces 2>&1 || true
-          echo "--- unprivileged unshare"
-          unshare -U true && echo "USERNS OK" || echo "USERNS BLOCKED"
-          echo "--- try enabling via sudo sysctl"
-          sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>&1 || true
-          sudo -n sysctl -w kernel.unprivileged_userns_clone=1 2>&1 || true
-          echo "--- unshare after sysctl attempt"
-          unshare -U true && echo "USERNS OK AFTER SYSCTL" || echo "STILL BLOCKED"
-          echo "--- bwrap direct"
-          bwrap --unshare-user --bind / / true 2>&1 && echo "BWRAP OK" || echo "BWRAP BLOCKED"
+          echo "--- caps"
+          grep Cap /proc/self/status
+          echo "--- full ns unshare (what bwrap needs, unprivileged)"
+          unshare -Urm true && echo "FULL UNSHARE OK" || echo "FULL UNSHARE BLOCKED"
+          echo "--- install bubblewrap"
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap flatpak flatpak-builder >/dev/null
+          echo "--- bwrap unprivileged"
+          bwrap --bind / / true && echo "BWRAP USER OK" || echo "BWRAP USER BLOCKED"
+          echo "--- bwrap as root"
+          sudo bwrap --bind / / true && echo "BWRAP ROOT OK" || echo "BWRAP ROOT BLOCKED"
+          echo "--- root caps"
+          sudo grep Cap /proc/self/status
+          echo "--- root mount ns"
+          sudo unshare -m true && echo "ROOT MNT NS OK" || echo "ROOT MNT NS BLOCKED"
