@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Markdown } from "./Markdown";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-function render(text: string): { el: HTMLDivElement; root: Root } {
+function render(text: string, trailing?: ReactNode): { el: HTMLDivElement; root: Root } {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
   act(() => {
-    root.render(<Markdown text={text} />);
+    root.render(<Markdown text={text} trailing={trailing} />);
   });
   return { el, root };
 }
@@ -59,5 +59,31 @@ describe("Markdown lists", () => {
     expect(nested).not.toBeNull();
     expect(nested!.querySelectorAll(":scope > li")).toHaveLength(2);
     act(() => root.unmount());
+  });
+
+  it("rides the streaming caret on the deepest last node of a nested list", () => {
+    // The last top-level item has a child list: the caret recurses into the
+    // child's last item rather than sitting after the parent's text.
+    const { el, root } = render(
+      "1. First\n2. Second\n   - sub",
+      <span data-testid="caret" />,
+    );
+    const caret = el.querySelector('[data-testid="caret"]');
+    expect(caret).not.toBeNull();
+    const topItems = el.querySelector("ul")!.children;
+    const nested = topItems[1]!.querySelector("ul");
+    expect(nested).not.toBeNull();
+    expect(nested!.contains(caret)).toBe(true);
+    act(() => root.unmount());
+
+    // The last top-level item is a leaf: the caret sits after its text, and
+    // never leaks into an earlier item's nested list.
+    const leaf = render("1. First\n   - sub\n2. Second", <span data-testid="caret" />);
+    const leafCaret = leaf.el.querySelector('[data-testid="caret"]');
+    expect(leafCaret).not.toBeNull();
+    const leafTop = leaf.el.querySelector("ul")!.children;
+    expect(leafTop[1]!.contains(leafCaret)).toBe(true);
+    expect(leafTop[0]!.querySelector("ul")!.contains(leafCaret)).toBe(false);
+    act(() => leaf.root.unmount());
   });
 });
