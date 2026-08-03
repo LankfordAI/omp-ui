@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, Label } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, Panel } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -96,6 +97,17 @@ interface FilteredGroup {
   group: ProjectGroup;
   sessions: SessionSummary[];
 }
+type OpenTerminalMenu = (
+  projectCwd: string,
+  event: ReactMouseEvent<HTMLElement>,
+) => void;
+
+interface TerminalMenuRequest {
+  projectCwd: string;
+  x: number;
+  y: number;
+  trigger: HTMLElement;
+}
 
 /**
  * A session survives the filter when either its own title or its project name
@@ -117,7 +129,12 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
 
 /* --------------------------------------------------------- project section */
 
-function ProjectSection({ group, sessions, query }: FilteredGroup & { query: string }) {
+function ProjectSection({
+  group,
+  sessions,
+  query,
+  openTerminalMenu,
+}: FilteredGroup & { query: string; openTerminalMenu: OpenTerminalMenu }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const activeTabId = useStore((st) => st.activeTabId);
@@ -175,9 +192,11 @@ function ProjectSection({ group, sessions, query }: FilteredGroup & { query: str
           </button>
 
           <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100">
-            <IconButton label="new session" onClick={() => void newSession(project.path)}>
-              <IconPlus />
-            </IconButton>
+            <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
+              <IconButton label="new session" onClick={() => void newSession(project.path)}>
+                <IconPlus />
+              </IconButton>
+            </span>
             <IconButton
               label="remove project"
               tone="rose"
@@ -229,7 +248,13 @@ function ProjectSection({ group, sessions, query }: FilteredGroup & { query: str
 
 /* -------------------------------------------------------------- rail (thin) */
 
-function CollapsedRail({ groups }: { groups: ProjectGroup[] }) {
+function CollapsedRail({
+  groups,
+  openTerminalMenu,
+}: {
+  groups: ProjectGroup[];
+  openTerminalMenu: OpenTerminalMenu;
+}) {
   const newSession = useStore((st) => st.newSession);
   return (
     <div className="flex flex-col items-center gap-2 py-3">
@@ -241,6 +266,7 @@ function CollapsedRail({ groups }: { groups: ProjectGroup[] }) {
             type="button"
             title={`${g.project.name} — ${g.sessions.length} sessions, ${live} live`}
             onClick={() => void newSession(g.project.path)}
+            onContextMenu={(event) => openTerminalMenu(g.project.path, event)}
             className={cn(
               "animate-slide-in relative grid size-9 place-items-center rounded-md border",
               "border-line bg-raised font-display text-[11px] font-semibold text-ink-mid",
@@ -265,10 +291,57 @@ function CollapsedRail({ groups }: { groups: ProjectGroup[] }) {
 export function Sidebar() {
   const state = useStore((st) => st.state);
   const addProject = useStore((st) => st.addProject);
-  const setDefaultMode = useStore((st) => st.setDefaultMode);
+  const newSession = useStore((st) => st.newSession);
 
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState("");
+  const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
+  const terminalMenuRef = useRef<HTMLDivElement>(null);
+  const terminalMenuItemRef = useRef<HTMLButtonElement>(null);
+
+  const openTerminalMenu: OpenTerminalMenu = (projectCwd, event) => {
+    event.preventDefault();
+    const currentTarget = event.currentTarget;
+    const trigger =
+      currentTarget instanceof HTMLButtonElement
+        ? currentTarget
+        : currentTarget.querySelector<HTMLButtonElement>("button");
+    if (trigger === null) return;
+    const keyboardPosition = event.clientX === 0 && event.clientY === 0;
+    const rect = trigger.getBoundingClientRect();
+    setTerminalMenu({
+      projectCwd,
+      x: keyboardPosition ? rect.left : event.clientX,
+      y: keyboardPosition ? rect.bottom : event.clientY,
+      trigger,
+    });
+  };
+
+  useEffect(() => {
+    if (terminalMenu === null) return;
+    terminalMenuItemRef.current?.focus();
+  }, [terminalMenu]);
+
+  useEffect(() => {
+    if (terminalMenu === null) return;
+    const dismissOutside = (event: PointerEvent) => {
+      const menu = terminalMenuRef.current;
+      if (menu !== null && event.target instanceof Node && menu.contains(event.target)) return;
+      setTerminalMenu(null);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setTerminalMenu(null);
+      terminalMenu.trigger.focus();
+    };
+    window.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [terminalMenu]);
 
   const groups = state?.projects ?? null;
   const filtered = useMemo(() => applyFilter(groups ?? [], query), [groups, query]);
@@ -277,7 +350,6 @@ export function Sidebar() {
   const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
   const totalLive = (groups ?? []).reduce((n, g) => n + liveCount(g.sessions), 0);
   const filtering = query.trim().length > 0;
-  const mode = state?.defaultMode ?? "pty";
 
   return (
     <aside
@@ -318,12 +390,12 @@ export function Sidebar() {
 
       {collapsed ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {groups && <CollapsedRail groups={groups} />}
+          {groups && <CollapsedRail groups={groups} openTerminalMenu={openTerminalMenu} />}
         </div>
       ) : (
         <>
-          {/* -------- filter + default mode -------- */}
-          <div className="shrink-0 space-y-2 border-b border-line px-3 py-2.5">
+          {/* -------- filter -------- */}
+          <div className="shrink-0 border-b border-line px-3 py-2.5">
             <div className="flex items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
               <span className="shrink-0 text-ink-faint">
                 <IconSearch />
@@ -350,30 +422,6 @@ export function Sidebar() {
                   </IconButton>
                 </>
               )}
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <Label>new sessions</Label>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  size="xs"
-                  variant={mode === "pty" ? "solid" : "ghost"}
-                  tone={mode === "pty" ? "iris" : "neutral"}
-                  title="new sessions open in the terminal"
-                  onClick={() => void setDefaultMode("pty")}
-                >
-                  terminal
-                </Button>
-                <Button
-                  size="xs"
-                  variant={mode === "rpc-ui" ? "solid" : "ghost"}
-                  tone={mode === "rpc-ui" ? "iris" : "neutral"}
-                  title="new sessions open in the native RPC view"
-                  onClick={() => void setDefaultMode("rpc-ui")}
-                >
-                  native
-                </Button>
-              </div>
             </div>
           </div>
 
@@ -408,11 +456,45 @@ export function Sidebar() {
                 group={f.group}
                 sessions={f.sessions}
                 query={query}
+                openTerminalMenu={openTerminalMenu}
               />
             ))}
           </div>
         </>
       )}
+      {terminalMenu !== null &&
+        createPortal(
+          <div
+            ref={terminalMenuRef}
+            role="menu"
+            className="fixed z-50"
+            style={{ left: terminalMenu.x, top: terminalMenu.y }}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <Panel
+              className={cn(
+                "edge-lit animate-rise p-1",
+                terminalMenu.x > window.innerWidth / 2 && "-translate-x-full",
+                terminalMenu.y > window.innerHeight / 2 && "-translate-y-full",
+              )}
+            >
+              <button
+                ref={terminalMenuItemRef}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const projectCwd = terminalMenu.projectCwd;
+                  setTerminalMenu(null);
+                  void newSession(projectCwd, "pty");
+                }}
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+              >
+                New terminal session
+              </button>
+            </Panel>
+          </div>,
+          document.body,
+        )}
 
       {/* -------- footer -------- */}
       <footer

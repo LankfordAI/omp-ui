@@ -1,7 +1,7 @@
 import type { SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
-import { Button, Chip, Dot, IconButton, type Tone } from "./ui";
+import { Button, Dot, IconButton, type Tone } from "./ui";
 
 const MISSING_HINT = "session files are gone from disk — delete the record";
 
@@ -136,7 +136,6 @@ function IconPower() {
 
 export function SessionRow({ s }: { s: SessionSummary }) {
   const openSession = useStore((st) => st.openSession);
-  const switchMode = useStore((st) => st.switchMode);
   const deleteSession = useStore((st) => st.deleteSession);
   const terminate = useStore((st) => st.terminate);
   const resumeDead = useStore((st) => st.resumeDead);
@@ -203,20 +202,6 @@ export function SessionRow({ s }: { s: SessionSummary }) {
       </button>
 
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
-        <button
-          type="button"
-          disabled={missing}
-          title={rpc ? "switch to terminal mode" : "switch to native mode"}
-          onClick={() => void switchMode(s.tabId, rpc ? "pty" : "rpc-ui")}
-          className={cn(
-            "rounded transition-[filter,opacity] duration-150",
-            "hover:brightness-125 disabled:pointer-events-none disabled:opacity-35",
-          )}
-        >
-          <Chip mono tone={rpc ? "iris" : "neutral"}>
-            {rpc ? "rpc" : "term"}
-          </Chip>
-        </button>
         {!missing && s.live === "live" ? (
           <IconButton
             label="stop the agent (session stays resumable)"

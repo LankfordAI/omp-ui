@@ -26,7 +26,7 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 │              ├────────────────────────────────────────┤  Todos      │
 │ filter       │                                        │  Console    │
 │ live dots    │  Transcript (rpc-ui)   or   xterm.js   │  Agents     │
-│ mode chips   │  markdown · tool cards      (PTY TUI)  │  Session    │
+│ new session +│  markdown · tool cards      (PTY TUI)  │  Session    │
 │              │  diffs · advisories                    │             │
 │ collapses    ├────────────────────────────────────────┤  collapses  │
 │ to icons     │ Composer   steer · queue · /commands   │  to icons   │

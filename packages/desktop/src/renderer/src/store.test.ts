@@ -1605,17 +1605,70 @@ describe("prompting, slash commands, and session ops", () => {
     expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, "openrouter/a/b:high");
   });
 
-  it("newSession restores the last advisor status and model", async () => {
+  it("newSession uses the persisted mode and restores the last advisor tuple", async () => {
     backendState = stateWithRecord(null);
     const project = backendState.projects[0]!.project;
     project.lastAdvisor = false;
     project.lastAdvisorModel = "openrouter/a/b:high";
     mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "new-tab" });
-    useStore.setState({ state: backendState, advisorDefaults: { "/p": { enabled: true, model: null } } });
+    useStore.setState({
+      state: backendState,
+      advisorDefaults: { "/p": { enabled: true, model: null } },
+    });
+
     await useStore.getState().newSession("/p");
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ advisor: false, advisorModel: "openrouter/a/b:high" }),
-    );
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: "openrouter/a/b:high",
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  it("newSession mode override wins without changing the persisted default", async () => {
+    backendState = stateWithRecord(null);
+    const project = backendState.projects[0]!.project;
+    project.lastAdvisor = true;
+    project.lastAdvisorModel = "openrouter/a/b:high";
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "terminal-tab" });
+    useStore.setState({
+      state: backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+
+    await useStore.getState().newSession("/p", "pty");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "pty",
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+      cols: 80,
+      rows: 24,
+    });
+    expect(mockBackend.setDefaultMode).not.toHaveBeenCalled();
+  });
+
+  it("newSession falls back to terminal mode without backend state", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fallback-tab" });
+    useStore.setState({
+      state: null,
+      advisorDefaults: { "/p": { enabled: true, model: "openrouter/a/b:high" } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "pty",
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+      cols: 80,
+      rows: 24,
+    });
   });
 
   it("exportHtml pushes the returned path as a notice", async () => {

@@ -217,9 +217,8 @@ interface UiStore {
   init(): Promise<void>;
   addProject(): Promise<void>;
   removeProject(path: string): Promise<void>;
-  setDefaultMode(mode: SessionMode): Promise<void>;
   toggleFavorite(key: string): Promise<void>;
-  newSession(projectCwd: string): Promise<void>;
+  newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
   openSession(tabId: string): Promise<void>;
   focusTab(tabId: string): void;
   hideTab(tabId: string): void;
@@ -725,16 +724,12 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
-    async setDefaultMode(mode) {
-      await backend.setDefaultMode(mode);
-    },
-
     async toggleFavorite(key) {
       await backend.toggleFavorite(key);
     },
 
-    async newSession(projectCwd) {
-      const mode = get().state?.defaultMode ?? "pty";
+    async newSession(projectCwd, modeOverride) {
+      const mode = modeOverride ?? get().state?.defaultMode ?? "pty";
       // Carry the project's complete last-used advisor tuple into the new
       // session. Before any explicit choice, omp's configured default wins.
       await get().loadAdvisorDefaults(projectCwd);
