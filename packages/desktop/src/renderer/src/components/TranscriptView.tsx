@@ -20,7 +20,7 @@ import { Markdown } from "./Markdown";
 import { AdvisoryNotes, ToolCard, formatDuration } from "./ToolCard";
 import { Chip, Disclosure, Empty, Label, type Tone } from "./ui";
 
-/** How close to the end still counts as "following the stream". */
+/** Re-entry threshold: this close to the tail still counts as following. */
 const AT_BOTTOM_SLACK = 64;
 
 /* ------------------------------------------------------------- assistant */
@@ -271,8 +271,28 @@ function buildRuns(items: RenderItem[]): Run[] {
 
 export function TranscriptView({ items }: { items: RenderItem[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
-  const [atBottom, setAtBottom] = useState(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [following, setFollowing] = useState(true);
+  const followingRef = useRef(true);
+  // What our own pin last set, so its scroll-event echo is not read as user
+  // intent; null until the first pin runs.
+  const pinnedScrollTopRef = useRef<number | null>(null);
+  // Last observed scrollTop, for scroll direction.
+  const lastScrollTopRef = useRef(0);
+
+  function updateFollowing(value: boolean) {
+    followingRef.current = value;
+    setFollowing(value);
+  }
+
+  function pinToBottom() {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    // Read back the clamped value so the echo check compares against reality.
+    pinnedScrollTopRef.current = el.scrollTop;
+    lastScrollTopRef.current = el.scrollTop;
+  }
 
   const runs = useMemo(() => buildRuns(items), [items]);
 
@@ -285,15 +305,31 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
         ? (last.partialText?.length ?? 0) + (last.resultText?.length ?? 0)
         : 0;
 
-  // Pin flush to the newest line, but only while the user is still following
-  // the stream. A synchronous clamp (never `scrollIntoView`) is deliberate: it
-  // cannot race Chromium's native scroll anchoring back and forth a few
+  // Follow mode is exited only by a deliberate upward user scroll; content
+  // growth and resizes never exit it because they fire no scroll events and
+  // scroll anchoring is disabled (`[overflow-anchor:none]` on the container is
+  // load-bearing). A synchronous clamp (never `scrollIntoView`) is deliberate:
+  // it cannot race Chromium's native scroll anchoring back and forth a few
   // pixels, so a streaming tail stays glued to the bottom instead of bobbing.
   useLayoutEffect(() => {
-    if (!atBottom) return;
+    if (!following) return;
+    pinToBottom();
+  }, [items.length, tailLength, following]);
+
+  // Re-pin on layout changes that bypass `items`: tool-card expansion,
+  // markdown/image re-layout, window resize. When not following the callback
+  // does nothing, so the viewport stays put exactly as before.
+  useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [items.length, tailLength, atBottom]);
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (followingRef.current) pinToBottom();
+    });
+    observer.observe(el); // clientHeight changes: window resize, zoom
+    observer.observe(content); // content height changes: cards, images, markdown
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="relative min-h-0 flex-1 bg-surface">
@@ -302,11 +338,21 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
         onScroll={() => {
           const el = scrollRef.current;
           if (!el) return;
-          setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
+          const prev = lastScrollTopRef.current;
+          lastScrollTopRef.current = el.scrollTop;
+          // Echo of our own pin: not user intent.
+          if (el.scrollTop === pinnedScrollTopRef.current) return;
+          const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+          if (distance <= AT_BOTTOM_SLACK) {
+            updateFollowing(true); // reached the bottom: resume following
+          } else if (el.scrollTop < prev) {
+            updateFollowing(false); // deliberate scroll away from the tail
+          }
+          // Downward scroll not yet at the bottom: leave the mode unchanged.
         }}
         className="h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
       >
-        <div className="mx-auto flex max-w-4xl flex-col gap-4">
+        <div ref={contentRef} className="mx-auto flex max-w-4xl flex-col gap-4">
           {items.length === 0 && (
             <Empty title="Nothing yet" hint="Send a prompt to start the session." />
           )}
@@ -344,15 +390,13 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
               ))}
             </div>
           ))}
-
-          <div ref={endRef} />
         </div>
       </div>
 
-      {!atBottom && items.length > 0 && (
+      {!following && items.length > 0 && (
         <button
           type="button"
-          onClick={() => endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })}
+          onClick={() => updateFollowing(true)}
           className="edge-lit animate-rise absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-[11px] text-ink-mid transition-colors hover:text-ink"
         >
           <svg
