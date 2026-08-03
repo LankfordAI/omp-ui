@@ -20,8 +20,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y rpm flatpak dbus
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          dbus-run-session -- flatpak install --user --noninteractive -y flathub \
+          # flatpak's parental-controls check for app refs queries the system
+          # bus; the containerized runner has none, so start one and install
+          # system-scope (missing malcontent service then reads as disabled).
+          sudo mkdir -p /run/dbus
+          sudo dbus-daemon --system --fork || true
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --noninteractive -y flathub \
             org.freedesktop.Platform//25.08 \
             org.freedesktop.Sdk//25.08 \
             org.electronjs.Electron2.BaseApp//25.08
