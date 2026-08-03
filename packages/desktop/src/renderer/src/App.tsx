@@ -15,6 +15,10 @@ const HINTS: [combo: string, what: string][] = [["mod+k", "command palette"]];
  * main/index.ts), so this strip IS the window title bar: it carries the drag
  * region and echoes the active session title the way an OS frame would.
  * Height matches the 36px titleBarOverlay so the native controls sit flush.
+ * The hairline under this strip must NOT be a border-b here: the overlay
+ * rect is composited over web content and would cover its right end (the
+ * segment under the min/max/close buttons). It lives as a border-t on the
+ * content wrapper below, the first row the overlay doesn't reach.
  */
 function TitleBar() {
   const title = useStore((s) =>
@@ -22,7 +26,7 @@ function TitleBar() {
   );
 
   return (
-    <header className="relative flex h-9 shrink-0 select-none items-center justify-center border-b border-line bg-void [app-region:drag]">
+    <header className="relative flex h-9 shrink-0 select-none items-center justify-center bg-void [app-region:drag]">
       {title ? (
         <span className="max-w-[50%] truncate text-xs text-ink-dim">{title}</span>
       ) : (
@@ -91,7 +95,8 @@ export default function App() {
     // `relative` anchors the CommandPalette's `absolute inset-0` scrim.
     <div className="relative flex h-screen flex-col overflow-hidden bg-void font-sans text-ink">
       <TitleBar />
-      <div className="flex min-h-0 flex-1">
+      {/* border-t = the title-bar hairline; see TitleBar for why it isn't border-b there. */}
+      <div className="flex min-h-0 flex-1 border-t border-line">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
