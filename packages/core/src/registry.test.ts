@@ -37,7 +37,7 @@ describe("Registry.load", () => {
     const reg = Registry.load(tmpFile());
     expect(reg.projects).toEqual([]);
     expect(reg.sessions).toEqual([]);
-    expect(reg.defaultMode).toBe("pty");
+    expect(reg.defaultMode).toBe("rpc-ui");
     expect(reg.skipDeleteConfirmation).toBe(false);
   });
 

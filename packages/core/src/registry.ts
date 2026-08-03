@@ -17,7 +17,9 @@ function emptyRegistry(): RegistryData {
   return {
     schemaVersion: 1,
     settings: {
-      defaultMode: "pty",
+      // The native transcript is the primary mode (the sidebar's mode toggle
+      // went away with #10); pty stays an explicit per-spawn menu choice.
+      defaultMode: "rpc-ui",
       modelFavorites: [],
       skipDeleteConfirmation: false,
     },
@@ -138,7 +140,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       ? settingsObj.skipDeleteConfirmation
       : false;
   const settings: RegistryData["settings"] = {
-    defaultMode: rawDefaultMode ?? ("pty" as SessionMode),
+    defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
     modelFavorites:
       Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
     skipDeleteConfirmation: rawSkipDeleteConfirmation,
