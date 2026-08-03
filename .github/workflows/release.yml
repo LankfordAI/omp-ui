@@ -19,12 +19,12 @@ jobs:
       - name: Install packaging toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub \
-            org.freedesktop.Platform//24.08 \
-            org.freedesktop.Sdk//24.08 \
-            org.electronjs.Electron2.BaseApp//24.08
+          sudo apt-get install -y rpm flatpak
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub \
+            org.freedesktop.Platform//25.08 \
+            org.freedesktop.Sdk//25.08 \
+            org.electronjs.Electron2.BaseApp//25.08
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -35,6 +35,16 @@ jobs:
         run: npm run package --workspace @omp-ui/desktop -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble and upload Flatpak bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          ./packaging/flatpak/assemble.sh \
+            packages/desktop/dist/linux-unpacked \
+            "packages/desktop/dist/omp-ui-${version}-x86_64.flatpak"
+          gh release upload "$GITHUB_REF_NAME" \
+            "packages/desktop/dist/omp-ui-${version}-x86_64.flatpak"
       - name: Assert all four artifacts exist
         run: |
           cd packages/desktop/dist

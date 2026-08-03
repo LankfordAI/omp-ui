@@ -14,7 +14,6 @@ linux:
     - AppImage
     - deb
     - rpm
-    - flatpak
   category: Development
   synopsis: Desktop GUI for the omp coding agent
   maintainer: Austin Lankford <austin@austinlankford.com>
@@ -22,13 +21,6 @@ deb:
   artifactName: ${productName}_${version}_${arch}.${ext}
 rpm:
   artifactName: ${productName}-${version}.${arch}.${ext}
-flatpak:
-  runtime: org.freedesktop.Platform
-  sdk: org.freedesktop.Sdk
-  runtimeVersion: "24.08"
-  base: org.electronjs.Electron2.BaseApp
-  baseVersion: "24.08"
-  artifactName: ${productName}-${version}-${arch}.${ext}
 publish:
   provider: github
   owner: LankfordAI

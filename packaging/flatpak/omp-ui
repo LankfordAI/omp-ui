@@ -1,0 +1,5 @@
+#!/bin/sh
+# omp-ui Flatpak launcher. zypak-wrapper (shipped by
+# org.electronjs.Electron2.BaseApp) layers the Chromium sandbox inside the
+# Flatpak sandbox; omp-ui never runs with --no-sandbox.
+exec zypak-wrapper /app/main/omp-ui "$@"
