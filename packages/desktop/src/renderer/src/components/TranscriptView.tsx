@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { cn } from "../lib/cn";
 import type {
   AssistantItem,
@@ -8,6 +15,7 @@ import type {
   RenderItem,
   UserItem,
 } from "../lib/transcript";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
 import { AdvisoryNotes, ToolCard, formatDuration } from "./ToolCard";
 import { Chip, Disclosure, Empty, Label, type Tone } from "./ui";
@@ -192,6 +200,25 @@ function MarkerRule({ item, count }: { item: MarkerItem; count: number }) {
   );
 }
 
+/**
+ * What a transcript row that threw during render collapses to. The message
+ * itself is unrecoverable (same props → same throw), so this shows just enough
+ * to report: the row died, and why.
+ */
+function BrokenRow({ error }: { error: Error }) {
+  return (
+    <div className="rounded-md border-l-[3px] border-rose-dim bg-rose-wash px-2.5 py-1.5">
+      <Label className="text-rose">message failed to render</Label>
+      <p
+        data-selectable
+        className="mt-1 break-words font-mono text-[11px] leading-snug text-ink-mid"
+      >
+        {error.message}
+      </p>
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------- grouping */
 
 /** `count` > 1 only for a collapsed run of identical markers. */
@@ -289,28 +316,32 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
               key={run.key}
               className={cn("flex flex-col", run.speaker === "meta" ? "gap-1" : "gap-1.5")}
             >
-              {run.rows.map(({ item, count }, i) => {
-                switch (item.kind) {
-                  case "user":
-                    return <UserBubble key={item.id} item={item} first={i === 0} />;
-                  case "assistant":
-                    return <AssistantBlock key={item.id} item={item} />;
-                  case "tool":
-                    return <ToolCard key={item.id} item={item} />;
-                  case "advisory":
-                    return (
-                      <div key={item.id} className="animate-rise">
-                        <AdvisoryNotes notes={item.notes} />
-                      </div>
-                    );
-                  case "notice":
-                    return <NoticeLine key={item.id} item={item} />;
-                  case "irc":
-                    return <IrcLine key={item.id} item={item} />;
-                  case "marker":
-                    return <MarkerRule key={item.id} item={item} count={count} />;
-                }
-              })}
+              {run.rows.map(({ item, count }, i) => (
+                <ErrorBoundary key={item.id} fallback={(error) => <BrokenRow error={error} />}>
+                  {((): ReactNode => {
+                    switch (item.kind) {
+                      case "user":
+                        return <UserBubble item={item} first={i === 0} />;
+                      case "assistant":
+                        return <AssistantBlock item={item} />;
+                      case "tool":
+                        return <ToolCard item={item} />;
+                      case "advisory":
+                        return (
+                          <div className="animate-rise">
+                            <AdvisoryNotes notes={item.notes} />
+                          </div>
+                        );
+                      case "notice":
+                        return <NoticeLine item={item} />;
+                      case "irc":
+                        return <IrcLine item={item} />;
+                      case "marker":
+                        return <MarkerRule item={item} count={count} />;
+                    }
+                  })()}
+                </ErrorBoundary>
+              ))}
             </div>
           ))}
 
