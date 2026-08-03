@@ -9,11 +9,22 @@
  * case: half a fence and a lone `**` arrive on nearly every frame.
  */
 
+export interface MdListItem {
+  spans: MdSpan[];
+  /** Nested lists directly under this item, in source order. Empty for a leaf. */
+  children: MdList[];
+}
+
+export interface MdList {
+  ordered: boolean;
+  items: MdListItem[];
+}
+
 export type MdBlock =
   | { kind: "p"; spans: MdSpan[] }
   | { kind: "heading"; level: number; spans: MdSpan[] }
   | { kind: "code"; lang: string | null; text: string }
-  | { kind: "list"; ordered: boolean; items: MdSpan[][] }
+  | { kind: "list"; ordered: boolean; items: MdListItem[] }
   | { kind: "quote"; spans: MdSpan[] }
   | { kind: "table"; headers: MdSpan[][]; rows: MdSpan[][][] }
   | { kind: "rule" };
@@ -183,8 +194,8 @@ function parseInline(src: string): MdSpan[] {
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$/;
 const HEADING_RE = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
 const QUOTE_RE = /^ {0,3}>[ \t]?(.*)$/;
-const BULLET_RE = /^ {0,3}[-*+](?:[ \t]+(.*))?$/;
-const ORDERED_RE = /^ {0,3}\d{1,9}[.)](?:[ \t]+(.*))?$/;
+const BULLET_RE = /^( *)[-*+](?:[ \t]+(.*))?$/;
+const ORDERED_RE = /^( *)\d{1,9}[.)](?:[ \t]+(.*))?$/;
 const BLANK_RE = /^[ \t]*$/;
 
 /** Scanned rather than matched: the regex for this shape backtracks badly. */
@@ -206,12 +217,21 @@ function fenceCloses(line: string, ch: string, minLen: number): boolean {
   return n >= minLen && BLANK_RE.test(line.slice(k + n));
 }
 
-function listMarker(line: string): { ordered: boolean; text: string } | null {
+function listMarker(
+  line: string,
+  maxIndent = 3,
+): { ordered: boolean; indent: number; text: string } | null {
   if (isRule(line)) return null;
-  const bullet = BULLET_RE.exec(line);
-  if (bullet) return { ordered: false, text: bullet[1] ?? "" };
-  const ordered = ORDERED_RE.exec(line);
-  if (ordered) return { ordered: true, text: ordered[1] ?? "" };
+  for (const [re, ordered] of [
+    [BULLET_RE, false],
+    [ORDERED_RE, true],
+  ] as const) {
+    const match = re.exec(line);
+    if (!match) continue;
+    const indent = (match[1] ?? "").length;
+    if (indent > maxIndent) return null;
+    return { ordered, indent, text: match[2] ?? "" };
+  }
   return null;
 }
 
@@ -274,6 +294,113 @@ function startsBlock(line: string): boolean {
     isRule(line) ||
     listMarker(line) !== null
   );
+}
+
+/**
+ * The parser must never throw on adversarial input, and an unbounded indent
+ * ladder would otherwise recurse the renderer thousands deep. Markers deeper
+ * than the cap degrade to literal continuation text — flattening beats
+ * dropping, same as every other unmatched marker here.
+ */
+const MAX_LIST_DEPTH = 8;
+
+interface RawListItem {
+  raw: string;
+  children: RawList[];
+}
+
+interface RawList {
+  ordered: boolean;
+  items: RawListItem[];
+}
+
+function finalizeList(raw: RawList): MdList {
+  return {
+    ordered: raw.ordered,
+    items: raw.items.map((item) => ({
+      spans: parseInline(item.raw),
+      children: item.children.map(finalizeList),
+    })),
+  };
+}
+
+/**
+ * Parses the list starting at `lines[start]` — which must be a list marker —
+ * into one nested list, returning it with the index of the first line past
+ * it. Nesting is indent-based: a marker indented past the open item's marker
+ * becomes its child list, an equal-indent marker of the other kind becomes a
+ * sibling child list, and a dedent closes levels. Item text accumulates raw
+ * and is inline-parsed once at the end, exactly like every other block.
+ */
+function parseList(lines: string[], start: number): { list: MdList; next: number } {
+  const first = listMarker(lines[start] ?? "", Infinity);
+  // Caller guarantees `lines[start]` is a marker.
+  if (!first) return { list: { ordered: false, items: [] }, next: start + 1 };
+  const root: RawList = { ordered: first.ordered, items: [] };
+  const stack: { indent: number; list: RawList }[] = [{ indent: first.indent, list: root }];
+  let j = start;
+
+  while (j < lines.length) {
+    const current = lines[j] ?? "";
+
+    if (BLANK_RE.test(current)) {
+      // A blank ends the list unless a marker that can still belong to it
+      // follows: deeper (a nested list) or root-level of the root's kind.
+      const after = listMarker(lines[j + 1] ?? "", Infinity);
+      if (
+        after &&
+        (after.indent > stack[0]!.indent ||
+          (after.indent === stack[0]!.indent && after.ordered === root.ordered))
+      ) {
+        j++;
+        continue;
+      }
+      break;
+    }
+
+    const m = listMarker(current, Infinity);
+    if (m) {
+      while (stack.length > 1 && m.indent < stack.at(-1)!.indent) stack.pop();
+      const top = stack.at(-1)!;
+      // A dedent past the root ends the whole list block.
+      if (m.indent < top.indent) break;
+      if (m.indent === top.indent && m.ordered !== top.list.ordered) {
+        // A different kind at root level starts a new block; one level down
+        // it is a sibling child list of the parent item.
+        if (stack.length === 1) break;
+        stack.pop();
+        continue; // reprocess the same line against the shallower stack
+      }
+      if (m.indent > top.indent) {
+        if (stack.length < MAX_LIST_DEPTH) {
+          const child: RawList = { ordered: m.ordered, items: [] };
+          top.list.items.at(-1)!.children.push(child);
+          stack.push({ indent: m.indent, list: child });
+        } else {
+          // Depth cap: degrade to literal continuation text.
+          const items = stack.at(-1)!.list.items;
+          items[items.length - 1]!.raw += `\n${current}`;
+          j++;
+          continue;
+        }
+      }
+      // Every stack level receives an item immediately upon creation, so the
+      // new top list always exists and stays non-empty from here on.
+      stack.at(-1)!.list.items.push({ raw: m.text, children: [] });
+      j++;
+      continue;
+    }
+
+    if (startsBlock(current)) break;
+
+    // Wrapped or deeper-indented lines stay with the deepest open item,
+    // indent and all — flattening a nested list beats dropping it.
+    const items = stack.at(-1)!.list.items;
+    items[items.length - 1]!.raw += `\n${current}`;
+    j++;
+  }
+
+  return { list: finalizeList(root), next: j };
 }
 
 export function parseMarkdown(src: string): MdBlock[] {
@@ -365,35 +492,9 @@ export function parseMarkdown(src: string): MdBlock[] {
 
     const marker = listMarker(line);
     if (marker) {
-      const { ordered } = marker;
-      const texts: string[] = [marker.text];
-      let j = i + 1;
-      while (j < lines.length) {
-        const current = lines[j] ?? "";
-        if (BLANK_RE.test(current)) {
-          // A blank ends the list unless another item of the same kind follows.
-          const after = listMarker(lines[j + 1] ?? "");
-          if (after && after.ordered === ordered) {
-            j++;
-            continue;
-          }
-          break;
-        }
-        const next = listMarker(current);
-        if (next) {
-          if (next.ordered !== ordered) break;
-          texts.push(next.text);
-          j++;
-          continue;
-        }
-        if (startsBlock(current)) break;
-        // Wrapped or deeper-indented lines stay with the open item, indent and
-        // all — flattening a nested list beats dropping it.
-        texts[texts.length - 1] = `${texts[texts.length - 1] ?? ""}\n${current}`;
-        j++;
-      }
-      blocks.push({ kind: "list", ordered, items: texts.map((t) => parseInline(t)) });
-      i = j;
+      const { list, next } = parseList(lines, i);
+      blocks.push({ kind: "list", ordered: list.ordered, items: list.items });
+      i = next;
       continue;
     }
 

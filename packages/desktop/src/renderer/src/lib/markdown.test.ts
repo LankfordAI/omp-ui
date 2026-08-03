@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeHref, parseMarkdown, type MdBlock } from "./markdown";
+import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "./markdown";
 
 /**
  * Flattens a block tree back to the characters a reader would see. The "never
@@ -13,7 +13,13 @@ function literalText(blocks: MdBlock[]): string {
     } else if (block.kind === "rule") {
       parts.push("");
     } else if (block.kind === "list") {
-      for (const item of block.items) parts.push(item.map((s) => s.text).join(""));
+      const walk = (list: MdList): void => {
+        for (const item of list.items) {
+          parts.push(item.spans.map((s) => s.text).join(""));
+          for (const child of item.children) walk(child);
+        }
+      };
+      walk(block);
     } else if (block.kind === "table") {
       // One line per row, cells joined with `|` so cell text stays checkable.
       parts.push(block.headers.map((cell) => cell.map((s) => s.text).join("")).join("|"));
@@ -84,9 +90,9 @@ describe("parseMarkdown blocks", () => {
         kind: "list",
         ordered: false,
         items: [
-          [{ kind: "text", text: "a" }],
-          [{ kind: "text", text: "b" }],
-          [{ kind: "text", text: "c" }],
+          { spans: [{ kind: "text", text: "a" }], children: [] },
+          { spans: [{ kind: "text", text: "b" }], children: [] },
+          { spans: [{ kind: "text", text: "c" }], children: [] },
         ],
       },
     ]);
@@ -102,6 +108,93 @@ describe("parseMarkdown blocks", () => {
     const blocks = parseMarkdown("- parent\n  continued");
     expect(blocks).toHaveLength(1);
     expect(literalText(blocks)).toBe("parent\n  continued");
+  });
+
+  it("keeps a numbered list with nested bullets as one block (issue #8)", () => {
+    // One block is the numbering-continuity contract: the renderer numbers
+    // items per block, so splitting would restart at 1 after the nested run.
+    const blocks = parseMarkdown("1. First\n   - a\n   - b\n2. Second\n3. Third");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.ordered).toBe(true);
+    expect(block.items).toHaveLength(3);
+    expect(block.items[0]?.children).toHaveLength(1);
+    expect(block.items[0]?.children[0]).toMatchObject({ ordered: false });
+    expect(block.items[0]?.children[0]?.items).toHaveLength(2);
+    expect(block.items[1]?.children).toEqual([]);
+    expect(block.items[2]?.children).toEqual([]);
+  });
+
+  it("nests a 2-space-indented marker under its parent", () => {
+    const blocks = parseMarkdown("1. First\n  - a\n2. Second");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.ordered).toBe(true);
+    expect(block.items).toHaveLength(2);
+    expect(block.items[0]?.children).toHaveLength(1);
+    expect(block.items[0]?.children[0]).toMatchObject({ ordered: false });
+    expect(block.items[0]?.children[0]?.items).toHaveLength(1);
+  });
+
+  it("nests lists three levels deep", () => {
+    const blocks = parseMarkdown("- a\n  - b\n    - c");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.items).toHaveLength(1);
+    const child = block.items[0]?.children[0];
+    expect(child).toMatchObject({ ordered: false });
+    expect(child?.items).toHaveLength(1);
+    const grandchild = child?.items[0]?.children[0];
+    expect(grandchild).toMatchObject({ ordered: false });
+    expect(grandchild?.items).toHaveLength(1);
+    expect(grandchild?.items[0]?.children).toEqual([]);
+  });
+
+  it("keeps mixed-kind child lists as siblings in source order", () => {
+    const blocks = parseMarkdown("1. a\n   - x\n   1. y");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.items[0]?.children.map((c) => c.ordered)).toEqual([false, true]);
+    expect(block.items[0]?.children[0]?.items).toHaveLength(1);
+    expect(block.items[0]?.children[1]?.items).toHaveLength(1);
+  });
+
+  it("folds a continuation line into the deepest open item", () => {
+    const blocks = parseMarkdown("1. a\n   - x\n     tail");
+    expect(blocks).toHaveLength(1);
+    expect(literalText(blocks)).toContain("x\n     tail");
+  });
+
+  it("keeps a nested list open across a blank line", () => {
+    const blocks = parseMarkdown("- a\n  - x\n\n  - y");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.items).toHaveLength(1);
+    expect(block.items[0]?.children).toHaveLength(1);
+    expect(block.items[0]?.children[0]?.items).toHaveLength(2);
+  });
+
+  it("folds markers deeper than the depth cap into literal text", () => {
+    const lines = Array.from({ length: 9 }, (_, k) => `${"  ".repeat(k)}- l${k}`);
+    const blocks = parseMarkdown(lines.join("\n"));
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    let list: MdList = block;
+    let depth = 1;
+    while (list.items[0]?.children[0]) {
+      list = list.items[0]!.children[0]!;
+      depth++;
+    }
+    expect(depth).toBe(8);
+    const leafText = list.items.map((i) => i.spans.map((s) => s.text).join("")).join("\n");
+    expect(leafText).toContain("l7");
+    expect(leafText).toContain(`${"  ".repeat(8)}- l8`);
   });
 
   it("parses blockquotes across consecutive lines", () => {
@@ -297,7 +390,7 @@ describe("parseMarkdown inline", () => {
     });
     expect(parseMarkdown("- [t](https://a.dev)")[0]).toMatchObject({
       kind: "list",
-      items: [[{ kind: "link", href: "https://a.dev" }]],
+      items: [{ spans: [{ kind: "link", href: "https://a.dev" }] }],
     });
   });
 });
@@ -376,9 +469,14 @@ describe("parseMarkdown robustness", () => {
       "# h\n\ntext **b** `c` [l](https://a.dev)\n\n> q\n\n- i\n\n1. o\n\n---\n\n```js\nx\n```",
     );
     expect(blocks.length).toBeGreaterThan(6);
+    const collectList = (list: MdList): MdSpan[][] =>
+      list.items.flatMap((item) => [
+        item.spans,
+        ...item.children.flatMap(collectList),
+      ]);
     for (const block of blocks) {
       expect(BLOCK_KINDS[block.kind]).toBe(true);
-      const groups = block.kind === "list" ? block.items : "spans" in block ? [block.spans] : [];
+      const groups = block.kind === "list" ? collectList(block) : "spans" in block ? [block.spans] : [];
       for (const group of groups) {
         for (const span of group) expect(SPAN_KINDS[span.kind]).toBe(true);
       }

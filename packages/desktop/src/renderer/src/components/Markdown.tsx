@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { cn } from "../lib/cn";
-import { isSafeHref, parseMarkdown, type MdBlock, type MdSpan } from "../lib/markdown";
+import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
 import { CopyButton } from "./ui";
 
 /**
@@ -77,6 +77,52 @@ function Spans({ spans }: { spans: MdSpan[] }) {
   );
 }
 
+/**
+ * One list block, recursing into nested child lists. Markers are manual
+ * (`1.` / `•`) rather than `<ol>` counters, so numbering is the item's
+ * position in its own list and can never restart mid-stream. The content
+ * wrapper is a `div`, not a `span`: it can contain block children. The
+ * streaming caret rides the deepest last item — recursed into the final
+ * child list when the last item has children, else appended after its spans.
+ */
+function ListBlock({ list, trailing }: { list: MdList; trailing?: ReactNode }) {
+  return (
+    <ul className="space-y-1">
+      {list.items.map((item, i) => {
+        const last = i === list.items.length - 1;
+        return (
+          <li key={i} className="flex gap-2">
+            <span
+              className={cn(
+                "shrink-0 select-none text-ink-dim",
+                list.ordered ? "min-w-[1.4em] text-right tabular-nums" : "min-w-[1em]",
+              )}
+            >
+              {list.ordered ? `${i + 1}.` : "•"}
+            </span>
+            <div className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-relaxed">
+              <Spans spans={item.spans} />
+              {item.children.length > 0 ? (
+                <div className="mt-1 space-y-2">
+                  {item.children.map((child, k) => (
+                    <ListBlock
+                      key={k}
+                      list={child}
+                      trailing={last && k === item.children.length - 1 ? trailing : undefined}
+                    />
+                  ))}
+                </div>
+              ) : (
+                last && trailing
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** `trailing` is the streaming caret; it rides the last block so it never orphans. */
 function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
   switch (block.kind) {
@@ -118,26 +164,7 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
     }
 
     case "list":
-      return (
-        <ul className="space-y-1">
-          {block.items.map((spans, i) => (
-            <li key={i} className="flex gap-2">
-              <span
-                className={cn(
-                  "shrink-0 select-none text-ink-dim",
-                  block.ordered ? "min-w-[1.4em] text-right tabular-nums" : "min-w-[1em]",
-                )}
-              >
-                {block.ordered ? `${i + 1}.` : "•"}
-              </span>
-              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-relaxed">
-                <Spans spans={spans} />
-                {i === block.items.length - 1 && trailing}
-              </span>
-            </li>
-          ))}
-        </ul>
-      );
+      return <ListBlock list={block} trailing={trailing} />;
 
     case "quote":
       return (
