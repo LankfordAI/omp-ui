@@ -1,0 +1,27 @@
+name: Diag userns
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: [self-hosted, gfx1201]
+    steps:
+      - name: Probe user namespace support
+        run: |
+          echo "--- id / container check"
+          id
+          test -f /.dockerenv && echo "in docker container" || echo "no /.dockerenv"
+          echo "--- sysctls (may not exist)"
+          sysctl kernel.unprivileged_userns_clone 2>&1 || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns 2>&1 || true
+          sysctl user.max_user_namespaces 2>&1 || true
+          echo "--- unprivileged unshare"
+          unshare -U true && echo "USERNS OK" || echo "USERNS BLOCKED"
+          echo "--- try enabling via sudo sysctl"
+          sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>&1 || true
+          sudo -n sysctl -w kernel.unprivileged_userns_clone=1 2>&1 || true
+          echo "--- unshare after sysctl attempt"
+          unshare -U true && echo "USERNS OK AFTER SYSCTL" || echo "STILL BLOCKED"
+          echo "--- bwrap direct"
+          bwrap --unshare-user --bind / / true 2>&1 && echo "BWRAP OK" || echo "BWRAP BLOCKED"
