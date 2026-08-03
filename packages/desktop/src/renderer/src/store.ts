@@ -206,6 +206,13 @@ export function deriveSidebarSessionState(
 }
 
 
+export interface DeleteConfirmation {
+  tabId: string;
+  title: string;
+  running: boolean;
+  hasFiles: boolean;
+}
+
 interface UiStore {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -214,6 +221,7 @@ interface UiStore {
   rpc: Record<string, RpcTabState>;
   /** omp's advisor defaults, keyed by project cwd — see loadAdvisorDefaults. */
   advisorDefaults: Record<string, AdvisorDefaults>;
+  deleteConfirmation: DeleteConfirmation | null;
   init(): Promise<void>;
   addProject(): Promise<void>;
   removeProject(path: string): Promise<void>;
@@ -225,8 +233,10 @@ interface UiStore {
   terminate(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
   resumeDead(tabId: string): Promise<void>;
-  /** Confirms, then erases the record and its files on disk. Irreversible. */
+  /** Opens the warning, or immediately deletes when warnings were disabled. */
   deleteSession(tabId: string): Promise<void>;
+  confirmDeleteSession(skipFuture: boolean): Promise<void>;
+  cancelDeleteSession(): void;
   bootRpcTab(tabId: string): Promise<void>;
   rpcCommand(
     tabId: string,
@@ -585,6 +595,34 @@ export const useStore = create<UiStore>()((set, get) => {
       dispatchExecutePlan(tabId, intent.context, intent.planText, concerns),
   });
 
+  const eraseSession = async (tabId: string): Promise<void> => {
+    try {
+      await backend.deleteSession(tabId);
+    } catch (err) {
+      alertError(err);
+      return;
+    }
+    const tab = get().rpc[tabId];
+    // A dangling concern-wait timer must not fire into the dead tab's slot.
+    concernWatcher.cancel(tabId);
+    if (tab) {
+      for (const pending of tab.pendingCommands.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error("session deleted"));
+      }
+    }
+    set((s) => {
+      const rpc = { ...s.rpc };
+      delete rpc[tabId];
+      const tabs = s.tabs.filter((t) => t.tabId !== tabId);
+      const activeTabId =
+        s.activeTabId === tabId
+          ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
+          : s.activeTabId;
+      return { rpc, tabs, activeTabId, exited: dropExited(s.exited, tabId) };
+    });
+  };
+
   /**
    * Spawns a fresh rpc-ui session in the plan's project, seeds it with the
    * plan text as its first prompt, and surfaces it as the active tab.
@@ -686,6 +724,7 @@ export const useStore = create<UiStore>()((set, get) => {
     exited: {},
     rpc: {},
     advisorDefaults: {},
+    deleteConfirmation: null,
 
     async init() {
       if (initialized) return;
@@ -863,43 +902,36 @@ export const useStore = create<UiStore>()((set, get) => {
     async deleteSession(tabId) {
       const rec = findRecord(get().state, tabId);
       if (!rec) return;
-      // A live session is not refused: the backend stops the agent as part of
-      // the delete. The confirm says so, because that is the part the user
-      // cannot undo by reopening the tab.
-      const running = rec.live === "live" ? " Its running agent is stopped." : "";
-      const label = rec.live === "missing" ? "" : " Its transcript and artifacts are erased.";
-      if (
-        !window.confirm(
-          `Delete "${rec.title}" permanently?${running}${label} This cannot be undone.`,
-        )
-      ) {
+      if (get().state?.skipDeleteConfirmation === true) {
+        await eraseSession(tabId);
         return;
       }
-      try {
-        await backend.deleteSession(tabId);
-      } catch (err) {
-        alertError(err);
-        return;
-      }
-      const tab = get().rpc[tabId];
-      // A dangling concern-wait timer must not fire into the dead tab's slot.
-      concernWatcher.cancel(tabId);
-      if (tab) {
-        for (const pending of tab.pendingCommands.values()) {
-          clearTimeout(pending.timer);
-          pending.reject(new Error("session deleted"));
+      set({
+        deleteConfirmation: {
+          tabId,
+          title: rec.title,
+          running: rec.live === "live",
+          hasFiles: rec.live !== "missing",
+        },
+      });
+    },
+
+    async confirmDeleteSession(skipFuture) {
+      const pending = get().deleteConfirmation;
+      if (!pending) return;
+      set({ deleteConfirmation: null });
+      if (skipFuture) {
+        try {
+          await backend.setSkipDeleteConfirmation(true);
+        } catch (err) {
+          alertError(err);
         }
       }
-      set((s) => {
-        const rpc = { ...s.rpc };
-        delete rpc[tabId];
-        const tabs = s.tabs.filter((t) => t.tabId !== tabId);
-        const activeTabId =
-          s.activeTabId === tabId
-            ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
-            : s.activeTabId;
-        return { rpc, tabs, activeTabId, exited: dropExited(s.exited, tabId) };
-      });
+      await eraseSession(pending.tabId);
+    },
+
+    cancelDeleteSession() {
+      set({ deleteConfirmation: null });
     },
 
     async bootRpcTab(tabId) {

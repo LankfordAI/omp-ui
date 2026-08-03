@@ -1,26 +1,15 @@
-import { execFile } from "node:child_process";
 import * as fs from "node:fs";
-import { promisify } from "node:util";
+import { git } from "./git";
 import type { BranchDiff } from "./types";
 
-// Git is a plain child_process here — this module is transport-agnostic Node,
-// exactly like pty.ts and title-model.ts. The renderer never runs git; it asks
-// the main process, which hands back one BranchDiff snapshot.
+// Git is a plain child_process here (core/git.ts) — this module is
+// transport-agnostic Node, exactly like pty.ts and title-model.ts. The
+// renderer never runs git; it asks the main process, which hands back one
+// BranchDiff snapshot.
 
-const execFileP = promisify(execFile);
-const GIT = "git";
 /** Untracked files bigger than this are skipped — a data blob is not a diff. */
 const MAX_UNTRACKED_BYTES = 256 * 1024;
 const MAX_UNTRACKED_FILES = 256;
-
-async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileP(GIT, args, {
-    cwd,
-    maxBuffer: 32 * 1024 * 1024,
-    encoding: "utf8",
-  });
-  return stdout;
-}
 
 /** Reads a working-tree file for the diff viewer; null when unreadable. */
 function readWorkingFile(absPath: string, maxBytes = MAX_UNTRACKED_BYTES): BranchDiff["untracked"][number] | null {

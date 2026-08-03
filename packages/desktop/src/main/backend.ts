@@ -16,6 +16,8 @@ import {
   readOmpAdvisorDefaults,
   readOmpModelRole,
   readBranchDiff,
+  listProjectFiles,
+  resolveFileMentions,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -156,6 +158,10 @@ export class MainBackend {
       this.registry.setDefaultMode(mode);
       await this.broadcast();
     });
+    ipcMain.handle(CH.settingsSetSkipDeleteConfirmation, async (_e, skip: boolean) => {
+      this.registry.setSkipDeleteConfirmation(skip);
+      await this.broadcast();
+    });
     ipcMain.handle(CH.favoritesToggle, async (_e, key: string) => {
       this.registry.toggleFavorite(key);
       await this.broadcast();
@@ -189,6 +195,10 @@ export class MainBackend {
       this.readPlanFile(tabId, absPath),
     );
     ipcMain.handle(CH.branchDiff, (_e, projectCwd: string) => readBranchDiff(projectCwd));
+    ipcMain.handle(CH.projectFilesList, (_e, projectCwd: string) => listProjectFiles(projectCwd));
+    ipcMain.handle(CH.fileMentionsResolve, (_e, projectCwd: string, message: string) =>
+      resolveFileMentions(projectCwd, message),
+    );
     ipcMain.handle(CH.ptyPasteImage, (_e, tabId: string, image: ImageAttachment) =>
       this.ptyPasteImage(tabId, image),
     );
@@ -728,7 +738,12 @@ export class MainBackend {
       groups.push({ project, sessions });
     }
     groups.sort((a, b) => a.project.addedAt.localeCompare(b.project.addedAt));
-    return { projects: groups, defaultMode: this.registry.defaultMode, modelFavorites: this.registry.getFavorites() };
+    return {
+      projects: groups,
+      defaultMode: this.registry.defaultMode,
+      modelFavorites: this.registry.getFavorites(),
+      skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
+    };
   }
 
   private async summarize(record: OwnedSessionRecord): Promise<SessionSummary> {

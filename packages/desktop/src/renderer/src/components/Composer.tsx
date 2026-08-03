@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { ImageAttachment } from "@omp-ui/core/types";
+import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
 import {
@@ -17,9 +18,11 @@ import {
   SHIMMER_FRAME_MS,
   SHIMMER_PERIOD_MS,
 } from "../lib/magic-keywords";
+import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
 import type { PromptRoute } from "../lib/rpc-types";
-import { useStore } from "../store";
+import { findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
+import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import { Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep } from "./ui";
@@ -44,6 +47,7 @@ export function Composer({ tabId }: { tabId: string }) {
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
   const dead = useStore((s) => s.exited[tabId] !== undefined);
+  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
 
   const sendPrompt = useStore((s) => s.sendPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
@@ -59,6 +63,18 @@ export function Composer({ tabId }: { tabId: string }) {
    * user then clears the line and types `/compact`.
    */
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  /**
+   * The `@`-word whose palette the user dismissed, keyed `${start}:${query}` —
+   * the same per-word dismissal contract as `dismissedFor`.
+   */
+  const [mentionDismissedFor, setMentionDismissedFor] = useState<string | null>(null);
+  /** Caret offset in the draft; tracked so the @-word under it can be found. */
+  const [caret, setCaret] = useState(0);
+  /**
+   * The project's file listing for the @ picker, fetched on each open and kept
+   * afterwards so a picked mention paints resolved immediately.
+   */
+  const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [effortMenu, setEffortMenu] = useState(false);
   /** Errors are store-owned, so dismissal remembers the message it hid. */
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -76,6 +92,7 @@ export function Composer({ tabId }: { tabId: string }) {
 
   const box = useRef<HTMLTextAreaElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
+  const mentionPalette = useRef<MentionPaletteHandle | null>(null);
   const effortAnchor = useRef<HTMLSpanElement | null>(null);
   /** The highlight layer under the (transparent-text) textarea. */
   const mirror = useRef<HTMLDivElement | null>(null);
@@ -90,6 +107,12 @@ export function Composer({ tabId }: { tabId: string }) {
   const isSlash = trimmed.startsWith("/");
   const commandWord = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : null;
   const paletteOpen = !dead && commandWord !== null && commandWord !== dismissedFor;
+  // The mention palette is suppressed on slash-command lines: a leading `/`
+  // means the draft is a command, never a prompt, and commands take no files.
+  // The two palettes are mutually exclusive by that construction.
+  const atQuery = isSlash ? null : detectAtQuery(text, caret);
+  const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
+  const mentionOpen = !dead && mentionKey !== null && mentionKey !== mentionDismissedFor;
   /**
    * omp reports vision support as `model.input` containing "image". A model
    * without it would silently drop the blocks, so the affordance says so
@@ -104,16 +127,61 @@ export function Composer({ tabId }: { tabId: string }) {
    */
   const segments = useMemo(() => magicKeywordSegments(text), [text]);
   const glowing = segments.some((s) => s.keyword !== null);
-  /** Painted runs: one span per prose segment, one per keyword character. */
-  const runs = useMemo(
-    () =>
-      segments.flatMap((seg) =>
-        seg.keyword === null
-          ? [{ text: seg.text, color: undefined as string | undefined }]
-          : keywordColors(seg.keyword, phase).map((color, c) => ({ text: seg.text[c]!, color })),
-      ),
-    [segments, phase],
-  );
+  /** Resolved-as-of-now paths: the file listing plus every ancestor dir. */
+  const known = useMemo(() => {
+    const list = files?.list ?? [];
+    return new Set([...list, ...deriveDirs(list)]);
+  }, [files]);
+  /**
+   * Painted runs: one span per keyword character, and prose split at resolved
+   * @mentions. A resolved mention paints iris — the composer's interactive
+   * accent — because omp will fire it at send time; an unpainted @ stays
+   * ordinary prose, which is exactly what omp will do with it.
+   */
+  const runs = useMemo(() => {
+    const mentions = mentionRanges(text, known);
+    const out: { text: string; color?: string; iris?: boolean }[] = [];
+    let base = 0;
+    let mi = 0;
+    for (const seg of segments) {
+      if (seg.keyword !== null) {
+        keywordColors(seg.keyword, phase).forEach((color, c) =>
+          out.push({ text: seg.text[c]!, color }),
+        );
+      } else {
+        const segStart = base;
+        const segEnd = base + seg.text.length;
+        while (mi < mentions.length && mentions[mi]!.to <= segStart) mi++;
+        let pos = 0;
+        for (let k = mi; k < mentions.length && mentions[k]!.from < segEnd; k++) {
+          const from = Math.max(mentions[k]!.from, segStart) - segStart;
+          const to = Math.min(mentions[k]!.to, segEnd) - segStart;
+          if (from > pos) out.push({ text: seg.text.slice(pos, from) });
+          out.push({ text: seg.text.slice(from, to), iris: true });
+          pos = to;
+        }
+        if (pos < seg.text.length) out.push({ text: seg.text.slice(pos) });
+      }
+      base += seg.text.length;
+    }
+    return out;
+  }, [segments, phase, text, known]);
+
+  // The listing is refetched on every open so files created mid-session
+  // appear; the previous list stays on screen while the new one is in flight.
+  useEffect(() => {
+    if (!mentionOpen || projectCwd === undefined) return;
+    let alive = true;
+    void backend
+      .listProjectFiles(projectCwd)
+      .then((result) => {
+        if (alive) setFiles({ list: result.files, truncated: result.truncated });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [mentionOpen, projectCwd]);
 
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
@@ -170,11 +238,12 @@ export function Composer({ tabId }: { tabId: string }) {
   }, [effortMenu]);
 
   const submit = useCallback(
-    (route: PromptRoute | "interrupt") => {
-      const message = text.trim();
+    async (route: PromptRoute | "interrupt") => {
+      let message = text.trim();
+      let payload = images;
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
-      if ((message === "" && images.length === 0) || dead) return;
+      if ((message === "" && payload.length === 0) || dead) return;
       // Consecutive duplicates make ↑ recall useless.
       if (message !== "" && history.current[history.current.length - 1] !== message) {
         history.current.push(message);
@@ -184,6 +253,7 @@ export function Composer({ tabId }: { tabId: string }) {
       setImages([]);
       setPasteError(null);
       setDismissedFor(null);
+      setMentionDismissedFor(null);
       setDismissed(storeError ?? null);
 
       // A leading "/" is a command, never a prompt — even mid-run. Commands take
@@ -191,14 +261,43 @@ export function Composer({ tabId }: { tabId: string }) {
       // holding them back would be worse, since the draft is already cleared.
       if (message.startsWith("/")) {
         void runSlashCommand(tabId, message);
-      } else if (route === "interrupt") {
-        void abortAndPrompt(tabId, message, images);
+        box.current?.focus();
+        return;
+      }
+
+      // omp only extracts @mentions on the idle prompt path; steer/follow_up
+      // queue verbatim, so omp-ui resolves and inlines the contents itself on
+      // those routes. Idle and interrupt (abort_and_prompt re-enters idle)
+      // rely on omp's native resolution — no double-inclusion is possible.
+      const busyRoute = route === "steer" || route === "follow_up";
+      if (busyRoute && projectCwd !== undefined && message.includes("@")) {
+        try {
+          const resolved = await backend.resolveFileMentions(projectCwd, message);
+          message += resolved.contextText;
+          payload = [...payload, ...resolved.images];
+        } catch {
+          // A resolver failure must never block a send — ship the draft verbatim.
+        }
+      }
+
+      if (route === "interrupt") {
+        void abortAndPrompt(tabId, message, payload);
       } else {
-        void sendPrompt(tabId, message, route, images);
+        void sendPrompt(tabId, message, route, payload);
       }
       box.current?.focus();
     },
-    [text, images, dead, storeError, tabId, runSlashCommand, abortAndPrompt, sendPrompt],
+    [
+      text,
+      images,
+      dead,
+      storeError,
+      tabId,
+      projectCwd,
+      runSlashCommand,
+      abortAndPrompt,
+      sendPrompt,
+    ],
   );
 
   /**
@@ -237,9 +336,25 @@ export function Composer({ tabId }: { tabId: string }) {
     [tabId, runSlashCommand],
   );
 
+  /** Applies an @-palette pick: swap the @-word for the mention, caret after it. */
+  const pickMention = useCallback(
+    (relPath: string) => {
+      if (atQuery === null) return;
+      const next = insertMention(text, atQuery.start, caret, relPath);
+      setText(next.text);
+      setCaret(next.caret);
+      setMentionDismissedFor(null);
+      // The DOM caret lags the state write by a commit; restore it explicitly.
+      requestAnimationFrame(() => box.current?.setSelectionRange(next.caret, next.caret));
+      box.current?.focus();
+    },
+    [text, caret, atQuery],
+  );
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // The palette gets first refusal on navigation keys while it is open.
+    // The palettes get first refusal on navigation keys while one is open.
     if (paletteOpen && palette.current?.handleKey(e) === true) return;
+    if (mentionOpen && mentionPalette.current?.handleKey(e) === true) return;
 
     if (e.key === "Escape") {
       // Escape only means something when there is a turn to stop; otherwise it
@@ -251,12 +366,12 @@ export function Composer({ tabId }: { tabId: string }) {
     }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      submit(e.shiftKey ? "interrupt" : "follow_up");
+      void submit(e.shiftKey ? "interrupt" : "follow_up");
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit(running ? "steer" : "prompt");
+      void submit(running ? "steer" : "prompt");
       return;
     }
     // Shell-style recall. Entry requires an empty box, so walking back past the
@@ -283,7 +398,7 @@ export function Composer({ tabId }: { tabId: string }) {
     ? "agent exited — resume to continue"
     : running
       ? "steer the agent…"
-      : "message the agent…   /  for commands";
+      : "message the agent…   /  commands · @  files";
 
   // An image alone is sendable: "what is this?" is in the picture, not the text.
   const canSend = (trimmed !== "" || images.length > 0) && !dead;
@@ -298,6 +413,16 @@ export function Composer({ tabId }: { tabId: string }) {
       )}
 
       <div className="relative">
+        {mentionOpen && atQuery !== null && (
+          <MentionPalette
+            ref={mentionPalette}
+            query={atQuery.query}
+            files={files?.list ?? NO_FILES}
+            truncated={files?.truncated ?? false}
+            onPick={pickMention}
+            onClose={() => setMentionDismissedFor(mentionKey)}
+          />
+        )}
         {paletteOpen && (
           <SlashPalette
             ref={palette}
@@ -377,7 +502,11 @@ export function Composer({ tabId }: { tabId: string }) {
               )}
             >
               {runs.map((run, i) => (
-                <span key={i} style={run.color === undefined ? undefined : { color: run.color }}>
+                <span
+                  key={i}
+                  className={run.iris === true ? "text-iris" : undefined}
+                  style={run.color === undefined ? undefined : { color: run.color }}
+                >
                   {run.text}
                 </span>
               ))}
@@ -394,8 +523,10 @@ export function Composer({ tabId }: { tabId: string }) {
               spellCheck={false}
               onChange={(e) => {
                 setText(e.target.value);
+                setCaret(e.target.selectionStart);
                 recall.current = null;
               }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
               onKeyDown={onKeyDown}
               onPaste={(e) => void onPaste(e)}
               onFocus={() => setFocused(true)}
@@ -586,3 +717,4 @@ export function Composer({ tabId }: { tabId: string }) {
 /** Stable empties keep the per-field selectors from firing on every store tick. */
 const NO_COMMANDS: never[] = [];
 const NO_EFFORTS: never[] = [];
+const NO_FILES: never[] = [];

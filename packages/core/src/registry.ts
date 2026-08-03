@@ -4,13 +4,26 @@ import type { OwnedSessionRecord, ProjectRecord, SessionMode } from "./types";
 
 interface RegistryData {
   schemaVersion: 1;
-  settings: { defaultMode: SessionMode; modelFavorites: string[] };
+  settings: {
+    defaultMode: SessionMode;
+    modelFavorites: string[];
+    skipDeleteConfirmation: boolean;
+  };
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
 }
 
 function emptyRegistry(): RegistryData {
-  return { schemaVersion: 1, settings: { defaultMode: "pty", modelFavorites: [] }, projects: [], sessions: [] };
+  return {
+    schemaVersion: 1,
+    settings: {
+      defaultMode: "pty",
+      modelFavorites: [],
+      skipDeleteConfirmation: false,
+    },
+    projects: [],
+    sessions: [],
+  };
 }
 
 function isSessionMode(value: unknown): value is SessionMode {
@@ -118,10 +131,17 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     settingsObj !== undefined && "modelFavorites" in settingsObj
       ? settingsObj.modelFavorites
       : undefined;
+  const rawSkipDeleteConfirmation =
+    settingsObj !== undefined &&
+    "skipDeleteConfirmation" in settingsObj &&
+    typeof settingsObj.skipDeleteConfirmation === "boolean"
+      ? settingsObj.skipDeleteConfirmation
+      : false;
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("pty" as SessionMode),
     modelFavorites:
       Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
+    skipDeleteConfirmation: rawSkipDeleteConfirmation,
   };
   return { schemaVersion: 1, settings, projects, sessions };
 }
@@ -189,6 +209,10 @@ export class Registry {
 
   get defaultMode(): SessionMode {
     return this.#data.settings.defaultMode;
+  }
+
+  get skipDeleteConfirmation(): boolean {
+    return this.#data.settings.skipDeleteConfirmation;
   }
 
   addProject(projectPath: string): ProjectRecord {
@@ -279,6 +303,12 @@ export class Registry {
 
   setDefaultMode(mode: SessionMode): void {
     this.#data.settings.defaultMode = mode;
+    this.#save();
+  }
+
+  setSkipDeleteConfirmation(skip: boolean): void {
+    if (this.#data.settings.skipDeleteConfirmation === skip) return;
+    this.#data.settings.skipDeleteConfirmation = skip;
     this.#save();
   }
 

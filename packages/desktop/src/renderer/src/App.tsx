@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
+import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { RpcTab } from "./components/RpcTab";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
@@ -84,6 +85,7 @@ export default function App() {
   const init = useStore((s) => s.init);
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
+  const deleteConfirmation = useStore((s) => s.deleteConfirmation);
 
   useEffect(() => {
     void init();
@@ -126,6 +128,9 @@ export default function App() {
         </div>
       </div>
       <CommandPalette />
+      {deleteConfirmation && (
+        <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
+      )}
     </div>
   );
 }

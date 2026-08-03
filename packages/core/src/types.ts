@@ -77,6 +77,20 @@ export interface BackendState {
   projects: ProjectGroup[];
   defaultMode: SessionMode;
   modelFavorites: string[];
+  /** Whether destructive session deletion proceeds without a renderer warning. */
+  skipDeleteConfirmation: boolean;
+}
+
+/**
+ * Busy-route mention resolution result (see core/mention-resolve.ts). omp only
+ * extracts `@path` mentions on the idle prompt path; on steer/follow_up omp-ui
+ * inlines the contents itself and hands them back in this shape.
+ */
+export interface ResolvedMentionContext {
+  /** Appended after the draft message; "" when nothing resolved. */
+  contextText: string;
+  /** Mentioned images that ride the prompt frame's `images` field. */
+  images: ImageAttachment[];
 }
 
 /**
@@ -136,6 +150,7 @@ export interface OmpBackend {
   addProject(): Promise<ProjectRecord | null>;
   removeProject(path: string): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
+  setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   spawnSession(req: SpawnRequest): Promise<{ tabId: string }>;
   terminateSession(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
@@ -180,6 +195,16 @@ export interface OmpBackend {
    * not inside a git repository.
    */
   getBranchDiff(projectCwd: string): Promise<BranchDiff>;
+  /**
+   * Project-relative file listing for the composer's @ picker;
+   * gitignore-aware, with a walk fallback outside repos.
+   */
+  listProjectFiles(projectCwd: string): Promise<{ files: string[]; truncated: boolean }>;
+  /**
+   * Busy-route mention resolution: omp skips @-extraction on steer/follow_up,
+   * so omp-ui inlines mention contents itself on those routes.
+   */
+  resolveFileMentions(projectCwd: string, message: string): Promise<ResolvedMentionContext>;
   /**
    * Writes pasted image bytes to a scratch file and delivers its path to the
    * PTY as a bracketed paste — omp's TUI loads the file itself. The PTY carries

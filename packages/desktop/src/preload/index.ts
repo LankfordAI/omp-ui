@@ -9,6 +9,8 @@ const api: OmpBackend = {
   addProject: () => ipcRenderer.invoke(CH.projectAdd),
   removeProject: (path) => ipcRenderer.invoke(CH.projectRemove, path),
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
+  setSkipDeleteConfirmation: (skip) =>
+    ipcRenderer.invoke(CH.settingsSetSkipDeleteConfirmation, skip),
   spawnSession: (req) => ipcRenderer.invoke(CH.sessionSpawn, req),
   terminateSession: (tabId) => ipcRenderer.invoke(CH.sessionTerminate, tabId),
   switchMode: (tabId, mode) => ipcRenderer.invoke(CH.sessionSwitchMode, tabId, mode),
@@ -22,6 +24,9 @@ const api: OmpBackend = {
     ipcRenderer.invoke(CH.titleGenerate, projectCwd, prompt),
   readPlanFile: (tabId, absPath) => ipcRenderer.invoke(CH.planRead, tabId, absPath),
   getBranchDiff: (projectCwd) => ipcRenderer.invoke(CH.branchDiff, projectCwd),
+  listProjectFiles: (projectCwd) => ipcRenderer.invoke(CH.projectFilesList, projectCwd),
+  resolveFileMentions: (projectCwd, message) =>
+    ipcRenderer.invoke(CH.fileMentionsResolve, projectCwd, message),
   ptyPasteImage: (tabId, image) => ipcRenderer.invoke(CH.ptyPasteImage, tabId, image),
   ptyWrite: (tabId, data) => ipcRenderer.send(CH.ptyWrite, tabId, data),
   ptyResize: (tabId, cols, rows) => ipcRenderer.send(CH.ptyResize, tabId, cols, rows),

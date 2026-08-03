@@ -6,7 +6,12 @@ import type { RpcTabState } from "./store";
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
 const sent: Array<{ tabId: string; cmd: Record<string, unknown> }> = [];
-let backendState: BackendState = { projects: [], defaultMode: "rpc-ui", modelFavorites: [] };
+let backendState: BackendState = {
+  projects: [],
+  defaultMode: "rpc-ui",
+  modelFavorites: [],
+  skipDeleteConfirmation: false,
+};
 
 const mockBackend = {
   getState: vi.fn(async () => backendState),
@@ -26,6 +31,7 @@ const mockBackend = {
   readPlanFile: vi.fn(async (): Promise<string | null> => "# Plan\n\nstep one\n"),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
+  setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
@@ -110,6 +116,7 @@ function stateWithRecord(sessionId: string | null, live: LiveState = "live"): Ba
   return {
     defaultMode: "rpc-ui",
     modelFavorites: [],
+    skipDeleteConfirmation: false,
     projects: [
       {
         project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
@@ -175,8 +182,20 @@ beforeEach(() => {
     prompts.push(msg);
     return true;
   };
-  backendState = { projects: [], defaultMode: "rpc-ui", modelFavorites: [] };
-  useStore.setState({ state: null, tabs: [], activeTabId: null, exited: {}, rpc: {} });
+  backendState = {
+    projects: [],
+    defaultMode: "rpc-ui",
+    modelFavorites: [],
+    skipDeleteConfirmation: false,
+  };
+  useStore.setState({
+    state: null,
+    tabs: [],
+    activeTabId: null,
+    exited: {},
+    rpc: {},
+    deleteConfirmation: null,
+  });
   vi.clearAllMocks();
 });
 
@@ -1725,7 +1744,7 @@ describe("prompting, slash commands, and session ops", () => {
 });
 
 describe("deleteSession", () => {
-  it("deletes a live session after warning that its agent is stopped", async () => {
+  it("opens a warning that deleting a live session stops its agent", async () => {
     useStore.setState({
       state: stateWithRecord("sess-1", "live"),
       tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
@@ -1734,21 +1753,29 @@ describe("deleteSession", () => {
     });
     await useStore.getState().deleteSession(TAB);
 
+    expect(mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(useStore.getState().deleteConfirmation).toEqual({
+      tabId: TAB,
+      title: "New session",
+      running: true,
+      hasFiles: true,
+    });
+
+    await useStore.getState().confirmDeleteSession(false);
     expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
-    expect(prompts[0]).toMatch(/running agent is stopped/);
-    expect(alerts).toEqual([]);
     expect(useStore.getState().tabs).toEqual([]);
   });
 
-  it("does nothing when the confirm is dismissed", async () => {
-    windowStub.confirm = () => false;
+  it("does nothing when the warning is dismissed", async () => {
     useStore.setState({ state: stateWithRecord("sess-1", "dormant") });
     await useStore.getState().deleteSession(TAB);
+    useStore.getState().cancelDeleteSession();
 
     expect(mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(useStore.getState().deleteConfirmation).toBeNull();
   });
 
-  it("drops the tab, its rpc slot, and its exit code once the backend confirms", async () => {
+  it("drops the tab, its rpc slot, and its exit code once confirmed", async () => {
     useStore.setState({
       state: stateWithRecord("sess-1", "dormant"),
       tabs: [
@@ -1761,14 +1788,13 @@ describe("deleteSession", () => {
     });
 
     await useStore.getState().deleteSession(TAB);
+    await useStore.getState().confirmDeleteSession(false);
 
     expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
-    expect(prompts[0]).toMatch(/transcript and artifacts are erased/);
     const st = useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual(["other"]);
     expect(st.rpc[TAB]).toBeUndefined();
     expect(st.exited[TAB]).toBeUndefined();
-    // Focus falls to a surviving visible tab rather than going blank.
     expect(st.activeTabId).toBe("other");
   });
 
@@ -1782,6 +1808,7 @@ describe("deleteSession", () => {
     });
 
     await useStore.getState().deleteSession(TAB);
+    await useStore.getState().confirmDeleteSession(false);
 
     const st = useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual([TAB]);
@@ -1789,11 +1816,32 @@ describe("deleteSession", () => {
     expect(alerts[0]).toBe("EBUSY");
   });
 
-  it("omits the file warning for a record whose files are already gone", async () => {
+  it("marks a record whose files are gone without a file-erasure warning", async () => {
     useStore.setState({ state: stateWithRecord("sess-1", "missing") });
     await useStore.getState().deleteSession(TAB);
 
-    expect(prompts[0]).not.toMatch(/transcript and artifacts/);
+    expect(useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
+  });
+
+  it("persists the opt-out only when deletion is confirmed", async () => {
+    useStore.setState({ state: stateWithRecord("sess-1", "dormant") });
+    await useStore.getState().deleteSession(TAB);
+    useStore.getState().cancelDeleteSession();
+    expect(mockBackend.setSkipDeleteConfirmation).not.toHaveBeenCalled();
+
+    await useStore.getState().deleteSession(TAB);
+    await useStore.getState().confirmDeleteSession(true);
+    expect(mockBackend.setSkipDeleteConfirmation).toHaveBeenCalledWith(true);
+  });
+
+  it("deletes immediately after warnings have been disabled", async () => {
+    const state = stateWithRecord("sess-1", "dormant");
+    state.skipDeleteConfirmation = true;
+    useStore.setState({ state });
+
+    await useStore.getState().deleteSession(TAB);
+
+    expect(useStore.getState().deleteConfirmation).toBeNull();
     expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
   });
 });

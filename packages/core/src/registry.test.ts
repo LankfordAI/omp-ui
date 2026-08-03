@@ -38,6 +38,7 @@ describe("Registry.load", () => {
     expect(reg.projects).toEqual([]);
     expect(reg.sessions).toEqual([]);
     expect(reg.defaultMode).toBe("pty");
+    expect(reg.skipDeleteConfirmation).toBe(false);
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -82,6 +83,7 @@ describe("Registry persistence", () => {
     reg.addProject("/abs/proj");
     reg.addSession(sessionRecord());
     reg.setDefaultMode("rpc-ui");
+    reg.setSkipDeleteConfirmation(true);
 
     const reloaded = Registry.load(file);
     expect(reloaded.projects).toHaveLength(1);
@@ -89,6 +91,7 @@ describe("Registry persistence", () => {
     expect(reloaded.sessions).toHaveLength(1);
     expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-1", sessionId: null });
     expect(reloaded.defaultMode).toBe("rpc-ui");
+    expect(reloaded.skipDeleteConfirmation).toBe(true);
   });
 
   it("leaves no tmp file behind after save", () => {

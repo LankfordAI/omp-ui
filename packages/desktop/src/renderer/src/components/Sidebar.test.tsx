@@ -46,6 +46,7 @@ const projectPath = "/projects/one";
 const state: BackendState = {
   defaultMode: "rpc-ui",
   modelFavorites: [],
+  skipDeleteConfirmation: false,
   projects: [
     {
       project: {
