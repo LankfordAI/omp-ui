@@ -4,6 +4,16 @@ import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { runOmpLaunchUpdateCheck } from "./omp-update";
 
+// Dev and packaged builds resolve the same package.json name, so by default
+// they also share userData — and with it the single-instance lock: an
+// installed copy running made every `npm run dev` forward to it and quit
+// (issue #13). Unpackaged runs get their own userData; keyed on isPackaged
+// rather than ELECTRON_RENDERER_URL so bare `electron .` dev runs split too.
+// Must precede requestSingleInstanceLock, which scopes the lock to userData.
+if (!app.isPackaged) {
+  app.setPath("userData", join(app.getPath("appData"), "@omp-ui/desktop-dev"));
+}
+
 // Dev/test seam: opt-in CDP endpoint for programmatic renderer inspection.
 if (process.env.OMP_UI_CDP_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.OMP_UI_CDP_PORT);
@@ -62,6 +72,10 @@ if (!app.requestSingleInstanceLock()) {
       height: 1000,
       title: "omp-ui",
       backgroundColor: "#0a0b0d",
+      // The wordmark tile (build/icon.png). Only shipped in dev checkouts —
+      // packaged builds get their icon from the .desktop/AppImage metadata,
+      // and Electron treats a missing icon path as a no-op.
+      icon: join(__dirname, "../../build/icon.png"),
       // The GTK frame + menu bar clash with the renderer's chrome. Hidden
       // title bar + overlay keeps native window controls (drawn in app
       // colors); the renderer supplies the drag region. Alt reveals the menu.
