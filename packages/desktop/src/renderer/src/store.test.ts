@@ -1525,6 +1525,49 @@ describe("prompting, slash commands, and session ops", () => {
     await promise;
   });
 
+  it("runSlashCommand /new opens a new session tab instead of prompting omp", async () => {
+    backendState = stateWithRecord(null);
+    const project = backendState.projects[0]!.project;
+    project.lastAdvisor = true;
+    project.lastAdvisorModel = null;
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({
+      state: backendState,
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      advisorDefaults: { "/p": { enabled: true, model: null } },
+    });
+
+    await useStore.getState().runSlashCommand(TAB, "/new");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+    });
+    expect(sent).toEqual([]); // nothing reached omp
+    expect(useStore.getState().activeTabId).toBe("fresh-tab");
+  });
+
+  it("runSlashCommand forwards /new with arguments to omp", async () => {
+    const promise = useStore.getState().runSlashCommand(TAB, "/new later");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/new later" });
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand /new falls back to omp when the tab is unknown", async () => {
+    useStore.setState({ tabs: [] });
+    const promise = useStore.getState().runSlashCommand(TAB, "/new");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/new" });
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    await settleAll();
+    await promise;
+  });
+
   it("busy is true while a command is in flight and survives a concurrent one", async () => {
     const first = useStore.getState().rpcCommand(TAB, { type: "get_state" });
     const second = useStore.getState().rpcCommand(TAB, { type: "get_session_stats" });

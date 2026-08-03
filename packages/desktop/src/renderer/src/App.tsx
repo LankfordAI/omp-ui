@@ -5,11 +5,14 @@ import { RpcTab } from "./components/RpcTab";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button } from "./components/ui";
-import { formatHotkey } from "./lib/hotkeys";
+import { formatHotkey, useHotkeys } from "./lib/hotkeys";
 import { findRecord, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
-const HINTS: [combo: string, what: string][] = [["mod+k", "command palette"]];
+const HINTS: [combo: string, what: string][] = [
+  ["mod+k", "command palette"],
+  ["mod+shift+n", "new session in the current project"],
+];
 
 /**
  * The native frame is hidden (titleBarStyle: "hidden" + overlay controls in
@@ -86,6 +89,19 @@ export default function App() {
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
+  const newSession = useStore((s) => s.newSession);
+
+  // The keyboard twin of the composer's /new: a new live session in the current
+  // tab's project. No current project (nothing focused yet, or every tab hidden)
+  // means nowhere to spawn — the key deliberately does nothing rather than
+  // choose a project implicitly.
+  useHotkeys({
+    "mod+shift+n": (e) => {
+      e.preventDefault();
+      const projectCwd = tabs.find((t) => t.tabId === activeTabId)?.projectCwd;
+      if (projectCwd !== undefined) void newSession(projectCwd);
+    },
+  });
 
   useEffect(() => {
     void init();

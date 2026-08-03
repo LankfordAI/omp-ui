@@ -19,7 +19,7 @@ import {
   SHIMMER_PERIOD_MS,
 } from "../lib/magic-keywords";
 import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
-import type { PromptRoute } from "../lib/rpc-types";
+import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
@@ -43,6 +43,12 @@ export function Composer({ tabId }: { tabId: string }) {
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const storeError = useStore((s) => s.rpc[tabId]?.error);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
+  // omp-ui's /new leads the list; the filter keeps an omp-advertised `new`
+  // (none in 17.2.6) from showing in-process semantics the pick would never run.
+  const paletteCommands = useMemo(
+    () => [UI_NEW_COMMAND, ...commands.filter((c) => c.name !== "new")],
+    [commands],
+  );
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
@@ -426,7 +432,7 @@ export function Composer({ tabId }: { tabId: string }) {
         {paletteOpen && (
           <SlashPalette
             ref={palette}
-            commands={commands}
+            commands={paletteCommands}
             query={text.slice(1)}
             onClose={() => setDismissedFor(commandWord)}
             onPick={(command, subcommand) => {
@@ -713,6 +719,18 @@ export function Composer({ tabId }: { tabId: string }) {
     </div>
   );
 }
+
+/**
+ * omp-ui's own `/new`: a new live session in a new tab — NOT omp's in-process
+ * lineage switch. omp does not advertise `/new` (17.2.6), so without this entry
+ * the slash palette would never show it; the store intercepts the bare command
+ * before it can reach omp.
+ */
+const UI_NEW_COMMAND: SlashCommandInfo = {
+  name: "new",
+  description: "new live session in a new tab",
+  source: "omp-ui",
+};
 
 /** Stable empties keep the per-field selectors from firing on every store tick. */
 const NO_COMMANDS: never[] = [];

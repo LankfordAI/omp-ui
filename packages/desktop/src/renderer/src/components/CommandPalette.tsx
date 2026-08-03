@@ -207,10 +207,11 @@ export function CommandPalette() {
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
-    if (key === "arrowdown" || (mod && key === "n")) {
+    // !e.shiftKey: mod+shift+n is the app-level new-session hotkey, not "move down".
+    if (key === "arrowdown" || (mod && !e.shiftKey && key === "n")) {
       e.preventDefault();
       move(1);
-    } else if (key === "arrowup" || (mod && key === "p")) {
+    } else if (key === "arrowup" || (mod && !e.shiftKey && key === "p")) {
       e.preventDefault();
       move(-1);
     } else if (key === "enter") {

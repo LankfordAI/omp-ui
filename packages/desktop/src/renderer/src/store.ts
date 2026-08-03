@@ -333,7 +333,11 @@ interface UiStore {
   /** Re-opens the review pane for tabId's pending plan (clears deferral). */
   showPlanReview(tabId: string): void;
 
-  /** `line` may include args, e.g. "/advisor on". Leading "/" optional. */
+  /**
+   * `line` may include args, e.g. "/advisor on". Leading "/" optional.
+   * A bare "/new" is omp-ui's own new-session shortcut: it spawns a new live
+   * session tab in the tab's project and never reaches omp.
+   */
   runSlashCommand(tabId: string, line: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
@@ -1605,6 +1609,17 @@ export const useStore = create<UiStore>()((set, get) => {
     async runSlashCommand(tabId, line) {
       const message = line.startsWith("/") ? line : `/${line}`;
       if (message.trim() === "/") return;
+      // omp-ui's own /new: a new live session in a new tab, not omp's in-process
+      // lineage switch (that stays on the HUD's new-session button and in terminal
+      // tabs' TUI). Bare command only — "/new …" still reaches omp verbatim.
+      if (message.trim() === "/new") {
+        const projectCwd = get().tabs.find((t) => t.tabId === tabId)?.projectCwd;
+        // A composer only exists for a mounted tab; without one, keep the old path.
+        if (projectCwd !== undefined) {
+          await get().newSession(projectCwd);
+          return;
+        }
+      }
       // Output arrives asynchronously as command_output frames.
       await runCommand(tabId, { type: "prompt", message });
     },
