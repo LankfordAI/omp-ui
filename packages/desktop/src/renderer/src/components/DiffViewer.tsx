@@ -77,7 +77,7 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
 
       {/* The toggle sits outside the horizontal scroller so a wide diff cannot
           push it off-screen; only the rows themselves pan sideways. */}
-      <div className="overflow-x-auto font-mono text-[11px] leading-[1.45]">
+      <div className="overflow-x-auto font-mono text-[12px] leading-[1.5]">
         {head.map((row, i) => (
           <Row key={i} row={row} />
         ))}
@@ -87,7 +87,7 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
           className="border-t border-line-soft px-2 py-1"
           summary={<span className="text-[11px]">show {tail.length} more lines</span>}
         >
-          <div className="overflow-x-auto pt-1 font-mono text-[11px] leading-[1.45]">
+          <div className="overflow-x-auto pt-1 font-mono text-[12px] leading-[1.5]">
             {tail.map((row, i) => (
               <Row key={i} row={row} />
             ))}

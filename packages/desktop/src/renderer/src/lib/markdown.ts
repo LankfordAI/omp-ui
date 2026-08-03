@@ -15,6 +15,7 @@ export type MdBlock =
   | { kind: "code"; lang: string | null; text: string }
   | { kind: "list"; ordered: boolean; items: MdSpan[][] }
   | { kind: "quote"; spans: MdSpan[] }
+  | { kind: "table"; headers: MdSpan[][]; rows: MdSpan[][][] }
   | { kind: "rule" };
 
 export type MdSpan =
@@ -214,6 +215,56 @@ function listMarker(line: string): { ordered: boolean; text: string } | null {
   return null;
 }
 
+/**
+ * Split a GFM table row into its cells, or null when the line is not a table
+ * row. Honors backslash-escaped pipes (`\|` is a literal pipe and does not
+ * split the row), strips the outer pipes when the trimmed line starts and
+ * ends with `|`, and trims the single optional space around each cell.
+ */
+function splitTableRow(line: string): string[] | null {
+  // A table row needs at least one pipe: a bare paragraph line before a `---`
+  // rule must stay a paragraph, never become a one-cell table header.
+  if (!line.includes("|")) return null;
+  let src = line.trim();
+  if (src.startsWith("|") && src.endsWith("|")) {
+    src = src.slice(1, -1);
+  }
+  const cells: string[] = [];
+  let buf = "";
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i] ?? "";
+    if (c === "|") {
+      // A pipe preceded by an odd run of backslashes is escaped — collapse
+      // one backslash and keep the pipe inside the cell.
+      let bs = 0;
+      for (let j = i - 1; j >= 0 && src[j] === "\\"; j--) bs++;
+      if (bs % 2 === 1) {
+        buf = buf.slice(0, -1) + "|";
+        continue;
+      }
+      cells.push(buf);
+      buf = "";
+      continue;
+    }
+    buf += c;
+  }
+  cells.push(buf);
+  // A lone outer pipe leaves an empty edge cell; drop them all.
+  while (cells.length > 0 && cells[0]?.trim() === "") cells.shift();
+  while (cells.length > 0 && cells[cells.length - 1]?.trim() === "") cells.pop();
+  if (cells.length < 1) return null;
+  return cells.map((c) => c.trim());
+}
+
+/** True when every cell looks like a `---` / `:--:` delimiter and one has `-`. */
+function isDelimiterRow(line: string): boolean {
+  const cells = splitTableRow(line);
+  if (!cells || cells.length === 0) return false;
+  return (
+    cells.every((c) => /^:?-+:?$/.test(c)) && cells.some((c) => c.includes("-"))
+  );
+}
+
 /** Lines that interrupt an open paragraph or list item rather than joining it. */
 function startsBlock(line: string): boolean {
   return (
@@ -267,6 +318,27 @@ export function parseMarkdown(src: string): MdBlock[] {
       const text = (heading[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "");
       blocks.push({ kind: "heading", level, spans: parseInline(text) });
       i++;
+      continue;
+    }
+
+    // A GFM table: the header must be followed by a delimiter row (block
+    // boundary, like fenced code). Until the delimiter lands mid-stream the
+    // header keeps rendering as a paragraph and reflows to a table.
+    const tableCells = splitTableRow(line);
+    if (tableCells && isDelimiterRow(lines[i + 1] ?? "")) {
+      const headers = tableCells.map(parseInline);
+      const rows: MdSpan[][][] = [];
+      let j = i + 2;
+      // Consume every following line that splits as a row; blank lines and
+      // anything else end the table.
+      while (j < lines.length) {
+        const cells = splitTableRow(lines[j] ?? "");
+        if (!cells) break;
+        rows.push(cells.map(parseInline));
+        j++;
+      }
+      blocks.push({ kind: "table", headers, rows });
+      i = j;
       continue;
     }
 

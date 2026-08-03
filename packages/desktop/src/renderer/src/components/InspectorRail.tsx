@@ -97,7 +97,7 @@ function IconCollapse({ collapsed }: { collapsed: boolean }) {
     <svg
       viewBox="0 0 16 16"
       aria-hidden
-      className={cn("size-3.5 transition-transform duration-200", collapsed && "rotate-180")}
+      className={cn("size-3.5 transition-transform duration-200", !collapsed && "rotate-180")}
     >
       <path d="M10 4l-3.5 4 3.5 4" {...S} />
       <path d="M3.5 2.6v10.8" {...S} />

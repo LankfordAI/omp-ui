@@ -63,7 +63,7 @@ function ThinkingPane({ text, live }: { text: string; live: boolean }) {
     <pre
       ref={ref}
       data-selectable
-      className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-ink-dim"
+      className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.55] text-ink-dim"
     >
       {text}
     </pre>

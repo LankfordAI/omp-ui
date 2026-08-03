@@ -120,7 +120,7 @@ function Slab({
       data-selectable
       className={cn(
         "overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5",
-        "font-mono text-[11px] leading-[1.5]",
+        "font-mono text-[12px] leading-[1.55]",
         tone === "rose" ? "text-rose" : "text-ink-mid",
         className,
       )}
@@ -283,23 +283,21 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
           <div
             key={i}
             className={cn(
-              "animate-rise rounded-md border-l-[3px] py-1.5 pl-2.5 pr-2",
-              tone === "rose" && "edge-lit border-rose-dim bg-rose-wash",
-              tone === "copper" && "border-copper-dim bg-copper-wash",
-              tone === "neutral" && "border-line-strong bg-sunken",
+              "animate-rise rounded-md py-1.5 pl-2.5 pr-2",
+              tone === "rose" && "edge-lit border-l-[3px] border-rose-dim bg-rose-wash",
+              tone === "copper" && "border-l-[3px] border-copper-dim bg-copper-wash",
+              tone === "neutral" && "border-l-2 border-line-strong bg-sunken",
             )}
           >
             <div className="mb-1 flex items-center gap-1.5">
-              {note.advisor && (
-                <Chip mono className="uppercase">
-                  {note.advisor}
-                </Chip>
-              )}
+              <Chip mono className="uppercase">
+                {note.advisor ?? "advisor"}
+              </Chip>
               <Chip tone={tone}>{severity}</Chip>
             </div>
             <Markdown
               text={note.note}
-              className={cn("text-xs", tone === "neutral" ? "text-ink-dim" : "text-ink-mid")}
+              className={cn("text-[13px]", tone === "neutral" ? "text-ink-dim" : "text-ink-mid")}
             />
           </div>
         );

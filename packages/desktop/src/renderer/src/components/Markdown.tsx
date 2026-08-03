@@ -14,8 +14,8 @@ const HEADING_CLASS: Record<number, string> = {
   2: "text-[15px]",
   3: "text-sm",
   4: "text-sm",
-  5: "text-[13px]",
-  6: "text-[13px]",
+  5: "text-sm",
+  6: "text-sm",
 };
 
 const HEADING_TAG = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
@@ -91,7 +91,7 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
           </div>
           <pre
             data-selectable
-            className="overflow-x-auto px-3 py-2 font-mono text-[11.5px] leading-[1.55] text-ink-mid"
+            className="overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-[1.6] text-ink-mid"
           >
             {block.text}
             {trailing}
@@ -149,6 +149,40 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
         </blockquote>
       );
 
+    case "table":
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                {block.headers.map((cell, i) => (
+                  <th
+                    key={i}
+                    className="border-b-2 border-line-strong px-2 py-1.5 text-left font-semibold text-ink"
+                  >
+                    <Spans spans={cell} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="border-b border-line px-2 py-1.5 text-ink-mid">
+                      <Spans spans={cell} />
+                      {ri === block.rows.length - 1 &&
+                        ci === row.length - 1 &&
+                        trailing}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
     case "rule":
       return (
         <div>
@@ -181,7 +215,7 @@ export function Markdown({
   const blocks = useMemo(() => parseMarkdown(text), [text]);
   if (blocks.length === 0) return trailing ? <div className={className}>{trailing}</div> : null;
   return (
-    <div className={cn("space-y-2 text-sm", className)} data-selectable>
+    <div className={cn("space-y-2 text-[15px]", className)} data-selectable>
       {blocks.map((block, i) => (
         <Block key={i} block={block} trailing={i === blocks.length - 1 ? trailing : undefined} />
       ))}

@@ -14,6 +14,12 @@ function literalText(blocks: MdBlock[]): string {
       parts.push("");
     } else if (block.kind === "list") {
       for (const item of block.items) parts.push(item.map((s) => s.text).join(""));
+    } else if (block.kind === "table") {
+      // One line per row, cells joined with `|` so cell text stays checkable.
+      parts.push(block.headers.map((cell) => cell.map((s) => s.text).join("")).join("|"));
+      for (const row of block.rows) {
+        parts.push(row.map((cell) => cell.map((s) => s.text).join("")).join("|"));
+      }
     } else {
       parts.push(block.spans.map((s) => s.text).join(""));
     }
@@ -101,6 +107,91 @@ describe("parseMarkdown blocks", () => {
   it("parses blockquotes across consecutive lines", () => {
     expect(parseMarkdown("> one\n> two")).toEqual([
       { kind: "quote", spans: [{ kind: "text", text: "one\ntwo" }] },
+    ]);
+  });
+
+  it("parses a pipe table into headers and rows", () => {
+    const blocks = parseMarkdown("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
+    expect(blocks[0]?.kind).toBe("table");
+    expect(blocks[0]).toEqual({
+      kind: "table",
+      headers: [[{ kind: "text", text: "a" }], [{ kind: "text", text: "b" }]],
+      rows: [
+        [[{ kind: "text", text: "1" }], [{ kind: "text", text: "2" }]],
+        [[{ kind: "text", text: "3" }], [{ kind: "text", text: "4" }]],
+      ],
+    });
+  });
+
+  it("strips outer pipes and trims padding around cells", () => {
+    const blocks = parseMarkdown("|  a   | b  |\n| :--  | -: |\n|  x   | y  |");
+    expect(blocks[0]?.kind).toBe("table");
+    if (blocks[0]?.kind === "table") {
+      expect(blocks[0].headers).toEqual([
+        [{ kind: "text", text: "a" }],
+        [{ kind: "text", text: "b" }],
+      ]);
+      expect(blocks[0].rows).toEqual([
+        [[{ kind: "text", text: "x" }], [{ kind: "text", text: "y" }]],
+      ]);
+    }
+  });
+
+  it("parses inline and code spans inside table cells", () => {
+    const blocks = parseMarkdown("| **name** | `cmd` |\n|---|---|\n| a | b |");
+    expect(blocks[0]).toEqual({
+      kind: "table",
+      headers: [
+        [{ kind: "strong", text: "name" }],
+        [{ kind: "code", text: "cmd" }],
+      ],
+      rows: [[[{ kind: "text", text: "a" }], [{ kind: "text", text: "b" }]]],
+    });
+  });
+
+  it("keeps a backslash-escaped pipe inside a single cell", () => {
+    const blocks = parseMarkdown("| path | val |\n|---|---|\n| a\\|b | c |");
+    expect(blocks[0]?.kind).toBe("table");
+    if (blocks[0]?.kind === "table") {
+      expect(blocks[0].rows[0]).toEqual([
+        [{ kind: "text", text: "a|b" }],
+        [{ kind: "text", text: "c" }],
+      ]);
+    }
+  });
+
+  it("round-trips table cell text without dropping input", () => {
+    const src = "| alpha | beta gamma |\n|---|---|\n| delta | epsilon |\n| zeta | eta |";
+    const out = literalText(parseMarkdown(src));
+    for (const cell of ["alpha", "beta gamma", "delta", "epsilon", "zeta", "eta"]) {
+      expect(out).toContain(cell);
+    }
+  });
+
+  it("keeps a pipe header as a paragraph until the delimiter row lands", () => {
+    expect(parseMarkdown("| a | b |")[0]?.kind).toBe("p");
+  });
+
+  it("keeps prose containing a pipe as a paragraph when no delimiter follows", () => {
+    expect(parseMarkdown("use | or && carefully")[0]?.kind).toBe("p");
+  });
+
+  it("does not turn paragraph-then-rule into a table", () => {
+    // The header line has no pipe, so splitTableRow must reject the whole row.
+    expect(parseMarkdown("hello\n---")[0]?.kind).toBe("p");
+    expect(parseMarkdown("hello\n---\nworld").map((b) => b.kind)).toEqual([
+      "p",
+      "rule",
+      "p",
+    ]);
+  });
+
+  it("requires a pipe in the delimiter row to form a table", () => {
+    // `---` with no pipe is a rule, not a delimiter; prose rows must survive.
+    expect(parseMarkdown("a | b\n---\nc | d").map((b) => b.kind)).toEqual([
+      "p",
+      "rule",
+      "p",
     ]);
   });
 
