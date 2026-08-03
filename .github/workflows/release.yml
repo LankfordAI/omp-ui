@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: gfx-1201
+    runs-on: [self-hosted, gfx1201]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
