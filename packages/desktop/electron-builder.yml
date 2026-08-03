@@ -10,6 +10,7 @@ asarUnpack:
   - "**/node_modules/node-pty/**"
 npmRebuild: false
 linux:
+  icon: build/icon.png
   target:
     - AppImage
     - deb

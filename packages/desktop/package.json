@@ -14,6 +14,7 @@
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --linux",
+    "icon": "node scripts/render-icon.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
