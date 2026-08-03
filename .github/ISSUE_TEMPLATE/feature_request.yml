@@ -1,0 +1,50 @@
+name: Feature Request
+description: Propose new functionality or an improvement to omp-ui.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check `CONTEXT.md` and `docs/` (phase docs, ADRs) — the feature may already be planned or deliberately rejected.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What can't you do today, or what is painful? Describe the problem, not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should omp-ui do? Use CONTEXT.md vocabulary where it applies (session, tab, lineage, inspector rail, ...).
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sidebar / projects / sessions
+        - Terminal tab (PTY / xterm.js)
+        - Native transcript (rpc-ui)
+        - Composer
+        - Session HUD
+        - Inspector rail
+        - Plan mode / plan review
+        - packages/core (PTY manager, rpc-ui client, session scanner)
+        - Packaging / distribution
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and why they fall short. Cite an ADR if one already covers this ground.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, links, related issues.

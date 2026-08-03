@@ -1,17 +1,79 @@
-import type { LiveState, SessionSummary } from "@omp-ui/core/types";
+import type { SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
-import { useStore } from "../store";
+import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { Button, Chip, Dot, IconButton, type Tone } from "./ui";
 
-/** Liveness reads as colour before it reads as text — mint only when alive. */
-const LIVE_TONE: Record<LiveState, Tone> = {
-  live: "signal",
-  dormant: "neutral",
-  archived: "copper",
-  missing: "rose",
+const MISSING_HINT = "session files are gone from disk — delete the record";
+
+const SESSION_FACE: Record<
+  SidebarSessionState,
+  { tone: Tone; pulse: boolean; label: string; title: string; textClass: string }
+> = {
+  working: {
+    tone: "copper",
+    pulse: true,
+    label: "working",
+    title: "Agent is working",
+    textClass: "text-copper",
+  },
+  "awaiting-answer": {
+    tone: "iris",
+    pulse: false,
+    label: "answer needed",
+    title: "Agent is waiting for your answer",
+    textClass: "text-iris",
+  },
+  ready: {
+    tone: "signal",
+    pulse: false,
+    label: "ready",
+    title: "Agent finished output and is ready",
+    textClass: "text-signal",
+  },
+  starting: {
+    tone: "neutral",
+    pulse: true,
+    label: "starting",
+    title: "Native session is starting",
+    textClass: "text-ink-mid",
+  },
+  error: {
+    tone: "rose",
+    pulse: false,
+    label: "error",
+    title: "Native session hit an error",
+    textClass: "text-rose",
+  },
+  live: {
+    tone: "signal",
+    pulse: false,
+    label: "live",
+    title: "Session process is live; detailed activity is unavailable",
+    textClass: "text-signal",
+  },
+  dormant: {
+    tone: "neutral",
+    pulse: false,
+    label: "dormant",
+    title: "Session is dormant",
+    textClass: "text-ink-mid",
+  },
+  archived: {
+    tone: "copper",
+    pulse: false,
+    label: "archived",
+    title: "Session is archived",
+    textClass: "text-copper",
+  },
+  missing: {
+    tone: "rose",
+    pulse: false,
+    label: "missing",
+    title: MISSING_HINT,
+    textClass: "text-rose",
+  },
 };
 
-const MISSING_HINT = "session files are gone from disk — delete the record";
 
 /**
  * Coarse relative time. A sidebar row is scanned, not read: minutes and hours
@@ -79,22 +141,27 @@ export function SessionRow({ s }: { s: SessionSummary }) {
   const terminate = useStore((st) => st.terminate);
   const resumeDead = useStore((st) => st.resumeDead);
   const exited = useStore((st) => st.exited[s.tabId]);
+  const sidebarState = useStore((st) =>
+    deriveSidebarSessionState(s, st.rpc[s.tabId], st.exited[s.tabId]),
+  );
   const activeTabId = useStore((st) => st.activeTabId);
 
   const missing = s.live === "missing";
-  const active = s.tabId === activeTabId;
+  const selected = s.tabId === activeTabId;
   const rpc = s.mode === "rpc-ui";
   const when = relativeTime(s.cachedModified);
+  const face = SESSION_FACE[sidebarState];
+  const showPersistedStatus = !(s.live === "live" && rpc);
 
   return (
     <div
       className={cn(
         "group/row animate-slide-in relative flex items-center rounded-md",
         "transition-colors duration-150",
-        active ? "bg-raised" : "hover:bg-raised/60",
+        selected ? "bg-raised" : "hover:bg-raised/60",
       )}
     >
-      {active && (
+      {selected && (
         <span
           aria-hidden
           className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-signal"
@@ -103,6 +170,7 @@ export function SessionRow({ s }: { s: SessionSummary }) {
 
       <button
         type="button"
+        aria-current={selected ? "page" : undefined}
         title={missing ? MISSING_HINT : s.title}
         onClick={() => {
           if (!missing) void openSession(s.tabId);
@@ -112,13 +180,13 @@ export function SessionRow({ s }: { s: SessionSummary }) {
           missing && "cursor-default",
         )}
       >
-        <Dot tone={LIVE_TONE[s.live]} pulse={s.live === "live"} title={s.live} />
+        <Dot tone={face.tone} pulse={face.pulse} title={face.title} />
         <span className="min-w-0 flex-1">
           <span
             className={cn(
               "block truncate text-xs transition-colors duration-150",
               missing ? "text-ink-faint" : "text-ink-mid group-hover/row:text-ink",
-              active && !missing && "text-ink",
+              selected && !missing && "text-ink",
             )}
           >
             {s.title}
@@ -127,9 +195,9 @@ export function SessionRow({ s }: { s: SessionSummary }) {
             title={absoluteTime(s.cachedModified)}
             className="block truncate font-mono text-[10px] text-ink-faint tabular-nums"
           >
-            {when}
-            {when && s.status ? " · " : ""}
-            {s.status ?? ""}
+            <span className={face.textClass}>{face.label}</span>
+            {when ? ` · ${when}` : ""}
+            {showPersistedStatus && s.status ? ` · ${s.status}` : ""}
           </span>
         </span>
       </button>

@@ -134,13 +134,37 @@ or refine. Execute lands a single verdict and the renderer dispatches the
 implementation into a chosen context — the same session, the same session
 after compacting its context, or a freshly spawned session seeded with the
 plan — as a normal prompt. Refine sends the agent back to revise the draft,
-optionally carrying the user's revision notes (text + images). Every exit from
-the review pane answers; abandoning it (Escape, scrim) means refine without
-notes, because that is the verdict that keeps the working tree read-only.
-Because the advisor reviews a turn only after it ends, the plan turn's review
-can outlive the gate — so on execute, a session with a configured advisor
-answers the verdict first, waits (bounded) for that review to land, then folds
-its concerns into the implementation prompt in every context; refine stays
-immediate because the planner revises in situ, where the advisor's notes
-already land. The fold is a per-review switch, default on.
+optionally carrying the user's revision notes (text + images). Abandoning the
+pane — Escape, scrim-click, or "not now" — is the third, non-answering verdict:
+`deferPlanReview` dismisses it without resolving the gate, so the agent stays
+paused on its proposal and the plan stays pending in the rail's proposed
+plans pane until the user returns. Defer encodes "ignore for the time being";
+refine is the only verdict that revises immediately. Both keep the working
+tree read-only. Because the advisor reviews a turn only after it ends, the
+plan turn's review can outlive the gate — so on execute, a session with a
+configured advisor answers the verdict first, waits (bounded) for that review
+to land, then folds its concerns into the implementation prompt in every
+context; refine stays immediate because the planner revises in situ, where the
+advisor's notes already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
+
+**Proposed plans pane**:
+The inspector rail pane (ADR-0004 vocab) that lists the focus session's plan
+history — the pending plan first, with review / request changes / not now
+actions, then settled plans dimmed by verdict. The pending plan is one per
+session and is the same object the review modal shows: clicking it or the
+review action restores the modal, request changes answers `refinePlan`
+without notes, and not now calls `deferPlanReview`. Only the focused tab's
+review modal renders; a background session's pending plan surfaces here
+instead of stacking modal on modal.
+_Avoid_: plan inbox, plan queue, plan history
+
+**Branch diff pane**:
+The inspector rail pane that shows every working-tree change on the focus
+session's project git branch — the tracked `git diff HEAD` plus new untracked
+files read as creates, one `DiffViewer` per file. It is a repo view, not a
+session view: the rail asks the main process (`core/branch-diff.ts`, the
+git-only `getBranchDiff` channel) and renders the parsed result, so "all
+changes on the current branch" is what the user reads regardless of which
+session produced them.
+_Avoid_: per-session diff log, file edit history

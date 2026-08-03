@@ -9,11 +9,13 @@ import { Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
- * call while this is open, so every exit answers: refine sends the agent back
- * to revise the draft, while execute lands one verdict and lets the renderer
+ * call while this is open: execute lands a verdict and lets the renderer
  * dispatch the implementation into a chosen context (same session, same
- * session after compacting, or a fresh session). Escape and scrim-click both
- * mean refine — the safe verdict, because it keeps the working tree read-only.
+ * session after compacting, or a fresh session), while refine sends the agent
+ * back to revise the draft. "Not now" — Escape, scrim-click, or the button —
+ * defers the decision without answering the gate: the agent stays paused and
+ * the plan stays pending in the rail's plans tab until the user returns. Both
+ * defer and refine keep the working tree read-only.
  *
  * The plan is rendered from the file on disk rather than from the proposal
  * frame: the frame carries only the slug, and the file is the artifact the
@@ -37,6 +39,9 @@ export function PlanReview({ tabId }: { tabId: string }) {
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
+  const deferPlanReview = useStore((s) => s.deferPlanReview);
+  /** True after "not now": the pane is dismissed but the gate is unanswered. */
+  const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
 
   const [context, setContext] = useState<PlanExecutionContext>("existing");
   /** Change notes for the planner; text + optional images ride a steer prompt. */
@@ -51,16 +56,16 @@ export function PlanReview({ tabId }: { tabId: string }) {
    */
   const [addressAdvisor, setAddressAdvisor] = useState(true);
 
-  if (!review) return null;
+  if (!review || deferred) return null;
   const { request } = review;
 
   const refine = () => {
     const notes = { text: changes, images: images.length ? images : undefined };
     refinePlan(tabId, changes.trim() !== "" || images.length > 0 ? notes : undefined);
   };
-  // Escape/scrim: the safe verdict without committing half-typed notes — a
-  // draft in the box is not something to blast at the planner by accident.
-  const dismiss = () => refinePlan(tabId);
+  // Escape/scrim: defer, matching "not now" — never answer the gate with notes
+  // the user did not finish writing. The plan stays pending in the plans tab.
+  const dismiss = () => deferPlanReview(tabId);
   const execute = () => executePlan(tabId, context, addressAdvisor);
 
   const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -205,9 +210,16 @@ export function PlanReview({ tabId }: { tabId: string }) {
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">
-            The agent is waiting. Executing restores write access and starts implementation.
+            The agent is waiting. Executing restores write access and starts implementation;
+            "not now" leaves the plan pending in the plans tab.
           </p>
           <div className="flex shrink-0 items-center gap-2">
+            <Button
+              title="Leave the plan pending — the agent stays paused until you answer here"
+              onClick={() => deferPlanReview(tabId)}
+            >
+              not now
+            </Button>
             <Button onClick={refine}>refine</Button>
             <Button variant="solid" tone="signal" onClick={execute}>
               execute in {CONTEXTS.find((c) => c.id === context)?.label}

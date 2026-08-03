@@ -60,12 +60,20 @@ Object.assign(globalThis, { window: windowStub });
 
 // Dynamic import is required: ./backend reads window.ompBackend at module
 // load, so the stub above must land before the store module evaluates.
-const { useStore } = await import("./store");
+const { deriveSidebarSessionState, useStore } = await import("./store");
 
 /** Deterministic event-drain for promise chains (no wall-clock waiting). */
 const flushMicrotasks = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
 
 const TAB = "tab-test-1";
 
@@ -91,6 +99,8 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planDeferred: false,
+    plans: [],
     advisorStats: null,
     ...patch,
   };
@@ -168,6 +178,272 @@ beforeEach(() => {
   backendState = { projects: [], defaultMode: "rpc-ui", modelFavorites: [] };
   useStore.setState({ state: null, tabs: [], activeTabId: null, exited: {}, rpc: {} });
   vi.clearAllMocks();
+});
+
+describe("deriveSidebarSessionState", () => {
+  const summary = () => stateWithRecord(null).projects[0]!.sessions[0]!;
+
+  it("derives every lifecycle and native RPC activity state from authoritative inputs", () => {
+    for (const live of ["dormant", "archived", "missing"] as const) {
+      expect(deriveSidebarSessionState({ ...summary(), live }, tabState(), undefined)).toBe(live);
+    }
+
+    expect(
+      deriveSidebarSessionState({ ...summary(), mode: "pty" }, tabState({ status: "running" }), undefined),
+    ).toBe("live");
+    expect(deriveSidebarSessionState(summary(), undefined, undefined)).toBe("live");
+    expect(deriveSidebarSessionState(summary(), tabState({ status: "running" }), 0)).toBe(
+      "dormant",
+    );
+
+    expect(deriveSidebarSessionState(summary(), tabState({ status: "starting" }), undefined)).toBe(
+      "starting",
+    );
+    expect(deriveSidebarSessionState(summary(), tabState({ status: "error" }), undefined)).toBe(
+      "error",
+    );
+    expect(deriveSidebarSessionState(summary(), tabState({ status: "running" }), undefined)).toBe(
+      "working",
+    );
+    expect(deriveSidebarSessionState(summary(), tabState({ status: "ready" }), undefined)).toBe(
+      "ready",
+    );
+
+    expect(
+      deriveSidebarSessionState(
+        summary(),
+        tabState({ status: "ready", extensionQueue: [{ id: "q" }] }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+    expect(
+      deriveSidebarSessionState(
+        summary(),
+        tabState({
+          status: "running",
+          planReview: {
+            request: { title: "review", planFilePath: "local://p.md", planAbsPath: null },
+            frame: { id: "p" },
+          },
+        }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+    expect(
+      deriveSidebarSessionState(
+        summary(),
+        tabState({ status: "error", extensionQueue: [{ id: "q" }] }),
+        undefined,
+      ),
+    ).toBe("error");
+    expect(
+      deriveSidebarSessionState(summary(), tabState({ status: "ready", busy: true }), undefined),
+    ).toBe("ready");
+    expect(
+      deriveSidebarSessionState(
+        summary(),
+        tabState({
+          status: "ready",
+          session: { ...emptySessionRuntime(), isStreaming: true },
+        }),
+        undefined,
+      ),
+    ).toBe("ready");
+  });
+
+  it("tracks queued answers in FIFO order through a complete agent turn", () => {
+    const current = () => deriveSidebarSessionState(summary(), useStore.getState().rpc[TAB], undefined);
+    useStore.setState({ rpc: { [TAB]: tabState() } });
+    expect(current()).toBe("ready");
+
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    expect(current()).toBe("working");
+    for (const id of ["q1", "q2"]) {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "extension_ui_request",
+        id,
+        method: "confirm",
+        title: `confirm ${id}`,
+      });
+    }
+    expect(current()).toBe("awaiting-answer");
+
+    let request = useStore.getState().rpc[TAB]!.extensionQueue[0];
+    useStore.getState().answerExtension(TAB, request, { confirmed: true });
+    expect(current()).toBe("awaiting-answer");
+    request = useStore.getState().rpc[TAB]!.extensionQueue[0];
+    useStore.getState().answerExtension(TAB, request, { confirmed: true });
+    expect(current()).toBe("working");
+
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    expect(current()).toBe("ready");
+  });
+
+  it("tracks a plan-review gate until refinePlan answers it", () => {
+    const current = () => deriveSidebarSessionState(summary(), useStore.getState().rpc[TAB], undefined);
+    useStore.setState({ rpc: { [TAB]: tabState() } });
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "plan-1",
+      method: "select",
+      title: "omp-ui:plan-review:" + JSON.stringify({ title: "p", planFilePath: "local://p.md" }),
+    });
+    expect(current()).toBe("awaiting-answer");
+
+    useStore.getState().refinePlan(TAB);
+    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
+    expect(current()).toBe("working");
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    expect(current()).toBe("ready");
+  });
+
+  it("does not mistake non-dialog extension traffic for a pending answer", () => {
+    useStore.setState({ rpc: { [TAB]: tabState() } });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "notice-1",
+      method: "notify",
+      message: "done",
+    });
+    expect(deriveSidebarSessionState(summary(), useStore.getState().rpc[TAB], undefined)).toBe(
+      "ready",
+    );
+  });
+});
+
+describe("proposed plans: defer keeps the gate unanswered, history tracks verdicts", () => {
+  const planReviewFrame = (id: string, planFilePath = "local://p.md") => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath }),
+  });
+
+  it("records a proposal, defers without answering, and re-opens on demand", () => {
+    useStore.setState({ rpc: { [TAB]: tabState() } });
+    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d1"));
+    let rpc = useStore.getState().rpc[TAB]!;
+    expect(rpc.planReview?.request.planFilePath).toBe("local://p.md");
+    expect(rpc.planDeferred).toBe(false);
+    expect(rpc.plans).toEqual([{ key: "local://p.md", title: "t", status: "pending" }]);
+
+    // "not now" dismisses the pane but never answers the blocked gate: the
+    // agent stays paused and the plan stays pending for later.
+    useStore.getState().deferPlanReview(TAB);
+    rpc = useStore.getState().rpc[TAB]!;
+    expect(rpc.planDeferred).toBe(true);
+    expect(rpc.planReview).not.toBeNull();
+    expect(sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+    expect(
+      deriveSidebarSessionState(stateWithRecord(null).projects[0]!.sessions[0]!, rpc, undefined),
+    ).toBe("awaiting-answer");
+
+    // Restoring the review from the plans tab clears the deferral.
+    useStore.getState().showPlanReview(TAB);
+    expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(false);
+  });
+
+  it("settles the pending record to refined on a refine verdict", () => {
+    useStore.setState({ rpc: { [TAB]: tabState() } });
+    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d2"));
+    useStore.getState().refinePlan(TAB);
+    const rpc = useStore.getState().rpc[TAB]!;
+    expect(rpc.plans).toEqual([{ key: "local://p.md", title: "t", status: "refined" }]);
+    expect(sent.find((s) => s.cmd.type === "extension_ui_response")!.cmd.value).toBe("refine");
+  });
+
+  it("settles the pending record to executed, and a repropose keeps one record", () => {
+    useStore.setState({ rpc: { [TAB]: tabState() } });
+    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d3"));
+    useStore.getState().executePlan(TAB, "existing");
+    let rpc = useStore.getState().rpc[TAB]!;
+    expect(rpc.plans[0]!.status).toBe("executed");
+    // The planner comes back with a revised draft for the same plan file.
+    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d4"));
+    rpc = useStore.getState().rpc[TAB]!;
+    expect(rpc.plans).toHaveLength(1);
+    expect(rpc.plans[0]).toEqual({ key: "local://p.md", title: "t", status: "pending" });
+  });
+});
+
+describe("native RPC relaunch preparation", () => {
+  const staleRpc = () =>
+    tabState({
+      status: "running",
+      items: [{ kind: "marker", id: "kept", label: "kept", tone: "neutral" }],
+      session: { ...emptySessionRuntime(), isStreaming: true },
+      extensionQueue: [{ id: "question" }],
+      planReview: {
+        request: { title: "review", planFilePath: "local://p.md", planAbsPath: null },
+        frame: { id: "plan" },
+      },
+      planText: "# stale plan",
+      error: "stale failure",
+    });
+
+  const expectPrepared = () => {
+    const rpc = useStore.getState().rpc[TAB]!;
+    expect(rpc.status).toBe("starting");
+    expect(rpc.session.isStreaming).toBe(false);
+    expect(rpc.extensionQueue).toEqual([]);
+    expect(rpc.planReview).toBeNull();
+    expect(rpc.planText).toBeNull();
+    expect(rpc.error).toBeUndefined();
+    expect(rpc.items).toEqual([expect.objectContaining({ id: "kept" })]);
+  };
+
+  it("prepares an exited native tab before its resume promise settles", async () => {
+    backendState = stateWithRecord("sess-1", "dormant");
+    const spawn = deferred<{ tabId: string }>();
+    mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
+    useStore.setState({ state: backendState, exited: { [TAB]: 0 }, rpc: { [TAB]: staleRpc() } });
+
+    const resume = useStore.getState().resumeDead(TAB);
+    expectPrepared();
+    expect(useStore.getState().exited[TAB]).toBe(0);
+    spawn.resolve({ tabId: TAB });
+    await resume;
+    expect(useStore.getState().exited[TAB]).toBeUndefined();
+  });
+
+  it("prepares a live mode switch involving native RPC before IPC settles", async () => {
+    backendState = stateWithRecord("sess-1");
+    const switched = deferred<void>();
+    mockBackend.switchMode.mockReturnValueOnce(switched.promise);
+    useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
+
+    const change = useStore.getState().switchMode(TAB, "pty");
+    expectPrepared();
+    switched.resolve(undefined);
+    await change;
+  });
+
+  it("prepares a changed live native advisor tuple before IPC settles", async () => {
+    backendState = stateWithRecord("sess-1");
+    const changed = deferred<void>();
+    mockBackend.setSessionAdvisor.mockReturnValueOnce(changed.promise);
+    useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
+
+    const update = useStore.getState().setSessionAdvisor(TAB, true, "openrouter/a/b:high");
+    expectPrepared();
+    changed.resolve(undefined);
+    await update;
+  });
+
+  it("leaves RPC state alone for an unchanged advisor tuple and a PTY resume", async () => {
+    backendState = stateWithRecord("sess-1");
+    useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
+    await useStore.getState().setSessionAdvisor(TAB, false, null);
+    expect(useStore.getState().rpc[TAB]).toEqual(staleRpc());
+
+    backendState = stateWithRecord("sess-1", "dormant");
+    backendState.projects[0]!.sessions[0]!.mode = "pty";
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
+    useStore.setState({ state: backendState, exited: { [TAB]: 1 }, rpc: { [TAB]: staleRpc() } });
+    await useStore.getState().resumeDead(TAB);
+    expect(useStore.getState().rpc[TAB]).toEqual(staleRpc());
+  });
 });
 
 describe("bootRpcTab", () => {
@@ -360,16 +636,19 @@ describe("handleRpcFrame routing", () => {
     expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
   });
 
-  it("refreshes get_state live on message_end while the agent runs", () => {
+  it("refreshes get_state and get_session_stats live on message_end while the agent runs", () => {
     useStore.setState({ rpc: { [`${TAB}-live`]: tabState({ status: "running" }) } });
     useStore.getState().handleRpcFrame(`${TAB}-live`, {
       type: "message_end",
       message: { role: "assistant", content: [{ type: "text", text: "first turn" }] },
     });
     expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+    // Spend lives on get_session_stats — without this tick the HUD cost
+    // counter freezes for the whole run and only moves at agent_end.
+    expect(sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
   });
 
-  it("throttles a burst of message_ends to one live get_state", () => {
+  it("throttles a burst of message_ends to one live usage snapshot", () => {
     useStore.setState({ rpc: { [`${TAB}-burst`]: tabState({ status: "running" }) } });
     const end = (text: string) =>
       useStore.getState().handleRpcFrame(`${TAB}-burst`, {
@@ -380,6 +659,7 @@ describe("handleRpcFrame routing", () => {
     end("b");
     end("c");
     expect(sent.filter((s) => s.cmd.type === "get_state")).toHaveLength(1);
+    expect(sent.filter((s) => s.cmd.type === "get_session_stats")).toHaveLength(1);
   });
 
   it("does not refresh get_state on message_end while idle", () => {
@@ -683,6 +963,7 @@ describe("handleRpcFrame routing", () => {
             configured: true,
             active: true,
             model: "m",
+            subscription: false,
             contextWindow: 200000,
             contextTokens: 0,
             cost: 0,
@@ -729,6 +1010,7 @@ describe("handleRpcFrame routing", () => {
             configured: true,
             active: true,
             model: "m",
+            subscription: false,
             contextWindow: 200000,
             contextTokens: 0,
             cost: 0,
@@ -762,6 +1044,7 @@ describe("handleRpcFrame routing", () => {
             configured: true,
             active: true,
             model: "m",
+            subscription: false,
             contextWindow: 200000,
             contextTokens: 0,
             cost: 0,
@@ -794,6 +1077,7 @@ describe("handleRpcFrame routing", () => {
               configured: true,
               active: true,
               model: "m",
+              subscription: false,
               contextWindow: 200000,
               contextTokens: 0,
               cost: 0,
@@ -828,6 +1112,7 @@ describe("handleRpcFrame routing", () => {
             configured: true,
             active: true,
             model: "m",
+            subscription: false,
             contextWindow: 200000,
             contextTokens: 0,
             cost: 0,
@@ -1233,6 +1518,29 @@ describe("prompting, slash commands, and session ops", () => {
     expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
     respond(TAB, b!.cmd, {});
     await second;
+    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+  });
+
+  it("quiet commands never raise busy, so background sync can't strobe the sweeps", async () => {
+    const promise = useStore.getState().rpcCommand(TAB, { type: "get_subagents" }, { quiet: true });
+    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+    respond(TAB, sent.pop()!.cmd, { subagents: [] });
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+  });
+
+  it("a loud command's busy survives an interleaved quiet one settling", async () => {
+    const loud = useStore.getState().rpcCommand(TAB, { type: "compact" });
+    const quiet = useStore.getState().rpcCommand(TAB, { type: "get_state" }, { quiet: true });
+    expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
+
+    const [a, b] = sent.splice(0);
+    // The quiet one settles first — busy must hold for the loud one.
+    respond(TAB, b!.cmd, {});
+    await quiet;
+    expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
+    respond(TAB, a!.cmd, {});
+    await loud;
     expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
   });
 

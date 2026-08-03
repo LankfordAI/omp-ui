@@ -95,11 +95,11 @@
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-signal) 45%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent);
   }
   50% {
     opacity: 0.72;
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-signal) 0%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 0%, transparent);
   }
 }
 

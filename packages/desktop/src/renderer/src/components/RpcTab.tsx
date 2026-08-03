@@ -23,7 +23,7 @@ function TranscriptSkeleton() {
   );
 }
 
-export function RpcTab({ tabId }: { tabId: string; active: boolean }) {
+export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
   const exitCode = useStore((s) => s.exited[tabId]);
@@ -44,7 +44,15 @@ export function RpcTab({ tabId }: { tabId: string; active: boolean }) {
     <div className="relative flex h-full flex-col bg-surface">
       <SessionHud tabId={tabId} />
 
-      {working && <ProgressSweep tone={status === "starting" ? "neutral" : "signal"} />}
+      {/* Overlaid on the HUD's bottom border, never in flow: a 1px bar that
+          mounts/unmounts in flow shifts the whole transcript and jitters it. */}
+      {working && (
+        <div className="relative z-10 h-0">
+          <div className="absolute inset-x-0 -top-px">
+            <ProgressSweep tone={status === "starting" ? "neutral" : "signal"} />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="px-3 pt-2">
@@ -83,7 +91,9 @@ export function RpcTab({ tabId }: { tabId: string; active: boolean }) {
         <InspectorRail tabId={tabId} />
       </div>
 
-      <PlanReview tabId={tabId} />
+      {/* Only the focused tab's review may overlay the screen — a background
+          session's pending plan lives in the rail's plans tab until revisited. */}
+      {active && <PlanReview tabId={tabId} />}
 
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-blur-sm">

@@ -72,10 +72,15 @@ emitted source.
 ## Consequences
 
 - **The agent blocks on the verdict.** `xd://propose` does not resolve until the
-  renderer answers, so *every* exit from the review pane answers. Escape and
-  scrim-click mean `refine` — the safe verdict, because it keeps the working
-  tree read-only. This is the same discipline `ExtensionDialogHost` already
-  follows, for the same reason.
+  renderer answers. Every *answering* exit lands `execute` or `refine`; the
+  third exit — Escape, scrim-click, or the "not now" button — is `deferPlanReview`,
+  which dismisses the pane **without** answering, so the agent stays paused on
+  its proposal and the plan stays pending in the rail's plans pane until the
+  user returns. Defer and refine alike keep the working tree read-only, and the
+  paused gate is always resumable from the proposed-plans pane, so deferring an
+  ill-timed proposal is never destructive. This is the same discipline
+  `ExtensionDialogHost` already follows, for the same reason — the dialog host
+  answers automatically, while the plan pane may deliberately hold.
 - **Read-only is omp's guarantee, not ours.** `enforcePlanModeWrite`
   (`tools/plan-mode-guard.ts`) rejects working-tree writes while the mode is on;
   omp-ui neither re-implements nor weakens it. Verified: an explicit "just

@@ -13,6 +13,7 @@ export const CH = {
   advisorDefaults: "advisor:defaults",
   titleGenerate: "title:generate",
   planRead: "plan:read",
+  branchDiff: "branch:diff",
   ptyPasteImage: "pty:pasteImage",
   ptyWrite: "pty:write",
   ptyResize: "pty:resize",

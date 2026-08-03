@@ -3,6 +3,7 @@ import type {
   AdvisorDefaults,
   BackendState,
   ImageAttachment,
+  LiveState,
   SessionMode,
   SessionSummary,
 } from "@omp-ui/core/types";
@@ -68,12 +69,23 @@ export interface PendingCommand {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
   timer: number;
+  /** Background sync — must never drive the busy sweep. */
+  quiet: boolean;
 }
 
 /** Optional revision instructions sent back to the planner on refine. */
 export interface PlanRevisionNotes {
   text: string;
   images?: ImageAttachment[];
+}
+
+/** One proposed plan this session has surfaced, newest first. */
+export interface PlanRecord {
+  /** The plan artifact path (the slug) — uniquely identifies the plan. */
+  key: string;
+  title: string;
+  /** `pending` while the agent waits on a verdict; settles on the others. */
+  status: "pending" | "executed" | "refined";
 }
 
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
@@ -120,6 +132,14 @@ export interface RpcTabState {
   /** Plan markdown for the review pane, read off disk. */
   planText: string | null;
   /**
+   * The review pane was dismissed without answering the gate ("not now"): the
+   * plan stays pending and the agent stays paused; the rail's plans pane is
+   * where it is re-opened. Cleared when a verdict lands or a new plan is read.
+   */
+  planDeferred: boolean;
+  /** This session's proposed-plan history, newest first. */
+  plans: PlanRecord[];
+  /**
    * Advisor spend and context, published by the generated advisor-stats
    * extension over `setStatus` (see core/advisor-stats-extension.ts). Null until
    * the extension first reports; `available: false` means it could not drive
@@ -150,9 +170,41 @@ function freshRpcTabState(): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planDeferred: false,
+    plans: [],
     advisorStats: null,
   };
 }
+export type SidebarSessionState =
+  | "working"
+  | "awaiting-answer"
+  | "ready"
+  | "starting"
+  | "error"
+  | LiveState;
+
+export function deriveSidebarSessionState(
+  summary: SessionSummary,
+  rpc: RpcTabState | undefined,
+  exitCode: number | undefined,
+): SidebarSessionState {
+  if (summary.live !== "live") return summary.live;
+  if (exitCode !== undefined) return "dormant";
+  if (summary.mode === "pty" || !rpc) return "live";
+  if (rpc.status === "error") return "error";
+  if (rpc.planReview !== null || rpc.extensionQueue.length > 0) return "awaiting-answer";
+  switch (rpc.status) {
+    case "running":
+      return "working";
+    case "ready":
+      return "ready";
+    case "starting":
+      return "starting";
+    default:
+      return "live";
+  }
+}
+
 
 interface UiStore {
   state: BackendState | null;
@@ -177,7 +229,11 @@ interface UiStore {
   /** Confirms, then erases the record and its files on disk. Irreversible. */
   deleteSession(tabId: string): Promise<void>;
   bootRpcTab(tabId: string): Promise<void>;
-  rpcCommand(tabId: string, cmd: Record<string, unknown>): Promise<unknown>;
+  rpcCommand(
+    tabId: string,
+    cmd: Record<string, unknown>,
+    opts?: { quiet?: boolean },
+  ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
   answerExtension(tabId: string, request: unknown, response: Record<string, unknown>): void;
   runBash(tabId: string, command: string): Promise<void>;
@@ -259,6 +315,14 @@ interface UiStore {
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
   /** Loads the plan markdown for the review pane. */
   loadPlanText(tabId: string, absPath: string | null): Promise<void>;
+  /**
+   * Dismisses the plan review WITHOUT answering the gate: the agent stays
+   * paused on its proposal and the plan stays pending in the rail's plans tab,
+   * re-opened later via showPlanReview. Unlike refine, this never revises.
+   */
+  deferPlanReview(tabId: string): void;
+  /** Re-opens the review pane for tabId's pending plan (clears deferral). */
+  showPlanReview(tabId: string): void;
 
   /** `line` may include args, e.g. "/advisor on". Leading "/" optional. */
   runSlashCommand(tabId: string, line: string): Promise<void>;
@@ -309,13 +373,13 @@ let initialized = false;
 const rpcBooting = new Set<string>();
 
 /**
- * Minimum gap between mid-run get_state refreshes, keyed by tab. Context only
- * grows at turn boundaries, and an agent run fires several per-turn
- * message_ends in quick succession — throttle to one authoritative snapshot
- * per boundary window instead of one rpc call per frame.
+ * Minimum gap between mid-run get_state/get_session_stats refreshes, keyed by
+ * tab. Context and spend only grow at turn boundaries, and an agent run fires
+ * several per-turn message_ends in quick succession — throttle to one
+ * authoritative snapshot per boundary window instead of one rpc call per frame.
  */
-const CONTEXT_REFRESH_MS = 500;
-const lastContextRefresh = new Map<string, number>();
+const USAGE_REFRESH_MS = 500;
+const lastUsageRefresh = new Map<string, number>();
 
 /** The implementation prompt sent to whichever context executes an approved plan. */
 const EXECUTION_PROMPT =
@@ -348,6 +412,28 @@ function pollUntil(
   });
 }
 
+/**
+ * Records a freshly proposed plan in the session's history. Keyed by the plan
+ * artifact path: a refined-and-reproposed plan updates its one pending entry
+ * instead of stacking lookalike rows.
+ */
+function upsertPlan(records: PlanRecord[], title: string, key: string): PlanRecord[] {
+  const idx = records.findIndex((r) => r.key === key);
+  if (idx === -1) return [{ key, title, status: "pending" }, ...records];
+  const current = records[idx]!;
+  if (current.status === "pending" && current.title === title) return records;
+  return [
+    ...records.slice(0, idx),
+    { ...current, title, status: "pending" },
+    ...records.slice(idx + 1),
+  ];
+}
+
+/** Settles a proposed plan's record (keeps its position in the history). */
+function settlePlan(records: PlanRecord[], key: string, status: PlanRecord["status"]): PlanRecord[] {
+  return records.map((r) => (r.key === key ? { ...r, status } : r));
+}
+
 /** setStatus/setWidget/setTitle carry their text under different keys. */
 function extensionStatusEntry(frame: object): { key: string; text: string | undefined } | null {
   const method = strField(frame, "method");
@@ -378,6 +464,20 @@ export const useStore = create<UiStore>()((set, get) => {
     });
   };
 
+  const prepareRpcRelaunch = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    patchRpc(tabId, {
+      status: "starting",
+      session: { ...tab.session, isStreaming: false },
+      extensionQueue: [],
+      planReview: null,
+      planText: null,
+      planDeferred: false,
+      error: undefined,
+    });
+  };
+
   // Command responses nest their payload under `data`.
   const respData = (resp: unknown): unknown =>
     resp !== null &&
@@ -394,9 +494,13 @@ export const useStore = create<UiStore>()((set, get) => {
    * message surfaces instead of vanishing into a swallowed catch. Resolves to
    * the response frame, or `null` — which a real response never is — on failure.
    */
-  const runCommand = async (tabId: string, cmd: Record<string, unknown>): Promise<unknown> => {
+  const runCommand = async (
+    tabId: string,
+    cmd: Record<string, unknown>,
+    opts?: { quiet?: boolean },
+  ): Promise<unknown> => {
     try {
-      const resp = await get().rpcCommand(tabId, cmd);
+      const resp = await get().rpcCommand(tabId, cmd, opts);
       // A later success retires a transient failure banner, but never a fatal
       // one — `status: "error"` means the process itself is gone.
       const tab = get().rpc[tabId];
@@ -438,7 +542,7 @@ export const useStore = create<UiStore>()((set, get) => {
       id,
       value,
     });
-    patchRpc(tabId, { planReview: null, planText: null });
+    patchRpc(tabId, { planReview: null, planText: null, planDeferred: false });
     return true;
   };
 
@@ -549,19 +653,25 @@ export const useStore = create<UiStore>()((set, get) => {
   };
 
   /**
-   * Live context-meter tick. Fired on each per-turn `message_end` while the
-   * agent is mid-run, so the HUD tracks the growing context instead of only
-   * snapping to the final value at `agent_end`. Same `get_state` source as the
-   * closing refresh — just throttled so a burst of turn boundaries costs one
-   * snapshot, not one per frame.
+   * Live usage tick: context meter AND spend. Fired on each per-turn
+   * `message_end` while the agent is mid-run, so the HUD tracks the growing
+   * context and cost instead of only snapping to the final values at
+   * `agent_end`. Same get_state/get_session_stats sources as the closing
+   * refresh — just throttled so a burst of turn boundaries costs one snapshot,
+   * not one per frame. get_session_stats is a synchronous message fold in omp,
+   * so the extra call is as cheap as get_state.
    */
-  const refreshLiveContext = (tabId: string): void => {
+  const refreshLiveUsage = (tabId: string): void => {
     const now = Date.now();
-    if (now - (lastContextRefresh.get(tabId) ?? -Infinity) < CONTEXT_REFRESH_MS) return;
-    lastContextRefresh.set(tabId, now);
+    if (now - (lastUsageRefresh.get(tabId) ?? -Infinity) < USAGE_REFRESH_MS) return;
+    lastUsageRefresh.set(tabId, now);
     void get()
-      .rpcCommand(tabId, { type: "get_state" })
+      .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
       .then((resp) => applyRpcState(tabId, resp))
+      .catch(() => {});
+    void get()
+      .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
+      .then((resp) => patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }))
       .catch(() => {});
   };
 
@@ -719,6 +829,13 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
       }
       try {
+        if (
+          rec?.live === "live" &&
+          rec.mode !== mode &&
+          (rec.mode === "rpc-ui" || mode === "rpc-ui")
+        ) {
+          prepareRpcRelaunch(tabId);
+        }
         await backend.switchMode(tabId, mode);
       } catch (err) {
         alertError(err);
@@ -729,6 +846,7 @@ export const useStore = create<UiStore>()((set, get) => {
       const rec = findRecord(get().state, tabId);
       if (!rec) return;
       try {
+        if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
         await backend.spawnSession({
           projectCwd: rec.projectCwd,
           mode: rec.mode,
@@ -861,24 +979,33 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
-    rpcCommand(tabId, cmd) {
+    rpcCommand(tabId, cmd, opts) {
       const tab = get().rpc[tabId];
       if (!tab) return Promise.reject(new Error("rpc tab not initialized"));
       const id = crypto.randomUUID();
+      // Quiet commands are background sync (usage ticks, subagent roster
+      // heartbeats). They never touch `busy`: each round-trip would otherwise
+      // strobe the progress sweeps for a few ms, jittering the transcript.
+      const quiet = opts?.quiet ?? false;
       // Executor form required: the pending entry must exist before send.
       const promise = new Promise<unknown>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           get().rpc[tabId]?.pendingCommands.delete(id);
           reject(new Error("rpc command timed out"));
         }, 30_000);
-        tab.pendingCommands.set(id, { resolve, reject, timer });
+        tab.pendingCommands.set(id, { resolve, reject, timer, quiet });
       });
-      patchRpc(tabId, { busy: true });
+      if (!quiet) patchRpc(tabId, { busy: true });
       backend.rpcSend(tabId, { ...cmd, id });
       // The map is the ref count: both settle paths remove their entry before
       // settling, so concurrent commands can't clear `busy` for each other.
+      // Only loud entries count — a lingering quiet heartbeat must not pin
+      // `busy`, and a settling quiet one must not clear it early either way.
       return promise.finally(() => {
-        if ((get().rpc[tabId]?.pendingCommands.size ?? 0) === 0) {
+        const pending = get().rpc[tabId]?.pendingCommands;
+        let loud = 0;
+        if (pending) for (const p of pending.values()) if (!p.quiet) loud++;
+        if (loud === 0 && get().rpc[tabId]?.busy) {
           patchRpc(tabId, { busy: false });
         }
       });
@@ -970,7 +1097,12 @@ export const useStore = create<UiStore>()((set, get) => {
           // than the raw select dialog, and the status frame is state, not text.
           const review = parsePlanReviewTitle(strField(frame, "title"));
           if (review) {
-            patchRpc(tabId, { planReview: { request: review, frame } });
+            patchRpc(tabId, {
+              planReview: { request: review, frame },
+              // A fresh proposal is never deferred — it demands its verdict.
+              planDeferred: false,
+              plans: upsertPlan(tab.plans, review.title, review.planFilePath),
+            });
             void get().loadPlanText(tabId, review.planAbsPath);
             return;
           }
@@ -1050,10 +1182,11 @@ export const useStore = create<UiStore>()((set, get) => {
           if (type === "agent_start") {
             patchRpc(tabId, { status: "running" });
           }
-          // Context grows at turn boundaries — tick the HUD meter live while
-          // the agent is still mid-run, not just once at agent_end.
+          // Context and spend grow at turn boundaries — tick the HUD meter and
+          // cost counter live while the agent is still mid-run, not just once
+          // at agent_end.
           if (type === "message_end" && tab.status === "running") {
-            refreshLiveContext(tabId);
+            refreshLiveUsage(tabId);
           }
           if (type === "agent_end") {
             if (tab.status === "running") patchRpc(tabId, { status: "ready" });
@@ -1064,7 +1197,7 @@ export const useStore = create<UiStore>()((set, get) => {
 
             // Refresh todoPhases/contextUsage/isStreaming after each agent run.
             void get()
-              .rpcCommand(tabId, { type: "get_state" })
+              .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
               .then((resp) => applyRpcState(tabId, resp))
               .catch(() => {});
 
@@ -1146,7 +1279,7 @@ export const useStore = create<UiStore>()((set, get) => {
         if (!current || current.initialPrompt !== prompt) return;
         const name = modelTitle ?? generateTitleFromPrompt(prompt);
         try {
-          await get().rpcCommand(tabId, { type: "set_session_name", name });
+          await get().rpcCommand(tabId, { type: "set_session_name", name }, { quiet: true });
           patchRpc(tabId, { initialPrompt: null });
         } catch (err) {
           // Release the latch so the next agent_end retries.
@@ -1194,7 +1327,15 @@ export const useStore = create<UiStore>()((set, get) => {
     },
 
     async setSessionAdvisor(tabId, advisor, advisorModel) {
+      const rec = findRecord(get().state, tabId);
       try {
+        if (
+          rec?.live === "live" &&
+          rec.mode === "rpc-ui" &&
+          (rec.advisor !== advisor || rec.advisorModel !== advisorModel)
+        ) {
+          prepareRpcRelaunch(tabId);
+        }
         await backend.setSessionAdvisor(tabId, advisor, advisorModel);
       } catch (err) {
         // Changing the advisor relaunches the agent, so a failure here means
@@ -1348,6 +1489,8 @@ export const useStore = create<UiStore>()((set, get) => {
         plan: null,
         planReview: null,
         planText: null,
+        planDeferred: false,
+        plans: [],
       });
       // A new plan lifecycle — kill any wait left by the outgoing session.
       concernWatcher.cancel(tabId);
@@ -1366,10 +1509,17 @@ export const useStore = create<UiStore>()((set, get) => {
     executePlan(tabId, context, addressAdvisor = true) {
       // The fresh context embeds the plan text in the new session's prompt, so
       // capture it before the gate's answer clears the pane.
-      const planText = get().rpc[tabId]?.planText ?? null;
+      const tab = get().rpc[tabId];
+      const planText = tab?.planText ?? null;
+      const planKey = tab?.planReview?.request.planFilePath;
       // Answer the gate first — omp's agent is blocked on the reply, so every
       // exit from the review pane must land its verdict before any dispatch.
       if (!answerPlanSelect(tabId, PLAN_EXECUTE)) return;
+      if (planKey) {
+        patchRpc(tabId, {
+          plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "executed"),
+        });
+      }
       // The drafting turn's review lands after the verdict, so hold dispatch
       // for it when the user wants the advisor's concerns actioned. Execute
       // only: the execute ToolResult tells the agent to stop and wait, so this
@@ -1385,7 +1535,13 @@ export const useStore = create<UiStore>()((set, get) => {
     },
 
     refinePlan(tabId, notes) {
+      const planKey = get().rpc[tabId]?.planReview?.request.planFilePath;
       if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
+      if (planKey) {
+        patchRpc(tabId, {
+          plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "refined"),
+        });
+      }
       const text = notes?.text?.trim() ?? "";
       const images = notes?.images;
       if (text === "" && !images?.length) return;
@@ -1395,6 +1551,14 @@ export const useStore = create<UiStore>()((set, get) => {
         ? `Revise the plan to incorporate these requested changes:\n\n${text}`
         : "Revise the plan per the attached change notes.";
       void get().sendPrompt(tabId, message, "steer", images);
+    },
+
+    deferPlanReview(tabId) {
+      patchRpc(tabId, { planDeferred: true });
+    },
+
+    showPlanReview(tabId) {
+      patchRpc(tabId, { planDeferred: false });
     },
 
     async loadPlanText(tabId, absPath) {
@@ -1425,13 +1589,13 @@ export const useStore = create<UiStore>()((set, get) => {
     },
 
     async refreshState(tabId) {
-      const resp = await runCommand(tabId, { type: "get_state" });
+      const resp = await runCommand(tabId, { type: "get_state" }, { quiet: true });
       if (resp === null) return;
       applyRpcState(tabId, resp);
     },
 
     async refreshStats(tabId) {
-      const resp = await runCommand(tabId, { type: "get_session_stats" });
+      const resp = await runCommand(tabId, { type: "get_session_stats" }, { quiet: true });
       if (resp === null) return;
       patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
     },
@@ -1444,7 +1608,9 @@ export const useStore = create<UiStore>()((set, get) => {
     },
 
     async refreshSubagents(tabId) {
-      const resp = await runCommand(tabId, { type: "get_subagents" });
+      // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
+      // strobe for the lifetime of every spawned subagent.
+      const resp = await runCommand(tabId, { type: "get_subagents" }, { quiet: true });
       if (resp === null) return;
       patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
     },

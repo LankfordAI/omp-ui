@@ -1,4 +1,5 @@
 export * from "./paths";
+export { readBranchDiff } from "./branch-diff";
 export * from "./omp-update";
 export * from "./session-file";
 export * from "./types";

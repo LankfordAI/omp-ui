@@ -15,6 +15,7 @@ import {
   parseModelRole,
   readOmpAdvisorDefaults,
   readOmpModelRole,
+  readBranchDiff,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -187,6 +188,7 @@ export class MainBackend {
     ipcMain.handle(CH.planRead, (_e, tabId: string, absPath: string) =>
       this.readPlanFile(tabId, absPath),
     );
+    ipcMain.handle(CH.branchDiff, (_e, projectCwd: string) => readBranchDiff(projectCwd));
     ipcMain.handle(CH.ptyPasteImage, (_e, tabId: string, image: ImageAttachment) =>
       this.ptyPasteImage(tabId, image),
     );

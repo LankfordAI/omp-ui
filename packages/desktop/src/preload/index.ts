@@ -21,6 +21,7 @@ const api: OmpBackend = {
   generateTitle: (projectCwd, prompt) =>
     ipcRenderer.invoke(CH.titleGenerate, projectCwd, prompt),
   readPlanFile: (tabId, absPath) => ipcRenderer.invoke(CH.planRead, tabId, absPath),
+  getBranchDiff: (projectCwd) => ipcRenderer.invoke(CH.branchDiff, projectCwd),
   ptyPasteImage: (tabId, image) => ipcRenderer.invoke(CH.ptyPasteImage, tabId, image),
   ptyWrite: (tabId, data) => ipcRenderer.send(CH.ptyWrite, tabId, data),
   ptyResize: (tabId, cols, rows) => ipcRenderer.send(CH.ptyResize, tabId, cols, rows),

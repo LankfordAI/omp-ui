@@ -163,7 +163,7 @@ function ProjectSection({ group, sessions, query }: FilteredGroup & { query: str
                 </Chip>
                 {live > 0 && (
                   <Chip mono tone="signal" title={`${live} live`}>
-                    <Dot tone="signal" pulse />
+                    <Dot tone="signal" />
                     {live}
                   </Chip>
                 )}
@@ -422,7 +422,7 @@ export function Sidebar() {
         )}
       >
         <span className="flex items-center gap-1.5">
-          <Dot tone={totalLive > 0 ? "signal" : "neutral"} pulse={totalLive > 0} />
+          <Dot tone={totalLive > 0 ? "signal" : "neutral"} />
           <span className="font-mono tabular-nums">{totalLive}</span>
           {!collapsed && <span>live</span>}
         </span>

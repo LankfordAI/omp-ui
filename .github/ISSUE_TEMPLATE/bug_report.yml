@@ -1,0 +1,74 @@
+name: Bug Report
+description: Something in omp-ui doesn't behave as documented or expected.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check `CONTEXT.md` for the project vocabulary and search existing issues for duplicates.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What went wrong? One or two sentences, using CONTEXT.md vocabulary where it applies (session, tab, lineage, inspector rail, ...).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Register project X in the sidebar
+        2. Launch a new session
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Tab mode
+      description: Which rendering mode is affected?
+      options:
+        - PTY / terminal tab (xterm.js)
+        - rpc-ui / native transcript
+        - Both
+        - N/A (sidebar, launcher, session scanning, other)
+    validations:
+      required: true
+  - type: input
+    id: omp-ui-version
+    attributes:
+      label: omp-ui version / commit
+      placeholder: e.g. main @ abc1234
+    validations:
+      required: true
+  - type: input
+    id: omp-version
+    attributes:
+      label: omp version
+      description: Output of `omp --version`.
+      placeholder: e.g. 17.1.8
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: e.g. Fedora 43, macOS 15, Windows 11
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: Relevant main-process or devtools console output. Automatically formatted as code.
+      render: shell

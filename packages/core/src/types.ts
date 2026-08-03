@@ -79,6 +79,21 @@ export interface BackendState {
   modelFavorites: string[];
 }
 
+/**
+ * Working-tree state of a project's git repo (see readBranchDiff). Null
+ * repoRoot means the project is not inside a git repository.
+ */
+export interface BranchDiff {
+  /** Active branch name; null when detached or not a git repo. */
+  branch: string | null;
+  /** Repo root the branch lives in — the diff is read relative to it. */
+  repoRoot: string | null;
+  /** `git diff HEAD` for tracked files, verbatim unified diff. */
+  diff: string;
+  /** New untracked files, read as creates. Oversized files are skipped. */
+  untracked: Array<{ path: string; text: string; binary: boolean }>;
+}
+
 export interface SpawnRequest {
   projectCwd: string;
   mode: SessionMode;
@@ -159,6 +174,12 @@ export interface OmpBackend {
    * absent or out of bounds.
    */
   readPlanFile(tabId: string, absPath: string): Promise<string | null>;
+  /**
+   * Working-tree changes on the active branch of a project's git repo: tracked
+   * changes vs HEAD plus new untracked files. Null fields when the project is
+   * not inside a git repository.
+   */
+  getBranchDiff(projectCwd: string): Promise<BranchDiff>;
   /**
    * Writes pasted image bytes to a scratch file and delivers its path to the
    * PTY as a bracketed paste — omp's TUI loads the file itself. The PTY carries

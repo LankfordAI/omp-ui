@@ -35,6 +35,12 @@ export interface AdvisorStatsView {
   active: boolean;
   /** The resolved advisor model id, or null while unset / unreadable. */
   model: string | null;
+  /**
+   * True when the advisor model bills through an OAuth subscription — spend
+   * legitimately stays $0 and omp's own TUI renders "(sub)" instead. Absent in
+   * frames from older extensions; treated as false.
+   */
+  subscription: boolean;
   /** Current advisor context window (provider capacity). */
   contextWindow: number;
   /** Current advisor context tokens in use — how deep its context is. */
@@ -59,7 +65,7 @@ export function parseAdvisorStats(text: string | undefined): AdvisorStatsView | 
   if (record.available !== true) {
     // An unavailable publisher still carries the reason to show.
     if (typeof record.unavailable === "string") {
-      return { available: false, unavailable: record.unavailable, configured: false, active: false, model: null, contextWindow: 0, contextTokens: 0, cost: 0, totalTokens: 0 };
+      return { available: false, unavailable: record.unavailable, configured: false, active: false, model: null, subscription: false, contextWindow: 0, contextTokens: 0, cost: 0, totalTokens: 0 };
     }
     return null;
   }
@@ -68,6 +74,7 @@ export function parseAdvisorStats(text: string | undefined): AdvisorStatsView | 
     configured: record.configured === true,
     active: record.active === true,
     model: typeof record.model === "string" ? record.model : null,
+    subscription: record.subscription === true,
     contextWindow: num(record.contextWindow),
     contextTokens: num(record.contextTokens),
     cost: num(record.cost),

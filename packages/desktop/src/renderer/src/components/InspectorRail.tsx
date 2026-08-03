@@ -1,11 +1,22 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import type { SessionStats, TokenTotals } from "../lib/rpc-types";
-import { useStore } from "../store";
+import { findRecord, useStore, type PlanRecord } from "../store";
 import { BashDrawer } from "./BashDrawer";
+import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
 import { Button, Chip, CopyButton, Dot, Empty, IconButton, Label, type Tone } from "./ui";
+
+interface BranchDiffLoad {
+  status: "idle" | "loading" | "error" | "loaded";
+  message?: string;
+  branch?: string | null;
+  repoRoot?: string | null;
+  files?: DiffFile[];
+}
 
 /**
  * The right-hand instrument rail: the agent's plan, its console, its subagents,
@@ -13,7 +24,7 @@ import { Button, Chip, CopyButton, Dot, Empty, IconButton, Label, type Tone } fr
  * the collapse so the strip still tells you something.
  */
 
-type RailTab = "todos" | "console" | "agents" | "session";
+type RailTab = "todos" | "console" | "agents" | "session" | "plans" | "diffs";
 
 /**
  * Rail selection is per-session and deliberately module-level: it is view
@@ -61,6 +72,20 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M2.6 4.4c0-1 2.4-1.9 5.4-1.9s5.4.9 5.4 1.9-2.4 1.9-5.4 1.9S2.6 5.4 2.6 4.4z" {...S} />
           <path d="M2.6 4.4v7.2c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9V4.4" {...S} />
           <path d="M2.6 8c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9" {...S} />
+        </>
+      )}
+      {tab === "plans" && (
+        <>
+          <path d="M3.4 5.6h9.2V12a1.3 1.3 0 0 1-1.3 1.3H4.7A1.3 1.3 0 0 1 3.4 12z" {...S} />
+          <path d="M5.2 3h5.6v2.6H5.2z" {...S} />
+          <path d="M6.3 9.1l1.3 1.3 2.1-2.6" {...S} />
+        </>
+      )}
+      {tab === "diffs" && (
+        <>
+          <path d="M2.8 4.4h8.6v6.6a1.2 1.2 0 0 1-1.2 1.2H4A1.2 1.2 0 0 1 2.8 11z" {...S} />
+          <path d="M12.4 3.4v4.6M10.1 5.7h4.6" {...S} />
+          <path d="M6 2H4.4A1.4 1.4 0 0 0 3 3.4v1.8M10 14h1.6a1.4 1.4 0 0 0 1.4-1.4v-1.8" {...S} />
         </>
       )}
     </svg>
@@ -412,6 +437,194 @@ function SessionPane({ tabId }: { tabId: string }) {
   );
 }
 
+/* -------------------------------------------------- plans + branch diffs */
+
+const PLAN_TONE: Record<PlanRecord["status"], Tone> = {
+  pending: "copper",
+  executed: "signal",
+  refined: "neutral",
+};
+const PLAN_LABEL: Record<PlanRecord["status"], string> = {
+  pending: "waiting on you",
+  executed: "executed",
+  refined: "sent back",
+};
+
+/**
+ * This session's proposed plans. The pending plan — the one omp's agent is
+ * blocked on — is actionable: review re-opens the modal, request changes sends
+ * the planner back to revise, and "not now" leaves it pending until later.
+ * Settled plans stay as a dim record of the session's plan history.
+ */
+function PlansPane({ tabId }: { tabId: string }) {
+  const records = useStore((s) => s.rpc[tabId]?.plans) ?? [];
+  const reviewPath = useStore((s) => s.rpc[tabId]?.planReview?.request.planFilePath);
+  const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
+  const showPlanReview = useStore((s) => s.showPlanReview);
+  const deferPlanReview = useStore((s) => s.deferPlanReview);
+  const refinePlan = useStore((s) => s.refinePlan);
+
+  if (records.length === 0) {
+    return (
+      <Empty
+        title="No proposed plans"
+        hint="A plan-mode draft appears here once the agent writes it up."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2 px-3 py-2.5">
+      {records.map((record) => {
+        const actionable = record.status === "pending" && record.key === reviewPath;
+        return (
+          <div key={record.key} className="overflow-hidden rounded-md border border-line bg-raised">
+            <button
+              type="button"
+              disabled={!actionable}
+              title={actionable ? "open the plan review" : record.title}
+              onClick={() => showPlanReview(tabId)}
+              className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left disabled:hover:bg-transparent enabled:hover:bg-hover"
+            >
+              <Dot
+                tone={PLAN_TONE[record.status]}
+                title={PLAN_LABEL[record.status]}
+                className="mt-1"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium text-ink">
+                  {record.title}
+                </span>
+                <span className="mt-0.5 flex items-center gap-1.5">
+                  <Chip mono tone={PLAN_TONE[record.status]}>
+                    {PLAN_LABEL[record.status]}
+                  </Chip>
+                  {actionable && deferred && (
+                    <span className="text-[10px] text-ink-faint">paused · not now</span>
+                  )}
+                </span>
+              </span>
+            </button>
+            {actionable && (
+              <div className="flex items-center gap-1 border-t border-line-soft bg-sunken px-2 py-1.5">
+                <Button size="xs" onClick={() => showPlanReview(tabId)}>
+                  review
+                </Button>
+                <Button
+                  size="xs"
+                  title="Send the agent back to revise the draft"
+                  onClick={() => refinePlan(tabId)}
+                >
+                  request changes
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="ml-auto"
+                  title="Leave the plan pending — the agent stays paused until you answer elsewhere"
+                  onClick={() => deferPlanReview(tabId)}
+                >
+                  not now
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * All working-tree changes on this project's active git branch: tracked
+ * `git diff HEAD` plus new untracked files, one DiffViewer per file. Loads on
+ * pane mount and on demand; not a git repository renders an empty state.
+ */
+function DiffsPane({ tabId }: { tabId: string }) {
+  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
+
+  const refresh = useCallback(async () => {
+    if (!projectCwd) {
+      setLoad({ status: "loaded", repoRoot: null, branch: null, files: [] });
+      return;
+    }
+    setLoad({ status: "loading" });
+    try {
+      const branch = await backend.getBranchDiff(projectCwd);
+      setLoad({
+        status: "loaded",
+        branch: branch.branch,
+        repoRoot: branch.repoRoot,
+        files: parseBranchDiff(branch.diff, branch.untracked),
+      });
+    } catch (err) {
+      setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }, [projectCwd]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  if (load.status === "idle" || load.status === "loading") {
+    return <Empty title="Reading branch…" hint="Gathering the working-tree diff." />;
+  }
+  if (load.status === "error") {
+    return (
+      <Empty
+        title="Could not read the diff"
+        hint={load.message}
+        action={
+          <Button size="xs" onClick={() => void refresh()}>
+            retry
+          </Button>
+        }
+      />
+    );
+  }
+  if (!load.repoRoot) {
+    return (
+      <Empty
+        title="No git repository"
+        hint="This project isn't inside a git repo, so there's no branch to diff."
+      />
+    );
+  }
+  const files = load.files ?? [];
+  if (files.length === 0) {
+    return (
+      <Empty
+        title="Working tree clean"
+        hint={`No changes on ${load.branch ?? "this branch"} since HEAD.`}
+      />
+    );
+  }
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 border-b border-line-soft px-3 py-2">
+        <Chip mono tone="signal" title={load.repoRoot ?? undefined}>
+          {load.branch ?? "detached"}
+        </Chip>
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint"
+          title={load.repoRoot ?? undefined}
+        >
+          {load.repoRoot}
+        </span>
+        <IconButton label="refresh branch diff" onClick={() => void refresh()}>
+          <IconRefresh />
+        </IconButton>
+      </div>
+      <div className="space-y-2 px-3 py-2.5">
+        {files.map((file) => (
+          <DiffViewer key={file.path} rows={file.rows} path={file.path} op={file.op} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------- the rail */
 
 const TABS: { id: RailTab; label: string }[] = [
@@ -419,6 +632,8 @@ const TABS: { id: RailTab; label: string }[] = [
   { id: "console", label: "console" },
   { id: "agents", label: "agents" },
   { id: "session", label: "session" },
+  { id: "plans", label: "plans" },
+  { id: "diffs", label: "diffs" },
 ];
 
 export function InspectorRail({ tabId }: { tabId: string }) {
@@ -441,11 +656,15 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   for (const phase of todos) {
     for (const task of phase.tasks ?? []) if (task.status !== "completed") openTodos += 1;
   }
+  const planWaiting = useStore((s) => (s.rpc[tabId]?.planReview ? 1 : 0));
   const badges: Record<RailTab, number> = {
     todos: openTodos,
     console: commandOutput.length + bashLines.length,
     agents: subagents.length,
     session: 0,
+    // A pending (even deferred) plan is an unanswered verdict waiting on you.
+    plans: planWaiting,
+    diffs: 0,
   };
 
   const select = (next: RailTab): void => {
@@ -496,7 +715,10 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   return (
     <aside className="flex w-[19rem] shrink-0 flex-col border-l border-line bg-sunken">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
-        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+        {/* Six labelled tabs don't fit a 19rem rail — the strip scrolls (the
+            scrollbar is invisible at rest) rather than shoving the collapse
+            button off-screen. */}
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
@@ -529,6 +751,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
         {tab === "console" && <ConsolePane tabId={tabId} />}
         {tab === "agents" && <AgentsPane tabId={tabId} />}
         {tab === "session" && <SessionPane tabId={tabId} />}
+        {tab === "plans" && <PlansPane tabId={tabId} />}
+        {tab === "diffs" && <DiffsPane tabId={tabId} />}
       </div>
     </aside>
   );

@@ -248,10 +248,13 @@ function ContextCluster({ usage }: { usage: ContextUsage }) {
 function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
   const window = stats.contextWindow > 0 ? stats.contextWindow : 0;
   const percent = window > 0 ? (stats.contextTokens / window) * 100 : 0;
+  // A subscription-billed advisor legitimately accrues $0 — omp's own TUI
+  // renders "(sub)". Mirror that instead of a $0.0000 that reads as broken.
+  const spend = stats.subscription && stats.cost === 0 ? "sub" : formatCost(stats.cost);
   const exact =
     `advisor${stats.model ? ` · ${stats.model}` : ""}: ` +
     `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
-    ` (${percent.toFixed(2)}%) · ${formatCost(stats.cost)}`;
+    ` (${percent.toFixed(2)}%) · ${stats.subscription ? "subscription billing" : formatCost(stats.cost)}`;
   return (
     <div className="hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex" title={exact}>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">adv</span>
@@ -260,7 +263,7 @@ function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
         {percent.toFixed(1)}%
       </span>
       <span className="font-mono text-[10px] tabular-nums text-ink-faint" title={exact}>
-        {formatCost(stats.cost)}
+        {spend}
       </span>
     </div>
   );

@@ -59,6 +59,17 @@ describe("writeAdvisorStatsExtension", () => {
     expect(source).toContain("missing getAdvisorStats");
   });
 
+  it("polls the cheap cost sum so async advisor reviews still reach the HUD", () => {
+    const source = fs.readFileSync(writeAdvisorStatsExtension(tempLineage()), "utf8");
+    // omp folds a review's cost in AFTER prompt() resolves, so without this
+    // poll the readout permanently trails a review — stuck at $0 until the
+    // next turn happens to publish.
+    expect(source).toContain("getAdvisorCost");
+    expect(source).toContain("setInterval");
+    // The poll must never hold the omp process open on exit.
+    expect(source).toContain("unref");
+  });
+
   it("writes a syntactically valid TS extension omp can transpile", () => {
     const source = fs.readFileSync(writeAdvisorStatsExtension(tempLineage()), "utf8");
     // Substring checks can't catch a broken template; the file omp loads must

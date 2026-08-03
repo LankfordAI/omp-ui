@@ -45,15 +45,19 @@ subpath (the `ADVISOR_STATS_KEY` / `ADVISOR_STATS_COMMAND` constants and the
 - **Turn boundaries.** `getAdvisorStats()` re-tokenizes the advisor transcript,
   so the extension publishes after each `AgentSession.prompt()` resolves,
   gated behind the cheap `getAdvisorStatusOverview().configured` check so an
-  advisor-off session pays nothing per turn. omp runs the advisor's review
-  async to the primary loop (`waitForCatchup` is headless-only), so the review
-  of a turn typically lands one publish later — the readout trails at most one
-  review and catches up at the next boundary or on a manual refresh. That is
-  fine for a spend/context HUD, and it never reads stale data as current.
+  advisor-off session pays nothing per turn.
+- **A cost-delta poll.** omp runs the advisor's review async to the primary
+  loop (`waitForCatchup` is headless-only) and folds its cost in *after*
+  `prompt()` resolves, so turn-end publishes alone permanently trail by one
+  review — a readout that reads $0 until the next turn. The extension therefore
+  also polls `getAdvisorCost()` (a plain sum over a small per-advisor map — no
+  re-tokenize) every 2 s on an unref'd interval, and only a moved total pays
+  for the full `getAdvisorStats()` publish. An advisor-off session pays a no-op
+  map sum per tick and publishes nothing.
 - **Never mid-stream.** Publishing happens inside omp, so the renderer never
   sends a slash prompt while a turn is running (which could be steered into or
   reach the model as literal text). The HUD's manual refresh skips the advisor
   fetch while `status === "running"` or `isStreaming` is true.
-- **Boot arm.** One slash call at tab boot sets the extension's `ui` channel,
-  without which its auto-publish is a no-op; a resumed session displays advisor
-  stats from its first new turn onward.
+- **Boot arm.** One slash call at tab boot sets the extension's `ui` channel
+  and starts the poll, without which its auto-publish is a no-op; a resumed
+  session displays advisor stats from its first new turn or poll tick onward.

@@ -164,8 +164,9 @@ export function Dot({
     <span
       title={title}
       className={cn(
-        "size-1.5 shrink-0 rounded-full",
+        "size-1.5 shrink-0 rounded-full motion-reduce:animate-none",
         TONE_DOT[tone],
+        TONE_TEXT[tone],
         pulse && "animate-breathe",
         className,
       )}
