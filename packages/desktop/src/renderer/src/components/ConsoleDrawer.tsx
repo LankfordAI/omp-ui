@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
-import { BashDrawer } from "./BashDrawer";
+import { clearShellTerm, ShellDrawer } from "./ShellDrawer";
 import { Button, Empty, IconButton, Label } from "./ui";
 
 /**
  * The console as a composer drawer (issue #33): the command-output stream and
- * the bash shell that used to live in the inspector rail, now docked below the
+ * the login shell that used to live in the inspector rail, now docked below the
  * composer across the full tab width. `ConsoleToggle` is the composer's
  * button; `ConsoleDrawer` is the drawer itself.
  */
@@ -16,6 +16,13 @@ import { Button, Empty, IconButton, Label } from "./ui";
  * also survive a tab switch and back, which component state cannot.
  */
 const consoleSeen = new Map<string, number>();
+
+/**
+ * Tabs whose drawer has been opened at least once. After the first open the
+ * drawer stays mounted (display:none when closed) so the shell's state —
+ * cwd, env, running programs — survives the close (issue #42).
+ */
+const consoleOpened = new Set<string>();
 
 const S = {
   fill: "none",
@@ -28,9 +35,8 @@ const S = {
 /** The composer's console button; a copper dot marks output arrived while closed. */
 export function ConsoleToggle({ tabId }: { tabId: string }) {
   const open = useStore((s) => s.consoleOpen[tabId] ?? false);
-  const total = useStore(
-    (s) => (s.rpc[tabId]?.commandOutput.length ?? 0) + (s.rpc[tabId]?.bashLines.length ?? 0),
-  );
+  // Shell output must not badge the dot — a live shell would keep it lit.
+  const total = useStore((s) => s.rpc[tabId]?.commandOutput.length ?? 0);
   const toggleConsole = useStore((s) => s.toggleConsole);
 
   // While open, "seen" tracks continuously, so the dot re-arms only on output
@@ -39,8 +45,7 @@ export function ConsoleToggle({ tabId }: { tabId: string }) {
     if (open) consoleSeen.set(tabId, total);
   }, [open, total, tabId]);
 
-  // A dot, not a count: `command_output` frames append to both streams in the
-  // store, so any number derived from their lengths double-counts.
+  // A dot, not a count: one ping per close, no matter how much output arrived.
   const unread = !open && total > (consoleSeen.get(tabId) ?? 0);
 
   return (
@@ -62,7 +67,6 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
   const open = useStore((s) => s.consoleOpen[tabId] ?? false);
   const output = useStore((s) => s.rpc[tabId]?.commandOutput) ?? [];
   const clearCommandOutput = useStore((s) => s.clearCommandOutput);
-  const clearBash = useStore((s) => s.clearBash);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -70,20 +74,27 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [output.length]);
 
-  if (!open) return null;
+  // After the first open the drawer stays mounted — `hidden` (display:none)
+  // keeps the xterm instance and its writer registration alive so a closed
+  // drawer does not kill running shell programs (same survival strategy
+  // App.tsx uses for hidden tabs).
+  useEffect(() => {
+    if (open) consoleOpened.add(tabId);
+  }, [open, tabId]);
+  if (!open && !consoleOpened.has(tabId)) return null;
 
   return (
-    <div className="shrink-0 border-t border-line bg-sunken">
+    <div className={open ? "shrink-0 border-t border-line bg-sunken" : "hidden"}>
       <div className="flex h-8 items-center gap-2 px-3">
         <Label>console</Label>
         <span className="flex-1" />
         <Button
           size="xs"
           variant="ghost"
-          title="clear command and bash output"
+          title="clear command output and shell screen"
           onClick={() => {
             clearCommandOutput(tabId);
-            clearBash(tabId);
+            clearShellTerm(tabId);
           }}
         >
           clear
@@ -121,8 +132,8 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
           )}
         </div>
         <div className="flex min-h-0 min-w-0 flex-col">
-          <Label className="mb-1 shrink-0">bash</Label>
-          <BashDrawer tabId={tabId} />
+          <Label className="mb-1 shrink-0">shell</Label>
+          <ShellDrawer tabId={tabId} visible={open} />
         </div>
       </div>
     </div>

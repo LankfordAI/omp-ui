@@ -62,6 +62,12 @@ const mockBackend = {
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
+  onShellData: vi.fn(),
+  onShellExit: vi.fn(),
+  shellSpawn: vi.fn(),
+  shellKill: vi.fn(),
+  shellWrite: vi.fn(),
+  shellResize: vi.fn(),
   addProject: vi.fn(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
@@ -130,7 +136,7 @@ Object.assign(globalThis, { window: windowStub });
 
 // Dynamic import is required: ./backend reads window.ompBackend at module
 // load, so the stub above must land before the store module evaluates.
-const { deriveSidebarSessionState, useStore } = await import("./store");
+const { deriveSidebarSessionState, registerShellWriter, useStore } = await import("./store");
 
 /** Deterministic event-drain for promise chains (no wall-clock waiting). */
 const flushMicrotasks = async (): Promise<void> => {
@@ -161,7 +167,6 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
-    bashLines: [],
     commandOutput: [],
     busy: false,
     initialPrompt: null,
@@ -1265,10 +1270,9 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
-  it("appends command_output to both bash lines and command output", () => {
+  it("appends command_output to command output", () => {
     useStore.getState().handleRpcFrame(TAB, { type: "command_output", text: "out-1" });
     const tab = useStore.getState().rpc[TAB]!;
-    expect(tab.bashLines).toEqual(["out-1"]);
     expect(tab.commandOutput).toEqual(["out-1"]);
   });
 
@@ -1849,15 +1853,12 @@ describe("prompting, slash commands, and session ops", () => {
     ]);
   });
 
-  it("clearCommandOutput and clearBash empty only their own rail", () => {
+  it("clearCommandOutput empties the console rail", () => {
     useStore.setState({
-      rpc: { [TAB]: tabState({ bashLines: ["b"], commandOutput: ["c"] }) },
+      rpc: { [TAB]: tabState({ commandOutput: ["c"] }) },
     });
     useStore.getState().clearCommandOutput(TAB);
     expect(useStore.getState().rpc[TAB]!.commandOutput).toEqual([]);
-    expect(useStore.getState().rpc[TAB]!.bashLines).toEqual(["b"]);
-    useStore.getState().clearBash(TAB);
-    expect(useStore.getState().rpc[TAB]!.bashLines).toEqual([]);
   });
 
   it("toggleConsole flips one tab's drawer without touching another's (issue #33)", () => {
@@ -1867,6 +1868,39 @@ describe("prompting, slash commands, and session ops", () => {
     expect(useStore.getState().consoleOpen[`${TAB}-other`]).toBeUndefined();
     useStore.getState().toggleConsole(TAB);
     expect(useStore.getState().consoleOpen[TAB]).toBe(false);
+  });
+});
+
+describe("console-drawer shell routing (issue #42)", () => {
+  // init() latches a module-level `initialized` flag, so it can run exactly
+  // once per file — no other suite calls it. The captures below must happen
+  // in the same test: beforeEach's vi.clearAllMocks() wipes mock.calls.
+  it("routes shell:data to the registered writer and tracks shell exit", async () => {
+    useStore.setState({ shellExited: {} });
+    await useStore.getState().init();
+    const dataCb = mockBackend.onShellData.mock.calls[0]?.[0] as (
+      tabId: string,
+      data: Uint8Array,
+    ) => void;
+    const exitCb = mockBackend.onShellExit.mock.calls[0]?.[0] as (
+      tabId: string,
+      code: number,
+    ) => void;
+    expect(dataCb).toBeDefined();
+    expect(exitCb).toBeDefined();
+
+    const writer = vi.fn();
+    const unregister = registerShellWriter(TAB, writer);
+    dataCb(TAB, new Uint8Array([65]));
+    expect(writer).toHaveBeenCalledWith(new Uint8Array([65]));
+    unregister();
+    dataCb(TAB, new Uint8Array([66]));
+    expect(writer).toHaveBeenCalledTimes(1); // unregistered: dropped
+
+    exitCb(TAB, 7);
+    expect(useStore.getState().shellExited[TAB]).toBe(7);
+    useStore.getState().clearShellExited(TAB);
+    expect(useStore.getState().shellExited[TAB]).toBeUndefined();
   });
 });
 

@@ -110,7 +110,6 @@ export interface RpcTabState {
   /** Not rendered — mutated in place. */
   pendingCommands: Map<string, PendingCommand>;
   extensionQueue: unknown[];
-  bashLines: string[];
   /** Slash-command output, newest last. */
   commandOutput: string[];
   /** True while any rpc command is in flight. */
@@ -168,7 +167,6 @@ function freshRpcTabState(): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
-    bashLines: [],
     commandOutput: [],
     busy: false,
     initialPrompt: null,
@@ -231,6 +229,8 @@ interface UiStore {
   tabs: TabInfo[];
   activeTabId: string | null;
   exited: Record<string, number>;
+  /** Console-drawer shell exit codes, keyed by tabId (issue #42). */
+  shellExited: Record<string, number>;
   rpc: Record<string, RpcTabState>;
   /**
    * Console drawer open/closed, keyed by tabId (issue #33). View preference,
@@ -332,8 +332,6 @@ interface UiStore {
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
   answerExtension(tabId: string, request: unknown, response: Record<string, unknown>): void;
-  runBash(tabId: string, command: string): Promise<void>;
-  abortBash(tabId: string): Promise<void>;
   /** Offer a user message as the auto-title source; low-signal text defers. */
   setInitialPrompt(tabId: string, prompt: string): void;
   /** Auto-title the session from the stored prompt. */
@@ -432,7 +430,8 @@ interface UiStore {
   refreshAdvisorStats(tabId: string): Promise<void>;
   refreshSubagents(tabId: string): Promise<void>;
   clearCommandOutput(tabId: string): void;
-  clearBash(tabId: string): void;
+  /** Clears the drawer's dead-shell overlay while a replacement spawns. */
+  clearShellExited(tabId: string): void;
   /** Toggles the composer's console drawer for a tab (issue #33). */
   toggleConsole(tabId: string): void;
   /** (Re)reads the project's branch listing; on failure keeps the last known. */
@@ -456,6 +455,15 @@ export function registerTermWriter(tabId: string, cb: (data: Uint8Array) => void
   termWriters.set(tabId, cb);
   return () => {
     termWriters.delete(tabId);
+  };
+}
+
+// One IPC data listener total; each ShellDrawer registers its writer here.
+const shellWriters = new Map<string, (data: Uint8Array) => void>();
+export function registerShellWriter(tabId: string, cb: (data: Uint8Array) => void): () => void {
+  shellWriters.set(tabId, cb);
+  return () => {
+    shellWriters.delete(tabId);
   };
 }
 
@@ -840,6 +848,7 @@ export const useStore = create<UiStore>()((set, get) => {
     tabs: [],
     activeTabId: null,
     exited: {},
+    shellExited: {},
     rpc: {},
     consoleOpen: {},
     branches: {},
@@ -885,6 +894,10 @@ export const useStore = create<UiStore>()((set, get) => {
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) => {
         set((s) => ({ exited: { ...s.exited, [tabId]: code } }));
+      });
+      backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
+      backend.onShellExit((tabId, code) => {
+        set((s) => ({ shellExited: { ...s.shellExited, [tabId]: code } }));
       });
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
       backend.onAppUpdateState((appUpdate) => set({ appUpdate }));
@@ -1408,7 +1421,6 @@ export const useStore = create<UiStore>()((set, get) => {
         case "command_output": {
           const text = strField(frame, "text") ?? strField(frame, "output") ?? "";
           patchRpc(tabId, {
-            bashLines: [...tab.bashLines, text],
             commandOutput: [...tab.commandOutput, text],
           });
           return;
@@ -1540,23 +1552,6 @@ export const useStore = create<UiStore>()((set, get) => {
         request !== null && typeof request === "object" && "id" in request ? request.id : undefined;
       backend.rpcSend(tabId, { type: "extension_ui_response", id, ...response });
       patchRpc(tabId, { extensionQueue: tab.extensionQueue.filter((q) => q !== request) });
-    },
-
-    async runBash(tabId, command) {
-      const resp = await get()
-        .rpcCommand(tabId, { type: "bash", command })
-        .catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }));
-      const tab = get().rpc[tabId];
-      if (!tab) return;
-      const payload = respData(resp);
-      const text = strField(payload, "output") ?? strField(payload, "error") ?? "";
-      if (text) patchRpc(tabId, { bashLines: [...tab.bashLines, text] });
-    },
-
-    async abortBash(tabId) {
-      await get()
-        .rpcCommand(tabId, { type: "abort_bash" })
-        .catch(() => {});
     },
 
     setInitialPrompt(tabId, prompt) {
@@ -1952,8 +1947,8 @@ export const useStore = create<UiStore>()((set, get) => {
       patchRpc(tabId, { commandOutput: [] });
     },
 
-    clearBash(tabId) {
-      patchRpc(tabId, { bashLines: [] });
+    clearShellExited(tabId) {
+      set((s) => ({ shellExited: dropExited(s.shellExited, tabId) }));
     },
 
     toggleConsole(tabId) {

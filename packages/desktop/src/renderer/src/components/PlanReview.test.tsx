@@ -43,7 +43,6 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
-    bashLines: [],
     commandOutput: [],
     busy: false,
     initialPrompt: null,

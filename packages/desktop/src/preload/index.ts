@@ -50,6 +50,15 @@ const api: OmpBackend = {
   ptyPasteImage: (tabId, image) => ipcRenderer.invoke(CH.ptyPasteImage, tabId, image),
   ptyWrite: (tabId, data) => ipcRenderer.send(CH.ptyWrite, tabId, data),
   ptyResize: (tabId, cols, rows) => ipcRenderer.send(CH.ptyResize, tabId, cols, rows),
+  shellSpawn: (tabId, cwd, cols, rows) =>
+    ipcRenderer.invoke(CH.shellSpawn, tabId, cwd, cols, rows),
+  shellKill: (tabId) => ipcRenderer.send(CH.shellKill, tabId),
+  shellWrite: (tabId, data) => ipcRenderer.send(CH.shellWrite, tabId, data),
+  shellResize: (tabId, cols, rows) => ipcRenderer.send(CH.shellResize, tabId, cols, rows),
+  onShellData: (cb) =>
+    ipcRenderer.on(CH.shellData, (_e, tabId: string, data: Uint8Array) => cb(tabId, data)),
+  onShellExit: (cb) =>
+    ipcRenderer.on(CH.shellExit, (_e, tabId: string, exitCode: number) => cb(tabId, exitCode)),
   rpcSend: (tabId, command) => ipcRenderer.send(CH.rpcSend, tabId, command),
   onPtyData: (cb) =>
     ipcRenderer.on(CH.ptyData, (_e, tabId: string, data: Uint8Array) => cb(tabId, data)),

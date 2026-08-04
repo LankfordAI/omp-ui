@@ -441,6 +441,18 @@ export interface OmpBackend {
   ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void>;
   ptyWrite(tabId: string, data: string): void;
   ptyResize(tabId: string, cols: number, rows: number): void;
+  /**
+   * Spawns the user's login shell ($SHELL -l; COMSPEC on Windows) in `cwd` for
+   * the tab's console-drawer terminal (issue #42). Replaces any shell already
+   * running for the tab. Rejects when the shell binary cannot be spawned.
+   */
+  shellSpawn(tabId: string, cwd: string, cols: number, rows: number): Promise<void>;
+  /** Kills the tab's console-drawer shell if one runs; its exit is suppressed. */
+  shellKill(tabId: string): void;
+  shellWrite(tabId: string, data: string): void;
+  shellResize(tabId: string, cols: number, rows: number): void;
+  onShellData(cb: (tabId: string, data: Uint8Array) => void): void;
+  onShellExit(cb: (tabId: string, exitCode: number) => void): void;
   rpcSend(tabId: string, command: object): void;
   onPtyData(cb: (tabId: string, data: Uint8Array) => void): void;
   onPtyExit(cb: (tabId: string, exitCode: number) => void): void;

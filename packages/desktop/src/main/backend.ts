@@ -31,6 +31,7 @@ import {
   resolveSessionLocation,
   RpcClient,
   spawnOmp,
+  spawnShell,
   unarchiveSession,
   watchLineageDir,
   writeAdvisorOverlay,
@@ -97,6 +98,8 @@ const SIGKILL_EXIT_MS = 2_000;
 /** The only owner of live session state; the renderer mirrors via broadcasts. */
 export class MainBackend {
   private readonly live = new Map<string, LiveEntry>();
+  /** Console-drawer shells keyed by tabId (issue #42) — outside `live` on purpose. */
+  private readonly shells = new Map<string, PtyHandle>();
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   private readonly watchers = new Map<string, () => void>();
@@ -294,6 +297,16 @@ export class MainBackend {
     ipcMain.on(CH.ptyResize, (_e, tabId: string, cols: number, rows: number) => {
       this.live.get(tabId)?.pty?.resize(cols, rows);
     });
+    ipcMain.handle(CH.shellSpawn, (_e, tabId: string, cwd: string, cols: number, rows: number) =>
+      this.launchShell(tabId, cwd, cols, rows),
+    );
+    ipcMain.on(CH.shellKill, (_e, tabId: string) => this.killShell(tabId));
+    ipcMain.on(CH.shellWrite, (_e, tabId: string, data: string) => {
+      this.shells.get(tabId)?.write(data);
+    });
+    ipcMain.on(CH.shellResize, (_e, tabId: string, cols: number, rows: number) => {
+      this.shells.get(tabId)?.resize(cols, rows);
+    });
     ipcMain.on(CH.rpcSend, (_e, tabId: string, cmd: object) => {
       this.live.get(tabId)?.rpc?.send(cmd);
     });
@@ -344,6 +357,8 @@ export class MainBackend {
       entry.rpc?.kill();
     }
     this.live.clear();
+    for (const handle of this.shells.values()) handle.kill();
+    this.shells.clear();
   }
 
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
@@ -679,6 +694,31 @@ export class MainBackend {
     await Promise.resolve();
   }
 
+  /**
+   * The console drawer's shell terminal (issue #42): a login shell in the
+   * session's project cwd. Respawn replaces — kill-first plus the identity
+   * check below keeps a stale exit from evicting its successor (same guard
+   * as the session PTY's onExit).
+   */
+  private launchShell(tabId: string, cwd: string, cols: number, rows: number): void {
+    this.killShell(tabId);
+    const handle = spawnShell({ id: tabId, cwd, cols, rows });
+    this.shells.set(tabId, handle);
+    handle.onData((data) => this.send(CH.shellData, tabId, data));
+    handle.onExit(({ exitCode }) => {
+      if (this.shells.get(tabId) !== handle) return; // replaced or killed: silent
+      this.shells.delete(tabId);
+      this.send(CH.shellExit, tabId, exitCode);
+    });
+  }
+
+  private killShell(tabId: string): void {
+    const handle = this.shells.get(tabId);
+    if (!handle) return;
+    this.shells.delete(tabId);
+    handle.kill();
+  }
+
   /** Unarchives / adopts as needed so spawn can --resume the right session. */
   private async prepareResume(record: OwnedSessionRecord): Promise<OwnedSessionRecord> {
     const loc = await resolveSessionLocation(
@@ -729,6 +769,7 @@ export class MainBackend {
   }
 
   terminate(tabId: string): void {
+    this.killShell(tabId);
     const entry = this.live.get(tabId);
     if (!entry) return;
     entry.pty?.kill();
@@ -755,6 +796,7 @@ export class MainBackend {
     const entry = this.live.get(tabId);
     if (entry) await this.killAndReap(tabId, entry);
     this.stopWatcher(tabId);
+    this.killShell(tabId);
     // Files first: a failed delete must leave the record so the row stays
     // visible and retryable, rather than orphaning the transcript on disk.
     try {
@@ -792,6 +834,7 @@ export class MainBackend {
   async switchMode(tabId: string, mode: SessionMode): Promise<void> {
     const record = this.registry.sessions.find((s) => s.tabId === tabId);
     if (!record || record.mode === mode) return;
+    this.killShell(tabId);
     const entry = this.live.get(tabId);
     if (!entry) {
       this.registry.updateSession(tabId, { mode });

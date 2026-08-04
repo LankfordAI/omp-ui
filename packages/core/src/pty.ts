@@ -13,6 +13,21 @@ export interface PtyHandle {
   kill(signal?: string): void;
 }
 
+/** Batched in core (5 ms coalescing) so every transport inherits it. */
+function adapt(id: string, proc: pty.IPty): PtyHandle {
+  return batched({
+    id,
+    // node-pty's typings declare `onData: IEvent<string>` even with
+    // `encoding: null` — the runtime emits Buffers, so bridge the known
+    // typing gap via `unknown` (harmless if the types are ever fixed).
+    onData: (cb) => (proc.onData as unknown as pty.IEvent<Buffer>)(cb),
+    onExit: (cb) => proc.onExit(cb),
+    write: (d) => proc.write(d),
+    resize: (c, r) => proc.resize(c, r),
+    kill: (signal) => proc.kill(signal),
+  });
+}
+
 export function spawnOmp(opts: {
   id: string;
   cwd: string;
@@ -48,16 +63,27 @@ export function spawnOmp(opts: {
     encoding: null, // raw Buffers, not decoded strings
   });
 
-  // Batched in core (5 ms coalescing) so every transport inherits it.
-  return batched({
-    id: opts.id,
-    // node-pty's typings declare `onData: IEvent<string>` even with
-    // `encoding: null` — the runtime emits Buffers, so bridge the known
-    // typing gap via `unknown` (harmless if the types are ever fixed).
-    onData: (cb) => (proc.onData as unknown as pty.IEvent<Buffer>)(cb),
-    onExit: (cb) => proc.onExit(cb),
-    write: (d) => proc.write(d),
-    resize: (c, r) => proc.resize(c, r),
-    kill: (signal) => proc.kill(signal),
+  return adapt(opts.id, proc);
+}
+
+/** The user's login shell for the console drawer's terminal (issue #42). */
+export function spawnShell(opts: {
+  id: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+}): PtyHandle {
+  const { file, args } =
+    process.platform === "win32"
+      ? { file: process.env.COMSPEC ?? "cmd.exe", args: [] as string[] }
+      : { file: process.env.SHELL ?? "/bin/bash", args: ["-l"] };
+  const proc = pty.spawn(file, args, {
+    name: "xterm-256color",
+    cols: opts.cols,
+    rows: opts.rows,
+    cwd: opts.cwd,
+    env: { ...process.env },
+    encoding: null, // raw Buffers, same as spawnOmp
   });
+  return adapt(opts.id, proc);
 }

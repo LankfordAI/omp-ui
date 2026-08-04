@@ -9,7 +9,7 @@ export * from "./app-update";
 export * from "./session-file";
 export * from "./types";
 export { Registry } from "./registry";
-export { spawnOmp, type PtyHandle } from "./pty";
+export { spawnOmp, spawnShell, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
