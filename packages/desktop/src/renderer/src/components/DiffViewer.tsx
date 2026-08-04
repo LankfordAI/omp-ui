@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import type { DiffRow } from "../lib/omp-diff";
-import { Chip, CopyButton, Disclosure } from "./ui";
+import { Chevron, Chip, CopyButton, Disclosure } from "./ui";
 
 /** Past this many rows the tail hides behind a disclosure. */
 const COLLAPSE_OVER = 40;
@@ -43,6 +43,10 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
     return { added: add, removed: del, patch: lines.join("\n") };
   }, [rows]);
 
+  // Collapsed by default (issue #34): a multi-file branch is a scroll wall, so
+  // every diff starts as its header card and expands on header click.
+  const [open, setOpen] = useState(false);
+
   if (rows.length === 0) return null;
 
   const collapsed = rows.length > COLLAPSE_OVER;
@@ -56,43 +60,56 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
 
   return (
     <div className="overflow-hidden rounded-md border border-line bg-sunken">
-      <div className="flex items-center gap-2 border-b border-line-soft px-2 py-1">
-        {/* Dirname yields under pressure; the basename is what identifies the
-            file at a glance. */}
-        <span
-          className="flex min-w-0 flex-1 items-baseline font-mono text-[11px]"
-          title={path}
-          data-selectable
+      <div
+        className={cn("flex items-center gap-2 px-2 py-1", open && "border-b border-line-soft")}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded text-left transition-colors hover:text-ink"
         >
-          <span className="truncate text-ink-faint">{dir}</span>
-          <span className="shrink-0 text-ink-mid">{base}</span>
-        </span>
-        {op && <Chip tone={op === "create" ? "signal" : "neutral"}>{op}</Chip>}
-        <span className="shrink-0 font-mono text-[11px] tabular-nums">
-          <span className="text-signal">+{added}</span>{" "}
-          <span className="text-rose">−{removed}</span>
-        </span>
+          <Chevron open={open} />
+          {/* Dirname yields under pressure; the basename is what identifies the
+              file at a glance. */}
+          <span className="flex min-w-0 flex-1 items-baseline font-mono text-[11px]" title={path}>
+            <span className="truncate text-ink-faint">{dir}</span>
+            <span className="shrink-0 text-ink-mid">{base}</span>
+          </span>
+          {op && <Chip tone={op === "create" ? "signal" : "neutral"}>{op}</Chip>}
+          <span className="shrink-0 font-mono text-[11px] tabular-nums">
+            <span className="text-signal">+{added}</span>{" "}
+            <span className="text-rose">−{removed}</span>
+          </span>
+        </button>
+        {/* A button inside the header button is invalid HTML — the copy
+            affordance stays a sibling. It works while collapsed because the
+            patch memoizes off `rows`, not the open state. */}
         <CopyButton text={patch} label="patch" />
       </div>
 
-      {/* The toggle sits outside the horizontal scroller so a wide diff cannot
-          push it off-screen; only the rows themselves pan sideways. */}
-      <div className="overflow-x-auto font-mono text-[12px] leading-[1.5]">
-        {head.map((row, i) => (
-          <Row key={i} row={row} />
-        ))}
-      </div>
-      {collapsed && (
-        <Disclosure
-          className="border-t border-line-soft px-2 py-1"
-          summary={<span className="text-[11px]">show {tail.length} more lines</span>}
-        >
-          <div className="overflow-x-auto pt-1 font-mono text-[12px] leading-[1.5]">
-            {tail.map((row, i) => (
+      {open && (
+        <>
+          {/* The toggle sits outside the horizontal scroller so a wide diff cannot
+              push it off-screen; only the rows themselves pan sideways. */}
+          <div className="overflow-x-auto font-mono text-[12px] leading-[1.5]">
+            {head.map((row, i) => (
               <Row key={i} row={row} />
             ))}
           </div>
-        </Disclosure>
+          {collapsed && (
+            <Disclosure
+              className="border-t border-line-soft px-2 py-1"
+              summary={<span className="text-[11px]">show {tail.length} more lines</span>}
+            >
+              <div className="overflow-x-auto pt-1 font-mono text-[12px] leading-[1.5]">
+                {tail.map((row, i) => (
+                  <Row key={i} row={row} />
+                ))}
+              </div>
+            </Disclosure>
+          )}
+        </>
       )}
     </div>
   );
