@@ -110,8 +110,6 @@ export interface RpcTabState {
   /** Not rendered — mutated in place. */
   pendingCommands: Map<string, PendingCommand>;
   extensionQueue: unknown[];
-  /** Slash-command output, newest last. */
-  commandOutput: string[];
   /** True while any rpc command is in flight. */
   busy: boolean;
   error?: string;
@@ -167,7 +165,6 @@ function freshRpcTabState(): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
-    commandOutput: [],
     busy: false,
     initialPrompt: null,
     hasRenamed: false,
@@ -429,7 +426,6 @@ interface UiStore {
   refreshStats(tabId: string): Promise<void>;
   refreshAdvisorStats(tabId: string): Promise<void>;
   refreshSubagents(tabId: string): Promise<void>;
-  clearCommandOutput(tabId: string): void;
   /** Clears the drawer's dead-shell overlay while a replacement spawns. */
   clearShellExited(tabId: string): void;
   /** Toggles the composer's console drawer for a tab (issue #33). */
@@ -1418,13 +1414,10 @@ export const useStore = create<UiStore>()((set, get) => {
           });
           return;
         }
-        case "command_output": {
-          const text = strField(frame, "text") ?? strField(frame, "output") ?? "";
-          patchRpc(tabId, {
-            commandOutput: [...tab.commandOutput, text],
-          });
+        case "command_output":
+          // Slash-command replies had a pane in the console drawer until
+          // issue #43 made the drawer a full-width shell; dropped on purpose.
           return;
-        }
         case "extension_ui_request": {
           // Plan mode rides the extension channel, so it is claimed before the
           // generic routing: the review dialog must reach the plan pane rather
@@ -1798,7 +1791,6 @@ export const useStore = create<UiStore>()((set, get) => {
         todos: [],
         stats: null,
         subagents: [],
-        commandOutput: [],
         initialPrompt: null,
         hasRenamed: false,
         // A new session in this tab is a new plan lifecycle: the old plan
@@ -1906,7 +1898,8 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
         }
       }
-      // Output arrives asynchronously as command_output frames.
+      // Replies arrive asynchronously as command_output frames, which the
+      // store drops — the drawer's output pane is gone (issue #43).
       await runCommand(tabId, { type: "prompt", message });
     },
 
@@ -1941,10 +1934,6 @@ export const useStore = create<UiStore>()((set, get) => {
       const resp = await runCommand(tabId, { type: "get_subagents" }, { quiet: true });
       if (resp === null) return;
       patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
-    },
-
-    clearCommandOutput(tabId) {
-      patchRpc(tabId, { commandOutput: [] });
     },
 
     clearShellExited(tabId) {

@@ -167,7 +167,6 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
-    commandOutput: [],
     busy: false,
     initialPrompt: null,
     hasRenamed: false,
@@ -1270,10 +1269,10 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
-  it("appends command_output to command output", () => {
+  it("drops command_output frames — the drawer's output pane is gone (issue #43)", () => {
+    const before = useStore.getState().rpc[TAB];
     useStore.getState().handleRpcFrame(TAB, { type: "command_output", text: "out-1" });
-    const tab = useStore.getState().rpc[TAB]!;
-    expect(tab.commandOutput).toEqual(["out-1"]);
+    expect(useStore.getState().rpc[TAB]).toBe(before);
   });
 
   it("available_commands_update replaces the command palette", () => {
@@ -1851,14 +1850,6 @@ describe("prompting, slash commands, and session ops", () => {
     expect(useStore.getState().rpc[TAB]!.subagents).toEqual([
       { id: "s1", name: undefined, agent: "scout", status: "running", label: "map the store" },
     ]);
-  });
-
-  it("clearCommandOutput empties the console rail", () => {
-    useStore.setState({
-      rpc: { [TAB]: tabState({ commandOutput: ["c"] }) },
-    });
-    useStore.getState().clearCommandOutput(TAB);
-    expect(useStore.getState().rpc[TAB]!.commandOutput).toEqual([]);
   });
 
   it("toggleConsole flips one tab's drawer without touching another's (issue #33)", () => {

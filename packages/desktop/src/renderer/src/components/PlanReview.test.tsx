@@ -43,7 +43,6 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
-    commandOutput: [],
     busy: false,
     initialPrompt: null,
     // Skip the auto-title path: the implementation prompt would otherwise
