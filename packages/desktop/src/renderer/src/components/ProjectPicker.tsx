@@ -164,6 +164,10 @@ export function ProjectPicker() {
             ref={(el) => {
               rowsRef.current[i] = el;
             }}
+            // Focus must stay on the path input: all keyboard handling lives
+            // there, and a focused row would swallow Enter/mod+Enter (#23).
+            // Focus moves on mousedown, so that's where it's blocked.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => descend(row)}
             className={cn(
               "flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left transition-colors",

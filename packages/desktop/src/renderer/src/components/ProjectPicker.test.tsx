@@ -176,6 +176,29 @@ describe("ProjectPicker", () => {
     expect(document.body.textContent).toContain("no such directory: /home/u");
   });
 
+  it("force-submits the resolved path on mod+Enter even with a row selected", async () => {
+    backendMock.addProject.mockResolvedValue({});
+    await renderPicker();
+    await press("ArrowDown"); // select ".." — mod+Enter must ignore it
+    await press("Enter", { ctrlKey: true });
+    expect(backendMock.addProject).toHaveBeenCalledWith(HOME);
+    expect(useStore.getState().projectPickerOpen).toBe(false);
+  });
+
+  it("keeps focus on the path input when a row is clicked (#23)", async () => {
+    await renderPicker();
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "alpha",
+    )!;
+    // Focus moves on mousedown; the row must preventDefault there so keyboard
+    // confirmation keeps working after mouse navigation.
+    const mousedown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    await act(async () => {
+      row.dispatchEvent(mousedown);
+    });
+    expect(mousedown.defaultPrevented).toBe(true);
+  });
+
   it("discards a stale browse response that resolves after a newer one", async () => {
     let resolveFirst!: (r: DirBrowseResult) => void;
     let resolveSecond!: (r: DirBrowseResult) => void;
