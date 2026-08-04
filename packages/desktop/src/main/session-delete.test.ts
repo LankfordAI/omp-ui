@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The real MainBackend imports electron; stub the three surfaces it touches.
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
 vi.mock("electron", () => ({
+  app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => os.tmpdir() },
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: {
     handle: (ch: string, fn: (e: unknown, ...args: unknown[]) => unknown) => handlers.set(ch, fn),

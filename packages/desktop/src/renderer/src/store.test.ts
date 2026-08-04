@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState, LiveState } from "@omp-ui/core/types";
+import type { AppUpdateState, BackendState, LiveState, OmpUpdateState } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import type { RpcTabState } from "./store";
 
@@ -11,6 +11,27 @@ let backendState: BackendState = {
   defaultMode: "rpc-ui",
   modelFavorites: [],
   skipDeleteConfirmation: false,
+};
+
+const idleAppUpdate: AppUpdateState = {
+  status: "idle",
+  currentVersion: null,
+  latestVersion: null,
+  releaseUrl: null,
+  releaseName: null,
+  format: "unknown",
+  progress: null,
+  downloadedPath: null,
+  error: null,
+};
+
+const idleOmpUpdate: OmpUpdateState = {
+  status: "idle",
+  installPath: null,
+  installedVersion: null,
+  latestVersion: null,
+  progress: null,
+  error: null,
 };
 
 const mockBackend = {
@@ -40,6 +61,19 @@ const mockBackend = {
   toggleFavorite: vi.fn(),
   ptyWrite: vi.fn(),
   ptyResize: vi.fn(),
+  getOmpUpdateState: vi.fn(async () => idleOmpUpdate),
+  checkOmpUpdate: vi.fn(),
+  downloadOmpUpdate: vi.fn(),
+  dismissOmpUpdate: vi.fn(),
+  onOmpUpdateState: vi.fn(),
+  getAppUpdateState: vi.fn(async () => idleAppUpdate),
+  checkAppUpdate: vi.fn(),
+  downloadAppUpdate: vi.fn(),
+  openAppUpdateReleaseNotes: vi.fn(),
+  showAppUpdateDownload: vi.fn(),
+  restartForAppUpdate: vi.fn(),
+  dismissAppUpdate: vi.fn(),
+  onAppUpdateState: vi.fn(),
 };
 
 // Dialog text is an assertable part of a destructive action's contract, so the

@@ -168,3 +168,13 @@ git-only `getBranchDiff` channel) and renders the parsed result, so "all
 changes on the current branch" is what the user reads regardless of which
 session produced them.
 _Avoid_: per-session diff log, file edit history
+
+**Update card**:
+The small non-modal card in the lower-right corner announcing an available
+update. There are two: the omp-ui release card (versions, the
+package-appropriate update action, release notes, Later) and the omp binary
+install/update card (Update now / Later, or Install / Later when omp is not
+installed at all). Dismissal is remembered per offered version; background
+failures stay silent. When both show they share one corner stack, the omp-ui
+card on top.
+_Avoid_: toast, notification, popup, updater dialog

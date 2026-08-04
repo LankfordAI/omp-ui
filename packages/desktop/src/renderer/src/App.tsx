@@ -1,7 +1,9 @@
 import { useEffect } from "react";
+import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { McpManager } from "./components/McpManager";
+import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
 import { Sidebar } from "./components/Sidebar";
@@ -148,6 +150,12 @@ export default function App() {
         </div>
       </div>
       <CommandPalette />
+      {/* Both update cards share one corner stack (issue #19): cards that
+          render null leave no gap; when both show, the app card sits on top. */}
+      <div className="fixed right-4 bottom-4 z-40 flex w-80 flex-col gap-2">
+        <AppUpdateCard />
+        <OmpUpdateCard />
+      </div>
       {deleteConfirmation && (
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}

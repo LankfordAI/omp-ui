@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
 import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
-import { runOmpLaunchUpdateCheck } from "./omp-update";
 
 // Dev and packaged builds resolve the same package.json name, so by default
 // they also share userData — and with it the single-instance lock: an
@@ -29,6 +28,34 @@ if (!app.requestSingleInstanceLock()) {
   let quitDialogOpen = false;
 
   /**
+   * The awaitable core of the quit guard: resolves true when the quit may
+   * proceed (no live sessions, or the user confirmed). The app updater's
+   * "Restart now" awaits this directly; the window/quit events use the sync
+   * wrapper below.
+   */
+  const confirmLiveQuit = async (): Promise<boolean> => {
+    if (forceQuit || !backend || backend.liveCount === 0) return true;
+    if (quitDialogOpen) return false;
+    quitDialogOpen = true;
+    const win = BrowserWindow.getAllWindows()[0];
+    try {
+      if (!win) return false;
+      const r = await dialog.showMessageBox(win, {
+        type: "warning",
+        buttons: ["Quit", "Cancel"],
+        defaultId: 1,
+        cancelId: 1,
+        message: `${backend.liveCount} agent session(s) still running — quit?`,
+      });
+      if (r.response !== 0) return false;
+      forceQuit = true;
+      return true;
+    } finally {
+      quitDialogOpen = false;
+    }
+  };
+
+  /**
    * Quit-guard shared by the title-bar X (window close) and every quit that
    * starts with before-quit (Ctrl+Q, app menu, app.quit()). killAll must run
    * only when the quit actually proceeds — draining `live` first would make
@@ -36,26 +63,9 @@ if (!app.requestSingleInstanceLock()) {
    */
   const confirmQuitIfLive = (): boolean => {
     if (forceQuit || !backend || backend.liveCount === 0) return true;
-    if (!quitDialogOpen) {
-      quitDialogOpen = true;
-      const win = BrowserWindow.getAllWindows()[0];
-      const ask = win
-        ? dialog.showMessageBox(win, {
-            type: "warning",
-            buttons: ["Quit", "Cancel"],
-            defaultId: 1,
-            cancelId: 1,
-            message: `${backend.liveCount} agent session(s) still running — quit?`,
-          })
-        : Promise.resolve({ response: 1 });
-      void ask.then((r) => {
-        quitDialogOpen = false;
-        if (r.response === 0) {
-          forceQuit = true;
-          app.quit();
-        }
-      });
-    }
+    void confirmLiveQuit().then((ok) => {
+      if (ok) app.quit();
+    });
     return false;
   };
 
@@ -92,7 +102,19 @@ if (!app.requestSingleInstanceLock()) {
 
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
-    const be = new MainBackend(win, registryFile);
+    const be = new MainBackend(win, registryFile, {
+      confirmQuit: confirmLiveQuit,
+      // The updater is packaged-builds-only by default; the env overrides
+      // exist so a dev run can exercise the real flow against a real release.
+      appUpdateEnabled: app.isPackaged || process.env.OMP_UI_APP_UPDATE_ENABLE === "1",
+      appVersion: process.env.OMP_UI_APP_UPDATE_VERSION ?? app.getVersion(),
+      // Dev-only AppImage fake: APPIMAGE is never set outside a real AppImage
+      // run, so without this the electron-updater path is unreachable in dev.
+      appUpdateEnv:
+        process.env.OMP_UI_APP_UPDATE_FORMAT === "appimage"
+          ? { APPIMAGE: "/dev/omp-ui.AppImage" }
+          : undefined,
+    });
     backend = be;
     be.registerIpc();
     void be.hydrateAll();
@@ -107,10 +129,13 @@ if (!app.requestSingleInstanceLock()) {
       void win.loadFile(join(__dirname, "../renderer/index.html"));
     }
 
-    // omp install/update check: ask the user (never auto-apply) before any
-    // download, then refresh the backend's resolved binary so a just-installed
-    // omp is used without an app restart.
-    void runOmpLaunchUpdateCheck(win, () => be.refreshOmpPath());
+    // omp install/update check (issue #19): silent on offline/no-update,
+    // void-fired so first paint never waits on the registry.
+    be.checkOmpUpdateBackground();
+
+    // omp-ui's own release check (issue #18): silent on offline/no-update,
+    // void-fired so first paint never waits on GitHub.
+    be.checkAppUpdateBackground();
   });
 
   // Explicit kill, never SIGHUP reliance (ConPTY has no hangup semantics) —

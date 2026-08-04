@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, type BrowserWindow } from "electron";
 import {
   base64Bytes,
   bracketedImagePaste,
@@ -47,9 +47,9 @@ import {
   type SessionMode,
   type SessionSummary,
   type SpawnRequest,
-  type OmpUpdateInfo,
 } from "@omp-ui/core";
-import { applyOmpUpdate as mainApplyOmpUpdate, checkOmpUpdate as mainCheckOmpUpdate } from "./omp-update";
+import { OmpUpdater } from "./omp-update";
+import { AppUpdater } from "./app-update";
 import { CH } from "./channels";
 
 interface LiveEntry {
@@ -100,12 +100,39 @@ export class MainBackend {
    * arriving mid-spawn can wait for the process to exist and then kill it.
    */
   private readonly spawning = new Map<string, Promise<void>>();
+  private readonly appUpdater: AppUpdater;
+  private readonly ompUpdater: OmpUpdater;
 
   constructor(
     private readonly win: BrowserWindow,
     registryFile: string,
+    opts: {
+      confirmQuit?: () => Promise<boolean>;
+      appUpdateEnabled?: boolean;
+      appVersion?: string;
+      appUpdateEnv?: NodeJS.ProcessEnv;
+    } = {},
   ) {
     this.registry = Registry.load(registryFile);
+    this.appUpdater = new AppUpdater({
+      win,
+      enabled: opts.appUpdateEnabled ?? app.isPackaged,
+      currentVersion: opts.appVersion ?? app.getVersion(),
+      env: opts.appUpdateEnv,
+      downloadsDir: app.getPath("downloads"),
+      getDismissed: () => this.registry.dismissedAppUpdateVersion,
+      setDismissed: (v) => this.registry.setDismissedAppUpdateVersion(v),
+      confirmQuit: opts.confirmQuit ?? (async () => true),
+      send: (ch, s) => this.send(ch, s),
+      channel: CH.appUpdateState,
+    });
+    this.ompUpdater = new OmpUpdater({
+      getDismissed: () => this.registry.dismissedOmpUpdateVersion,
+      setDismissed: (v) => this.registry.setDismissedOmpUpdateVersion(v),
+      onApplied: () => this.refreshOmpPath(),
+      send: (ch, s) => this.send(ch, s),
+      channel: CH.ompUpdateState,
+    });
   }
 
   get liveCount(): number {
@@ -217,18 +244,31 @@ export class MainBackend {
     ipcMain.on(CH.rpcSend, (_e, tabId: string, cmd: object) => {
       this.live.get(tabId)?.rpc?.send(cmd);
     });
-    ipcMain.handle(CH.ompUpdateCheck, () => this.checkOmpUpdate());
-    ipcMain.handle(CH.ompUpdateApply, () => this.applyOmpUpdate());
+    ipcMain.handle(CH.ompUpdateGetState, () => this.ompUpdater.state);
+    ipcMain.handle(CH.ompUpdateCheck, () => this.ompUpdater.checkNow(true));
+    ipcMain.handle(CH.ompUpdateDownload, () => this.ompUpdater.download());
+    ipcMain.handle(CH.ompUpdateDismiss, (_e, version: string, remember: boolean) =>
+      this.ompUpdater.dismiss(version, remember),
+    );
+    ipcMain.handle(CH.appUpdateGetState, () => this.appUpdater.state);
+    ipcMain.handle(CH.appUpdateCheck, () => this.appUpdater.checkNow(true));
+    ipcMain.handle(CH.appUpdateDownload, () => this.appUpdater.download());
+    ipcMain.handle(CH.appUpdateOpenNotes, () => this.appUpdater.openReleaseNotes());
+    ipcMain.handle(CH.appUpdateShowDownload, () => this.appUpdater.showDownload());
+    ipcMain.handle(CH.appUpdateRestart, () => this.appUpdater.restart());
+    ipcMain.handle(CH.appUpdateDismiss, (_e, version: string, remember: boolean) =>
+      this.appUpdater.dismiss(version, remember),
+    );
   }
 
-  /** Snapshot of the omp install/update situation. */
-  checkOmpUpdate(): Promise<OmpUpdateInfo> {
-    return mainCheckOmpUpdate();
+  /** Launch-time background check — quiet unless an update is available. */
+  checkAppUpdateBackground(): void {
+    void this.appUpdater.checkNow(false);
   }
 
-  /** Installs or updates the app-managed omp binary (user prompted first). */
-  applyOmpUpdate(): Promise<OmpUpdateInfo> {
-    return mainApplyOmpUpdate(this.win, { onApplied: () => this.refreshOmpPath() });
+  /** Launch-time background check — quiet unless an install/update offer exists. */
+  checkOmpUpdateBackground(): void {
+    void this.ompUpdater.checkNow(false);
   }
 
   async hydrateAll(): Promise<void> {

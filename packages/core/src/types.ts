@@ -141,6 +141,56 @@ export interface OmpUpdateInfo {
   error: string | null;
 }
 
+/** How this omp-ui install was packaged (see core/app-update.ts). */
+export type AppPackageFormat = "appimage" | "deb" | "rpm" | "flatpak" | "unknown";
+
+/** Snapshot of the omp-ui app update situation (see main/app-update.ts). */
+export type AppUpdateStatus =
+  | "disabled" // dev/unversioned build — updater off
+  | "idle" // nothing to show
+  | "checking"
+  | "up-to-date" // manual check only; transient
+  | "available"
+  | "downloading"
+  | "downloaded" // AppImage: ready to restart; others: installer opened/in folder
+  | "error";
+
+export interface AppUpdateState {
+  status: AppUpdateStatus;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  /** Release page URL (from the release JSON html_url). */
+  releaseUrl: string | null;
+  releaseName: string | null;
+  format: AppPackageFormat;
+  /** 0–100 while downloading; null = indeterminate or not downloading. */
+  progress: number | null;
+  downloadedPath: string | null;
+  error: string | null;
+}
+
+/** Where the omp binary install/update flow stands (see desktop main/omp-update.ts). */
+export type OmpUpdateStatus =
+  | "idle" // nothing to show
+  | "checking"
+  | "up-to-date" // manual check only; transient
+  | "missing" // omp not installed — an install offer, not an update
+  | "available"
+  | "downloading"
+  | "installed" // applied; new sessions use the new binary
+  | "error";
+
+export interface OmpUpdateState {
+  status: OmpUpdateStatus;
+  /** Resolved omp binary path, or null when omp is not installed. */
+  installPath: string | null;
+  installedVersion: string | null;
+  latestVersion: string | null;
+  /** 0–100 while downloading; null = indeterminate or not downloading. */
+  progress: number | null;
+  error: string | null;
+}
+
 /** The config sources omp-ui resolves MCP servers from (see core/mcp-config.ts). */
 export type McpServerSource =
   | "native"
@@ -304,12 +354,41 @@ export interface OmpBackend {
   onRpcFrame(cb: (tabId: string, frame: object) => void): void;
   onStateChanged(cb: (state: BackendState) => void): void;
   toggleFavorite(key: string): Promise<void>;
-  /** Snapshot of the omp install/update situation (see checkOmpUpdate). */
-  checkOmpUpdate(): Promise<OmpUpdateInfo>;
+  /** Current omp binary update state. */
+  getOmpUpdateState(): Promise<OmpUpdateState>;
+  /** Manual check — surfaces up-to-date/error transiently, bypasses dismissal. */
+  checkOmpUpdate(): Promise<OmpUpdateState>;
   /**
-   * Installs (or updates) the app-managed omp binary to the latest published
-   * release. No auto-apply — the implementation prompts the user first.
-   * Resolves with the resulting state.
+   * Starts the opt-in install/update of the managed omp binary. No-op unless
+   * an update or install is offered. Progress flows via onOmpUpdateState.
    */
-  applyOmpUpdate(): Promise<OmpUpdateInfo>;
+  downloadOmpUpdate(): Promise<void>;
+  /**
+   * Hides the card. `remember: true` also persists the version so background
+   * checks stay quiet for that offer; `false` is a transient hide.
+   */
+  dismissOmpUpdate(version: string, remember: boolean): Promise<void>;
+  onOmpUpdateState(cb: (state: OmpUpdateState) => void): void;
+  /** Current app (omp-ui) update state. */
+  getAppUpdateState(): Promise<AppUpdateState>;
+  /** Manual check — surfaces up-to-date/error/disabled transiently. */
+  checkAppUpdate(): Promise<AppUpdateState>;
+  /**
+   * Starts the package-appropriate update action (AppImage: electron-updater
+   * download; deb/rpm/flatpak: verified download + open with system handler).
+   * No-op unless an update is available. Progress flows via onAppUpdateState.
+   */
+  downloadAppUpdate(): Promise<void>;
+  /** Opens the pending release's GitHub page. */
+  openAppUpdateReleaseNotes(): Promise<void>;
+  /** Reveals the downloaded artifact in its folder (non-AppImage). */
+  showAppUpdateDownload(): Promise<void>;
+  /** Restarts into the downloaded AppImage update; asks first when sessions are live. */
+  restartForAppUpdate(): Promise<void>;
+  /**
+   * Hides the card. `remember: true` also persists the version so background
+   * checks stay quiet for that release; `false` is a transient hide.
+   */
+  dismissAppUpdate(version: string, remember: boolean): Promise<void>;
+  onAppUpdateState(cb: (state: AppUpdateState) => void): void;
 }

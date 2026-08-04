@@ -98,10 +98,45 @@ Rationale and consequences: [ADR-0002](docs/adr/0002-transport-agnostic-core.md)
 
 ## Distribution
 
-v0 is **Linux-only local builds** via electron-builder (the dev machine is
-Fedora); the CI matrix and auto-update are deferred. The stack stays
-cross-platform — uniform Chromium is why Electron was chosen (ADR-0001) —
-so widening later is a packaging task, not a port.
+Releases are **Linux-only** (the dev machine is Fedora) and tag-driven: pushing
+`v*` runs `.github/workflows/release.yml`, which publishes four artifacts to
+the GitHub release — **AppImage**, **deb**, **rpm** (electron-builder), and a
+single-file **Flatpak** bundle (assembled separately) — plus the update
+metadata: `latest-linux.yml` (sha512 + blockmap, for the AppImage path) and
+`SHA256SUMS.txt` (covering all four artifacts). The stack stays cross-platform
+— uniform Chromium is why Electron was chosen (ADR-0001) — so widening later
+is a packaging task, not a port.
+
+The installed app **checks for newer releases** in the background at launch,
+and on demand via the command palette's "Check for updates". A newer stable
+release surfaces as a small non-modal **update card** in the lower-right
+corner: installed/available versions, the update action, release notes, and
+"Later" — which is remembered per release version. Offline, rate-limited, and
+no-update checks stay silent, and dev/unversioned builds never check. Nothing
+downloads without an explicit click, and nothing restarts the app for you.
+
+What the update action does depends on how the app was installed:
+
+- **AppImage** — in-place update via electron-updater (sha512/blockmap
+  verified against `latest-linux.yml`). When the download finishes the card
+  offers "Restart now"; restarting still passes the live-session quit guard.
+- **deb / rpm** — the exact expected package is downloaded to `~/Downloads`,
+  sha256-verified against the release's `SHA256SUMS.txt` (fail-closed: no
+  checksums, no install), and opened with the system installer.
+- **Flatpak** — the bundle is a single file with no ostree repo behind it, so
+  `flatpak update` never applies; the card downloads the new bundle
+  (sha256-verified the same way) and opens it, which reinstalls in place.
+
+The **omp binary** gets the same treatment: omp-ui manages its own copy of
+the `omp` CLI and checks the npm registry at launch (and on demand via the
+command palette's "Check for omp updates"). A newer omp — or a missing binary
+— surfaces as the same kind of update card: installed/available versions,
+"Update now" (or "Install"), and "Later", remembered per offered version.
+Offline and no-update checks stay silent. The install is atomic and verified
+(the download must run as `omp --version` before it replaces anything),
+nothing downloads without a click, and live sessions keep their running
+binary — only new sessions pick up the install.
+
 
 ## Session Storage
 

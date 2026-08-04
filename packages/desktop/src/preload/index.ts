@@ -43,8 +43,23 @@ const api: OmpBackend = {
     ipcRenderer.on(CH.rpcFrame, (_e, tabId: string, frame: object) => cb(tabId, frame)),
   onStateChanged: (cb) => ipcRenderer.on(CH.stateChanged, (_e, state) => cb(state)),
   toggleFavorite: (key) => ipcRenderer.invoke(CH.favoritesToggle, key),
+  getOmpUpdateState: () => ipcRenderer.invoke(CH.ompUpdateGetState),
   checkOmpUpdate: () => ipcRenderer.invoke(CH.ompUpdateCheck),
-  applyOmpUpdate: () => ipcRenderer.invoke(CH.ompUpdateApply),
+  downloadOmpUpdate: () => ipcRenderer.invoke(CH.ompUpdateDownload),
+  dismissOmpUpdate: (version, remember) =>
+    ipcRenderer.invoke(CH.ompUpdateDismiss, version, remember),
+  onOmpUpdateState: (cb) =>
+    ipcRenderer.on(CH.ompUpdateState, (_e, state) => cb(state)),
+  getAppUpdateState: () => ipcRenderer.invoke(CH.appUpdateGetState),
+  checkAppUpdate: () => ipcRenderer.invoke(CH.appUpdateCheck),
+  downloadAppUpdate: () => ipcRenderer.invoke(CH.appUpdateDownload),
+  openAppUpdateReleaseNotes: () => ipcRenderer.invoke(CH.appUpdateOpenNotes),
+  showAppUpdateDownload: () => ipcRenderer.invoke(CH.appUpdateShowDownload),
+  restartForAppUpdate: () => ipcRenderer.invoke(CH.appUpdateRestart),
+  dismissAppUpdate: (version, remember) =>
+    ipcRenderer.invoke(CH.appUpdateDismiss, version, remember),
+  onAppUpdateState: (cb) =>
+    ipcRenderer.on(CH.appUpdateState, (_e, state) => cb(state)),
 };
 
 contextBridge.exposeInMainWorld("ompBackend", api);

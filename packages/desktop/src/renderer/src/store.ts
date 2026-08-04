@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type {
   AdvisorDefaults,
+  AppUpdateState,
   BackendState,
   ImageAttachment,
   LiveState,
+  OmpUpdateState,
   SessionMode,
   SessionSummary,
 } from "@omp-ui/core/types";
@@ -229,7 +231,29 @@ interface UiStore {
    * (focus changes must not retarget it). Null while closed.
    */
   mcpManager: { tabId: string; projectCwd: string } | null;
+  /**
+   * Latest pushed omp-ui app update state (issue #18; main/app-update.ts owns
+   * the machine). The card renders from this; actions are thin pass-throughs —
+   * every visible change arrives as a push, never an optimistic set.
+   */
+  appUpdate: AppUpdateState;
+  /**
+   * Latest pushed omp binary install/update state (issue #19;
+   * main/omp-update.ts owns the machine). The card renders from this; actions
+   * are thin pass-throughs — every visible change arrives as a push, never an
+   * optimistic set.
+   */
+  ompUpdate: OmpUpdateState;
   init(): Promise<void>;
+  checkOmpUpdate(): Promise<void>;
+  downloadOmpUpdate(): Promise<void>;
+  dismissOmpUpdate(version: string, remember: boolean): Promise<void>;
+  checkAppUpdate(): Promise<void>;
+  downloadAppUpdate(): Promise<void>;
+  openAppUpdateReleaseNotes(): Promise<void>;
+  showAppUpdateDownload(): Promise<void>;
+  restartForAppUpdate(): Promise<void>;
+  dismissAppUpdate(version: string, remember: boolean): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
   openMcpManager(tabId: string, projectCwd: string): void;
@@ -749,6 +773,25 @@ export const useStore = create<UiStore>()((set, get) => {
     deleteConfirmation: null,
     projectPickerOpen: false,
     mcpManager: null,
+    appUpdate: {
+      status: "idle",
+      currentVersion: null,
+      latestVersion: null,
+      releaseUrl: null,
+      releaseName: null,
+      format: "unknown",
+      progress: null,
+      downloadedPath: null,
+      error: null,
+    },
+    ompUpdate: {
+      status: "idle",
+      installPath: null,
+      installedVersion: null,
+      latestVersion: null,
+      progress: null,
+      error: null,
+    },
 
     async init() {
       if (initialized) return;
@@ -768,7 +811,13 @@ export const useStore = create<UiStore>()((set, get) => {
         set((s) => ({ exited: { ...s.exited, [tabId]: code } }));
       });
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
-      set({ state: await backend.getState() });
+      backend.onAppUpdateState((appUpdate) => set({ appUpdate }));
+      backend.onOmpUpdateState((ompUpdate) => set({ ompUpdate }));
+      set({
+        state: await backend.getState(),
+        appUpdate: await backend.getAppUpdateState(),
+        ompUpdate: await backend.getOmpUpdateState(),
+      });
     },
 
     openProjectPicker() {
@@ -818,6 +867,42 @@ export const useStore = create<UiStore>()((set, get) => {
 
     async toggleFavorite(key) {
       await backend.toggleFavorite(key);
+    },
+
+    async checkOmpUpdate() {
+      await backend.checkOmpUpdate();
+    },
+
+    async downloadOmpUpdate() {
+      await backend.downloadOmpUpdate();
+    },
+
+    async dismissOmpUpdate(version, remember) {
+      await backend.dismissOmpUpdate(version, remember);
+    },
+
+    async checkAppUpdate() {
+      await backend.checkAppUpdate();
+    },
+
+    async downloadAppUpdate() {
+      await backend.downloadAppUpdate();
+    },
+
+    async openAppUpdateReleaseNotes() {
+      await backend.openAppUpdateReleaseNotes();
+    },
+
+    async showAppUpdateDownload() {
+      await backend.showAppUpdateDownload();
+    },
+
+    async restartForAppUpdate() {
+      await backend.restartForAppUpdate();
+    },
+
+    async dismissAppUpdate(version, remember) {
+      await backend.dismissAppUpdate(version, remember);
     },
 
     async newSession(projectCwd, modeOverride) {

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { resolveOmpBinary } from "./paths";
+import type { DownloadFetchLike } from "./app-update";
 import type { OmpUpdateInfo } from "./types";
 
 // Pure, transport- and UI-agnostic omp install/update logic. The Electron main
@@ -74,6 +75,7 @@ export interface FetchLike {
 }
 
 const globalFetch = fetch as unknown as FetchLike;
+const globalDownloadFetch = fetch as unknown as DownloadFetchLike;
 
 /** Runs `omp --version` and resolves with its stdout. Inject for tests. */
 export type VersionRunner = (ompPath: string) => Promise<string>;
@@ -117,18 +119,21 @@ export async function fetchLatestOmpVersion(
 /**
  * Downloads the prebuilt omp binary for this host into `targetPath`,
  * written atomically (temp file + rename) so a partial download never
- * leaves a truncated binary behind.
+ * leaves a truncated binary behind. `onProgress(percent | null)` fires per
+ * chunk while streaming (null when the response carries no content-length);
+ * a null body falls back to arrayBuffer().
  */
 export async function downloadOmp(opts: {
   version: string;
   targetPath: string;
-  fetchImpl?: FetchLike;
+  fetchImpl?: DownloadFetchLike;
   /**
    * Verifies the downloaded file actually runs as omp before it shadows any
    * existing copy. Defaults to {@link execVersionRunner}; pass `null` to skip
    * (low-level callers/tests that write a stub body).
    */
   verifyRunner?: VersionRunner | null;
+  onProgress?: (percent: number | null) => void;
 }): Promise<void> {
   const asset = ompAssetName();
   if (!asset) {
@@ -136,9 +141,32 @@ export async function downloadOmp(opts: {
   }
   const version = opts.version.replace(/^v/, "");
   const url = `${OMP_RELEASE_BASE}/v${version}/${asset}`;
-  const res = await (opts.fetchImpl ?? globalFetch)(url);
+  const res = await (opts.fetchImpl ?? globalDownloadFetch)(url, {
+    signal: AbortSignal.timeout(10 * 60_000),
+  });
   if (!res.ok) throw new Error(`failed to download omp ${version}: HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
+  const lengthHeader = res.headers?.get?.("content-length") ?? null;
+  const total = lengthHeader === null ? NaN : Number(lengthHeader);
+  const track = Number.isFinite(total) && total > 0;
+  if (!track) opts.onProgress?.(null);
+
+  let buf: Buffer;
+  if (res.body) {
+    const reader = res.body.getReader();
+    const chunks: Buffer[] = [];
+    let read = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value ?? new Uint8Array());
+      chunks.push(chunk);
+      read += chunk.length;
+      if (track) opts.onProgress?.(Math.floor((read / total) * 100));
+    }
+    buf = Buffer.concat(chunks);
+  } else {
+    buf = Buffer.from(await res.arrayBuffer());
+  }
   await fs.promises.mkdir(path.dirname(opts.targetPath), { recursive: true });
   const tmp = `${opts.targetPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
   await fs.promises.writeFile(tmp, buf);

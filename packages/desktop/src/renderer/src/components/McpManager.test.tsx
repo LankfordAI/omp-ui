@@ -2,9 +2,18 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { McpServerEntry, McpServersResult } from "@omp-ui/core/types";
+import type { McpServerEntry, McpServersResult, OmpUpdateState } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+const idleOmpUpdate: OmpUpdateState = {
+  status: "idle",
+  installPath: null,
+  installedVersion: null,
+  latestVersion: null,
+  progress: null,
+  error: null,
+};
 
 // store.ts and backend.ts capture the preload bridge at module load, so
 // install the mock before dynamically importing either.
@@ -37,8 +46,19 @@ const backendMock = {
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
   toggleFavorite: vi.fn(),
+  getOmpUpdateState: vi.fn(async () => idleOmpUpdate),
   checkOmpUpdate: vi.fn(),
-  applyOmpUpdate: vi.fn(),
+  downloadOmpUpdate: vi.fn(),
+  dismissOmpUpdate: vi.fn(),
+  onOmpUpdateState: vi.fn(),
+  getAppUpdateState: vi.fn(),
+  checkAppUpdate: vi.fn(),
+  downloadAppUpdate: vi.fn(),
+  openAppUpdateReleaseNotes: vi.fn(),
+  showAppUpdateDownload: vi.fn(),
+  restartForAppUpdate: vi.fn(),
+  dismissAppUpdate: vi.fn(),
+  onAppUpdateState: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 

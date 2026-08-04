@@ -50,8 +50,19 @@ jobs:
             "packages/desktop/dist/omp-ui-${version}-x86_64.flatpak"
           gh release upload "$GITHUB_REF_NAME" \
             "packages/desktop/dist/omp-ui-${version}-x86_64.flatpak"
-      - name: Assert all four artifacts exist
+      - name: Generate and upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd packages/desktop/dist
+          sha256sum *.AppImage *.deb *.rpm *.flatpak > SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt
+      - name: Assert artifacts and update metadata exist
         run: |
           cd packages/desktop/dist
           ls -l
           test -n "$(ls *.AppImage)" && test -n "$(ls *.deb)" && test -n "$(ls *.rpm)" && test -n "$(ls *.flatpak)"
+          # AppImage self-update metadata (electron-updater) + the checksums
+          # the deb/rpm/Flatpak download path verifies against.
+          test -f latest-linux.yml && grep -q "sha512" latest-linux.yml && grep -q "\.AppImage" latest-linux.yml
+          test -f SHA256SUMS.txt && test "$(wc -l < SHA256SUMS.txt)" -ge 4

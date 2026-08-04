@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { DownloadFetchLike } from "./app-update";
 import {
   checkOmpUpdate,
   compareVersions,
@@ -166,6 +167,55 @@ describe("downloadOmp", () => {
     expect(fs.existsSync(target)).toBe(false);
     // No tmp files left either.
     expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("fires onProgress with ascending percentages ending at 100 for a streamed body", async () => {
+    const target = path.join(mkTmp(), "omp");
+    const chunks = ["#!/bin/", "sh\necho ", "omp/1.0", ".0\n"].map((s) => new TextEncoder().encode(s));
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const fetchImpl: DownloadFetchLike = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (name === "content-length" ? String(total) : null) },
+      body: {
+        getReader: () => {
+          let i = 0;
+          return {
+            read: async () =>
+              i < chunks.length ? { done: false, value: chunks[i++] } : { done: true },
+          };
+        },
+      },
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    const seen: (number | null)[] = [];
+    await downloadOmp({
+      version: "1.0.0",
+      targetPath: target,
+      fetchImpl,
+      verifyRunner: null,
+      onProgress: (p) => seen.push(p),
+    });
+    expect(seen).toHaveLength(chunks.length);
+    expect(seen.every((p): p is number => p !== null)).toBe(true);
+    expect(seen[seen.length - 1]).toBe(100);
+    const sorted = [...(seen as number[])].sort((a, b) => a - b);
+    expect(seen).toEqual(sorted);
+    expect(fs.readFileSync(target)).toEqual(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+  });
+
+  it("fires onProgress(null) and still installs when the body has no content-length", async () => {
+    const target = path.join(mkTmp(), "omp");
+    const seen: (number | null)[] = [];
+    await downloadOmp({
+      version: "1.0.0",
+      targetPath: target,
+      fetchImpl: okFetch({}),
+      verifyRunner: null,
+      onProgress: (p) => seen.push(p),
+    });
+    expect(seen).toEqual([null]);
+    expect(fs.existsSync(target)).toBe(true);
   });
 });
 

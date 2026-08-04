@@ -1,110 +1,147 @@
-import { dialog, type BrowserWindow } from "electron";
 import {
   checkOmpUpdate as coreCheckOmpUpdate,
   downloadOmp,
-  fetchLatestOmpVersion,
   managedOmpPath,
-  type OmpUpdateInfo,
+  type DownloadFetchLike,
+  type FetchLike,
+  type OmpUpdateState,
+  type VersionRunner,
 } from "@omp-ui/core";
 
-// Main-process orchestration for omp install/update. All the machine work
-// (version reads, release lookup, download) lives in @omp-ui/core; this file
-// wires it to the native confirm dialogs and the app-managed install location.
-//
-// Every download path goes through applyOmpUpdate, which always asks the user
-// before writing anything — so the launch check and the renderer IPC surface
-// share one guarded code path.
+// Main-process orchestration for omp install/update (issue #19), mirroring
+// app-update.ts: core owns the machine work (version reads, registry lookup,
+// the atomic verified download); this class owns the state machine the
+// renderer's update card renders. Quiet by default: background checks never
+// surface error/up-to-date — only "available"/"missing" earn the card.
+// Nothing downloads without an explicit Update now/Install click, and a
+// failed install leaves the previous binary untouched (core tmp+rename).
 
-const appliedInfo = (version: string, target: string): OmpUpdateInfo => ({
-  installPath: target,
-  installedVersion: version,
-  latestVersion: version,
-  updateAvailable: false,
-  error: null,
-});
-
-const failedInfo = (message: string): OmpUpdateInfo => ({
-  installPath: null,
-  installedVersion: null,
-  latestVersion: null,
-  updateAvailable: false,
-  error: message,
-});
-
-export function checkOmpUpdate(): Promise<OmpUpdateInfo> {
-  return coreCheckOmpUpdate();
+export interface OmpUpdaterDeps {
+  getDismissed: () => string | null;
+  setDismissed: (version: string | null) => void;
+  /** Fires only after a successful install so the caller re-resolves the binary. */
+  onApplied: (version: string) => void;
+  send: (channel: string, state: OmpUpdateState) => void;
+  channel: string; // CH.ompUpdateState
+  fetchImpl?: FetchLike; // tests
+  downloadFetchImpl?: DownloadFetchLike; // tests
+  runner?: VersionRunner; // tests: version reads AND download verification
+  targetPath?: string; // tests; default managedOmpPath()
+  /** Tests force missing-omp with null; undefined = resolveOmpBinary() via core. */
+  installPath?: string | null;
 }
 
-/**
- * Installs (or updates) the app-managed omp binary to the latest published
- * release. Always shows a confirm dialog first — it never downloads without
- * consent. `options.onApplied(version)` fires only after a successful install
- * so the caller can refresh its cached binary path immediately.
- *
- * On cancellation the returned info is the pre-action state (installedVersion
- * unchanged, error null), so callers can tell "applied" from "declined" by
- * comparing installedVersion against latestVersion.
- */
-export async function applyOmpUpdate(
-  win: BrowserWindow,
-  options: { info?: OmpUpdateInfo; onApplied?: (version: string) => void } = {},
-): Promise<OmpUpdateInfo> {
-  const info = options.info ?? (await coreCheckOmpUpdate());
-  const onApplied = options.onApplied ?? (() => {});
-  const installing = !info.installPath;
-  const target = managedOmpPath();
+export class OmpUpdater {
+  state: OmpUpdateState;
 
-  try {
-    const latest = info.latestVersion ?? (await fetchLatestOmpVersion());
-    if (!latest) throw new Error("could not reach the omp release registry");
-
-    const confirm = await dialog.showMessageBox(win, {
-      type: "info",
-      buttons: [installing ? "Install" : "Update now", "Later"],
-      defaultId: 0,
-      cancelId: 1,
-      message: installing
-        ? "omp is not installed."
-        : `A new version of omp is available: ${info.installedVersion} → ${latest}.`,
-      detail: installing
-        ? "omp-ui manages its own copy of the omp binary. Install it now so you can run sessions?"
-        : "Download and install it now? New sessions will use it immediately.",
-    });
-    if (confirm.response !== 0) return info;
-
-    await downloadOmp({ version: latest, targetPath: target });
-    onApplied(latest);
-    await dialog.showMessageBox(win, {
-      type: "info",
-      message: `omp ${latest} installed.`,
-      detail: `Installed to ${target}. New sessions will use it now.`,
-    });
-    return appliedInfo(latest, target);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    await dialog.showMessageBox(win, {
-      type: "error",
-      message: "Failed to update omp.",
-      detail: message,
-    });
-    return failedInfo(message);
+  constructor(private readonly deps: OmpUpdaterDeps) {
+    this.state = {
+      status: "idle",
+      installPath: null,
+      installedVersion: null,
+      latestVersion: null,
+      progress: null,
+      error: null,
+    };
   }
-}
 
-/**
- * The run-at-launch check. Asks the user before downloading anything: offers a
- * first install when omp is absent, or an update when a newer release exists.
- * Offline/unreachable failures stay silent. Resolves true when an install or
- * update was actually applied.
- */
-export async function runOmpLaunchUpdateCheck(
-  win: BrowserWindow,
-  onApplied: (version: string) => void = () => {},
-): Promise<boolean> {
-  const info = await coreCheckOmpUpdate();
-  if (info.error) return false; // offline or registry unreachable — stay quiet
-  if (!info.latestVersion) return false; // registry unreachable — never error-spam on launch
-  if (info.installPath && !info.updateAvailable) return false;
-  const result = await applyOmpUpdate(win, { info, onApplied });
-  return result.error === null && result.installedVersion === info.latestVersion;
+  private push(): void {
+    this.deps.send(this.deps.channel, this.state);
+  }
+
+  private set(patch: Partial<OmpUpdateState>): void {
+    this.state = { ...this.state, ...patch };
+    this.push();
+  }
+
+  /**
+   * One check against the npm registry's latest omp release. `manual`
+   * (palette) bypasses the per-version dismissal and reports outcomes the
+   * background check swallows: up-to-date, unreachable. A missing binary is
+   * an install offer, not an update — decided before the no-update branch.
+   */
+  async checkNow(manual: boolean): Promise<OmpUpdateState> {
+    this.set({ status: "checking", error: null, progress: null });
+    const info = await coreCheckOmpUpdate({
+      installPath: this.deps.installPath,
+      fetchImpl: this.deps.fetchImpl,
+      runner: this.deps.runner,
+    });
+    if (info.error !== null || info.latestVersion === null) {
+      // Offline/registry unreachable: quiet in the background, answered manually.
+      this.set(
+        manual
+          ? { status: "error", error: info.error ?? "could not reach the omp release registry" }
+          : { status: "idle" },
+      );
+      return this.state;
+    }
+    const offered = info.installPath === null ? "missing" : info.updateAvailable ? "available" : null;
+    if (offered === null) {
+      this.set(manual ? { status: "up-to-date" } : { status: "idle" });
+      return this.state;
+    }
+    // "Later" stays quiet for that version on background checks; an explicit
+    // manual check is the user asking, so it always answers.
+    if (!manual && this.deps.getDismissed() === info.latestVersion) {
+      this.set({ status: "idle" });
+      return this.state;
+    }
+    this.set({
+      status: offered,
+      installPath: info.installPath,
+      installedVersion: info.installedVersion,
+      latestVersion: info.latestVersion,
+    });
+    return this.state;
+  }
+
+  /**
+   * The card's primary action (Update now / Install): streams the verified
+   * binary into the managed path. No-op unless an offer is on the table; a
+   * failure leaves the previous binary in place and the pre-action
+   * installPath/installedVersion in state.
+   */
+  async download(): Promise<void> {
+    if (this.state.status !== "available" && this.state.status !== "missing") return;
+    const version = this.state.latestVersion;
+    if (version === null) return;
+    const target = this.deps.targetPath ?? managedOmpPath();
+    this.set({ status: "downloading", progress: null, error: null });
+    try {
+      await downloadOmp({
+        version,
+        targetPath: target,
+        fetchImpl: this.deps.downloadFetchImpl,
+        verifyRunner: this.deps.runner, // undefined in prod → core's real --version check
+        onProgress: (p) => this.set({ status: "downloading", progress: p }),
+      });
+    } catch (e) {
+      // tmp already removed by core; the previous binary is still in place and
+      // the state keeps the pre-action installPath/installedVersion.
+      this.set({
+        status: "error",
+        error: e instanceof Error ? e.message : String(e),
+        progress: null,
+      });
+      return;
+    }
+    this.deps.onApplied(version);
+    this.set({
+      status: "installed",
+      installPath: target,
+      installedVersion: version,
+      progress: null,
+    });
+  }
+
+  /**
+   * Hides the card. `remember` persists the version so background checks stay
+   * quiet for that offer; a transient hide (`remember: false`) clears only
+   * the visible state. Last-known install facts are kept.
+   */
+  dismiss(version: string, remember: boolean): void {
+    if (remember && version) this.deps.setDismissed(version);
+    this.set({ status: "idle", latestVersion: null, progress: null, error: null });
+  }
 }

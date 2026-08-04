@@ -94,6 +94,46 @@ describe("Registry persistence", () => {
     expect(reloaded.skipDeleteConfirmation).toBe(true);
   });
 
+  it("defaults dismissedAppUpdateVersion to null when the field is absent", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { skipDeleteConfirmation: true } }),
+    );
+    expect(Registry.load(file).dismissedAppUpdateVersion).toBeNull();
+  });
+
+  it("round-trips the dismissed app-update version across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    expect(reg.dismissedAppUpdateVersion).toBeNull();
+    reg.setDismissedAppUpdateVersion("1.2.0");
+    expect(reg.dismissedAppUpdateVersion).toBe("1.2.0");
+    expect(Registry.load(file).dismissedAppUpdateVersion).toBe("1.2.0");
+    reg.setDismissedAppUpdateVersion(null);
+    expect(Registry.load(file).dismissedAppUpdateVersion).toBeNull();
+  });
+
+  it("defaults dismissedOmpUpdateVersion to null when the field is absent", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { skipDeleteConfirmation: true } }),
+    );
+    expect(Registry.load(file).dismissedOmpUpdateVersion).toBeNull();
+  });
+
+  it("round-trips the dismissed omp-update version across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    expect(reg.dismissedOmpUpdateVersion).toBeNull();
+    reg.setDismissedOmpUpdateVersion("1.2.0");
+    expect(reg.dismissedOmpUpdateVersion).toBe("1.2.0");
+    expect(Registry.load(file).dismissedOmpUpdateVersion).toBe("1.2.0");
+    reg.setDismissedOmpUpdateVersion(null);
+    expect(Registry.load(file).dismissedOmpUpdateVersion).toBeNull();
+  });
+
   it("leaves no tmp file behind after save", () => {
     const file = tmpFile();
     const reg = Registry.load(file);

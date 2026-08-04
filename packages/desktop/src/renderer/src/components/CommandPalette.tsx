@@ -87,6 +87,8 @@ export function CommandPalette() {
   const openMcpManager = useStore((s) => s.openMcpManager);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
+  const checkAppUpdate = useStore((s) => s.checkAppUpdate);
+  const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
 
   const show = useCallback((seed?: string) => {
     setQuery(seed ?? "");
@@ -171,8 +173,23 @@ export function CommandPalette() {
       }
     }
 
+    out.push({
+      id: "app:check-updates",
+      group: "App",
+      name: "Check for updates",
+      desc: "look for a newer omp-ui release",
+      run: () => void checkAppUpdate(),
+    });
+    out.push({
+      id: "omp:check-updates",
+      group: "App",
+      name: "Check for omp updates",
+      desc: "look for a newer omp release",
+      run: () => void checkOmpUpdate(),
+    });
+
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openMcpManager, terminate, switchMode]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openMcpManager, terminate, switchMode, checkAppUpdate, checkOmpUpdate]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -4,6 +4,7 @@ export { readBranchDiff } from "./branch-diff";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
 export * from "./omp-update";
+export * from "./app-update";
 export * from "./session-file";
 export * from "./types";
 export { Registry } from "./registry";

@@ -8,6 +8,10 @@ interface RegistryData {
     defaultMode: SessionMode;
     modelFavorites: string[];
     skipDeleteConfirmation: boolean;
+    /** Release version whose update card the user dismissed ("Later"). */
+    dismissedAppUpdateVersion: string | null;
+    /** omp version whose update/install card the user dismissed ("Later"). */
+    dismissedOmpUpdateVersion: string | null;
   };
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
@@ -22,6 +26,8 @@ function emptyRegistry(): RegistryData {
       defaultMode: "rpc-ui",
       modelFavorites: [],
       skipDeleteConfirmation: false,
+      dismissedAppUpdateVersion: null,
+      dismissedOmpUpdateVersion: null,
     },
     projects: [],
     sessions: [],
@@ -139,11 +145,25 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     typeof settingsObj.skipDeleteConfirmation === "boolean"
       ? settingsObj.skipDeleteConfirmation
       : false;
+  const rawDismissedAppUpdateVersion =
+    settingsObj !== undefined &&
+    "dismissedAppUpdateVersion" in settingsObj &&
+    typeof settingsObj.dismissedAppUpdateVersion === "string"
+      ? settingsObj.dismissedAppUpdateVersion
+      : null;
+  const rawDismissedOmpUpdateVersion =
+    settingsObj !== undefined &&
+    "dismissedOmpUpdateVersion" in settingsObj &&
+    typeof settingsObj.dismissedOmpUpdateVersion === "string"
+      ? settingsObj.dismissedOmpUpdateVersion
+      : null;
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
     modelFavorites:
       Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
     skipDeleteConfirmation: rawSkipDeleteConfirmation,
+    dismissedAppUpdateVersion: rawDismissedAppUpdateVersion,
+    dismissedOmpUpdateVersion: rawDismissedOmpUpdateVersion,
   };
   return { schemaVersion: 1, settings, projects, sessions };
 }
@@ -311,6 +331,26 @@ export class Registry {
   setSkipDeleteConfirmation(skip: boolean): void {
     if (this.#data.settings.skipDeleteConfirmation === skip) return;
     this.#data.settings.skipDeleteConfirmation = skip;
+    this.#save();
+  }
+
+  get dismissedAppUpdateVersion(): string | null {
+    return this.#data.settings.dismissedAppUpdateVersion;
+  }
+
+  setDismissedAppUpdateVersion(version: string | null): void {
+    if (this.#data.settings.dismissedAppUpdateVersion === version) return;
+    this.#data.settings.dismissedAppUpdateVersion = version;
+    this.#save();
+  }
+
+  get dismissedOmpUpdateVersion(): string | null {
+    return this.#data.settings.dismissedOmpUpdateVersion;
+  }
+
+  setDismissedOmpUpdateVersion(version: string | null): void {
+    if (this.#data.settings.dismissedOmpUpdateVersion === version) return;
+    this.#data.settings.dismissedOmpUpdateVersion = version;
     this.#save();
   }
 
