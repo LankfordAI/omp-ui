@@ -10,12 +10,14 @@ import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button } from "./components/ui";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
+import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { findRecord, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
 const HINTS: [combo: string, what: string][] = [
   ["mod+k", "command palette"],
   ["mod+shift+n", "new session in the current project"],
+  ["mod+=", "larger transcript text"],
 ];
 
 /**
@@ -106,6 +108,27 @@ export default function App() {
       e.preventDefault();
       const projectCwd = tabs.find((t) => t.tabId === activeTabId)?.projectCwd;
       if (projectCwd !== undefined) void newSession(projectCwd);
+    },
+    // Transcript text scale (issue #30). Registered app-wide: the combos are
+    // free because Electron zoom is disabled, and a scale keystroke with no
+    // transcript visible is harmless.
+    "mod+=": (e) => {
+      e.preventDefault();
+      stepTranscriptScale(1);
+    },
+    // Ctrl+Shift+= is how many keyboards actually type "+"; UNSHIFT maps the
+    // key back to "=" but keeps the shift modifier, so it needs its own entry.
+    "mod+shift+=": (e) => {
+      e.preventDefault();
+      stepTranscriptScale(1);
+    },
+    "mod+-": (e) => {
+      e.preventDefault();
+      stepTranscriptScale(-1);
+    },
+    "mod+0": (e) => {
+      e.preventDefault();
+      resetTranscriptScale();
     },
   });
 

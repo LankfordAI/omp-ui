@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "../lib/cn";
+import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
   IrcItem,
@@ -267,6 +268,20 @@ function buildRuns(items: RenderItem[]): Run[] {
   return runs;
 }
 
+/**
+ * An assistant run "opens the exchange" when nothing assistant-voiced (its
+ * own prose or its tool calls) precedes it since the last user prompt —
+ * meta rows (markers, notices, irc) don't reset the exchange.
+ */
+function opensExchange(runs: Run[], index: number): boolean {
+  for (let i = index - 1; i >= 0; i--) {
+    const speaker = runs[i]!.speaker;
+    if (speaker === "user") return true;
+    if (speaker === "assistant" || speaker === "tool") return false;
+  }
+  return true;
+}
+
 /* ------------------------------------------------------------------ view */
 
 export function TranscriptView({ items }: { items: RenderItem[] }) {
@@ -295,6 +310,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
   }
 
   const runs = useMemo(() => buildRuns(items), [items]);
+  const scale = useTranscriptScale();
 
   // Length alone misses streaming, which mutates the last item in place.
   const last = items.at(-1);
@@ -350,16 +366,33 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
         }}
         className="h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
       >
-        <div ref={contentRef} className="mx-auto flex max-w-4xl flex-col gap-4">
+        <div
+          ref={contentRef}
+          className="mx-auto flex max-w-4xl flex-col gap-5"
+          // Transcript-scoped text size (issue #30): `zoom` scales every px
+          // value inside the document surface — markdown, tool cards, slabs —
+          // while the chrome around it stays fixed. The ResizeObserver above
+          // sees the resulting content-height change and re-pins.
+          style={{ zoom: scale }}
+        >
           {items.length === 0 && (
             <Empty title="Nothing yet" hint="Send a prompt to start the session." />
           )}
 
-          {runs.map((run) => (
+          {runs.map((run, runIndex) => (
             <div
               key={run.key}
               className={cn("flex flex-col", run.speaker === "meta" ? "gap-1" : "gap-1.5")}
             >
+              {/* The assistant's hanging speaker label, mirroring the user's
+                  "you" (issue #32): with turn markers deliberately absent, this
+                  is the quiet cue that a new exchange begins. Only the run
+                  that opens the exchange gets it — assistant fragments after
+                  a tool run are the same reply, and labeling each one would
+                  rebuild the marker-noise problem the markers solved. */}
+              {run.speaker === "assistant" && opensExchange(runs, runIndex) && (
+                <Label>assistant</Label>
+              )}
               {run.rows.map(({ item, count }, i) => (
                 <ErrorBoundary key={item.id} fallback={(error) => <BrokenRow error={error} />}>
                   {((): ReactNode => {

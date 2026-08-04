@@ -121,7 +121,7 @@ function Slab({
       className={cn(
         "overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5",
         "font-mono text-[12px] leading-[1.55]",
-        tone === "rose" ? "text-rose" : "text-ink-mid",
+        tone === "rose" ? "text-rose" : "text-ink",
         className,
       )}
     >
