@@ -373,7 +373,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "grain flex shrink-0 flex-col border-r border-line bg-sunken",
+        "ambient flex shrink-0 flex-col border-r border-line bg-sunken",
         "transition-[width] duration-200 ease-out-quint",
         collapsed ? "w-14" : "w-[17rem]",
       )}

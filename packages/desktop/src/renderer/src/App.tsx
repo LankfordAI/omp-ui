@@ -38,7 +38,7 @@ function TitleBar() {
   );
 
   return (
-    <header className="relative flex h-9 shrink-0 select-none items-center justify-center bg-void [app-region:drag]">
+    <header className="ambient relative flex h-9 shrink-0 select-none items-center justify-center bg-void [app-region:drag]">
       {title ? (
         <span className="max-w-[50%] truncate text-xs text-ink-dim">{title}</span>
       ) : (
@@ -55,7 +55,7 @@ function Welcome() {
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
 
   return (
-    <div className="grain flex h-full flex-col items-center justify-center bg-void">
+    <div className="ambient flex h-full flex-col items-center justify-center bg-void">
       <div className="animate-rise flex w-[26rem] flex-col items-center gap-5 text-center">
         <div className="flex flex-col items-center gap-1.5">
           <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">omp-ui</h1>

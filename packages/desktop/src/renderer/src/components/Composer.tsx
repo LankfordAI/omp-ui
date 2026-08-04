@@ -413,7 +413,7 @@ export function Composer({ tabId }: { tabId: string }) {
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
-    <div className="relative shrink-0 border-t border-line bg-sunken px-4 py-3">
+    <div className="ambient relative shrink-0 border-t border-line bg-sunken px-4 py-3">
       {busy && (
         <div className="absolute inset-x-0 -top-px">
           <ProgressSweep tone={running ? "copper" : "signal"} />

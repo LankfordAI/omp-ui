@@ -167,7 +167,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   }, [active, tabId]);
 
   return (
-    <div className="relative h-full w-full bg-surface p-2">
+    <div className="ambient relative h-full w-full bg-surface p-2">
       <div ref={hostRef} className="h-full w-full" />
       {note !== null && (
         <div

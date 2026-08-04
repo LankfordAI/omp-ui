@@ -82,7 +82,6 @@ export const THEMES: readonly Theme[] = [
       "--color-iris-wash": "#1c1830",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)",
-      "--grain-opacity": "0.5",
     },
     term: {
       background: "#14171b",
@@ -154,7 +153,6 @@ export const THEMES: readonly Theme[] = [
       "--color-iris-wash": "#1d1a2e",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)",
-      "--grain-opacity": "0.5",
     },
     term: {
       background: "#1f1f1f",
@@ -226,7 +224,6 @@ export const THEMES: readonly Theme[] = [
       "--color-iris-wash": "#241d33",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)",
-      "--grain-opacity": "0.5",
     },
     term: {
       background: "#272822",
@@ -298,7 +295,6 @@ export const THEMES: readonly Theme[] = [
       "--color-iris-wash": "#151d33",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)",
-      "--grain-opacity": "0.5",
     },
     term: {
       background: "#002b36",
@@ -370,7 +366,6 @@ export const THEMES: readonly Theme[] = [
       "--color-iris-wash": "#eae5fb",
       "--color-edge-hi": "rgb(255 255 255 / 0.9)",
       "--color-edge-lo": "rgb(15 23 32 / 0.10)",
-      "--grain-opacity": "0.22",
     },
     term: {
       background: "#fafbfc",
@@ -442,7 +437,6 @@ export const THEMES: readonly Theme[] = [
       "--color-iris-wash": "#e5e5f4",
       "--color-edge-hi": "rgb(255 255 255 / 0.9)",
       "--color-edge-lo": "rgb(15 23 32 / 0.10)",
-      "--grain-opacity": "0.22",
     },
     term: {
       background: "#f7f1de",

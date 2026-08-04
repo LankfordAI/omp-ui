@@ -56,15 +56,12 @@
   --color-iris-wash: #1c1830;
 
   /* ---- Chrome the utilities below need as tokens, not literals ----
-   * `edge-lit`'s highlight/shadow and `grain`'s strength are palette, not
-   * decoration: a white-on-black inset and black noise both invert their
-   * meaning on a light plane, so a runtime theme has to be able to move
-   * them (lib/themes.ts). `--grain-opacity` is not a `--color-*` token;
-   * Tailwind passes unknown namespaces through as a plain custom property.
+   * `edge-lit`'s highlight/shadow are palette, not decoration: a
+   * white-on-black inset inverts its meaning on a light plane, so a runtime
+   * theme has to be able to move them (lib/themes.ts).
    */
   --color-edge-hi: rgb(255 255 255 / 0.05);
   --color-edge-lo: rgb(0 0 0 / 0.4);
-  --grain-opacity: 0.5;
 
   /* ---- Typography ---- */
   --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
@@ -203,17 +200,12 @@
   }
 }
 
-@utility grain {
-  /* Faint fixed luminance noise — kills the flat-panel look on large surfaces. */
-  position: relative;
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: var(--grain-opacity, 0.5);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-  }
+/* Fine salt-and-pepper static — tiny achromatic grains at very low opacity,
+ * baked into the background, never a filter, so text stays pixel-crisp.
+ * Symmetric luminance noise reads on dark and light planes alike, so it
+ * needs no per-theme tokens and spends no hue (ADR-0004). */
+@utility ambient {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='1'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
 }
 
 /* Hairline top highlight — the "machined edge" on raised panels. */

@@ -137,7 +137,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   };
 
   return (
-    <div className="relative min-h-0 flex-1 bg-surface p-2">
+    <div className="ambient relative min-h-0 flex-1 bg-surface p-2">
       <div ref={hostRef} className="h-full w-full" />
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-blur-sm">

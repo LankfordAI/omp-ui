@@ -345,7 +345,7 @@ export function Modal({
     >
       <div
         className={cn(
-          "edge-lit animate-rise max-h-[80%] overflow-hidden rounded-xl border border-line-strong bg-overlay",
+          "ambient edge-lit animate-rise max-h-[80%] overflow-hidden rounded-xl border border-line-strong bg-overlay",
           width,
         )}
       >

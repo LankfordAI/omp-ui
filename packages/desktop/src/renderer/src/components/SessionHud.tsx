@@ -424,7 +424,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
 
   return (
-    <header className="flex h-9 shrink-0 items-center gap-2.5 overflow-hidden border-b border-line bg-sunken px-3">
+    <header className="ambient flex h-9 shrink-0 items-center gap-2.5 overflow-hidden border-b border-line bg-sunken px-3">
       {session?.isCompacting ? (
         <Chip tone="copper" className="shrink-0">
           <Dot tone="copper" pulse />

@@ -628,7 +628,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
 
   if (collapsed) {
     return (
-      <aside className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line bg-sunken py-2">
+      <aside className="ambient flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line bg-sunken py-2">
         <IconButton label="expand inspector" onClick={toggle}>
           <IconCollapse collapsed />
         </IconButton>
@@ -658,7 +658,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   }
 
   return (
-    <aside className="flex w-[19rem] shrink-0 flex-col border-l border-line bg-sunken">
+    <aside className="ambient flex w-[19rem] shrink-0 flex-col border-l border-line bg-sunken">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
         {/* Six labelled tabs don't fit a 19rem rail — the strip scrolls (the
             scrollbar is invisible at rest) rather than shoving the collapse

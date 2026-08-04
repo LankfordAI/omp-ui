@@ -348,7 +348,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
   }, []);
 
   return (
-    <div className="relative min-h-0 flex-1 bg-surface">
+    <div className="ambient relative min-h-0 flex-1 bg-surface">
       <div
         ref={scrollRef}
         onScroll={() => {
