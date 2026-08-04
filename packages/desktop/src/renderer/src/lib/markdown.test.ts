@@ -1,33 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "./markdown";
 
+/** Text of one span, recursing into nested spans (issue #40 nests emphasis). */
+const spanText = (s: MdSpan): string => ("spans" in s ? s.spans.map(spanText).join("") : s.text);
+
+/** Text of a single non-list, non-table block. */
+const blockText = (block: MdBlock): string =>
+  "spans" in block ? block.spans.map(spanText).join("") : block.kind === "code" ? block.text : "";
+
 /**
- * Flattens a block tree back to the characters a reader would see. The "never
- * drops input" guarantee is only checkable against a round-trip like this.
+ * Flattens a block tree back to the characters a reader would see. Each list
+ * item contributes one `\n`-joined line per block it holds (paragraphs and
+ * fenced code), so the round-trip still exposes every character.
  */
 function literalText(blocks: MdBlock[]): string {
   const parts: string[] = [];
   for (const block of blocks) {
-    if (block.kind === "code") {
-      parts.push(block.text);
-    } else if (block.kind === "rule") {
-      parts.push("");
-    } else if (block.kind === "list") {
+    if (block.kind === "list") {
       const walk = (list: MdList): void => {
         for (const item of list.items) {
-          parts.push(item.spans.map((s) => s.text).join(""));
+          parts.push(item.blocks.map(blockText).join("\n"));
           for (const child of item.children) walk(child);
         }
       };
       walk(block);
     } else if (block.kind === "table") {
       // One line per row, cells joined with `|` so cell text stays checkable.
-      parts.push(block.headers.map((cell) => cell.map((s) => s.text).join("")).join("|"));
+      parts.push(block.headers.map((cell) => cell.map(spanText).join("")).join("|"));
       for (const row of block.rows) {
-        parts.push(row.map((cell) => cell.map((s) => s.text).join("")).join("|"));
+        parts.push(row.map((cell) => cell.map(spanText).join("")).join("|"));
       }
     } else {
-      parts.push(block.spans.map((s) => s.text).join(""));
+      parts.push(blockText(block));
     }
   }
   return parts.join("\n");
@@ -90,9 +94,9 @@ describe("parseMarkdown blocks", () => {
         kind: "list",
         ordered: false,
         items: [
-          { spans: [{ kind: "text", text: "a" }], children: [] },
-          { spans: [{ kind: "text", text: "b" }], children: [] },
-          { spans: [{ kind: "text", text: "c" }], children: [] },
+          { blocks: [{ kind: "p", spans: [{ kind: "text", text: "a" }] }], children: [] },
+          { blocks: [{ kind: "p", spans: [{ kind: "text", text: "b" }] }], children: [] },
+          { blocks: [{ kind: "p", spans: [{ kind: "text", text: "c" }] }], children: [] },
         ],
       },
     ]);
@@ -107,7 +111,8 @@ describe("parseMarkdown blocks", () => {
   it("folds a wrapped or nested line into the open list item", () => {
     const blocks = parseMarkdown("- parent\n  continued");
     expect(blocks).toHaveLength(1);
-    expect(literalText(blocks)).toBe("parent\n  continued");
+    // The 2 spaces are the item's content indent — structural now, stripped.
+    expect(literalText(blocks)).toBe("parent\ncontinued");
   });
 
   it("keeps a numbered list with nested bullets as one block (issue #8)", () => {
@@ -166,7 +171,8 @@ describe("parseMarkdown blocks", () => {
   it("folds a continuation line into the deepest open item", () => {
     const blocks = parseMarkdown("1. a\n   - x\n     tail");
     expect(blocks).toHaveLength(1);
-    expect(literalText(blocks)).toContain("x\n     tail");
+    // The sub-item's content indent is 5, stripped as structural.
+    expect(literalText(blocks)).toContain("x\ntail");
   });
 
   it("keeps a nested list open across a blank line", () => {
@@ -192,9 +198,10 @@ describe("parseMarkdown blocks", () => {
       depth++;
     }
     expect(depth).toBe(8);
-    const leafText = list.items.map((i) => i.spans.map((s) => s.text).join("")).join("\n");
+    const leafText = list.items.map((i) => i.blocks.map(blockText).join("\n")).join("\n");
     expect(leafText).toContain("l7");
-    expect(leafText).toContain(`${"  ".repeat(8)}- l8`);
+    // The cap marker sheds its 16 leading spaces, so it reads as `- l8`.
+    expect(leafText).toContain("- l8");
   });
 
   it("parses blockquotes across consecutive lines", () => {
@@ -235,7 +242,7 @@ describe("parseMarkdown blocks", () => {
     expect(blocks[0]).toEqual({
       kind: "table",
       headers: [
-        [{ kind: "strong", text: "name" }],
+        [{ kind: "strong", spans: [{ kind: "text", text: "name" }] }],
         [{ kind: "code", text: "cmd" }],
       ],
       rows: [[[{ kind: "text", text: "a" }], [{ kind: "text", text: "b" }]]],
@@ -333,11 +340,11 @@ describe("parseMarkdown inline", () => {
     expect(parseMarkdown("**bold** and *soft* and _under_")[0]).toEqual({
       kind: "p",
       spans: [
-        { kind: "strong", text: "bold" },
+        { kind: "strong", spans: [{ kind: "text", text: "bold" }] },
         { kind: "text", text: " and " },
-        { kind: "em", text: "soft" },
+        { kind: "em", spans: [{ kind: "text", text: "soft" }] },
         { kind: "text", text: " and " },
-        { kind: "em", text: "under" },
+        { kind: "em", spans: [{ kind: "text", text: "under" }] },
       ],
     });
   });
@@ -361,14 +368,23 @@ describe("parseMarkdown inline", () => {
     });
   });
 
-  it("resolves nested-looking markers to a single span", () => {
+  it("parses nested emphasis inside bold", () => {
     expect(parseMarkdown("***both***")[0]).toEqual({
       kind: "p",
-      spans: [{ kind: "strong", text: "both" }],
+      spans: [{ kind: "strong", spans: [{ kind: "text", text: "both" }] }],
     });
     expect(parseMarkdown("**a *b* c**")[0]).toEqual({
       kind: "p",
-      spans: [{ kind: "strong", text: "a *b* c" }],
+      spans: [
+        {
+          kind: "strong",
+          spans: [
+            { kind: "text", text: "a " },
+            { kind: "em", spans: [{ kind: "text", text: "b" }] },
+            { kind: "text", text: " c" },
+          ],
+        },
+      ],
     });
   });
 
@@ -377,7 +393,11 @@ describe("parseMarkdown inline", () => {
       kind: "p",
       spans: [
         { kind: "text", text: "see " },
-        { kind: "link", text: "omp", href: "https://example.com/a?b=1" },
+        {
+          kind: "link",
+          spans: [{ kind: "text", text: "omp" }],
+          href: "https://example.com/a?b=1",
+        },
         { kind: "text", text: " here" },
       ],
     });
@@ -390,8 +410,153 @@ describe("parseMarkdown inline", () => {
     });
     expect(parseMarkdown("- [t](https://a.dev)")[0]).toMatchObject({
       kind: "list",
-      items: [{ spans: [{ kind: "link", href: "https://a.dev" }] }],
+      items: [
+        { blocks: [{ kind: "p", spans: [{ kind: "link", href: "https://a.dev" }] }] },
+      ],
     });
+  });
+});
+
+describe("nested inline spans and item blocks (issues #40, #41)", () => {
+  it("parses inline code inside strong, em and links", () => {
+    expect(parseMarkdown("**After each `rs.add()`**")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "strong",
+          spans: [
+            { kind: "text", text: "After each " },
+            { kind: "code", text: "rs.add()" },
+          ],
+        },
+      ],
+    });
+    expect(parseMarkdown("*run `npm test`*")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "em",
+          spans: [
+            { kind: "text", text: "run " },
+            { kind: "code", text: "npm test" },
+          ],
+        },
+      ],
+    });
+    expect(parseMarkdown("[`cmd` here](https://a.dev)")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "link",
+          spans: [
+            { kind: "code", text: "cmd" },
+            { kind: "text", text: " here" },
+          ],
+          href: "https://a.dev",
+        },
+      ],
+    });
+  });
+
+  it("holds a fenced code block inside a list item (issue #41)", () => {
+    const blocks = parseMarkdown([
+      "5. **After each `rs.add()`**",
+      "   - Wait for SECONDARY.",
+      "   - `health: 1`.",
+      "   - Exact member configuration:",
+      "     ```javascript",
+      "     hidden: true",
+      "     priority: 0",
+      "     votes: 0",
+      "     ```",
+    ].join("\n"));
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.items[0]?.blocks[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "strong",
+          spans: [
+            { kind: "text", text: "After each " },
+            { kind: "code", text: "rs.add()" },
+          ],
+        },
+      ],
+    });
+    const child = block.items[0]?.children[0];
+    expect(child?.items[2]?.blocks).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "Exact member configuration:" }] },
+      { kind: "code", lang: "javascript", text: "hidden: true\npriority: 0\nvotes: 0" },
+    ]);
+  });
+
+  it("keeps a list going when an item carries a fenced block", () => {
+    const blocks = parseMarkdown("- item\n  ```js\n  x\n  ```\n- next");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.items).toHaveLength(2);
+    // The fence lands inside the first item (not a sibling block), so the
+    // two items stay one numbered list — the issue #8 continuity contract.
+    expect(block.items[0]?.blocks).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "item" }] },
+      { kind: "code", lang: "js", text: "x" },
+    ]);
+    expect(block.items[1]?.blocks).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "next" }] },
+    ]);
+  });
+
+  it("holds a fenced block deep under a nested sub-item", () => {
+    const blocks = parseMarkdown("1. a\n   - x\n     ```py\n     v\n     ```");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.items[0]?.children[0]?.items[0]?.blocks).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "x" }] },
+      { kind: "code", lang: "py", text: "v" },
+    ]);
+  });
+
+  it("keeps an over-indented fence literal instead of a code block", () => {
+    // contentIndent is 2, so an 8-space fence dedents to 6 spaces and
+    // FENCE_RE's `{0,3}` cutoff keeps it as paragraph text.
+    const out = literalText(parseMarkdown("- a\n        ```\nj\n        ```"));
+    expect(out).toContain("```");
+  });
+
+  it("keeps an unclosed fence as the item's tail code block", () => {
+    const blocks = parseMarkdown("- a\n  ```\n  tail");
+    expect(blocks[0]).toMatchObject({
+      kind: "list",
+      items: [
+        {
+          blocks: [
+            { kind: "p", spans: [{ kind: "text", text: "a" }] },
+            { kind: "code", lang: null, text: "tail" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("round-trips the issue-41 repro without dropping fence body", () => {
+    const out = literalText(
+      parseMarkdown([
+        "5. **After each `rs.add()`**",
+        "   - Exact member configuration:",
+        "     ```javascript",
+        "     hidden: true",
+        "     priority: 0",
+        "     votes: 0",
+        "     ```",
+      ].join("\n")),
+    );
+    expect(out).toContain("hidden: true");
+    expect(out).toContain("priority: 0");
+    expect(out).toContain("votes: 0");
   });
 });
 
@@ -471,7 +636,7 @@ describe("parseMarkdown robustness", () => {
     expect(blocks.length).toBeGreaterThan(6);
     const collectList = (list: MdList): MdSpan[][] =>
       list.items.flatMap((item) => [
-        item.spans,
+        ...item.blocks.filter((b) => "spans" in b).map((b) => b.spans),
         ...item.children.flatMap(collectList),
       ]);
     for (const block of blocks) {

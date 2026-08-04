@@ -10,7 +10,8 @@
  */
 
 export interface MdListItem {
-  spans: MdSpan[];
+  /** The item's non-list content: paragraphs and fenced code, in source order. */
+  blocks: MdBlock[];
   /** Nested lists directly under this item, in source order. Empty for a leaf. */
   children: MdList[];
 }
@@ -32,9 +33,9 @@ export type MdBlock =
 export type MdSpan =
   | { kind: "text"; text: string }
   | { kind: "code"; text: string }
-  | { kind: "strong"; text: string }
-  | { kind: "em"; text: string }
-  | { kind: "link"; text: string; href: string };
+  | { kind: "strong"; spans: MdSpan[] }
+  | { kind: "em"; spans: MdSpan[] }
+  | { kind: "link"; spans: MdSpan[]; href: string };
 
 /* --------------------------------------------------------------- inline */
 
@@ -101,7 +102,7 @@ function readLink(src: string, i: number): { span: MdSpan; next: number } | null
       ? dest.slice(1, -1)
       : (dest.split(/[ \t]+/)[0] ?? "");
   if (href === "") return null;
-  return { span: { kind: "link", text, href }, next: paren + 1 };
+  return { span: { kind: "link", spans: parseInline(text), href }, next: paren + 1 };
 }
 
 /**
@@ -121,7 +122,7 @@ function readEmphasis(src: string, i: number, ch: string): { span: MdSpan; next:
 
   const text = src.slice(start, close);
   if (text === "") return null;
-  return { span: { kind: open >= 2 ? "strong" : "em", text }, next };
+  return { span: { kind: open >= 2 ? "strong" : "em", spans: parseInline(text) }, next };
 }
 
 function parseInline(src: string): MdSpan[] {
@@ -217,10 +218,34 @@ function fenceCloses(line: string, ch: string, minLen: number): boolean {
   return n >= minLen && BLANK_RE.test(line.slice(k + n));
 }
 
+/**
+ * Consume a fence body, sharing byte-identical semantics between top-level
+ * fences and list-item content (issue #41). An unclosed fence keeps
+ * everything after it: mid-stream the closer has not arrived yet, and
+ * dropping the body would flicker the view.
+ */
+function readFence(lines: string[], i: number): { lang: string | null; text: string; next: number } {
+  const fence = FENCE_RE.exec(lines[i] ?? "")!;
+  const marker = fence[1] ?? "```";
+  const ch = marker[0] ?? "`";
+  const info = (fence[2] ?? "").trim();
+  const body: string[] = [];
+  let j = i + 1;
+  while (j < lines.length && !fenceCloses(lines[j] ?? "", ch, marker.length)) {
+    body.push(lines[j] ?? "");
+    j++;
+  }
+  return {
+    lang: info === "" ? null : (info.split(/[ \t]+/)[0] ?? null),
+    text: body.join("\n"),
+    next: j < lines.length ? j + 1 : j,
+  };
+}
+
 function listMarker(
   line: string,
   maxIndent = 3,
-): { ordered: boolean; indent: number; text: string } | null {
+): { ordered: boolean; indent: number; text: string; contentIndent: number } | null {
   if (isRule(line)) return null;
   for (const [re, ordered] of [
     [BULLET_RE, false],
@@ -230,7 +255,15 @@ function listMarker(
     if (!match) continue;
     const indent = (match[1] ?? "").length;
     if (indent > maxIndent) return null;
-    return { ordered, indent, text: match[2] ?? "" };
+    const rest = line.slice(indent);
+    const sepIdx = rest.search(/[ \t]/);
+    const markerLen = sepIdx === -1 ? rest.length : sepIdx;
+    return {
+      ordered,
+      indent,
+      text: match[2] ?? "",
+      contentIndent: indent + markerLen + (sepIdx === -1 ? 0 : 1),
+    };
   }
   return null;
 }
@@ -296,6 +329,16 @@ function startsBlock(line: string): boolean {
   );
 }
 
+/** Leading-space count when `line` starts a fence, else null. Unbounded lead:
+    deeper fence lines land in item content, shed their content indent, and then
+    either match FENCE_RE or degrade to literal text — the same cutoff as top
+    level (`{0,3}` on the dedented line). */
+function fenceLead(line: string): number | null {
+  const m = /^[ \t]*/.exec(line) ?? ["", ""];
+  const rest = line.slice(m[0].length);
+  return FENCE_RE.test(rest) ? m[0].length : null;
+}
+
 /**
  * The parser must never throw on adversarial input, and an unbounded indent
  * ladder would otherwise recurse the renderer thousands deep. Markers deeper
@@ -305,7 +348,8 @@ function startsBlock(line: string): boolean {
 const MAX_LIST_DEPTH = 8;
 
 interface RawListItem {
-  raw: string;
+  content: string[];
+  contentIndent: number;
   children: RawList[];
 }
 
@@ -314,11 +358,47 @@ interface RawList {
   items: RawListItem[];
 }
 
+function dedentTo(line: string, n: number): string {
+  let lead = 0;
+  while (lead < n && (line[lead] === " " || line[lead] === "\t")) lead++;
+  return line.slice(lead);
+}
+
+/**
+ * A list item's content, parsed after its content indent is stripped.
+ * Paragraphs fold exactly like top-level ones; fences become code blocks.
+ * Any line that still looks like a marker (only depth-cap leftovers reach
+ * here — real markers were peeled into children by parseList) falls through
+ * to the paragraph: list structure is never re-detected here.
+ */
+function parseItemBlocks(lines: string[]): MdBlock[] {
+  const blocks: MdBlock[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const fence = FENCE_RE.exec(lines[i] ?? "");
+    if (fence) {
+      const { lang, text, next } = readFence(lines, i);
+      blocks.push({ kind: "code", lang, text });
+      i = next;
+      continue;
+    }
+    const para: string[] = [lines[i] ?? ""];
+    let j = i + 1;
+    while (j < lines.length && !FENCE_RE.test(lines[j] ?? "")) {
+      para.push(lines[j] ?? "");
+      j++;
+    }
+    blocks.push({ kind: "p", spans: parseInline(para.join("\n")) });
+    i = j;
+  }
+  return blocks;
+}
+
 function finalizeList(raw: RawList): MdList {
   return {
     ordered: raw.ordered,
     items: raw.items.map((item) => ({
-      spans: parseInline(item.raw),
+      blocks: parseItemBlocks(item.content.map((l) => dedentTo(l, item.contentIndent))),
       children: item.children.map(finalizeList),
     })),
   };
@@ -379,24 +459,34 @@ function parseList(lines: string[], start: number): { list: MdList; next: number
         } else {
           // Depth cap: degrade to literal continuation text.
           const items = stack.at(-1)!.list.items;
-          items[items.length - 1]!.raw += `\n${current}`;
+          items[items.length - 1]!.content.push(current);
           j++;
           continue;
         }
       }
       // Every stack level receives an item immediately upon creation, so the
       // new top list always exists and stays non-empty from here on.
-      stack.at(-1)!.list.items.push({ raw: m.text, children: [] });
+      stack.at(-1)!.list.items.push({ content: [m.text], contentIndent: m.contentIndent, children: [] });
       j++;
       continue;
     }
 
+    // A fence indented at least as far as the open item's content belongs to
+    // that item (issue #41: FENCE_RE allows only 3 gutter spaces, so an
+    // item-indented fence used to fold into flat text). Other block starts
+    // still end the list.
+    const fl = fenceLead(current);
+    if (fl !== null && fl >= stack.at(-1)!.list.items.at(-1)!.contentIndent) {
+      stack.at(-1)!.list.items.at(-1)!.content.push(current);
+      j++;
+      continue;
+    }
     if (startsBlock(current)) break;
 
     // Wrapped or deeper-indented lines stay with the deepest open item,
     // indent and all — flattening a nested list beats dropping it.
     const items = stack.at(-1)!.list.items;
-    items[items.length - 1]!.raw += `\n${current}`;
+    items[items.length - 1]!.content.push(current);
     j++;
   }
 
@@ -419,23 +509,9 @@ export function parseMarkdown(src: string): MdBlock[] {
 
     const fence = FENCE_RE.exec(line);
     if (fence) {
-      const marker = fence[1] ?? "```";
-      const ch = marker[0] ?? "`";
-      const info = (fence[2] ?? "").trim();
-      const body: string[] = [];
-      let j = i + 1;
-      // An unclosed fence keeps everything after it: mid-stream the closer has
-      // simply not arrived yet, and dropping the body would flicker the view.
-      while (j < lines.length && !fenceCloses(lines[j] ?? "", ch, marker.length)) {
-        body.push(lines[j] ?? "");
-        j++;
-      }
-      blocks.push({
-        kind: "code",
-        lang: info === "" ? null : (info.split(/[ \t]+/)[0] ?? null),
-        text: body.join("\n"),
-      });
-      i = j < lines.length ? j + 1 : j;
+      const f = readFence(lines, i);
+      blocks.push({ kind: "code", lang: f.lang, text: f.text });
+      i = f.next;
       continue;
     }
 

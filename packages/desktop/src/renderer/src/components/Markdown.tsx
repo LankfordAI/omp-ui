@@ -41,13 +41,13 @@ function Spans({ spans }: { spans: MdSpan[] }) {
           case "strong":
             return (
               <strong key={i} className="font-semibold text-ink">
-                {span.text}
+                <Spans spans={span.spans} />
               </strong>
             );
           case "em":
             return (
               <em key={i} className="italic">
-                {span.text}
+                <Spans spans={span.spans} />
               </em>
             );
           case "link":
@@ -68,13 +68,15 @@ function Spans({ spans }: { spans: MdSpan[] }) {
                 }}
                 className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
               >
-                {span.text}
+                <Spans spans={span.spans} />
               </a>
             ) : (
               // A rejected scheme becomes plain text with no tooltip: echoing
               // the target back would still put `javascript:…` on screen as if
               // it were a real destination.
-              <span key={i}>{span.text}</span>
+              <span key={i}>
+                <Spans spans={span.spans} />
+              </span>
             );
           default:
             return <span key={i}>{span.text}</span>;
@@ -95,16 +97,18 @@ const MEASURE = "max-w-[70ch]";
 /**
  * One list block, recursing into nested child lists. Markers are manual
  * (`1.` / `•`) rather than `<ol>` counters, so numbering is the item's
- * position in its own list and can never restart mid-stream. The content
- * wrapper is a `div`, not a `span`: it can contain block children. The
- * streaming caret rides the deepest last item — recursed into the final
- * child list when the last item has children, else appended after its spans.
+ * position in its own list and can never restart mid-stream. Item content is
+ * rendered as blocks (paragraphs and fenced code, issue #41) through `Block`.
+ * The streaming caret rides the deepest last item — recursed into the final
+ * child list when the last item has children, else riding the last block of
+ * its final item.
  */
 function ListBlock({ list, trailing }: { list: MdList; trailing?: ReactNode }) {
   return (
     <ul className={cn("space-y-1", MEASURE)}>
       {list.items.map((item, i) => {
         const last = i === list.items.length - 1;
+        const hasChildren = item.children.length > 0;
         return (
           <li key={i} className="flex gap-2">
             <span
@@ -115,9 +119,17 @@ function ListBlock({ list, trailing }: { list: MdList; trailing?: ReactNode }) {
             >
               {list.ordered ? `${i + 1}.` : "•"}
             </span>
-            <div className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-[1.7]">
-              <Spans spans={item.spans} />
-              {item.children.length > 0 ? (
+            <div className="min-w-0 flex-1 leading-[1.7]">
+              {item.blocks.map((block, k) => (
+                <Block
+                  key={k}
+                  block={block}
+                  trailing={
+                    !hasChildren && last && k === item.blocks.length - 1 ? trailing : undefined
+                  }
+                />
+              ))}
+              {hasChildren ? (
                 <div className="mt-1 space-y-2">
                   {item.children.map((child, k) => (
                     <ListBlock
@@ -127,9 +139,7 @@ function ListBlock({ list, trailing }: { list: MdList; trailing?: ReactNode }) {
                     />
                   ))}
                 </div>
-              ) : (
-                last && trailing
-              )}
+              ) : null}
             </div>
           </li>
         );

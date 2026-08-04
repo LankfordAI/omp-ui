@@ -87,3 +87,41 @@ describe("Markdown lists", () => {
     act(() => leaf.root.unmount());
   });
 });
+
+describe("Markdown nested spans and item blocks (issues #40, #41)", () => {
+  it("renders inline code inside strong without literal backticks", () => {
+    const { el, root } = render("**After each `rs.add()`**");
+    expect(el.querySelector("strong code")?.textContent).toBe("rs.add()");
+    expect(el.textContent).not.toContain("`");
+    act(() => root.unmount());
+  });
+
+  it("renders a fenced code block nested inside a list item", () => {
+    // The issue-41 repro: the fence markers must not appear as literal text,
+    // and the body must land in a <pre> under the "Exact member configuration"
+    // item — not flattened into a paragraph.
+    const { el, root } = render(
+      [
+        "5. **After each `rs.add()`**",
+        "   - Wait for SECONDARY.",
+        "   - `health: 1`.",
+        "   - Exact member configuration:",
+        "     ```javascript",
+        "     hidden: true",
+        "     priority: 0",
+        "     votes: 0",
+        "     ```",
+      ].join("\n"),
+    );
+    const items = Array.from(el.querySelectorAll("li"));
+    const exact = items.find((li) => li.textContent?.includes("Exact member configuration"));
+    expect(exact).toBeDefined();
+    const pre = exact!.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre!.textContent).toContain("hidden: true");
+    expect(pre!.textContent).toContain("priority: 0");
+    expect(pre!.textContent).toContain("votes: 0");
+    expect(el.textContent).not.toContain("```");
+    act(() => root.unmount());
+  });
+});
