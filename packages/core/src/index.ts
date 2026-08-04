@@ -43,6 +43,7 @@ export {
   type ModelRole,
   type OmpAdvisorDefaults,
 } from "./omp-config";
+export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
   generateTitleWithOmp,
   parseTitleOutput,

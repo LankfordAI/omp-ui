@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
+import { McpManager } from "./components/McpManager";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
 import { Sidebar } from "./components/Sidebar";
@@ -91,6 +92,7 @@ export default function App() {
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
+  const mcpManager = useStore((s) => s.mcpManager);
   const newSession = useStore((s) => s.newSession);
 
   // The keyboard twin of the composer's /new: a new live session in the current
@@ -150,6 +152,7 @@ export default function App() {
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
       {projectPickerOpen && <ProjectPicker />}
+      {mcpManager && <McpManager tabId={mcpManager.tabId} projectCwd={mcpManager.projectCwd} />}
     </div>
   );
 }

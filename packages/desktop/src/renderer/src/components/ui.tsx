@@ -267,11 +267,13 @@ export function Switch({
   onChange,
   label,
   title,
+  disabled,
 }: {
   on: boolean;
   onChange: (next: boolean) => void;
   label: string;
   title?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -280,9 +282,11 @@ export function Switch({
       aria-checked={on}
       aria-label={label}
       title={title ?? label}
+      disabled={disabled}
       onClick={() => onChange(!on)}
       className={cn(
         "relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
+        "disabled:pointer-events-none disabled:opacity-35",
         on ? "border-signal-dim bg-signal-wash" : "border-line bg-raised hover:border-line-strong",
       )}
     >

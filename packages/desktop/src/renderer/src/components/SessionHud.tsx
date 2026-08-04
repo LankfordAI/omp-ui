@@ -166,6 +166,16 @@ function IconSliders() {
   );
 }
 
+function IconMcp() {
+  return (
+    <Svg>
+      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1" {...S} />
+      <rect x="2.5" y="9" width="11" height="4.5" rx="1" {...S} />
+      <path d="M5 4.75h.01M5 11.25h.01" {...S} />
+    </Svg>
+  );
+}
+
 /* --------------------------------------------------------------- fragments */
 
 const STATUS: Record<string, { tone: Tone; pulse: boolean }> = {
@@ -406,6 +416,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const setPlanMode = useStore((s) => s.setPlanMode);
+  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const openMcpManager = useStore((s) => s.openMcpManager);
 
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
   const face = STATUS[status] ?? STATUS.starting;
@@ -509,6 +521,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <IconButton label="export transcript as html" onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>
+        {projectCwd !== undefined && (
+          <IconButton
+            label="manage MCP servers"
+            onClick={() => openMcpManager(tabId, projectCwd)}
+          >
+            <IconMcp />
+          </IconButton>
+        )}
         <IconButton label="branch this session" onClick={() => void branchSession(tabId)}>
           <IconBranch />
         </IconButton>

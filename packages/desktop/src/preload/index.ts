@@ -25,6 +25,9 @@ const api: OmpBackend = {
     ipcRenderer.invoke(CH.titleGenerate, projectCwd, prompt),
   readPlanFile: (tabId, absPath) => ipcRenderer.invoke(CH.planRead, tabId, absPath),
   getBranchDiff: (projectCwd) => ipcRenderer.invoke(CH.branchDiff, projectCwd),
+  getMcpServers: (projectCwd) => ipcRenderer.invoke(CH.mcpList, projectCwd),
+  setMcpServerEnabled: (req) => ipcRenderer.invoke(CH.mcpSetEnabled, req),
+  restartSession: (tabId) => ipcRenderer.invoke(CH.sessionRestart, tabId),
   listProjectFiles: (projectCwd) => ipcRenderer.invoke(CH.projectFilesList, projectCwd),
   resolveFileMentions: (projectCwd, message) =>
     ipcRenderer.invoke(CH.fileMentionsResolve, projectCwd, message),

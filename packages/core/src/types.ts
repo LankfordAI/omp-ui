@@ -141,6 +141,55 @@ export interface OmpUpdateInfo {
   error: string | null;
 }
 
+/** The config sources omp-ui resolves MCP servers from (see core/mcp-config.ts). */
+export type McpServerSource =
+  | "native"
+  | "claude"
+  | "gemini"
+  | "opencode"
+  | "cursor"
+  | "windsurf"
+  | "vscode"
+  | "mcp-json";
+
+/**
+ * One MCP server definition row for the manager modal. Redacted at the core
+ * boundary: `env`, `headers`, `auth`, and `oauth` values never cross into the
+ * renderer, and http/sse endpoints carry no userinfo or query string.
+ */
+export interface McpServerEntry {
+  name: string;
+  transport: "stdio" | "http" | "sse";
+  /** stdio: command + args; http/sse: url with userinfo+query stripped. */
+  endpoint: string;
+  source: McpServerSource;
+  scope: "project" | "user";
+  /** Absolute path of the defining file (display only; renderer never writes). */
+  sourcePath: string;
+  /** False on shadowed duplicate rows (a higher-priority source claimed the name). */
+  effective: boolean;
+  /** `"<source>:<sourcePath>"` of the winning entry, on shadowed rows only. */
+  shadowedBy?: string;
+  state: "enabled" | "disabled";
+  disabledBy?: "config" | "denylist";
+  /** native | mcp-json files are writable; tool-owned files are not. */
+  writable: boolean;
+}
+
+export interface McpServersResult {
+  servers: McpServerEntry[];
+  /** Malformed/unreadable source files; the list still renders. */
+  errors: Array<{ path: string; message: string }>;
+}
+
+export interface McpSetEnabledRequest {
+  projectCwd: string;
+  name: string;
+  /** Pass only when the entry's source is writable (native | mcp-json). */
+  sourcePath?: string;
+  enabled: boolean;
+}
+
 /** One directory candidate from browseDirectories. */
 export interface DirBrowseEntry {
   /** Basename, e.g. "omp-ui". */
@@ -221,6 +270,16 @@ export interface OmpBackend {
    * not inside a git repository.
    */
   getBranchDiff(projectCwd: string): Promise<BranchDiff>;
+  /** MCP servers resolved for a project's cwd, redacted; errors are per-file. */
+  getMcpServers(projectCwd: string): Promise<McpServersResult>;
+  /** Toggles one server via omp's own write algorithm; returns the refreshed list. */
+  setMcpServerEnabled(req: McpSetEnabledRequest): Promise<McpServersResult>;
+  /**
+   * Restarts a live session in place (kill + relaunch with `--resume`, same
+   * dance as the advisor/mode-switch relaunch) so it picks up changed MCP
+   * config. Rejects when the session is not live.
+   */
+  restartSession(tabId: string): Promise<void>;
   /**
    * Project-relative file listing for the composer's @ picker;
    * gitignore-aware, with a walk fallback outside repos.

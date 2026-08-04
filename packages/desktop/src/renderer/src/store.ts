@@ -224,9 +224,22 @@ interface UiStore {
   deleteConfirmation: DeleteConfirmation | null;
   /** True while the in-app project picker modal is open. */
   projectPickerOpen: boolean;
+  /**
+   * The MCP manager modal, pinned at open time to the tab it was opened from
+   * (focus changes must not retarget it). Null while closed.
+   */
+  mcpManager: { tabId: string; projectCwd: string } | null;
   init(): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
+  openMcpManager(tabId: string, projectCwd: string): void;
+  closeMcpManager(): void;
+  /**
+   * Restarts a live session in place so it picks up changed MCP config
+   * (kill + `--resume` relaunch). Errors surface via the alert path; resolves
+   * true only when the relaunch was actually requested.
+   */
+  restartSession(tabId: string): Promise<boolean>;
   /** Registers `path` via the backend; rejects with the backend's message. */
   addProject(path: string): Promise<void>;
   removeProject(path: string): Promise<void>;
@@ -735,6 +748,7 @@ export const useStore = create<UiStore>()((set, get) => {
     advisorDefaults: {},
     deleteConfirmation: null,
     projectPickerOpen: false,
+    mcpManager: null,
 
     async init() {
       if (initialized) return;
@@ -763,6 +777,26 @@ export const useStore = create<UiStore>()((set, get) => {
 
     closeProjectPicker() {
       set({ projectPickerOpen: false });
+    },
+
+    openMcpManager(tabId, projectCwd) {
+      set({ mcpManager: { tabId, projectCwd } });
+    },
+
+    closeMcpManager() {
+      set({ mcpManager: null });
+    },
+
+    async restartSession(tabId) {
+      const rec = findRecord(get().state, tabId);
+      try {
+        if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
+        await backend.restartSession(tabId);
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
     },
 
     async addProject(path) {

@@ -19,7 +19,9 @@ import {
   readBranchDiff,
   listProjectFiles,
   resolveFileMentions,
+  resolveMcpServers,
   resolveProjectPath,
+  setMcpServerEnabled,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -38,6 +40,7 @@ import {
   type BackendState,
   type ImageAttachment,
   type LiveState,
+  type McpSetEnabledRequest,
   type OwnedSessionRecord,
   type ProjectGroup,
   type PtyHandle,
@@ -195,6 +198,9 @@ export class MainBackend {
       this.readPlanFile(tabId, absPath),
     );
     ipcMain.handle(CH.branchDiff, (_e, projectCwd: string) => readBranchDiff(projectCwd));
+    ipcMain.handle(CH.mcpList, (_e, projectCwd: string) => resolveMcpServers(projectCwd));
+    ipcMain.handle(CH.mcpSetEnabled, (_e, req: McpSetEnabledRequest) => setMcpServerEnabled(req));
+    ipcMain.handle(CH.sessionRestart, (_e, tabId: string) => this.restartSession(tabId));
     ipcMain.handle(CH.projectFilesList, (_e, projectCwd: string) => listProjectFiles(projectCwd));
     ipcMain.handle(CH.fileMentionsResolve, (_e, projectCwd: string, message: string) =>
       resolveFileMentions(projectCwd, message),
@@ -500,6 +506,29 @@ export class MainBackend {
       mode: record.mode,
       advisor,
       advisorModel,
+      cols: 80,
+      rows: 24,
+      resumeTabId: tabId,
+    });
+  }
+
+  /**
+   * Restarts a live session in place so it picks up config omp resolves at
+   * process start (the MCP manager's toggles). The same kill-and-`--resume`
+   * dance as the advisor/mode-switch relaunch — sessions are durable, so this
+   * loses nothing. Rejects when the session is not live: a dormant session
+   * already picks the new config up on its next launch, so there is nothing
+   * to restart.
+   */
+  private async restartSession(tabId: string): Promise<void> {
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    const entry = this.live.get(tabId);
+    if (!record || !entry) throw new Error("session is not live");
+    await this.relaunch(entry, {
+      projectCwd: record.projectCwd,
+      mode: record.mode,
+      advisor: record.advisor,
+      advisorModel: record.advisorModel,
       cols: 80,
       rows: 24,
       resumeTabId: tabId,

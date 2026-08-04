@@ -84,6 +84,7 @@ export function CommandPalette() {
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
+  const openMcpManager = useStore((s) => s.openMcpManager);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
 
@@ -159,10 +160,19 @@ export function CommandPalette() {
           run: () => void switchMode(tab.tabId, other),
         },
       );
+      if (tab.projectCwd) {
+        out.push({
+          id: "session:mcp",
+          group: "Session",
+          name: "MCP servers…",
+          desc: "inspect and toggle MCP servers for this project",
+          run: () => openMcpManager(tab.tabId, tab.projectCwd),
+        });
+      }
     }
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, terminate, switchMode]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openMcpManager, terminate, switchMode]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
