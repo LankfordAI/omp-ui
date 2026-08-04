@@ -12,8 +12,8 @@ import type { AppUpdaterDeps, AppUpdater as AppUpdaterType, AutoUpdaterLike } fr
 
 // app-update.ts touches only electron's `shell`; stub it and capture calls.
 const shellMock = {
-  openExternal: vi.fn(async (_url: string) => {}),
-  openPath: vi.fn(async (_path: string) => ""),
+  openExternal: vi.fn(async () => {}),
+  openPath: vi.fn(async () => ""),
   showItemInFolder: vi.fn(),
 };
 vi.mock("electron", () => ({ shell: shellMock }));

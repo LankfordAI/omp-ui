@@ -7,6 +7,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["**/*.ts", "**/*.tsx"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["error", { ignoreRestSiblings: true }],
+    },
+  },
+  {
     files: ["packages/desktop/src/renderer/**"],
     languageOptions: { globals: { ...globals.browser } },
   },
@@ -16,6 +22,7 @@ export default tseslint.config(
       "packages/desktop/src/main/**/*.ts",
       "packages/desktop/src/preload/**/*.ts",
       "packages/desktop/*.ts",
+      "packages/desktop/scripts/**/*.mjs",
     ],
     languageOptions: { globals: { ...globals.node } },
   },

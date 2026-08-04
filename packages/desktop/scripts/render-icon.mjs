@@ -6,7 +6,7 @@
 //   Run from repo root:  node packages/desktop/scripts/render-icon.mjs
 //   Requires: a chromium binary on PATH and `npm ci` at the repo root (the
 //   fontsource woff2 lives in root node_modules).
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";

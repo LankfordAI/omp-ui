@@ -88,8 +88,7 @@ export class PlanConcernWatcher {
   begin(tabId: string, intent: PlanConcernIntent): void {
     this.cancel(tabId); // a re-verdict re-baselines, never stacks waits
     const baseline = this.callbacks.getItems(tabId).length;
-    const self = this;
-    const timer = setTimeout(() => self.settle(tabId), this.deadlineMs);
+    const timer = setTimeout(() => this.settle(tabId), this.deadlineMs);
     this.active.set(tabId, { intent, baseline, timer });
     this.callbacks.onNotice(
       tabId,

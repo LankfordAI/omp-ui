@@ -82,10 +82,10 @@ export async function resolveProjectPath(
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") {
-      throw new Error(`no such directory: ${resolved}`);
+      throw new Error(`no such directory: ${resolved}`, { cause: err });
     }
     if (code === "EACCES" || code === "EPERM") {
-      throw new Error(`permission denied: ${resolved}`);
+      throw new Error(`permission denied: ${resolved}`, { cause: err });
     }
     throw err;
   }

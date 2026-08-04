@@ -61,7 +61,7 @@ Object.assign(window, { ompBackend: backendMock });
 const { useStore } = await import("../store");
 const { Sidebar } = await import("./Sidebar");
 const originalNewSession = useStore.getState().newSession;
-const newSession = vi.fn(async (_projectCwd: string, _mode?: "pty" | "rpc-ui") => {});
+const newSession = vi.fn(async () => {});
 
 const projectPath = "/projects/one";
 const state: BackendState = {
