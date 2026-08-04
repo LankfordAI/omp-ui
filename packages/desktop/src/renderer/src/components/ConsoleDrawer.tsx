@@ -51,24 +51,31 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
   }, [open, tabId]);
   if (!open && !consoleOpened.has(tabId)) return null;
 
+  // The composer's own recipe: a card floating on the sunken strip, inset by
+  // the same px-4 so the left edges line up. The terminal canvas paints the
+  // `surface` token, so card and canvas merge into one bordered well; the
+  // controls ride as a hover-reveal pill instead of a header row.
   return (
-    <div className={open ? "shrink-0 border-t border-line bg-sunken" : "hidden"}>
-      <div className="flex h-8 items-center gap-2 px-3">
-        <span className="flex-1" />
-        <Button size="xs" variant="ghost" title="clear shell screen" onClick={() => clearShellTerm(tabId)}>
-          clear
-        </Button>
-        <IconButton label="close console (mod+j)" onClick={() => toggleConsole(tabId)}>
-          <svg viewBox="0 0 16 16" aria-hidden className="size-3">
-            <path d="M4 4l8 8M12 4l-8 8" {...S} />
-          </svg>
-        </IconButton>
-      </div>
-
+    <div className={open ? "shrink-0 border-t border-line bg-sunken px-4 pb-3 pt-2" : "hidden"}>
       {/* Fixed height, no drag-resize: the app has no resize-handle
           convention, and a stable dock keeps the transcript from jumping. */}
-      <div className="flex h-72 flex-col border-t border-line-soft px-3 py-2">
+      <div className="group relative flex h-72 flex-col overflow-hidden rounded-lg border border-line bg-surface">
         <ShellDrawer tabId={tabId} visible={open} />
+        <div className="absolute right-2 top-2 z-20 flex items-center gap-0.5 rounded-full border border-line bg-overlay/85 px-1.5 py-0.5 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <Button
+            size="xs"
+            variant="ghost"
+            title="clear shell screen"
+            onClick={() => clearShellTerm(tabId)}
+          >
+            clear
+          </Button>
+          <IconButton label="close console (mod+j)" onClick={() => toggleConsole(tabId)}>
+            <svg viewBox="0 0 16 16" aria-hidden className="size-3">
+              <path d="M4 4l8 8M12 4l-8 8" {...S} />
+            </svg>
+          </IconButton>
+        </div>
       </div>
     </div>
   );
