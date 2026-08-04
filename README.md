@@ -112,8 +112,11 @@ and on demand via the command palette's "Check for updates". A newer stable
 release surfaces as a small non-modal **update card** in the lower-right
 corner: installed/available versions, the update action, release notes, and
 "Later" — which is remembered per release version. Offline, rate-limited, and
-no-update checks stay silent, and dev/unversioned builds never check. Nothing
-downloads without an explicit click, and nothing restarts the app for you.
+no-update checks stay silent, and dev/unversioned builds never check. The
+launch check is optional: the settings surface's Updates page turns it off for
+omp-ui independently of the omp binary, and "Check for updates" from the
+command palette still runs either way. Nothing downloads without an explicit
+click, and nothing restarts the app for you.
 
 What the update action does depends on how the app was installed:
 
@@ -135,7 +138,9 @@ command palette's "Check for omp updates"). A newer omp — or a missing binary
 Offline and no-update checks stay silent. The install is atomic and verified
 (the download must run as `omp --version` before it replaces anything),
 nothing downloads without a click, and live sessions keep their running
-binary — only new sessions pick up the install.
+binary — only new sessions pick up the install. Its launch check has its own
+switch on the Updates page, separate from the omp-ui one; "Check for omp
+updates" from the command palette runs whether or not the launch check is on.
 
 
 ## Session Storage

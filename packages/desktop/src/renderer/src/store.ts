@@ -6,6 +6,8 @@ import type {
   BranchList,
   ImageAttachment,
   LiveState,
+  OmpSettingsSnapshot,
+  OmpSettingValue,
   OmpUpdateState,
   SessionMode,
   SessionSummary,
@@ -52,6 +54,7 @@ import {
   type TodoPhase,
 } from "./lib/rpc-types";
 import { generateTitleFromPrompt, isLowSignalTitleInput, isUntitled } from "./lib/session-title";
+import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import {
   historyToItems,
   markerItem,
@@ -216,6 +219,13 @@ export interface DeleteConfirmation {
   hasFiles: boolean;
 }
 
+/**
+ * The settings modal's pages. Declared here rather than in the component: the
+ * store imports nothing from any component, and reversing that would make a
+ * type-only cycle.
+ */
+export type SettingsPage = "general" | "appearance" | "updates" | "omp" | "about";
+
 interface UiStore {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -243,6 +253,8 @@ interface UiStore {
    * (focus changes must not retarget it). Null while closed.
    */
   mcpManager: { tabId: string; projectCwd: string } | null;
+  /** The settings modal's open page, or null while closed. */
+  settingsPage: SettingsPage | null;
   /**
    * Latest pushed omp-ui app update state (issue #18; main/app-update.ts owns
    * the machine). The card renders from this; actions are thin pass-throughs —
@@ -270,6 +282,27 @@ interface UiStore {
   closeProjectPicker(): void;
   openMcpManager(tabId: string, projectCwd: string): void;
   closeMcpManager(): void;
+  openSettings(page?: SettingsPage): void;
+  closeSettings(): void;
+  setDefaultMode(mode: SessionMode): Promise<void>;
+  setSkipDeleteConfirmation(skip: boolean): Promise<void>;
+  /**
+   * The one action that sets before it persists: a theme switch must feel
+   * instant, so the paint leads and the write follows. See the implementation.
+   */
+  setThemeId(id: string): Promise<void>;
+  setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
+  setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
+  clearDismissedAppUpdate(): Promise<void>;
+  clearDismissedOmpUpdate(): Promise<void>;
+  /**
+   * Request/response, not push: these two return their value (or reject) and
+   * touch no store field, so the settings omp page owns the result. They
+   * deliberately skip `alertError` and RETHROW — that page surfaces failures
+   * inline instead of through `window.alert`.
+   */
+  readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
+  writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
   /**
    * Restarts a live session in place so it picks up changed MCP config
    * (kill + `--resume` relaunch). Errors surface via the alert path; resolves
@@ -790,6 +823,18 @@ export const useStore = create<UiStore>()((set, get) => {
     patchRpc(tabId, { items: historyToItems(arrField(respData(resp), "messages")) });
   };
 
+  /**
+   * Repaints the document to match the registry's persisted themeId. The
+   * registry stays authoritative; lib/themes.ts keeps only a localStorage
+   * mirror so the first frame paints before this runs. The id guard is what
+   * stops a redundant broadcast from re-writing ~28 custom properties on
+   * every state change.
+   */
+  const syncTheme = (s: BackendState): void => {
+    const t = resolveTheme(s.themeId);
+    if (t.id !== currentThemeId()) applyTheme(t);
+  };
+
   return {
     state: null,
     tabs: [],
@@ -802,6 +847,7 @@ export const useStore = create<UiStore>()((set, get) => {
     deleteConfirmation: null,
     projectPickerOpen: false,
     mcpManager: null,
+    settingsPage: null,
     appUpdate: {
       status: "idle",
       currentVersion: null,
@@ -834,6 +880,7 @@ export const useStore = create<UiStore>()((set, get) => {
             return rec && rec.mode !== t.mode ? { ...t, mode: rec.mode } : t;
           }),
         }));
+        syncTheme(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) => {
@@ -847,6 +894,8 @@ export const useStore = create<UiStore>()((set, get) => {
         appUpdate: await backend.getAppUpdateState(),
         ompUpdate: await backend.getOmpUpdateState(),
       });
+      const booted = get().state;
+      if (booted) syncTheme(booted);
     },
 
     openProjectPicker() {
@@ -863,6 +912,85 @@ export const useStore = create<UiStore>()((set, get) => {
 
     closeMcpManager() {
       set({ mcpManager: null });
+    },
+
+    openSettings(page) {
+      set({ settingsPage: page ?? "general" });
+    },
+
+    closeSettings() {
+      set({ settingsPage: null });
+    },
+
+    async setDefaultMode(mode) {
+      try {
+        await backend.setDefaultMode(mode);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async setSkipDeleteConfirmation(skip) {
+      try {
+        await backend.setSkipDeleteConfirmation(skip);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async setThemeId(id) {
+      // Apply-then-persist is the one exception to the store's push-only rule:
+      // a theme switch must feel instant. The broadcast that follows carries
+      // the same id, so syncTheme becomes a no-op; if the write fails the user
+      // sees the alert and the next launch reverts to the persisted theme.
+      applyTheme(resolveTheme(id));
+      try {
+        await backend.setThemeId(id);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async setAppUpdateCheckOnLaunch(on) {
+      try {
+        await backend.setAppUpdateCheckOnLaunch(on);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async setOmpUpdateCheckOnLaunch(on) {
+      try {
+        await backend.setOmpUpdateCheckOnLaunch(on);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async clearDismissedAppUpdate() {
+      try {
+        await backend.clearDismissedAppUpdate();
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async clearDismissedOmpUpdate() {
+      try {
+        await backend.clearDismissedOmpUpdate();
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    // No try/catch on purpose: the settings omp page renders its own inline
+    // error, so these two rethrow instead of routing through alertError.
+    readOmpSettings(projectCwd) {
+      return backend.readOmpSettings(projectCwd);
+    },
+
+    writeOmpSetting(key, value) {
+      return backend.writeOmpSetting(key, value);
     },
 
     async restartSession(tabId) {

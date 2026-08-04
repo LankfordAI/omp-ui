@@ -61,6 +61,24 @@ function IconPlus() {
   );
 }
 
+function IconGear() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="8" cy="8" r="2" />
+      <path d="M8 1.8v2M8 12.2v2M13.4 4.9l-1.8 1M4.4 10.1l-1.8 1M13.4 11.1l-1.8-1M4.4 5.9l-1.8-1" />
+    </svg>
+  );
+}
+
 /* -------------------------------------------------------------- primitives */
 
 /** Three pulsing bars — the honest "we have not heard from the backend yet". */
@@ -291,6 +309,7 @@ function CollapsedRail({
 export function Sidebar() {
   const state = useStore((st) => st.state);
   const openProjectPicker = useStore((st) => st.openProjectPicker);
+  const openSettings = useStore((st) => st.openSettings);
   const newSession = useStore((st) => st.newSession);
 
   const [collapsed, setCollapsed] = useState(false);
@@ -503,6 +522,10 @@ export function Sidebar() {
           collapsed ? "flex-col gap-1 px-2 py-2" : "gap-2 px-3 py-2",
         )}
       >
+        {/* One gear in both layouts: settings must stay reachable collapsed. */}
+        <IconButton label="settings" onClick={() => openSettings()}>
+          <IconGear />
+        </IconButton>
         <span className="flex items-center gap-1.5">
           <Dot tone={totalLive > 0 ? "signal" : "neutral"} />
           <span className="font-mono tabular-nums">{totalLive}</span>

@@ -12,6 +12,12 @@ interface RegistryData {
     dismissedAppUpdateVersion: string | null;
     /** omp version whose update/install card the user dismissed ("Later"). */
     dismissedOmpUpdateVersion: string | null;
+    /** Active theme id (see renderer lib/themes.ts). Unknown ids fall back to "graphite". */
+    themeId: string;
+    /** Check for a newer omp-ui release at launch. */
+    appUpdateCheckOnLaunch: boolean;
+    /** Check for a newer omp binary at launch. */
+    ompUpdateCheckOnLaunch: boolean;
   };
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
@@ -28,6 +34,9 @@ function emptyRegistry(): RegistryData {
       skipDeleteConfirmation: false,
       dismissedAppUpdateVersion: null,
       dismissedOmpUpdateVersion: null,
+      themeId: "graphite",
+      appUpdateCheckOnLaunch: true,
+      ompUpdateCheckOnLaunch: true,
     },
     projects: [],
     sessions: [],
@@ -157,6 +166,28 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     typeof settingsObj.dismissedOmpUpdateVersion === "string"
       ? settingsObj.dismissedOmpUpdateVersion
       : null;
+  // Any non-empty string is kept as-is: theme ids are validated by the
+  // renderer's own table, so a registry written by a newer build naming a
+  // theme this build lacks degrades to graphite instead of being erased.
+  const rawThemeId =
+    settingsObj !== undefined &&
+    "themeId" in settingsObj &&
+    typeof settingsObj.themeId === "string" &&
+    settingsObj.themeId !== ""
+      ? settingsObj.themeId
+      : "graphite";
+  const rawAppUpdateCheckOnLaunch =
+    settingsObj !== undefined &&
+    "appUpdateCheckOnLaunch" in settingsObj &&
+    typeof settingsObj.appUpdateCheckOnLaunch === "boolean"
+      ? settingsObj.appUpdateCheckOnLaunch
+      : true;
+  const rawOmpUpdateCheckOnLaunch =
+    settingsObj !== undefined &&
+    "ompUpdateCheckOnLaunch" in settingsObj &&
+    typeof settingsObj.ompUpdateCheckOnLaunch === "boolean"
+      ? settingsObj.ompUpdateCheckOnLaunch
+      : true;
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
     modelFavorites:
@@ -164,6 +195,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     skipDeleteConfirmation: rawSkipDeleteConfirmation,
     dismissedAppUpdateVersion: rawDismissedAppUpdateVersion,
     dismissedOmpUpdateVersion: rawDismissedOmpUpdateVersion,
+    themeId: rawThemeId,
+    appUpdateCheckOnLaunch: rawAppUpdateCheckOnLaunch,
+    ompUpdateCheckOnLaunch: rawOmpUpdateCheckOnLaunch,
   };
   return { schemaVersion: 1, settings, projects, sessions };
 }
@@ -331,6 +365,36 @@ export class Registry {
   setSkipDeleteConfirmation(skip: boolean): void {
     if (this.#data.settings.skipDeleteConfirmation === skip) return;
     this.#data.settings.skipDeleteConfirmation = skip;
+    this.#save();
+  }
+
+  get themeId(): string {
+    return this.#data.settings.themeId;
+  }
+
+  setThemeId(id: string): void {
+    if (this.#data.settings.themeId === id) return;
+    this.#data.settings.themeId = id;
+    this.#save();
+  }
+
+  get appUpdateCheckOnLaunch(): boolean {
+    return this.#data.settings.appUpdateCheckOnLaunch;
+  }
+
+  setAppUpdateCheckOnLaunch(on: boolean): void {
+    if (this.#data.settings.appUpdateCheckOnLaunch === on) return;
+    this.#data.settings.appUpdateCheckOnLaunch = on;
+    this.#save();
+  }
+
+  get ompUpdateCheckOnLaunch(): boolean {
+    return this.#data.settings.ompUpdateCheckOnLaunch;
+  }
+
+  setOmpUpdateCheckOnLaunch(on: boolean): void {
+    if (this.#data.settings.ompUpdateCheckOnLaunch === on) return;
+    this.#data.settings.ompUpdateCheckOnLaunch = on;
     this.#save();
   }
 

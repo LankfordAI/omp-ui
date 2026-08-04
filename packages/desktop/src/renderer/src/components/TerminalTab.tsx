@@ -7,48 +7,24 @@ import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
+import { useTheme } from "../lib/themes";
 import { registerTermWriter, useStore } from "../store";
 import { Button, IconButton } from "./ui";
 
 /**
- * xterm renders into a canvas, so it cannot read Tailwind classes — the palette
- * has to be handed over as literal colours. These are the only raw hex values
- * in the renderer, and every one is a copy of a token in `src/style.css`, which
- * stays the source of truth: change it there first, then mirror it here.
+ * xterm renders into a canvas, so it cannot read Tailwind classes — the
+ * palette has to be handed over as literal colours. `lib/themes.ts` is the
+ * source of truth for those: each theme carries its own `term` ITheme
+ * alongside the CSS tokens, so a switch moves both together.
  *
- * `background` is the `surface` plane so the terminal sits on the same black as
- * the pane around it. ANSI is harmonized with the accent set rather than a
- * stock 16-colour scheme: mint for green, copper for yellow, rose for red,
- * iris for magenta/blue.
+ * `background` is the `surface` plane so the terminal sits on the same colour
+ * as the pane around it, and ANSI is harmonized with that theme's accent set
+ * rather than a stock 16-colour scheme.
  */
-const TERM_THEME = {
-  background: "#14171b", // --color-surface
-  foreground: "#e8ecf1", // --color-ink
-  cursor: "#4ade9f", // --color-signal
-  cursorAccent: "#14171b",
-  selectionBackground: "#9d8cf559", // --color-iris @ 35%
-  selectionInactiveBackground: "#9d8cf52e",
-  black: "#0e1013", // --color-sunken
-  red: "#f2748c", // --color-rose
-  green: "#4ade9f", // --color-signal
-  yellow: "#f0a868", // --color-copper
-  blue: "#7fa9f0",
-  magenta: "#9d8cf5", // --color-iris
-  cyan: "#66d9d2",
-  white: "#a8b2bf", // --color-ink-mid
-  brightBlack: "#4a5361", // --color-ink-faint
-  brightRed: "#f79bab",
-  brightGreen: "#7ceebc",
-  brightYellow: "#f7c493",
-  brightBlue: "#a5c5f7",
-  brightMagenta: "#bcb0f9",
-  brightCyan: "#93e8e3",
-  brightWhite: "#e8ecf1", // --color-ink
-} satisfies ITheme;
-
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+  const theme = useTheme();
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
   /**
@@ -106,7 +82,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       allowTransparency: false,
       scrollback: 10000,
       smoothScrollDuration: 0,
-      theme: TERM_THEME,
+      theme: theme.term as ITheme,
     });
     const fit = new FitAddon();
     term.open(host);
@@ -170,6 +146,16 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       termRef.current = null;
     };
   }, [tabId, pasteImages]);
+
+  // Re-theme a live terminal in place. Deliberately NOT a dep of the mount
+  // effect: rebuilding the terminal would drop the scrollback and the PTY
+  // writer registration. The spread is required — xterm compares the options
+  // object by reference, so mutating the retrieved theme is ignored
+  // (@xterm/xterm/typings/xterm.d.ts:881-889).
+  useEffect(() => {
+    const term = termRef.current?.term;
+    if (term) term.options.theme = { ...theme.term } as ITheme;
+  }, [theme]);
 
   // Re-fit when a hidden/inactive tab resurfaces (display:none → real box).
   useEffect(() => {

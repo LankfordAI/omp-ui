@@ -2,7 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { McpServerEntry, McpServersResult, OmpUpdateState } from "@omp-ui/core/types";
+import type {
+  McpServerEntry,
+  McpServersResult,
+  OmpSettingsSnapshot,
+  OmpUpdateState,
+} from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -12,6 +17,13 @@ const idleOmpUpdate: OmpUpdateState = {
   installedVersion: null,
   latestVersion: null,
   progress: null,
+  error: null,
+};
+
+const emptyOmpSettings: OmpSettingsSnapshot = {
+  entries: [],
+  agentDir: null,
+  projectConfigPath: null,
   error: null,
 };
 
@@ -59,6 +71,14 @@ const backendMock = {
   restartForAppUpdate: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
+  setThemeId: vi.fn(async () => {}),
+  setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
+  setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
+  clearDismissedAppUpdate: vi.fn(async () => {}),
+  clearDismissedOmpUpdate: vi.fn(async () => {}),
+  setWindowChrome: vi.fn(async () => {}),
+  readOmpSettings: vi.fn(async () => emptyOmpSettings),
+  writeOmpSetting: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 

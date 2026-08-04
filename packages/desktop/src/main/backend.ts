@@ -18,6 +18,7 @@ import {
   parseModelRole,
   readOmpAdvisorDefaults,
   readOmpModelRole,
+  readOmpSettings,
   readBranchDiff,
   listBranches,
   listProjectFiles,
@@ -37,6 +38,7 @@ import {
   writePlanExtension,
   writeAdvisorStatsExtension,
   writeImageToScratch,
+  writeOmpSetting,
   MAX_IMAGE_BYTES,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
@@ -44,6 +46,7 @@ import {
   type ImageAttachment,
   type LiveState,
   type McpSetEnabledRequest,
+  type OmpSettingValue,
   type OwnedSessionRecord,
   type ProjectGroup,
   type PtyHandle,
@@ -195,6 +198,28 @@ export class MainBackend {
       this.registry.setSkipDeleteConfirmation(skip);
       await this.broadcast();
     });
+    ipcMain.handle(CH.settingsSetThemeId, async (_e, id: string) => {
+      this.registry.setThemeId(id);
+      await this.broadcast();
+    });
+    ipcMain.handle(CH.settingsSetAppUpdateCheckOnLaunch, async (_e, on: boolean) => {
+      this.registry.setAppUpdateCheckOnLaunch(on);
+      await this.broadcast();
+    });
+    ipcMain.handle(CH.settingsSetOmpUpdateCheckOnLaunch, async (_e, on: boolean) => {
+      this.registry.setOmpUpdateCheckOnLaunch(on);
+      await this.broadcast();
+    });
+    // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
+    // re-arming a dismissed card from Settings needs its own pair.
+    ipcMain.handle(CH.settingsClearDismissedAppUpdate, async () => {
+      this.registry.setDismissedAppUpdateVersion(null);
+      await this.broadcast();
+    });
+    ipcMain.handle(CH.settingsClearDismissedOmpUpdate, async () => {
+      this.registry.setDismissedOmpUpdateVersion(null);
+      await this.broadcast();
+    });
     ipcMain.handle(CH.favoritesToggle, async (_e, key: string) => {
       this.registry.toggleFavorite(key);
       await this.broadcast();
@@ -239,6 +264,20 @@ export class MainBackend {
     ipcMain.handle(CH.branchNameSuggest, (_e, projectCwd: string, planContext: string) =>
       this.suggestBranchName(projectCwd, planContext),
     );
+    ipcMain.handle(CH.ompSettingsRead, (_e, projectCwd: string | null) =>
+      readOmpSettings({ ompPath: this.ompPath, projectCwd }),
+    );
+    ipcMain.handle(CH.ompSettingsWrite, (_e, key: string, value: OmpSettingValue) =>
+      writeOmpSetting({ ompPath: this.ompPath, key, value }),
+    );
+    ipcMain.handle(CH.windowSetChrome, (_e, background: string, symbol: string) => {
+      if (this.win.isDestroyed()) return;
+      try {
+        this.win.setTitleBarOverlay({ color: background, symbolColor: symbol, height: 36 });
+      } catch {
+        // No overlay on this platform — a theme change must not surface a platform error.
+      }
+    });
     ipcMain.handle(CH.mcpList, (_e, projectCwd: string) => resolveMcpServers(projectCwd));
     ipcMain.handle(CH.mcpSetEnabled, (_e, req: McpSetEnabledRequest) => setMcpServerEnabled(req));
     ipcMain.handle(CH.sessionRestart, (_e, tabId: string) => this.restartSession(tabId));
@@ -275,13 +314,22 @@ export class MainBackend {
     );
   }
 
-  /** Launch-time background check — quiet unless an update is available. */
+  /**
+   * Launch-time background check — quiet unless an update is available. Gated
+   * inside the method so no caller can bypass the user's launch preference;
+   * the palette's manual check goes through checkNow(true) and stays live.
+   */
   checkAppUpdateBackground(): void {
+    if (!this.registry.appUpdateCheckOnLaunch) return;
     void this.appUpdater.checkNow(false);
   }
 
-  /** Launch-time background check — quiet unless an install/update offer exists. */
+  /**
+   * Launch-time background check — quiet unless an install/update offer
+   * exists. Gated by the same launch preference as its app-update twin.
+   */
   checkOmpUpdateBackground(): void {
+    if (!this.registry.ompUpdateCheckOnLaunch) return;
     void this.ompUpdater.checkNow(false);
   }
 
@@ -850,6 +898,11 @@ export class MainBackend {
       defaultMode: this.registry.defaultMode,
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
+      themeId: this.registry.themeId,
+      appUpdateCheckOnLaunch: this.registry.appUpdateCheckOnLaunch,
+      ompUpdateCheckOnLaunch: this.registry.ompUpdateCheckOnLaunch,
+      dismissedAppUpdateVersion: this.registry.dismissedAppUpdateVersion,
+      dismissedOmpUpdateVersion: this.registry.dismissedOmpUpdateVersion,
     };
   }
 

@@ -57,6 +57,11 @@ export function stepTranscriptScale(direction: 1 | -1): void {
   if (next !== undefined) set(next);
 }
 
+/** Sets an exact step (the settings page's select); off-scale values snap to 1. */
+export function setTranscriptScale(next: number): void {
+  set(SCALE_STEPS.includes(next as (typeof SCALE_STEPS)[number]) ? next : 1);
+}
+
 export function resetTranscriptScale(): void {
   set(1);
 }

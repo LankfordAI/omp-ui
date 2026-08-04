@@ -42,10 +42,12 @@ holds, which is why `signal` is called out above.
 ## Consequences
 
 - **Tokens only.** `neutral-*`, `zinc-*`, `gray-*`, `green-*`, `amber-*`,
-  `red-*`, and raw hex are prohibited in renderer components. The one legitimate
-  exception is `TerminalTab.tsx`, where xterm.js needs literal hex for its ANSI
-  palette; that block cites `style.css` as the source of truth and must be
-  updated with it.
+  `red-*`, and raw hex are prohibited in renderer components. Literal hex now
+  lives in exactly one place, `renderer/src/lib/themes.ts`, which holds every
+  theme's tokens, xterm ITheme, and shiki colours together; `TerminalTab.tsx`
+  and `lib/highlight.ts` read from it rather than carrying their own copies,
+  and `style.css`'s `@theme` block declares the token names plus the default
+  (graphite) values.
 - **Motion is CSS-only** — five named animations (`rise`, `slide-in`, `breathe`,
   `sweep`, `caret`) and one easing curve (`ease-out-quint`). No animation
   library. `breathe` means "work is happening now"; `sweep` means "indeterminate

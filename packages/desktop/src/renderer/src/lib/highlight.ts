@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HighlighterCore, ThemedToken, ThemeRegistrationRaw } from "shiki/core";
+import { DEFAULT_THEME_ID, resolveTheme, useTheme, type Theme } from "./themes";
 
 /**
  * Syntax highlighting for transcript code blocks (issue #27).
@@ -10,80 +11,82 @@ import type { HighlighterCore, ThemedToken, ThemeRegistrationRaw } from "shiki/c
  * the caller renders plain text — highlighting is an enhancement, never a
  * gate on seeing the code.
  *
- * The theme is built from the design tokens in style.css rather than a stock
- * shiki theme, so highlighted code sits on the same graphite planes as the
- * rest of the transcript. The signal mint is deliberately absent (ADR-0004):
- * strings lean copper, keywords iris, and the cool blues/teals are new hues
- * that read as content, not liveness.
+ * The theme is built from the active runtime theme's `code` palette
+ * (`lib/themes.ts`) rather than a stock shiki theme, so highlighted code sits
+ * on the same planes as the rest of the transcript and follows a theme
+ * switch. The signal accent is deliberately absent from every theme's `code`
+ * map (ADR-0004): it means agent liveness, never syntax.
  */
-const GRAPHITE: ThemeRegistrationRaw = {
-  name: "omp-graphite",
-  type: "dark",
-  colors: {},
-  settings: [
-    // Default foreground = ink: code is primary reading content (issue #29).
-    { settings: { foreground: "#e8ecf1" } },
-    {
-      scope: ["comment", "punctuation.definition.comment"],
-      settings: { foreground: "#5f6b7c", fontStyle: "italic" },
-    },
-    {
-      scope: ["string", "punctuation.definition.string", "string.template"],
-      settings: { foreground: "#e0b184" },
-    },
-    {
-      scope: [
-        "constant.numeric",
-        "constant.language",
-        "constant.character",
-        "constant.other.symbol",
-      ],
-      settings: { foreground: "#e39db5" },
-    },
-    {
-      scope: ["keyword", "storage.type", "storage.modifier", "keyword.operator.new"],
-      settings: { foreground: "#9d8cf5" },
-    },
-    {
-      scope: ["entity.name.function", "support.function", "meta.function-call entity.name"],
-      settings: { foreground: "#7fb8e8" },
-    },
-    {
-      scope: [
-        "entity.name.type",
-        "entity.name.class",
-        "entity.other.inherited-class",
-        "support.type",
-        "support.class",
-      ],
-      settings: { foreground: "#6fc7d4" },
-    },
-    {
-      scope: ["variable.other.property", "support.type.property-name", "meta.object-literal.key"],
-      settings: { foreground: "#a8c5e8" },
-    },
-    {
-      scope: ["entity.name.tag"],
-      settings: { foreground: "#9d8cf5" },
-    },
-    {
-      scope: ["entity.other.attribute-name"],
-      settings: { foreground: "#6fc7d4" },
-    },
-    {
-      scope: ["keyword.operator", "punctuation"],
-      settings: { foreground: "#a8b2bf" },
-    },
-    {
-      scope: ["markup.inserted"],
-      settings: { foreground: "#8fd4b8" },
-    },
-    {
-      scope: ["markup.deleted"],
-      settings: { foreground: "#f2748c" },
-    },
-  ],
-};
+function buildShikiTheme(theme: Theme): ThemeRegistrationRaw {
+  return {
+    name: `omp-${theme.id}`,
+    type: theme.dark ? "dark" : "light",
+    colors: {},
+    settings: [
+      // Default foreground = ink: code is primary reading content (issue #29).
+      { settings: { foreground: theme.code.foreground } },
+      {
+        scope: ["comment", "punctuation.definition.comment"],
+        settings: { foreground: theme.code.comment, fontStyle: "italic" },
+      },
+      {
+        scope: ["string", "punctuation.definition.string", "string.template"],
+        settings: { foreground: theme.code.string },
+      },
+      {
+        scope: [
+          "constant.numeric",
+          "constant.language",
+          "constant.character",
+          "constant.other.symbol",
+        ],
+        settings: { foreground: theme.code.constant },
+      },
+      {
+        scope: ["keyword", "storage.type", "storage.modifier", "keyword.operator.new"],
+        settings: { foreground: theme.code.keyword },
+      },
+      {
+        scope: ["entity.name.function", "support.function", "meta.function-call entity.name"],
+        settings: { foreground: theme.code.function },
+      },
+      {
+        scope: [
+          "entity.name.type",
+          "entity.name.class",
+          "entity.other.inherited-class",
+          "support.type",
+          "support.class",
+        ],
+        settings: { foreground: theme.code.type },
+      },
+      {
+        scope: ["variable.other.property", "support.type.property-name", "meta.object-literal.key"],
+        settings: { foreground: theme.code.property },
+      },
+      {
+        scope: ["entity.name.tag"],
+        settings: { foreground: theme.code.keyword },
+      },
+      {
+        scope: ["entity.other.attribute-name"],
+        settings: { foreground: theme.code.type },
+      },
+      {
+        scope: ["keyword.operator", "punctuation"],
+        settings: { foreground: theme.code.punctuation },
+      },
+      {
+        scope: ["markup.inserted"],
+        settings: { foreground: theme.code.inserted },
+      },
+      {
+        scope: ["markup.deleted"],
+        settings: { foreground: theme.code.deleted },
+      },
+    ],
+  };
+}
 
 /**
  * Grammars offered, keyed by shiki's canonical name. Each entry is a lazy
@@ -149,6 +152,12 @@ function resolveLang(lang: string | undefined): string | null {
   return canonical in LANG_IMPORTS ? canonical : null;
 }
 
+/**
+ * Themes registered on the core, seeded with the one `getCore` builds it
+ * with. A theme is only paid for once the user actually switches to it.
+ */
+const loadedThemes = new Set<string>([DEFAULT_THEME_ID]);
+
 let corePromise: Promise<HighlighterCore> | null = null;
 
 function getCore(): Promise<HighlighterCore> {
@@ -158,7 +167,7 @@ function getCore(): Promise<HighlighterCore> {
       import("shiki/engine/javascript"),
     ]);
     return createHighlighterCore({
-      themes: [GRAPHITE],
+      themes: [buildShikiTheme(resolveTheme(DEFAULT_THEME_ID))],
       langs: [],
       // Forgiving: a grammar pattern the JS engine can't translate degrades
       // that pattern, instead of throwing away the whole block's highlighting.
@@ -193,6 +202,7 @@ export function useHighlightTokens(
 ): ThemedToken[][] | null {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
   const resolved = resolveLang(lang);
+  const theme = useTheme();
 
   useEffect(() => {
     if (!enabled || resolved === null) {
@@ -203,7 +213,14 @@ export function useHighlightTokens(
     void (async () => {
       const core = await getCore();
       await ensureLang(core, resolved);
-      const lines = core.codeToTokensBase(code, { lang: resolved as never, theme: "omp-graphite" });
+      if (!loadedThemes.has(theme.id)) {
+        core.loadThemeSync(buildShikiTheme(theme));
+        loadedThemes.add(theme.id);
+      }
+      const lines = core.codeToTokensBase(code, {
+        lang: resolved as never,
+        theme: `omp-${theme.id}`,
+      });
       if (alive) setTokens(lines);
     })().catch(() => {
       // A failed grammar or engine load leaves the block as plain text.
@@ -212,7 +229,9 @@ export function useHighlightTokens(
     return () => {
       alive = false;
     };
-  }, [code, resolved, enabled]);
+    // Tokens carry their colour as an inline style, so a theme switch only
+    // reaches the rendered block by re-tokenizing it.
+  }, [code, resolved, enabled, theme]);
 
   return tokens;
 }

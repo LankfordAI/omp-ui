@@ -45,6 +45,17 @@ export {
   type ModelRole,
   type OmpAdvisorDefaults,
 } from "./omp-config";
+export {
+  execOmpConfigRunner,
+  OMP_MODEL_ROLE_IDS,
+  OMP_MODEL_ROLES_KEY,
+  OMP_SETTING_GROUPS,
+  OMP_SETTING_KEYS,
+  parseEnumOptions,
+  readOmpSettings,
+  writeOmpSetting,
+  type OmpConfigRunner,
+} from "./omp-settings";
 export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
   generateBranchNameWithOmp,

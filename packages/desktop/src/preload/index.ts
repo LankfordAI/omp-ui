@@ -12,6 +12,17 @@ const api: OmpBackend = {
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
   setSkipDeleteConfirmation: (skip) =>
     ipcRenderer.invoke(CH.settingsSetSkipDeleteConfirmation, skip),
+  setThemeId: (id) => ipcRenderer.invoke(CH.settingsSetThemeId, id),
+  setAppUpdateCheckOnLaunch: (on) =>
+    ipcRenderer.invoke(CH.settingsSetAppUpdateCheckOnLaunch, on),
+  setOmpUpdateCheckOnLaunch: (on) =>
+    ipcRenderer.invoke(CH.settingsSetOmpUpdateCheckOnLaunch, on),
+  clearDismissedAppUpdate: () => ipcRenderer.invoke(CH.settingsClearDismissedAppUpdate),
+  clearDismissedOmpUpdate: () => ipcRenderer.invoke(CH.settingsClearDismissedOmpUpdate),
+  setWindowChrome: (background, symbol) =>
+    ipcRenderer.invoke(CH.windowSetChrome, background, symbol),
+  readOmpSettings: (projectCwd) => ipcRenderer.invoke(CH.ompSettingsRead, projectCwd),
+  writeOmpSetting: (key, value) => ipcRenderer.invoke(CH.ompSettingsWrite, key, value),
   spawnSession: (req) => ipcRenderer.invoke(CH.sessionSpawn, req),
   terminateSession: (tabId) => ipcRenderer.invoke(CH.sessionTerminate, tabId),
   switchMode: (tabId, mode) => ipcRenderer.invoke(CH.sessionSwitchMode, tabId, mode),

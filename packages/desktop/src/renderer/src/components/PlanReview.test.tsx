@@ -90,6 +90,11 @@ function backendState(titles: Record<string, string>): BackendState {
     defaultMode: "rpc-ui",
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    themeId: "graphite",
+    appUpdateCheckOnLaunch: true,
+    ompUpdateCheckOnLaunch: true,
+    dismissedAppUpdateVersion: null,
+    dismissedOmpUpdateVersion: null,
     projects: [
       {
         project: {

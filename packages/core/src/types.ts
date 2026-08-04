@@ -79,6 +79,14 @@ export interface BackendState {
   modelFavorites: string[];
   /** Whether destructive session deletion proceeds without a renderer warning. */
   skipDeleteConfirmation: boolean;
+  /** Active theme id; the renderer resolves it against its own theme table. */
+  themeId: string;
+  appUpdateCheckOnLaunch: boolean;
+  ompUpdateCheckOnLaunch: boolean;
+  /** Release version whose omp-ui update card was dismissed, or null. */
+  dismissedAppUpdateVersion: string | null;
+  /** omp version whose install/update card was dismissed, or null. */
+  dismissedOmpUpdateVersion: string | null;
 }
 
 /**
@@ -139,6 +147,39 @@ export interface AdvisorDefaults {
   enabled: boolean;
   /** `modelRoles.advisor` as written, or null when omp resolves it in code. */
   model: string | null;
+}
+
+/**
+ * omp's own settings, as the settings surface's omp page sees them (see
+ * core/omp-settings.ts). Declared here so the IPC signatures in `OmpBackend`
+ * stay in the dependency-free file.
+ */
+export type OmpSettingType = "boolean" | "number" | "string" | "enum" | "array" | "record";
+export type OmpSettingValue = boolean | number | string | string[] | Record<string, unknown>;
+/** Which config layer supplies a value, per omp's own merge order. */
+export type OmpSettingLayer = "default" | "global" | "project";
+
+export interface OmpSettingEntry {
+  key: string;
+  type: OmpSettingType;
+  /** omp's own description; "" when it ships none. */
+  description: string;
+  /** Effective value for the read's projectCwd; undefined = unset. */
+  value: OmpSettingValue | undefined;
+  /** Enum members, in omp's order; null for non-enum types. */
+  options: string[] | null;
+  layer: OmpSettingLayer;
+}
+
+export interface OmpSettingsSnapshot {
+  /** Only the allowlisted keys omp actually knows, in OMP_SETTING_KEYS order. */
+  entries: OmpSettingEntry[];
+  /** Absolute path of omp's agent config dir (core `getOmpAgentDir()`). */
+  agentDir: string | null;
+  /** The project layer file that was accounted for, when it exists. */
+  projectConfigPath: string | null;
+  /** Non-null when omp could not be run at all; entries is then empty. */
+  error: string | null;
 }
 
 /**
@@ -291,6 +332,26 @@ export interface OmpBackend {
   removeProject(path: string): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
+  setThemeId(id: string): Promise<void>;
+  setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
+  setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
+  /** Clears the remembered omp-ui update dismissal so the offer can return. */
+  clearDismissedAppUpdate(): Promise<void>;
+  /** Clears the remembered omp update dismissal so the offer can return. */
+  clearDismissedOmpUpdate(): Promise<void>;
+  /** Repaints the native title-bar overlay to match the active theme. */
+  setWindowChrome(background: string, symbol: string): Promise<void>;
+  /**
+   * omp's own settings for the allowlist, with the layer each value comes from.
+   * `projectCwd` selects the project layer to account for; pass null to read
+   * the global layer alone.
+   */
+  readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
+  /**
+   * Writes one omp setting to the GLOBAL layer via `omp config set`. `value`
+   * is serialized per its schema type. Rejects with omp's own stderr message.
+   */
+  writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
   spawnSession(req: SpawnRequest): Promise<{ tabId: string }>;
   terminateSession(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;

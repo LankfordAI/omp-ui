@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./plan": "./src/plan.ts",
-    "./advisor-stats": "./src/advisor-stats.ts"
+    "./advisor-stats": "./src/advisor-stats.ts",
+    "./omp-settings-keys": "./src/omp-settings-keys.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

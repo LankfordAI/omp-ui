@@ -134,6 +134,31 @@ describe("Registry persistence", () => {
     expect(Registry.load(file).dismissedOmpUpdateVersion).toBeNull();
   });
 
+  it("defaults theme and launch update checks when the settings fields are absent", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { skipDeleteConfirmation: true } }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.themeId).toBe("graphite");
+    expect(reg.appUpdateCheckOnLaunch).toBe(true);
+    expect(reg.ompUpdateCheckOnLaunch).toBe(true);
+  });
+
+  it("round-trips a non-default theme and launch update checks across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setThemeId("monokai");
+    reg.setAppUpdateCheckOnLaunch(false);
+    reg.setOmpUpdateCheckOnLaunch(false);
+
+    const reloaded = Registry.load(file);
+    expect(reloaded.themeId).toBe("monokai");
+    expect(reloaded.appUpdateCheckOnLaunch).toBe(false);
+    expect(reloaded.ompUpdateCheckOnLaunch).toBe(false);
+  });
+
   it("leaves no tmp file behind after save", () => {
     const file = tmpFile();
     const reg = Registry.load(file);

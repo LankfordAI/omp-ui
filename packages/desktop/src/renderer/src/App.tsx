@@ -6,6 +6,7 @@ import { McpManager } from "./components/McpManager";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
+import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button } from "./components/ui";
@@ -99,6 +100,8 @@ export default function App() {
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const mcpManager = useStore((s) => s.mcpManager);
   const newSession = useStore((s) => s.newSession);
+  const settingsPage = useStore((s) => s.settingsPage);
+  const openSettings = useStore((s) => s.openSettings);
   const toggleConsole = useStore((s) => s.toggleConsole);
 
   // The keyboard twin of the composer's /new: a new live session in the current
@@ -137,6 +140,12 @@ export default function App() {
     "mod+0": (e) => {
       e.preventDefault();
       resetTranscriptScale();
+    },
+    // Settings modal (issue #36). The combo is free — Electron menus don't
+    // claim it — and matches the platform convention for preferences.
+    "mod+,": (e) => {
+      e.preventDefault();
+      openSettings();
     },
   });
 
@@ -192,6 +201,7 @@ export default function App() {
       )}
       {projectPickerOpen && <ProjectPicker />}
       {mcpManager && <McpManager tabId={mcpManager.tabId} projectCwd={mcpManager.projectCwd} />}
+      {settingsPage && <Settings />}
     </div>
   );
 }

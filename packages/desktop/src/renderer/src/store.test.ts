@@ -4,6 +4,7 @@ import type {
   BackendState,
   BranchList,
   LiveState,
+  OmpSettingsSnapshot,
   OmpUpdateState,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
@@ -17,6 +18,11 @@ let backendState: BackendState = {
   defaultMode: "rpc-ui",
   modelFavorites: [],
   skipDeleteConfirmation: false,
+  themeId: "graphite",
+  appUpdateCheckOnLaunch: true,
+  ompUpdateCheckOnLaunch: true,
+  dismissedAppUpdateVersion: null,
+  dismissedOmpUpdateVersion: null,
 };
 
 const idleAppUpdate: AppUpdateState = {
@@ -37,6 +43,13 @@ const idleOmpUpdate: OmpUpdateState = {
   installedVersion: null,
   latestVersion: null,
   progress: null,
+  error: null,
+};
+
+const emptyOmpSettings: OmpSettingsSnapshot = {
+  entries: [],
+  agentDir: null,
+  projectConfigPath: null,
   error: null,
 };
 
@@ -82,6 +95,14 @@ const mockBackend = {
   restartForAppUpdate: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
+  setThemeId: vi.fn(async () => {}),
+  setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
+  setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
+  clearDismissedAppUpdate: vi.fn(async () => {}),
+  clearDismissedOmpUpdate: vi.fn(async () => {}),
+  setWindowChrome: vi.fn(async () => {}),
+  readOmpSettings: vi.fn(async () => emptyOmpSettings),
+  writeOmpSetting: vi.fn(async () => {}),
 };
 
 // Dialog text is an assertable part of a destructive action's contract, so the
@@ -160,6 +181,11 @@ function stateWithRecord(sessionId: string | null, live: LiveState = "live"): Ba
     defaultMode: "rpc-ui",
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    themeId: "graphite",
+    appUpdateCheckOnLaunch: true,
+    ompUpdateCheckOnLaunch: true,
+    dismissedAppUpdateVersion: null,
+    dismissedOmpUpdateVersion: null,
     projects: [
       {
         project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
@@ -230,6 +256,11 @@ beforeEach(() => {
     defaultMode: "rpc-ui",
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    themeId: "graphite",
+    appUpdateCheckOnLaunch: true,
+    ompUpdateCheckOnLaunch: true,
+    dismissedAppUpdateVersion: null,
+    dismissedOmpUpdateVersion: null,
   };
   useStore.setState({
     state: null,
@@ -238,6 +269,7 @@ beforeEach(() => {
     exited: {},
     rpc: {},
     deleteConfirmation: null,
+    settingsPage: null,
   });
   vi.clearAllMocks();
 });
@@ -1972,5 +2004,29 @@ describe("deleteSession", () => {
 
     expect(useStore.getState().deleteConfirmation).toBeNull();
     expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+  });
+});
+
+describe("settings", () => {
+  it("opens on general by default, honours an explicit page, and closes back to null", () => {
+    useStore.getState().openSettings();
+    expect(useStore.getState().settingsPage).toBe("general");
+
+    useStore.getState().openSettings("omp");
+    expect(useStore.getState().settingsPage).toBe("omp");
+
+    useStore.getState().closeSettings();
+    expect(useStore.getState().settingsPage).toBeNull();
+  });
+
+  it("rejects writeOmpSetting to its caller instead of alerting", async () => {
+    mockBackend.writeOmpSetting.mockRejectedValueOnce(new Error("unknown setting"));
+
+    // The omp settings page renders this inline, so the rejection must survive
+    // the store rather than being swallowed into window.alert.
+    await expect(useStore.getState().writeOmpSetting("advisor.enabled", true)).rejects.toThrow(
+      "unknown setting",
+    );
+    expect(alerts).toEqual([]);
   });
 });

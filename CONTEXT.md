@@ -178,3 +178,20 @@ installed at all). Dismissal is remembered per offered version; background
 failures stay silent. When both show they share one corner stack, the omp-ui
 card on top.
 _Avoid_: toast, notification, popup, updater dialog
+
+**Settings surface**:
+The modal with five pages — General, Appearance, Updates, omp, About — reached
+from the sidebar gear, the command palette, or `mod+,`. Deliberately not a tab:
+preferences are not sessions, so they stay out of the tab/lineage model
+entirely. omp-ui's own preferences persist in the registry; the omp page is a
+view onto omp's own config, written through `omp config set` to the global
+layer only, with each value's layer shown.
+_Avoid_: preferences dialog, options window, config panel
+
+**Theme**:
+A curated token set covering all three consumers of the palette at once — the
+`@theme` custom properties, the xterm ITheme, and the shiki code theme —
+switched at runtime by writing CSS variables on the document root. Every theme
+keeps the signal accent reserved for agent liveness (ADR-0004); a theme is a
+fixed set, never a free-form colour picker.
+_Avoid_: color scheme, skin, palette
