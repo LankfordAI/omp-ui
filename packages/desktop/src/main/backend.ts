@@ -345,7 +345,7 @@ export class MainBackend {
         record = this.registry.updateSession(record.tabId, patch) ?? record;
       }
 
-      return req.mode === "rpc-ui" ? this.spawnRpc(record, req) : await this.spawnPty(record, req);
+      return req.mode === "rpc-ui" ? this.spawnRpc(record) : await this.spawnPty(record, req);
     } finally {
       if (req.resumeTabId) {
         this.spawning.delete(req.resumeTabId);
@@ -386,7 +386,7 @@ export class MainBackend {
     return { tabId: record.tabId };
   }
 
-  private spawnRpc(record: OwnedSessionRecord, req: SpawnRequest): { tabId: string } {
+  private spawnRpc(record: OwnedSessionRecord): { tabId: string } {
     const absLineageDir = path.join(this.sessionsRoot, record.lineageDir);
     // Exactly like PTY (ADR-0003) — and the dir must exist for the watcher.
     fs.mkdirSync(absLineageDir, { recursive: true });
