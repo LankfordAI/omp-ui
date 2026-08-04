@@ -6,6 +6,7 @@ import {
   base64Bytes,
   bracketedImagePaste,
   browseDirectories,
+  checkoutBranch,
   deleteSessionFiles,
   formatModelRole,
   generateTitleWithOmp,
@@ -17,6 +18,7 @@ import {
   readOmpAdvisorDefaults,
   readOmpModelRole,
   readBranchDiff,
+  listBranches,
   listProjectFiles,
   resolveFileMentions,
   resolveMcpServers,
@@ -225,6 +227,14 @@ export class MainBackend {
       this.readPlanFile(tabId, absPath),
     );
     ipcMain.handle(CH.branchDiff, (_e, projectCwd: string) => readBranchDiff(projectCwd));
+    // Stateless core calls: a checkout touches no registry/BackendState field,
+    // so these handlers never broadcast().
+    ipcMain.handle(CH.branchList, (_e, projectCwd: string) => listBranches(projectCwd));
+    ipcMain.handle(
+      CH.branchCheckout,
+      (_e, projectCwd: string, name: string, opts?: { create?: boolean }) =>
+        checkoutBranch(projectCwd, name, opts),
+    );
     ipcMain.handle(CH.mcpList, (_e, projectCwd: string) => resolveMcpServers(projectCwd));
     ipcMain.handle(CH.mcpSetEnabled, (_e, req: McpSetEnabledRequest) => setMcpServerEnabled(req));
     ipcMain.handle(CH.sessionRestart, (_e, tabId: string) => this.restartSession(tabId));

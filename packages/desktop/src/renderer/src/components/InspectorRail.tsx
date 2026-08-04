@@ -484,6 +484,11 @@ function PlansPane({ tabId }: { tabId: string }) {
  */
 function DiffsPane({ tabId }: { tabId: string }) {
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  // A checkout through the composer chip (issue #35) updates this slice; the
+  // pane re-reads so it never shows the previous branch's diff.
+  const currentBranch = useStore((s) =>
+    projectCwd ? s.branches[projectCwd]?.current : undefined,
+  );
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
 
   const refresh = useCallback(async () => {
@@ -507,7 +512,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, currentBranch]);
 
   if (load.status === "idle" || load.status === "loading") {
     return <Empty title="Reading branch…" hint="Gathering the working-tree diff." />;
@@ -545,7 +550,9 @@ function DiffsPane({ tabId }: { tabId: string }) {
   return (
     <div>
       <div className="flex items-center gap-1.5 border-b border-line-soft px-3 py-2">
-        <Chip mono tone="signal" title={load.repoRoot ?? undefined}>
+        {/* Branch identity is chrome, not liveness — neutral, never signal
+            (ADR-0004). */}
+        <Chip mono title={load.repoRoot ?? undefined}>
           {load.branch ?? "detached"}
         </Chip>
         <span

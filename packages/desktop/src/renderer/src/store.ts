@@ -3,6 +3,7 @@ import type {
   AdvisorDefaults,
   AppUpdateState,
   BackendState,
+  BranchList,
   ImageAttachment,
   LiveState,
   OmpUpdateState,
@@ -227,6 +228,11 @@ interface UiStore {
    * lifetime.
    */
   consoleOpen: Record<string, boolean>;
+  /**
+   * Branch listings keyed by project cwd (issue #35). Shared across every tab
+   * on the project, so a checkout in one tab updates all of their chips.
+   */
+  branches: Record<string, BranchList>;
   /** omp's advisor defaults, keyed by project cwd — see loadAdvisorDefaults. */
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
@@ -396,6 +402,17 @@ interface UiStore {
   clearBash(tabId: string): void;
   /** Toggles the composer's console drawer for a tab (issue #33). */
   toggleConsole(tabId: string): void;
+  /** (Re)reads the project's branch listing; on failure keeps the last known. */
+  refreshBranches(projectCwd: string): Promise<void>;
+  /**
+   * Switches the project's git branch (issue #35). Returns null on success, or
+   * git's error message to show in the menu.
+   */
+  checkoutGitBranch(
+    projectCwd: string,
+    name: string,
+    opts?: { create?: boolean },
+  ): Promise<string | null>;
 }
 
 // One IPC data listener total; each TerminalTab registers its writer here.
@@ -778,6 +795,7 @@ export const useStore = create<UiStore>()((set, get) => {
     exited: {},
     rpc: {},
     consoleOpen: {},
+    branches: {},
     advisorDefaults: {},
     deleteConfirmation: null,
     projectPickerOpen: false,
@@ -1810,6 +1828,22 @@ export const useStore = create<UiStore>()((set, get) => {
 
     toggleConsole(tabId) {
       set((s) => ({ consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] } }));
+    },
+
+    async refreshBranches(projectCwd) {
+      const list = await backend.listBranches(projectCwd).catch(() => null);
+      // On failure keep the last known list — the chip/menu stay usable.
+      if (list) set((s) => ({ branches: { ...s.branches, [projectCwd]: list } }));
+    },
+
+    async checkoutGitBranch(projectCwd, name, opts) {
+      try {
+        await backend.checkoutBranch(projectCwd, name, opts);
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+      await get().refreshBranches(projectCwd);
+      return null;
     },
   };
 });

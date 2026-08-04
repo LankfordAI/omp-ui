@@ -16,6 +16,8 @@ export const CH = {
   titleGenerate: "title:generate",
   planRead: "plan:read",
   branchDiff: "branch:diff",
+  branchList: "branch:list",
+  branchCheckout: "branch:checkout",
   mcpList: "mcp:list",
   mcpSetEnabled: "mcp:setEnabled",
   sessionRestart: "session:restart",

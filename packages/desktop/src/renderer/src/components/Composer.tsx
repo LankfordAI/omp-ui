@@ -22,6 +22,7 @@ import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
+import { BranchChip } from "./BranchChip";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
@@ -608,6 +609,8 @@ export function Composer({ tabId }: { tabId: string }) {
             </Capsule>
 
             <AdvisorControl tabId={tabId} disabled={dead} />
+
+            <BranchChip projectCwd={projectCwd} />
 
             <ConsoleToggle tabId={tabId} />
 

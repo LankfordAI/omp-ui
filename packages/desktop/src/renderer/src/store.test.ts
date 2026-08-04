@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppUpdateState, BackendState, LiveState, OmpUpdateState } from "@omp-ui/core/types";
+import type {
+  AppUpdateState,
+  BackendState,
+  BranchList,
+  LiveState,
+  OmpUpdateState,
+} from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import type { RpcTabState } from "./store";
 
@@ -51,6 +57,8 @@ const mockBackend = {
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   generateTitle: vi.fn(async (): Promise<string | null> => null),
   readPlanFile: vi.fn(async (): Promise<string | null> => "# Plan\n\nstep one\n"),
+  listBranches: vi.fn(),
+  checkoutBranch: vi.fn(),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
@@ -1827,6 +1835,40 @@ describe("prompting, slash commands, and session ops", () => {
     expect(useStore.getState().consoleOpen[`${TAB}-other`]).toBeUndefined();
     useStore.getState().toggleConsole(TAB);
     expect(useStore.getState().consoleOpen[TAB]).toBe(false);
+  });
+});
+
+describe("branch switching (issue #35)", () => {
+  it("checkoutGitBranch success refreshes the shared listing and returns null", async () => {
+    const fixture: BranchList = {
+      repoRoot: "/p",
+      current: "feature/x",
+      branches: ["main", "feature/x"],
+      defaultBranch: "main",
+    };
+    mockBackend.checkoutBranch.mockResolvedValueOnce(undefined);
+    mockBackend.listBranches.mockResolvedValueOnce(fixture);
+    useStore.setState({ branches: {} });
+
+    const err = await useStore.getState().checkoutGitBranch("/p", "feature/x");
+    expect(err).toBeNull();
+    expect(mockBackend.checkoutBranch).toHaveBeenCalledWith("/p", "feature/x", undefined);
+    expect(useStore.getState().branches["/p"]).toEqual(fixture);
+  });
+
+  it("checkoutGitBranch rejection returns git's message and keeps the last listing", async () => {
+    const existing: BranchList = {
+      repoRoot: "/p",
+      current: "main",
+      branches: ["main"],
+      defaultBranch: "main",
+    };
+    mockBackend.checkoutBranch.mockRejectedValueOnce(new Error("error: would be overwritten"));
+    useStore.setState({ branches: { "/p": existing } });
+
+    const err = await useStore.getState().checkoutGitBranch("/p", "other");
+    expect(err).toBe("error: would be overwritten");
+    expect(useStore.getState().branches["/p"]).toEqual(existing);
   });
 });
 

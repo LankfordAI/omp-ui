@@ -108,6 +108,21 @@ export interface BranchDiff {
   untracked: Array<{ path: string; text: string; binary: boolean }>;
 }
 
+/**
+ * Local-branch listing of a project's git repo (see listBranches). Null
+ * repoRoot means the project is not inside a git repository.
+ */
+export interface BranchList {
+  /** Null when projectCwd is not inside a git repository. */
+  repoRoot: string | null;
+  /** Current branch; null on a detached HEAD. */
+  current: string | null;
+  /** Local branches, default branch first, then alphabetical. */
+  branches: string[];
+  /** The repo's default branch when one can be determined. */
+  defaultBranch: string | null;
+}
+
 export interface SpawnRequest {
   projectCwd: string;
   mode: SessionMode;
@@ -320,6 +335,17 @@ export interface OmpBackend {
    * not inside a git repository.
    */
   getBranchDiff(projectCwd: string): Promise<BranchDiff>;
+  /**
+   * Local branches of a project's git repo, default branch first. Null fields
+   * when the project is not inside a git repository.
+   */
+  listBranches(projectCwd: string): Promise<BranchList>;
+  /**
+   * Switches the project's repo to `name` (`checkout -b` when opts.create).
+   * Rejects with git's stderr when git refuses — the branch menu shows that
+   * message verbatim.
+   */
+  checkoutBranch(projectCwd: string, name: string, opts?: { create?: boolean }): Promise<void>;
   /** MCP servers resolved for a project's cwd, redacted; errors are per-file. */
   getMcpServers(projectCwd: string): Promise<McpServersResult>;
   /** Toggles one server via omp's own write algorithm; returns the refreshed list. */
