@@ -83,7 +83,7 @@ export function CommandPalette() {
   const activeTabId = useStore((s) => s.activeTabId);
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
-  const addProject = useStore((s) => s.addProject);
+  const openProjectPicker = useStore((s) => s.openProjectPicker);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
 
@@ -136,7 +136,7 @@ export function CommandPalette() {
       group: "Projects",
       name: "Add project…",
       desc: "pick a directory to track",
-      run: () => void addProject(),
+      run: () => openProjectPicker(),
     });
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
@@ -162,7 +162,7 @@ export function CommandPalette() {
     }
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, addProject, terminate, switchMode]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, terminate, switchMode]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -1,4 +1,5 @@
 export * from "./paths";
+export { browseDirectories, expandHomePath, resolveProjectPath } from "./dir-browse";
 export { readBranchDiff } from "./branch-diff";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";

@@ -290,7 +290,7 @@ function CollapsedRail({
 
 export function Sidebar() {
   const state = useStore((st) => st.state);
-  const addProject = useStore((st) => st.addProject);
+  const openProjectPicker = useStore((st) => st.openProjectPicker);
   const newSession = useStore((st) => st.newSession);
 
   const [collapsed, setCollapsed] = useState(false);
@@ -376,7 +376,7 @@ export function Sidebar() {
         )}
         {collapsed && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />}
         {!collapsed && (
-          <IconButton label="add project" onClick={() => void addProject()}>
+          <IconButton label="add project" onClick={openProjectPicker}>
             <IconPlus />
           </IconButton>
         )}
@@ -433,7 +433,7 @@ export function Sidebar() {
                 title="No projects yet"
                 hint="Point omp-ui at a repository and every session you start there shows up here."
                 action={
-                  <Button variant="solid" onClick={() => void addProject()}>
+                  <Button variant="solid" onClick={openProjectPicker}>
                     Add project
                   </Button>
                 }

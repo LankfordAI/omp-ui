@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
+import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
@@ -43,7 +44,7 @@ function TitleBar() {
 }
 
 function Welcome() {
-  const addProject = useStore((s) => s.addProject);
+  const openProjectPicker = useStore((s) => s.openProjectPicker);
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
 
   return (
@@ -59,7 +60,7 @@ function Welcome() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="solid" onClick={() => void addProject()}>
+          <Button variant="solid" onClick={openProjectPicker}>
             Add project
           </Button>
           {hasProjects && (
@@ -89,6 +90,7 @@ export default function App() {
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
+  const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const newSession = useStore((s) => s.newSession);
 
   // The keyboard twin of the composer's /new: a new live session in the current
@@ -147,6 +149,7 @@ export default function App() {
       {deleteConfirmation && (
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
+      {projectPickerOpen && <ProjectPicker />}
     </div>
   );
 }

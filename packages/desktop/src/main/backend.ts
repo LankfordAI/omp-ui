@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { dialog, ipcMain, type BrowserWindow } from "electron";
+import { ipcMain, type BrowserWindow } from "electron";
 import {
   base64Bytes,
   bracketedImagePaste,
+  browseDirectories,
   deleteSessionFiles,
   formatModelRole,
   generateTitleWithOmp,
@@ -18,6 +19,7 @@ import {
   readBranchDiff,
   listProjectFiles,
   resolveFileMentions,
+  resolveProjectPath,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -133,15 +135,13 @@ export class MainBackend {
 
   registerIpc(): void {
     ipcMain.handle(CH.stateGet, () => this.buildState());
-    ipcMain.handle(CH.projectAdd, async () => {
-      const r = await dialog.showOpenDialog(this.win, {
-        properties: ["openDirectory", "createDirectory"],
-      });
-      if (r.canceled || r.filePaths.length === 0) return null;
-      const record = this.registry.addProject(r.filePaths[0]!);
+    ipcMain.handle(CH.projectAdd, async (_e, raw: string) => {
+      const resolved = await resolveProjectPath(raw);
+      const record = this.registry.addProject(resolved);
       await this.broadcast();
       return record;
     });
+    ipcMain.handle(CH.dirBrowse, (_e, partialPath: string) => browseDirectories(partialPath));
     ipcMain.handle(CH.projectRemove, async (_e, projectPath: string) => {
       for (const entry of this.live.values()) {
         if (entry.record.projectCwd === projectPath) {

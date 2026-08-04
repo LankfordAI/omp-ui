@@ -11,6 +11,7 @@ import type { BackendState } from "@omp-ui/core/types";
 const backendMock = {
   getState: vi.fn(),
   addProject: vi.fn(),
+  browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),

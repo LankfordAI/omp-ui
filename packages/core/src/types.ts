@@ -141,13 +141,39 @@ export interface OmpUpdateInfo {
   error: string | null;
 }
 
+/** One directory candidate from browseDirectories. */
+export interface DirBrowseEntry {
+  /** Basename, e.g. "omp-ui". */
+  name: string;
+  /** Absolute path of this entry. */
+  fullPath: string;
+}
+
+/** Result of a browseDirectories call (see core/dir-browse.ts). */
+export interface DirBrowseResult {
+  /** The directory that was listed (absolute); "" when the input was invalid. */
+  parentPath: string;
+  /** Directories only, name-sorted. Empty on any error. */
+  entries: DirBrowseEntry[];
+  /** invalid = not a ~/ or absolute path; missing = ENOENT/ENOTDIR; denied = EACCES/EPERM. */
+  error: "invalid" | "missing" | "denied" | null;
+}
+
 /**
  * The renderer↔backend seam (ADR-0002). Changes only by extension — a future
  * packages/server reproduces exactly this surface over WebSocket.
  */
 export interface OmpBackend {
   getState(): Promise<BackendState>;
-  addProject(): Promise<ProjectRecord | null>;
+  /**
+   * Registers a directory as a project. `path` may be ~-prefixed or absolute;
+   * the backend expands, resolves, and validates it is an existing directory,
+   * rejecting with a user-facing message otherwise. An already-registered path
+   * resolves to its existing record.
+   */
+  addProject(path: string): Promise<ProjectRecord>;
+  /** Directory listing for the in-app project picker (read-only, never mutates). */
+  browseDirectories(partialPath: string): Promise<DirBrowseResult>;
   removeProject(path: string): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;

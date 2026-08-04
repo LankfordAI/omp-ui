@@ -1,0 +1,215 @@
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
+import { backend } from "../backend";
+import { cn } from "../lib/cn";
+import { formatHotkey } from "../lib/hotkeys";
+import { useStore } from "../store";
+import { Chip, Empty, Modal } from "./ui";
+
+/**
+ * In-app, keyboard-driven directory picker for "Add project" (issue #16).
+ * Every keystroke asks the main process for one directory listing; a
+ * generation counter discards stale responses (no debounce needed — local
+ * readdir is cheap). Enter with no row selected registers the resolved path;
+ * a selected row descends into it instead.
+ */
+
+/** String dirname for display paths — the renderer must not import node:path. */
+function parentOf(p: string): string {
+  return p.replace(/\/[^/]+\/?$/, "") || "/";
+}
+
+/** A list row: the ".." parent link or a real directory entry. */
+type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry };
+
+export function ProjectPicker() {
+  const closeProjectPicker = useStore((s) => s.closeProjectPicker);
+  const addProject = useStore((s) => s.addProject);
+
+  const [query, setQuery] = useState("~/");
+  const [entries, setEntries] = useState<DirBrowseEntry[]>([]);
+  const [parentPath, setParentPath] = useState("");
+  const [browseError, setBrowseError] = useState<DirBrowseResult["error"]>(null);
+  /** −1 = no selection: plain Enter unambiguously targets the resolved path. */
+  const [active, setActive] = useState(-1);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rowsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const gen = useRef(0);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // One browse per query change, including the initial "~/" seed. The
+  // generation guard keeps a slow early response from clobbering a later one.
+  useEffect(() => {
+    const g = ++gen.current;
+    setSubmitError(null);
+    void backend.browseDirectories(query).then((r) => {
+      if (g !== gen.current) return;
+      setEntries(r.entries);
+      setParentPath(r.parentPath);
+      setBrowseError(r.error);
+      setActive(-1);
+    });
+  }, [query]);
+
+  useEffect(() => {
+    if (active >= 0) rowsRef.current[active]?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+
+  const trimmed = query.trim();
+  const trailingSep = /[/\\]$/.test(trimmed) || trimmed === "~";
+  const leaf = trimmed.split(/[/\\]/).pop() ?? "";
+  // Case-SENSITIVE: an exact row wins over the raw text, prefix matches don't.
+  const exact = entries.find((e) => e.name === leaf);
+  const resolvedPath = trailingSep ? parentPath : (exact?.fullPath ?? trimmed);
+
+  const hasParent = parentPath !== "" && parentOf(parentPath) !== parentPath;
+  const rows: PickerRow[] = [
+    ...(hasParent ? [{ kind: "up" } as const] : []),
+    ...entries.map((entry) => ({ kind: "dir", entry }) as const),
+  ];
+
+  const descend = (row: PickerRow): void => {
+    if (row.kind === "up") {
+      const up = parentOf(parentPath);
+      setQuery(up.endsWith("/") ? up : `${up}/`);
+    } else {
+      setQuery(`${row.entry.fullPath}/`);
+    }
+  };
+
+  const submit = (path: string): void => {
+    // Store closes the picker on success; on rejection we render the message
+    // inline and stay open. ipcRenderer.invoke wraps main-process errors in
+    // "Error invoking remote method '…': Error: <msg>" — unwrap for display.
+    addProject(path).catch((err: unknown) => {
+      const raw = err instanceof Error ? err.message : String(err);
+      setSubmitError(raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ""));
+    });
+  };
+
+  const move = (delta: number): void => {
+    if (rows.length === 0) return;
+    setActive((i) => {
+      if (i < 0) return delta > 0 ? 0 : rows.length - 1;
+      return (i + delta + rows.length) % rows.length;
+    });
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      move(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      move(-1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (mod) {
+        submit(resolvedPath);
+      } else if (active >= 0 && rows[active]) {
+        descend(rows[active]);
+      } else {
+        submit(resolvedPath);
+      }
+    } else if (e.key === "Tab" && active >= 0 && rows[active]) {
+      e.preventDefault();
+      descend(rows[active]);
+    }
+  };
+
+  return (
+    <Modal onClose={closeProjectPicker} width="w-[34rem]">
+      <div className="flex items-center gap-2.5 border-b border-line px-3.5 py-3">
+        <svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-ink-dim">
+          <path
+            d="M1.5 4.5a1 1 0 0 1 1-1h3.4l1.6 1.7h6a1 1 0 0 1 1 1v6.3a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.4}
+            strokeLinejoin="round"
+          />
+        </svg>
+        <input
+          ref={inputRef}
+          value={query}
+          spellCheck={false}
+          placeholder="~/path/to/project"
+          aria-label="project directory path"
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
+        />
+        <Chip mono>{formatHotkey("escape")}</Chip>
+      </div>
+
+      <div className="max-h-[24rem] overflow-y-auto py-1.5">
+        {browseError === "invalid" && (
+          <Empty title="Type a path" hint="Start with ~/ or an absolute /path." />
+        )}
+        {browseError === "missing" && <Empty title="No such directory" hint={parentPath} />}
+        {browseError === "denied" && <Empty title="Permission denied" hint={parentPath} />}
+        {browseError === null && rows.length === 0 && (
+          <Empty title="No matching directories" hint="Enter adds the path shown below." />
+        )}
+        {rows.map((row, i) => (
+          <button
+            key={row.kind === "up" ? ".." : row.entry.fullPath}
+            type="button"
+            ref={(el) => {
+              rowsRef.current[i] = el;
+            }}
+            onClick={() => descend(row)}
+            className={cn(
+              "flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left transition-colors",
+              i === active ? "bg-hover" : "hover:bg-hover/50",
+            )}
+          >
+            <span
+              className={cn(
+                "h-3.5 w-0.5 shrink-0 rounded-full",
+                i === active ? "bg-signal" : "bg-transparent",
+              )}
+            />
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate font-mono text-xs",
+                row.kind === "up" ? "text-ink-dim" : "text-ink",
+              )}
+            >
+              {row.kind === "up" ? ".." : row.entry.name}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {submitError && (
+        <p className="border-t border-line px-3.5 py-2 text-xs text-rose">{submitError}</p>
+      )}
+
+      <div className="border-t border-line px-3.5 py-2">
+        <p className="mb-1.5 truncate text-[11px] text-ink-dim">
+          will add: <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
+        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-faint">
+          <span className="font-mono">
+            {formatHotkey("arrowup")}
+            {formatHotkey("arrowdown")}
+          </span>
+          <span>navigate</span>
+          <span className="font-mono">{formatHotkey("enter")}</span>
+          <span>open/add</span>
+          <span className="font-mono">{formatHotkey("tab")}</span>
+          <span>open</span>
+          <span className="font-mono">{formatHotkey("mod+enter")}</span>
+          <span>add typed path</span>
+        </div>
+      </div>
+    </Modal>
+  );
+}

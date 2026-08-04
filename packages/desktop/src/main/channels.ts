@@ -2,6 +2,7 @@
 export const CH = {
   stateGet: "state:get",
   projectAdd: "project:add",
+  dirBrowse: "dir:browse",
   projectRemove: "project:remove",
   sessionSetModel: "session:setModel",
   settingsSetDefaultMode: "settings:setDefaultMode",

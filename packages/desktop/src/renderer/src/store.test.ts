@@ -23,6 +23,7 @@ const mockBackend = {
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
   addProject: vi.fn(),
+  browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   setSessionAdvisor: vi.fn(),
   setSessionModel: vi.fn(async () => {}),

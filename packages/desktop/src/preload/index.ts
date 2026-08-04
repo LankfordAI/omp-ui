@@ -6,7 +6,8 @@ import { CH } from "../main/channels";
 // away the IpcRendererEvent so it can't leak into the renderer.
 const api: OmpBackend = {
   getState: () => ipcRenderer.invoke(CH.stateGet),
-  addProject: () => ipcRenderer.invoke(CH.projectAdd),
+  addProject: (path) => ipcRenderer.invoke(CH.projectAdd, path),
+  browseDirectories: (partialPath) => ipcRenderer.invoke(CH.dirBrowse, partialPath),
   removeProject: (path) => ipcRenderer.invoke(CH.projectRemove, path),
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
   setSkipDeleteConfirmation: (skip) =>

@@ -222,8 +222,13 @@ interface UiStore {
   /** omp's advisor defaults, keyed by project cwd — see loadAdvisorDefaults. */
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
+  /** True while the in-app project picker modal is open. */
+  projectPickerOpen: boolean;
   init(): Promise<void>;
-  addProject(): Promise<void>;
+  openProjectPicker(): void;
+  closeProjectPicker(): void;
+  /** Registers `path` via the backend; rejects with the backend's message. */
+  addProject(path: string): Promise<void>;
   removeProject(path: string): Promise<void>;
   toggleFavorite(key: string): Promise<void>;
   newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
@@ -729,6 +734,7 @@ export const useStore = create<UiStore>()((set, get) => {
     rpc: {},
     advisorDefaults: {},
     deleteConfirmation: null,
+    projectPickerOpen: false,
 
     async init() {
       if (initialized) return;
@@ -751,8 +757,17 @@ export const useStore = create<UiStore>()((set, get) => {
       set({ state: await backend.getState() });
     },
 
-    async addProject() {
-      await backend.addProject();
+    openProjectPicker() {
+      set({ projectPickerOpen: true });
+    },
+
+    closeProjectPicker() {
+      set({ projectPickerOpen: false });
+    },
+
+    async addProject(path) {
+      await backend.addProject(path);
+      set({ projectPickerOpen: false });
     },
 
     async removeProject(path) {

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const backendMock = {
   getState: vi.fn(),
   addProject: vi.fn(),
+  browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
   setSkipDeleteConfirmation: vi.fn(),
