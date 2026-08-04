@@ -526,7 +526,10 @@ export function Composer({ tabId }: { tabId: string }) {
               value={text}
               disabled={dead}
               placeholder={placeholder}
-              spellCheck={false}
+              // The misspelling underline paints in the textarea layer even
+              // over transparent glyphs; the mirror's identical metrics keep
+              // it aligned with the visible text.
+              spellCheck
               onChange={(e) => {
                 setText(e.target.value);
                 setCaret(e.target.selectionStart);

@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
 import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
+import { setupSpellcheck } from "./spellcheck";
 
 // Dev and packaged builds resolve the same package.json name, so by default
 // they also share userData — and with it the single-instance lock: an
@@ -99,6 +100,8 @@ if (!app.requestSingleInstanceLock()) {
         sandbox: true,
       },
     });
+
+    setupSpellcheck(win);
 
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
