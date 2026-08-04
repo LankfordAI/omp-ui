@@ -47,8 +47,11 @@ export {
 } from "./omp-config";
 export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
+  generateBranchNameWithOmp,
   generateTitleWithOmp,
+  parseBranchNameOutput,
   parseTitleOutput,
+  sanitizeBranchName,
   sanitizeModelTitle,
   TITLE_MODEL_ROLES,
   type TitleProcess,

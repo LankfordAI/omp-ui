@@ -413,6 +413,8 @@ interface UiStore {
     name: string,
     opts?: { create?: boolean },
   ): Promise<string | null>;
+  /** Best-effort model suggestion for the execute modal's new-branch prefill. */
+  suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
 }
 
 // One IPC data listener total; each TerminalTab registers its writer here.
@@ -1844,6 +1846,11 @@ export const useStore = create<UiStore>()((set, get) => {
       }
       await get().refreshBranches(projectCwd);
       return null;
+    },
+
+    async suggestBranchName(projectCwd, planContext) {
+      // Best-effort like titling: never throw into the review modal.
+      return backend.suggestBranchName(projectCwd, planContext).catch(() => null);
     },
   };
 });

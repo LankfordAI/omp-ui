@@ -18,6 +18,7 @@ export const CH = {
   branchDiff: "branch:diff",
   branchList: "branch:list",
   branchCheckout: "branch:checkout",
+  branchNameSuggest: "branch:nameSuggest",
   mcpList: "mcp:list",
   mcpSetEnabled: "mcp:setEnabled",
   sessionRestart: "session:restart",

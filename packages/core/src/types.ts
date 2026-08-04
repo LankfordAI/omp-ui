@@ -324,6 +324,12 @@ export interface OmpBackend {
    */
   generateTitle(projectCwd: string, prompt: string): Promise<string | null>;
   /**
+   * Suggests a git branch name for a plan with omp's own small model (the
+   * `tiny`/`commit`/`smol` role chain, same as titling). Resolves to null on
+   * every failure path — the caller pre-fills its derived name.
+   */
+  suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
+  /**
    * Reads a plan artifact for the review pane, by absolute path. Confined to
    * the session's lineage dir by the implementation; null when the file is
    * absent or out of bounds.

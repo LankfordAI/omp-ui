@@ -9,6 +9,7 @@ import {
   checkoutBranch,
   deleteSessionFiles,
   formatModelRole,
+  generateBranchNameWithOmp,
   generateTitleWithOmp,
   getArchiveRoot,
   getSessionsRoot,
@@ -234,6 +235,9 @@ export class MainBackend {
       CH.branchCheckout,
       (_e, projectCwd: string, name: string, opts?: { create?: boolean }) =>
         checkoutBranch(projectCwd, name, opts),
+    );
+    ipcMain.handle(CH.branchNameSuggest, (_e, projectCwd: string, planContext: string) =>
+      this.suggestBranchName(projectCwd, planContext),
     );
     ipcMain.handle(CH.mcpList, (_e, projectCwd: string) => resolveMcpServers(projectCwd));
     ipcMain.handle(CH.mcpSetEnabled, (_e, req: McpSetEnabledRequest) => setMcpServerEnabled(req));
@@ -522,6 +526,30 @@ export class MainBackend {
       });
     } catch (err) {
       console.warn("[title] model titling failed:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Suggests a branch name for a plan with omp's own small model. Null on
+   * every failure path — the renderer pre-fills its slug-derived name, so
+   * this must never throw across IPC.
+   */
+  private async suggestBranchName(
+    projectCwd: string,
+    planContext: string,
+  ): Promise<string | null> {
+    if (!this.ompPath) return null;
+    const role = readOmpModelRole(projectCwd, TITLE_MODEL_ROLES);
+    try {
+      return await generateBranchNameWithOmp({
+        ompPath: this.ompPath,
+        projectCwd,
+        model: role === null ? null : formatModelRole(role),
+        prompt: planContext,
+      });
+    } catch (err) {
+      console.warn("[branch-name] model naming failed:", err);
       return null;
     }
   }
