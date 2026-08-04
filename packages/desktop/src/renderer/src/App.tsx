@@ -17,6 +17,7 @@ import { findRecord, useStore } from "./store";
 const HINTS: [combo: string, what: string][] = [
   ["mod+k", "command palette"],
   ["mod+shift+n", "new session in the current project"],
+  ["mod+j", "toggle console"],
   ["mod+=", "larger transcript text"],
 ];
 
@@ -98,6 +99,7 @@ export default function App() {
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const mcpManager = useStore((s) => s.mcpManager);
   const newSession = useStore((s) => s.newSession);
+  const toggleConsole = useStore((s) => s.toggleConsole);
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
@@ -108,6 +110,12 @@ export default function App() {
       e.preventDefault();
       const projectCwd = tabs.find((t) => t.tabId === activeTabId)?.projectCwd;
       if (projectCwd !== undefined) void newSession(projectCwd);
+    },
+    // Console drawer (issue #33): rpc-ui tabs only — terminal tabs have no console.
+    "mod+j": (e) => {
+      e.preventDefault();
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (tab?.mode === "rpc-ui") toggleConsole(tab.tabId);
     },
     // Transcript text scale (issue #30). Registered app-wide: the combos are
     // free because Electron zoom is disabled, and a scale keystroke with no

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { Composer } from "./Composer";
+import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
 import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
@@ -76,19 +77,24 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          {status === "starting" && (rpc?.items.length ?? 0) === 0 ? (
-            <TranscriptSkeleton />
-          ) : (
-            <TranscriptView items={rpc?.items ?? []} />
-          )}
-          {/* Docked, not modal: the user may need to scroll the transcript to
-              answer, so the question must not cover it. */}
-          <ExtensionDialogHost tabId={tabId} />
-          <Composer tabId={tabId} />
+      {/* The console drawer spans the full tab width — transcript column and
+          rail — docked at the bottom edge below the composer (issue #33). */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col">
+            {status === "starting" && (rpc?.items.length ?? 0) === 0 ? (
+              <TranscriptSkeleton />
+            ) : (
+              <TranscriptView items={rpc?.items ?? []} />
+            )}
+            {/* Docked, not modal: the user may need to scroll the transcript to
+                answer, so the question must not cover it. */}
+            <ExtensionDialogHost tabId={tabId} />
+            <Composer tabId={tabId} />
+          </div>
+          <InspectorRail tabId={tabId} />
         </div>
-        <InspectorRail tabId={tabId} />
+        <ConsoleDrawer tabId={tabId} />
       </div>
 
       {/* Only the focused tab's review may overlay the screen — a background

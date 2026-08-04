@@ -4,7 +4,6 @@ import { cn } from "../lib/cn";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import type { SessionStats, TokenTotals } from "../lib/rpc-types";
 import { findRecord, useStore, type PlanRecord } from "../store";
-import { BashDrawer } from "./BashDrawer";
 import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
@@ -19,12 +18,13 @@ interface BranchDiffLoad {
 }
 
 /**
- * The right-hand instrument rail: the agent's plan, its console, its subagents,
- * and the hard session facts. Collapses to an icon strip; badge counts survive
- * the collapse so the strip still tells you something.
+ * The right-hand instrument rail: the agent's plan, its subagents, and the
+ * hard session facts. Collapses to an icon strip; badge counts survive the
+ * collapse so the strip still tells you something. (The console moved to the
+ * composer drawer — issue #33.)
  */
 
-type RailTab = "todos" | "console" | "agents" | "session" | "plans" | "diffs";
+type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
 
 /**
  * Rail selection is per-session and deliberately module-level: it is view
@@ -51,12 +51,6 @@ function TabIcon({ tab }: { tab: RailTab }) {
         <>
           <path d="M2.5 4.2l1.4 1.4 2.3-2.4M2.5 11.2l1.4 1.4 2.3-2.4" {...S} />
           <path d="M8.6 4.6h5M8.6 11.6h5" {...S} />
-        </>
-      )}
-      {tab === "console" && (
-        <>
-          <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" {...S} />
-          <path d="M4.6 6.4l1.8 1.7-1.8 1.7M8.4 9.9h3" {...S} />
         </>
       )}
       {tab === "agents" && (
@@ -139,58 +133,6 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 }
 
 /* --------------------------------------------------------------- the panes */
-
-function ConsolePane({ tabId }: { tabId: string }) {
-  const output = useStore((s) => s.rpc[tabId]?.commandOutput) ?? [];
-  const clearCommandOutput = useStore((s) => s.clearCommandOutput);
-  const clearBash = useStore((s) => s.clearBash);
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [output.length]);
-
-  return (
-    <>
-      <Section
-        title="command output"
-        action={
-          <Button
-            size="xs"
-            variant="ghost"
-            title="clear command and bash output"
-            onClick={() => {
-              clearCommandOutput(tabId);
-              clearBash(tabId);
-            }}
-          >
-            clear
-          </Button>
-        }
-      >
-        {output.length === 0 ? (
-          <Empty title="No command output" hint="Slash commands like /stats print their reply here." />
-        ) : (
-          <div className="max-h-64 overflow-y-auto rounded-md border border-line bg-void px-2 py-1.5">
-            {output.map((line, i) => (
-              <pre
-                key={i}
-                data-selectable
-                className="whitespace-pre-wrap break-words font-mono text-[11px] leading-snug text-ink-mid"
-              >
-                {line}
-              </pre>
-            ))}
-            <div ref={endRef} />
-          </div>
-        )}
-      </Section>
-      <Section title="bash">
-        <BashDrawer tabId={tabId} />
-      </Section>
-    </>
-  );
-}
 
 const AGENT_TONE: Record<string, Tone> = {
   running: "copper",
@@ -629,7 +571,6 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
 const TABS: { id: RailTab; label: string }[] = [
   { id: "todos", label: "todos" },
-  { id: "console", label: "console" },
   { id: "agents", label: "agents" },
   { id: "session", label: "session" },
   { id: "plans", label: "plans" },
@@ -648,8 +589,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   }
 
   const todos = useStore((s) => s.rpc[tabId]?.todos) ?? [];
-  const commandOutput = useStore((s) => s.rpc[tabId]?.commandOutput) ?? [];
-  const bashLines = useStore((s) => s.rpc[tabId]?.bashLines) ?? [];
   const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
 
   let openTodos = 0;
@@ -659,7 +598,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const planWaiting = useStore((s) => (s.rpc[tabId]?.planReview ? 1 : 0));
   const badges: Record<RailTab, number> = {
     todos: openTodos,
-    console: commandOutput.length + bashLines.length,
     agents: subagents.length,
     session: 0,
     // A pending (even deferred) plan is an unanswered verdict waiting on you.
@@ -748,7 +686,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "todos" && <TodoPanel tabId={tabId} />}
-        {tab === "console" && <ConsolePane tabId={tabId} />}
         {tab === "agents" && <AgentsPane tabId={tabId} />}
         {tab === "session" && <SessionPane tabId={tabId} />}
         {tab === "plans" && <PlansPane tabId={tabId} />}

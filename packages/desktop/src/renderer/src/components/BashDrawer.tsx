@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import { Button, Empty } from "./ui";
 
 /**
- * A mini shell inside the inspector rail. History is deliberately local — omp's
+ * A mini shell inside the console drawer. History is deliberately local — omp's
  * `bash` command is stateless per call, so recall is a renderer affordance, not
  * session state worth persisting.
  */
@@ -40,8 +40,8 @@ export function BashDrawer({ tabId }: { tabId: string }) {
   };
 
   return (
-    <div>
-      <div className="max-h-64 overflow-y-auto rounded-md border border-line bg-void px-2 py-1.5">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-line bg-void px-2 py-1.5">
         {lines.length === 0 ? (
           <Empty title="No output yet" hint="Run a command below to shell out inside the agent's cwd." />
         ) : (

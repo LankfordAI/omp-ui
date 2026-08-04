@@ -1819,6 +1819,15 @@ describe("prompting, slash commands, and session ops", () => {
     useStore.getState().clearBash(TAB);
     expect(useStore.getState().rpc[TAB]!.bashLines).toEqual([]);
   });
+
+  it("toggleConsole flips one tab's drawer without touching another's (issue #33)", () => {
+    useStore.setState({ consoleOpen: {} });
+    useStore.getState().toggleConsole(TAB);
+    expect(useStore.getState().consoleOpen[TAB]).toBe(true);
+    expect(useStore.getState().consoleOpen[`${TAB}-other`]).toBeUndefined();
+    useStore.getState().toggleConsole(TAB);
+    expect(useStore.getState().consoleOpen[TAB]).toBe(false);
+  });
 });
 
 describe("deleteSession", () => {

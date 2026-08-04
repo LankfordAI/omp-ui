@@ -22,6 +22,7 @@ import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
+import { ConsoleToggle } from "./ConsoleDrawer";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
@@ -607,6 +608,8 @@ export function Composer({ tabId }: { tabId: string }) {
             </Capsule>
 
             <AdvisorControl tabId={tabId} disabled={dead} />
+
+            <ConsoleToggle tabId={tabId} />
 
             {queued > 0 && (
               <Chip mono tone="copper" title="messages waiting for the current turn to finish">

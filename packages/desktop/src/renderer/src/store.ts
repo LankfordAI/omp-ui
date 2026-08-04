@@ -221,6 +221,12 @@ interface UiStore {
   activeTabId: string | null;
   exited: Record<string, number>;
   rpc: Record<string, RpcTabState>;
+  /**
+   * Console drawer open/closed, keyed by tabId (issue #33). View preference,
+   * not session state: in-memory only, remembered per tab for the app's
+   * lifetime.
+   */
+  consoleOpen: Record<string, boolean>;
   /** omp's advisor defaults, keyed by project cwd — see loadAdvisorDefaults. */
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
@@ -388,6 +394,8 @@ interface UiStore {
   refreshSubagents(tabId: string): Promise<void>;
   clearCommandOutput(tabId: string): void;
   clearBash(tabId: string): void;
+  /** Toggles the composer's console drawer for a tab (issue #33). */
+  toggleConsole(tabId: string): void;
 }
 
 // One IPC data listener total; each TerminalTab registers its writer here.
@@ -769,6 +777,7 @@ export const useStore = create<UiStore>()((set, get) => {
     activeTabId: null,
     exited: {},
     rpc: {},
+    consoleOpen: {},
     advisorDefaults: {},
     deleteConfirmation: null,
     projectPickerOpen: false,
@@ -1797,6 +1806,10 @@ export const useStore = create<UiStore>()((set, get) => {
 
     clearBash(tabId) {
       patchRpc(tabId, { bashLines: [] });
+    },
+
+    toggleConsole(tabId) {
+      set((s) => ({ consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] } }));
     },
   };
 });
