@@ -19,7 +19,7 @@ jobs:
       - name: Install packaging toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm flatpak dbus
+          sudo apt-get install -y rpm flatpak dbus appstream
           # flatpak's parental-controls check for app refs queries the system
           # bus; the containerized runner has none, so start one and install
           # system-scope (missing malcontent service then reads as disabled).
@@ -36,6 +36,8 @@ jobs:
       - name: Stamp version from tag
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
         working-directory: packages/desktop
+      - name: Validate AppStream metainfo
+        run: appstreamcli validate --no-net packages/desktop/build/ai.lankford.omp-ui.metainfo.xml
       - name: Build and publish packages
         run: npm run package --workspace @omp-ui/desktop -- --publish always
         env:
@@ -66,3 +68,7 @@ jobs:
           # the deb/rpm/Flatpak download path verifies against.
           test -f latest-linux.yml && grep -q "sha512" latest-linux.yml && grep -q "\.AppImage" latest-linux.yml
           test -f SHA256SUMS.txt && test "$(wc -l < SHA256SUMS.txt)" -ge 4
+          # AppStream metainfo and license metadata inside the built packages (#58)
+          rpm -qpl ./*.rpm | grep -q "usr/share/metainfo/ai.lankford.omp-ui.metainfo.xml"
+          rpm -qip ./*.rpm | grep -qE "License\s*:\s*MIT"
+          dpkg-deb -c ./*.deb | grep -q "usr/share/metainfo/ai.lankford.omp-ui.metainfo.xml"

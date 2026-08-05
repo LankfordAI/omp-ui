@@ -20,8 +20,12 @@ linux:
   maintainer: Austin Lankford <austin@austinlankford.com>
 deb:
   artifactName: ${productName}_${version}_${arch}.${ext}
+  fpm:
+    - build/ai.lankford.omp-ui.metainfo.xml=/usr/share/metainfo/ai.lankford.omp-ui.metainfo.xml
 rpm:
   artifactName: ${productName}-${version}.${arch}.${ext}
+  fpm:
+    - build/ai.lankford.omp-ui.metainfo.xml=/usr/share/metainfo/ai.lankford.omp-ui.metainfo.xml
 publish:
   provider: github
   owner: LankfordAI
