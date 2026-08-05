@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
+import { inspectorBadges } from "./components/InspectorRail";
 import { McpManager } from "./components/McpManager";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -9,9 +10,10 @@ import { RpcTab } from "./components/RpcTab";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
-import { Button } from "./components/ui";
+import { Button, Chip } from "./components/ui";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
+import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { findRecord, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
@@ -55,8 +57,8 @@ function Welcome() {
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
 
   return (
-    <div className="ambient flex h-full flex-col items-center justify-center bg-void">
-      <div className="animate-rise flex w-[26rem] flex-col items-center gap-5 text-center">
+    <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5">
+      <div className="animate-rise flex w-full max-w-[26rem] flex-col items-center gap-5 text-center">
         <div className="flex flex-col items-center gap-1.5">
           <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">omp-ui</h1>
           <p className="text-balance-tight text-sm leading-relaxed text-ink-dim">
@@ -77,7 +79,7 @@ function Welcome() {
           )}
         </div>
 
-        <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-left">
+        <dl className="compact-welcome-hints mt-2 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-left">
           {HINTS.map(([combo, what]) => (
             <div key={combo} className="col-span-2 grid grid-cols-subgrid items-center">
               <dt className="justify-self-end rounded border border-line bg-raised px-1.5 py-px font-mono text-[10px] leading-4 text-ink-mid">
@@ -103,6 +105,12 @@ export default function App() {
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
   const toggleConsole = useStore((s) => s.toggleConsole);
+  const activeRecord = useStore((s) => (s.activeTabId ? findRecord(s.state, s.activeTabId) : undefined));
+  const activeRuntime = useStore((s) => (s.activeTabId ? s.rpc[s.activeTabId] : undefined));
+  const showCompactSurface = useStore((s) => s.showCompactSurface);
+  const closeCompactSurface = useStore((s) => s.closeCompactSurface);
+  const compact = useCompactShell();
+  useAppViewport();
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
@@ -153,14 +161,33 @@ export default function App() {
     void init();
   }, [init]);
 
+  useEffect(() => {
+    closeCompactSurface();
+  }, [activeTabId, compact, closeCompactSurface]);
+
   const visibleTabs = tabs.filter((t) => !t.hidden);
+  const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
+  const activeTitle = activeRecord?.title ?? "projects and sessions";
+  const badges = activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime) : null;
+  const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
 
   return (
-    // `relative` anchors the CommandPalette's `absolute inset-0` scrim. h-dvh, not h-screen:
-    // 100vh overflows behind a mobile browser's URL bar, and the two are identical in Electron.
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-void font-sans text-ink">
-      <TitleBar />
-      {/* border-t = the title-bar hairline; see TitleBar for why it isn't border-b there. */}
+    <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden bg-void font-sans text-ink">
+      {!compact && <TitleBar />}
+      {compact && (
+        <nav className="ambient flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-void px-[max(0.5rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.5rem,var(--safe-right))]">
+          <Button variant="ghost" className="min-w-11 px-2" onClick={() => showCompactSurface("sessions")}>
+            <span aria-hidden>☰</span><span className="sr-only">projects and sessions</span>
+          </Button>
+          <button type="button" className="min-w-0 flex-1 truncate px-2 text-center font-display text-sm font-semibold" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
+          {activeTab?.mode === "rpc-ui" ? (
+            <Button variant="ghost" className="min-w-11 justify-center px-2" onClick={() => showCompactSurface("inspector")}>
+              <span aria-hidden>◎</span><span className="sr-only">inspector</span>
+              {inspectorCount > 0 && <Chip tone="copper" mono>{inspectorCount}</Chip>}
+            </Button>
+          ) : <span className="w-11" />}
+        </nav>
+      )}
       <div className="flex min-h-0 flex-1 border-t border-line">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -193,7 +220,7 @@ export default function App() {
       <CommandPalette />
       {/* Both update cards share one corner stack (issue #19): cards that
           render null leave no gap; when both show, the app card sits on top. */}
-      <div className="fixed right-4 bottom-4 z-40 flex w-80 flex-col gap-2">
+      <div className="fixed right-[max(1rem,var(--safe-right))] bottom-[max(1rem,var(--safe-bottom))] z-40 flex w-80 max-w-[calc(100vw-var(--safe-left)-var(--safe-right)-2rem)] flex-col gap-2">
         <AppUpdateCard />
         <OmpUpdateCard />
       </div>

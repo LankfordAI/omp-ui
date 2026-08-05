@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
+import { useCompactShell } from "../lib/responsive";
 import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, Panel } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, Panel, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -152,7 +153,9 @@ function ProjectSection({
   sessions,
   query,
   openTerminalMenu,
-}: FilteredGroup & { query: string; openTerminalMenu: OpenTerminalMenu }) {
+  compact,
+  onActivate,
+}: FilteredGroup & { query: string; openTerminalMenu: OpenTerminalMenu; compact: boolean; onActivate: () => void }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const activeTabId = useStore((st) => st.activeTabId);
@@ -209,17 +212,18 @@ function ProjectSection({
             </span>
           </button>
 
-          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100">
+          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100 compact-lifecycle-visible">
             <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
-              <IconButton label="new session" onClick={() => void newSession(project.path)}>
+              <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
                 <IconPlus />
               </IconButton>
             </span>
-            <IconButton
-              label="remove project"
-              tone="rose"
-              onClick={() => void removeProject(project.path)}
-            >
+            {compact && (
+              <Button size="xs" variant="ghost" onClick={() => { void newSession(project.path, "pty"); onActivate(); }}>
+                terminal
+              </Button>
+            )}
+            <IconButton label="remove project" tone="rose" onClick={() => void removeProject(project.path)}>
               <IconClose />
             </IconButton>
           </div>
@@ -229,7 +233,7 @@ function ProjectSection({
       {open && (
         <div className="space-y-px px-1.5">
           {page.map((s) => (
-            <SessionRow key={s.tabId} s={s} />
+            <SessionRow key={s.tabId} s={s} onActivate={onActivate} />
           ))}
           {sessions.length === 0 && (
             <p className="px-3 py-1 text-[11px] text-ink-faint italic">no sessions yet</p>
@@ -311,9 +315,12 @@ export function Sidebar() {
   const openProjectPicker = useStore((st) => st.openProjectPicker);
   const openSettings = useStore((st) => st.openSettings);
   const newSession = useStore((st) => st.newSession);
+  const compact = useCompactShell();
+  const surface = useStore((st) => st.compactSurface);
+  const closeCompactSurface = useStore((st) => st.closeCompactSurface);
 
-  // A phone opens with the icon strip and a full-width transcript; a desktop window is unchanged.
-  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 900);
+  // Desktop collapse memory is independent from the compact sheet.
+  const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
   const terminalMenuRef = useRef<HTMLDivElement>(null);
@@ -370,23 +377,24 @@ export function Sidebar() {
   const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
   const totalLive = (groups ?? []).reduce((n, g) => n + liveCount(g.sessions), 0);
   const filtering = query.trim().length > 0;
+  const displayedCollapsed = compact ? false : collapsed;
 
-  return (
+  const sidebar = (
     <aside
       className={cn(
         "ambient flex shrink-0 flex-col border-r border-line bg-sunken",
         "transition-[width] duration-200 ease-out-quint",
-        collapsed ? "w-14" : "w-[17rem]",
+        displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : "w-[17rem]",
       )}
     >
       {/* -------- header -------- */}
       <header
         className={cn(
           "flex shrink-0 items-center border-b border-line",
-          collapsed ? "flex-col gap-2 px-2 py-2" : "gap-2 px-3 py-2.5",
+          displayedCollapsed ? "flex-col gap-2 px-2 py-2" : "gap-2 px-3 py-2.5",
         )}
       >
-        {!collapsed && (
+        {!displayedCollapsed && (
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
             <span className="truncate font-display text-sm font-semibold tracking-tight text-ink">
@@ -394,21 +402,21 @@ export function Sidebar() {
             </span>
           </span>
         )}
-        {collapsed && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />}
-        {!collapsed && (
-          <IconButton label="add project" onClick={openProjectPicker}>
+        {displayedCollapsed && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />}
+        {!displayedCollapsed && (
+          <IconButton label="add project" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
             <IconPlus />
           </IconButton>
         )}
-        <IconButton
-          label={collapsed ? "expand sidebar" : "collapse sidebar"}
+        {!compact && <IconButton
+          label={displayedCollapsed ? "expand sidebar" : "collapse sidebar"}
           onClick={() => setCollapsed(!collapsed)}
         >
-          <Chevron open={false} className={cn("size-3.5", !collapsed && "rotate-180")} />
-        </IconButton>
+          <Chevron open={false} className={cn("size-3.5", !displayedCollapsed && "rotate-180")} />
+        </IconButton>}
       </header>
 
-      {collapsed ? (
+      {displayedCollapsed ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {groups && <CollapsedRail groups={groups} openTerminalMenu={openTerminalMenu} />}
         </div>
@@ -453,7 +461,7 @@ export function Sidebar() {
                 title="No projects yet"
                 hint="Point omp-ui at a repository and every session you start there shows up here."
                 action={
-                  <Button variant="solid" onClick={openProjectPicker}>
+                  <Button variant="solid" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
                     Add project
                   </Button>
                 }
@@ -477,6 +485,8 @@ export function Sidebar() {
                 sessions={f.sessions}
                 query={query}
                 openTerminalMenu={openTerminalMenu}
+                compact={compact}
+                onActivate={closeCompactSurface}
               />
             ))}
           </div>
@@ -520,19 +530,19 @@ export function Sidebar() {
       <footer
         className={cn(
           "flex shrink-0 items-center border-t border-line text-[10px] text-ink-faint",
-          collapsed ? "flex-col gap-1 px-2 py-2" : "gap-2 px-3 py-2",
+          displayedCollapsed ? "flex-col gap-1 px-2 py-2" : "gap-2 px-3 py-2",
         )}
       >
         {/* One gear in both layouts: settings must stay reachable collapsed. */}
-        <IconButton label="settings" onClick={() => openSettings()}>
+        <IconButton label="settings" onClick={() => { openSettings(); closeCompactSurface(); }}>
           <IconGear />
         </IconButton>
         <span className="flex items-center gap-1.5">
           <Dot tone={totalLive > 0 ? "signal" : "neutral"} />
           <span className="font-mono tabular-nums">{totalLive}</span>
-          {!collapsed && <span>live</span>}
+          {!displayedCollapsed && <span>live</span>}
         </span>
-        {!collapsed && (
+        {!displayedCollapsed && (
           <span className="ml-auto font-mono tabular-nums" title="sessions on record">
             {totalSessions} session{totalSessions === 1 ? "" : "s"}
           </span>
@@ -540,4 +550,9 @@ export function Sidebar() {
       </footer>
     </aside>
   );
+  return compact ? (
+    <Sheet open={surface === "sessions"} placement="left" label="projects and sessions" onClose={closeCompactSurface}>
+      {sidebar}
+    </Sheet>
+  ) : sidebar;
 }

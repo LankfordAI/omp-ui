@@ -231,6 +231,12 @@ export type SettingsPage =
   | "providers"
   | "omp"
   | "about";
+export type CompactSurface =
+  | "sessions"
+  | "inspector"
+  | "session-actions"
+  | "composer-options";
+
 
 interface UiStore {
   state: BackendState | null;
@@ -263,6 +269,8 @@ interface UiStore {
   mcpManager: { tabId: string; projectCwd: string } | null;
   /** The settings modal's open page, or null while closed. */
   settingsPage: SettingsPage | null;
+  /** The one temporary compact-shell surface currently visible. Renderer-only. */
+  compactSurface: CompactSurface | null;
   /**
    * Latest pushed omp-ui app update state (issue #18; main/app-update.ts owns
    * the machine). The card renders from this; actions are thin pass-throughs —
@@ -300,6 +308,8 @@ interface UiStore {
   closeMcpManager(): void;
   openSettings(page?: SettingsPage): void;
   closeSettings(): void;
+  showCompactSurface(surface: CompactSurface): void;
+  closeCompactSurface(): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   /**
@@ -897,6 +907,7 @@ export const useStore = create<UiStore>()((set, get) => {
     projectPickerOpen: false,
     mcpManager: null,
     settingsPage: null,
+    compactSurface: null,
     appUpdate: {
       status: "idle",
       currentVersion: null,
@@ -985,6 +996,14 @@ export const useStore = create<UiStore>()((set, get) => {
 
     closeSettings() {
       set({ settingsPage: null });
+    },
+
+    showCompactSurface(surface) {
+      set({ compactSurface: surface });
+    },
+
+    closeCompactSurface() {
+      set({ compactSurface: null });
     },
 
     async setDefaultMode(mode) {

@@ -134,7 +134,7 @@ function IconPower() {
   );
 }
 
-export function SessionRow({ s }: { s: SessionSummary }) {
+export function SessionRow({ s, onActivate }: { s: SessionSummary; onActivate?: () => void }) {
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
   const terminate = useStore((st) => st.terminate);
@@ -172,7 +172,9 @@ export function SessionRow({ s }: { s: SessionSummary }) {
         aria-current={selected ? "page" : undefined}
         title={missing ? MISSING_HINT : s.title}
         onClick={() => {
-          if (!missing) void openSession(s.tabId);
+          if (missing) return;
+          void openSession(s.tabId);
+          onActivate?.();
         }}
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-3 text-left",

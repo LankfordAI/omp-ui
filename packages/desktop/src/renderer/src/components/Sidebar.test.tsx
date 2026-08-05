@@ -61,6 +61,8 @@ Object.assign(window, { ompBackend: backendMock });
 const { useStore } = await import("../store");
 const { Sidebar } = await import("./Sidebar");
 const originalNewSession = useStore.getState().newSession;
+const originalOpenSession = useStore.getState().openSession;
+const openSession = vi.fn(async () => {});
 const newSession = vi.fn(async () => {});
 
 const projectPath = "/projects/one";
@@ -95,6 +97,21 @@ const state: BackendState = {
           cachedTitle: "Owned session",
           cachedModified: "2026-08-03T00:00:00.000Z",
           title: "Owned session",
+          status: "complete",
+          live: "live",
+        },
+        {
+          tabId: "tab-2",
+          sessionId: "session-2",
+          lineageDir: "omp-ui--one--session-2",
+          projectCwd: projectPath,
+          launchedAt: "2026-08-03T01:00:00.000Z",
+          mode: "rpc-ui",
+          advisor: false,
+          advisorModel: null,
+          cachedTitle: "Second owned session",
+          cachedModified: "2026-08-03T01:00:00.000Z",
+          title: "Second owned session",
           status: "complete",
           live: "live",
         },
@@ -146,6 +163,7 @@ function terminalMenuItem(): HTMLButtonElement {
 
 beforeEach(() => {
   newSession.mockClear();
+  openSession.mockClear();
   useStore.setState({
     state,
     tabs: [],
@@ -154,6 +172,7 @@ beforeEach(() => {
     rpc: {},
     advisorDefaults: {},
     newSession,
+    openSession,
   });
 });
 
@@ -171,6 +190,7 @@ afterEach(() => {
     rpc: {},
     advisorDefaults: {},
     newSession: originalNewSession,
+    openSession: originalOpenSession,
   });
 });
 
@@ -240,5 +260,25 @@ describe("Sidebar session creation", () => {
     act(() => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     expect(newSession).not.toHaveBeenCalled();
+  });
+
+  it("activates the second session and exposes terminal creation on compact touch", () => {
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) });
+    useStore.setState({ compactSurface: "sessions" });
+    renderSidebar();
+    const second = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.includes("Second owned session"))!;
+    act(() => second.click());
+    expect(openSession).toHaveBeenCalledWith("tab-2");
+    expect(useStore.getState().compactSurface).toBeNull();
+
+    act(() => useStore.getState().showCompactSurface("sessions"));
+    const terminal = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === "terminal")!;
+    act(() => terminal.click());
+    expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
+    expect(useStore.getState().compactSurface).toBeNull();
   });
 });

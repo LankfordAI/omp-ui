@@ -63,6 +63,9 @@ Object.assign(window, { ompBackend: backendMock });
 
 const { useStore } = await import("../store");
 const { ProjectPicker } = await import("./ProjectPicker");
+const originalNewSession = useStore.getState().newSession;
+const newSession = vi.fn(async () => {});
+const originalMatchMedia = window.matchMedia;
 
 const HOME = "/home/u";
 
@@ -138,13 +141,16 @@ beforeEach(() => {
   backendMock.browseDirectories.mockImplementation(
     async (q: string) => listings[q] ?? { parentPath: "", entries: [], error: "invalid" },
   );
-  useStore.setState({ projectPickerOpen: true });
+  useStore.setState({ projectPickerOpen: true, newSession });
 });
 
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
   document.body.innerHTML = "";
+  if (originalMatchMedia === undefined) Reflect.deleteProperty(window, "matchMedia");
+  else Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
+  useStore.setState({ newSession: originalNewSession });
 });
 
 describe("ProjectPicker", () => {
@@ -153,6 +159,41 @@ describe("ProjectPicker", () => {
     expect(backendMock.browseDirectories).toHaveBeenCalledWith("~/");
     expect(input().value).toBe("~/");
     expect(rowNames()).toEqual(["..", "alpha", "beta"]);
+    expect(document.body.textContent).toContain("Esc");
+  });
+
+  it("shows the acceptance button on desktop without starting a session", async () => {
+    backendMock.addProject.mockResolvedValue({});
+    await renderPicker();
+    const accept = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Add project",
+    );
+    expect(accept).toBeDefined();
+    await act(async () => accept!.click());
+    expect(backendMock.addProject).toHaveBeenCalledWith(HOME);
+    expect(newSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps suggestions and starts a session after compact acceptance", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    backendMock.addProject.mockResolvedValue({});
+    await renderPicker();
+
+    expect(rowNames()).toEqual(["..", "alpha", "beta"]);
+    expect(document.body.textContent).not.toContain("Esc");
+    expect(document.body.querySelector('button[aria-label="close dialog"]')).not.toBeNull();
+    expect(document.body.textContent).toContain(`will add: ${HOME}`);
+    const accept = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Add project",
+    );
+    expect(accept).toBeDefined();
+    await act(async () => accept!.click());
+    expect(backendMock.addProject).toHaveBeenCalledWith(HOME);
+    expect(useStore.getState().projectPickerOpen).toBe(false);
+    expect(newSession).toHaveBeenCalledWith(HOME);
   });
 
   it("narrows through a new browse call on every keystroke", async () => {

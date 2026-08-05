@@ -1250,8 +1250,8 @@ export function Settings() {
 
   return (
     <Modal onClose={closeSettings} width="w-[46rem]">
-      <section role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <header className="border-b border-line px-4 py-3.5">
+      <section className="settings-surface" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header className="settings-header border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
             Application
           </p>
@@ -1260,8 +1260,8 @@ export function Settings() {
           </h2>
         </header>
 
-        <div className="flex">
-          <nav className="w-40 shrink-0 space-y-px border-r border-line p-1.5">
+        <div className="settings-layout flex">
+          <nav className="settings-nav w-40 shrink-0 space-y-px border-r border-line p-1.5">
             {PAGES.map((p) => (
               <button
                 key={p.id}
@@ -1279,7 +1279,7 @@ export function Settings() {
             ))}
           </nav>
 
-          <div className="max-h-[30rem] min-w-0 flex-1 overflow-y-auto">
+          <div className="settings-body max-h-[30rem] min-w-0 flex-1 overflow-y-auto">
             {page === "general" && <GeneralPage />}
             {page === "appearance" && <AppearancePage />}
             {page === "updates" && <UpdatesPage />}

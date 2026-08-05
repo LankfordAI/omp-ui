@@ -185,7 +185,7 @@ export function SlashPalette({
 
   let row = -1;
   return (
-    <div className={cn(shell, "max-h-72 overflow-y-auto py-1")}>
+    <div className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] overflow-y-auto py-1")}>
       {groups.map((group) => (
         <div key={group.label}>
           <div className="px-3 pb-1 pt-1.5">

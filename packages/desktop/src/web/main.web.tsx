@@ -44,7 +44,7 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
   const strip = document.createElement("div");
   strip.textContent = "reconnecting to omp-ui…";
   strip.style.cssText =
-    "position:fixed;left:0;right:0;top:0;z-index:2147483647;display:none;padding:4px 12px;" +
+    "position:fixed;left:0;right:0;top:0;z-index:2147483647;display:none;padding:calc(4px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 4px calc(12px + env(safe-area-inset-left, 0px));" +
     "background:#3a2a12;color:#e8c99a;font:12px/1.4 system-ui,sans-serif;text-align:center";
   host.append(strip);
 

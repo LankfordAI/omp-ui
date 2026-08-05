@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import type { SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
+import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { findRecord, useStore } from "../store";
 import { Chip, Dot, Empty, Label, Modal, type Tone } from "./ui";
@@ -77,6 +78,7 @@ export function CommandPalette() {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const rowsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const compact = useCompactShell();
 
   const state = useStore((s) => s.state);
   const tabs = useStore((s) => s.tabs);
@@ -291,7 +293,7 @@ export function CommandPalette() {
           onKeyDown={onKeyDown}
           className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint focus:outline-none"
         />
-        <Chip mono>{formatHotkey("escape")}</Chip>
+        {!compact && <Chip mono>{formatHotkey("escape")}</Chip>}
       </div>
 
       <div className="max-h-[24rem] overflow-y-auto py-1.5">

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { useCompactShell } from "../lib/responsive";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import type { SessionStats, TokenTotals } from "../lib/rpc-types";
-import { findRecord, useStore, type PlanRecord } from "../store";
+import { findRecord, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
-import { Button, Chip, CopyButton, Dot, Empty, IconButton, Label, type Tone } from "./ui";
+import { Button, Chip, CopyButton, Dot, Empty, IconButton, Label, Sheet, type Tone } from "./ui";
 
 interface BranchDiffLoad {
   status: "idle" | "loading" | "error" | "loaded";
@@ -24,7 +25,7 @@ interface BranchDiffLoad {
  * composer drawer — issue #33.)
  */
 
-type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
+export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
 
 /**
  * Rail selection is per-session and deliberately module-level: it is view
@@ -586,73 +587,96 @@ const TABS: { id: RailTab; label: string }[] = [
   { id: "diffs", label: "diffs" },
 ];
 
+export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTab, number> {
+  let openTodos = 0;
+  for (const phase of runtime?.todos ?? []) {
+    for (const task of phase.tasks ?? []) if (task.status !== "completed") openTodos += 1;
+  }
+  return {
+    todos: openTodos,
+    agents: runtime?.subagents.length ?? 0,
+    session: 0,
+    plans: runtime?.planReview ? 1 : 0,
+    diffs: 0,
+  };
+}
+
 export function InspectorRail({ tabId }: { tabId: string }) {
   const [tab, setTab] = useState<RailTab>(() => selectedTab.get(tabId) ?? "todos");
   const [collapsed, setCollapsed] = useState(collapsedRail);
+  const compact = useCompactShell();
+  const surface = useStore((s) => s.compactSurface);
+  const closeCompactSurface = useStore((s) => s.closeCompactSurface);
+  const runtime = useStore((s) => s.rpc[tabId]);
 
-  // Re-sync when the same rail instance is reused for a different session.
   const lastTabId = useRef(tabId);
   if (lastTabId.current !== tabId) {
     lastTabId.current = tabId;
     setTab(selectedTab.get(tabId) ?? "todos");
   }
 
-  const todos = useStore((s) => s.rpc[tabId]?.todos) ?? [];
-  const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
-
-  let openTodos = 0;
-  for (const phase of todos) {
-    for (const task of phase.tasks ?? []) if (task.status !== "completed") openTodos += 1;
-  }
-  const planWaiting = useStore((s) => (s.rpc[tabId]?.planReview ? 1 : 0));
-  const badges: Record<RailTab, number> = {
-    todos: openTodos,
-    agents: subagents.length,
-    session: 0,
-    // A pending (even deferred) plan is an unanswered verdict waiting on you.
-    plans: planWaiting,
-    diffs: 0,
-  };
-
+  const badges = inspectorBadges(runtime);
   const select = (next: RailTab): void => {
     selectedTab.set(tabId, next);
     setTab(next);
-    if (collapsed) {
+    if (!compact && collapsed) {
       collapsedRail = false;
       setCollapsed(false);
     }
   };
-
   const toggle = (): void => {
     collapsedRail = !collapsed;
     setCollapsed(!collapsed);
   };
+  const tabs = (
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto p-1.5">
+      {TABS.map(({ id, label }) => (
+        <button
+          key={id}
+          type="button"
+          title={label}
+          aria-pressed={id === tab}
+          onClick={() => select(id)}
+          className={cn(
+            "flex min-h-7 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] transition-colors",
+            id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
+          )}
+        >
+          <TabIcon tab={id} />
+          <span className="whitespace-nowrap">{label}</span>
+          {badges[id] > 0 && <span className="rounded-full bg-copper-wash px-1 font-mono text-[9px] leading-4 text-copper">{badges[id] > 99 ? "99+" : badges[id]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+  const pane = (
+    <>
+      {tab === "todos" && <TodoPanel tabId={tabId} />}
+      {tab === "agents" && <AgentsPane tabId={tabId} />}
+      {tab === "session" && <SessionPane tabId={tabId} />}
+      {tab === "plans" && <PlansPane tabId={tabId} />}
+      {tab === "diffs" && <DiffsPane tabId={tabId} />}
+    </>
+  );
+
+  if (compact) {
+    return (
+      <Sheet open={surface === "inspector"} placement="right" label="inspector" onClose={closeCompactSurface}>
+        <div className="sticky top-0 z-10 border-b border-line bg-sunken">{tabs}</div>
+        <div>{pane}</div>
+      </Sheet>
+    );
+  }
 
   if (collapsed) {
     return (
       <aside className="ambient flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line bg-sunken py-2">
-        <IconButton label="expand inspector" onClick={toggle}>
-          <IconCollapse collapsed />
-        </IconButton>
+        <IconButton label="expand inspector" onClick={toggle}><IconCollapse collapsed /></IconButton>
         <span className="my-0.5 h-px w-4 bg-line-soft" />
         {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            title={badges[id] > 0 ? `${label} (${badges[id]})` : label}
-            aria-label={label}
-            onClick={() => select(id)}
-            className={cn(
-              "relative grid size-7 place-items-center rounded-md transition-colors",
-              id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
-            )}
-          >
+          <button key={id} type="button" title={badges[id] > 0 ? `${label} (${badges[id]})` : label} aria-label={label} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
             <TabIcon tab={id} />
-            {badges[id] > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">
-                {badges[id] > 99 ? "99" : badges[id]}
-              </span>
-            )}
+            {badges[id] > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{badges[id] > 99 ? "99" : badges[id]}</span>}
           </button>
         ))}
       </aside>
@@ -661,45 +685,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
 
   return (
     <aside className="ambient flex w-[19rem] shrink-0 flex-col border-l border-line bg-sunken">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
-        {/* Six labelled tabs don't fit a 19rem rail — the strip scrolls (the
-            scrollbar is invisible at rest) rather than shoving the collapse
-            button off-screen. */}
-        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              title={label}
-              aria-pressed={id === tab}
-              onClick={() => select(id)}
-              className={cn(
-                "flex shrink-0 items-center gap-1 rounded-md px-1 py-1 text-[11px] transition-colors",
-                id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
-              )}
-            >
-              <TabIcon tab={id} />
-              <span className="whitespace-nowrap">{label}</span>
-              {badges[id] > 0 && (
-                <span className="shrink-0 rounded-full bg-copper-wash px-1 font-mono text-[9px] leading-4 text-copper">
-                  {badges[id] > 99 ? "99+" : badges[id]}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        <IconButton label="collapse inspector" onClick={toggle}>
-          <IconCollapse collapsed={false} />
-        </IconButton>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "todos" && <TodoPanel tabId={tabId} />}
-        {tab === "agents" && <AgentsPane tabId={tabId} />}
-        {tab === "session" && <SessionPane tabId={tabId} />}
-        {tab === "plans" && <PlansPane tabId={tabId} />}
-        {tab === "diffs" && <DiffsPane tabId={tabId} />}
-      </div>
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line">{tabs}<IconButton label="collapse inspector" onClick={toggle}><IconCollapse collapsed={false} /></IconButton></div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{pane}</div>
     </aside>
   );
 }

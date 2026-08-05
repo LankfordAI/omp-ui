@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { cn } from "../lib/cn";
+import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
-import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Switch, type Tone } from "./ui";
+import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -396,6 +397,28 @@ function ModesPopover({ tabId }: { tabId: string }) {
   );
 }
 
+function CompactModes({ tabId }: { tabId: string }) {
+  const session = useStore((s) => s.rpc[tabId]?.session);
+  const setSteeringMode = useStore((s) => s.setSteeringMode);
+  const setFollowUpMode = useStore((s) => s.setFollowUpMode);
+  const setInterruptMode = useStore((s) => s.setInterruptMode);
+  const setAutoRetry = useStore((s) => s.setAutoRetry);
+  const abortRetry = useStore((s) => s.abortRetry);
+  const [autoRetry, setAutoRetryLocal] = useState(true);
+  return (
+    <div className="space-y-3 border-t border-line p-3">
+      <ModeRow label="steering" value={session?.steeringMode ?? null} known={STEERING_MODES} onChange={(v) => void setSteeringMode(tabId, v)} />
+      <ModeRow label="follow-up" value={session?.followUpMode ?? null} known={STEERING_MODES} onChange={(v) => void setFollowUpMode(tabId, v)} />
+      <ModeRow label="interrupt" value={session?.interruptMode ?? null} known={INTERRUPT_MODES} onChange={(v) => void setInterruptMode(tabId, v)} />
+      <div className="flex items-center justify-between gap-3 border-t border-line-soft pt-3">
+        <span className="text-xs text-ink-mid">auto-retry</span>
+        <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>abort retry</Button>
+        <Switch on={autoRetry} label="auto-retry" onChange={(next) => { setAutoRetryLocal(next); void setAutoRetry(tabId, next); }} />
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- the HUD */
 
 export function SessionHud({ tabId }: { tabId: string }) {
@@ -418,11 +441,55 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const setPlanMode = useStore((s) => s.setPlanMode);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const openMcpManager = useStore((s) => s.openMcpManager);
+  const compact = useCompactShell();
+  const surface = useStore((s) => s.compactSurface);
+  const showCompactSurface = useStore((s) => s.showCompactSurface);
+  const closeCompactSurface = useStore((s) => s.closeCompactSurface);
 
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
   const face = STATUS[status] ?? STATUS.starting;
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
 
+
+  const refresh = () => {
+    void refreshState(tabId);
+    void refreshStats(tabId);
+    if (status !== "running" && session?.isStreaming !== true) void refreshAdvisorStats(tabId);
+  };
+
+  if (compact) {
+    return (
+      <>
+        <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken px-3">
+          {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
+          {plan?.enabled && <Chip tone="iris">plan</Chip>}
+          <span className="min-w-0 flex-1" />
+          {usage && <ContextCluster usage={usage} />}
+          <Button variant="ghost" onClick={() => showCompactSurface("session-actions")}>session actions</Button>
+        </header>
+        <Sheet open={surface === "session-actions"} placement="bottom" label="session actions" onClose={closeCompactSurface}>
+          <div className="space-y-3 p-3">
+            <div className="flex items-center gap-2"><Label className="shrink-0">session</Label><TitleField tabId={tabId} title={title ?? "untitled"} /></div>
+            {usage && <div className="flex items-center justify-between gap-3"><Label>main usage</Label><ContextCluster usage={usage} /></div>}
+            {stats && <p className="font-mono text-xs text-ink-dim">{formatCost(stats.cost)} · {exactNum(stats.tokens.total)} tokens · {stats.premiumRequests} premium requests</p>}
+            {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <p className="font-mono text-xs text-ink-dim">advisor · {exactNum(advisorStats.contextTokens)} tokens · {advisorStats.subscription && advisorStats.cost === 0 ? "subscription" : formatCost(advisorStats.cost)}</p>}
+            {notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant={plan?.enabled ? "solid" : "outline"} tone="iris" disabled={plan?.unavailable !== undefined} title={plan?.unavailable ? `plan mode unavailable: ${plan.unavailable}` : undefined} onClick={() => void setPlanMode(tabId, !(plan?.enabled ?? false))}>plan</Button>
+              <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)}>compact</Button>
+              <div className="flex min-h-11 items-center justify-between rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
+              <Button onClick={() => void exportHtml(tabId)}>export</Button>
+              {projectCwd !== undefined && <Button onClick={() => openMcpManager(tabId, projectCwd)}>MCP</Button>}
+              <Button onClick={() => void branchSession(tabId)}>branch</Button>
+              <Button onClick={() => void newRpcSession(tabId)}>new</Button>
+              <Button onClick={refresh}>refresh</Button>
+            </div>
+          </div>
+          <CompactModes tabId={tabId} />
+        </Sheet>
+      </>
+    );
+  }
   return (
     <header className="ambient flex h-9 shrink-0 items-center gap-2.5 overflow-hidden border-b border-line bg-sunken px-3">
       {session?.isCompacting ? (

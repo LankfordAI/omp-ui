@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { useCompactShell } from "../lib/responsive";
 import { field, strField } from "../lib/fields";
 import { OTHER_OPTION, planSelect, readOptions, togglePick } from "../lib/multi-select";
 import { useStore } from "../store";
@@ -49,6 +50,10 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   const loopBase = useRef<string | null>(null);
   /** The last toggle sent, pending confirmation by the next loop frame. */
   const lastSent = useRef<string | null>(null);
+  const priorFocus = useRef<HTMLElement | null>(null);
+  const firstChoice = useRef<HTMLButtonElement | null>(null);
+  const hadRequest = useRef(false);
+  const compact = useCompactShell();
 
   const method = strField(current, "method") ?? "";
   const rawTitle = strField(current, "title") ?? "extension request";
@@ -96,17 +101,31 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   }, [current, method]);
 
   useEffect(() => {
-    if (!current || plan === null) return;
-    const listed = plan.listed;
+    if (current && !hadRequest.current) {
+      priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      hadRequest.current = true;
+    } else if (!current && hadRequest.current) {
+      hadRequest.current = false;
+      priorFocus.current?.focus({ preventScroll: true });
+      priorFocus.current = null;
+    }
+  }, [current]);
+
+  useEffect(() => {
+    if (current && method === "select") firstChoice.current?.focus({ preventScroll: true });
+  }, [current, method]);
+
+  useEffect(() => {
+    if (!current) return;
+    const listed = plan?.listed ?? [];
     const onKey = (e: KeyboardEvent) => {
-      // The composer owns keys while it has focus — Enter there is a steer,
-      // not an answer, and Escape there is an agent abort.
       if (fromTextField(e)) return;
       if (e.key === "Escape") {
         e.preventDefault();
         answerExtension(tabId, current, { cancelled: true });
         return;
       }
+      if (plan === null || listed.length === 0) return;
       if (listed.length === 0) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -152,8 +171,8 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   }
 
   return (
-    <div className="animate-rise shrink-0 border-t border-signal-dim/40 bg-raised">
-      <div className="flex items-start gap-2 px-4 pt-3">
+    <div role={compact ? "dialog" : undefined} aria-modal={compact ? "false" : undefined} className={cn("animate-rise shrink-0 border-t border-signal-dim/40 bg-raised", compact && "fixed inset-x-0 bottom-0 z-50 flex max-h-[min(70dvh,var(--app-viewport-height,70dvh))] flex-col pb-[var(--safe-bottom)]")}>
+      <div className={cn("flex items-start gap-2 px-4 pt-3", compact && "sticky top-0 z-10 shrink-0 bg-raised pb-3")}>
         <Dot tone="signal" pulse className="mt-1.5" title="the agent is waiting on this answer" />
         <h2 className="min-w-0 flex-1 whitespace-pre-wrap break-words font-display text-sm leading-snug text-ink">
           {method === "editor" ? title.split("\n", 1)[0] : title}
@@ -171,7 +190,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
 
       {/* The panel caps its own height so a long option list never buries the
           composer or the transcript; the list scrolls inside instead. */}
-      <div className="max-h-[38vh] overflow-y-auto px-4 py-3">
+      <div className={cn("max-h-[38vh] overflow-y-auto px-4 py-3", compact && "max-h-none min-h-0 flex-1 overscroll-contain")}>
         {message && (
           <p className="mb-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-mid">
             {message}
@@ -194,12 +213,15 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
         )}
 
         {plan !== null && (
-          <div className="space-y-1">
+          <>
+            {plan.listed.length === 0 && <p className="rounded-md border border-line p-3 text-xs text-ink-dim">No choices are available for this request.</p>}
+            <div className="space-y-1">
             {plan.listed.map((option, i) => {
               const isPicked = picked?.includes(option.value) ?? false;
               const other = option.label === OTHER_OPTION;
               return (
                 <button
+                  ref={i === 0 ? firstChoice : undefined}
                   key={`${option.value}:${i}`}
                   type="button"
                   onMouseEnter={() => setActive(i)}
@@ -269,7 +291,8 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
                 )}
               </span>
             </div>
-          </div>
+            </div>
+          </>
         )}
 
         {(method === "input" || method === "editor") && (

@@ -13,7 +13,7 @@ export function DeleteSessionDialog({
   const cancelDeleteSession = useStore((s) => s.cancelDeleteSession);
 
   return (
-    <Modal onClose={cancelDeleteSession} width="w-[28rem]">
+    <Modal onClose={cancelDeleteSession} width="w-[28rem]" mobile="dialog">
       <section role="alertdialog" aria-modal="true" aria-labelledby="delete-session-title">
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-rose">
