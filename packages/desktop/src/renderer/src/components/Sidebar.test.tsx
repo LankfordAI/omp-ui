@@ -171,6 +171,7 @@ beforeEach(() => {
     exited: {},
     rpc: {},
     advisorDefaults: {},
+    sidebarCollapsed: false,
     newSession,
     openSession,
   });
@@ -207,7 +208,7 @@ describe("Sidebar session creation", () => {
     act(() => button("new session").click());
     expect(newSession).toHaveBeenLastCalledWith(projectPath);
 
-    act(() => button("collapse sidebar").click());
+    act(() => useStore.getState().toggleSidebarCollapsed());
     act(() => collapsedProjectButton().click());
     expect(newSession).toHaveBeenNthCalledWith(2, projectPath);
   });
@@ -229,7 +230,7 @@ describe("Sidebar session creation", () => {
 
   it("opens and selects the same terminal action from the collapsed project trigger", () => {
     renderSidebar();
-    act(() => button("collapse sidebar").click());
+    act(() => useStore.getState().toggleSidebarCollapsed());
     const trigger = collapsedProjectButton();
 
     const event = openContextMenu(trigger);

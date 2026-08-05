@@ -51,6 +51,7 @@ function seed(): void {
       planReview: { request: { title: "Plan", planFilePath: "local://plan.md", planAbsPath: "/plan.md" }, frame: { id: "p" } },
     }) },
     compactSurface: null,
+    sidebarCollapsed: false,
   });
 }
 
@@ -101,5 +102,34 @@ describe("compact App shell", () => {
     expect(document.body.querySelector('[data-rpc-tab="rpc"]')).not.toBeNull();
     expect(document.body.querySelector('[data-terminal-tab="pty"]')).not.toBeNull();
     expect(document.body.querySelector('[data-terminal-tab="pty"]')?.parentElement?.style.display).toBe("none");
+  });
+});
+
+describe("desktop merged title bar (issues #59/#60)", () => {
+  beforeEach(() => {
+    compact = false;
+  });
+
+  it("packs sidebar chrome and the session HUD into one flat strip", () => {
+    renderApp();
+    const header = document.body.querySelector("header")!;
+    expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
+    expect(header.querySelector('button[aria-label="add project"]')).not.toBeNull();
+    expect(header.querySelector('button[aria-label="new session in current project"]')).not.toBeNull();
+    // the rpc-ui HUD rides the same strip
+    expect(header.querySelector('button[aria-label="branch this session"]')).not.toBeNull();
+    // flat bg, no noise texture — the overlay can only paint a flat colour (#59)
+    expect(header.className).not.toContain("ambient");
+    expect(header.className).toContain("bg-void");
+  });
+
+  it("shows no HUD controls for a terminal tab and toggles the sidebar from the strip", () => {
+    renderApp();
+    act(() => useStore.setState({ activeTabId: "pty" }));
+    const header = document.body.querySelector("header")!;
+    expect(header.querySelector('button[aria-label="branch this session"]')).toBeNull();
+    expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
+    act(() => (header.querySelector('button[aria-label="collapse sidebar"]') as HTMLButtonElement).click());
+    expect(useStore.getState().sidebarCollapsed).toBe(true);
   });
 });

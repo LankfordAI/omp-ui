@@ -92,12 +92,14 @@ export function IconButton({
   onClick,
   label,
   tone = "neutral",
+  disabled,
   className,
 }: {
   children: ReactNode;
   onClick?: () => void;
   label: string;
   tone?: Tone;
+  disabled?: boolean;
   className?: string;
 }) {
   return (
@@ -105,10 +107,12 @@ export function IconButton({
       type="button"
       aria-label={label}
       title={label}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         "grid size-6 shrink-0 place-items-center rounded-md text-ink-dim",
         "transition-colors duration-150 hover:bg-hover",
+        "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent",
         tone === "rose" ? "hover:text-rose" : tone === "copper" ? "hover:text-copper" : "hover:text-ink",
         className,
       )}

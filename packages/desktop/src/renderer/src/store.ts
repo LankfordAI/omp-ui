@@ -271,6 +271,8 @@ interface UiStore {
   settingsPage: SettingsPage | null;
   /** The one temporary compact-shell surface currently visible. Renderer-only. */
   compactSurface: CompactSurface | null;
+  /** Desktop sidebar rail state. Renderer-only; the compact sheet ignores it. */
+  sidebarCollapsed: boolean;
   /**
    * Latest pushed omp-ui app update state (issue #18; main/app-update.ts owns
    * the machine). The card renders from this; actions are thin pass-throughs —
@@ -310,6 +312,7 @@ interface UiStore {
   closeSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
+  toggleSidebarCollapsed(): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   /**
@@ -908,6 +911,7 @@ export const useStore = create<UiStore>()((set, get) => {
     mcpManager: null,
     settingsPage: null,
     compactSurface: null,
+    sidebarCollapsed: false,
     appUpdate: {
       status: "idle",
       currentVersion: null,
@@ -1004,6 +1008,10 @@ export const useStore = create<UiStore>()((set, get) => {
 
     closeCompactSurface() {
       set({ compactSurface: null });
+    },
+
+    toggleSidebarCollapsed() {
+      set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }));
     },
 
     async setDefaultMode(mode) {

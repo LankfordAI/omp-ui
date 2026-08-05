@@ -319,8 +319,9 @@ export function Sidebar() {
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
 
-  // Desktop collapse memory is independent from the compact sheet.
-  const [collapsed, setCollapsed] = useState(false);
+  // Desktop collapse memory lives in the store: the toggle moved to App's
+  // title bar (issue #60), and the compact sheet ignores it as before.
+  const collapsed = useStore((st) => st.sidebarCollapsed);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
   const terminalMenuRef = useRef<HTMLDivElement>(null);
@@ -387,38 +388,21 @@ export function Sidebar() {
         displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : "w-[17rem]",
       )}
     >
-      {/* -------- header -------- */}
-      <header
-        className={cn(
-          "flex shrink-0 items-center border-b border-line",
-          compact
-            ? "min-h-11 gap-2 px-3"
-            : displayedCollapsed
-              ? "h-9 justify-center gap-1 px-2"
-              : "h-9 gap-2 px-3",
-        )}
-      >
-        {!displayedCollapsed && (
+      {/* Header — compact sheet only. On desktop its controls live in the title
+          bar (issue #60); the compact shell has no merged bar, so it keeps its own. */}
+      {compact && (
+        <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line px-3">
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
             <span className="truncate font-display text-sm font-semibold tracking-tight text-ink">
-              omp<span className="text-ink-dim">-ui</span>
+              omp<span className="text-ink-faint">-ui</span>
             </span>
           </span>
-        )}
-        {displayedCollapsed && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />}
-        {!displayedCollapsed && (
           <IconButton label="add project" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
             <IconPlus />
           </IconButton>
-        )}
-        {!compact && <IconButton
-          label={displayedCollapsed ? "expand sidebar" : "collapse sidebar"}
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          <Chevron open={false} className={cn("size-3.5", !displayedCollapsed && "rotate-180")} />
-        </IconButton>}
-      </header>
+        </header>
+      )}
 
       {displayedCollapsed ? (
         <div className="min-h-0 flex-1 overflow-y-auto">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useCompactShell } from "../lib/responsive";
 import { useStore } from "../store";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
@@ -29,6 +30,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const bootRpcTab = useStore((s) => s.bootRpcTab);
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
+  const compact = useCompactShell();
   const [dismissedError, setDismissedError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,10 +45,13 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
 
   return (
     <div className="relative flex h-full flex-col bg-surface">
-      <SessionHud tabId={tabId} />
+      {compact && <SessionHud tabId={tabId} />}
 
-      {/* Overlaid on the HUD's bottom border, never in flow: a 1px bar that
-          mounts/unmounts in flow shifts the whole transcript and jitters it. */}
+      {/* Flush with the tab pane's top edge, never in flow: a 1px bar that
+          mounts/unmounts in flow shifts the whole transcript and jitters it.
+          On desktop that edge is the hairline under the merged title bar; in
+          the compact shell it remains the HUD's bottom border. The -top-px
+          mechanics are unchanged either way. */}
       {working && (
         <div className="relative z-10 h-0">
           <div className="absolute inset-x-0 -top-px">

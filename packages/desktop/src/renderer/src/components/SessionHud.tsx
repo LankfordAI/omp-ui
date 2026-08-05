@@ -11,6 +11,9 @@ import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type
  * The instrument's status bar: one line that answers "is it alive, what is it
  * called, how full is the context, and what can I do to it right now".
  *
+ * On desktop the HUD renders inside App's merged title bar (issue #60); the
+ * compact branch below is unchanged and still renders in-tab inside RpcTab.
+ *
  * The numeric formatters and the two micro-controls below live here rather than
  * in `ui.tsx` (which Main owns) because only the RPC chrome consumes them.
  */
@@ -493,7 +496,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     );
   }
   return (
-    <header className="ambient flex h-9 shrink-0 items-center gap-2.5 overflow-hidden border-b border-line bg-sunken px-3">
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:no-drag]">
       {session?.isCompacting ? (
         <Chip tone="copper" className="shrink-0">
           <Dot tone="copper" pulse />
@@ -622,6 +625,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </IconButton>
         <ModesPopover tabId={tabId} />
       </div>
-    </header>
+    </div>
   );
 }
