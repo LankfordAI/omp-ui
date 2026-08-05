@@ -3,7 +3,8 @@ import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
-import type { SessionStats, TokenTotals } from "../lib/rpc-types";
+import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
+import type { RenderItem } from "../lib/transcript";
 import { findRecord, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
@@ -147,22 +148,159 @@ const AGENT_TONE: Record<string, Tone> = {
   failed: "rose",
   error: "rose",
   cancelled: "rose",
+  settled: "neutral",
 };
+
+/** One buffered render item as a simple stacked row in the transcript's
+ * visual language: markers as hairlines, assistant text, tool entries. */
+function SubagentRow({ item }: { item: RenderItem }) {
+  switch (item.kind) {
+    case "marker":
+      return (
+        <li className="flex items-center gap-2 py-0.5">
+          <span className="h-px flex-1 bg-line" />
+          <span
+            className={cn(
+              "shrink-0 text-[9px] uppercase tracking-[0.14em]",
+              item.tone === "signal"
+                ? "text-signal"
+                : item.tone === "copper"
+                  ? "text-copper"
+                  : item.tone === "rose"
+                    ? "text-rose"
+                    : "text-ink-faint",
+            )}
+          >
+            {item.label}
+          </span>
+          <span className="h-px flex-1 bg-line" />
+        </li>
+      );
+    case "assistant":
+      return (
+        <li className="whitespace-pre-wrap break-words py-0.5 text-[11px] leading-snug text-ink-mid">
+          {item.text}
+        </li>
+      );
+    case "user":
+      return (
+        <li className="whitespace-pre-wrap break-words py-0.5 text-[11px] leading-snug text-ink-dim">
+          {item.text}
+        </li>
+      );
+    case "tool":
+      return (
+        <li className="flex items-center gap-1.5 py-0.5 text-[11px] text-ink-dim">
+          <Dot
+            tone={item.status === "error" ? "rose" : item.status === "running" ? "copper" : "signal"}
+            pulse={item.status === "running"}
+            title={item.status}
+          />
+          <span className="min-w-0 flex-1 truncate" title={item.intent ?? item.name}>
+            {item.intent ?? item.name}
+          </span>
+        </li>
+      );
+    default:
+      // notice / advisory / irc — rare in a subagent buffer; keep them quiet.
+      return (
+        <li className="break-words py-0.5 text-[11px] leading-snug text-ink-faint">
+          {"text" in item ? String(item.text) : item.kind}
+        </li>
+      );
+  }
+}
+
+/**
+ * The drill-down for one subagent (issue #63): a back affordance, a header
+ * with the agent's name/type/status, and its buffered render items, live as
+ * frames arrive. A settled agent keeps its retained buffer — the detail view
+ * stays open on it until the session resets.
+ */
+function SubagentDetail({
+  tabId,
+  agentKey,
+}: {
+  tabId: string;
+  agentKey: string;
+}) {
+  const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
+  const items = useStore((s) => s.rpc[tabId]?.subagentItems?.[agentKey]) ?? [];
+  const closeSubagent = useStore((s) => s.closeSubagent);
+  const live = subagents.find((a) => a.id === agentKey);
+  const name = live?.name ?? live?.agent ?? agentKey;
+  const status = live?.status ?? "settled";
+
+  return (
+    <section className="border-b border-line-soft px-3 py-2.5 last:border-b-0">
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label="back to agents"
+          onClick={() => closeSubagent(tabId)}
+          className="shrink-0 rounded-md px-1 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint transition-colors hover:bg-hover hover:text-ink-mid"
+        >
+          ‹ agents
+        </button>
+        <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink" title={name}>
+          {name}
+        </span>
+        {live?.agent && live.name && (
+          <Chip mono title={`agent type: ${live.agent}`}>
+            {live.agent}
+          </Chip>
+        )}
+        <Dot
+          tone={AGENT_TONE[status] ?? "neutral"}
+          pulse={AGENT_TONE[status] === "copper"}
+          title={status}
+        />
+        <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="py-1 text-[11px] text-ink-faint">
+          No activity captured yet — the event stream flows while this view is open.
+        </p>
+      ) : (
+        <ul className="space-y-0.5">
+          {items.map((item) => (
+            <SubagentRow key={item.id} item={item} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 function AgentsPane({ tabId }: { tabId: string }) {
   const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
+  const buffers = useStore((s) => s.rpc[tabId]?.subagentItems) ?? {};
+  const selected = useStore((s) => s.rpc[tabId]?.selectedSubagent) ?? null;
+  const openSubagent = useStore((s) => s.openSubagent);
   const refreshSubagents = useStore((s) => s.refreshSubagents);
+
+  if (selected !== null) {
+    return <SubagentDetail tabId={tabId} agentKey={selected} />;
+  }
+
+  // The roster is the live list UNION agents whose buffers outlived them:
+  // settled agents stay visible (dimmed) until the session resets.
+  const liveIds = new Set(subagents.map((a) => a.id));
+  const retained: SubagentInfo[] = Object.keys(buffers)
+    .filter((key) => !liveIds.has(key))
+    .map((key) => ({ id: key, status: "settled" }));
+  const roster = [...subagents, ...retained];
 
   return (
     <Section
-      title={`subagents · ${subagents.length}`}
+      title={`subagents · ${roster.length}`}
       action={
         <IconButton label="refresh subagents" onClick={() => void refreshSubagents(tabId)}>
           <IconRefresh />
         </IconButton>
       }
     >
-      {subagents.length === 0 ? (
+      {roster.length === 0 ? (
         <Empty
           title="No subagents"
           hint="Delegated agents appear here while they run."
@@ -174,36 +312,44 @@ function AgentsPane({ tabId }: { tabId: string }) {
         />
       ) : (
         <ul className="space-y-1">
-          {subagents.map((agent) => {
+          {roster.map((agent) => {
             const status = agent.status ?? "unknown";
+            const settled = !liveIds.has(agent.id);
             return (
-              <li
-                key={agent.id}
-                className="animate-slide-in rounded-md border border-line bg-raised px-2 py-1.5"
-              >
-                <div className="flex items-center gap-1.5">
-                  <Dot
-                    tone={AGENT_TONE[status] ?? "neutral"}
-                    pulse={AGENT_TONE[status] === "copper"}
-                    title={status}
-                  />
-                  <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
-                    {agent.name ?? agent.agent ?? agent.id}
-                  </span>
-                  {agent.agent && agent.name && (
-                    <Chip mono title={`agent type: ${agent.agent}`}>
-                      {agent.agent}
-                    </Chip>
+              <li key={agent.id} className="animate-slide-in">
+                <button
+                  type="button"
+                  aria-label={`open agent ${agent.name ?? agent.agent ?? agent.id}`}
+                  onClick={() => openSubagent(tabId, agent.id)}
+                  className={cn(
+                    "w-full rounded-md border border-line bg-raised px-2 py-1.5 text-left transition-colors hover:bg-hover",
+                    settled && "opacity-50",
                   )}
-                </div>
-                <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
-                  <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
-                  {agent.label && (
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={agent.label}>
-                      {agent.label}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Dot
+                      tone={AGENT_TONE[status] ?? "neutral"}
+                      pulse={AGENT_TONE[status] === "copper"}
+                      title={status}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+                      {agent.name ?? agent.agent ?? agent.id}
                     </span>
-                  )}
-                </div>
+                    {agent.agent && agent.name && (
+                      <Chip mono title={`agent type: ${agent.agent}`}>
+                        {agent.agent}
+                      </Chip>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
+                    <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
+                    {agent.label && (
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={agent.label}>
+                        {agent.label}
+                      </span>
+                    )}
+                  </div>
+                </button>
               </li>
             );
           })}

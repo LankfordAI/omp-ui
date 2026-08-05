@@ -2125,3 +2125,148 @@ describe("remote access settings", () => {
     expect(alerts).toEqual([]);
   });
 });
+
+describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)", () => {
+  const THROTTLE_TAB = `${TAB}-throttle`;
+
+  beforeEach(() => {
+    useStore.setState({ rpc: { [TAB]: tabState(), [THROTTLE_TAB]: tabState() } });
+  });
+
+  const heartbeat = (tabId: string, id: string, agent: string) =>
+    useStore.getState().handleRpcFrame(tabId, {
+      type: "subagent_progress",
+      payload: { id, agent, progress: { status: "running" } },
+    });
+
+  const markerLabels = (tabId: string) =>
+    useStore
+      .getState()
+      .rpc[tabId]!.items.filter((i) => i.kind === "marker")
+      .map((i) => i.label);
+
+  it("interleaved running heartbeats from two agents stamp exactly one marker each", () => {
+    heartbeat(TAB, "a", "scout");
+    heartbeat(TAB, "b", "task");
+    heartbeat(TAB, "a", "scout");
+    heartbeat(TAB, "b", "task");
+    heartbeat(TAB, "a", "scout");
+    expect(markerLabels(TAB)).toEqual(["subagent scout: running", "subagent task: running"]);
+  });
+
+  it("a status change for one agent appends exactly one more marker, for that agent only", () => {
+    heartbeat(TAB, "a", "scout");
+    heartbeat(TAB, "b", "task");
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "subagent_lifecycle",
+      payload: { id: "a", agent: "scout", status: "finished" },
+    });
+    heartbeat(TAB, "b", "task");
+    expect(markerLabels(TAB)).toEqual([
+      "subagent scout: running",
+      "subagent task: running",
+      "subagent scout: finished",
+    ]);
+  });
+
+  it("heartbeat-driven roster refresh coalesces to one in-flight get_subagents, with a trailing call", async () => {
+    vi.useFakeTimers();
+    try {
+      const rosterCalls = () => sent.filter((s) => s.cmd.type === "get_subagents");
+      heartbeat(THROTTLE_TAB, "a", "scout");
+      expect(rosterCalls()).toHaveLength(1);
+      // Frames landing mid-request only schedule the trailing call.
+      heartbeat(THROTTLE_TAB, "a", "scout");
+      heartbeat(THROTTLE_TAB, "b", "task");
+      expect(rosterCalls()).toHaveLength(1);
+      respond(THROTTLE_TAB, rosterCalls()[0]!.cmd, { subagents: [] });
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(rosterCalls()).toHaveLength(2);
+      respond(THROTTLE_TAB, rosterCalls()[1]!.cmd, { subagents: [] });
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(rosterCalls()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("event frames append to the per-agent buffer with dedupe and a 500-item cap", () => {
+    const text = (t: string) =>
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "subagent_event",
+        payload: { id: "a", text: t },
+      });
+    text("hello");
+    text("hello");
+    expect(useStore.getState().rpc[TAB]!.subagentItems?.a).toHaveLength(1);
+    for (let i = 0; i < 505; i++) text(`note ${i}`);
+    const buffer = useStore.getState().rpc[TAB]!.subagentItems!.a!;
+    expect(buffer).toHaveLength(500);
+    expect(buffer.at(-1)).toMatchObject({ text: "note 504" });
+  });
+
+  it("opening a detail escalates the subscription to events; closing drops back, without redundant sends", () => {
+    const levels = () =>
+      sent.filter((s) => s.cmd.type === "set_subagent_subscription").map((s) => s.cmd.level);
+    useStore.getState().openSubagent(TAB, "a");
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("a");
+    useStore.getState().openSubagent(TAB, "a");
+    expect(levels()).toEqual(["events"]);
+    useStore.getState().closeSubagent(TAB);
+    useStore.getState().closeSubagent(TAB);
+    expect(levels()).toEqual(["events", "progress"]);
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBeNull();
+  });
+
+  it("session reset clears the markers, buffers, retained roster, and open detail", async () => {
+    heartbeat(TAB, "a", "scout");
+    useStore.getState().openSubagent(TAB, "a");
+    expect(useStore.getState().rpc[TAB]!.subagentItems?.a).toHaveLength(1);
+    sent.length = 0;
+    const levels: unknown[] = [];
+    const promise = useStore.getState().newRpcSession(TAB);
+    for (let wave = 0; wave < 5; wave++) {
+      await flushMicrotasks();
+      for (const { cmd } of sent.splice(0)) {
+        if (cmd.type === "set_subagent_subscription") levels.push(cmd.level);
+        respond(TAB, cmd, {});
+      }
+    }
+    await promise;
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.items).toEqual([]);
+    expect(tab.subagentItems).toEqual({});
+    expect(tab.subagents).toEqual([]);
+    expect(tab.selectedSubagent).toBeNull();
+    // The subscription de-escalated back to progress.
+    expect(levels).toEqual(["progress"]);
+    // Marker memory is gone: the same heartbeat stamps fresh.
+    heartbeat(TAB, "a", "scout");
+    expect(markerLabels(TAB)).toEqual(["subagent scout: running"]);
+  });
+
+  it("a ready-frame re-boot sends progress, then re-escalates while a detail is open", async () => {
+    // A dedicated tab id: an earlier suite leaves TAB's boot latch held, and
+    // rpcBooting short-circuits a second bootRpcTab for the same tab.
+    const REBOOT_TAB = `${TAB}-reboot`;
+    backendState = stateWithRecord(null);
+    useStore.setState({
+      state: backendState,
+      rpc: { [REBOOT_TAB]: tabState({ selectedSubagent: "a", subagentLevel: "events" }) },
+    });
+    const levels: unknown[] = [];
+    const boot = useStore.getState().bootRpcTab(REBOOT_TAB);
+    for (let wave = 0; wave < 6; wave++) {
+      await flushMicrotasks();
+      for (const { cmd } of sent.splice(0)) {
+        if (cmd.type === "set_subagent_subscription") levels.push(cmd.level);
+        respond(REBOOT_TAB, cmd, {});
+      }
+    }
+    await boot;
+    expect(levels).toEqual(["progress", "events"]);
+    expect(useStore.getState().rpc[REBOOT_TAB]!.selectedSubagent).toBe("a");
+  });
+});

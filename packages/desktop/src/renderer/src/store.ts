@@ -58,6 +58,7 @@ import {
   type TodoPhase,
 } from "./lib/rpc-types";
 import { generateTitleFromPrompt, isLowSignalTitleInput, isUntitled } from "./lib/session-title";
+import { reduceSubagentFrame, subagentKey } from "./lib/subagent-events";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import {
   historyToItems,
@@ -109,6 +110,27 @@ export interface RpcTabState {
   session: SessionRuntime;
   stats: SessionStats | null;
   subagents: SubagentInfo[];
+  /**
+   * Per-agent render-item buffers for the Agents pane drill-down (issue #63),
+   * keyed by the frame's agent key. Buffers persist after the agent settles —
+   * they are the retained roster — and clear on session reset.
+   */
+  subagentItems?: Record<string, RenderItem[]>;
+  /**
+   * The agent key open in the Agents pane detail view (issue #63), if any.
+   * While set, the tab's subagent subscription escalates to "events".
+   */
+  selectedSubagent?: string | null;
+  /**
+   * Not rendered — mutated in place. Agent key → last marker label stamped in
+   * the transcript, so heartbeat repeats coalesce per agent (issue #62).
+   */
+  subagentMarkers?: Map<string, string>;
+  /**
+   * Not rendered — mutated in place. The tab's current subagent subscription
+   * level, so open/close never re-sends a redundant set_subagent_subscription.
+   */
+  subagentLevel?: "progress" | "events";
   /** Extension setStatus/setWidget/setTitle text, keyed by widget/status key. */
   extensionStatus: Record<string, string>;
   /** Not rendered — mutated in place. */
@@ -166,6 +188,10 @@ function freshRpcTabState(): RpcTabState {
     session: emptySessionRuntime(),
     stats: null,
     subagents: [],
+    subagentItems: {},
+    selectedSubagent: null,
+    subagentMarkers: new Map(),
+    subagentLevel: "progress",
     extensionStatus: {},
     pendingCommands: new Map(),
     extensionQueue: [],
@@ -470,6 +496,13 @@ interface UiStore {
   refreshStats(tabId: string): Promise<void>;
   refreshAdvisorStats(tabId: string): Promise<void>;
   refreshSubagents(tabId: string): Promise<void>;
+  /**
+   * Opens the Agents pane detail view for one subagent (issue #63) and
+   * escalates the tab's subscription to its per-agent event stream.
+   */
+  openSubagent(tabId: string, key: string): void;
+  /** Leaves the detail view; the subscription drops back to "progress". */
+  closeSubagent(tabId: string): void;
   /** Clears the drawer's dead-shell overlay while a replacement spawns. */
   clearShellExited(tabId: string): void;
   /** Toggles the composer's console drawer for a tab (issue #33). */
@@ -556,6 +589,26 @@ const rpcBooting = new Set<string>();
  */
 const USAGE_REFRESH_MS = 500;
 const lastUsageRefresh = new Map<string, number>();
+
+/**
+ * Heartbeat-driven roster refresh (issue #62): every subagent_* frame wants a
+ * roster read, but heartbeats arrive many times a second. Trailing throttle
+ * to one quiet get_subagents round-trip per window, with in-flight
+ * coalescing — a frame landing mid-request just schedules the trailing call,
+ * so the final roster always lands. The Agents pane's manual refresh button
+ * bypasses this entirely (it calls refreshSubagents directly).
+ */
+const SUBAGENT_REFRESH_MS = 500;
+interface SubagentRefresh {
+  last: number;
+  inFlight: boolean;
+  pending: boolean;
+  timer: number | undefined;
+}
+const subagentRefresh = new Map<string, SubagentRefresh>();
+
+/** Shared empty buffer so identity comparison detects "no items yet". */
+const EMPTY_BUFFER: RenderItem[] = [];
 
 /** The implementation prompt sent to whichever context executes an approved plan. */
 const EXECUTION_PROMPT =
@@ -692,6 +745,57 @@ export const useStore = create<UiStore>()((set, get) => {
     const tab = get().rpc[tabId];
     if (!tab) return;
     patchRpc(tabId, { items: [...tab.items, item] });
+  };
+
+  /**
+   * Sends set_subagent_subscription when — and only when — the tab's desired
+   * level differs from what the process last heard: "events" while an Agents
+   * pane detail view is open, "progress" otherwise (issue #63).
+   */
+  const syncSubagentSubscription = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    const level = tab.selectedSubagent ? "events" : "progress";
+    if (tab.subagentLevel === level) return;
+    tab.subagentLevel = level;
+    void runCommand(tabId, { type: "set_subagent_subscription", level }, { quiet: true });
+  };
+
+  /** Trailing-throttled roster refresh for the subagent_* heartbeat path. */
+  const pulseSubagents = (tabId: string): void => {
+    let st = subagentRefresh.get(tabId);
+    if (!st) {
+      st = { last: 0, inFlight: false, pending: false, timer: undefined };
+      subagentRefresh.set(tabId, st);
+    }
+    const state = st;
+    const fire = (): void => {
+      state.inFlight = true;
+      state.last = Date.now();
+      void get()
+        .refreshSubagents(tabId)
+        .finally(() => {
+          state.inFlight = false;
+          if (state.pending) {
+            state.pending = false;
+            pulseSubagents(tabId);
+          }
+        });
+    };
+    if (state.inFlight) {
+      state.pending = true;
+      return;
+    }
+    const wait = state.last + SUBAGENT_REFRESH_MS - Date.now();
+    if (wait <= 0) {
+      fire();
+      return;
+    }
+    // A scheduled trailing call already covers this frame.
+    state.timer ??= window.setTimeout(() => {
+      state.timer = undefined;
+      fire();
+    }, wait);
   };
 
   const patchSession = (tabId: string, patch: Partial<SessionRuntime>): void => {
@@ -881,6 +985,9 @@ export const useStore = create<UiStore>()((set, get) => {
 
   const loadHistory = async (tabId: string): Promise<void> => {
     const resp = await get().rpcCommand(tabId, { type: "get_messages" });
+    // History replaces the transcript wholesale; per-agent marker memory
+    // must not outlive the render items it was deduping against.
+    get().rpc[tabId]?.subagentMarkers?.clear();
     patchRpc(tabId, { items: historyToItems(arrField(respData(resp), "messages")) });
   };
 
@@ -1372,7 +1479,15 @@ export const useStore = create<UiStore>()((set, get) => {
       try {
         // A pending concern handoff belongs to the session that just went away.
         concernWatcher.cancel(tabId);
-        patchRpc(tabId, freshRpcTabState());
+        // A re-boot must not slam the Agents pane's drill-down shut: the open
+        // detail view and the retained buffers behind it survive the process
+        // restart, and the subscription re-escalates after boot (issue #63).
+        const prior = get().rpc[tabId];
+        patchRpc(tabId, {
+          ...freshRpcTabState(),
+          selectedSubagent: prior?.selectedSubagent ?? null,
+          subagentItems: prior?.subagentItems ?? {},
+        });
         // The tab may not exist in state yet — ensure the slot exists.
         if (!get().rpc[tabId]) {
           set((s) => ({ rpc: { ...s.rpc, [tabId]: freshRpcTabState() } }));
@@ -1415,6 +1530,13 @@ export const useStore = create<UiStore>()((set, get) => {
         ];
         if (rec?.sessionId) boots.push(loadHistory(tabId));
         await Promise.allSettled(boots);
+        // The fresh process just heard "progress" — reflect that in the
+        // tracked level, then re-escalate if a detail view is still open.
+        const runtime = get().rpc[tabId];
+        if (runtime) {
+          runtime.subagentLevel = "progress";
+          syncSubagentSubscription(tabId);
+        }
         // Arm the advisor-stats extension (its first slash run sets its `ui`
         // channel, after which it auto-publishes at each turn end). Armed for
         // every session, not just advisor-on ones: the extension is always loaded,
@@ -1518,6 +1640,10 @@ export const useStore = create<UiStore>()((set, get) => {
         case "subagent_event": {
           const payload = field(frame, "payload");
           const progress = field(payload, "progress");
+          // The agent key is id-first: the display name flips between frame
+          // types for one agent, which keyed the old consecutive-only dedupe
+          // wrong and flooded the transcript (issue #62).
+          const key = subagentKey(frame);
           const name =
             strField(payload, "agent") ??
             strField(progress, "agent") ??
@@ -1525,13 +1651,23 @@ export const useStore = create<UiStore>()((set, get) => {
             "subagent";
           const status = strField(payload, "status") ?? strField(progress, "status");
           const label = status ? `subagent ${name}: ${status}` : `subagent ${name}`;
-          // Progress frames repeat every heartbeat — collapse an identical
-          // consecutive label instead of stamping the transcript each time.
-          const last = tab.items.at(-1);
-          if (!(last?.kind === "marker" && last.label === label)) {
+          // Per-agent marker coalescing: a heartbeat repeats its label
+          // forever, so only a genuine transition stamps a marker — no
+          // matter how several agents' frames interleave.
+          const markers = (tab.subagentMarkers ??= new Map());
+          if (markers.get(key) !== label) {
+            markers.set(key, label);
             appendItem(tabId, markerItem(label, "copper"));
           }
-          void get().refreshSubagents(tabId);
+          // Per-agent buffer for the Agents pane drill-down (issue #63).
+          // Identity return means the frame added nothing.
+          const buffers = tab.subagentItems ?? {};
+          const prev = buffers[key] ?? EMPTY_BUFFER;
+          const next = reduceSubagentFrame(prev, frame);
+          if (next !== prev) {
+            patchRpc(tabId, { subagentItems: { ...buffers, [key]: next } });
+          }
+          pulseSubagents(tabId);
           return;
         }
         case "extension_error": {
@@ -1919,6 +2055,10 @@ export const useStore = create<UiStore>()((set, get) => {
         todos: [],
         stats: null,
         subagents: [],
+        // The subagent lifecycle belongs to the session that just ended:
+        // buffers, the retained roster, and any open detail view all reset.
+        subagentItems: {},
+        selectedSubagent: null,
         initialPrompt: null,
         hasRenamed: false,
         // A new session in this tab is a new plan lifecycle: the old plan
@@ -1931,6 +2071,10 @@ export const useStore = create<UiStore>()((set, get) => {
       });
       // A new plan lifecycle — kill any wait left by the outgoing session.
       concernWatcher.cancel(tabId);
+      // Marker memory dies with the session too, and the subscription drops
+      // back to "progress" if a detail view was open.
+      get().rpc[tabId]?.subagentMarkers?.clear();
+      syncSubagentSubscription(tabId);
       await get().refreshState(tabId);
     },
 
@@ -2062,6 +2206,16 @@ export const useStore = create<UiStore>()((set, get) => {
       const resp = await runCommand(tabId, { type: "get_subagents" }, { quiet: true });
       if (resp === null) return;
       patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
+    },
+
+    openSubagent(tabId, key) {
+      patchRpc(tabId, { selectedSubagent: key });
+      syncSubagentSubscription(tabId);
+    },
+
+    closeSubagent(tabId) {
+      patchRpc(tabId, { selectedSubagent: null });
+      syncSubagentSubscription(tabId);
     },
 
     clearShellExited(tabId) {
