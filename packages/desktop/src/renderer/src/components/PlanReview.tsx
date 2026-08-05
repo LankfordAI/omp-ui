@@ -187,12 +187,12 @@ export function PlanReview({ tabId }: { tabId: string }) {
   };
 
   return (
-    <Modal onClose={dismiss} width="w-[56rem]">
+    <Modal onClose={dismiss} width="w-[68rem]">
       <div className="plan-review flex max-h-[80vh] flex-col">
-        <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3">
+        <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-3.5">
           <div className="min-w-0">
-            <Label>plan review</Label>
-            <h2 className="mt-1 truncate text-sm text-ink" title={request.title}>
+            <Label>plan ready</Label>
+            <h2 className="mt-1 truncate font-display text-base font-medium text-ink" title={request.title}>
               {request.title}
             </h2>
             <p className="mt-0.5 truncate font-mono text-[10px] text-ink-faint">
@@ -202,231 +202,274 @@ export function PlanReview({ tabId }: { tabId: string }) {
           {planText && <CopyButton text={planText} label="copy plan" />}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          {planText ? (
-            <Markdown text={planText} />
-          ) : (
-            <p className="text-sm text-ink-dim">
-              The plan file could not be read. Execute only if you know what it contains —
-              otherwise refine and let the agent rewrite it.
-            </p>
-          )}
+        <div className="plan-review-layout grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_21rem] overflow-hidden">
+          <section className="plan-review-document min-h-0 overflow-y-auto px-5 py-4" aria-label="proposed plan">
+            {planText ? (
+              <Markdown text={planText} />
+            ) : (
+              <p className="text-sm text-ink-dim">
+                The plan file could not be read. Execute only if you know what it contains —
+                otherwise refine and let the agent rewrite it.
+              </p>
+            )}
 
-          <fieldset className="mt-4 border-t border-line pt-3">
-            <legend className="sr-only">Where to run the implementation</legend>
-            <Label>execute where</Label>
-            <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-              {CONTEXTS.map((option) => {
-                const active = context === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setContext(option.id)}
-                    className={cn(
-                      "rounded-md border px-3 py-2 text-left transition-colors",
-                      active
-                        ? "border-line-strong bg-hover"
-                        : "border-line bg-transparent hover:border-line-strong",
-                    )}
-                  >
-                    <span className="block text-xs font-medium text-ink">{option.label}</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
-                      {option.hint}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="mt-6 border-t border-line pt-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <div>
+                  <Label>send it back</Label>
+                  <p className="mt-1 text-xs text-ink-dim">Describe what the planner should revise.</p>
+                </div>
+                <span className="shrink-0 text-[10px] text-ink-faint">Enter to refine · Shift+Enter for a line break</span>
+              </div>
+              <div className="mt-2 rounded-lg border border-line bg-raised focus-within:border-line-strong">
+                {images.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
+                    {images.map((image, i) => (
+                      <span key={i} className="group/att relative">
+                        <img
+                          src={`data:${image.mimeType};base64,${image.data}`}
+                          alt={`change note ${i + 1}`}
+                          title={image.mimeType}
+                          className="size-12 rounded border border-line-strong bg-sunken object-cover"
+                        />
+                        <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
+                          <IconButton
+                            label={`remove change note ${i + 1}`}
+                            tone="rose"
+                            onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                            className="size-4 rounded-full border border-line-strong bg-overlay"
+                          >
+                            <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className="size-2.5">
+                              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+                            </svg>
+                          </IconButton>
+                        </span>
+                      </span>
+                    ))}
+                    <Label className="ml-0.5">
+                      {images.length} attachment{images.length === 1 ? "" : "s"}
+                    </Label>
+                  </div>
+                )}
+                <textarea
+                  rows={3}
+                  value={changes}
+                  placeholder="What should change before implementation? Paste an image to attach it."
+                  spellCheck={false}
+                  onChange={(e) => setChanges(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  onPaste={(e) => void onPaste(e)}
+                  className="block w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
+                />
+              </div>
+              {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}
             </div>
-          </fieldset>
+          </section>
 
-          {isRepo && (
-            <fieldset className="mt-4 border-t border-line pt-3">
-              <legend className="sr-only">Which git branch to implement on</legend>
-              <Label>git branch</Label>
-              <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-                {(
-                  [
-                    {
-                      id: "current",
-                      label: "current branch",
-                      hint: `stay on ${branchInfo!.current ?? "detached HEAD"}`,
-                    },
-                    { id: "new", label: "new branch", hint: "create & switch before dispatch" },
-                    { id: "existing", label: "existing branch", hint: "switch before dispatch" },
-                  ] as const
-                ).map((option) => {
-                  const active = branchChoice === option.id;
+          <aside className="plan-review-setup min-h-0 overflow-y-auto border-l border-line bg-sunken/70 px-4 py-4" aria-label="implementation setup">
+            <div className="mb-4">
+              <Label>implementation setup</Label>
+              <p className="mt-1 text-xs leading-relaxed text-ink-dim">
+                Choose the context and working tree the implementer receives.
+              </p>
+            </div>
+
+            <fieldset>
+              <legend className="text-[11px] font-medium text-ink">Session</legend>
+              <div className="mt-2 space-y-1.5">
+                {CONTEXTS.map((option, index) => {
+                  const active = context === option.id;
                   return (
                     <button
                       key={option.id}
                       type="button"
                       aria-pressed={active}
-                      onClick={() => {
-                        setBranchChoice(option.id);
-                        setBranchError(null);
-                        setConfirmBusy(false);
-                      }}
+                      onClick={() => setContext(option.id)}
                       className={cn(
-                        "rounded-md border px-3 py-2 text-left transition-colors",
+                        "group flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-[background-color,border-color]",
                         active
-                          ? "border-line-strong bg-hover"
-                          : "border-line bg-transparent hover:border-line-strong",
+                          ? "edge-lit border-line-strong bg-raised"
+                          : "border-transparent hover:border-line hover:bg-raised/60",
                       )}
                     >
-                      <span className="block text-xs font-medium text-ink">{option.label}</span>
-                      <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
-                        {option.hint}
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
+                          active ? "border-ink-mid" : "border-line-strong",
+                        )}
+                      >
+                        {active && <span className="size-1.5 rounded-full bg-ink-mid" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-ink">{option.label}</span>
+                          <span className="font-mono text-[9px] uppercase tracking-wider text-ink-faint">0{index + 1}</span>
+                        </span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
+                          {option.hint}
+                        </span>
                       </span>
                     </button>
                   );
                 })}
               </div>
-
-              {branchChoice === "new" && (
-                <>
-                  <input
-                    value={newName}
-                    placeholder="new-branch-name"
-                    aria-label="new branch name"
-                    onChange={(e) => setNewName(e.target.value)}
-                    className="mt-2 mb-1 w-full rounded border border-line bg-void px-1.5 py-1 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-                  />
-                  <span className="text-[10px] text-ink-faint">
-                    creates and switches to the branch before dispatch — uncommitted work carries
-                    over
-                  </span>
-                </>
-              )}
-
-              {branchChoice === "existing" && (
-                <>
-                  <input
-                    value={branchFilter}
-                    placeholder="filter branches…"
-                    aria-label="filter branches"
-                    onChange={(e) => setBranchFilter(e.target.value)}
-                    className="mt-2 mb-1 w-full rounded border border-line bg-void px-1.5 py-1 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-                  />
-                  <div className="flex max-h-40 flex-col overflow-y-auto">
-                    {branchInfo!.branches
-                      .filter((b) => b.toLowerCase().includes(branchFilter.toLowerCase()))
-                      .map((branch) => (
-                        <button
-                          key={branch}
-                          type="button"
-                          disabled={branch === branchInfo!.current}
-                          onClick={() => setExistingName(branch)}
-                          className={cn(
-                            "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
-                            "disabled:pointer-events-none",
-                            branch === branchInfo!.current ? "text-iris" : "text-ink-mid",
-                            branch === existingName && "bg-hover",
-                          )}
-                        >
-                          {branch}
-                        </button>
-                      ))}
-                  </div>
-                </>
-              )}
-
-              {confirmBusy && (
-                <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-line px-2 py-1.5">
-                  <span className="text-[11px] leading-snug text-copper">
-                    session “{busyTitle}” is mid-turn — the tree will change under it
-                  </span>
-                  <div className="flex shrink-0 gap-1.5">
-                    <Button size="xs" tone="copper" onClick={() => void execute()}>
-                      switch anyway
-                    </Button>
-                    <Button size="xs" variant="ghost" onClick={() => setConfirmBusy(false)}>
-                      cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {branchError !== null && <p className="mt-1 text-[11px] text-rose">{branchError}</p>}
             </fieldset>
-          )}
 
-          <div className="mt-4">
-            <div className="flex items-baseline justify-between">
-              <Label>request changes</Label>
-              <span className="text-[10px] text-ink-faint">refined back to the planner</span>
-            </div>
-            <div className="mt-1.5 rounded-lg border border-line bg-raised focus-within:border-line-strong">
-              {images.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
-                  {images.map((image, i) => (
-                    <span key={i} className="group/att relative">
-                      <img
-                        src={`data:${image.mimeType};base64,${image.data}`}
-                        alt={`change note ${i + 1}`}
-                        title={image.mimeType}
-                        className="size-12 rounded border border-line-strong bg-sunken object-cover"
-                      />
-                      <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
-                        <IconButton
-                          label={`remove change note ${i + 1}`}
-                          tone="rose"
-                          onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
-                          className="size-4 rounded-full border border-line-strong bg-overlay"
-                        >
-                          <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className="size-2.5">
-                            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-                          </svg>
-                        </IconButton>
-                      </span>
-                    </span>
-                  ))}
-                  <Label className="ml-0.5">
-                    {images.length} attachment{images.length === 1 ? "" : "s"}
-                  </Label>
+            {isRepo && (
+              <fieldset className="mt-5 border-t border-line pt-4">
+                <legend className="text-[11px] font-medium text-ink">Git branch</legend>
+                <div className="mt-2 grid grid-cols-3 rounded-lg border border-line bg-void/40 p-1">
+                  {(
+                    [
+                      { id: "current", label: "current branch", shortLabel: "current" },
+                      { id: "new", label: "new branch", shortLabel: "new" },
+                      { id: "existing", label: "existing branch", shortLabel: "switch" },
+                    ] as const
+                  ).map((option) => {
+                    const active = branchChoice === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        aria-label={option.label}
+                        aria-pressed={active}
+                        onClick={() => {
+                          setBranchChoice(option.id);
+                          setBranchError(null);
+                          setConfirmBusy(false);
+                        }}
+                        className={cn(
+                          "rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors",
+                          active ? "bg-overlay text-ink edge-lit" : "text-ink-faint hover:text-ink-mid",
+                        )}
+                      >
+                        {option.shortLabel}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-              <textarea
-                rows={2}
-                value={changes}
-                placeholder="Optional: changes to make to the plan before it's finalized…  (paste an image to attach it)"
-                spellCheck={false}
-                onChange={(e) => setChanges(e.target.value)}
-                onKeyDown={onKeyDown}
-                onPaste={(e) => void onPaste(e)}
-                className="block w-full resize-none bg-transparent px-3 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
-              />
-            </div>
-            {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}
-          </div>
+
+                <div className="mt-2.5 rounded-lg border border-line bg-raised/70 p-3">
+                  {branchChoice === "current" && (
+                    <div>
+                      <span className="block text-[10px] text-ink-faint">Implement on</span>
+                      <span className="mt-1 block truncate font-mono text-xs text-ink" title={branchInfo!.current ?? "detached HEAD"}>
+                        {branchInfo!.current ?? "detached HEAD"}
+                      </span>
+                      <p className="mt-1.5 text-[10px] leading-relaxed text-ink-faint">No checkout. Existing working-tree changes stay in place.</p>
+                    </div>
+                  )}
+
+                  {branchChoice === "new" && (
+                    <div>
+                      <label htmlFor="plan-new-branch" className="block text-[10px] text-ink-faint">Create and switch to</label>
+                      <input
+                        id="plan-new-branch"
+                        value={newName}
+                        placeholder="new-branch-name"
+                        aria-label="new branch name"
+                        onChange={(e) => setNewName(e.target.value)}
+                        className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                      />
+                      <p className="mt-1.5 text-[10px] leading-relaxed text-ink-faint">Uncommitted work carries into the new branch.</p>
+                    </div>
+                  )}
+
+                  {branchChoice === "existing" && (
+                    <div>
+                      <input
+                        value={branchFilter}
+                        placeholder="filter branches…"
+                        aria-label="filter branches"
+                        onChange={(e) => setBranchFilter(e.target.value)}
+                        className="w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                      />
+                      <div className="mt-1.5 flex max-h-36 flex-col overflow-y-auto">
+                        {branchInfo!.branches
+                          .filter((b) => b.toLowerCase().includes(branchFilter.toLowerCase()))
+                          .map((branch) => (
+                            <button
+                              key={branch}
+                              type="button"
+                              disabled={branch === branchInfo!.current}
+                              onClick={() => setExistingName(branch)}
+                              className={cn(
+                                "flex items-center gap-2 rounded px-1.5 py-1 text-left font-mono text-[11px] hover:bg-hover",
+                                "disabled:pointer-events-none",
+                                branch === branchInfo!.current ? "text-iris" : "text-ink-mid",
+                                branch === existingName && "bg-hover text-ink",
+                              )}
+                            >
+                              <span className={cn("size-1 rounded-full", branch === existingName ? "bg-ink-mid" : "bg-line-strong")} />
+                              <span className="truncate">{branch}</span>
+                              {branch === branchInfo!.current && <span className="ml-auto font-sans text-[9px] text-ink-faint">current</span>}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {confirmBusy && (
+                  <div className="mt-2 rounded-lg border border-copper-dim/50 bg-copper-wash px-3 py-2.5">
+                    <p className="text-[11px] leading-snug text-copper">
+                      “{busyTitle}” is mid-turn. Switching changes its working tree.
+                    </p>
+                    <div className="mt-2 flex gap-1.5">
+                      <Button size="xs" tone="copper" onClick={() => void execute()}>
+                        switch anyway
+                      </Button>
+                      <Button size="xs" variant="ghost" onClick={() => setConfirmBusy(false)}>
+                        cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {branchError !== null && <p className="mt-2 text-[11px] leading-snug text-rose">{branchError}</p>}
+              </fieldset>
+            )}
+
+            {advisorConfigured && (
+              <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
+                <div className="min-w-0">
+                  <span className="block text-[11px] font-medium text-ink">Address advisor concerns</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                    Fold the advisor's plan review into the implementation prompt.
+                  </span>
+                </div>
+                <Switch
+                  on={addressAdvisor}
+                  onChange={setAddressAdvisor}
+                  label="address advisor concerns in the implementation prompt"
+                />
+              </div>
+            )}
+          </aside>
         </div>
 
-        {advisorConfigured && (
-          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
-            <div className="min-w-0">
-              <span className="block text-[11px] font-medium text-ink">address advisor concerns</span>
-              <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
-                The advisor reviews the plan after you answer; on execute its concerns ride the
-                implementation prompt. Refine stays immediate — the planner revises here.
-              </span>
-            </div>
-            <Switch
-              on={addressAdvisor}
-              onChange={setAddressAdvisor}
-              label="address advisor concerns in the implementation prompt"
-            />
+        <footer className="plan-review-actions flex shrink-0 items-center justify-between gap-4 border-t border-line bg-overlay px-5 py-3">
+          <div className="min-w-0">
+            <Label>ready to dispatch</Label>
+            <p className="mt-0.5 truncate text-[11px] text-ink-dim">
+              {CONTEXTS.find((c) => c.id === context)?.label}
+              {isRepo && (
+                <>
+                  {" · "}
+                  {branchChoice === "current"
+                    ? (branchInfo!.current ?? "detached HEAD")
+                    : branchChoice === "new"
+                      ? (newName.trim() || "new branch")
+                      : (existingName ?? "choose a branch")}
+                </>
+              )}
+            </p>
           </div>
-        )}
-
-        <footer className="plan-review-actions flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
-          <p className="text-[11px] text-ink-faint">
-            The agent is waiting. Executing restores write access and starts implementation;
-            "not now" leaves the plan pending in the plans tab.
-          </p>
           <div className="flex shrink-0 items-center gap-2">
             <Button
               title="Leave the plan pending — the agent stays paused until you answer here"
+              variant="ghost"
               onClick={() => deferPlanReview(tabId)}
             >
               not now
@@ -438,7 +481,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
               disabled={checkingOut || branchInvalid}
               onClick={() => void execute()}
             >
-              execute in {CONTEXTS.find((c) => c.id === context)?.label}
+              {checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
             </Button>
           </div>
         </footer>

@@ -135,12 +135,12 @@ const buttonByText = (text: string): HTMLButtonElement => {
   return found!;
 };
 
-/** The current/new/existing option cards carry aria-pressed; label + hint is their text. */
+/** Branch destination segments expose their full label through aria-label. */
 const branchOption = (label: string): HTMLButtonElement => {
-  const found = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
-    (candidate) => candidate.textContent?.startsWith(label),
+  const found = document.body.querySelector<HTMLButtonElement>(
+    `button[aria-pressed][aria-label="${label}"]`,
   );
-  expect(found).toBeDefined();
+  expect(found).not.toBeNull();
   return found!;
 };
 

@@ -276,8 +276,11 @@
   .model-provider-rail > button { min-width: 44px; min-height: 44px; border-right: 0 !important; }
   .plan-review { height: 100%; max-height: none !important; }
   .plan-review-header { position: sticky; top: 0; z-index: 10; background: var(--color-overlay); padding-right: 3.5rem; }
+  .plan-review-layout { display: block !important; overflow-y: auto !important; }
+  .plan-review-document { overflow: visible !important; }
+  .plan-review-setup { overflow: visible !important; border-top: 1px solid var(--color-line); border-left: 0 !important; }
   .plan-review-actions { position: sticky; bottom: 0; z-index: 10; flex-direction: column; align-items: stretch; background: var(--color-overlay); padding-bottom: max(0.75rem, var(--safe-bottom)); }
-  .plan-review-actions > div { flex-wrap: wrap; justify-content: flex-end; }
+  .plan-review-actions > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
   .settings-surface { display: flex; height: 100%; flex-direction: column; }
   .settings-header { position: sticky; top: 0; z-index: 10; flex-shrink: 0; background: var(--color-overlay); padding-right: 3.5rem; }
   .settings-layout { min-height: 0; flex: 1; flex-direction: column; }
