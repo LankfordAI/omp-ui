@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { hasClipboardImage, readClipboardImages, MAX_IMAGE_BYTES } from "./clipboard-image";
+import {
+  hasClipboardImage,
+  MAX_IMAGE_BYTES,
+  readClipboardImages,
+  readImageFiles,
+} from "./clipboard-image";
 
 /**
  * A DataTransfer stand-in. jsdom's own is not wired up for synthetic paste
@@ -42,6 +47,86 @@ describe("hasClipboardImage", () => {
     );
     expect(hasClipboardImage(textOnly)).toBe(false);
     expect(hasClipboardImage(null)).toBe(false);
+  });
+});
+
+describe("readImageFiles", () => {
+  it("reads multiple picker files as bare base64 in selection order", async () => {
+    const first = new Uint8Array([1, 2, 3]);
+    const second = new Uint8Array([4, 5]);
+    const files = transfer([
+      { name: "first.png", type: "image/png", bytes: first },
+      { name: "second.webp", type: "image/webp", bytes: second },
+    ]).files;
+
+    expect(await readImageFiles(files)).toEqual({
+      images: [
+        { type: "image", data: b64(first), mimeType: "image/png" },
+        { type: "image", data: b64(second), mimeType: "image/webp" },
+      ],
+      rejected: [],
+    });
+  });
+
+  it("excludes picker files with non-image MIME types", async () => {
+    const files = transfer([
+      { name: "notes.txt", type: "text/plain", bytes: new Uint8Array([1]) },
+      { name: "photo.png", type: "image/png", bytes: PNG },
+    ]).files;
+
+    const { images, rejected } = await readImageFiles(files);
+    expect(images).toEqual([{ type: "image", data: b64(PNG), mimeType: "image/png" }]);
+    expect(rejected).toEqual([]);
+  });
+
+  it("uses the image fallback MIME when the picker reports no type", async () => {
+    const files = transfer([{ name: "photo", type: "", bytes: PNG }]).files;
+
+    const { images } = await readImageFiles(files);
+    expect(images).toEqual([{ type: "image", data: b64(PNG), mimeType: "image/png" }]);
+  });
+
+  it("rejects picker files over the limit before and after reading", async () => {
+    let precheckedRead = false;
+    const reportedOversize = {
+      name: "reported.png",
+      type: "image/png",
+      size: MAX_IMAGE_BYTES + 1,
+      arrayBuffer: async () => {
+        precheckedRead = true;
+        return PNG.buffer.slice(0, PNG.byteLength);
+      },
+    } as unknown as File;
+    const actualOversize = {
+      name: "actual.png",
+      type: "image/png",
+      size: PNG.byteLength,
+      arrayBuffer: async () => new ArrayBuffer(MAX_IMAGE_BYTES + 1),
+    } as unknown as File;
+
+    const { images, rejected } = await readImageFiles([reportedOversize, actualOversize]);
+    expect(precheckedRead).toBe(false);
+    expect(images).toEqual([]);
+    expect(rejected).toEqual([
+      "reported.png is 20.0 MB — over omp's 20 MB image limit",
+      "actual.png is 20.0 MB — over omp's 20 MB image limit",
+    ]);
+  });
+
+  it("reports an unreadable picker file and continues in order", async () => {
+    const unreadable = {
+      name: "unreadable.png",
+      type: "image/png",
+      size: PNG.byteLength,
+      arrayBuffer: async () => {
+        throw new Error("not readable");
+      },
+    } as unknown as File;
+    const readable = transfer([{ name: "readable.png", type: "image/png", bytes: PNG }]).files[0];
+
+    const { images, rejected } = await readImageFiles([unreadable, readable]);
+    expect(images).toEqual([{ type: "image", data: b64(PNG), mimeType: "image/png" }]);
+    expect(rejected).toEqual(["could not read unreadable.png"]);
   });
 });
 

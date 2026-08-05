@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { Terminal } from "@xterm/xterm";
+import type { ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
-import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
+import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
+import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { registerTermWriter, useStore } from "../store";
 import { Button, IconButton } from "./ui";
@@ -24,11 +27,12 @@ import { Button, IconButton } from "./ui";
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+  const imagePickerRef = useRef<HTMLInputElement>(null);
   const theme = useTheme();
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
   /**
-   * A pasted image cannot ride the PTY as bytes, so main writes it to a scratch
+   * An image Attachment cannot ride the PTY as bytes, so main writes it to a scratch
    * file and delivers the *path* as a bracketed paste — omp's TUI editor
    * recognises an image path there and loads the file itself. Feedback is a
    * transient note, because the terminal itself shows omp's `[Image #N]` marker
@@ -36,9 +40,8 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
    */
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
 
-  const pasteImages = useCallback(
-    async (data: DataTransfer | null) => {
-      const { images, rejected } = await readClipboardImages(data);
+  const deliverImages = useCallback(
+    async ({ images, rejected }: ClipboardImages) => {
       const failures = [...rejected];
       let sent = 0;
       for (const image of images) {
@@ -58,6 +61,24 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       }
     },
     [tabId],
+  );
+
+  const pasteImages = useCallback(
+    async (data: DataTransfer | null) => deliverImages(await readClipboardImages(data)),
+    [deliverImages],
+  );
+
+  const pickImages = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      const files = Array.from(input.files ?? []);
+      // Clear before any file reads or transport so choosing the same file is
+      // a new change even while a previous selection is still being delivered.
+      input.value = "";
+      await deliverImages(await readImageFiles(files));
+      termRef.current?.term.focus();
+    },
+    [deliverImages],
   );
 
   // Auto-dismiss: this is a receipt, not an error to be acknowledged. A failure
@@ -169,6 +190,43 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   return (
     <div className="terminal-tab ambient relative h-full w-full bg-surface p-2">
       <div ref={hostRef} className="h-full w-full" />
+      <span
+        className="absolute right-3 top-3 z-10"
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        <Button
+          variant="outline"
+          tone="neutral"
+          className="bg-surface/90 backdrop-blur max-[899px]:h-11 max-[899px]:px-3"
+          onClick={() => imagePickerRef.current?.click()}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.4}
+            aria-hidden
+            className="size-3.5"
+          >
+            <path
+              d="m5.1 8.8 4.5-4.5a2.1 2.1 0 0 1 3 3l-5.7 5.6a3.4 3.4 0 0 1-4.8-4.8l5.6-5.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          attach images
+        </Button>
+      </span>
+      <input
+        ref={imagePickerRef}
+        type="file"
+        accept="image/*"
+        multiple
+        tabIndex={-1}
+        aria-hidden
+        className="sr-only"
+        onChange={pickImages}
+      />
       {note !== null && (
         <div
           className={cn(

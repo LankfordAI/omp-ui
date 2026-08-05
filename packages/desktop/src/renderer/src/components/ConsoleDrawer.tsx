@@ -4,10 +4,9 @@ import { clearShellTerm, ShellDrawer } from "./ShellDrawer";
 import { Button, IconButton } from "./ui";
 
 /**
- * The console as a composer drawer: a full-width login shell (issue #43; the
- * shell itself is issue #42) docked below the composer across the full tab
- * width. `ConsoleToggle` is the composer's button; `ConsoleDrawer` is the
- * drawer itself.
+ * The console as a Session HUD-controlled drawer: a full-width login shell
+ * (issue #43; the shell itself is issue #42) docked below the composer across
+ * the full tab width.
  */
 
 /**
@@ -25,11 +24,11 @@ const S = {
   strokeLinejoin: "round",
 } as const;
 
-/** The composer's console button. */
-export function ConsoleToggle({ tabId }: { tabId: string }) {
+/** The Session HUD's console button. */
+export function ConsoleToggle({ tabId, className }: { tabId: string; className?: string }) {
   const toggleConsole = useStore((s) => s.toggleConsole);
   return (
-    <IconButton label="toggle console (mod+j)" onClick={() => toggleConsole(tabId)}>
+    <IconButton label="toggle console (mod+j)" className={className} onClick={() => toggleConsole(tabId)}>
       <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
         <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" {...S} />
         <path d="M4.6 6.4l1.8 1.7-1.8 1.7M8.4 9.9h3" {...S} />
@@ -51,8 +50,8 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
   }, [open, tabId]);
   if (!open && !consoleOpened.has(tabId)) return null;
 
-  // The composer's own recipe: a card floating on the sunken strip, inset by
-  // the same px-4 so the left edges line up. The terminal canvas paints the
+  // The console recipe: a card floating on the sunken strip, inset by the
+  // same px-4 so the left edges line up. The terminal canvas paints the
   // `surface` token, so card and canvas merge into one bordered well; the
   // controls ride as a hover-reveal pill instead of a header row.
   return (

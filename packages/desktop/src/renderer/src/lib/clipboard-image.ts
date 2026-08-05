@@ -1,13 +1,12 @@
 import type { ImageAttachment } from "@omp-ui/core/types";
 
 /**
- * Pulls images out of a paste (or drop) event.
+ * Reads image files from paste, drop, or picker input.
  *
- * omp accepts four input mime types and silently re-encodes anything else, so
- * this reader does not filter by type — it forwards whatever the clipboard
- * offered and lets omp decide. What it does enforce is omp's own 20 MB input
- * ceiling, which omp does *not* apply to the rpc `images` field: without it a
- * 200 MB paste becomes a 270 MB JSON line on omp's stdin.
+ * omp accepts four input mime types and silently re-encodes anything else. We
+ * forward image MIME types (and files with no reported type) while enforcing
+ * omp's own 20 MB input ceiling, which omp does *not* apply to the rpc `images`
+ * field: without it a 200 MB image becomes a 270 MB JSON line on omp's stdin.
  */
 
 /** omp's `MAX_IMAGE_INPUT_BYTES`, mirrored here so the renderer can pre-check. */
@@ -38,6 +37,41 @@ function toBase64(buffer: ArrayBuffer): string {
 }
 
 /**
+ * Reads picker-selected image files, preserving their input order.
+ *
+ * An empty MIME type is accepted because some browser-provided image files do
+ * not report one; omp converts unknown image formats to PNG on ingest.
+ */
+export async function readImageFiles(files: Iterable<File>): Promise<ClipboardImages> {
+  const out: ClipboardImages = { images: [], rejected: [] };
+  for (const file of files) {
+    if (file.type !== "" && !file.type.startsWith("image/")) continue;
+    if (file.size > MAX_IMAGE_BYTES) {
+      out.rejected.push(tooLarge(file.name || "pasted image", file.size));
+      continue;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      // Re-check post-read: `size` is advisory for some virtual clipboard files.
+      if (buffer.byteLength > MAX_IMAGE_BYTES) {
+        out.rejected.push(tooLarge(file.name || "pasted image", buffer.byteLength));
+        continue;
+      }
+      out.images.push({
+        type: "image",
+        data: toBase64(buffer),
+        // A browser-provided image can arrive with an empty type; omp converts
+        // unknown formats to PNG anyway, so claiming PNG is the useful guess.
+        mimeType: file.type || "image/png",
+      });
+    } catch {
+      out.rejected.push(`could not read ${file.name || "the pasted image"}`);
+    }
+  }
+  return out;
+}
+
+/**
  * Every image file on a DataTransfer, in clipboard order.
  *
  * Reads `items` rather than `files`: a screenshot pasted from the system
@@ -45,8 +79,7 @@ function toBase64(buffer: ArrayBuffer): string {
  * paths, and `getAsFile()` is the only accessor that sees it.
  */
 export async function readClipboardImages(data: DataTransfer | null): Promise<ClipboardImages> {
-  const out: ClipboardImages = { images: [], rejected: [] };
-  if (data === null) return out;
+  if (data === null) return { images: [], rejected: [] };
 
   const files: File[] = [];
   for (const item of data.items) {
@@ -62,30 +95,7 @@ export async function readClipboardImages(data: DataTransfer | null): Promise<Cl
     }
   }
 
-  for (const file of files) {
-    if (file.size > MAX_IMAGE_BYTES) {
-      out.rejected.push(tooLarge(file.name || "pasted image", file.size));
-      continue;
-    }
-    try {
-      const buffer = await file.arrayBuffer();
-      // Re-check post-read: `size` is advisory for some virtual clipboard files.
-      if (buffer.byteLength > MAX_IMAGE_BYTES) {
-        out.rejected.push(tooLarge(file.name || "pasted image", buffer.byteLength));
-        continue;
-      }
-      out.images.push({
-        type: "image",
-        data: toBase64(buffer),
-        // A clipboard item can arrive with an empty type; omp converts unknown
-        // formats to PNG anyway, so claiming PNG is the useful guess.
-        mimeType: file.type || "image/png",
-      });
-    } catch {
-      out.rejected.push(`could not read ${file.name || "the pasted image"}`);
-    }
-  }
-  return out;
+  return readImageFiles(files);
 }
 
 /** Whether a paste/drop carries at least one image, without reading the bytes. */

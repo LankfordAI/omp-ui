@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
+import { ConsoleToggle } from "./ConsoleDrawer";
 import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
@@ -465,6 +466,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {plan?.enabled && <Chip tone="iris">plan</Chip>}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} />}
+          <ConsoleToggle tabId={tabId} className="min-h-11 min-w-11" />
           <Button variant="ghost" onClick={() => showCompactSurface("session-actions")}>session actions</Button>
         </header>
         <Sheet open={surface === "session-actions"} placement="bottom" label="session actions" onClose={closeCompactSurface}>
@@ -585,6 +587,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           onChange={(next) => void setAutoCompaction(tabId, next)}
         />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
+        <ConsoleToggle tabId={tabId} />
         <IconButton label="export transcript as html" onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>

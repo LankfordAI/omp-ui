@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
@@ -12,7 +13,7 @@ import type { ImageAttachment } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
-import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
+import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import {
   keywordColors,
   magicKeywordSegments,
@@ -24,7 +25,6 @@ import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
-import { ConsoleToggle } from "./ConsoleDrawer";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
@@ -93,11 +93,11 @@ export function Composer({ tabId }: { tabId: string }) {
   /** Errors are store-owned, so dismissal remembers the message it hid. */
   const [dismissed, setDismissed] = useState<string | null>(null);
   /**
-   * Images pasted into this draft, in paste order. They ride the same frame as
-   * the text — omp appends them after the text block — and are cleared with it.
+   * Image Attachments in this draft, in the order they were pasted or picked.
+   * They ride the same frame as the text and are cleared with it.
    */
   const [images, setImages] = useState<ImageAttachment[]>([]);
-  /** Why a pasted item was refused (over omp's 20 MB ceiling, unreadable). */
+  /** Why an Attachment was refused (over omp's 20 MB ceiling, unreadable). */
   const [pasteError, setPasteError] = useState<string | null>(null);
   /** Whether the box has focus — omp shimmers a keyword only while it does. */
   const [focused, setFocused] = useState(false);
@@ -105,6 +105,7 @@ export function Composer({ tabId }: { tabId: string }) {
   const [phase, setPhase] = useState(0);
 
   const box = useRef<HTMLTextAreaElement | null>(null);
+  const imagePicker = useRef<HTMLInputElement | null>(null);
   const composer = useRef<HTMLDivElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
@@ -341,6 +342,18 @@ export function Composer({ tabId }: { tabId: string }) {
     setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
   }, []);
 
+  /** Adds picker-selected Attachments through the same draft path as paste. */
+  const pickImages = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    // Clear before reading, including rejected selections, so selecting the
+    // same file again always produces another change event.
+    input.value = "";
+    const { images: picked, rejected } = await readImageFiles(files);
+    if (picked.length > 0) setImages((prev) => [...prev, ...picked]);
+    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
+  }, []);
+
   const dropImage = useCallback((index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -566,7 +579,7 @@ export function Composer({ tabId }: { tabId: string }) {
                 if (mirror.current !== null) mirror.current.scrollTop = e.currentTarget.scrollTop;
               }}
               className={cn(
-                "relative block w-full resize-none bg-transparent px-3 py-2 outline-none",
+                "relative block w-full resize-none bg-transparent px-3 py-2 outline-none!",
                 "text-sm leading-relaxed placeholder:text-ink-faint compact-composer-text",
                 // Transparent glyphs over the mirror; the selection tint must stay
                 // translucent or it paints the highlighted text out.
@@ -632,7 +645,8 @@ export function Composer({ tabId }: { tabId: string }) {
 
             <BranchChip projectCwd={projectCwd} />
 
-            <ConsoleToggle tabId={tabId} />
+            <AttachmentButton disabled={dead} onClick={() => imagePicker.current?.click()} />
+
 
             {queued > 0 && (
               <Chip mono tone="copper" title="messages waiting for the current turn to finish">
@@ -711,6 +725,7 @@ export function Composer({ tabId }: { tabId: string }) {
           )}
           {compact && (
             <div className="flex min-h-11 items-center gap-2 px-2 pb-1.5">
+              <AttachmentButton compact disabled={dead} onClick={() => imagePicker.current?.click()} />
               <Button variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => showCompactSurface("composer-options")}>
                 prompt options · <span className="truncate font-mono">{currentModel?.name || currentModel?.id || "no model"}</span>
               </Button>
@@ -724,6 +739,17 @@ export function Composer({ tabId }: { tabId: string }) {
               )}
             </div>
           )}
+          <input
+            ref={imagePicker}
+            type="file"
+            accept="image/*"
+            multiple
+            disabled={dead}
+            tabIndex={-1}
+            aria-hidden
+            className="sr-only"
+            onChange={(event) => void pickImages(event)}
+          />
         </div>
       </div>
       <Sheet open={compactSurface === "composer-options"} placement="bottom" label="prompt options" onClose={closeCompactSurface}>
@@ -731,7 +757,7 @@ export function Composer({ tabId }: { tabId: string }) {
           <div><Label>model</Label><div className="mt-1 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div></div>
           <div><Label>thinking level</Label><div className="mt-1 flex flex-wrap gap-2">{efforts.length > 0 ? efforts.map((effort) => <Button key={effort} variant={effort === thinkingLevel ? "solid" : "outline"} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)}>{effort}</Button>) : <span className="text-xs text-ink-faint">no thinking levels available</span>}</div></div>
           <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
-          <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} /><ConsoleToggle tabId={tabId} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
+          <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
           {running && <div className="grid grid-cols-2 gap-2"><Button disabled={!canSend} onClick={() => submit("follow_up")}>Queue</Button><Button disabled={!canSend} onClick={() => submit("interrupt")}>Interrupt-and-send</Button></div>}
         </div>
       </Sheet>
@@ -771,6 +797,45 @@ export function Composer({ tabId }: { tabId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+function AttachmentButton({
+  compact = false,
+  disabled,
+  onClick,
+}: {
+  compact?: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      tone="neutral"
+      disabled={disabled}
+      title="attach images"
+      onClick={onClick}
+      className={compact
+        ? "h-11 min-h-11 w-11 min-w-11 justify-center p-0"
+        : "size-6 justify-center p-0"}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.4}
+        aria-hidden
+        className="size-3.5"
+      >
+        <path
+          d="m5.1 8.8 4.5-4.5a2.1 2.1 0 0 1 3 3l-5.7 5.6a3.4 3.4 0 0 1-4.8-4.8l5.6-5.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="sr-only">attach images</span>
+    </Button>
   );
 }
 

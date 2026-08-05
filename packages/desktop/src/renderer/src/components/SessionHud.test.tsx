@@ -15,6 +15,7 @@ const TAB = "tab-mobile";
 const compactSession = vi.fn(async () => {});
 const exportHtml = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
+const toggleConsole = vi.fn();
 let root: Root | null = null;
 
 const state = {
@@ -43,7 +44,7 @@ beforeEach(() => {
       planText: null, planDeferred: false, plans: [], advisorStats: null },
     },
     compactSurface: null,
-    compactSession, exportHtml, branchSession,
+    compactSession, exportHtml, branchSession, toggleConsole,
   });
 });
 
@@ -54,6 +55,18 @@ afterEach(() => {
 });
 
 describe("compact Session HUD", () => {
+  it("keeps the console control directly in the HUD and toggles this tab", () => {
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const consoleToggles = document.body.querySelectorAll<HTMLButtonElement>('button[aria-label="toggle console (mod+j)"]');
+    expect(consoleToggles).toHaveLength(1);
+    const consoleToggle = consoleToggles[0]!;
+    expect(consoleToggle.closest("header")).not.toBeNull();
+    expect(useStore.getState().compactSurface).toBeNull();
+    act(() => consoleToggle.click());
+    expect(toggleConsole).toHaveBeenCalledWith(TAB);
+  });
+
   it("keeps displaced actions reachable and passes the same tab id", () => {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));

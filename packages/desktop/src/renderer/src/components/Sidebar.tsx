@@ -391,7 +391,11 @@ export function Sidebar() {
       <header
         className={cn(
           "flex shrink-0 items-center border-b border-line",
-          displayedCollapsed ? "flex-col gap-2 px-2 py-2" : "gap-2 px-3 py-2.5",
+          compact
+            ? "min-h-11 gap-2 px-3"
+            : displayedCollapsed
+              ? "h-9 justify-center gap-1 px-2"
+              : "h-9 gap-2 px-3",
         )}
       >
         {!displayedCollapsed && (

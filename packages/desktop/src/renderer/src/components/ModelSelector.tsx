@@ -126,15 +126,8 @@ function ModelPalette({
     return result.sort((a, b) => a.localeCompare(b));
   }, [models]);
 
-  // Default tab: favorited current → favorites; current provider → provider; else first provider
-  const [tab, setTab] = useState<string>(() => {
-    if (current !== null) {
-      const key = `${current.provider}/${current.id}`;
-      if (favorites.has(key)) return "favorites";
-      return current.provider;
-    }
-    return providers[0] ?? "favorites";
-  });
+  // Every palette mount starts from the stable Favorites entry point.
+  const [tab, setTab] = useState("favorites");
 
   // Build ordered tab list for keyboard cycling
   const tabOrder = useMemo(
