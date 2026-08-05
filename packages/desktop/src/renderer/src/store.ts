@@ -9,6 +9,8 @@ import type {
   OmpSettingsSnapshot,
   OmpSettingValue,
   OmpUpdateState,
+  RemoteBind,
+  RemoteState,
   SessionMode,
   SessionSummary,
 } from "@omp-ui/core/types";
@@ -36,6 +38,7 @@ import {
   withConcerns,
   type PlanExecutionContext,
 } from "./lib/plan-concerns";
+import { randomId } from "./lib/random-id";
 import {
   emptySessionRuntime,
   parseCommandList,
@@ -219,7 +222,7 @@ export interface DeleteConfirmation {
  * store imports nothing from any component, and reversing that would make a
  * type-only cycle.
  */
-export type SettingsPage = "general" | "appearance" | "updates" | "omp" | "about";
+export type SettingsPage = "general" | "appearance" | "updates" | "remote" | "omp" | "about";
 
 interface UiStore {
   state: BackendState | null;
@@ -265,6 +268,14 @@ interface UiStore {
    * optimistic set.
    */
   ompUpdate: OmpUpdateState;
+  /**
+   * Latest pushed remote-access server settings + status (issue #37;
+   * main/remote-server.ts owns the machine). Kept out of BackendState on
+   * purpose: the token has no business riding a broadcast every rpc tab
+   * re-renders on. Actions are thin pass-throughs — every visible change
+   * arrives as a push, never an optimistic set.
+   */
+  remote: RemoteState;
   init(): Promise<void>;
   checkOmpUpdate(): Promise<void>;
   downloadOmpUpdate(): Promise<void>;
@@ -292,6 +303,10 @@ interface UiStore {
   setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
   clearDismissedAppUpdate(): Promise<void>;
   clearDismissedOmpUpdate(): Promise<void>;
+  setRemoteEnabled(on: boolean): Promise<void>;
+  setRemoteBind(bind: RemoteBind): Promise<void>;
+  setRemotePort(port: number): Promise<void>;
+  regenerateRemoteToken(): Promise<void>;
   /**
    * Request/response, not push: these two return their value (or reject) and
    * touch no store field, so the settings omp page owns the result. They
@@ -482,6 +497,19 @@ function dropExited(exited: Record<string, number>, tabId: string): Record<strin
 
 function alertError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err));
+}
+
+/**
+ * Remote-settings writes restart the server, which drops the socket a REMOTE client is asking
+ * over — so that client's own call never gets its reply. That is the requested outcome, not a
+ * failure: swallow it and let the reconnect banner take over (it reloads once the server answers
+ * on the new address). Every other rejection still alerts, and the desktop client — which is not
+ * on the socket — never takes this branch.
+ */
+function alertRemoteError(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message === "remote connection lost") return;
+  window.alert(message);
 }
 
 // StrictMode double-invokes effects in dev, and the preload listener API has
@@ -872,6 +900,16 @@ export const useStore = create<UiStore>()((set, get) => {
       progress: null,
       error: null,
     },
+    remote: {
+      status: "stopped",
+      enabled: false,
+      bind: "localhost",
+      port: 4677,
+      token: "",
+      urls: [],
+      webBundleMissing: false,
+      error: null,
+    },
 
     async init() {
       if (initialized) return;
@@ -898,10 +936,12 @@ export const useStore = create<UiStore>()((set, get) => {
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
       backend.onAppUpdateState((appUpdate) => set({ appUpdate }));
       backend.onOmpUpdateState((ompUpdate) => set({ ompUpdate }));
+      backend.onRemoteState((remote) => set({ remote }));
       set({
         state: await backend.getState(),
         appUpdate: await backend.getAppUpdateState(),
         ompUpdate: await backend.getOmpUpdateState(),
+        remote: await backend.getRemoteState(),
       });
       const booted = get().state;
       if (booted) syncTheme(booted);
@@ -989,6 +1029,38 @@ export const useStore = create<UiStore>()((set, get) => {
         await backend.clearDismissedOmpUpdate();
       } catch (err) {
         alertError(err);
+      }
+    },
+
+    async setRemoteEnabled(on) {
+      try {
+        await backend.setRemoteEnabled(on);
+      } catch (err) {
+        alertRemoteError(err);
+      }
+    },
+
+    async setRemoteBind(bind) {
+      try {
+        await backend.setRemoteBind(bind);
+      } catch (err) {
+        alertRemoteError(err);
+      }
+    },
+
+    async setRemotePort(port) {
+      try {
+        await backend.setRemotePort(port);
+      } catch (err) {
+        alertRemoteError(err);
+      }
+    },
+
+    async regenerateRemoteToken() {
+      try {
+        await backend.regenerateRemoteToken();
+      } catch (err) {
+        alertRemoteError(err);
       }
     },
 
@@ -1313,7 +1385,7 @@ export const useStore = create<UiStore>()((set, get) => {
     rpcCommand(tabId, cmd, opts) {
       const tab = get().rpc[tabId];
       if (!tab) return Promise.reject(new Error("rpc tab not initialized"));
-      const id = crypto.randomUUID();
+      const id = randomId();
       // Quiet commands are background sync (usage ticks, subagent roster
       // heartbeats). They never touch `busy`: each round-trip would otherwise
       // strobe the progress sweeps for a few ms, jittering the transcript.

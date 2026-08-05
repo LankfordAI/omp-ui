@@ -430,21 +430,54 @@ export function Meter({
   );
 }
 
+/**
+ * Copies `text` without the async Clipboard API, which is secure-context-only and therefore
+ * absent over `http://<lan-ip>` — the origin remote clients use (issue #37). The detached
+ * textarea + execCommand route is deprecated but universally available, and is the only thing
+ * that works there.
+ */
+function copyFallback(text: string): boolean {
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  // Off-screen rather than hidden: execCommand("copy") ignores a display:none selection.
+  el.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0";
+  document.body.append(el);
+  try {
+    el.select();
+    el.setSelectionRange(0, text.length);
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    el.remove();
+  }
+}
+
 /** Copy-to-clipboard affordance that reports success in place. */
 export function CopyButton({ text, label = "copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   const timer = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  const flash = (): void => {
+    setDone(true);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setDone(false), 1200);
+  };
   return (
     <Button
       variant="ghost"
       size="xs"
       tone={done ? "signal" : "neutral"}
       onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setDone(true);
-          window.clearTimeout(timer.current);
-          timer.current = window.setTimeout(() => setDone(false), 1200);
+        const write = navigator.clipboard?.writeText;
+        if (typeof write !== "function") {
+          if (copyFallback(text)) flash();
+          return;
+        }
+        void navigator.clipboard.writeText(text).then(flash, () => {
+          // A permission-denied write still has the synchronous route left.
+          if (copyFallback(text)) flash();
         });
       }}
     >

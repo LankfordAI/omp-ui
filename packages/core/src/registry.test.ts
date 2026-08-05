@@ -74,6 +74,25 @@ describe("Registry.load", () => {
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["tab-1"]);
     expect(fs.existsSync(file)).toBe(true); // no quarantine for element-level issues
   });
+
+  it("defaults the remote-access settings when no remote* key is present", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { defaultMode: "pty" },
+        projects: [],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.remoteEnabled).toBe(false);
+    expect(reg.remoteBind).toBe("localhost");
+    expect(reg.remotePort).toBe(4677);
+    expect(reg.remoteToken).toBe("");
+    expect(fs.existsSync(file)).toBe(true); // absent remote* keys are legal, not corrupt
+  });
 });
 
 describe("Registry persistence", () => {

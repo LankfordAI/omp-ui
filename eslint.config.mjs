@@ -13,7 +13,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/desktop/src/renderer/**"],
+    files: ["packages/desktop/src/renderer/**", "packages/desktop/src/web/**"],
     languageOptions: { globals: { ...globals.browser } },
   },
   {
@@ -21,14 +21,15 @@ export default tseslint.config(
       "packages/core/**/*.ts",
       "packages/desktop/src/main/**/*.ts",
       "packages/desktop/src/preload/**/*.ts",
+      "packages/server/**/*.ts",
       "packages/desktop/*.ts",
       "packages/desktop/scripts/**/*.mjs",
     ],
     languageOptions: { globals: { ...globals.node } },
   },
   {
-    // ADR-0002 backstop: core stays transport-agnostic, zero Electron imports.
-    files: ["packages/core/**/*.ts"],
+    // ADR-0002 backstop: core and the remote server stay transport-agnostic, zero Electron imports.
+    files: ["packages/core/**/*.ts", "packages/server/**/*.ts"],
     rules: {
       "no-restricted-imports": ["error", { patterns: ["electron", "node:electron"] }],
     },

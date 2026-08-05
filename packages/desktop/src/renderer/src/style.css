@@ -1,4 +1,10 @@
-@import "tailwindcss";
+/*
+ * `source("../..")` pins content detection to packages/desktop/src regardless of which build
+ * imports this file. Tailwind v4's automatic base is the build's own root, so the web build
+ * (root: src/web) would otherwise scan only src/web and emit none of the renderer's utilities.
+ * Relative to THIS stylesheet (src/renderer/src/style.css), "../.." is src.
+ */
+@import "tailwindcss" source("../..");
 
 @import "@fontsource-variable/bricolage-grotesque/index.css";
 @import "@fontsource-variable/instrument-sans/index.css";

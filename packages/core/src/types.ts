@@ -315,6 +315,43 @@ export interface DirBrowseResult {
 }
 
 /**
+ * One channel's implementation. Deliberately `never[]`: each handler declares its own parameter
+ * types, and the two dispatchers (Electron IPC, the remote WebSocket) cast once at the call site
+ * rather than making every handler body validate `unknown` args. See MainBackend.handlers().
+ */
+export type ChannelHandler = (...args: never[]) => unknown;
+
+/** The two halves of the channel table: `request` expects a reply, `notify` never replies. */
+export interface ChannelTable {
+  request: Readonly<Record<string, ChannelHandler>>;
+  notify: Readonly<Record<string, ChannelHandler>>;
+}
+
+/** Which interface the embedded remote server binds to. */
+export type RemoteBind = "localhost" | "lan";
+
+export type RemoteStatus = "stopped" | "starting" | "listening" | "error";
+
+/**
+ * The embedded remote-access server's settings and live status (issue #37). Pushed like
+ * AppUpdateState/OmpUpdateState rather than folded into BackendState: the token has no business
+ * riding a broadcast every rpc tab re-renders on.
+ */
+export interface RemoteState {
+  status: RemoteStatus;
+  enabled: boolean;
+  bind: RemoteBind;
+  port: number;
+  /** The bearer token in the clear — the settings page reveals, copies, and QRs it. */
+  token: string;
+  /** Pairing URLs with the token in the query, primary first. Empty unless listening. */
+  urls: string[];
+  /** True when out/web is absent, so the server answers 503 with a build hint. */
+  webBundleMissing: boolean;
+  error: string | null;
+}
+
+/**
  * The renderer↔backend seam (ADR-0002). Changes only by extension — a future
  * packages/server reproduces exactly this surface over WebSocket.
  */
@@ -496,4 +533,13 @@ export interface OmpBackend {
    */
   dismissAppUpdate(version: string, remember: boolean): Promise<void>;
   onAppUpdateState(cb: (state: AppUpdateState) => void): void;
+  /** Embedded remote-access server settings + live status (issue #37). */
+  getRemoteState(): Promise<RemoteState>;
+  setRemoteEnabled(on: boolean): Promise<void>;
+  setRemoteBind(bind: RemoteBind): Promise<void>;
+  /** Rejects when the port is not a whole number in 1024–65535. */
+  setRemotePort(port: number): Promise<void>;
+  /** Mints a fresh token and restarts the server, dropping every connected client. */
+  regenerateRemoteToken(): Promise<void>;
+  onRemoteState(cb: (state: RemoteState) => void): void;
 }

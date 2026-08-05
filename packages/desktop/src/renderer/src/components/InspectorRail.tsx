@@ -32,7 +32,9 @@ type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
  * but it must also survive a tab switch and back, which component state cannot.
  */
 const selectedTab = new Map<string, RailTab>();
-let collapsedRail = false;
+// A phone opens with the icon strip; the typeof guard is required because this module is imported
+// by tests running in vitest's node environment.
+let collapsedRail = typeof window !== "undefined" && window.innerWidth < 900;
 
 /* ------------------------------------------------------------------- icons */
 

@@ -44,6 +44,7 @@ import {
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
   type BackendState,
+  type ChannelTable,
   type ImageAttachment,
   type LiveState,
   type McpSetEnabledRequest,
@@ -51,12 +52,15 @@ import {
   type OwnedSessionRecord,
   type ProjectGroup,
   type PtyHandle,
+  type RemoteBind,
   type SessionMode,
   type SessionSummary,
   type SpawnRequest,
 } from "@omp-ui/core";
+import { mintRemoteToken } from "@omp-ui/server";
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
+import { RemoteServerManager } from "./remote-server";
 import { CH } from "./channels";
 
 interface LiveEntry {
@@ -111,6 +115,7 @@ export class MainBackend {
   private readonly spawning = new Map<string, Promise<void>>();
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
+  private readonly remote: RemoteServerManager;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -120,9 +125,17 @@ export class MainBackend {
       appUpdateEnabled?: boolean;
       appVersion?: string;
       appUpdateEnv?: NodeJS.ProcessEnv;
+      /** Directory holding the built browser bundle for remote clients (out/web). */
+      webRoot?: string;
     } = {},
   ) {
     this.registry = Registry.load(registryFile);
+    // The desktop window is one event mirror among several — the remote server adds its own.
+    // Guarded here rather than in send(): on/after quit the webContents is gone.
+    this.addSink((channel, args) => {
+      if (this.win.isDestroyed() || this.win.webContents.isDestroyed()) return;
+      this.win.webContents.send(channel, ...args);
+    });
     this.appUpdater = new AppUpdater({
       win,
       enabled: opts.appUpdateEnabled ?? app.isPackaged,
@@ -141,6 +154,21 @@ export class MainBackend {
       onApplied: () => this.refreshOmpPath(),
       send: (ch, s) => this.send(ch, s),
       channel: CH.ompUpdateState,
+    });
+    // Mint at construction so the settings page always has a token to reveal, even before the
+    // server is first enabled.
+    if (this.registry.remoteToken === "") this.registry.setRemoteToken(mintRemoteToken());
+    this.remote = new RemoteServerManager({
+      host: { handlers: () => this.handlers(), addSink: (s) => this.addSink(s) },
+      webRoot: opts.webRoot ?? "",
+      getSettings: () => ({
+        enabled: this.registry.remoteEnabled,
+        bind: this.registry.remoteBind,
+        port: this.registry.remotePort,
+        token: this.registry.remoteToken,
+      }),
+      setToken: (token) => this.registry.setRemoteToken(token),
+      send: (state) => this.send(CH.remoteState, state),
     });
   }
 
@@ -166,165 +194,189 @@ export class MainBackend {
     return getArchiveRoot(this.sessionsRoot);
   }
 
-  /** On/after quit the webContents is gone — late events must not throw. */
+  private readonly sinks = new Set<(channel: string, args: unknown[]) => void>();
+
+  /** Registers an extra event mirror (the remote server). Returns its unsubscribe. */
+  addSink(sink: (channel: string, args: unknown[]) => void): () => void {
+    this.sinks.add(sink);
+    return () => this.sinks.delete(sink);
+  }
+
   private send(channel: string, ...args: unknown[]): void {
-    if (this.win.isDestroyed() || this.win.webContents.isDestroyed()) return;
-    this.win.webContents.send(channel, ...args);
+    for (const sink of this.sinks) sink(channel, args);
+  }
+
+  /**
+   * Every channel's implementation, transport-agnostic: Electron IPC binds these below and the
+   * remote WebSocket server dispatches the same table (issue #37).
+   */
+  handlers(): ChannelTable {
+    return {
+      request: {
+        [CH.stateGet]: () => this.buildState(),
+        [CH.projectAdd]: async (raw: string) => {
+          const resolved = await resolveProjectPath(raw);
+          const record = this.registry.addProject(resolved);
+          await this.broadcast();
+          return record;
+        },
+        [CH.dirBrowse]: (partialPath: string) => browseDirectories(partialPath),
+        [CH.projectRemove]: async (projectPath: string) => {
+          for (const entry of this.live.values()) {
+            if (entry.record.projectCwd === projectPath) {
+              throw new Error("project has live sessions — terminate them first");
+            }
+          }
+          for (const s of this.registry.sessions.filter((s) => s.projectCwd === projectPath)) {
+            this.stopWatcher(s.tabId);
+          }
+          this.registry.removeProject(projectPath);
+          await this.broadcast();
+        },
+        [CH.settingsSetDefaultMode]: async (mode: SessionMode) => {
+          this.registry.setDefaultMode(mode);
+          await this.broadcast();
+        },
+        [CH.settingsSetSkipDeleteConfirmation]: async (skip: boolean) => {
+          this.registry.setSkipDeleteConfirmation(skip);
+          await this.broadcast();
+        },
+        [CH.settingsSetThemeId]: async (id: string) => {
+          this.registry.setThemeId(id);
+          await this.broadcast();
+        },
+        [CH.settingsSetAppUpdateCheckOnLaunch]: async (on: boolean) => {
+          this.registry.setAppUpdateCheckOnLaunch(on);
+          await this.broadcast();
+        },
+        [CH.settingsSetOmpUpdateCheckOnLaunch]: async (on: boolean) => {
+          this.registry.setOmpUpdateCheckOnLaunch(on);
+          await this.broadcast();
+        },
+        // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
+        // re-arming a dismissed card from Settings needs its own pair.
+        [CH.settingsClearDismissedAppUpdate]: async () => {
+          this.registry.setDismissedAppUpdateVersion(null);
+          await this.broadcast();
+        },
+        [CH.settingsClearDismissedOmpUpdate]: async () => {
+          this.registry.setDismissedOmpUpdateVersion(null);
+          await this.broadcast();
+        },
+        [CH.favoritesToggle]: async (key: string) => {
+          this.registry.toggleFavorite(key);
+          await this.broadcast();
+        },
+        [CH.sessionSetModel]: (tabId: string, model: string | null, thinkingLevel: string | null) => {
+          this.registry.setSessionModel(tabId, model, thinkingLevel);
+          void this.broadcast();
+        },
+        [CH.sessionSpawn]: (req: SpawnRequest) => this.spawn(req),
+        [CH.sessionTerminate]: (tabId: string) => this.terminate(tabId),
+        [CH.sessionSwitchMode]: (tabId: string, mode: SessionMode) => this.switchMode(tabId, mode),
+        [CH.sessionDelete]: (tabId: string) => this.deleteSession(tabId),
+        [CH.sessionSetAdvisor]: (tabId: string, advisor: boolean, advisorModel: string | null) =>
+          this.setSessionAdvisor(tabId, advisor, advisorModel),
+        [CH.advisorDefaults]: (projectCwd: string): AdvisorDefaults =>
+          this.advisorDefaults(projectCwd),
+        [CH.titleGenerate]: (projectCwd: string, prompt: string) =>
+          this.generateTitle(projectCwd, prompt),
+        [CH.planRead]: (tabId: string, absPath: string) => this.readPlanFile(tabId, absPath),
+        [CH.branchDiff]: (projectCwd: string) => readBranchDiff(projectCwd),
+        // Stateless core calls: a checkout touches no registry/BackendState field,
+        // so these handlers never broadcast().
+        [CH.branchList]: (projectCwd: string) => listBranches(projectCwd),
+        [CH.branchCheckout]: (projectCwd: string, name: string, opts?: { create?: boolean }) =>
+          checkoutBranch(projectCwd, name, opts),
+        [CH.branchNameSuggest]: (projectCwd: string, planContext: string) =>
+          this.suggestBranchName(projectCwd, planContext),
+        [CH.ompSettingsRead]: (projectCwd: string | null) =>
+          readOmpSettings({ ompPath: this.ompPath, projectCwd }),
+        [CH.ompSettingsWrite]: (key: string, value: OmpSettingValue) =>
+          writeOmpSetting({ ompPath: this.ompPath, key, value }),
+        [CH.windowSetChrome]: (background: string, symbol: string) => {
+          if (this.win.isDestroyed()) return;
+          try {
+            this.win.setTitleBarOverlay({ color: background, symbolColor: symbol, height: 36 });
+          } catch {
+            // No overlay on this platform — a theme change must not surface a platform error.
+          }
+        },
+        [CH.mcpList]: (projectCwd: string) => resolveMcpServers(projectCwd),
+        [CH.mcpSetEnabled]: (req: McpSetEnabledRequest) => setMcpServerEnabled(req),
+        [CH.sessionRestart]: (tabId: string) => this.restartSession(tabId),
+        [CH.projectFilesList]: (projectCwd: string) => listProjectFiles(projectCwd),
+        [CH.fileMentionsResolve]: (projectCwd: string, message: string) =>
+          resolveFileMentions(projectCwd, message),
+        [CH.ptyPasteImage]: (tabId: string, image: ImageAttachment) =>
+          this.ptyPasteImage(tabId, image),
+        [CH.shellSpawn]: (tabId: string, cwd: string, cols: number, rows: number) =>
+          this.launchShell(tabId, cwd, cols, rows),
+        [CH.ompUpdateGetState]: () => this.ompUpdater.state,
+        [CH.ompUpdateCheck]: () => this.ompUpdater.checkNow(true),
+        [CH.ompUpdateDownload]: () => this.ompUpdater.download(),
+        [CH.ompUpdateDismiss]: (version: string, remember: boolean) =>
+          this.ompUpdater.dismiss(version, remember),
+        [CH.appUpdateGetState]: () => this.appUpdater.state,
+        [CH.appUpdateCheck]: () => this.appUpdater.checkNow(true),
+        [CH.appUpdateDownload]: () => this.appUpdater.download(),
+        [CH.appUpdateOpenNotes]: () => this.appUpdater.openReleaseNotes(),
+        [CH.appUpdateShowDownload]: () => this.appUpdater.showDownload(),
+        [CH.appUpdateRestart]: () => this.appUpdater.restart(),
+        [CH.appUpdateDismiss]: (version: string, remember: boolean) =>
+          this.appUpdater.dismiss(version, remember),
+        [CH.remoteGetState]: () => this.remote.state,
+        [CH.remoteSetEnabled]: async (on: boolean) => {
+          this.registry.setRemoteEnabled(on);
+          await this.remote.apply();
+        },
+        [CH.remoteSetBind]: async (bind: RemoteBind) => {
+          this.registry.setRemoteBind(bind);
+          await this.remote.apply();
+        },
+        [CH.remoteSetPort]: async (port: number) => {
+          if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+            throw new Error("port must be a whole number between 1024 and 65535");
+          }
+          this.registry.setRemotePort(port);
+          await this.remote.apply();
+        },
+        [CH.remoteRegenerateToken]: async () => {
+          this.registry.setRemoteToken(mintRemoteToken());
+          await this.remote.restart();
+        },
+      },
+      notify: {
+        [CH.ptyWrite]: (tabId: string, data: string) => {
+          this.live.get(tabId)?.pty?.write(data);
+        },
+        [CH.ptyResize]: (tabId: string, cols: number, rows: number) => {
+          this.live.get(tabId)?.pty?.resize(cols, rows);
+        },
+        [CH.shellKill]: (tabId: string) => this.killShell(tabId),
+        [CH.shellWrite]: (tabId: string, data: string) => {
+          this.shells.get(tabId)?.write(data);
+        },
+        [CH.shellResize]: (tabId: string, cols: number, rows: number) => {
+          this.shells.get(tabId)?.resize(cols, rows);
+        },
+        [CH.rpcSend]: (tabId: string, cmd: object) => {
+          this.live.get(tabId)?.rpc?.send(cmd);
+        },
+      },
+    };
   }
 
   registerIpc(): void {
-    ipcMain.handle(CH.stateGet, () => this.buildState());
-    ipcMain.handle(CH.projectAdd, async (_e, raw: string) => {
-      const resolved = await resolveProjectPath(raw);
-      const record = this.registry.addProject(resolved);
-      await this.broadcast();
-      return record;
-    });
-    ipcMain.handle(CH.dirBrowse, (_e, partialPath: string) => browseDirectories(partialPath));
-    ipcMain.handle(CH.projectRemove, async (_e, projectPath: string) => {
-      for (const entry of this.live.values()) {
-        if (entry.record.projectCwd === projectPath) {
-          throw new Error("project has live sessions — terminate them first");
-        }
-      }
-      for (const s of this.registry.sessions.filter((s) => s.projectCwd === projectPath)) {
-        this.stopWatcher(s.tabId);
-      }
-      this.registry.removeProject(projectPath);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.settingsSetDefaultMode, async (_e, mode: SessionMode) => {
-      this.registry.setDefaultMode(mode);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.settingsSetSkipDeleteConfirmation, async (_e, skip: boolean) => {
-      this.registry.setSkipDeleteConfirmation(skip);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.settingsSetThemeId, async (_e, id: string) => {
-      this.registry.setThemeId(id);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.settingsSetAppUpdateCheckOnLaunch, async (_e, on: boolean) => {
-      this.registry.setAppUpdateCheckOnLaunch(on);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.settingsSetOmpUpdateCheckOnLaunch, async (_e, on: boolean) => {
-      this.registry.setOmpUpdateCheckOnLaunch(on);
-      await this.broadcast();
-    });
-    // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
-    // re-arming a dismissed card from Settings needs its own pair.
-    ipcMain.handle(CH.settingsClearDismissedAppUpdate, async () => {
-      this.registry.setDismissedAppUpdateVersion(null);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.settingsClearDismissedOmpUpdate, async () => {
-      this.registry.setDismissedOmpUpdateVersion(null);
-      await this.broadcast();
-    });
-    ipcMain.handle(CH.favoritesToggle, async (_e, key: string) => {
-      this.registry.toggleFavorite(key);
-      await this.broadcast();
-    });
-    ipcMain.handle(
-      CH.sessionSetModel,
-      (_e, tabId: string, model: string | null, thinkingLevel: string | null) => {
-        this.registry.setSessionModel(tabId, model, thinkingLevel);
-        void this.broadcast();
-      },
-    );
-    ipcMain.handle(CH.sessionSpawn, (_e, req: SpawnRequest) => this.spawn(req));
-    ipcMain.handle(CH.sessionTerminate, (_e, tabId: string) => this.terminate(tabId));
-    ipcMain.handle(CH.sessionSwitchMode, (_e, tabId: string, mode: SessionMode) =>
-      this.switchMode(tabId, mode),
-    );
-    ipcMain.handle(CH.sessionDelete, (_e, tabId: string) => this.deleteSession(tabId));
-    ipcMain.handle(
-      CH.sessionSetAdvisor,
-      (_e, tabId: string, advisor: boolean, advisorModel: string | null) =>
-        this.setSessionAdvisor(tabId, advisor, advisorModel),
-    );
-    ipcMain.handle(
-      CH.advisorDefaults,
-      (_e, projectCwd: string): AdvisorDefaults => this.advisorDefaults(projectCwd),
-    );
-    ipcMain.handle(CH.titleGenerate, (_e, projectCwd: string, prompt: string) =>
-      this.generateTitle(projectCwd, prompt),
-    );
-    ipcMain.handle(CH.planRead, (_e, tabId: string, absPath: string) =>
-      this.readPlanFile(tabId, absPath),
-    );
-    ipcMain.handle(CH.branchDiff, (_e, projectCwd: string) => readBranchDiff(projectCwd));
-    // Stateless core calls: a checkout touches no registry/BackendState field,
-    // so these handlers never broadcast().
-    ipcMain.handle(CH.branchList, (_e, projectCwd: string) => listBranches(projectCwd));
-    ipcMain.handle(
-      CH.branchCheckout,
-      (_e, projectCwd: string, name: string, opts?: { create?: boolean }) =>
-        checkoutBranch(projectCwd, name, opts),
-    );
-    ipcMain.handle(CH.branchNameSuggest, (_e, projectCwd: string, planContext: string) =>
-      this.suggestBranchName(projectCwd, planContext),
-    );
-    ipcMain.handle(CH.ompSettingsRead, (_e, projectCwd: string | null) =>
-      readOmpSettings({ ompPath: this.ompPath, projectCwd }),
-    );
-    ipcMain.handle(CH.ompSettingsWrite, (_e, key: string, value: OmpSettingValue) =>
-      writeOmpSetting({ ompPath: this.ompPath, key, value }),
-    );
-    ipcMain.handle(CH.windowSetChrome, (_e, background: string, symbol: string) => {
-      if (this.win.isDestroyed()) return;
-      try {
-        this.win.setTitleBarOverlay({ color: background, symbolColor: symbol, height: 36 });
-      } catch {
-        // No overlay on this platform — a theme change must not surface a platform error.
-      }
-    });
-    ipcMain.handle(CH.mcpList, (_e, projectCwd: string) => resolveMcpServers(projectCwd));
-    ipcMain.handle(CH.mcpSetEnabled, (_e, req: McpSetEnabledRequest) => setMcpServerEnabled(req));
-    ipcMain.handle(CH.sessionRestart, (_e, tabId: string) => this.restartSession(tabId));
-    ipcMain.handle(CH.projectFilesList, (_e, projectCwd: string) => listProjectFiles(projectCwd));
-    ipcMain.handle(CH.fileMentionsResolve, (_e, projectCwd: string, message: string) =>
-      resolveFileMentions(projectCwd, message),
-    );
-    ipcMain.handle(CH.ptyPasteImage, (_e, tabId: string, image: ImageAttachment) =>
-      this.ptyPasteImage(tabId, image),
-    );
-    ipcMain.on(CH.ptyWrite, (_e, tabId: string, data: string) => {
-      this.live.get(tabId)?.pty?.write(data);
-    });
-    ipcMain.on(CH.ptyResize, (_e, tabId: string, cols: number, rows: number) => {
-      this.live.get(tabId)?.pty?.resize(cols, rows);
-    });
-    ipcMain.handle(CH.shellSpawn, (_e, tabId: string, cwd: string, cols: number, rows: number) =>
-      this.launchShell(tabId, cwd, cols, rows),
-    );
-    ipcMain.on(CH.shellKill, (_e, tabId: string) => this.killShell(tabId));
-    ipcMain.on(CH.shellWrite, (_e, tabId: string, data: string) => {
-      this.shells.get(tabId)?.write(data);
-    });
-    ipcMain.on(CH.shellResize, (_e, tabId: string, cols: number, rows: number) => {
-      this.shells.get(tabId)?.resize(cols, rows);
-    });
-    ipcMain.on(CH.rpcSend, (_e, tabId: string, cmd: object) => {
-      this.live.get(tabId)?.rpc?.send(cmd);
-    });
-    ipcMain.handle(CH.ompUpdateGetState, () => this.ompUpdater.state);
-    ipcMain.handle(CH.ompUpdateCheck, () => this.ompUpdater.checkNow(true));
-    ipcMain.handle(CH.ompUpdateDownload, () => this.ompUpdater.download());
-    ipcMain.handle(CH.ompUpdateDismiss, (_e, version: string, remember: boolean) =>
-      this.ompUpdater.dismiss(version, remember),
-    );
-    ipcMain.handle(CH.appUpdateGetState, () => this.appUpdater.state);
-    ipcMain.handle(CH.appUpdateCheck, () => this.appUpdater.checkNow(true));
-    ipcMain.handle(CH.appUpdateDownload, () => this.appUpdater.download());
-    ipcMain.handle(CH.appUpdateOpenNotes, () => this.appUpdater.openReleaseNotes());
-    ipcMain.handle(CH.appUpdateShowDownload, () => this.appUpdater.showDownload());
-    ipcMain.handle(CH.appUpdateRestart, () => this.appUpdater.restart());
-    ipcMain.handle(CH.appUpdateDismiss, (_e, version: string, remember: boolean) =>
-      this.appUpdater.dismiss(version, remember),
-    );
+    const { request, notify } = this.handlers();
+    // The two casts in this method are the only ones for the channel table: ChannelHandler is
+    // deliberately `never[]`, so each dispatcher widens once here instead of every body validating.
+    for (const [ch, fn] of Object.entries(request)) {
+      ipcMain.handle(ch, (_e, ...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args));
+    }
+    for (const [ch, fn] of Object.entries(notify)) {
+      ipcMain.on(ch, (_e, ...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args));
+    }
   }
 
   /**
@@ -351,6 +403,11 @@ export class MainBackend {
     await this.broadcast();
   }
 
+  /** Brings the embedded remote server in line with persisted settings. Called once at launch. */
+  startRemote(): Promise<void> {
+    return this.remote.apply();
+  }
+
   killAll(): void {
     for (const entry of this.live.values()) {
       entry.pty?.kill();
@@ -359,6 +416,7 @@ export class MainBackend {
     this.live.clear();
     for (const handle of this.shells.values()) handle.kill();
     this.shells.clear();
+    void this.remote.stop();
   }
 
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
@@ -986,8 +1044,8 @@ export class MainBackend {
     return { ...record, title: title?.trim() || "New session", status, live };
   }
 
+  /** Fans state to every sink; the window sink self-guards, so remote clients survive a closed window. */
   private async broadcast(): Promise<void> {
-    if (this.win.isDestroyed() || this.win.webContents.isDestroyed()) return;
     const state = await this.buildState();
     this.send(CH.stateChanged, state);
   }

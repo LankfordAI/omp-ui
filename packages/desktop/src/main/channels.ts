@@ -60,4 +60,10 @@ export const CH = {
   appUpdateRestart: "app:updateRestart",
   appUpdateDismiss: "app:updateDismiss",
   appUpdateState: "app:updateState",
+  remoteGetState: "remote:getState",
+  remoteSetEnabled: "remote:setEnabled",
+  remoteSetBind: "remote:setBind",
+  remoteSetPort: "remote:setPort",
+  remoteRegenerateToken: "remote:regenerateToken",
+  remoteState: "remote:state",
 } as const;

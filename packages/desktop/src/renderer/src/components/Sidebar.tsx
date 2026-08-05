@@ -312,7 +312,8 @@ export function Sidebar() {
   const openSettings = useStore((st) => st.openSettings);
   const newSession = useStore((st) => st.newSession);
 
-  const [collapsed, setCollapsed] = useState(false);
+  // A phone opens with the icon strip and a full-width transcript; a desktop window is unchanged.
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 900);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
   const terminalMenuRef = useRef<HTMLDivElement>(null);

@@ -156,8 +156,9 @@ export default function App() {
   const visibleTabs = tabs.filter((t) => !t.hidden);
 
   return (
-    // `relative` anchors the CommandPalette's `absolute inset-0` scrim.
-    <div className="relative flex h-screen flex-col overflow-hidden bg-void font-sans text-ink">
+    // `relative` anchors the CommandPalette's `absolute inset-0` scrim. h-dvh, not h-screen:
+    // 100vh overflows behind a mobile browser's URL bar, and the two are identical in Electron.
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-void font-sans text-ink">
       <TitleBar />
       {/* border-t = the title-bar hairline; see TitleBar for why it isn't border-b there. */}
       <div className="flex min-h-0 flex-1 border-t border-line">

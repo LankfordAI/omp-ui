@@ -85,6 +85,12 @@ const api: OmpBackend = {
     ipcRenderer.invoke(CH.appUpdateDismiss, version, remember),
   onAppUpdateState: (cb) =>
     ipcRenderer.on(CH.appUpdateState, (_e, state) => cb(state)),
+  getRemoteState: () => ipcRenderer.invoke(CH.remoteGetState),
+  setRemoteEnabled: (on) => ipcRenderer.invoke(CH.remoteSetEnabled, on),
+  setRemoteBind: (bind) => ipcRenderer.invoke(CH.remoteSetBind, bind),
+  setRemotePort: (port) => ipcRenderer.invoke(CH.remoteSetPort, port),
+  regenerateRemoteToken: () => ipcRenderer.invoke(CH.remoteRegenerateToken),
+  onRemoteState: (cb) => ipcRenderer.on(CH.remoteState, (_e, state) => cb(state)),
 };
 
 contextBridge.exposeInMainWorld("ompBackend", api);

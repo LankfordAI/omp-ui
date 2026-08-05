@@ -117,10 +117,14 @@ if (!app.requestSingleInstanceLock()) {
         process.env.OMP_UI_APP_UPDATE_FORMAT === "appimage"
           ? { APPIMAGE: "/dev/omp-ui.AppImage" }
           : undefined,
+      // __dirname is out/main in dev and packaged alike, so out/web resolves in both; inside
+      // app.asar Electron's patched fs reads it normally.
+      webRoot: join(__dirname, "../web"),
     });
     backend = be;
     be.registerIpc();
     void be.hydrateAll();
+    void be.startRemote();
 
     win.on("close", (e) => {
       if (!confirmQuitIfLive()) e.preventDefault();

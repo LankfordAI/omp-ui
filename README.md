@@ -84,16 +84,38 @@ packages/
 │              # session scanner. Zero Electron imports, transport-agnostic.
 ├── desktop/   # Electron shell: main process, preload bridge, renderer.
 │              # Wires packages/core to the renderer over IPC.
-└── server/    # FUTURE — thin WebSocket/HTTP wrapper around packages/core
-               # for remote browser access. See below.
+└── server/    # Node HTTP + WebSocket wrapper around packages/core: serves the
+               # renderer bundle to a browser and implements OmpBackend over WS.
 ```
 
-## Remote access (future goal)
+## Remote access
 
-Accessing this UI from a browser on another machine is **not planned for now**,
-but it is a standing design constraint baked in from day one: all OMP-facing
-logic lives in a transport-agnostic `packages/core`, and the renderer talks
-only to a typed `OmpBackend` interface (Electron IPC today, WebSocket later).
+**Settings → Remote access** turns on an embedded HTTP + WebSocket server that
+serves the same renderer to a browser and mirrors the one live `MainBackend` —
+remote clients are extra views of the same sessions, not a second owner. It is
+**off by default**, and a connected client can do everything the local user can.
+
+- **Bind address.** `localhost` (default) listens on `127.0.0.1` only. `local
+  network` listens on `0.0.0.0` so a phone or second machine can reach it — an
+  explicit, warned choice, over plain HTTP with no encryption.
+- **Access token.** A 32-byte bearer token authenticates every request and the
+  WebSocket upgrade. The page reveals, copies, and QR-codes the pairing URL;
+  regenerating the token disconnects every connected client.
+- **Port.** Default `4677`; any whole number in 1024–65535.
+- **Build requirement.** The browser bundle is a separate Vite build. Run
+  `npm run build:web --workspace @omp-ui/desktop` (it is part of `npm run
+  build`); without it the server answers `503` with that hint and the settings
+  page says the bundle is missing.
+
+Because the server lives inside the Electron main process, there is no remote
+access while the desktop app is closed — the point is controlling *this app's*
+live sessions. Installability and offline support are secure-context-only, so a
+`http://<lan-ip>` origin gets a responsive web app but no install prompt until
+you front it with your own HTTPS.
+
+The seam this rides on is a standing design constraint: all OMP-facing logic
+lives in a transport-agnostic `packages/core`, and the renderer talks only to a
+typed `OmpBackend` interface (Electron IPC locally, WebSocket remotely).
 Rationale and consequences: [ADR-0002](docs/adr/0002-transport-agnostic-core.md).
 
 ## Distribution

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { OwnedSessionRecord, ProjectRecord, SessionMode } from "./types";
+import type { OwnedSessionRecord, ProjectRecord, RemoteBind, SessionMode } from "./types";
 
 interface RegistryData {
   schemaVersion: 1;
@@ -18,6 +18,13 @@ interface RegistryData {
     appUpdateCheckOnLaunch: boolean;
     /** Check for a newer omp binary at launch. */
     ompUpdateCheckOnLaunch: boolean;
+    /** Embedded remote-access server: off by default (issue #37). */
+    remoteEnabled: boolean;
+    /** "localhost" binds 127.0.0.1; "lan" binds 0.0.0.0 and is an explicit, warned choice. */
+    remoteBind: RemoteBind;
+    remotePort: number;
+    /** Bearer token; "" until first minted. */
+    remoteToken: string;
   };
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
@@ -37,6 +44,10 @@ function emptyRegistry(): RegistryData {
       themeId: "graphite",
       appUpdateCheckOnLaunch: true,
       ompUpdateCheckOnLaunch: true,
+      remoteEnabled: false,
+      remoteBind: "localhost",
+      remotePort: 4677,
+      remoteToken: "",
     },
     projects: [],
     sessions: [],
@@ -188,6 +199,30 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     typeof settingsObj.ompUpdateCheckOnLaunch === "boolean"
       ? settingsObj.ompUpdateCheckOnLaunch
       : true;
+  const rawRemoteEnabled =
+    settingsObj !== undefined &&
+    "remoteEnabled" in settingsObj &&
+    typeof settingsObj.remoteEnabled === "boolean"
+      ? settingsObj.remoteEnabled
+      : false;
+  const rawRemoteBind: RemoteBind =
+    settingsObj !== undefined && "remoteBind" in settingsObj && settingsObj.remoteBind === "lan"
+      ? "lan"
+      : "localhost";
+  const rawRemotePort =
+    settingsObj !== undefined &&
+    "remotePort" in settingsObj &&
+    Number.isInteger(settingsObj.remotePort) &&
+    (settingsObj.remotePort as number) >= 1024 &&
+    (settingsObj.remotePort as number) <= 65535
+      ? (settingsObj.remotePort as number)
+      : 4677;
+  const rawRemoteToken =
+    settingsObj !== undefined &&
+    "remoteToken" in settingsObj &&
+    typeof settingsObj.remoteToken === "string"
+      ? settingsObj.remoteToken
+      : "";
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
     modelFavorites:
@@ -198,6 +233,10 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     themeId: rawThemeId,
     appUpdateCheckOnLaunch: rawAppUpdateCheckOnLaunch,
     ompUpdateCheckOnLaunch: rawOmpUpdateCheckOnLaunch,
+    remoteEnabled: rawRemoteEnabled,
+    remoteBind: rawRemoteBind,
+    remotePort: rawRemotePort,
+    remoteToken: rawRemoteToken,
   };
   return { schemaVersion: 1, settings, projects, sessions };
 }
@@ -395,6 +434,46 @@ export class Registry {
   setOmpUpdateCheckOnLaunch(on: boolean): void {
     if (this.#data.settings.ompUpdateCheckOnLaunch === on) return;
     this.#data.settings.ompUpdateCheckOnLaunch = on;
+    this.#save();
+  }
+
+  get remoteEnabled(): boolean {
+    return this.#data.settings.remoteEnabled;
+  }
+
+  setRemoteEnabled(on: boolean): void {
+    if (this.#data.settings.remoteEnabled === on) return;
+    this.#data.settings.remoteEnabled = on;
+    this.#save();
+  }
+
+  get remoteBind(): RemoteBind {
+    return this.#data.settings.remoteBind;
+  }
+
+  setRemoteBind(bind: RemoteBind): void {
+    if (this.#data.settings.remoteBind === bind) return;
+    this.#data.settings.remoteBind = bind;
+    this.#save();
+  }
+
+  get remotePort(): number {
+    return this.#data.settings.remotePort;
+  }
+
+  setRemotePort(port: number): void {
+    if (this.#data.settings.remotePort === port) return;
+    this.#data.settings.remotePort = port;
+    this.#save();
+  }
+
+  get remoteToken(): string {
+    return this.#data.settings.remoteToken;
+  }
+
+  setRemoteToken(token: string): void {
+    if (this.#data.settings.remoteToken === token) return;
+    this.#data.settings.remoteToken = token;
     this.#save();
   }
 

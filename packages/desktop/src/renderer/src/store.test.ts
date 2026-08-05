@@ -6,6 +6,7 @@ import type {
   LiveState,
   OmpSettingsSnapshot,
   OmpUpdateState,
+  RemoteState,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import type { RpcTabState } from "./store";
@@ -43,6 +44,17 @@ const idleOmpUpdate: OmpUpdateState = {
   installedVersion: null,
   latestVersion: null,
   progress: null,
+  error: null,
+};
+
+const idleRemoteState: RemoteState = {
+  status: "stopped",
+  enabled: false,
+  bind: "localhost",
+  port: 4677,
+  token: "t",
+  urls: [],
+  webBundleMissing: false,
   error: null,
 };
 
@@ -109,6 +121,12 @@ const mockBackend = {
   setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
   writeOmpSetting: vi.fn(async () => {}),
+  getRemoteState: vi.fn(async () => idleRemoteState),
+  setRemoteEnabled: vi.fn(async () => {}),
+  setRemoteBind: vi.fn(async () => {}),
+  setRemotePort: vi.fn(async () => {}),
+  regenerateRemoteToken: vi.fn(async () => {}),
+  onRemoteState: vi.fn(),
 };
 
 // Dialog text is an assertable part of a destructive action's contract, so the
@@ -1879,6 +1897,13 @@ describe("console-drawer shell routing (issue #42)", () => {
     ) => void;
     expect(dataCb).toBeDefined();
     expect(exitCb).toBeDefined();
+    // Same latch, same test: onRemoteState is registered and the initial getRemoteState()
+    // seeds the store, so the settings page has a token to show before any transition.
+    const remoteCb = mockBackend.onRemoteState.mock.calls[0]?.[0] as (s: RemoteState) => void;
+    expect(remoteCb).toBeDefined();
+    expect(useStore.getState().remote).toEqual(idleRemoteState);
+    remoteCb({ ...idleRemoteState, status: "listening", enabled: true });
+    expect(useStore.getState().remote.status).toBe("listening");
 
     const writer = vi.fn();
     const unregister = registerShellWriter(TAB, writer);
@@ -2052,6 +2077,51 @@ describe("settings", () => {
     await expect(useStore.getState().writeOmpSetting("advisor.enabled", true)).rejects.toThrow(
       "unknown setting",
     );
+    expect(alerts).toEqual([]);
+  });
+});
+
+describe("remote access settings", () => {
+  it("renders remote state only from the push, never an optimistic set", () => {
+    // The pushed RemoteState IS the rendered one: main/remote-server.ts publishes a full state
+    // per transition, so the store never patches a field itself.
+    const push = (s: RemoteState): void => useStore.setState({ remote: s });
+    push({ ...idleRemoteState, status: "starting", enabled: true });
+    expect(useStore.getState().remote.status).toBe("starting");
+    push({
+      ...idleRemoteState,
+      status: "listening",
+      enabled: true,
+      urls: ["http://127.0.0.1:4677/?t=t"],
+    });
+    expect(useStore.getState().remote.urls).toEqual(["http://127.0.0.1:4677/?t=t"]);
+
+    // An action's resolution changes nothing on its own — only the next push does.
+    void useStore.getState().setRemoteEnabled(false);
+    expect(useStore.getState().remote.enabled).toBe(true);
+  });
+
+  it("alerts a real remote-settings failure", async () => {
+    mockBackend.setRemotePort.mockRejectedValueOnce(
+      new Error("port must be a whole number between 1024 and 65535"),
+    );
+    await useStore.getState().setRemotePort(80);
+    expect(alerts).toEqual(["port must be a whole number between 1024 and 65535"]);
+  });
+
+  it("swallows the self-inflicted disconnect a remote client causes", async () => {
+    // A REMOTE client changing bind/port/token restarts the server it is asking over, so its own
+    // call never gets a reply. That is the requested outcome — the reconnect banner handles it,
+    // and a modal alert would both lie and block the banner's reload.
+    for (const [action, arg] of [
+      ["setRemoteEnabled", true],
+      ["setRemoteBind", "lan"],
+      ["setRemotePort", 5000],
+      ["regenerateRemoteToken", undefined],
+    ] as const) {
+      mockBackend[action].mockRejectedValueOnce(new Error("remote connection lost"));
+      await (useStore.getState()[action] as (a?: unknown) => Promise<void>)(arg);
+    }
     expect(alerts).toEqual([]);
   });
 });

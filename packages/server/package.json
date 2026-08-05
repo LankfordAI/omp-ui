@@ -1,0 +1,25 @@
+{
+  "name": "@omp-ui/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts",
+    "./token": "./src/token.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@omp-ui/core": "*",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

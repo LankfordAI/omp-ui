@@ -6,12 +6,14 @@ import type {
   OmpSettingsSnapshot,
   OmpSettingValue,
   OmpUpdateState,
+  RemoteState,
 } from "@omp-ui/core/types";
 import {
   OMP_MODEL_ROLE_IDS,
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
 } from "@omp-ui/core/omp-settings-keys";
+import QRCode from "qrcode";
 import { cn } from "../lib/cn";
 import { SCALE_STEPS, setTranscriptScale, useTranscriptScale } from "../lib/text-scale";
 import { resolveTheme, THEMES } from "../lib/themes";
@@ -21,6 +23,8 @@ import {
   Capsule,
   CAPSULE_SEGMENT,
   Chip,
+  CopyButton,
+  Dot,
   Empty,
   Label,
   Modal,
@@ -29,7 +33,7 @@ import {
 } from "./ui";
 
 /**
- * The settings modal (issue #36): five pages behind one store-driven nav
+ * The settings modal (issue #36): six pages behind one store-driven nav
  * (`settingsPage`), so the palette can deep-link a page. The omp page is a
  * schema-driven GUI over a curated allowlist of omp's own settings, written
  * through `omp config set` and re-read after every write — the snapshot is the
@@ -59,6 +63,7 @@ const PAGES: ReadonlyArray<{ id: SettingsPage; label: string }> = [
   { id: "general", label: "General" },
   { id: "appearance", label: "Appearance" },
   { id: "updates", label: "Updates" },
+  { id: "remote", label: "Remote access" },
   { id: "omp", label: "omp" },
   { id: "about", label: "About" },
 ];
@@ -432,6 +437,203 @@ function UpdatesPage() {
   );
 }
 
+/* ------------------------------------------------------------------ remote */
+
+function remoteStatusLine(r: RemoteState): string {
+  switch (r.status) {
+    case "starting":
+      return "starting…";
+    case "listening":
+      return `listening on ${r.port}`;
+    case "error":
+      return r.error ?? "the server could not start";
+    default:
+      return "stopped";
+  }
+}
+
+function remoteStatusTone(status: RemoteState["status"]): "signal" | "copper" | "rose" | "neutral" {
+  if (status === "listening") return "signal";
+  if (status === "starting") return "copper";
+  if (status === "error") return "rose";
+  return "neutral";
+}
+
+/**
+ * The QR of the pairing URL. Rendered as an SVG string rather than a canvas: qrcode's `browser`
+ * field remaps its entry and stubs `fs`, so `toString(..., { type: "svg" })` is the one route that
+ * needs no polyfill in either the renderer or the web bundle.
+ */
+function PairingQr({ url }: { url: string }) {
+  const [svg, setSvg] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    setSvg("");
+    void QRCode.toString(url, {
+      type: "svg",
+      margin: 1,
+      // Deliberately NOT theme tokens: a scannable QR needs true black on true white, and a
+      // camera does not care about the app's palette.
+      color: { dark: "#000000", light: "#ffffff" },
+    }).then(
+      (out) => {
+        if (live) setSvg(out);
+      },
+      () => {
+        // A QR that will not render must not take the page down — the URL above still copies.
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [url]);
+
+  if (svg === "") return null;
+  return (
+    <Panel className="flex items-center gap-3 px-4 py-3">
+      <div
+        className="size-32 shrink-0 rounded-md bg-white p-1.5"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+      <div className="min-w-0">
+        <Label>Scan to pair</Label>
+        <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+          Opens omp-ui in the phone&apos;s browser with the token already attached.
+        </p>
+      </div>
+    </Panel>
+  );
+}
+
+function RemotePage() {
+  const remote = useStore((s) => s.remote);
+  const setRemoteEnabled = useStore((s) => s.setRemoteEnabled);
+  const setRemoteBind = useStore((s) => s.setRemoteBind);
+  const setRemotePort = useStore((s) => s.setRemotePort);
+  const regenerateRemoteToken = useStore((s) => s.regenerateRemoteToken);
+  const [revealed, setRevealed] = useState(false);
+
+  const primaryUrl = remote.urls[0] ?? null;
+
+  return (
+    <div className="space-y-3 px-4 py-3">
+      <Panel className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Dot tone={remoteStatusTone(remote.status)} pulse={remote.status === "starting"} />
+          <p className="text-xs font-medium text-ink">{remoteStatusLine(remote)}</p>
+        </div>
+        {remote.webBundleMissing && (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
+            the browser bundle is missing — run <span className="font-mono">npm run build:web</span>
+          </p>
+        )}
+      </Panel>
+
+      <div className="divide-y divide-line-soft">
+        <Row
+          title="Enable remote access"
+          hint="Off by default. A connected client can do everything you can, including editing files and running commands."
+        >
+          <Switch
+            on={remote.enabled}
+            onChange={(next) => void setRemoteEnabled(next)}
+            label="enable remote access"
+          />
+        </Row>
+        <div>
+          <Row title="Bind address" hint="Which interface the server listens on.">
+            <Capsule>
+              {(
+                [
+                  ["localhost", "localhost"],
+                  ["lan", "local network"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={remote.bind === value}
+                  onClick={() => void setRemoteBind(value)}
+                  className={cn(
+                    CAPSULE_SEGMENT,
+                    "px-2 text-[11px]",
+                    remote.bind === value ? "bg-hover text-ink" : "text-ink-mid",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </Capsule>
+          </Row>
+          {remote.bind === "lan" && (
+            <p className="pb-2.5 text-[11px] leading-relaxed text-rose">
+              Anyone on this network who has the token can drive your agent. Plain HTTP, so the
+              connection is not encrypted.
+            </p>
+          )}
+        </div>
+        <Row title="Port" hint="A whole number between 1024 and 65535.">
+          <CommitField
+            current={String(remote.port)}
+            kind="number"
+            label="remote access port"
+            disabled={false}
+            className="w-24"
+            onCommit={(raw) => void setRemotePort(Number(raw))}
+          />
+        </Row>
+        <Row
+          title="Access token"
+          hint="Regenerating disconnects every connected client."
+        >
+          <div className="flex items-center gap-1.5">
+            <span
+              data-selectable
+              className="max-w-48 truncate font-mono text-[11px] text-ink-mid"
+              title={revealed ? remote.token : undefined}
+            >
+              {revealed ? remote.token : "••••••••••••"}
+            </span>
+            <Button size="xs" variant="ghost" onClick={() => setRevealed((v) => !v)}>
+              {revealed ? "hide" : "reveal"}
+            </Button>
+            <CopyButton text={remote.token} />
+            <Button size="xs" onClick={() => void regenerateRemoteToken()}>
+              Regenerate
+            </Button>
+          </div>
+        </Row>
+        <Row title="Connection URL" hint="Open this on the other device — the token rides along.">
+          <div className="flex items-center gap-1.5">
+            <span
+              data-selectable
+              className="max-w-64 truncate font-mono text-[11px] text-ink-mid"
+              title={primaryUrl ?? undefined}
+            >
+              {primaryUrl ?? "—"}
+            </span>
+            {primaryUrl !== null && <CopyButton text={primaryUrl} />}
+          </div>
+        </Row>
+      </div>
+
+      {remote.urls.length > 1 && (
+        <div className="space-y-0.5">
+          <Label>Also reachable at</Label>
+          {remote.urls.slice(1).map((url) => (
+            <p key={url} data-selectable className="truncate font-mono text-[11px] text-ink-faint">
+              {url}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {remote.status === "listening" && primaryUrl !== null && <PairingQr url={primaryUrl} />}
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------------- omp */
 
 function OmpPage({
@@ -772,6 +974,18 @@ export function Settings() {
     // Auto-download is deliberately absent: both download paths end in an
     // installer launch or an app restart.
     footer = <p>Downloads always need a click.</p>;
+  } else if (page === "remote") {
+    // Load-bearing honesty: installability and offline are secure-context-only, so a plain
+    // http://<lan-ip> origin cannot have them no matter what the manifest says.
+    footer = (
+      <p>
+        Over localhost the app is a full browser app. Over your local network it works as a
+        responsive web app, but browsers reserve installability and offline support for secure
+        origins — plain <span className="font-mono">http://&lt;lan-ip&gt;</span> is not one, so
+        there is no install prompt until you front this with your own HTTPS (a TLS terminator, or
+        Tailscale serve). Changing anything here restarts only the server; sessions keep running.
+      </p>
+    );
   } else if (page === "omp") {
     // Load-bearing per ADR-0005: where writes land, which layer wins, and when
     // they take effect. omp regenerates its YAML on write, so hand-written
@@ -824,6 +1038,7 @@ export function Settings() {
             {page === "general" && <GeneralPage />}
             {page === "appearance" && <AppearancePage />}
             {page === "updates" && <UpdatesPage />}
+            {page === "remote" && <RemotePage />}
             {page === "omp" && (
               <OmpPage
                 load={load}
