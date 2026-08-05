@@ -146,13 +146,17 @@ Rationale and threat model:
 ## Distribution
 
 Releases are **Linux-only** (the dev machine is Fedora) and tag-driven: pushing
-`v*` runs `.github/workflows/release.yml`, which publishes four artifacts to
-the GitHub release — **AppImage**, **deb**, **rpm** (electron-builder), and a
-single-file **Flatpak** bundle (assembled separately) — plus the update
-metadata: `latest-linux.yml` (sha512 + blockmap, for the AppImage path) and
-`SHA256SUMS.txt` (covering all four artifacts). The stack stays cross-platform
-— uniform Chromium is why Electron was chosen (ADR-0001) — so widening later
-is a packaging task, not a port.
+`v*` runs `.github/workflows/release.yml`, which publishes the **AppImage**
+(electron-builder) to the GitHub release plus the update metadata:
+`latest-linux.yml` (sha512 + blockmap, for the in-app update path) and
+`SHA256SUMS.txt` (verified by `packaging/install.sh` and manual downloads).
+The AppImage is the sole first-party Linux artifact
+([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)); the earlier
+deb, rpm, and Flatpak packages were dropped after v0.4.0 — installs from
+those packages migrate with the canonical installer:
+`curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash`.
+The stack stays cross-platform — uniform Chromium is why Electron was chosen
+(ADR-0001) — so widening later is a packaging task, not a port.
 
 The installed app **checks for newer releases** in the background at launch,
 and on demand via the command palette's "Check for updates". A newer stable
@@ -170,12 +174,10 @@ What the update action does depends on how the app was installed:
 - **AppImage** — in-place update via electron-updater (sha512/blockmap
   verified against `latest-linux.yml`). When the download finishes the card
   offers "Restart now"; restarting still passes the live-session quit guard.
-- **deb / rpm** — the exact expected package is downloaded to `~/Downloads`,
-  sha256-verified against the release's `SHA256SUMS.txt` (fail-closed: no
-  checksums, no install), and opened with the system installer.
-- **Flatpak** — the bundle is a single file with no ostree repo behind it, so
-  `flatpak update` never applies; the card downloads the new bundle
-  (sha256-verified the same way) and opens it, which reinstalls in place.
+- **Legacy deb / rpm / Flatpak installs** (v0.4.0 and earlier) — no
+  same-format assets are published anymore, so the card's download path fails
+  closed (`expected asset missing from release`). Migrate once with
+  `packaging/install.sh`; updates are the in-place AppImage flow after that.
 
 The **omp binary** gets the same treatment: omp-ui manages its own copy of
 the `omp` CLI and checks the npm registry at launch (and on demand via the

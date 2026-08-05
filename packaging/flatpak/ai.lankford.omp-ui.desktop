@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=omp-ui
-Comment=Desktop GUI for the omp coding agent
-Exec=omp-ui %U
-Icon=ai.lankford.omp-ui
-Type=Application
-Categories=Development;
-Terminal=false
-StartupWMClass=omp-ui

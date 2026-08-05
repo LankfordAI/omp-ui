@@ -60,3 +60,15 @@ on a tested per-user installer — is accepted.
 graphical flow; the research report's "no terminal at any point" gate is
 superseded — the required desktop integration is the per-user entry and
 hicolor icons the script creates.
+
+**Amended 2026-08-05 (#74):** the bridge release was skipped. The maintainer
+is currently the sole user, and the only legacy install (rpm) was migrated
+to the AppImage and removed before the cutover — corroborated by zero
+external downloads of the v0.4.0 deb/rpm/Flatpak assets and no
+`latest-linux.yml` updater traffic. With no legacy installs to strand, the
+`expected asset missing from release` dead-end has no victims, so deb/rpm
+were dropped from `electron-builder.yml` and the standalone Flatpak lane was
+removed in the same cycle. Rollback remains `git revert` of the cutover
+commit. The app-side deb/rpm/Flatpak updater paths (format detection, asset
+selection, checksum download) stay for the rollback window and are the
+scheduled cleanup after one stable AppImage-only cycle.
