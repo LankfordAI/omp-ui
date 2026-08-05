@@ -21,9 +21,10 @@ interface BranchDiffLoad {
 
 /**
  * The right-hand instrument rail: the agent's plan, its subagents, and the
- * hard session facts. Collapses to an icon strip; badge counts survive the
- * collapse so the strip still tells you something. (The console moved to the
- * composer drawer — issue #33.)
+ * hard session facts. The icon strip is the permanent posture — pressing an
+ * icon opens just that one pane beside it, and re-pressing the active icon
+ * (or the pane's close control) dismisses it. Badge counts live on the strip
+ * icons. (The console moved to the composer drawer — issue #33.)
  */
 
 export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
@@ -34,9 +35,9 @@ export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
  * but it must also survive a tab switch and back, which component state cannot.
  */
 const selectedTab = new Map<string, RailTab>();
-// Collapse memory lasts only for this application launch. Every fresh launch starts with
-// the desktop icon strip; compact rendering remains governed by useCompactShell.
-let collapsedRail = true;
+// Open memory lasts only for this application launch. Every fresh launch starts with
+// just the desktop icon strip; compact rendering remains governed by useCompactShell.
+let railOpen = false;
 
 /* ------------------------------------------------------------------- icons */
 
@@ -90,13 +91,9 @@ function TabIcon({ tab }: { tab: RailTab }) {
   );
 }
 
-function IconCollapse({ collapsed }: { collapsed: boolean }) {
+function IconCollapse() {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className={cn("size-3.5 transition-transform duration-200", !collapsed && "rotate-180")}
-    >
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5 rotate-180">
       <path d="M10 4l-3.5 4 3.5 4" {...S} />
       <path d="M3.5 2.6v10.8" {...S} />
     </svg>
@@ -749,7 +746,7 @@ export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTa
 
 export function InspectorRail({ tabId }: { tabId: string }) {
   const [tab, setTab] = useState<RailTab>(() => selectedTab.get(tabId) ?? "todos");
-  const [collapsed, setCollapsed] = useState(collapsedRail);
+  const [open, setOpen] = useState(railOpen);
   const compact = useCompactShell();
   const surface = useStore((s) => s.compactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
@@ -762,17 +759,22 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   }
 
   const badges = inspectorBadges(runtime);
+  const close = (): void => {
+    railOpen = false;
+    setOpen(false);
+  };
   const select = (next: RailTab): void => {
+    // Re-pressing the active icon dismisses the pane back to the strip.
+    if (!compact && next === tab && open) {
+      close();
+      return;
+    }
     selectedTab.set(tabId, next);
     setTab(next);
-    if (!compact && collapsed) {
-      collapsedRail = false;
-      setCollapsed(false);
+    if (!compact && !open) {
+      railOpen = true;
+      setOpen(true);
     }
-  };
-  const toggle = (): void => {
-    collapsedRail = !collapsed;
-    setCollapsed(!collapsed);
   };
   const tabs = (
     <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto p-1.5">
@@ -814,25 +816,28 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     );
   }
 
-  if (collapsed) {
-    return (
-      <aside className="ambient flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line bg-sunken py-2">
-        <IconButton label="expand inspector" onClick={toggle}><IconCollapse collapsed /></IconButton>
-        <span className="my-0.5 h-px w-4 bg-line-soft" />
+  // Desktop: the strip is always the rail; at most one pane opens beside it.
+  return (
+    <aside className="ambient flex shrink-0 bg-sunken">
+      {open && (
+        <div className="flex w-[19rem] shrink-0 flex-col border-l border-line">
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2.5">
+            <Label className="min-w-0 flex-1 truncate">{tab}</Label>
+            <IconButton label="collapse inspector" onClick={close}>
+              <IconCollapse />
+            </IconButton>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">{pane}</div>
+        </div>
+      )}
+      <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line py-2">
         {TABS.map(({ id, label }) => (
-          <button key={id} type="button" title={badges[id] > 0 ? `${label} (${badges[id]})` : label} aria-label={label} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
+          <button key={id} type="button" title={badges[id] > 0 ? `${label} (${badges[id]})` : label} aria-label={label} aria-pressed={open && id === tab} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", open && id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
             <TabIcon tab={id} />
             {badges[id] > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{badges[id] > 99 ? "99" : badges[id]}</span>}
           </button>
         ))}
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="ambient flex w-[19rem] shrink-0 flex-col border-l border-line bg-sunken">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line">{tabs}<IconButton label="collapse inspector" onClick={toggle}><IconCollapse collapsed={false} /></IconButton></div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{pane}</div>
+      </div>
     </aside>
   );
 }

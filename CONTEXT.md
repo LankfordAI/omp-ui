@@ -75,9 +75,11 @@ on chrome destroys the property that a glance answers "is it working?".
 _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
-The right-hand pane in an rpc-ui tab, with four panes — Todos, Console,
-Agents, Session. Collapses to an icon strip that keeps its badge counts, and
-remembers its selected pane per tab.
+The right-hand icon strip in an rpc-ui tab, with five panes behind it —
+Todos, Agents, Session, Plans, Diffs. The strip is the permanent posture:
+pressing an icon opens just that one pane beside it, re-pressing the active
+icon (or the pane's close control) dismisses it, and badge counts live on
+the strip icons. Remembers its selected pane per tab.
 _Avoid_: right sidebar, panel, drawer
 
 **Session HUD**:

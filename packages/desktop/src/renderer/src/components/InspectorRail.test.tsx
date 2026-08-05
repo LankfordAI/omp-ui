@@ -54,8 +54,7 @@ function button(label: string): HTMLButtonElement | null {
   return document.body.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 }
 
-/** The rail's tab button in either posture: aria-label on the collapsed
- * strip (with a badge in the title), bare title on the expanded tab row. */
+/** A feature icon on the strip: aria-label, with any badge count in the title. */
 function railTab(label: string): HTMLButtonElement | null {
   return (
     [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -82,11 +81,11 @@ afterEach(() => {
 });
 
 describe("desktop InspectorRail", () => {
-  it("starts collapsed with its icon badges accessible and can expand (issue #48)", () => {
+  it("stays an icon strip and opens one pane at a time from it (issues #48, #75)", () => {
     renderRail();
 
-    const expand = button("expand inspector");
-    expect(expand).not.toBeNull();
+    // The strip is the whole rail: feature icons with badges, no expand control.
+    expect(button("expand inspector")).toBeNull();
     for (const label of ["todos", "agents", "session", "plans", "diffs"]) {
       expect(button(label)).not.toBeNull();
     }
@@ -94,11 +93,22 @@ describe("desktop InspectorRail", () => {
     expect(button("todos")?.textContent).toBe("1");
     expect(button("agents")?.title).toBe("agents (1)");
 
-    act(() => expand!.click());
-
-    expect(button("expand inspector")).toBeNull();
-    expect(button("collapse inspector")).not.toBeNull();
+    // Pressing an icon opens just that pane beside the strip.
+    act(() => button("todos")!.click());
     expect(document.body.textContent).toContain("First task");
+    expect(button("collapse inspector")).not.toBeNull();
+    expect(button("todos")?.getAttribute("aria-pressed")).toBe("true");
+
+    // Pressing a different icon swaps the single open pane.
+    act(() => button("agents")!.click());
+    expect(document.body.textContent).toContain("worker");
+    expect(document.body.textContent).not.toContain("First task");
+
+    // Re-pressing the active icon dismisses the pane back to the strip alone.
+    act(() => button("agents")!.click());
+    expect(button("collapse inspector")).toBeNull();
+    expect(document.body.textContent).not.toContain("worker");
+    expect(button("agents")).not.toBeNull();
   });
 
   it("unions the live roster with retained buffers and drills into a detail view (issue #63)", () => {
@@ -123,7 +133,7 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    // Whatever posture the previous test left: select the Agents pane.
+    // Open the Agents pane from the strip.
     act(() => railTab("agents")!.click());
 
     // The roster is live agents UNION retained ones; retained render dimmed.
