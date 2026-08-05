@@ -50,6 +50,7 @@ interface FakeShell {
   id: string;
   dataCb: ((data: Buffer) => void) | null;
   exitCb: ((e: { exitCode: number; signal?: number }) => void) | null;
+  detachData: Mock;
   write: Mock;
   resize: Mock;
   kill: Mock;
@@ -60,6 +61,7 @@ function makeFakeShell(id: string): FakeShell {
     id,
     dataCb: null,
     exitCb: null,
+    detachData: vi.fn(),
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(),
@@ -134,6 +136,10 @@ beforeEach(() => {
       id: fake.id,
       onData: (cb) => {
         fake.dataCb = cb;
+        return () => {
+          fake.detachData();
+          fake.dataCb = null;
+        };
       },
       onExit: (cb) => {
         fake.exitCb = cb;
@@ -203,6 +209,31 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     expect(fake.kill).toHaveBeenCalled();
     fake.exitCb!({ exitCode: 0 });
     expect(sent.find((m) => m.channel === CH.shellExit)).toBeUndefined();
+  });
+
+  it("respawn detaches the predecessor's data listener: its last output never reaches the tab (issue #64)", () => {
+    setup();
+    invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
+    const first = fakeShells[0]!;
+    invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
+
+    // The kill-first replacement must detach before killing — a dying shell's
+    // final chunk would otherwise interleave into the successor's terminal.
+    expect(first.detachData).toHaveBeenCalled();
+    expect(first.dataCb).toBeNull();
+    expect(first.kill).toHaveBeenCalled();
+  });
+
+  it("shell:kill detaches the data listener before killing (issue #64)", () => {
+    setup();
+    invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
+    const fake = fakeShells[0]!;
+
+    invoke(CH.shellKill, TAB);
+
+    expect(fake.detachData).toHaveBeenCalled();
+    expect(fake.dataCb).toBeNull();
+    expect(fake.kill).toHaveBeenCalled();
   });
 
   it("killAll kills every live shell", () => {

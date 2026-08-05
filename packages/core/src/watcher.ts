@@ -15,9 +15,20 @@ export function watchLineageDir(absDir: string, onEvent: (e: LineageEvent) => vo
   let gone = false;
   const pending = new Set<string>();
 
+  // Idempotent teardown: a vanished watcher must not keep its fd — on some
+  // platforms a deleted dir never produces an 'error' event that would close
+  // the handle, so vanish itself releases it.
+  const close = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    watcher?.close();
+    watcher = undefined;
+  };
+
   const vanish = () => {
     if (gone) return;
     gone = true;
+    close();
     onEvent({ kind: "vanished" });
   };
 
@@ -47,7 +58,6 @@ export function watchLineageDir(absDir: string, onEvent: (e: LineageEvent) => vo
 
   return () => {
     gone = true;
-    clearTimeout(timer);
-    watcher?.close();
+    close();
   };
 }

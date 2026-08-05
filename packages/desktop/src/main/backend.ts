@@ -73,6 +73,8 @@ interface LiveEntry {
   record: OwnedSessionRecord;
   /** Suppresses this process's pty:exit — set for a mode-switch kill and for a delete. */
   suppressExit?: boolean;
+  /** Detaches the pty:data listener — a killed process must not write into its successor. */
+  detachPtyData?: () => void;
   /** Resolves once the child's exit has been observed. */
   readonly exited: Promise<void>;
   /** Resolver for `exited`, called from the exit handler. */
@@ -106,7 +108,7 @@ const SIGKILL_EXIT_MS = 2_000;
 export class MainBackend {
   private readonly live = new Map<string, LiveEntry>();
   /** Console-drawer shells keyed by tabId (issue #42) — outside `live` on purpose. */
-  private readonly shells = new Map<string, PtyHandle>();
+  private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   private readonly watchers = new Map<string, () => void>();
@@ -385,10 +387,10 @@ export class MainBackend {
         },
         [CH.shellKill]: (tabId: string) => this.killShell(tabId),
         [CH.shellWrite]: (tabId: string, data: string) => {
-          this.shells.get(tabId)?.write(data);
+          this.shells.get(tabId)?.handle.write(data);
         },
         [CH.shellResize]: (tabId: string, cols: number, rows: number) => {
-          this.shells.get(tabId)?.resize(cols, rows);
+          this.shells.get(tabId)?.handle.resize(cols, rows);
         },
         [CH.rpcSend]: (tabId: string, cmd: object) => {
           this.live.get(tabId)?.rpc?.send(cmd);
@@ -460,14 +462,25 @@ export class MainBackend {
   }
 
   killAll(): void {
-    for (const entry of this.live.values()) {
-      entry.pty?.kill();
-      entry.rpc?.kill();
-    }
+    for (const entry of this.live.values()) this.killLive(entry);
     this.live.clear();
-    for (const handle of this.shells.values()) handle.kill();
-    this.shells.clear();
+    for (const tabId of [...this.shells.keys()]) this.killShell(tabId);
+    // Lineage watchers hold inotify fds; quit is the one path that must not
+    // leave them to the OS — a cancelled quit keeps the app alive without them.
+    for (const dispose of this.watchers.values()) dispose();
+    this.watchers.clear();
     void this.remote.stop();
+  }
+
+  /**
+   * Kills a live session's child and detaches its data listener first, so a
+   * dying process's final output cannot land in a successor's renderer state.
+   */
+  private killLive(entry: LiveEntry): void {
+    entry.detachPtyData?.();
+    entry.detachPtyData = undefined;
+    entry.pty?.kill();
+    entry.rpc?.kill();
   }
 
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
@@ -558,7 +571,7 @@ export class MainBackend {
     });
     const entry = liveEntry({ kind: "pty", pty: ptyHandle, record });
     this.live.set(record.tabId, entry);
-    ptyHandle.onData((data) => this.send(CH.ptyData, record.tabId, data));
+    entry.detachPtyData = ptyHandle.onData((data) => this.send(CH.ptyData, record.tabId, data));
     ptyHandle.onExit(({ exitCode }) => {
       entry.markExited();
       // Identity-checked: a mode-switch respawn may already have replaced
@@ -812,20 +825,25 @@ export class MainBackend {
   private launchShell(tabId: string, cwd: string, cols: number, rows: number): void {
     this.killShell(tabId);
     const handle = spawnShell({ id: tabId, cwd, cols, rows });
-    this.shells.set(tabId, handle);
-    handle.onData((data) => this.send(CH.shellData, tabId, data));
+    const detachData = handle.onData((data) => this.send(CH.shellData, tabId, data));
+    this.shells.set(tabId, { handle, detachData });
     handle.onExit(({ exitCode }) => {
-      if (this.shells.get(tabId) !== handle) return; // replaced or killed: silent
+      const current = this.shells.get(tabId);
+      if (!current || current.handle !== handle) return; // replaced or killed: silent
       this.shells.delete(tabId);
+      current.detachData();
       this.send(CH.shellExit, tabId, exitCode);
     });
   }
 
   private killShell(tabId: string): void {
-    const handle = this.shells.get(tabId);
-    if (!handle) return;
+    const shell = this.shells.get(tabId);
+    if (!shell) return;
     this.shells.delete(tabId);
-    handle.kill();
+    // Detach before kill: the dying shell's final output must not land in the
+    // replacement's terminal (respawn) or a closed drawer (kill).
+    shell.detachData();
+    shell.handle.kill();
   }
 
   /** Unarchives / adopts as needed so spawn can --resume the right session. */
@@ -881,8 +899,7 @@ export class MainBackend {
     this.killShell(tabId);
     const entry = this.live.get(tabId);
     if (!entry) return;
-    entry.pty?.kill();
-    entry.rpc?.kill();
+    this.killLive(entry);
     // The record stays; the broadcast fires on process exit.
   }
 
@@ -928,8 +945,7 @@ export class MainBackend {
    */
   private async killAndReap(tabId: string, entry: LiveEntry): Promise<void> {
     entry.suppressExit = true;
-    entry.pty?.kill();
-    entry.rpc?.kill();
+    this.killLive(entry);
     if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return;
     entry.pty?.kill("SIGKILL");
     entry.rpc?.kill("SIGKILL");
@@ -974,8 +990,7 @@ export class MainBackend {
   private async relaunch(entry: LiveEntry, req: SpawnRequest): Promise<void> {
     const tabId = req.resumeTabId!;
     entry.suppressExit = true;
-    entry.pty?.kill();
-    entry.rpc?.kill();
+    this.killLive(entry);
     this.live.delete(tabId);
     try {
       await this.spawn(req);
@@ -995,7 +1010,10 @@ export class MainBackend {
       record.tabId,
       watchLineageDir(absDir, (e) => {
         if (e.kind === "vanished") {
-          this.watchers.delete(record.tabId);
+          // Dispose, not just forget: the map entry is the only reference to
+          // the close function, and an unclosed FSWatcher holds its fd on
+          // platforms where a deleted dir raises no error event (issue #64).
+          this.stopWatcher(record.tabId);
           void this.broadcast();
           return;
         }

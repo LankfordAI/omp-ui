@@ -5,7 +5,8 @@ import { batched } from "./pty-batch";
 
 export interface PtyHandle {
   readonly id: string;
-  onData(cb: (data: Buffer) => void): void;
+  /** Returns an unsubscribe — teardown must detach so a dying process cannot deliver into its successor. */
+  onData(cb: (data: Buffer) => void): () => void;
   onExit(cb: (e: { exitCode: number; signal?: number }) => void): void;
   write(data: string): void;
   resize(cols: number, rows: number): void;
@@ -20,7 +21,10 @@ function adapt(id: string, proc: pty.IPty): PtyHandle {
     // node-pty's typings declare `onData: IEvent<string>` even with
     // `encoding: null` — the runtime emits Buffers, so bridge the known
     // typing gap via `unknown` (harmless if the types are ever fixed).
-    onData: (cb) => (proc.onData as unknown as pty.IEvent<Buffer>)(cb),
+    onData: (cb) => {
+      const disposable = (proc.onData as unknown as pty.IEvent<Buffer>)(cb);
+      return () => disposable.dispose();
+    },
     onExit: (cb) => proc.onExit(cb),
     write: (d) => proc.write(d),
     resize: (c, r) => proc.resize(c, r),
