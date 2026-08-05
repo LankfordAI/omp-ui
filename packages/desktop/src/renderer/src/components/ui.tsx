@@ -33,6 +33,33 @@ const TONE_CHIP: Record<Tone, string> = {
   iris: "border-iris-dim/50 bg-iris-wash text-iris",
 };
 
+/** One border step up: the outline hover, and the resting ring that marks a solid tonal button. */
+const TONE_BORDER_RAISED: Record<Tone, string> = {
+  neutral: "border-line-strong",
+  signal: "border-signal-dim",
+  copper: "border-copper-dim",
+  rose: "border-rose-dim",
+  iris: "border-iris-dim",
+};
+
+/** Full-accent border, hover-only: the solid tonal button's feedback. `neutral` is unused (solid neutral is `bg-ink`). */
+const TONE_BORDER_FULL_HOVER: Record<Tone, string> = {
+  neutral: "hover:border-line-strong",
+  signal: "hover:border-signal",
+  copper: "hover:border-copper",
+  rose: "hover:border-rose",
+  iris: "hover:border-iris",
+};
+
+/** Outline hover: the border strengthens; the fill never brightness-filters (light washes lift to white — issue #66). */
+const TONE_BORDER_OUTLINE_HOVER: Record<Tone, string> = {
+  neutral: "hover:border-line-strong",
+  signal: "hover:border-signal-dim",
+  copper: "hover:border-copper-dim",
+  rose: "hover:border-rose-dim",
+  iris: "hover:border-iris-dim",
+};
+
 /* ------------------------------------------------------------------ Button */
 
 type ButtonVariant = "solid" | "ghost" | "outline";
@@ -61,11 +88,20 @@ export function Button({
   const variantClass =
     variant === "solid"
       ? tone === "neutral"
-        ? "bg-ink text-void hover:bg-white"
-        : cn(TONE_CHIP[tone], "border-transparent brightness-110 hover:brightness-125")
+        ? "bg-ink text-void hover:brightness-125"
+        : cn(TONE_CHIP[tone], TONE_BORDER_RAISED[tone], TONE_BORDER_FULL_HOVER[tone])
       : variant === "ghost"
         ? cn("border-transparent bg-transparent hover:bg-hover", TONE_TEXT[tone])
-        : cn(TONE_CHIP[tone], "hover:border-line-strong hover:brightness-125");
+        : cn(TONE_CHIP[tone], TONE_BORDER_OUTLINE_HOVER[tone]);
+
+  // Disabled collapses every variant to one deliberate ghost: transparent
+  // fill, neutral border, the theme's ink-dim text (≥3:1 on raised in every
+  // curated theme — gated in themes.test.ts). Never a flat opacity: on light
+  // surfaces opacity composites toward white and reads ~1.6:1 (issue #66).
+  const disabledClass =
+    variant === "ghost"
+      ? "disabled:text-ink-dim"
+      : "disabled:border-line disabled:bg-transparent disabled:text-ink-dim";
 
   return (
     <button
@@ -76,9 +112,10 @@ export function Button({
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-md border font-medium",
         "transition-[background-color,border-color,color,filter,opacity] duration-150",
-        "disabled:pointer-events-none disabled:opacity-35",
+        "disabled:pointer-events-none",
         size === "xs" ? "h-6 px-2 text-[11px]" : "h-7 px-2.5 text-xs",
         variantClass,
+        disabledClass,
         className,
       )}
     >
@@ -112,7 +149,7 @@ export function IconButton({
       className={cn(
         "grid size-6 shrink-0 place-items-center rounded-md text-ink-dim",
         "transition-colors duration-150 hover:bg-hover",
-        "disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent",
+        "disabled:cursor-default disabled:text-ink-faint disabled:hover:bg-transparent",
         tone === "rose" ? "hover:text-rose" : tone === "copper" ? "hover:text-copper" : "hover:text-ink",
         className,
       )}
@@ -268,7 +305,7 @@ export const CAPSULE_SEGMENT = cn(
   "flex min-w-0 items-center gap-1 px-1.5",
   "first:rounded-l-[5px] last:rounded-r-[5px]",
   "transition-colors duration-150 hover:bg-hover",
-  "disabled:pointer-events-none disabled:opacity-35",
+  "disabled:pointer-events-none disabled:text-ink-faint",
 );
 
 /* ------------------------------------------------------------------- Panel */
