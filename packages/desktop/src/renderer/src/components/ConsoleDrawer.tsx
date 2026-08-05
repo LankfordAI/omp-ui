@@ -1,6 +1,7 @@
 import { useEffect } from "react";
+import { backend } from "../backend";
 import { useStore } from "../store";
-import { clearShellTerm, ShellDrawer } from "./ShellDrawer";
+import { ShellDrawer } from "./ShellDrawer";
 import { Button, IconButton } from "./ui";
 
 /**
@@ -64,8 +65,8 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
           <Button
             size="xs"
             variant="ghost"
-            title="clear shell screen"
-            onClick={() => clearShellTerm(tabId)}
+            title="send `clear` to the shell"
+            onClick={() => backend.shellWrite(tabId, "clear\n")}
           >
             clear
           </Button>

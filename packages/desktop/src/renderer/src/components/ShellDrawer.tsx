@@ -18,14 +18,6 @@ import { Button } from "./ui";
  * the inspector rail without a window resize).
  */
 
-/** Module-scope so ConsoleDrawer's clear button can reach the xterm. */
-const shellControls = new Map<string, { clear(): void }>();
-
-/** ConsoleDrawer's clear button: wipe the shell screen for this tab. */
-export function clearShellTerm(tabId: string): void {
-  shellControls.get(tabId)?.clear();
-}
-
 export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
@@ -71,7 +63,6 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     // while display:none, where fit() degenerates. The visible effect spawns.
     const dataSub = term.onData((d) => backend.shellWrite(tabId, d));
     const unregister = registerShellWriter(tabId, (data) => term.write(data));
-    shellControls.set(tabId, { clear: () => term.clear() });
 
     // The drawer width moves with the inspector rail without a window resize,
     // so TerminalTab's window-listener alone is insufficient.
@@ -86,7 +77,6 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       observer.disconnect();
       dataSub.dispose();
       unregister();
-      shellControls.delete(tabId);
       term.dispose();
       termRef.current = null;
       spawnedRef.current = false;
