@@ -37,6 +37,8 @@ export interface AssistantItem {
   stopReason?: string;
   durationMs?: number;
   ttftMs?: number;
+  /** When the turn completed — epoch ms off the assistant message. */
+  timestamp?: number;
 }
 export interface ToolItem {
   kind: "tool";
@@ -170,6 +172,7 @@ function assistantMeta(message: Record<string, unknown>): Partial<AssistantItem>
     stopReason: strField(message, "stopReason"),
     durationMs: numField(message, "duration"),
     ttftMs: numField(message, "ttft"),
+    timestamp: numField(message, "timestamp"),
   };
 }
 

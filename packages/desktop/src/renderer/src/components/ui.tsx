@@ -640,7 +640,7 @@ export function Meter({
  * textarea + execCommand route is deprecated but universally available, and is the only thing
  * that works there.
  */
-function copyFallback(text: string): boolean {
+export function copyFallback(text: string): boolean {
   const el = document.createElement("textarea");
   el.value = text;
   el.setAttribute("readonly", "");

@@ -19,7 +19,8 @@ import type {
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
 import { AdvisoryNotes, ToolCard, formatDuration } from "./ToolCard";
-import { Chip, Disclosure, Empty, Label, type Tone } from "./ui";
+import { TranscriptContextMenu } from "./TranscriptContextMenu";
+import { Chip, Disclosure, Empty, Label, copyFallback, type Tone } from "./ui";
 
 /** Re-entry threshold: this close to the tail still counts as following. */
 const AT_BOTTOM_SLACK = 64;
@@ -48,14 +49,24 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   if (item.stopReason && item.stopReason !== "end_turn" && item.stopReason !== "stop") {
     parts.push(item.stopReason);
   }
+  // Wall-clock anchor: local short time inline, full locale date+time on hover.
+  const at = item.timestamp === undefined ? null : new Date(item.timestamp);
+  const atText = at?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const atTooltip = at?.toLocaleString();
   return (
     <div
       className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
-      title={item.provider}
+      title={[item.provider, atTooltip].filter(Boolean).join(" · ") || undefined}
     >
       {parts.map((part, i) => (
         <span key={i}>{part}</span>
       ))}
+      {at && (
+        <>
+          {" · "}
+          <span title={atTooltip}>{atText}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -87,7 +98,13 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
   ) : undefined;
 
   return (
-    <div className="animate-rise space-y-1.5">
+    // `data-markdown-source` carries the turn's raw markdown so the selection
+    // context menu can offer "Copy as Markdown" (issue #72); the attribute is
+    // assistant-only, which is exactly the intended mapping.
+    <div
+      className="animate-rise space-y-1.5"
+      data-markdown-source={item.text !== "" ? item.text : undefined}
+    >
       {item.thinking !== "" && (
         <Disclosure
           // Remount on the working→answering flip so the pane auto-opens while
@@ -107,6 +124,36 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
       <UsageStrip item={item} />
     </div>
   );
+}
+
+/* --------------------------------------------------------- selection menu */
+
+/**
+ * Selection state captured synchronously at contextmenu time (issue #72):
+ * right-click must not clear the selection before the action reads it, and
+ * holding the string makes the action immune even if it does.
+ */
+type TranscriptMenuState = { x: number; y: number; text: string; markdown: string | null };
+
+/**
+ * The turn's raw markdown when the selection starts inside assistant prose —
+ * the only nodes carrying `data-markdown-source`. Tool cards, code blocks,
+ * and thinking yield null, so "Copy as Markdown" hides there; that is the
+ * issue's "where the selection maps cleanly onto a render item's source".
+ */
+function markdownSourceForSelection(sel: Selection): string | null {
+  if (sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const node = sel.getRangeAt(0).startContainer;
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+  return el?.closest("[data-markdown-source]")?.getAttribute("data-markdown-source") ?? null;
+}
+
+/** Whether the selection's common ancestor lives under `root`. */
+function selectionWithin(root: HTMLElement | null, sel: Selection): boolean {
+  if (root === null || sel.rangeCount === 0) return false;
+  const node = sel.getRangeAt(0).commonAncestorContainer;
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+  return el !== null && root.contains(el);
 }
 
 /* ------------------------------------------------------------ small kinds */
@@ -291,6 +338,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
   const followingRef = useRef(true);
   // Last observed scrollTop, for scroll direction.
   const lastScrollTopRef = useRef(0);
+  const [menu, setMenu] = useState<TranscriptMenuState | null>(null);
 
   function updateFollowing(value: boolean) {
     followingRef.current = value;
@@ -351,6 +399,36 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
     <div className="ambient relative min-h-0 flex-1 bg-surface">
       <div
         ref={scrollRef}
+        onContextMenu={(event) => {
+          // A second right-click while the menu is open dismisses it.
+          if (menu !== null) {
+            setMenu(null);
+            return;
+          }
+          const sel = window.getSelection();
+          if (sel === null || sel.isCollapsed) return;
+          const text = sel.toString();
+          if (text === "") return;
+          if (!selectionWithin(scrollRef.current, sel)) return;
+          const anchor = sel.anchorNode;
+          const anchorEl =
+            anchor === null
+              ? null
+              : anchor.nodeType === Node.TEXT_NODE
+                ? anchor.parentElement
+                : (anchor as HTMLElement);
+          if (!anchorEl?.closest("[data-selectable]")) return;
+          // No selection → fall through untouched (issue #72). preventDefault
+          // keeps Chromium from clearing the selection before the action
+          // reads it; the captured string makes the action immune regardless.
+          event.preventDefault();
+          setMenu({
+            x: event.clientX,
+            y: event.clientY,
+            text,
+            markdown: markdownSourceForSelection(sel),
+          });
+        }}
         onScroll={() => {
           const el = scrollRef.current;
           if (!el) return;
@@ -444,6 +522,21 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
           </svg>
           jump to latest
         </button>
+      )}
+
+      {menu !== null && (
+        <TranscriptContextMenu
+          x={menu.x}
+          y={menu.y}
+          markdown={menu.markdown}
+          // copyFallback (not navigator.clipboard) so remote clients over
+          // http://<lan-ip> without the async Clipboard API still work (#37).
+          onCopy={() => void copyFallback(menu.text)}
+          onCopyMarkdown={
+            menu.markdown === null ? null : () => void copyFallback(menu.markdown!)
+          }
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   );

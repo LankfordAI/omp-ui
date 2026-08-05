@@ -175,6 +175,20 @@ describe("reduceEvent message lifecycle", () => {
     });
     expect(a).not.toHaveProperty("providerPayload");
   });
+
+  it("lifts the message timestamp onto the finished assistant item", () => {
+    const timestamp = 1_754_404_327_000;
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: { role: "assistant", timestamp, content: [{ type: "text", text: "done" }] },
+    });
+    expect(assistant(items)).toMatchObject({ timestamp, streaming: false });
+  });
 });
 
 describe("reduceEvent tool executions", () => {
@@ -528,6 +542,14 @@ describe("historyToItems", () => {
     expect(assistant(items)).toMatchObject({ model: "claude-opus-5", stopReason: "stop" });
     expect(assistant(items)?.usage).toMatchObject({ total: 3, cost: 0.01 });
     expect(tool(items, "c9")).toMatchObject({ path: "src/new.ts", op: "create" });
+  });
+
+  it("carries the assistant timestamp out of stored history", () => {
+    const timestamp = 1_754_404_327_000;
+    const items = historyToItems([
+      { role: "assistant", timestamp, content: [{ type: "text", text: "hi" }] },
+    ]);
+    expect(assistant(items)).toMatchObject({ timestamp });
   });
 
   it("skips malformed entries without throwing", () => {

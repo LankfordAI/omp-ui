@@ -226,3 +226,28 @@ describe("TranscriptView follow mode", () => {
     act(() => root.unmount());
   });
 });
+
+describe("UsageStrip", () => {
+  it("ends the receipt with the turn's local completion time", () => {
+    const timestamp = new Date(2026, 7, 5, 14, 32, 7).getTime();
+    const item: RenderItem = {
+      kind: "assistant",
+      id: "a1",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "openai/gpt-5.6-sol",
+      usage: { input: 3, output: 268, cacheRead: 0, cacheWrite: 0, total: 271, cost: 0 },
+      timestamp,
+    };
+    const { el, root } = render([item]);
+
+    const at = new Date(timestamp);
+    const expected = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const stamp = el.querySelector(".text-ink-faint span[title]");
+    expect(stamp).not.toBeNull();
+    expect(stamp!.textContent).toBe(expected);
+    expect(stamp!.getAttribute("title")).toBe(at.toLocaleString());
+    act(() => root.unmount());
+  });
+});
