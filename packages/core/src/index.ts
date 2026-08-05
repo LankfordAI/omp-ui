@@ -56,6 +56,21 @@ export {
   writeOmpSetting,
   type OmpConfigRunner,
 } from "./omp-settings";
+export {
+  captureLoginShellKeys,
+  maskKey,
+  ProviderKeys,
+  readDotenvKeys,
+  type KeyCipher,
+  type ShellCaptureFn,
+} from "./provider-keys";
+export {
+  PROVIDER_ENV_NAMES,
+  PROVIDER_KEY_SPECS,
+  providerSpecById,
+  type ProviderKeyGroup,
+  type ProviderKeySpec,
+} from "./provider-catalog";
 export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
   generateBranchNameWithOmp,

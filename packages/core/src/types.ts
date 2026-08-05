@@ -352,6 +352,43 @@ export interface RemoteState {
 }
 
 /**
+ * Where a provider credential's effective value comes from, highest priority
+ * first (see core/provider-keys.ts). `dotenv` is report-only: omp loads project
+ * `.env` files itself, so omp-ui never injects those.
+ */
+export type ProviderKeySource = "stored" | "environment" | "login-shell" | "dotenv" | "none";
+
+/**
+ * One provider row on the settings page. Carries no key material: `masked` is
+ * the last four characters behind a fixed mask, computed in the main process.
+ */
+export interface ProviderKeyStatus {
+  /** omp's provider id where one exists, else a stable slug (see PROVIDER_KEY_SPECS). */
+  id: string;
+  label: string;
+  group: "models" | "search";
+  /** The variable a value typed into this row is written to. */
+  env: string;
+  /** The variable actually supplying the value — an alternate when the primary is unset. */
+  activeEnv: string;
+  source: ProviderKeySource;
+  /** Null when no source supplies this credential. */
+  masked: string | null;
+  hint: string | null;
+  /** True when a stored value is overriding an inherited one for the same variable. */
+  shadowsEnvironment: boolean;
+}
+
+/** The providers page's whole payload: rows plus how securely they can be stored. */
+export interface ProviderKeysSnapshot {
+  providers: ProviderKeyStatus[];
+  /** False when the OS offers no credential store; writes are refused. */
+  encryptionAvailable: boolean;
+  /** safeStorage's backend label, shown so the user knows what protects the file. */
+  backend: string;
+}
+
+/**
  * The renderer↔backend seam (ADR-0002). Changes only by extension — a future
  * packages/server reproduces exactly this surface over WebSocket.
  */
@@ -389,6 +426,21 @@ export interface OmpBackend {
    * is serialized per its schema type. Rejects with omp's own stderr message.
    */
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
+  /**
+   * Provider credentials omp-ui supplies to every omp it launches, with the
+   * source of each. `projectCwd` scopes the report-only `.env` scan; pass null
+   * to skip it. Never returns key material — only masked tails.
+   */
+  readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
+  /**
+   * Stores one provider credential, encrypted by the OS credential store, and
+   * applies it so the next session sees it. Rejects when the variable is not a
+   * known provider variable, the value is not a single non-empty line, or the
+   * platform offers no credential store.
+   */
+  setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
+  /** Forgets a stored credential; inherited or login-shell values take over again. */
+  clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;
   spawnSession(req: SpawnRequest): Promise<{ tabId: string }>;
   terminateSession(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;

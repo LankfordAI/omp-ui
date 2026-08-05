@@ -9,6 +9,7 @@ import type {
   OmpSettingsSnapshot,
   OmpSettingValue,
   OmpUpdateState,
+  ProviderKeysSnapshot,
   RemoteBind,
   RemoteState,
   SessionMode,
@@ -222,7 +223,14 @@ export interface DeleteConfirmation {
  * store imports nothing from any component, and reversing that would make a
  * type-only cycle.
  */
-export type SettingsPage = "general" | "appearance" | "updates" | "remote" | "omp" | "about";
+export type SettingsPage =
+  | "general"
+  | "appearance"
+  | "updates"
+  | "remote"
+  | "providers"
+  | "omp"
+  | "about";
 
 interface UiStore {
   state: BackendState | null;
@@ -315,6 +323,14 @@ interface UiStore {
    */
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
+  /**
+   * Same request/response contract as the two above (rethrow, no store field):
+   * the providers page renders failures inline. Every call answers with the
+   * refreshed snapshot, so writes need no separate re-read.
+   */
+  readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
+  setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
+  clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;
   /**
    * Restarts a live session in place so it picks up changed MCP config
    * (kill + `--resume` relaunch). Errors surface via the alert path; resolves
@@ -1072,6 +1088,19 @@ export const useStore = create<UiStore>()((set, get) => {
 
     writeOmpSetting(key, value) {
       return backend.writeOmpSetting(key, value);
+    },
+
+    // Same deal: the providers page renders its own inline error.
+    readProviderKeys(projectCwd) {
+      return backend.readProviderKeys(projectCwd);
+    },
+
+    setProviderKey(envName, value) {
+      return backend.setProviderKey(envName, value);
+    },
+
+    clearProviderKey(envName) {
+      return backend.clearProviderKey(envName);
     },
 
     async restartSession(tabId) {

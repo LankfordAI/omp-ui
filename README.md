@@ -118,6 +118,31 @@ lives in a transport-agnostic `packages/core`, and the renderer talks only to a
 typed `OmpBackend` interface (Electron IPC locally, WebSocket remotely).
 Rationale and consequences: [ADR-0002](docs/adr/0002-transport-agnostic-core.md).
 
+## Provider keys
+
+omp reads API credentials from environment variables, and a desktop launch (a
+`.desktop` entry, an AppImage, a dock icon) inherits the session manager's
+environment — never your `~/.zshrc`. Left alone, omp starts with no credentials
+and its model catalog collapses to whatever needs no auth, which looks exactly
+like "my provider disappeared".
+
+**Settings → Providers** fixes that from either end:
+
+- **Nothing to do in the common case.** At launch omp-ui asks your login shell
+  which provider variables it exports and adopts them, so keys already in your
+  shell profile just work.
+- **Or paste a key.** Each provider row takes its credential directly, stored
+  encrypted by your OS credential store (`gnome_libsecret`/`kwallet`). Where no
+  keyring exists the write is refused rather than writing a decodable secret to
+  disk. Keys never come back over IPC — the page shows a masked tail and where
+  the value came from.
+- **A project `.env` is shown but left alone**, because omp loads `.env` and
+  `.env.local` itself.
+
+Keys bind when omp starts, so a new key applies to the next session spawn.
+Rationale and threat model:
+[ADR-0010](docs/adr/0010-provider-credentials-supplied-to-every-spawn.md).
+
 ## Distribution
 
 Releases are **Linux-only** (the dev machine is Fedora) and tag-driven: pushing

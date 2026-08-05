@@ -26,6 +26,7 @@ import {
   resolveMcpServers,
   resolveProjectPath,
   setMcpServerEnabled,
+  ProviderKeys,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
@@ -51,6 +52,7 @@ import {
   type OmpSettingValue,
   type OwnedSessionRecord,
   type ProjectGroup,
+  type ProviderKeysSnapshot,
   type PtyHandle,
   type RemoteBind,
   type SessionMode,
@@ -62,6 +64,7 @@ import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
 import { CH } from "./channels";
+import { electronKeyCipher } from "./key-cipher";
 
 interface LiveEntry {
   kind: SessionMode;
@@ -116,6 +119,12 @@ export class MainBackend {
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
+  /**
+   * Provider credentials for every omp launch. Constructed before any spawn
+   * path can run and applied immediately, so even the first session sees the
+   * stored keys; the login-shell capture is awaited separately at boot.
+   */
+  private readonly providerKeys: ProviderKeys;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -127,9 +136,19 @@ export class MainBackend {
       appUpdateEnv?: NodeJS.ProcessEnv;
       /** Directory holding the built browser bundle for remote clients (out/web). */
       webRoot?: string;
+      /** Where provider credentials are stored; defaults beside the registry. */
+      providerKeysFile?: string;
     } = {},
   ) {
     this.registry = Registry.load(registryFile);
+    // Applied in the constructor, not at boot: spawn() must never be reachable
+    // with a keyless environment, and the login-shell capture (boot, async) only
+    // ever adds to what is already installed here.
+    this.providerKeys = new ProviderKeys(
+      opts.providerKeysFile ?? path.join(path.dirname(registryFile), "provider-keys.json"),
+      electronKeyCipher(),
+    );
+    this.providerKeys.applyToProcessEnv();
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
     this.addSink((channel, args) => {
@@ -294,6 +313,17 @@ export class MainBackend {
           readOmpSettings({ ompPath: this.ompPath, projectCwd }),
         [CH.ompSettingsWrite]: (key: string, value: OmpSettingValue) =>
           writeOmpSetting({ ompPath: this.ompPath, key, value }),
+        // Each write answers with the refreshed snapshot in the same round trip,
+        // so the page never has to guess what the store now holds.
+        [CH.providerKeysRead]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),
+        [CH.providerKeysSet]: (envName: string, value: string) => {
+          this.providerKeys.setKey(envName, value);
+          return this.providerSnapshot(null);
+        },
+        [CH.providerKeysClear]: (envName: string) => {
+          this.providerKeys.clearKey(envName);
+          return this.providerSnapshot(null);
+        },
         [CH.windowSetChrome]: (background: string, symbol: string) => {
           if (this.win.isDestroyed()) return;
           try {
@@ -401,6 +431,27 @@ export class MainBackend {
   async hydrateAll(): Promise<void> {
     for (const record of this.registry.sessions) this.startWatcher(record);
     await this.broadcast();
+  }
+
+  private providerSnapshot(projectCwd: string | null): ProviderKeysSnapshot {
+    return {
+      providers: this.providerKeys.statuses(projectCwd),
+      encryptionAvailable: this.providerKeys.encryptionAvailable,
+      backend: this.providerKeys.backend,
+    };
+  }
+
+  /**
+   * Recovers provider credentials the user exported from their shell rc, which a
+   * .desktop/AppImage/dock launch never inherits — without this, omp starts with
+   * no keys and its model catalog collapses to the providers needing none.
+   *
+   * Awaited at boot before the window can spawn a session; bounded to a few
+   * seconds inside the capture, and a failure just leaves the environment as it
+   * was, so a slow or hostile rc file cannot block startup.
+   */
+  captureShellKeys(): Promise<void> {
+    return this.providerKeys.captureLoginShell();
   }
 
   /** Brings the embedded remote server in line with persisted settings. Called once at launch. */

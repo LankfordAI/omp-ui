@@ -3,11 +3,19 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The real MainBackend imports electron; stub the three surfaces it touches.
+// The real MainBackend imports electron; stub the surfaces it touches. The
+// safeStorage stub is reversible rather than absent so the provider-key store is
+// genuinely constructible — it holds no keys here, so nothing is written.
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
 vi.mock("electron", () => ({
   app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => os.tmpdir() },
   dialog: { showOpenDialog: vi.fn() },
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => "test_stub",
+    encryptString: (s: string) => Buffer.from(`enc:${s}`, "utf8"),
+    decryptString: (b: Buffer) => b.toString("utf8").replace(/^enc:/, ""),
+  },
   ipcMain: {
     handle: (ch: string, fn: (e: unknown, ...args: unknown[]) => unknown) => handlers.set(ch, fn),
     on: () => {},

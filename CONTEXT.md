@@ -180,13 +180,23 @@ card on top.
 _Avoid_: toast, notification, popup, updater dialog
 
 **Settings surface**:
-The modal with five pages — General, Appearance, Updates, omp, About — reached
-from the sidebar gear, the command palette, or `mod+,`. Deliberately not a tab:
-preferences are not sessions, so they stay out of the tab/lineage model
-entirely. omp-ui's own preferences persist in the registry; the omp page is a
-view onto omp's own config, written through `omp config set` to the global
-layer only, with each value's layer shown.
+The modal with seven pages — General, Appearance, Updates, Remote access,
+Providers, omp, About — reached from the sidebar gear, the command palette, or
+`mod+,`. Deliberately not a tab: preferences are not sessions, so they stay out
+of the tab/lineage model entirely. omp-ui's own preferences persist in the
+registry; the omp page is a view onto omp's own config, written through
+`omp config set` to the global layer only, with each value's layer shown.
 _Avoid_: preferences dialog, options window, config panel
+
+**Provider key**:
+One API credential omp-ui supplies to every omp it launches, named by the
+environment variable omp reads for it (`OPENROUTER_API_KEY`, …). Resolved from
+four sources in priority order — stored in-app, inherited from the environment,
+captured from the user's login shell, or reported from a project `.env` that omp
+loads itself — because a `.desktop`/AppImage launch inherits no shell exports and
+leaves omp with no catalog at all (ADR-0010). Stored keys are encrypted by the OS
+credential store; the renderer only ever sees a masked tail.
+_Avoid_: secret, token, API config, credential vault
 
 **Theme**:
 A curated token set covering all three consumers of the palette at once — the

@@ -10,6 +10,12 @@ const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
 vi.mock("electron", () => ({
   app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => os.tmpdir() },
   dialog: { showOpenDialog: vi.fn() },
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => "test_stub",
+    encryptString: (s: string) => Buffer.from(`enc:${s}`, "utf8"),
+    decryptString: (b: Buffer) => b.toString("utf8").replace(/^enc:/, ""),
+  },
   ipcMain: {
     handle: (ch: string, fn: (e: unknown, ...args: unknown[]) => unknown) => handlers.set(ch, fn),
     on: (ch: string, fn: (e: unknown, ...args: unknown[]) => unknown) => handlers.set(ch, fn),

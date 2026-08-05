@@ -42,17 +42,23 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const setModel = useStore((s) => s.setModel);
+  const openSettings = useStore((s) => s.openSettings);
   const [open, setOpen] = useState(false);
 
-  // `get_available_models` can fail; the current model id is still worth showing.
+  // Either `get_available_models` failed, or omp has no authenticated provider
+  // at all — the common cause of the latter is a GUI launch that inherited no
+  // API keys, so this doubles as the entry point to the providers page.
   if (models.length === 0) {
     return (
-      <span
-        className="flex items-center px-1.5 font-mono text-[11px] text-ink-mid"
-        title={model?.id}
+      <button
+        type="button"
+        disabled={disabled}
+        title={model?.id ?? "no models available — add a provider key"}
+        onClick={() => openSettings("providers")}
+        className="flex items-center px-1.5 font-mono text-[11px] text-ink-mid hover:text-ink"
       >
-        {model === null ? "no model" : model.id}
-      </span>
+        {model === null ? "no models" : model.id}
+      </button>
     );
   }
 
@@ -99,6 +105,7 @@ function ModelPalette({
 }) {
   const favoriteKeys = useStore((s) => s.state?.modelFavorites ?? EMPTY_FAVORITES);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
+  const openSettings = useStore((s) => s.openSettings);
   const favorites = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
 
   const [query, setQuery] = useState("");
@@ -317,6 +324,18 @@ function ModelPalette({
             <span>esc close</span>
             <span>ctrl+[ ] tabs</span>
             <span className="flex-1" />
+            {/* The one place a missing provider is actually noticed — the fix is
+                a click away rather than a support thread. */}
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                openSettings("providers");
+              }}
+              className="text-ink-faint underline decoration-dotted hover:text-ink-mid"
+            >
+              provider keys
+            </button>
             <span>prices are USD per Mtok</span>
           </div>
         </div>
