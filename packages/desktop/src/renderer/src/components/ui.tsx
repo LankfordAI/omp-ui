@@ -122,6 +122,51 @@ export function IconButton({
   );
 }
 
+/**
+ * Paperclip trigger for a hidden `<input type="file" accept="image/*">` owned
+ * by the caller: this is pure presentation, the picker wiring (click the
+ * input, clear `input.value`, read the files) stays with the draft path using
+ * it. `compact` grows the hit target to 44px for touch shells.
+ */
+export function AttachmentButton({
+  compact = false,
+  disabled,
+  onClick,
+}: {
+  compact?: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      tone="neutral"
+      disabled={disabled}
+      title="attach images"
+      onClick={onClick}
+      className={compact
+        ? "h-11 min-h-11 w-11 min-w-11 justify-center p-0"
+        : "size-6 justify-center p-0"}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.4}
+        aria-hidden
+        className="size-3.5"
+      >
+        <path
+          d="m5.1 8.8 4.5-4.5a2.1 2.1 0 0 1 3 3l-5.7 5.6a3.4 3.4 0 0 1-4.8-4.8l5.6-5.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="sr-only">attach images</span>
+    </Button>
+  );
+}
+
 /* -------------------------------------------------------------------- Chip */
 
 export function Chip({

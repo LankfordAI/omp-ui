@@ -1,12 +1,12 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import type { ImageAttachment } from "@omp-ui/core/types";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
-import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
+import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import type { PlanExecutionContext } from "../lib/plan-concerns";
 import { findRecord, useStore } from "../store";
 import { Markdown } from "./Markdown";
-import { Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";
+import { AttachmentButton, Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
@@ -73,6 +73,9 @@ export function PlanReview({ tabId }: { tabId: string }) {
     );
     return other ? (findRecord(s.state, other.tabId)?.title ?? "a session") : null;
   });
+
+  /** The paperclip's hidden file input; picked images ride the same draft path as paste. */
+  const imagePicker = useRef<HTMLInputElement>(null);
 
   const [branchChoice, setBranchChoice] = useState<"current" | "new" | "existing">("current");
   const [newName, setNewName] = useState("");
@@ -176,6 +179,18 @@ export function PlanReview({ tabId }: { tabId: string }) {
     setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
   };
 
+  /** Adds picker-selected Attachments through the same draft path as paste. */
+  const pickImages = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    // Clear before reading, including rejected selections, so selecting the
+    // same file again always produces another change event.
+    input.value = "";
+    const { images: picked, rejected } = await readImageFiles(files);
+    if (picked.length > 0) setImages((prev) => [...prev, ...picked]);
+    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter in the notes box submits the refinement — the box feeds the
     // planner, so hitting Enter mid-change should send them, never execute
@@ -219,7 +234,10 @@ export function PlanReview({ tabId }: { tabId: string }) {
                   <Label>send it back</Label>
                   <p className="mt-1 text-xs text-ink-dim">Describe what the planner should revise.</p>
                 </div>
-                <span className="shrink-0 text-[10px] text-ink-faint">Enter to refine · Shift+Enter for a line break</span>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[10px] text-ink-faint">Enter to refine · Shift+Enter for a line break</span>
+                  <AttachmentButton disabled={false} onClick={() => imagePicker.current?.click()} />
+                </div>
               </div>
               <div className="mt-2 rounded-lg border border-line bg-raised focus-within:border-line-strong">
                 {images.length > 0 && (
@@ -254,12 +272,22 @@ export function PlanReview({ tabId }: { tabId: string }) {
                 <textarea
                   rows={3}
                   value={changes}
-                  placeholder="What should change before implementation? Paste an image to attach it."
+                  placeholder="What should change before implementation?"
                   spellCheck={false}
                   onChange={(e) => setChanges(e.target.value)}
                   onKeyDown={onKeyDown}
                   onPaste={(e) => void onPaste(e)}
                   className="block w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
+                />
+                <input
+                  ref={imagePicker}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  tabIndex={-1}
+                  aria-hidden
+                  className="sr-only"
+                  onChange={(event) => void pickImages(event)}
                 />
               </div>
               {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}
@@ -474,7 +502,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
             >
               not now
             </Button>
-            <Button onClick={refine}>refine</Button>
+            <Button onClick={() => void refine()}>refine</Button>
             <Button
               variant="solid"
               tone="signal"

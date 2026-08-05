@@ -6,6 +6,14 @@ import type { BackendState, BranchList } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import type { RpcTabState } from "../store";
 
+const clipboardImageMock = vi.hoisted(() => ({
+  hasClipboardImage: vi.fn(() => false),
+  readClipboardImages: vi.fn(),
+  readImageFiles: vi.fn(),
+}));
+
+vi.mock("../lib/clipboard-image", () => clipboardImageMock);
+
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const branches: BranchList = {
@@ -170,10 +178,33 @@ function verdictFrame(): Record<string, unknown> | undefined {
   return call?.[1] as Record<string, unknown> | undefined;
 }
 
+/** The refine notes' prompt frame, if refinePlan steered the planner. */
+function promptFrame(): Record<string, unknown> | undefined {
+  const call = backendMock.rpcSend.mock.calls.find(
+    (c) => (c[1] as Record<string, unknown>).type === "prompt",
+  );
+  return call?.[1] as Record<string, unknown> | undefined;
+}
+
+function imagePicker(): HTMLInputElement {
+  const input = document.body.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(input).not.toBeNull();
+  return input!;
+}
+
+function choose(input: HTMLInputElement, files: File[], value: string): void {
+  Object.defineProperty(input, "files", { configurable: true, value: files });
+  Object.defineProperty(input, "value", { configurable: true, writable: true, value });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.listBranches.mockResolvedValue(branches);
   backendMock.suggestBranchName.mockResolvedValue(null);
+  clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
+  clipboardImageMock.readClipboardImages.mockReset();
+  clipboardImageMock.readImageFiles.mockReset().mockResolvedValue({ images: [], rejected: [] });
   seed();
 });
 
@@ -308,5 +339,125 @@ describe("PlanReview git branch section (issue #25)", () => {
     expect(verdictFrame()).toBeUndefined();
     expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
     expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(true);
+  });
+});
+
+const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" };
+const IMAGE_TWO = { type: "image" as const, data: "two", mimeType: "image/jpeg" };
+
+describe("PlanReview refine attachment picker (issue #65)", () => {
+  it("offers a paperclip that opens a multi-image picker", () => {
+    render();
+    const input = imagePicker();
+    const button = document.body.querySelector<HTMLButtonElement>('button[title="attach images"]')!;
+    const click = vi.spyOn(input, "click");
+
+    expect(button).not.toBeNull();
+    expect(input.accept).toBe("image/*");
+    expect(input.multiple).toBe(true);
+    expect(input.classList.contains("sr-only")).toBe(true);
+    act(() => button.click());
+    expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("drops the paste tail from the refine placeholder", () => {
+    render();
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(textarea.placeholder).toBe("What should change before implementation?");
+  });
+
+  it("adds picked files to the thumbnail strip and removes one", async () => {
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({
+      images: [IMAGE_ONE, IMAGE_TWO],
+      rejected: [],
+    });
+    render();
+    const first = new File(["one"], "one.png", { type: "image/png" });
+    const second = new File(["two"], "two.jpg", { type: "image/jpeg" });
+
+    await act(async () => {
+      choose(imagePicker(), [first, second], "chosen-images");
+      await Promise.resolve();
+    });
+
+    expect(clipboardImageMock.readImageFiles).toHaveBeenCalledWith([first, second]);
+    expect(document.body.querySelectorAll('img[alt^="change note "]')).toHaveLength(2);
+    expect(document.body.textContent).toContain("2 attachments");
+
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>('button[aria-label="remove change note 1"]')!
+        .click();
+    });
+    expect(document.body.querySelectorAll('img[alt^="change note "]')).toHaveLength(1);
+    expect(document.body.textContent).toContain("1 attachment");
+  });
+
+  it("resets the input immediately so the same file can be picked again", async () => {
+    clipboardImageMock.readImageFiles
+      .mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] })
+      .mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
+    render();
+    const input = imagePicker();
+    const file = new File(["one"], "one.png", { type: "image/png" });
+
+    await act(async () => {
+      choose(input, [file], "first-selection");
+      expect(input.value).toBe("");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      choose(input, [file], "same-file-selection");
+      expect(input.value).toBe("");
+      await Promise.resolve();
+    });
+
+    expect(clipboardImageMock.readImageFiles).toHaveBeenNthCalledWith(1, [file]);
+    expect(clipboardImageMock.readImageFiles).toHaveBeenNthCalledWith(2, [file]);
+    expect(document.body.querySelectorAll('img[alt^="change note "]')).toHaveLength(2);
+  });
+
+  it("surfaces picker rejections as the paste error", async () => {
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({
+      images: [],
+      rejected: ["broken.png could not be read"],
+    });
+    render();
+    const broken = new File(["broken"], "broken.png", { type: "image/png" });
+
+    await act(async () => {
+      choose(imagePicker(), [broken], "rejected-selection");
+      await Promise.resolve();
+    });
+
+    expect(imagePicker().value).toBe("");
+    expect(document.body.textContent).toContain("broken.png could not be read");
+    expect(document.body.querySelectorAll('img[alt^="change note "]')).toHaveLength(0);
+  });
+
+  it("sends picked images with the refine verdict", async () => {
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({
+      images: [IMAGE_ONE],
+      rejected: [],
+    });
+    render();
+    const file = new File(["one"], "one.png", { type: "image/png" });
+
+    await act(async () => {
+      choose(imagePicker(), [file], "chosen-image");
+      await Promise.resolve();
+    });
+    // Flush beyond the click: sendPrompt awaits runCommand before its rpcSend lands.
+    await act(async () => {
+      buttonByText("refine").click();
+      await Promise.resolve();
+    });
+
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "refine" });
+    expect(promptFrame()).toMatchObject({
+      type: "prompt",
+      message: "Revise the plan per the attached change notes.",
+      images: [IMAGE_ONE],
+    });
   });
 });
