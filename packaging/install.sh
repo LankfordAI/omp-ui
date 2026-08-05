@@ -15,7 +15,7 @@ DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 APPLICATIONS_DIR="$DATA_HOME/applications"
 DESKTOP_FILE="$APPLICATIONS_DIR/$APP_ID.desktop"
 HICOLOR_DIR="$DATA_HOME/icons/hicolor"
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omp-ui"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/@omp-ui/desktop"
 
 WORKDIR=""
 cleanup() {
@@ -48,8 +48,8 @@ options:
   --version <vX.Y.Z>  install a specific release (default: latest)
   --binary <path>     install a local AppImage instead of downloading
   --uninstall         remove the AppImage, desktop entry, and icons;
-                      preserves user data in ~/.config/omp-ui
-  --purge             with --uninstall, also remove ~/.config/omp-ui
+                      preserves user data in ~/.config/@omp-ui/desktop
+  --purge             with --uninstall, also remove ~/.config/@omp-ui/desktop
   --help              show this help and exit
 EOF
 }
