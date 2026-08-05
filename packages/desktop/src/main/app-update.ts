@@ -29,6 +29,7 @@ import {
 /** The slice of electron-updater's AppUpdater this flow uses (6.8.9 API). */
 export interface AutoUpdaterLike {
   autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
   on(event: "download-progress", cb: (p: { percent: number }) => void): void;
   on(event: "update-downloaded", cb: (info: { version: string }) => void): void;
   on(event: "error", cb: (err: Error) => void): void;
@@ -156,6 +157,9 @@ export class AppUpdater {
       const autoUpdater = this.autoUpdater;
       // Never download without the explicit click that got us here.
       autoUpdater.autoDownload = false;
+      // An ordinary quit must never silently install a downloaded update
+      // (ADR-0011); install happens only via the card's "Restart now".
+      autoUpdater.autoInstallOnAppQuit = false;
       if (!this.autoUpdaterHooked) {
         this.autoUpdaterHooked = true; // a second download() must not double-register
         autoUpdater.on("download-progress", (p) => {

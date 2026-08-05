@@ -329,6 +329,7 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
   const listeners = new Map<string, ((arg: unknown) => void)[]>();
   return {
     autoDownload: true,
+    autoInstallOnAppQuit: true,
     on(event: string, cb: (arg: unknown) => void) {
       listeners.set(event, [...(listeners.get(event) ?? []), cb]);
     },
@@ -362,6 +363,7 @@ describe("AppUpdater AppImage path", () => {
 
     await updater.download();
     expect(autoUpdater.autoDownload).toBe(false);
+    expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
     expect(autoUpdater.checkForUpdates).toHaveBeenCalled();
     expect(autoUpdater.downloadUpdate).toHaveBeenCalled();
 
