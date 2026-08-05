@@ -291,4 +291,22 @@ describe("PlanReview git branch section (issue #25)", () => {
     });
     expect(newNameInput().value).toBe("my-branch");
   });
+
+  it.each(["close", "Escape", "scrim", "not now"])("defers from compact %s without a verdict", async (route) => {
+    render();
+    await act(async () => {
+      if (route === "close") {
+        document.body.querySelector<HTMLButtonElement>('button[aria-label="close dialog"]')!.click();
+      } else if (route === "Escape") {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      } else if (route === "scrim") {
+        document.body.querySelector<HTMLElement>("[data-overlay-root]")!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      } else {
+        buttonByText("not now").click();
+      }
+    });
+    expect(verdictFrame()).toBeUndefined();
+    expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
+    expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(true);
+  });
 });

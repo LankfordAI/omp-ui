@@ -132,6 +132,13 @@
   }
 }
 
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
+
 @layer base {
   * {
     /* Frameless dark chrome: the default focus ring is a white halo. */
@@ -141,7 +148,7 @@
   html,
   body,
   #root {
-    height: 100%;
+    height: var(--app-viewport-height, 100dvh);
   }
 
   body {
@@ -223,4 +230,77 @@
 
 @utility text-balance-tight {
   text-wrap: balance;
+}
+
+
+@media (max-width: 899px) {
+  .compact-modal-fullscreen {
+    width: 100vw !important;
+    max-width: none !important;
+    height: var(--app-viewport-height, 100dvh) !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    border-left: 0;
+    border-right: 0;
+    padding-top: var(--safe-top);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+  }
+  .compact-modal-dialog {
+    max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 2rem) !important;
+    max-height: calc(var(--app-viewport-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 2rem) !important;
+  }
+  .compact-modal-close { display: grid !important; }
+  .compact-welcome-hints { display: none; }
+  .compact-composer {
+    padding: 0.5rem max(0.5rem, var(--safe-right)) max(0.5rem, var(--safe-bottom)) max(0.5rem, var(--safe-left));
+  }
+  .compact-composer-text { font-size: 16px !important; }
+  .terminal-tab {
+    padding-top: max(0.5rem, var(--safe-top));
+    padding-right: max(0.5rem, var(--safe-right));
+    padding-bottom: max(0.5rem, var(--safe-bottom));
+    padding-left: max(0.5rem, var(--safe-left));
+  }
+  .compact-lifecycle-visible { opacity: 1 !important; }
+  .model-palette { flex-direction: column; height: 100%; max-height: none !important; }
+  .model-provider-rail {
+    width: 100% !important;
+    flex-direction: row !important;
+    overflow-x: auto;
+    overflow-y: hidden !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .model-provider-rail > button { min-width: 44px; min-height: 44px; border-right: 0 !important; }
+  .plan-review { height: 100%; max-height: none !important; }
+  .plan-review-header { position: sticky; top: 0; z-index: 10; background: var(--color-overlay); padding-right: 3.5rem; }
+  .plan-review-actions { position: sticky; bottom: 0; z-index: 10; flex-direction: column; align-items: stretch; background: var(--color-overlay); padding-bottom: max(0.75rem, var(--safe-bottom)); }
+  .plan-review-actions > div { flex-wrap: wrap; justify-content: flex-end; }
+  .settings-surface { display: flex; height: 100%; flex-direction: column; }
+  .settings-header { position: sticky; top: 0; z-index: 10; flex-shrink: 0; background: var(--color-overlay); padding-right: 3.5rem; }
+  .settings-layout { min-height: 0; flex: 1; flex-direction: column; }
+  .settings-nav { display: flex; width: 100% !important; flex-shrink: 0; overflow-x: auto; border-right: 0 !important; border-bottom: 1px solid var(--color-line); }
+  .settings-nav > button { width: auto !important; min-width: max-content; min-height: 44px; }
+  .settings-body { max-height: none !important; min-height: 0; flex: 1; }
+  .transcript-scroll { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+}
+
+@media (max-width: 899px) and (orientation: landscape) {
+  .console-drawer-body { height: min(18rem, 42dvh) !important; }
+}
+
+@media (any-pointer: coarse) {
+  button, [role="button"], [role="menuitem"], [role="switch"] { min-height: 44px; min-width: 44px; }
+  button:active, [role="button"]:active { background-color: var(--color-hover); }
+}
+
+@media (hover: none) {
+  .group\/row button, .group\/att button, .compact-lifecycle-visible, .console-drawer-controls { opacity: 1 !important; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-line-strong);
+  outline-offset: 2px;
 }

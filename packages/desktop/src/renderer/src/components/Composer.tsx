@@ -11,6 +11,7 @@ import {
 import type { ImageAttachment } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { useCompactShell } from "../lib/responsive";
 import { hasClipboardImage, readClipboardImages } from "../lib/clipboard-image";
 import {
   keywordColors,
@@ -27,7 +28,7 @@ import { ConsoleToggle } from "./ConsoleDrawer";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
-import { Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep } from "./ui";
+import { Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep, Sheet } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -55,6 +56,11 @@ export function Composer({ tabId }: { tabId: string }) {
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
   const dead = useStore((s) => s.exited[tabId] !== undefined);
+  const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
+  const compact = useCompactShell();
+  const compactSurface = useStore((s) => s.compactSurface);
+  const showCompactSurface = useStore((s) => s.showCompactSurface);
+  const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
 
   const sendPrompt = useStore((s) => s.sendPrompt);
@@ -99,6 +105,7 @@ export function Composer({ tabId }: { tabId: string }) {
   const [phase, setPhase] = useState(0);
 
   const box = useRef<HTMLTextAreaElement | null>(null);
+  const composer = useRef<HTMLDivElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
   const effortAnchor = useRef<HTMLSpanElement | null>(null);
@@ -204,12 +211,13 @@ export function Composer({ tabId }: { tabId: string }) {
     // owes the border, which is exactly what offset/client differ by.
     const border = el.offsetHeight - el.clientHeight;
     const wanted = el.scrollHeight + border;
-    const max = line * MAX_ROWS + padding + border;
+    const desktopMax = line * MAX_ROWS + padding + border;
+    const max = compact ? Math.min(desktopMax, (window.visualViewport?.height ?? window.innerHeight) * 0.35) : desktopMax;
     el.style.height = `${Math.min(wanted, max)}px`;
     el.style.overflowY = wanted > max ? "auto" : "hidden";
     // Resizing fires no scroll event, so the mirror has to be told.
     if (mirror.current !== null) mirror.current.scrollTop = el.scrollTop;
-  }, [text]);
+  }, [text, compact]);
 
   // The shimmer runs only while focused with a keyword on screen, matching omp's
   // editor; everything else shows the static phase-0 palette.
@@ -245,6 +253,17 @@ export function Composer({ tabId }: { tabId: string }) {
     return () => window.removeEventListener("pointerdown", dismiss);
   }, [effortMenu]);
 
+  useEffect(() => {
+    if (!paletteOpen && !mentionOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && composer.current?.contains(event.target)) return;
+      setDismissedFor(commandWord);
+      setMentionDismissedFor(mentionKey);
+    };
+    window.addEventListener("pointerdown", dismiss);
+    return () => window.removeEventListener("pointerdown", dismiss);
+  }, [paletteOpen, mentionOpen, commandWord, mentionKey]);
+
   const submit = useCallback(
     async (route: PromptRoute | "interrupt") => {
       let message = text.trim();
@@ -269,7 +288,7 @@ export function Composer({ tabId }: { tabId: string }) {
       // holding them back would be worse, since the draft is already cleared.
       if (message.startsWith("/")) {
         void runSlashCommand(tabId, message);
-        box.current?.focus();
+        box.current?.focus({ preventScroll: true });
         return;
       }
 
@@ -293,7 +312,7 @@ export function Composer({ tabId }: { tabId: string }) {
       } else {
         void sendPrompt(tabId, message, route, payload);
       }
-      box.current?.focus();
+      box.current?.focus({ preventScroll: true });
     },
     [
       text,
@@ -333,13 +352,13 @@ export function Composer({ tabId }: { tabId: string }) {
         setText(`/${name} `);
         // The line is already the pick; re-listing it would just cover the box.
         setDismissedFor(name.split(/\s/, 1)[0]);
-        box.current?.focus();
+        box.current?.focus({ preventScroll: true });
         return;
       }
       setText("");
       setDismissedFor(null);
       void runSlashCommand(tabId, `/${name}`);
-      box.current?.focus();
+      box.current?.focus({ preventScroll: true });
     },
     [tabId, runSlashCommand],
   );
@@ -354,7 +373,7 @@ export function Composer({ tabId }: { tabId: string }) {
       setMentionDismissedFor(null);
       // The DOM caret lags the state write by a commit; restore it explicitly.
       requestAnimationFrame(() => box.current?.setSelectionRange(next.caret, next.caret));
-      box.current?.focus();
+      box.current?.focus({ preventScroll: true });
     },
     [text, caret, atQuery],
   );
@@ -413,7 +432,7 @@ export function Composer({ tabId }: { tabId: string }) {
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
-    <div className="ambient relative shrink-0 border-t border-line bg-sunken px-4 py-3">
+    <div ref={composer} className="ambient relative shrink-0 border-t border-line bg-sunken px-4 py-3 compact-composer">
       {busy && (
         <div className="absolute inset-x-0 -top-px">
           <ProgressSweep tone={running ? "copper" : "signal"} />
@@ -505,7 +524,7 @@ export function Composer({ tabId }: { tabId: string }) {
               aria-hidden
               className={cn(
                 "pointer-events-none absolute inset-0 overflow-hidden",
-                "whitespace-pre-wrap break-words px-3 py-2 text-sm leading-relaxed text-ink",
+                "whitespace-pre-wrap break-words px-3 py-2 text-sm leading-relaxed text-ink compact-composer-text",
                 isSlash ? "font-mono" : "font-sans",
               )}
             >
@@ -548,7 +567,7 @@ export function Composer({ tabId }: { tabId: string }) {
               }}
               className={cn(
                 "relative block w-full resize-none bg-transparent px-3 py-2 outline-none",
-                "text-sm leading-relaxed placeholder:text-ink-faint",
+                "text-sm leading-relaxed placeholder:text-ink-faint compact-composer-text",
                 // Transparent glyphs over the mirror; the selection tint must stay
                 // translucent or it paints the highlighted text out.
                 "text-transparent caret-ink selection:bg-iris-dim/40 selection:text-transparent",
@@ -557,6 +576,7 @@ export function Composer({ tabId }: { tabId: string }) {
             />
           </div>
 
+          {!compact && (
           <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
             <Capsule className="min-w-0">
               <ModelSelector tabId={tabId} disabled={dead} />
@@ -688,8 +708,33 @@ export function Composer({ tabId }: { tabId: string }) {
               </Button>
             )}
           </div>
+          )}
+          {compact && (
+            <div className="flex min-h-11 items-center gap-2 px-2 pb-1.5">
+              <Button variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => showCompactSurface("composer-options")}>
+                prompt options · <span className="truncate font-mono">{currentModel?.name || currentModel?.id || "no model"}</span>
+              </Button>
+              {running ? (
+                <>
+                  <Button tone="copper" disabled={!canSend} onClick={() => submit("steer")}>{isSlash ? "Run" : "Steer"}</Button>
+                  <Button tone="rose" variant="ghost" onClick={() => void abortAgent(tabId)}>Abort</Button>
+                </>
+              ) : (
+                <Button variant="solid" disabled={!canSend} onClick={() => submit("prompt")}>{isSlash ? "Run" : "Send"}</Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
+      <Sheet open={compactSurface === "composer-options"} placement="bottom" label="prompt options" onClose={closeCompactSurface}>
+        <div className="space-y-3 p-3">
+          <div><Label>model</Label><div className="mt-1 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div></div>
+          <div><Label>thinking level</Label><div className="mt-1 flex flex-wrap gap-2">{efforts.length > 0 ? efforts.map((effort) => <Button key={effort} variant={effort === thinkingLevel ? "solid" : "outline"} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)}>{effort}</Button>) : <span className="text-xs text-ink-faint">no thinking levels available</span>}</div></div>
+          <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
+          <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} /><ConsoleToggle tabId={tabId} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
+          {running && <div className="grid grid-cols-2 gap-2"><Button disabled={!canSend} onClick={() => submit("follow_up")}>Queue</Button><Button disabled={!canSend} onClick={() => submit("interrupt")}>Interrupt-and-send</Button></div>}
+        </div>
+      </Sheet>
 
       {error !== null && (
         <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-rose">

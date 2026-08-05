@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { useStore } from "../store";
-import { Chip, Empty, Modal } from "./ui";
+import { Button, Chip, Empty, Modal } from "./ui";
 
 /**
  * In-app, keyboard-driven directory picker for "Add project" (issue #16).
@@ -25,6 +26,8 @@ type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry };
 export function ProjectPicker() {
   const closeProjectPicker = useStore((s) => s.closeProjectPicker);
   const addProject = useStore((s) => s.addProject);
+  const newSession = useStore((s) => s.newSession);
+  const compact = useCompactShell();
 
   const [query, setQuery] = useState("~/");
   const [entries, setEntries] = useState<DirBrowseEntry[]>([]);
@@ -83,13 +86,15 @@ export function ProjectPicker() {
   };
 
   const submit = (path: string): void => {
-    // Store closes the picker on success; on rejection we render the message
-    // inline and stay open. ipcRenderer.invoke wraps main-process errors in
-    // "Error invoking remote method '…': Error: <msg>" — unwrap for display.
-    addProject(path).catch((err: unknown) => {
-      const raw = err instanceof Error ? err.message : String(err);
-      setSubmitError(raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ""));
-    });
+    // Store closes the picker on success; compact registration continues into
+    // a live session because a newly tracked project otherwise leaves a phone
+    // at an empty shell. Desktop keeps registration and creation separate.
+    void addProject(path)
+      .then(() => (compact ? newSession(path) : undefined))
+      .catch((err: unknown) => {
+        const raw = err instanceof Error ? err.message : String(err);
+        setSubmitError(raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ""));
+      });
   };
 
   const move = (delta: number): void => {
@@ -145,7 +150,7 @@ export function ProjectPicker() {
           onKeyDown={onKeyDown}
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
         />
-        <Chip mono>{formatHotkey("escape")}</Chip>
+        {!compact && <Chip mono>{formatHotkey("escape")}</Chip>}
       </div>
 
       <div className="max-h-[24rem] overflow-y-auto py-1.5">
@@ -197,14 +202,14 @@ export function ProjectPicker() {
       )}
 
       <div className="border-t border-line px-3.5 py-2">
-        <p className="mb-1.5 truncate text-[11px] text-ink-dim">
-          will add: <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
-        </p>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-faint">
-          <span className="font-mono">
-            {formatHotkey("arrowup")}
-            {formatHotkey("arrowdown")}
-          </span>
+        <div className="flex items-center gap-3">
+          <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
+            will add: <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
+          </p>
+          <Button variant="solid" disabled={!resolvedPath || browseError !== null} onClick={() => submit(resolvedPath)}>Add project</Button>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-faint">
+          <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
           <span>navigate</span>
           <span className="font-mono">{formatHotkey("enter")}</span>
           <span>open/add</span>

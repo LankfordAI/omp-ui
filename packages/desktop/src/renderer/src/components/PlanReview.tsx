@@ -188,8 +188,8 @@ export function PlanReview({ tabId }: { tabId: string }) {
 
   return (
     <Modal onClose={dismiss} width="w-[56rem]">
-      <div className="flex max-h-[80vh] flex-col">
-        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3">
+      <div className="plan-review flex max-h-[80vh] flex-col">
+        <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3">
           <div className="min-w-0">
             <Label>plan review</Label>
             <h2 className="mt-1 truncate text-sm text-ink" title={request.title}>
@@ -419,7 +419,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
           </div>
         )}
 
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
+        <footer className="plan-review-actions flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">
             The agent is waiting. Executing restores write access and starts implementation;
             "not now" leaves the plan pending in the plans tab.

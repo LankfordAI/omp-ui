@@ -364,7 +364,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
           }
           // Downward scroll not yet at the bottom: leave the mode unchanged.
         }}
-        className="h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
+        className="transcript-scroll h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
       >
         <div
           ref={contentRef}

@@ -136,7 +136,7 @@ export function MentionPalette({
   }
 
   return (
-    <div className={cn(shell, "max-h-72 overflow-y-auto py-1")}>
+    <div className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] overflow-y-auto py-1")}>
       {rows.map((row, i) => (
         <button
           key={row.path}

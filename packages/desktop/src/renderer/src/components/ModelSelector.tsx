@@ -201,7 +201,7 @@ function ModelPalette({
 
   return (
     <Modal onClose={onClose} width="w-[40rem]">
-      <div className="flex max-h-[70vh]">
+      <div className="model-palette flex max-h-[70vh]">
         <ModelRail activeTab={tab} onTabChange={setTab} providers={providers} />
         <div className="min-w-0 flex flex-1 flex-col">
           {/* Search bar */}

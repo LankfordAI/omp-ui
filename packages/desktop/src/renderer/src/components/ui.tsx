@@ -311,44 +311,162 @@ export function ProgressSweep({ tone = "signal" }: { tone?: Tone }) {
 
 /* ----------------------------------------------------------------- Overlay */
 
-/**
- * Scrim + centred card. Escape and scrim-click both cancel.
- *
- * Portalled to `document.body` and positioned `fixed`: mounted inline it would
- * clip to the nearest positioned ancestor, so a modal opened from inside a
- * toolbar collapsed to that toolbar's height.
- */
+const overlayStack: symbol[] = [];
+let lockedOverlays = 0;
+let previousBodyOverflow = "";
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function useOverlay(open: boolean, onClose?: () => void) {
+  const root = useRef<HTMLDivElement>(null);
+  const token = useRef(Symbol("overlay"));
+  const trigger = useRef<HTMLElement | null>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const id = token.current;
+    overlayStack.push(id);
+    if (lockedOverlays++ === 0) {
+      previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      document.getElementById("root")?.setAttribute("inert", "");
+    }
+
+    const frame = requestAnimationFrame(() => {
+      const host = root.current;
+      const initial = host?.querySelector<HTMLElement>("[data-modal-initial-focus]");
+      (initial ?? host?.querySelector<HTMLElement>(FOCUSABLE) ?? host)?.focus();
+    });
+    const onKey = (event: KeyboardEvent) => {
+      if (overlayStack.at(-1) !== id) return;
+      if (event.key === "Escape" && close.current) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        close.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...(root.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
+      if (focusable.length === 0) {
+        event.preventDefault();
+        root.current?.focus();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKey, true);
+      const at = overlayStack.lastIndexOf(id);
+      if (at >= 0) overlayStack.splice(at, 1);
+      if (--lockedOverlays === 0) {
+        document.body.style.overflow = previousBodyOverflow;
+        document.getElementById("root")?.removeAttribute("inert");
+      }
+      trigger.current?.focus({ preventScroll: true });
+    };
+  }, [open]);
+  return root;
+}
+
+export function Sheet({
+  open,
+  placement,
+  label,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  placement: "left" | "right" | "bottom";
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const root = useOverlay(open, onClose);
+  if (!open) return null;
+  const position =
+    placement === "left"
+      ? "inset-y-0 left-0 w-[min(22rem,92vw)] border-r"
+      : placement === "right"
+        ? "inset-y-0 right-0 w-[min(22rem,92vw)] border-l"
+        : "inset-x-0 bottom-0 max-h-[min(78dvh,var(--app-viewport-height,78dvh))] border-t rounded-t-xl";
+
+  return createPortal(
+    <div data-overlay-root className="fixed inset-0 z-[60]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="pointer-events-none absolute inset-0 bg-void/65 backdrop-blur-sm" aria-hidden />
+      <section
+        ref={root}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        className={cn(
+          "ambient edge-lit animate-rise absolute flex max-h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden border-line-strong bg-sunken",
+          position,
+        )}
+      >
+        <header className="flex min-h-11 shrink-0 items-center gap-3 border-b border-line px-[max(0.75rem,var(--safe-left))] py-1.5">
+          <Label className="min-w-0 flex-1 truncate">{label}</Label>
+          <IconButton label={`close ${label}`} onClick={onClose}>
+            <span aria-hidden className="text-lg leading-none">×</span>
+          </IconButton>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[var(--safe-bottom)]">
+          {children}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+/** Shared workflow overlay. Desktop keeps caller width; compact defaults full-screen. */
 export function Modal({
   children,
   onClose,
   width = "w-[30rem]",
+  mobile = "fullscreen",
 }: {
   children: ReactNode;
   onClose?: () => void;
   width?: string;
+  mobile?: "fullscreen" | "dialog";
 }) {
-  useEffect(() => {
-    if (!onClose) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+  const root = useOverlay(true, onClose);
   return createPortal(
     <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-void/70 backdrop-blur-sm"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose?.();
-      }}
+      data-overlay-root
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-void/70 backdrop-blur-sm"
+      onPointerDown={(e) => e.target === e.currentTarget && onClose?.()}
     >
       <div
+        ref={root}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         className={cn(
-          "ambient edge-lit animate-rise max-h-[80%] overflow-hidden rounded-xl border border-line-strong bg-overlay",
+          "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-line-strong bg-overlay",
           width,
+          mobile === "fullscreen" ? "compact-modal-fullscreen" : "compact-modal-dialog",
         )}
       >
+        {onClose && (
+          <IconButton label="close dialog" onClick={onClose} className="compact-modal-close absolute right-2 top-2 z-20 hidden bg-raised">
+            <span aria-hidden className="text-lg leading-none">×</span>
+          </IconButton>
+        )}
         {children}
       </div>
     </div>,

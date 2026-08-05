@@ -15,7 +15,7 @@ export function ModelRail({
   providers: string[];
 }) {
   return (
-    <div className="flex w-16 shrink-0 flex-col overflow-y-auto border-r border-line bg-sunken py-1">
+    <div className="model-provider-rail flex w-16 shrink-0 flex-col overflow-y-auto border-r border-line bg-sunken py-1">
       {/* Favorites tab */}
       <button
         type="button"

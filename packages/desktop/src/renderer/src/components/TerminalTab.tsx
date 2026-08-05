@@ -106,12 +106,12 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
 
     const dataSub = term.onData((d) => backend.ptyWrite(tabId, d));
     const unregister = registerTermWriter(tabId, (data) => term.write(data));
-    const onResize = () => {
+    const observer = new ResizeObserver(() => {
+      if (host.clientWidth === 0 || host.clientHeight === 0) return;
       fit.fit();
       backend.ptyResize(tabId, term.cols, term.rows);
-    };
-    window.addEventListener("resize", onResize);
-
+    });
+    observer.observe(host);
     // Capture phase, on the host: xterm's hidden textarea would otherwise turn
     // an image paste into its *filename* as typed text. Text pastes are not
     // touched — xterm's own handling is what the user expects.
@@ -138,7 +138,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     return () => {
       dataSub.dispose();
       unregister();
-      window.removeEventListener("resize", onResize);
+      observer.disconnect();
       host.removeEventListener("paste", onPaste, true);
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
@@ -167,7 +167,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   }, [active, tabId]);
 
   return (
-    <div className="ambient relative h-full w-full bg-surface p-2">
+    <div className="terminal-tab ambient relative h-full w-full bg-surface p-2">
       <div ref={hostRef} className="h-full w-full" />
       {note !== null && (
         <div
