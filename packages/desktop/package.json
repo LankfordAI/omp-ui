@@ -4,6 +4,7 @@
   "private": true,
   "description": "Desktop GUI for the omp coding agent",
   "author": "Austin Lankford <austin@austinlankford.com>",
+  "license": "MIT",
   "homepage": "https://github.com/LankfordAI/omp-ui",
   "repository": {
     "type": "git",

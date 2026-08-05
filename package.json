@@ -1,6 +1,7 @@
 {
   "name": "omp-ui",
   "private": true,
+  "license": "MIT",
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "npm run dev --workspace @omp-ui/desktop",
