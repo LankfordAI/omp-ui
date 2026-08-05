@@ -91,6 +91,30 @@ describe("theme contrast", () => {
         }
       });
 
+      it("keeps the disabled-state ink tiers visible on the raised plane", () => {
+        // Disabled chrome renders on bg-raised (buttons) and friends, not on
+        // the bare surface; ink-dim is its text, ink-faint its icons.
+        const raised = theme.tokens["--color-raised"];
+        expectContrast(theme, "ink-dim on raised", theme.tokens["--color-ink-dim"], raised, 3);
+        expectContrast(theme, "ink-faint on raised", theme.tokens["--color-ink-faint"], raised, 2);
+      });
+
+      it("separates every accent wash from the raised plane (light themes)", () => {
+        // Dark planes separate by hue at low luminance distance, so the floor
+        // binds only `dark: false` palettes: a pale tint that sits within a
+        // few luminance steps of the composer surface vanishes (issue #66).
+        if (theme.dark) return;
+        for (const accent of ACCENTS) {
+          expectContrast(
+            theme,
+            `${accent}-wash off raised`,
+            theme.tokens[`--color-${accent}-wash`],
+            theme.tokens["--color-raised"],
+            1.2,
+          );
+        }
+      });
+
       it("keeps every accent visible on the surface and on its own wash", () => {
         // The wash is the accent's own tinted plane (a badge, a callout), so
         // an accent that only clears the surface still vanishes inside itself.

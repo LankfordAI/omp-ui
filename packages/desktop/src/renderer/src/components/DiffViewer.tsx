@@ -60,31 +60,37 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
 
   return (
     <div className="overflow-hidden rounded-md border border-line bg-sunken">
-      <div
-        className={cn("flex items-center gap-2 px-2 py-1", open && "border-b border-line-soft")}
-      >
+      <div className={cn("flex items-end gap-2 px-2 py-1", open && "border-b border-line-soft")}>
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded text-left transition-colors hover:text-ink"
+          className="flex min-w-0 flex-1 flex-col gap-0.5 rounded text-left transition-colors hover:text-ink"
         >
-          <Chevron open={open} />
-          {/* Dirname yields under pressure; the basename is what identifies the
-              file at a glance. */}
-          <span className="flex min-w-0 flex-1 items-baseline font-mono text-[11px]" title={path}>
-            <span className="truncate text-ink-faint">{dir}</span>
-            <span className="shrink-0 text-ink-mid">{base}</span>
+          {/* Top row: the name gets the full width; counts pin right. */}
+          <span className="flex w-full min-w-0 items-baseline gap-2 font-mono text-[11px]" title={path}>
+            {/* Dirname yields under pressure; the basename is what identifies
+                the file at a glance. Only a basename wider than the whole row
+                clips (max-w-full + truncate), never into its siblings. */}
+            <span className="flex min-w-0 flex-1 items-baseline">
+              <span className="truncate text-ink-faint">{dir}</span>
+              <span className="max-w-full shrink-0 truncate text-ink-mid">{base}</span>
+            </span>
+            <span className="shrink-0 tabular-nums">
+              <span className="text-signal">+{added}</span>{" "}
+              <span className="text-rose">−{removed}</span>
+            </span>
           </span>
-          {op && <Chip tone={op === "create" ? "signal" : "neutral"}>{op}</Chip>}
-          <span className="shrink-0 font-mono text-[11px] tabular-nums">
-            <span className="text-signal">+{added}</span>{" "}
-            <span className="text-rose">−{removed}</span>
+          {/* Bottom row: expand affordance and status chip. */}
+          <span className="flex w-full items-center gap-2">
+            <Chevron open={open} />
+            {op && <Chip tone={op === "create" ? "signal" : "neutral"}>{op}</Chip>}
           </span>
         </button>
         {/* A button inside the header button is invalid HTML — the copy
-            affordance stays a sibling. It works while collapsed because the
-            patch memoizes off `rows`, not the open state. */}
+            affordance stays a sibling (bottom-aligned onto the second row by
+            items-end). It works while collapsed because the patch memoizes
+            off `rows`, not the open state. */}
         <CopyButton text={patch} label="patch" />
       </div>
 
