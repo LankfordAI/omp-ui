@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { IS_MAC } from "./platform";
 
 /**
  * Window-level keyboard shortcuts.
@@ -9,10 +10,6 @@ import { useEffect, useRef } from "react";
  * platform.
  */
 export type HotkeyMap = Record<string, (e: KeyboardEvent) => void>;
-
-// Electron reports "MacIntel" here; the deprecated field is still the only
-// synchronous platform signal available in the renderer.
-const IS_MAC = /^mac/i.test(typeof navigator === "undefined" ? "" : navigator.platform);
 
 /**
  * Shifted punctuation reports the *shifted* glyph in `e.key` (`mod+shift+]`

@@ -7,11 +7,14 @@ import { McpManager } from "./components/McpManager";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
+import { SessionHud } from "./components/SessionHud";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
-import { Button, Chip } from "./components/ui";
+import { Button, Chevron, Chip, IconButton } from "./components/ui";
+import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
+import { IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { findRecord, useStore } from "./store";
@@ -24,30 +27,127 @@ const HINTS: [combo: string, what: string][] = [
   ["mod+=", "larger transcript text"],
 ];
 
+// The native overlay rect is composited over the strip's right end; reserve
+// its width so bar content never slides under the min/max/close buttons.
+// 138 = 3×46px Windows caption buttons. On Linux the GTK theme paints them
+// (~44px each under adwaita) and no API reports the width, so 132 is a
+// visual-fit value — if a theme draws wider buttons, adjust this one line.
+// macOS paints no overlay; its traffic lights sit top-left, so the inset
+// moves to the left edge instead.
+const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
+const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
+
+/** Plus — new session, matching the sidebar's per-project `+` affordances. */
+function IconPlus() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
+
+/** Folder-plus — add project, distinct from the adjacent new-session glyph. */
+function IconFolderPlus() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.6h5A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+      <path d="M8 7.5v3.4M6.3 9.2h3.4" />
+    </svg>
+  );
+}
+
 /**
  * The native frame is hidden (titleBarStyle: "hidden" + overlay controls in
- * main/index.ts), so this strip IS the window title bar: it carries the drag
- * region and echoes the active session title the way an OS frame would.
- * Height matches the 36px titleBarOverlay so the native controls sit flush.
+ * main/index.ts), so this strip IS the window title bar — and the app's only
+ * chrome row (issue #60): app identity and sidebar controls on the left, the
+ * active session's HUD (rpc-ui) or bare title (terminal) in the middle, and
+ * room reserved for the native min/max/close overlay on the right. The strip
+ * is flat bg-void with no ambient texture because the overlay can only
+ * composite a flat colour — a textured strip read as a shade mismatch under
+ * the buttons (issue #59). Height matches the 36px titleBarOverlay so the
+ * native controls sit flush.
  * The hairline under this strip must NOT be a border-b here: the overlay
  * rect is composited over web content and would cover its right end (the
  * segment under the min/max/close buttons). It lives as a border-t on the
  * content wrapper below, the first row the overlay doesn't reach.
  */
 function TitleBar() {
+  const tabs = useStore((s) => s.tabs);
+  const activeTabId = useStore((s) => s.activeTabId);
   const title = useStore((s) =>
     s.activeTabId ? (findRecord(s.state, s.activeTabId)?.title ?? null) : null,
   );
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
+  const openProjectPicker = useStore((s) => s.openProjectPicker);
+  const newSession = useStore((s) => s.newSession);
+  const activeTab = tabs.find((t) => t.tabId === activeTabId);
+  // Same rule as the mod+shift+n hotkey below: the active tab's project only —
+  // with nowhere to spawn, the button disables rather than choose implicitly.
+  const newSessionProject = activeTab?.projectCwd;
 
   return (
-    <header className="ambient relative flex h-9 shrink-0 select-none items-center justify-center bg-void [app-region:drag]">
-      {title ? (
-        <span className="max-w-[50%] truncate text-xs text-ink-dim">{title}</span>
-      ) : (
-        <span className="font-display text-xs font-semibold tracking-tight text-ink-mid">
+    <header
+      className="relative flex h-9 shrink-0 select-none items-center gap-1 bg-void [app-region:drag]"
+      style={TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
+    >
+      <div className="flex shrink-0 items-center gap-1 pl-3 [app-region:no-drag]">
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
+        <span className="pr-1 font-display text-sm font-semibold tracking-tight text-ink">
           omp<span className="text-ink-faint">-ui</span>
         </span>
+        <IconButton
+          label="new session in current project"
+          disabled={newSessionProject === undefined}
+          onClick={() => {
+            if (newSessionProject !== undefined) void newSession(newSessionProject);
+          }}
+        >
+          <IconPlus />
+        </IconButton>
+        <IconButton label="add project" onClick={openProjectPicker}>
+          <IconFolderPlus />
+        </IconButton>
+        <IconButton
+          label={sidebarCollapsed ? "expand sidebar" : "collapse sidebar"}
+          onClick={toggleSidebarCollapsed}
+        >
+          <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
+        </IconButton>
+      </div>
+
+      {activeTab?.mode === "rpc-ui" ? (
+        <SessionHud tabId={activeTab.tabId} />
+      ) : (
+        <>
+          {title && (
+            <span className="min-w-0 truncate px-2 text-xs text-ink-dim [app-region:no-drag]">
+              {title}
+            </span>
+          )}
+          <span className="min-w-0 flex-1" />
+        </>
       )}
+
+      {OVERLAY_INSET > 0 && <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />}
     </header>
   );
 }
@@ -175,7 +275,7 @@ export default function App() {
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden bg-void font-sans text-ink">
       {!compact && <TitleBar />}
       {compact && (
-        <nav className="ambient flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-void px-[max(0.5rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.5rem,var(--safe-right))]">
+        <nav className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-void px-[max(0.5rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.5rem,var(--safe-right))]">
           <Button variant="ghost" className="min-w-11 px-2" onClick={() => showCompactSurface("sessions")}>
             <span aria-hidden>☰</span><span className="sr-only">projects and sessions</span>
           </Button>
