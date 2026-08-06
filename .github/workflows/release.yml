@@ -20,8 +20,18 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Stamp version from tag
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
         working-directory: packages/desktop
+        # Tolerate the version being stamped on main before tagging (issue
+        # 85): `npm version` exits 1 ("Version not changed") when the tree
+        # already matches the tag, so only stamp on a real mismatch.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          current="$(node -p 'require("./package.json").version')"
+          if [ "$current" = "$tag" ]; then
+            echo "package.json already at $current — nothing to stamp"
+          else
+            npm version "$tag" --no-git-tag-version
+          fi
       - name: Build and publish packages
         run: npm run package --workspace @omp-ui/desktop -- --publish always
         env:
