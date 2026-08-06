@@ -18,7 +18,7 @@ const shellMock = {
 };
 vi.mock("electron", () => ({ shell: shellMock }));
 
-const { AppUpdater } = await import("./app-update");
+const { AppUpdater, resolveAutoUpdater } = await import("./app-update");
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -394,5 +394,59 @@ describe("AppUpdater AppImage path", () => {
     const { updater } = await availableAppImage(autoUpdater);
     await updater.restart(); // still "available", not downloaded
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a factory failure on the card instead of rejecting (issue #87)", async () => {
+    const made = makeUpdater({
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
+      autoUpdaterFactory: async () => {
+        throw new Error("electron-updater export unavailable");
+      },
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      exists: () => false,
+    });
+    await made.updater.checkNow(false);
+    sent.length = 0;
+
+    await made.updater.download(); // must resolve, not reject
+    expect(made.updater.state.status).toBe("error");
+    expect(made.updater.state.error).toBe("electron-updater export unavailable");
+  });
+
+  it("surfaces a factory that resolves without an updater (the #87 import shape)", async () => {
+    const made = makeUpdater({
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
+      autoUpdaterFactory: (async () => undefined) as never,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      exists: () => false,
+    });
+    await made.updater.checkNow(false);
+    sent.length = 0;
+
+    await made.updater.download();
+    expect(made.updater.state.status).toBe("error");
+    expect(made.updater.state.error).toContain("autoDownload");
+  });
+});
+
+describe("resolveAutoUpdater", () => {
+  it("unwraps the CJS default export (real electron-updater shape, issue #87)", () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    // cjs-module-lexer misses the lazy arrow getter: the namespace carries
+    // every export except autoUpdater, which only default exposes.
+    const namespace = { AppImageUpdater: class {}, default: { autoUpdater } };
+    expect(resolveAutoUpdater(namespace)).toBe(autoUpdater);
+  });
+
+  it("takes a proper named export when the interop layer provides one", () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    expect(resolveAutoUpdater({ autoUpdater })).toBe(autoUpdater);
+  });
+
+  it("returns null for namespaces without an updater anywhere", () => {
+    expect(resolveAutoUpdater({ default: {} })).toBeNull();
+    expect(resolveAutoUpdater({})).toBeNull();
+    expect(resolveAutoUpdater(null)).toBeNull();
+    expect(resolveAutoUpdater("electron-updater")).toBeNull();
   });
 });

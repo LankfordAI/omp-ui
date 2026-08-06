@@ -56,12 +56,39 @@ export interface AppUpdaterDeps {
   exists?: (p: string) => boolean;
 }
 
+/**
+ * electron-updater is CommonJS and exposes `autoUpdater` only as a lazy
+ * arrow-body getter, which cjs-module-lexer never surfaces as a named export
+ * on a real import() namespace — the working binding sits on `default`
+ * (issue #87). Accepts both shapes; null when neither carries it.
+ */
+export function resolveAutoUpdater(mod: unknown): AutoUpdaterLike | null {
+  if (mod === null || typeof mod !== "object") return null;
+  // The module's own .d.ts claims `autoUpdater` is always a named export —
+  // that is precisely the lie being worked around, so these reads must
+  // narrow at runtime; the final casts name the interop boundary.
+  if ("autoUpdater" in mod && mod.autoUpdater != null) {
+    return mod.autoUpdater as AutoUpdaterLike;
+  }
+  if (
+    "default" in mod &&
+    mod.default !== null &&
+    typeof mod.default === "object" &&
+    "autoUpdater" in mod.default &&
+    mod.default.autoUpdater != null
+  ) {
+    return mod.default.autoUpdater as AutoUpdaterLike;
+  }
+  return null;
+}
+
 const defaultAutoUpdaterFactory = async (): Promise<AutoUpdaterLike> => {
   // Lazy on purpose (dynamic-import exception): electron-updater hooks the
   // real Electron app when imported, which breaks under vitest's mocked
   // electron and is dead weight on deb/rpm/flatpak installs — only the
   // AppImage download path ever needs it.
-  const { autoUpdater } = await import("electron-updater");
+  const autoUpdater = resolveAutoUpdater(await import("electron-updater"));
+  if (autoUpdater === null) throw new Error("electron-updater export unavailable");
   return autoUpdater;
 };
 
@@ -153,26 +180,29 @@ export class AppUpdater {
       return;
     }
     if (format === "appimage") {
-      this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
-      const autoUpdater = this.autoUpdater;
-      // Never download without the explicit click that got us here.
-      autoUpdater.autoDownload = false;
-      // An ordinary quit must never silently install a downloaded update
-      // (ADR-0011); install happens only via the card's "Restart now".
-      autoUpdater.autoInstallOnAppQuit = false;
-      if (!this.autoUpdaterHooked) {
-        this.autoUpdaterHooked = true; // a second download() must not double-register
-        autoUpdater.on("download-progress", (p) => {
-          this.set({ status: "downloading", progress: Math.floor(p.percent) });
-        });
-        autoUpdater.on("update-downloaded", () => {
-          this.set({ status: "downloaded", progress: null });
-        });
-        autoUpdater.on("error", (err) => {
-          this.set({ status: "error", error: err.message });
-        });
-      }
+      // Everything up to the download itself lives inside the try: a factory
+      // or setup failure must land on the card's error state, not escape as
+      // an invoke rejection the renderer cannot show (issue #87).
       try {
+        this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
+        const autoUpdater = this.autoUpdater;
+        // Never download without the explicit click that got us here.
+        autoUpdater.autoDownload = false;
+        // An ordinary quit must never silently install a downloaded update
+        // (ADR-0011); install happens only via the card's "Restart now".
+        autoUpdater.autoInstallOnAppQuit = false;
+        if (!this.autoUpdaterHooked) {
+          this.autoUpdaterHooked = true; // a second download() must not double-register
+          autoUpdater.on("download-progress", (p) => {
+            this.set({ status: "downloading", progress: Math.floor(p.percent) });
+          });
+          autoUpdater.on("update-downloaded", () => {
+            this.set({ status: "downloaded", progress: null });
+          });
+          autoUpdater.on("error", (err) => {
+            this.set({ status: "error", error: err.message });
+          });
+        }
         const r = await autoUpdater.checkForUpdates();
         if (r?.isUpdateAvailable) {
           await autoUpdater.downloadUpdate();
