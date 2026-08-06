@@ -60,6 +60,10 @@ export interface ToolItem {
   /** bash details.wallTimeMs. */
   wallTimeMs?: number;
   notes?: AdvisorNote[];
+  /** Model is still generating this call's args — no tool_execution_start yet (issue #97). */
+  argsStreaming?: boolean;
+  /** assistantMessageEvent.contentIndex, correlating stream deltas within one message. */
+  streamIndex?: number;
 }
 export interface AdvisoryItem {
   kind: "advisory";
@@ -280,6 +284,60 @@ function appendAdvisory(items: RenderItem[], message: Record<string, unknown>): 
 }
 
 /**
+ * Folds toolcall_start/delta/end assistantMessageEvents into a running tool
+ * card, so the transcript shows a write's content while the model generates
+ * it (issue #97). omp partial-parses the accumulating args JSON server-side,
+ * so `partial.content[contentIndex].arguments` grows delta by delta.
+ */
+function reduceToolcallStream(
+  items: RenderItem[],
+  type: string,
+  ame: Record<string, unknown>,
+): RenderItem[] {
+  const contentIndex = typeof ame.contentIndex === "number" ? ame.contentIndex : -1;
+  if (contentIndex < 0) return items;
+  const partial = isObj(ame.partial) ? ame.partial : null;
+  const content = Array.isArray(partial?.content) ? partial.content : [];
+  const raw = type === "toolcall_end" && isObj(ame.toolCall) ? ame.toolCall : content[contentIndex];
+  const block = isObj(raw) && raw.type === "toolCall" ? raw : null;
+  if (!block) return items;
+  const callId = str(block.id) ?? "";
+  // A settled or cancelled card never matches — contentIndex only correlates
+  // within the currently streaming assistant message.
+  const idx = items.findIndex(
+    (i) =>
+      i.kind === "tool" &&
+      i.status === "running" &&
+      i.argsStreaming === true &&
+      i.streamIndex === contentIndex,
+  );
+  if (idx === -1) {
+    return [
+      ...items,
+      {
+        kind: "tool",
+        id: callId || `tool-${++counter}`,
+        toolCallId: callId,
+        name: str(block.name) ?? "tool",
+        args: block.arguments,
+        status: "running",
+        argsStreaming: type !== "toolcall_end",
+        streamIndex: contentIndex,
+      },
+    ];
+  }
+  const item = items[idx] as ToolItem;
+  return replaceAt(items, idx, {
+    ...item,
+    // Some providers only deliver the real id/name in later frames.
+    toolCallId: callId || item.toolCallId,
+    name: str(block.name) ?? item.name,
+    args: block.arguments,
+    argsStreaming: type !== "toolcall_end",
+  });
+}
+
+/**
  * Folds one AgentSessionEvent (or rpc control frame passed through) into the
  * render items. Unknown event types append nothing and warn once per type —
  * new upstream events must never break the transcript.
@@ -340,6 +398,9 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         const item = items[idx] as AssistantItem;
         return replaceAt(items, idx, { ...item, thinking: item.thinking + delta });
       }
+      if (type === "toolcall_start" || type === "toolcall_delta" || type === "toolcall_end") {
+        return reduceToolcallStream(items, type, ame);
+      }
       return items;
     }
 
@@ -373,6 +434,20 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
 
     case "tool_execution_start": {
       const toolCallId = str(event.toolCallId) ?? `tool-${++counter}`;
+      // The args-streaming phase (issue #97) already created this card — merge
+      // into it so the transcript shows one card per call, in stream order.
+      const idx = items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId);
+      if (idx !== -1) {
+        const item = items[idx] as ToolItem;
+        return replaceAt(items, idx, {
+          ...item,
+          name: str(event.toolName) ?? item.name,
+          args: event.args ?? item.args,
+          status: "running",
+          intent: str(event.intent) ?? item.intent,
+          argsStreaming: false,
+        });
+      }
       return [
         ...items,
         {

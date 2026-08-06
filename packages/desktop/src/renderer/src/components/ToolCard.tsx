@@ -149,13 +149,21 @@ function Slab({
 }
 
 /**
- * Slab with shiki tokens. Args are complete at tool start, so no re-tokenize
- * churn; very large payloads stay plain.
+ * Slab with shiki tokens. Highlighting stays on while args stream in — the
+ * hook drops stale runs, so each delta just lags one tokenize behind; very
+ * large payloads stay plain. `pin` follows the tail while the model writes.
  */
-function CodeSlab({ code, lang }: { code: string; lang?: string }) {
+function CodeSlab({ code, lang, pin }: { code: string; lang?: string; pin?: boolean }) {
   const tokens = useHighlightTokens(code, lang, code.length < 20_000);
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (!pin) return;
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [pin, code, tokens]);
   return (
     <pre
+      ref={ref}
       data-selectable
       className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink"
     >
@@ -430,7 +438,7 @@ export function ToolCard({ item }: { item: ToolItem }) {
           {item.status === "running" && draft && (
             <div className="space-y-1">
               <Label>writing</Label>
-              <CodeSlab code={draft.code} lang={draft.lang} />
+              <CodeSlab code={draft.code} lang={draft.lang} pin={item.argsStreaming === true} />
             </div>
           )}
 
