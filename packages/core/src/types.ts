@@ -203,12 +203,12 @@ export type AppPackageFormat = "appimage" | "deb" | "rpm" | "flatpak" | "unknown
 /** Snapshot of the omp-ui app update situation (see main/app-update.ts). */
 export type AppUpdateStatus =
   | "disabled" // dev/unversioned build — updater off
-  | "idle" // nothing to show
+  | "idle" // nothing to show; a silent AppImage stage may be in flight
   | "checking"
   | "up-to-date" // manual check only; transient
-  | "available"
+  | "available" // non-AppImage formats only; AppImage stages during the check
   | "downloading"
-  | "downloaded" // AppImage: ready to restart; others: installer opened/in folder
+  | "downloaded" // AppImage: staged + verified; others: installer opened/in folder
   | "error";
 
 export interface AppUpdateState {
@@ -222,6 +222,8 @@ export interface AppUpdateState {
   /** 0–100 while downloading; null = indeterminate or not downloading. */
   progress: number | null;
   downloadedPath: string | null;
+  /** Explicit user opt-in to apply the staged AppImage on the next natural quit. */
+  installOnQuit: boolean;
   error: string | null;
 }
 
@@ -582,9 +584,9 @@ export interface OmpBackend {
   /** Manual check — surfaces up-to-date/error/disabled transiently. */
   checkAppUpdate(): Promise<AppUpdateState>;
   /**
-   * Starts the package-appropriate update action (AppImage: electron-updater
-   * download; deb/rpm/flatpak: verified download + open with system handler).
-   * No-op unless an update is available. Progress flows via onAppUpdateState.
+   * Starts the package-appropriate manual action for non-AppImage formats:
+   * verified download + system-installer handoff. AppImage staging begins as
+   * soon as a check finds an update (issue #99).
    */
   downloadAppUpdate(): Promise<void>;
   /** Opens the pending release's GitHub page. */
@@ -593,6 +595,8 @@ export interface OmpBackend {
   showAppUpdateDownload(): Promise<void>;
   /** Restarts into the downloaded AppImage update; asks first when sessions are live. */
   restartForAppUpdate(): Promise<void>;
+  /** Arms or disarms applying the staged AppImage on the next natural quit. */
+  setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   /**
    * Hides the card. `remember: true` also persists the version so background
    * checks stay quiet for that release; `false` is a transient hide.

@@ -367,6 +367,7 @@ export class MainBackend {
         [CH.appUpdateOpenNotes]: () => this.appUpdater.openReleaseNotes(),
         [CH.appUpdateShowDownload]: () => this.appUpdater.showDownload(),
         [CH.appUpdateRestart]: () => this.appUpdater.restart(),
+        [CH.appUpdateInstallOnQuit]: (on: boolean) => this.appUpdater.setInstallOnQuit(on),
         [CH.appUpdateDismiss]: (version: string, remember: boolean) =>
           this.appUpdater.dismiss(version, remember),
         [CH.remoteGetState]: () => this.remote.state,

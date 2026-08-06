@@ -21,10 +21,10 @@ import {
 // state machine the renderer's update card renders, plus the AppImage
 // in-place path through electron-updater.
 //
-// Quiet by default: background (launch) checks never surface error or
-// up-to-date states — only "available" earns the card. Manual checks from the
-// command palette bypass dismissal and report up-to-date/error/disabled
-// transiently. Nothing downloads without an explicit Update/Download click.
+// Quiet by default: background checks never surface errors or up-to-date
+// states. AppImage updates stage immediately and quietly; only the verified,
+// downloaded update earns the card. Manual checks expose staging progress and
+// failures. Other package formats still wait for an explicit Download click.
 
 /** The slice of electron-updater's AppUpdater this flow uses (6.8.9 API). */
 export interface AutoUpdaterLike {
@@ -35,6 +35,12 @@ export interface AutoUpdaterLike {
   on(event: "error", cb: (err: Error) => void): void;
   checkForUpdates(): Promise<{ isUpdateAvailable: boolean } | null>;
   downloadUpdate(): Promise<unknown>;
+  /**
+   * BaseUpdater's idempotent quit-hook registration. electron-updater marks
+   * this protected in TypeScript but exposes it at runtime; arming after a
+   * completed download otherwise cannot install on quit (6.8.9).
+   */
+  addQuitHandler(): void;
   quitAndInstall(): void;
 }
 
@@ -96,10 +102,13 @@ export class AppUpdater {
   state: AppUpdateState;
   /** Dev/unversioned builds never check: off unless packaged AND semver-stamped. */
   private readonly enabled: boolean;
-  /** The release that earned the current "available" state, kept for download(). */
+  /** The release behind the current offer/stage, kept for notes and downloads. */
   private release: AppReleaseInfo | null = null;
   private autoUpdater: AutoUpdaterLike | null = null;
   private autoUpdaterHooked = false;
+  private appImageStaging = false;
+  private appImageStageVisible = false;
+  private installOnQuitArmed = false;
 
   constructor(private readonly deps: AppUpdaterDeps) {
     this.enabled =
@@ -115,6 +124,7 @@ export class AppUpdater {
       format: detectPackageFormat(deps.env, deps.exists),
       progress: null,
       downloadedPath: null,
+      installOnQuit: false,
       error: null,
     };
     // A remembered dismissal suppresses only its exact offered version, and
@@ -166,21 +176,110 @@ export class AppUpdater {
       return this.state;
     }
     this.release = release;
+    const format = detectPackageFormat(this.deps.env, this.deps.exists);
+    if (format === "appimage") {
+      await this.stageAppImage(release, manual);
+      return this.state;
+    }
     this.set({
       status: "available",
       latestVersion: release.version,
       releaseUrl: release.url,
       releaseName: release.name,
-      format: detectPackageFormat(this.deps.env, this.deps.exists),
+      format,
     });
     return this.state;
   }
 
   /**
-   * The card's primary action. AppImage hands off to electron-updater
-   * (sha512/blockmap-verified in-place update); deb/rpm/flatpak download the
-   * exact expected asset, verify it against the release's SHA256SUMS.txt, and
-   * open it with the system installer. No-op unless an update is available.
+   * Stages an AppImage through electron-updater's sha512/blockmap-verified
+   * path. Background checks expose only the completed state; a manual check
+   * makes the same in-flight stage and its failures visible.
+   */
+  private async stageAppImage(release: AppReleaseInfo, visible: boolean): Promise<void> {
+    const releaseState = {
+      latestVersion: release.version,
+      releaseUrl: release.url,
+      releaseName: release.name,
+      format: "appimage" as const,
+    };
+
+    if (this.appImageStaging) {
+      if (visible && !this.appImageStageVisible) {
+        this.appImageStageVisible = true;
+        this.set({ status: "downloading", ...releaseState });
+      }
+      return;
+    }
+
+    this.appImageStaging = true;
+    this.appImageStageVisible = visible;
+    try {
+      this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
+      const autoUpdater = this.autoUpdater;
+      // omp-ui controls when staging begins; electron-updater must not start a
+      // second download from its own checkForUpdates() call.
+      autoUpdater.autoDownload = false;
+      // False until the user explicitly chooses "Install when I quit".
+      autoUpdater.autoInstallOnAppQuit = this.installOnQuitArmed;
+      if (!this.autoUpdaterHooked) {
+        this.autoUpdaterHooked = true;
+        autoUpdater.on("download-progress", (p) => {
+          if (this.appImageStageVisible) {
+            this.set({ status: "downloading", progress: Math.floor(p.percent) });
+          }
+        });
+        autoUpdater.on("update-downloaded", (info) => {
+          this.appImageStaging = false;
+          this.appImageStageVisible = false;
+          this.set({
+            status: "downloaded",
+            latestVersion: info.version,
+            progress: null,
+            error: null,
+          });
+        });
+        autoUpdater.on("error", (err) => {
+          if (!this.appImageStaging) return;
+          const wasVisible = this.appImageStageVisible;
+          this.appImageStaging = false;
+          this.appImageStageVisible = false;
+          this.set(wasVisible ? { status: "error", error: err.message } : { status: "idle" });
+        });
+      }
+
+      this.set(
+        visible
+          ? { status: "downloading", ...releaseState }
+          : { status: "idle", ...releaseState },
+      );
+      const result = await autoUpdater.checkForUpdates();
+      if (result?.isUpdateAvailable) {
+        await autoUpdater.downloadUpdate();
+      } else {
+        this.appImageStaging = false;
+        this.appImageStageVisible = false;
+        this.set(visible ? { status: "up-to-date" } : { status: "idle" });
+      }
+    } catch (error) {
+      // electron-updater normally emits "error" before rejecting. Only own
+      // the fallback when that event did not already settle this stage.
+      if (!this.appImageStaging) return;
+      const wasVisible = this.appImageStageVisible;
+      this.appImageStaging = false;
+      this.appImageStageVisible = false;
+      this.set(
+        wasVisible
+          ? { status: "error", error: error instanceof Error ? error.message : String(error) }
+          : { status: "idle" },
+      );
+    }
+  }
+
+  /**
+   * The card's primary action for non-AppImage formats: download the exact
+   * expected asset, verify it against SHA256SUMS.txt, and open it with the
+   * system installer. AppImage staging begins in checkNow().
    */
   async download(): Promise<void> {
     if (this.state.status !== "available" || this.release === null) return;
@@ -190,41 +289,8 @@ export class AppUpdater {
       await this.openReleaseNotes(); // nothing downloadable — show the release page
       return;
     }
-    if (format === "appimage") {
-      // Everything up to the download itself lives inside the try: a factory
-      // or setup failure must land on the card's error state, not escape as
-      // an invoke rejection the renderer cannot show (issue #87).
-      try {
-        this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
-        const autoUpdater = this.autoUpdater;
-        // Never download without the explicit click that got us here.
-        autoUpdater.autoDownload = false;
-        // An ordinary quit must never silently install a downloaded update
-        // (ADR-0011); install happens only via the card's "Restart now".
-        autoUpdater.autoInstallOnAppQuit = false;
-        if (!this.autoUpdaterHooked) {
-          this.autoUpdaterHooked = true; // a second download() must not double-register
-          autoUpdater.on("download-progress", (p) => {
-            this.set({ status: "downloading", progress: Math.floor(p.percent) });
-          });
-          autoUpdater.on("update-downloaded", () => {
-            this.set({ status: "downloaded", progress: null });
-          });
-          autoUpdater.on("error", (err) => {
-            this.set({ status: "error", error: err.message });
-          });
-        }
-        const r = await autoUpdater.checkForUpdates();
-        if (r?.isUpdateAvailable) {
-          await autoUpdater.downloadUpdate();
-        } else {
-          this.set({ status: "up-to-date" });
-        }
-      } catch (e) {
-        this.set({ status: "error", error: e instanceof Error ? e.message : String(e) });
-      }
-      return;
-    }
+    // AppImage never reaches "available": checkNow() stages it immediately.
+    if (format === "appimage") return;
     // deb / rpm / flatpak: verified download + system-installer handoff.
     const name = selectAsset(release, format);
     if (name === null) {
@@ -278,6 +344,23 @@ export class AppUpdater {
     if (this.autoUpdater === null) return;
     if (!(await this.deps.confirmQuit())) return;
     this.autoUpdater.quitAndInstall();
+  }
+
+  /**
+   * Applies the staged AppImage on the next natural quit only after an
+   * explicit user choice. BaseUpdater skips quit-hook registration when the
+   * download completed with autoInstallOnAppQuit=false, so arming later must
+   * register that idempotent hook; it re-checks the flag at quit, making
+   * disarming reliable.
+   */
+  setInstallOnQuit(on: boolean): void {
+    if (on && (this.state.status !== "downloaded" || this.state.format !== "appimage")) return;
+    this.installOnQuitArmed = on;
+    if (this.autoUpdater !== null) {
+      this.autoUpdater.autoInstallOnAppQuit = on;
+      if (on) this.autoUpdater.addQuitHandler();
+    }
+    this.set({ installOnQuit: on });
   }
 
   /**

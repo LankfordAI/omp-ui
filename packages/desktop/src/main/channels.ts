@@ -64,6 +64,7 @@ export const CH = {
   appUpdateOpenNotes: "app:updateOpenNotes",
   appUpdateShowDownload: "app:updateShowDownload",
   appUpdateRestart: "app:updateRestart",
+  appUpdateInstallOnQuit: "app:updateInstallOnQuit",
   appUpdateDismiss: "app:updateDismiss",
   appUpdateState: "app:updateState",
   remoteGetState: "remote:getState",

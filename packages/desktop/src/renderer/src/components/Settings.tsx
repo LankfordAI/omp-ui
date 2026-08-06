@@ -304,7 +304,7 @@ function appStatusLine(u: AppUpdateState): string {
     case "downloading":
       return `downloading ${u.latestVersion ?? ""}…`;
     case "downloaded":
-      return `${u.latestVersion ?? "update"} downloaded`;
+      return `${u.latestVersion ?? "update"} downloaded${u.installOnQuit ? " — installs on quit" : ""}`;
     case "up-to-date":
       return "up to date";
     case "checking":
@@ -352,6 +352,7 @@ function UpdatesPage() {
   const downloadOmpUpdate = useStore((s) => s.downloadOmpUpdate);
   const downloadAppUpdate = useStore((s) => s.downloadAppUpdate);
   const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
   const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
 
@@ -391,9 +392,18 @@ function UpdatesPage() {
               ))}
             {appUpdate.status === "downloaded" &&
               (appUpdate.format === "appimage" ? (
-                <Button size="xs" variant="solid" onClick={() => void restartForAppUpdate()}>
-                  Restart now
-                </Button>
+                <>
+                  <Button size="xs" variant="solid" onClick={() => void restartForAppUpdate()}>
+                    Restart now
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => void setAppUpdateInstallOnQuit(!appUpdate.installOnQuit)}
+                  >
+                    {appUpdate.installOnQuit ? "Undo install on quit" : "Install when I quit"}
+                  </Button>
+                </>
               ) : (
                 <Button size="xs" variant="solid" onClick={() => void showAppUpdateDownload()}>
                   Show in folder

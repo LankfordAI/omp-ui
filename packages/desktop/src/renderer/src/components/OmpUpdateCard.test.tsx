@@ -54,6 +54,7 @@ const backendMock = {
   openAppUpdateReleaseNotes: vi.fn(),
   showAppUpdateDownload: vi.fn(),
   restartForAppUpdate: vi.fn(),
+  setAppUpdateInstallOnQuit: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
 };

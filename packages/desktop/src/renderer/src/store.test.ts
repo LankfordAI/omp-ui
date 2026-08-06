@@ -35,6 +35,7 @@ const idleAppUpdate: AppUpdateState = {
   format: "unknown",
   progress: null,
   downloadedPath: null,
+  installOnQuit: false,
   error: null,
 };
 
@@ -112,6 +113,7 @@ const mockBackend = {
   openAppUpdateReleaseNotes: vi.fn(),
   showAppUpdateDownload: vi.fn(),
   restartForAppUpdate: vi.fn(),
+  setAppUpdateInstallOnQuit: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),

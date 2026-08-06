@@ -54,6 +54,7 @@ const backendMock = {
   openAppUpdateReleaseNotes: vi.fn(),
   showAppUpdateDownload: vi.fn(),
   restartForAppUpdate: vi.fn(),
+  setAppUpdateInstallOnQuit: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
 };
@@ -72,6 +73,7 @@ function appUpdateState(patch: Partial<AppUpdateState>): AppUpdateState {
     format: "deb",
     progress: null,
     downloadedPath: null,
+    installOnQuit: false,
     error: null,
     ...patch,
   };
@@ -142,7 +144,7 @@ describe("AppUpdateCard", () => {
     expect(document.body.textContent).toContain("42%");
   });
 
-  it("restarts into a downloaded AppImage update", () => {
+  it("restarts now or arms install-on-quit for a staged AppImage", () => {
     useStore.setState({
       appUpdate: appUpdateState({
         status: "downloaded",
@@ -152,8 +154,27 @@ describe("AppUpdateCard", () => {
     });
     renderCard();
     expect(document.body.textContent).toContain("omp-ui 1.2.0 ready");
+
     click(buttonWithText("Restart now"));
     expect(backendMock.restartForAppUpdate).toHaveBeenCalled();
+
+    click(buttonWithText("Install when I quit"));
+    expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(true);
+  });
+
+  it("shows and disarms an install-on-quit choice", () => {
+    useStore.setState({
+      appUpdate: appUpdateState({
+        status: "downloaded",
+        latestVersion: "1.2.0",
+        format: "appimage",
+        installOnQuit: true,
+      }),
+    });
+    renderCard();
+    expect(document.body.textContent).toContain("will install when you quit");
+    click(buttonWithText("Undo"));
+    expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(false);
   });
 
   it("reveals a downloaded deb in its folder", () => {

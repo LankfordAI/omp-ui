@@ -333,6 +333,7 @@ interface UiStore {
   openAppUpdateReleaseNotes(): Promise<void>;
   showAppUpdateDownload(): Promise<void>;
   restartForAppUpdate(): Promise<void>;
+  setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   dismissAppUpdate(version: string, remember: boolean): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
@@ -1113,6 +1114,7 @@ export const useStore = create<UiStore>()((set, get) => {
       format: "unknown",
       progress: null,
       downloadedPath: null,
+      installOnQuit: false,
       error: null,
     },
     ompUpdate: {
@@ -1394,6 +1396,10 @@ export const useStore = create<UiStore>()((set, get) => {
 
     async restartForAppUpdate() {
       await backend.restartForAppUpdate();
+    },
+
+    async setAppUpdateInstallOnQuit(on) {
+      await backend.setAppUpdateInstallOnQuit(on);
     },
 
     async dismissAppUpdate(version, remember) {

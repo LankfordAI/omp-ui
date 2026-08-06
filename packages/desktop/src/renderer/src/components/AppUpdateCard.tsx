@@ -18,9 +18,11 @@ export function AppUpdateCard() {
   const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
   const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
   const dismissAppUpdate = useStore((s) => s.dismissAppUpdate);
 
-  const { status, currentVersion, latestVersion, format, progress, error } = appUpdate;
+  const { status, currentVersion, latestVersion, format, progress, installOnQuit, error } =
+    appUpdate;
   const version = latestVersion ?? "";
 
   // Transient answers to a manual check clear themselves (the TerminalTab
@@ -88,11 +90,19 @@ export function AppUpdateCard() {
       <>
         <p className="text-sm font-medium text-ink">omp-ui {version} ready</p>
         <p className="mt-0.5 text-xs text-ink-dim">
-          restart to apply — your sessions keep running until then
+          {installOnQuit
+            ? "will install when you quit — or restart now to apply immediately"
+            : "restart to apply — your sessions keep running until then"}
         </p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="solid" onClick={() => void restartForAppUpdate()}>
             Restart now
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void setAppUpdateInstallOnQuit(!installOnQuit)}
+          >
+            {installOnQuit ? "Undo" : "Install when I quit"}
           </Button>
           <Button variant="ghost" onClick={() => void dismissAppUpdate(version, false)}>
             Later

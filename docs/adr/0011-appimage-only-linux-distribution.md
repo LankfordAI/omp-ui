@@ -49,8 +49,10 @@ on a tested per-user installer — is accepted.
   userData); the Beta static AppImage runtime (`toolsets.appimage` `1.0.3`)
   passes a distro smoke matrix; and Flatpak userData/provider-key migration
   is proven.
-- The updater explicitly sets `autoInstallOnAppQuit = false`; restart warns
-  with the live-session count and preserves no running work.
+- AppImage checks stage the sha512/blockmap-verified update in the background.
+  `autoInstallOnAppQuit` remains false unless the user explicitly chooses
+  "Install when I quit" for that staged update; Restart now still warns with
+  the live-session count, and neither path preserves running work.
 - Legacy packaging source and workflow are retained through one stable
   post-cutover cycle so rollback stays a revert, not a reconstruction.
 - Implementation is tracked by #69 (install script) and follow-up issues for
@@ -72,3 +74,9 @@ removed in the same cycle. Rollback remains `git revert` of the cutover
 commit. The app-side deb/rpm/Flatpak updater paths (format detection, asset
 selection, checksum download) stay for the rollback window and are the
 scheduled cleanup after one stable AppImage-only cycle.
+
+**Amended 2026-08-06 (#99):** staging is no longer click-gated. A background
+check downloads and verifies the AppImage before showing the update card, so
+Restart now has no download wait. The hardcoded `autoInstallOnAppQuit = false`
+became an explicit per-process opt-in: "Install when I quit" arms the staged
+update for the next natural quit, while the default remains no silent install.
