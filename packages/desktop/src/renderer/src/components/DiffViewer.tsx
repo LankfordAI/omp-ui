@@ -99,9 +99,14 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
           {/* The toggle sits outside the horizontal scroller so a wide diff cannot
               push it off-screen; only the rows themselves pan sideways. */}
           <div className="overflow-x-auto font-mono text-[12px] leading-[1.5]">
-            {head.map((row, i) => (
-              <Row key={i} row={row} />
-            ))}
+            {/* `min-w-full w-max`: the wash band spans max(scrollport, widest
+                row) so every add/del row shares one continuous edge-to-edge
+                highlight while panning (issue #92). */}
+            <div className="min-w-full w-max">
+              {head.map((row, i) => (
+                <Row key={i} row={row} />
+              ))}
+            </div>
           </div>
           {collapsed && (
             <Disclosure
@@ -109,9 +114,11 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
               summary={<span className="text-[11px]">show {tail.length} more lines</span>}
             >
               <div className="overflow-x-auto pt-1 font-mono text-[12px] leading-[1.5]">
-                {tail.map((row, i) => (
-                  <Row key={i} row={row} />
-                ))}
+                <div className="min-w-full w-max">
+                  {tail.map((row, i) => (
+                    <Row key={i} row={row} />
+                  ))}
+                </div>
               </div>
             </Disclosure>
           )}

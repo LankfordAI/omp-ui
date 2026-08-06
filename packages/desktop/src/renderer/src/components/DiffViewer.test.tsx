@@ -79,4 +79,25 @@ describe("DiffViewer", () => {
     expect(document.body.textContent).not.toContain("line-24");
     expect(document.body.textContent).toContain("show 26 more lines");
   });
+
+  it("spans the add/del wash across the full scrollable band (issue #92)", () => {
+    // jsdom cannot measure layout, so this pins the structure: every scroller
+    // must wrap its rows in a `min-w-full w-max` band div, which sizes each
+    // row to max(scrollport, widest row).
+    const rows: DiffRow[] = Array.from({ length: 50 }, (_, i) => ({
+      kind: "ctx",
+      lineNum: i + 1,
+      text: `line-${String(i).padStart(2, "0")}`,
+    }));
+    render(rows);
+
+    act(() => headerButton().click());
+    expect(document.body.querySelectorAll(".overflow-x-auto > .min-w-full.w-max").length).toBe(1);
+
+    const disclosure = Array.from(document.body.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("show 26 more lines"),
+    )!;
+    act(() => disclosure.click());
+    expect(document.body.querySelectorAll(".overflow-x-auto > .min-w-full.w-max").length).toBe(2);
+  });
 });
