@@ -117,6 +117,17 @@ export class AppUpdater {
       downloadedPath: null,
       error: null,
     };
+    // A remembered dismissal suppresses only its exact offered version, and
+    // every offer is newer than the running build — so once this build has
+    // caught up to the dismissed version the entry can never fire again and
+    // would only sit on the Settings Updates page as a stale "Dismissed" row
+    // (issue #88). Unparseable/0.0.0 dev-build versions sort lowest in
+    // compareVersions, so they never reap. The running version is fixed for
+    // the process's lifetime, so construction is the only reap point needed.
+    const dismissed = deps.getDismissed();
+    if (dismissed !== null && compareVersions(dismissed, deps.currentVersion) <= 0) {
+      deps.setDismissed(null);
+    }
   }
 
   private push(): void {

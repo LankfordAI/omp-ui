@@ -1,5 +1,6 @@
 import {
   checkOmpUpdate as coreCheckOmpUpdate,
+  compareVersions,
   downloadOmp,
   managedOmpPath,
   type DownloadFetchLike,
@@ -71,6 +72,7 @@ export class OmpUpdater {
     // them a present, up-to-date omp leaves installPath/installedVersion null
     // and the Settings row falls back to its "not installed" placeholder.
     const facts = { installPath: info.installPath, installedVersion: info.installedVersion };
+    this.reapDismissed(info.installedVersion);
     if (info.error !== null || info.latestVersion === null) {
       // Offline/registry unreachable: quiet in the background, answered manually.
       this.set(
@@ -130,6 +132,7 @@ export class OmpUpdater {
       return;
     }
     this.deps.onApplied(version);
+    this.reapDismissed(version);
     this.set({
       status: "installed",
       installPath: target,
@@ -146,5 +149,20 @@ export class OmpUpdater {
   dismiss(version: string, remember: boolean): void {
     if (remember && version) this.deps.setDismissed(version);
     this.set({ status: "idle", latestVersion: null, progress: null, error: null });
+  }
+
+  /**
+   * Drops a remembered dismissal the installed omp has caught up to (issue
+   * #88). The background check suppresses only the exact dismissed version
+   * and every offer is newer than the installed one, so a dismissal at or
+   * below it can never fire again — keeping it would only show a stale
+   * "Dismissed" row on the Settings Updates page. A missing omp (null
+   * version) keeps its dismissal: it still suppresses the install offer for
+   * that exact version.
+   */
+  private reapDismissed(installedVersion: string | null): void {
+    const dismissed = this.deps.getDismissed();
+    if (dismissed === null || installedVersion === null) return;
+    if (compareVersions(dismissed, installedVersion) <= 0) this.deps.setDismissed(null);
   }
 }

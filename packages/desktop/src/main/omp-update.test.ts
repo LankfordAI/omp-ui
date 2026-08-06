@@ -303,3 +303,44 @@ describe("OmpUpdater.download", () => {
     expect(fs.readdirSync(dir)).toEqual([]);
   });
 });
+
+describe("OmpUpdater dismissal reaping (issue #88)", () => {
+  it("drops a dismissal the installed omp has caught up to", async () => {
+    const { updater, dismissed } = makeUpdater();
+    dismissed.value = "1.0.0"; // the runner reports omp/1.0.0
+    await updater.checkNow(false);
+    expect(dismissed.value).toBeNull();
+  });
+
+  it("keeps — and still honors — a dismissal newer than the installed omp", async () => {
+    const { updater, dismissed } = makeUpdater();
+    dismissed.value = "1.2.0"; // the live offer; background checks stay quiet for it
+    await updater.checkNow(false);
+    expect(dismissed.value).toBe("1.2.0");
+    expect(updater.state.status).toBe("idle");
+    expect(statuses()).not.toContain("available");
+  });
+
+  it("keeps the dismissal while omp is missing — it still suppresses that install offer", async () => {
+    const { updater, dismissed } = makeUpdater({ installPath: null });
+    dismissed.value = "1.2.0";
+    await updater.checkNow(false);
+    expect(dismissed.value).toBe("1.2.0");
+    expect(updater.state.status).toBe("idle");
+  });
+
+  it("drops a dismissal once an update past it lands via download", async () => {
+    const target = path.join(mkTmp(), "omp");
+    const { updater, dismissed } = makeUpdater({
+      targetPath: target,
+      downloadFetchImpl: streamFetch([Buffer.from("#!/bin/sh\n")]),
+    });
+    // Newer than the installed 1.0.0 (survives the check), older than the 1.2.0 offer.
+    dismissed.value = "1.1.0";
+    await updater.checkNow(false);
+    expect(dismissed.value).toBe("1.1.0");
+    await updater.download();
+    expect(updater.state.status).toBe("installed");
+    expect(dismissed.value).toBeNull();
+  });
+});

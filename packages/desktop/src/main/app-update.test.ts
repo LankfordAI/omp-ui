@@ -268,6 +268,37 @@ describe("AppUpdater.dismiss", () => {
   });
 });
 
+describe("AppUpdater dismissal reaping (issue #88)", () => {
+  /** Constructs an updater whose registry already holds `dismissedVersion`. */
+  const makeSeeded = (dismissedVersion: string, currentVersion = "1.0.0"): { value: string | null } => {
+    const cell = { value: dismissedVersion as string | null };
+    makeUpdater({
+      currentVersion,
+      getDismissed: () => cell.value,
+      setDismissed: (v) => {
+        cell.value = v;
+      },
+    });
+    return cell;
+  };
+
+  it("drops a dismissal older than the running build", () => {
+    expect(makeSeeded("0.9.0").value).toBeNull();
+  });
+
+  it("drops a dismissal equal to the running build", () => {
+    expect(makeSeeded("1.0.0").value).toBeNull();
+  });
+
+  it("keeps a dismissal newer than the running build — it still suppresses that offer", () => {
+    expect(makeSeeded("1.2.0").value).toBe("1.2.0");
+  });
+
+  it("keeps the dismissal on unversioned builds, which never compare as caught up", () => {
+    expect(makeSeeded("0.9.0", "0.0.0").value).toBe("0.9.0");
+  });
+});
+
 describe("AppUpdater.download (deb/rpm/flatpak)", () => {
   const PAYLOAD = Buffer.from("fake .deb payload bytes");
 
