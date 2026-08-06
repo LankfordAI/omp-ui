@@ -38,6 +38,8 @@ const api: OmpBackend = {
   generateTitle: (projectCwd, prompt) =>
     ipcRenderer.invoke(CH.titleGenerate, projectCwd, prompt),
   readPlanFile: (tabId, absPath) => ipcRenderer.invoke(CH.planRead, tabId, absPath),
+  openPath: (absPath) => ipcRenderer.invoke(CH.fileOpen, absPath),
+  showPathInFolder: (absPath) => ipcRenderer.invoke(CH.fileShowInFolder, absPath),
   getBranchDiff: (projectCwd) => ipcRenderer.invoke(CH.branchDiff, projectCwd),
   listBranches: (projectCwd) => ipcRenderer.invoke(CH.branchList, projectCwd),
   checkoutBranch: (projectCwd, name, opts) =>

@@ -117,6 +117,8 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
       req(CH.sessionSetModel, tabId, model, thinkingLevel),
     generateTitle: (projectCwd, prompt) => req(CH.titleGenerate, projectCwd, prompt),
     readPlanFile: (tabId, absPath) => req(CH.planRead, tabId, absPath),
+    openPath: (absPath) => req(CH.fileOpen, absPath),
+    showPathInFolder: (absPath) => req(CH.fileShowInFolder, absPath),
     getBranchDiff: (projectCwd) => req(CH.branchDiff, projectCwd),
     listBranches: (projectCwd) => req(CH.branchList, projectCwd),
     checkoutBranch: (projectCwd, name, opts) => req(CH.branchCheckout, projectCwd, name, opts),

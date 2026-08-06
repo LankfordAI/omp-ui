@@ -35,6 +35,8 @@ export const CH = {
   sessionRestart: "session:restart",
   projectFilesList: "project-files:list",
   fileMentionsResolve: "file-mentions:resolve",
+  fileOpen: "file:open",
+  fileShowInFolder: "file:showInFolder",
   ptyPasteImage: "pty:pasteImage",
   ptyWrite: "pty:write",
   ptyResize: "pty:resize",

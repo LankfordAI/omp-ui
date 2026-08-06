@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, shell, type BrowserWindow } from "electron";
 import {
   base64Bytes,
   bracketedImagePaste,
@@ -303,6 +303,16 @@ export class MainBackend {
         [CH.titleGenerate]: (projectCwd: string, prompt: string) =>
           this.generateTitle(projectCwd, prompt),
         [CH.planRead]: (tabId: string, absPath: string) => this.readPlanFile(tabId, absPath),
+        // shell.openPath resolves with an error string on failure ("" on
+        // success); rejecting lets the renderer surface it instead of the
+        // click dying silently.
+        [CH.fileOpen]: async (absPath: string) => {
+          const failure = await shell.openPath(absPath);
+          if (failure !== "") throw new Error(failure);
+        },
+        [CH.fileShowInFolder]: (absPath: string) => {
+          shell.showItemInFolder(absPath);
+        },
         [CH.branchDiff]: (projectCwd: string) => readBranchDiff(projectCwd),
         // Stateless core calls: a checkout touches no registry/BackendState field,
         // so these handlers never broadcast().

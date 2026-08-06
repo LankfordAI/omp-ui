@@ -2018,7 +2018,12 @@ export const useStore = create<UiStore>()((set, get) => {
       const resp = await runCommand(tabId, { type: "export_html" });
       if (resp === null) return;
       const path = strField(respData(resp), "path");
-      appendItem(tabId, noticeItem(path ? `exported to ${path}` : "export finished", "info"));
+      // The path rides the notice as data so the transcript can offer
+      // open/reveal without parsing it back out of the text (issue #84).
+      appendItem(tabId, {
+        ...noticeItem(path ? `exported to ${path}` : "export finished", "info"),
+        ...(path === undefined ? {} : { path }),
+      });
     },
 
     async branchSession(tabId) {

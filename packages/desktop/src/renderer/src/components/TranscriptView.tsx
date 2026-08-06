@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
@@ -187,8 +188,17 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
 
 const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info: "neutral" };
 
+/** Same failure surface the store uses for backend rejections. */
+function alertBackendError(err: unknown): void {
+  window.alert(err instanceof Error ? err.message : String(err));
+}
+
 function NoticeLine({ item }: { item: NoticeItem }) {
   const tone = NOTICE_TONE[item.level ?? "info"] ?? "neutral";
+  // A notice carrying a path (the exported transcript HTML, issue #84) is a
+  // link: the text opens the file with the system handler, the folder glyph
+  // reveals it in the file manager.
+  const path = item.path;
   return (
     <div className="animate-rise flex justify-center">
       <div
@@ -202,9 +212,41 @@ function NoticeLine({ item }: { item: NoticeItem }) {
         {item.source && (
           <span className="shrink-0 font-mono text-[10px] text-ink-faint">{item.source}</span>
         )}
-        <span className="min-w-0 break-words" data-selectable>
-          {item.text}
-        </span>
+        {path === undefined ? (
+          <span className="min-w-0 break-words" data-selectable>
+            {item.text}
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              title={`open ${path}`}
+              className="min-w-0 cursor-pointer break-words text-left underline decoration-dotted underline-offset-2 hover:text-ink"
+              data-selectable
+              onClick={() => void backend.openPath(path).catch(alertBackendError)}
+            >
+              {item.text}
+            </button>
+            <button
+              type="button"
+              title="reveal in file manager"
+              aria-label="reveal in file manager"
+              className="shrink-0 cursor-pointer text-ink-faint hover:text-ink"
+              onClick={() => void backend.showPathInFolder(path).catch(alertBackendError)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden className="size-3">
+                <path
+                  d="M1.8 4.2a1 1 0 0 1 1-1h3.4l1.6 2h5.4a1 1 0 0 1 1 1v5.1a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

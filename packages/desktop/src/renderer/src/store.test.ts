@@ -1834,8 +1834,23 @@ describe("prompting, slash commands, and session ops", () => {
     await settleAll({ path: "/tmp/session.html" });
     await promise;
     expect(useStore.getState().rpc[TAB]!.items).toEqual([
-      expect.objectContaining({ kind: "notice", text: "exported to /tmp/session.html" }),
+      expect.objectContaining({
+        kind: "notice",
+        text: "exported to /tmp/session.html",
+        // The path rides along as data so the view can open/reveal the file
+        // without parsing the text (issue #84).
+        path: "/tmp/session.html",
+      }),
     ]);
+  });
+
+  it("exportHtml without a path in the response leaves a plain notice", async () => {
+    const promise = useStore.getState().exportHtml(TAB);
+    await settleAll({});
+    await promise;
+    const [item] = useStore.getState().rpc[TAB]!.items;
+    expect(item).toMatchObject({ kind: "notice", text: "export finished" });
+    expect(item).not.toHaveProperty("path");
   });
 
   it("compactSession marks the transcript without pasting the summary into it", async () => {

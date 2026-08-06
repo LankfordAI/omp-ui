@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { RenderItem } from "../lib/transcript";
+// Statically imported even though the module is mocked: vi.mock hoists above
+// imports, so this binding is the mock, not the window.ompBackend reader.
+import { backend } from "../backend";
 import { TranscriptView } from "./TranscriptView";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,6 +23,15 @@ class ResizeObserverStub {
   disconnect() {}
 }
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
+
+// NoticeLine's open/reveal actions call the bridge directly; the module reads
+// window.ompBackend at load, so mock the module instead of the global.
+vi.mock("../backend", () => ({
+  backend: {
+    openPath: vi.fn(async () => {}),
+    showPathInFolder: vi.fn(async () => {}),
+  },
+}));
 
 function assistant(id: string, text: string): RenderItem {
   return { kind: "assistant", id, text, thinking: "", streaming: false };
@@ -248,6 +260,41 @@ describe("UsageStrip", () => {
     expect(stamp).not.toBeNull();
     expect(stamp!.textContent).toBe(expected);
     expect(stamp!.getAttribute("title")).toBe(at.toLocaleString());
+    act(() => root.unmount());
+  });
+});
+
+describe("NoticeLine path actions (issue #84)", () => {
+  function notice(text: string, path?: string): RenderItem {
+    return { kind: "notice", id: "n1", text, level: "info", ...(path === undefined ? {} : { path }) };
+  }
+
+  it("opens the file on text click and reveals it on the glyph click", () => {
+    const { el, root } = render([notice("exported to /tmp/session.html", "/tmp/session.html")]);
+
+    const open = el.querySelector<HTMLButtonElement>('button[title="open /tmp/session.html"]');
+    const reveal = el.querySelector<HTMLButtonElement>('button[aria-label="reveal in file manager"]');
+    expect(open).not.toBeNull();
+    expect(reveal).not.toBeNull();
+    expect(open!.textContent).toBe("exported to /tmp/session.html");
+
+    act(() => {
+      open!.click();
+    });
+    expect(vi.mocked(backend.openPath).mock.calls).toEqual([["/tmp/session.html"]]);
+    expect(vi.mocked(backend.showPathInFolder).mock.calls).toEqual([]);
+
+    act(() => {
+      reveal!.click();
+    });
+    expect(vi.mocked(backend.showPathInFolder).mock.calls).toEqual([["/tmp/session.html"]]);
+    act(() => root.unmount());
+  });
+
+  it("keeps a pathless notice inert text", () => {
+    const { el, root } = render([notice("plan approved")]);
+    expect(el.textContent).toContain("plan approved");
+    expect(el.querySelector("button")).toBeNull();
     act(() => root.unmount());
   });
 });

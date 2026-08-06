@@ -72,6 +72,12 @@ export interface NoticeItem {
   text: string;
   level?: "info" | "warn" | "error";
   source?: string;
+  /**
+   * Absolute path of the artifact the notice announces (the exported
+   * transcript HTML, issue #84). Structured so the view can offer
+   * open/reveal actions without parsing the path back out of the text.
+   */
+  path?: string;
 }
 export interface IrcItem {
   kind: "irc";

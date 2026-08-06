@@ -486,6 +486,13 @@ export interface OmpBackend {
    */
   readPlanFile(tabId: string, absPath: string): Promise<string | null>;
   /**
+   * Opens an absolute path with the system default handler (a browser for the
+   * exported transcript HTML). Rejects when the handler reports a failure.
+   */
+  openPath(absPath: string): Promise<void>;
+  /** Reveals an absolute path selected in the platform file manager. */
+  showPathInFolder(absPath: string): Promise<void>;
+  /**
    * Working-tree changes on the active branch of a project's git repo: tracked
    * changes vs HEAD plus new untracked files. Null fields when the project is
    * not inside a git repository.
