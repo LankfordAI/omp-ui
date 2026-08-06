@@ -15,6 +15,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+        # npm ci validates the dependency tree but not workspace metadata —
+        # a version stamped without regenerating the lock (issue #90) passes
+        # it. Regenerating must be a no-op on a synced tree; any diff is drift.
+      - name: Assert lockfile in sync
+        run: |
+          npm install --package-lock-only
+          git diff --exit-code package-lock.json
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
