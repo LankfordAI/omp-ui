@@ -152,6 +152,14 @@ function resolveLang(lang: string | undefined): string | null {
   return canonical in LANG_IMPORTS ? canonical : null;
 }
 
+/** Fence-style language guess from a file path's extension; undefined when there is none. */
+export function langFromPath(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : undefined;
+}
+
 /**
  * Themes registered on the core, seeded with the one `getCore` builds it
  * with. A theme is only paid for once the user actually switches to it.

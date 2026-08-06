@@ -3,6 +3,7 @@ import {
   historyToItems,
   isAdvisorMessage,
   reduceEvent,
+  settleRunningTools,
   type AssistantItem,
   type RenderItem,
   type ToolItem,
@@ -315,6 +316,42 @@ describe("reduceEvent tool executions", () => {
       result: { content: [], details: { timeoutSeconds: 30, wallTimeMs: 1234 } },
     });
     expect(tool(items, "t7")?.wallTimeMs).toBe(1234);
+  });
+});
+
+describe("run-end tool settlement", () => {
+  it("agent_end cancels tools still running and appends the finished marker", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "t8",
+      toolName: "edit",
+    });
+    items = reduceEvent(items, { type: "agent_end" });
+    expect(tool(items, "t8")?.status).toBe("cancelled");
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent finished" });
+  });
+
+  it("agent_end with no running tools leaves prior items untouched by identity", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "t9", toolName: "bash" });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "t9",
+      result: { content: [] },
+    });
+    const settled = tool(items, "t9");
+    const after = reduceEvent(items, { type: "agent_end" });
+    expect(tool(after, "t9")).toBe(settled);
+  });
+
+  it("settleRunningTools returns the same array by identity when nothing runs", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "t10",
+      result: { content: [] },
+    });
+    expect(settleRunningTools(items)).toBe(items);
   });
 });
 

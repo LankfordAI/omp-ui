@@ -19,6 +19,7 @@ import type {
 } from "../lib/transcript";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
+import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard, formatDuration } from "./ToolCard";
 import { TranscriptContextMenu } from "./TranscriptContextMenu";
 import { Chip, Disclosure, Empty, Label, copyFallback, type Tone } from "./ui";
@@ -331,6 +332,7 @@ const SPEAKER: Record<RenderItem["kind"], string> = {
   notice: "meta",
   irc: "meta",
   marker: "meta",
+  plan: "tool",
 };
 
 function buildRuns(items: RenderItem[]): Run[] {
@@ -535,6 +537,8 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
                         return <IrcLine item={item} />;
                       case "marker":
                         return <MarkerRule item={item} count={count} />;
+                      case "plan":
+                        return <PlanCard item={item} />;
                     }
                   })()}
                 </ErrorBoundary>

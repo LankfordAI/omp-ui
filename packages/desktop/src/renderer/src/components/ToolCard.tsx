@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { langFromPath, useHighlightTokens } from "../lib/highlight";
 import { strField } from "../lib/fields";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
+import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { DiffViewer } from "./DiffViewer";
 import { Markdown } from "./Markdown";
 import { Chip, Chevron, Disclosure, Label, Panel, ProgressSweep, type Tone } from "./ui";
@@ -95,6 +97,22 @@ function scalarText(value: unknown): string | null {
   return null;
 }
 
+function pathFromArgs(args: unknown): string | undefined {
+  return strField(args, "path") ?? strField(args, "file_path") ?? strField(args, "file");
+}
+
+/** The content an edit/write tool is about to apply, straight from its args. */
+function editDraft(name: string, args: unknown): { code: string; lang?: string } | null {
+  if (glyphFor(name) !== "write") return null;
+  const content = strField(args, "content");
+  if (content) return { code: content, lang: langFromPath(pathFromArgs(args)) };
+  const input = strField(args, "input"); // hashline/patch DSL — highlight as diff
+  if (input) return { code: input, lang: "diff" };
+  const newText = strField(args, "newText");
+  if (newText) return { code: newText, lang: langFromPath(pathFromArgs(args)) };
+  return null;
+}
+
 /** The mono slab used for commands, paths, partial output and results. */
 function Slab({
   children,
@@ -126,6 +144,33 @@ function Slab({
       )}
     >
       {children}
+    </pre>
+  );
+}
+
+/**
+ * Slab with shiki tokens. Args are complete at tool start, so no re-tokenize
+ * churn; very large payloads stay plain.
+ */
+function CodeSlab({ code, lang }: { code: string; lang?: string }) {
+  const tokens = useHighlightTokens(code, lang, code.length < 20_000);
+  return (
+    <pre
+      data-selectable
+      className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink"
+    >
+      {tokens
+        ? tokens.map((line, i) => (
+            <span key={i}>
+              {line.map((token, k) => (
+                <span key={k} style={{ color: token.color }}>
+                  {token.content}
+                </span>
+              ))}
+              {i < tokens.length - 1 ? "\n" : null}
+            </span>
+          ))
+        : code}
     </pre>
   );
 }
@@ -172,7 +217,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
   }
 
   if (kind === "read" || kind === "write") {
-    const path = strField(args, "path") ?? strField(args, "file_path") ?? strField(args, "file");
+    const path = pathFromArgs(args);
     if (path) return <PathChip value={path} />;
   }
 
@@ -323,11 +368,14 @@ export function ToolCard({ item }: { item: ToolItem }) {
 
   const headline = item.intent ?? argSummary(item.args);
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
+  const draft = useMemo(() => editDraft(item.name, item.args), [item.name, item.args]);
+  const planWrite = isPlanArtifactPath(item.path ?? pathFromArgs(item.args));
   const hasBody =
     item.args !== undefined ||
     item.resultText !== undefined ||
     hasDiff ||
     item.partialText !== undefined ||
+    draft !== null ||
     (item.notes?.length ?? 0) > 0;
 
   return (
@@ -359,8 +407,10 @@ export function ToolCard({ item }: { item: ToolItem }) {
             {duration}
           </span>
         )}
+        {planWrite && <Chip tone="iris">plan</Chip>}
         {item.status === "running" && <Chip tone="copper">running</Chip>}
         {item.status === "error" && <Chip tone="rose">error</Chip>}
+        {item.status === "cancelled" && <Chip>cancelled</Chip>}
         {item.status === "done" && <CheckGlyph />}
       </button>
 
@@ -374,6 +424,13 @@ export function ToolCard({ item }: { item: ToolItem }) {
             <div className="flex flex-wrap items-center gap-1.5">
               {item.op && <Chip tone={item.op === "create" ? "signal" : "neutral"}>{item.op}</Chip>}
               {item.path && <PathChip value={item.path} />}
+            </div>
+          )}
+
+          {item.status === "running" && draft && (
+            <div className="space-y-1">
+              <Label>writing</Label>
+              <CodeSlab code={draft.code} lang={draft.lang} />
             </div>
           )}
 

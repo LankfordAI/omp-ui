@@ -46,7 +46,7 @@ export interface ToolItem {
   toolCallId: string;
   name: string;
   args: unknown;
-  status: "running" | "done" | "error";
+  status: "running" | "done" | "error" | "cancelled";
   /** tool_execution_start.intent — the human headline ("Reading hello.txt"). */
   intent?: string;
   resultText?: string;
@@ -91,6 +91,16 @@ export interface MarkerItem {
   label: string;
   tone?: "neutral" | "signal" | "copper" | "rose";
 }
+export interface PlanItem {
+  kind: "plan";
+  id: string;
+  title: string;
+  planFilePath: string;
+  planAbsPath: string | null;
+  /** Plan markdown snapshot read off disk; null until loaded or when unreadable. */
+  text: string | null;
+  status: "pending" | "executed" | "refined";
+}
 
 export type RenderItem =
   | UserItem
@@ -99,7 +109,8 @@ export type RenderItem =
   | AdvisoryItem
   | NoticeItem
   | IrcItem
-  | MarkerItem;
+  | MarkerItem
+  | PlanItem;
 
 let counter = 0;
 export function markerItem(label: string, tone?: MarkerItem["tone"]): MarkerItem {
@@ -108,6 +119,30 @@ export function markerItem(label: string, tone?: MarkerItem["tone"]): MarkerItem
 
 export function noticeItem(text: string, level?: NoticeItem["level"]): NoticeItem {
   return { kind: "notice", id: `notice-${++counter}`, text, level };
+}
+
+export function planProposalItem(
+  title: string,
+  planFilePath: string,
+  planAbsPath: string | null,
+): PlanItem {
+  return {
+    kind: "plan",
+    id: `plan-${++counter}`,
+    title,
+    planFilePath,
+    planAbsPath,
+    text: null,
+    status: "pending",
+  };
+}
+
+/** Settles tool cards still running when the run itself ends (abort, process death). */
+export function settleRunningTools(items: RenderItem[]): RenderItem[] {
+  if (!items.some((i) => i.kind === "tool" && i.status === "running")) return items;
+  return items.map((i) =>
+    i.kind === "tool" && i.status === "running" ? { ...i, status: "cancelled" as const } : i,
+  );
 }
 
 function isObj(value: unknown): value is Record<string, unknown> {
@@ -403,7 +438,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     case "agent_start":
       return [...items, markerItem("agent started", "neutral")];
     case "agent_end":
-      return [...items, markerItem("agent finished", "signal")];
+      return [...settleRunningTools(items), markerItem("agent finished", "signal")];
     // Turn boundaries are pure ceremony in a rendered transcript: one prompt
     // produced eight of them in a live smoke test, drowning the actual content.
     // The tool-call/assistant cards already show where each turn's work went,
