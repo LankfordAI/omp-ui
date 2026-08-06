@@ -83,6 +83,11 @@ export function parsePlanReviewTitle(title: string | undefined): PlanReviewReque
   };
 }
 
+/** True for the plan-mode artifact path shape, `local://<slug>-plan.md`. */
+export function isPlanArtifactPath(path: string | undefined | null): boolean {
+  return typeof path === "string" && path.startsWith("local://") && path.endsWith("-plan.md");
+}
+
 function parseObject(text: string | undefined): Record<string, unknown> | null {
   if (!text) return null;
   let parsed: unknown;

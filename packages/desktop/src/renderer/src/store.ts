@@ -64,7 +64,9 @@ import {
   historyToItems,
   markerItem,
   noticeItem,
+  planProposalItem,
   reduceEvent,
+  settleRunningTools,
   type RenderItem,
 } from "./lib/transcript";
 
@@ -473,8 +475,11 @@ interface UiStore {
    * advisor's injected notes are already visible.
    */
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
-  /** Loads the plan markdown for the review pane. */
-  loadPlanText(tabId: string, absPath: string | null): Promise<void>;
+  /**
+   * Loads the plan markdown for the review pane; when `itemId` names an inline
+   * plan transcript item, the loaded text is copied onto it too.
+   */
+  loadPlanText(tabId: string, absPath: string | null, itemId?: string): Promise<void>;
   /**
    * Dismisses the plan review WITHOUT answering the gate: the agent stays
    * paused on its proposal and the plan stays pending in the rail's plans tab,
@@ -744,6 +749,14 @@ export const useStore = create<UiStore>()((set, get) => {
     const tab = get().rpc[tabId];
     if (!tab) return;
     patchRpc(tabId, { items: [...tab.items, item] });
+  };
+
+  /** Maps every item; patches only when at least one item actually changed. */
+  const patchItems = (tabId: string, map: (item: RenderItem) => RenderItem): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    const items = tab.items.map(map);
+    if (items.some((item, i) => item !== tab.items[i])) patchRpc(tabId, { items });
   };
 
   /**
@@ -1064,7 +1077,16 @@ export const useStore = create<UiStore>()((set, get) => {
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) => {
-        set((s) => ({ exited: { ...s.exited, [tabId]: code } }));
+        set((s) => {
+          // An rpc-mode omp that dies mid-tool sends no agent_end or
+          // omp_ui_error frame — this exit is the only signal, so running
+          // tool cards are settled here (issue #93).
+          const tab = s.rpc[tabId];
+          const items = tab ? settleRunningTools(tab.items) : undefined;
+          const rpc =
+            tab && items !== tab.items ? { ...s.rpc, [tabId]: { ...tab, items: items! } } : s.rpc;
+          return { exited: { ...s.exited, [tabId]: code }, rpc };
+        });
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
       backend.onShellExit((tabId, code) => {
@@ -1693,7 +1715,9 @@ export const useStore = create<UiStore>()((set, get) => {
               planDeferred: false,
               plans: upsertPlan(tab.plans, review.title, review.planFilePath),
             });
-            void get().loadPlanText(tabId, review.planAbsPath);
+            const planItem = planProposalItem(review.title, review.planFilePath, review.planAbsPath);
+            appendItem(tabId, planItem);
+            void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
             return;
           }
           const entry = extensionStatusEntry(frame);
@@ -1731,7 +1755,8 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
         case "omp_ui_error": {
           const message = strField(frame, "message") ?? "omp rpc error";
-          patchRpc(tabId, { status: "error", error: message });
+          // The process died mid-tool, so no agent_end will settle running cards.
+          patchRpc(tabId, { status: "error", error: message, items: settleRunningTools(tab.items) });
           return;
         }
         case "host_tool_call":
@@ -2072,6 +2097,11 @@ export const useStore = create<UiStore>()((set, get) => {
         patchRpc(tabId, {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "executed"),
         });
+        patchItems(tabId, (i) =>
+          i.kind === "plan" && i.planFilePath === planKey && i.status === "pending"
+            ? { ...i, status: "executed" }
+            : i,
+        );
       }
       // The drafting turn's review lands after the verdict, so hold dispatch
       // for it when the user wants the advisor's concerns actioned. Execute
@@ -2094,6 +2124,11 @@ export const useStore = create<UiStore>()((set, get) => {
         patchRpc(tabId, {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "refined"),
         });
+        patchItems(tabId, (i) =>
+          i.kind === "plan" && i.planFilePath === planKey && i.status === "pending"
+            ? { ...i, status: "refined" }
+            : i,
+        );
       }
       const text = notes?.text?.trim() ?? "";
       const images = notes?.images;
@@ -2114,13 +2149,19 @@ export const useStore = create<UiStore>()((set, get) => {
       patchRpc(tabId, { planDeferred: false });
     },
 
-    async loadPlanText(tabId, absPath) {
+    async loadPlanText(tabId, absPath, itemId) {
       if (!absPath) {
         patchRpc(tabId, { planText: null });
         return;
       }
       try {
-        patchRpc(tabId, { planText: await backend.readPlanFile(tabId, absPath) });
+        const text = await backend.readPlanFile(tabId, absPath);
+        patchRpc(tabId, { planText: text });
+        if (itemId !== undefined) {
+          patchItems(tabId, (i) =>
+            i.kind === "plan" && i.id === itemId ? { ...i, text } : i,
+          );
+        }
       } catch {
         // The pane falls back to the plan's path — a failed read must never
         // strand the review, because the agent is waiting on the verdict.

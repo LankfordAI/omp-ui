@@ -3,6 +3,7 @@ import {
   historyToItems,
   isAdvisorMessage,
   reduceEvent,
+  settleRunningTools,
   type AssistantItem,
   type RenderItem,
   type ToolItem,
@@ -315,6 +316,133 @@ describe("reduceEvent tool executions", () => {
       result: { content: [], details: { timeoutSeconds: 30, wallTimeMs: 1234 } },
     });
     expect(tool(items, "t7")?.wallTimeMs).toBe(1234);
+  });
+});
+
+describe("run-end tool settlement", () => {
+  it("agent_end cancels tools still running and appends the finished marker", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "t8",
+      toolName: "edit",
+    });
+    items = reduceEvent(items, { type: "agent_end" });
+    expect(tool(items, "t8")?.status).toBe("cancelled");
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent finished" });
+  });
+
+  it("agent_end with no running tools leaves prior items untouched by identity", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "t9", toolName: "bash" });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "t9",
+      result: { content: [] },
+    });
+    const settled = tool(items, "t9");
+    const after = reduceEvent(items, { type: "agent_end" });
+    expect(tool(after, "t9")).toBe(settled);
+  });
+
+  it("settleRunningTools returns the same array by identity when nothing runs", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "t10",
+      result: { content: [] },
+    });
+    expect(settleRunningTools(items)).toBe(items);
+  });
+});
+
+describe("reduceEvent tool-call args streaming (issue #97)", () => {
+  const partialWith = (args: unknown, extra: Record<string, unknown> = {}) => ({
+    role: "assistant",
+    content: [
+      { type: "text", text: "let me write that" },
+      { type: "toolCall", id: "w1", name: "write", arguments: args, ...extra },
+    ],
+  });
+  const update = (type: string, fields: Record<string, unknown>) => ({
+    type: "message_update",
+    assistantMessageEvent: { type, contentIndex: 1, ...fields },
+  });
+
+  it("streams a growing write draft into one running card", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, update("toolcall_start", { partial: partialWith({}) }));
+    expect(tool(items, "w1")).toMatchObject({ status: "running", argsStreaming: true, name: "write" });
+
+    items = reduceEvent(
+      items,
+      update("toolcall_delta", { delta: "x", partial: partialWith({ path: "/tmp/a.py", content: "print(" }) }),
+    );
+    expect(tool(items, "w1")?.args).toEqual({ path: "/tmp/a.py", content: "print(" });
+
+    items = reduceEvent(
+      items,
+      update("toolcall_end", {
+        toolCall: { type: "toolCall", id: "w1", name: "write", arguments: { path: "/tmp/a.py", content: "print(1)" } },
+      }),
+    );
+    const t = tool(items, "w1");
+    expect(t).toMatchObject({ status: "running", argsStreaming: false });
+    expect(t?.args).toEqual({ path: "/tmp/a.py", content: "print(1)" });
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(1);
+  });
+
+  it("tool_execution_start merges into the streamed card instead of duplicating", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, update("toolcall_start", { partial: partialWith({}) }));
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "w1",
+      toolName: "write",
+      args: { path: "/tmp/a.py", content: "print(1)" },
+      intent: "Writing a.py",
+    });
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(1);
+    expect(tool(items, "w1")).toMatchObject({
+      status: "running",
+      argsStreaming: false,
+      intent: "Writing a.py",
+      args: { path: "/tmp/a.py", content: "print(1)" },
+    });
+  });
+
+  it("a turn aborted mid-generation settles the streaming card to cancelled", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, update("toolcall_start", { partial: partialWith({ content: "half" }) }));
+    items = reduceEvent(items, { type: "agent_end" });
+    expect(tool(items, "w1")?.status).toBe("cancelled");
+  });
+
+  it("a later message's call at the same contentIndex gets its own card", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, update("toolcall_start", { partial: partialWith({}) }));
+    items = reduceEvent(
+      items,
+      update("toolcall_end", {
+        toolCall: { type: "toolCall", id: "w1", name: "write", arguments: {} },
+      }),
+    );
+    const second = {
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "toolcall_start",
+        contentIndex: 1,
+        partial: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "" },
+            { type: "toolCall", id: "w2", name: "write", arguments: {} },
+          ],
+        },
+      },
+    };
+    items = reduceEvent(items, second);
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(2);
+    expect(tool(items, "w2")).toMatchObject({ status: "running", argsStreaming: true });
   });
 });
 

@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { RenderItem } from "../lib/transcript";
+import { planProposalItem, type RenderItem } from "../lib/transcript";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
@@ -295,6 +295,17 @@ describe("NoticeLine path actions (issue #84)", () => {
     const { el, root } = render([notice("plan approved")]);
     expect(el.textContent).toContain("plan approved");
     expect(el.querySelector("button")).toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("PlanCard (issue #93)", () => {
+  it("renders the inline plan proposal with its title and pending status", () => {
+    const { el, root } = render([planProposalItem("Auth refresh", "local://auth-plan.md", null)]);
+    expect(el.textContent).toContain("Auth refresh");
+    expect(el.textContent).toContain("pending");
+    // No text loaded yet — the card falls back to the plan's path.
+    expect(el.textContent).toContain("local://auth-plan.md");
     act(() => root.unmount());
   });
 });
