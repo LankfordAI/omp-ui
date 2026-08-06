@@ -67,30 +67,33 @@ export class OmpUpdater {
       fetchImpl: this.deps.fetchImpl,
       runner: this.deps.runner,
     });
+    // Every outcome carries the resolved install facts (issue #76): without
+    // them a present, up-to-date omp leaves installPath/installedVersion null
+    // and the Settings row falls back to its "not installed" placeholder.
+    const facts = { installPath: info.installPath, installedVersion: info.installedVersion };
     if (info.error !== null || info.latestVersion === null) {
       // Offline/registry unreachable: quiet in the background, answered manually.
       this.set(
         manual
-          ? { status: "error", error: info.error ?? "could not reach the omp release registry" }
-          : { status: "idle" },
+          ? { ...facts, status: "error", error: info.error ?? "could not reach the omp release registry" }
+          : { ...facts, status: "idle" },
       );
       return this.state;
     }
     const offered = info.installPath === null ? "missing" : info.updateAvailable ? "available" : null;
     if (offered === null) {
-      this.set(manual ? { status: "up-to-date" } : { status: "idle" });
+      this.set(manual ? { ...facts, status: "up-to-date" } : { ...facts, status: "idle" });
       return this.state;
     }
     // "Later" stays quiet for that version on background checks; an explicit
     // manual check is the user asking, so it always answers.
     if (!manual && this.deps.getDismissed() === info.latestVersion) {
-      this.set({ status: "idle" });
+      this.set({ ...facts, status: "idle" });
       return this.state;
     }
     this.set({
       status: offered,
-      installPath: info.installPath,
-      installedVersion: info.installedVersion,
+      ...facts,
       latestVersion: info.latestVersion,
     });
     return this.state;

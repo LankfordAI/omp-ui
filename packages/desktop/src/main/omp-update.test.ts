@@ -133,10 +133,29 @@ describe("OmpUpdater.checkNow", () => {
     expect(statuses()).toEqual(["checking", "idle"]);
   });
 
+  it("records the resolved install facts when no update is offered (issue #76)", async () => {
+    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "1.0.0" }) });
+    await updater.checkNow(false);
+    expect(updater.state.installPath).toBe("/managed/omp");
+    expect(updater.state.installedVersion).toBe("1.0.0");
+  });
+
   it("answers a manual same-version check with up-to-date", async () => {
     const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "1.0.0" }) });
     await updater.checkNow(true);
     expect(updater.state.status).toBe("up-to-date");
+    expect(updater.state.installedVersion).toBe("1.0.0");
+  });
+
+  it("keeps the locally read version when the registry is unreachable", async () => {
+    const { updater } = makeUpdater({
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("idle");
+    expect(updater.state.installedVersion).toBe("1.0.0");
   });
 
   it("stays quiet for a dismissed version in the background but answers a manual check", async () => {
