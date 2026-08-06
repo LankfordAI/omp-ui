@@ -350,6 +350,10 @@ function UpdatesPage() {
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const downloadOmpUpdate = useStore((s) => s.downloadOmpUpdate);
+  const downloadAppUpdate = useStore((s) => s.downloadAppUpdate);
+  const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
+  const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
 
   // Clear THEN check, so the card reappears immediately if an offer stands.
   const reofferApp = (): void => {
@@ -370,9 +374,35 @@ function UpdatesPage() {
             </p>
             <p className="mt-0.5 text-[11px] text-ink-dim">{appStatusLine(appUpdate)}</p>
           </div>
-          <Button size="xs" onClick={() => void checkAppUpdate()}>
-            Check now
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* The update card's primary action mirrored (issue #89): a check
+                that answers "available" here must not require closing
+                Settings to reach the corner card — and the downloaded
+                follow-through finishes the install without leaving either. */}
+            {appUpdate.status === "available" &&
+              (appUpdate.format === "unknown" ? (
+                <Button size="xs" variant="solid" onClick={() => void openAppUpdateReleaseNotes()}>
+                  View release
+                </Button>
+              ) : (
+                <Button size="xs" variant="solid" onClick={() => void downloadAppUpdate()}>
+                  {appUpdate.format === "appimage" ? "Update" : "Download"}
+                </Button>
+              ))}
+            {appUpdate.status === "downloaded" &&
+              (appUpdate.format === "appimage" ? (
+                <Button size="xs" variant="solid" onClick={() => void restartForAppUpdate()}>
+                  Restart now
+                </Button>
+              ) : (
+                <Button size="xs" variant="solid" onClick={() => void showAppUpdateDownload()}>
+                  Show in folder
+                </Button>
+              ))}
+            <Button size="xs" onClick={() => void checkAppUpdate()}>
+              Check now
+            </Button>
+          </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-xs text-ink-mid">Check on launch</span>
@@ -406,7 +436,13 @@ function UpdatesPage() {
           <div className="flex shrink-0 items-center gap-2">
             {/* The same install OmpUpdateCard.tsx offers — reachable here
                 because a user whose omp is missing has no card to click once
-                they dismiss it. */}
+                they dismiss it. The available-update action joins it for the
+                same reason (issue #89). */}
+            {ompUpdate.status === "available" && (
+              <Button size="xs" variant="solid" onClick={() => void downloadOmpUpdate()}>
+                Update now
+              </Button>
+            )}
             {ompUpdate.status === "missing" && (
               <Button size="xs" variant="solid" onClick={() => void downloadOmpUpdate()}>
                 Install
