@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
@@ -285,29 +286,52 @@ function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
 }
 
 const STEERING_MODES = ["one-at-a-time", "all-at-once"];
-const INTERRUPT_MODES = ["immediate", "queue"];
+// omp's interrupt enum is immediate|wait; "queue" is stored but behaves as
+// immediate (omp branches on `!== "wait"`), so never offer it (issue #81).
+const INTERRUPT_MODES = ["immediate", "wait"];
+
+// Native-tooltip copy for the queue-mode controls (issue #80). Steering and
+// follow-up option text is omp's own settings copy; interrupt text mirrors
+// the tool-loop branch (`wait` lets the in-flight tool finish).
+const QUEUE_MODE_HINTS: Record<string, string> = {
+  "one-at-a-time": "process queued messages one by one, one per turn (recommended)",
+  "all-at-once": "process all queued messages at once",
+};
+const INTERRUPT_MODE_HINTS: Record<string, string> = {
+  immediate: "interrupt the in-flight tool as soon as a steering message arrives",
+  wait: "let the current tool finish, then inject queued steering",
+};
+const ROW_HINTS = {
+  steering: "steering messages: what you send while the agent is still running",
+  "follow-up": "follow-up messages: queued to run after the current turn completes",
+  interrupt: "when steering messages may interrupt tool execution",
+} as const;
 
 function ModeRow({
   label,
   value,
   known,
   onChange,
+  hint,
+  optionHints,
 }: {
   label: string;
   value: string | null;
   known: string[];
   onChange: (value: string) => void;
+  hint?: string;
+  optionHints?: Record<string, string>;
 }) {
   // Forward-compatible: an unrecognised current value becomes its own segment
   // rather than silently rendering as "nothing selected".
   const values = value && !known.includes(value) ? [...known, value] : known;
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 flex items-baseline justify-between gap-2">
+      <div className="mb-1 flex items-baseline justify-between gap-2" title={hint}>
         <Label>{label}</Label>
         <span className="font-mono text-[10px] text-ink-faint">{value ?? "—"}</span>
       </div>
-      <Segmented value={value} options={values.map((v) => ({ value: v, label: v }))} onChange={onChange} />
+      <Segmented value={value} options={values.map((v) => ({ value: v, label: v, title: optionHints?.[v] }))} onChange={onChange} />
     </div>
   );
 }
@@ -324,22 +348,34 @@ function ModesPopover({ tabId }: { tabId: string }) {
   // this window has asked for; retry is on by default in omp.
   const [autoRetry, setAutoRetryLocal] = useState(true);
   const anchor = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Portaled + fixed: the wide HUD root is overflow-hidden inside the h-9 title
+  // bar, so an in-tree `absolute top-full` panel is clipped to nothing.
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    const place = () => {
+      const rect = anchor.current?.getBoundingClientRect();
+      if (rect) setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    };
+    place();
     const onDown = (e: MouseEvent) => {
-      // Fail closed: a click we cannot prove is inside the anchor dismisses,
-      // so the popover can never get stuck open.
-      if (!anchor.current?.contains(e.target as Node)) setOpen(false);
+      // Fail closed: a click we cannot prove is inside the anchor or the
+      // portaled panel dismisses, so the popover can never get stuck open.
+      const t = e.target as Node;
+      if (!anchor.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", place);
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", place);
     };
   }, [open]);
 
@@ -352,38 +388,47 @@ function ModesPopover({ tabId }: { tabId: string }) {
       >
         <IconSliders />
       </IconButton>
-      {open && (
-        <Panel className="edge-lit animate-rise absolute right-0 top-full z-20 mt-1.5 w-[16rem] p-2.5">
+      {open && pos && createPortal(
+        <div ref={panelRef} className="fixed z-[70]" style={pos}>
+        <Panel className="edge-lit animate-rise w-[16rem] p-2.5">
           <ModeRow
             label="steering"
             value={session?.steeringMode ?? null}
             known={STEERING_MODES}
             onChange={(v) => void setSteeringMode(tabId, v)}
+            hint={ROW_HINTS.steering}
+            optionHints={QUEUE_MODE_HINTS}
           />
           <ModeRow
             label="follow-up"
             value={session?.followUpMode ?? null}
             known={STEERING_MODES}
             onChange={(v) => void setFollowUpMode(tabId, v)}
+            hint={ROW_HINTS["follow-up"]}
+            optionHints={QUEUE_MODE_HINTS}
           />
           <ModeRow
             label="interrupt"
             value={session?.interruptMode ?? null}
             known={INTERRUPT_MODES}
             onChange={(v) => void setInterruptMode(tabId, v)}
+            hint={ROW_HINTS.interrupt}
+            optionHints={INTERRUPT_MODE_HINTS}
           />
           <div className="mt-3 flex items-center justify-between gap-2 border-t border-line-soft pt-2.5">
-            <span className="text-[11px] text-ink-mid">auto-retry</span>
+            <Button
+              variant="ghost"
+              size="xs"
+              tone="rose"
+              title="abort an in-flight retry backoff"
+              onClick={() => void abortRetry(tabId)}
+            >
+              abort retry
+            </Button>
+            {/* Label and switch stay adjacent: Switch renders no visible text,
+                so proximity is the only association (issue #79). */}
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="xs"
-                tone="rose"
-                title="abort an in-flight retry backoff"
-                onClick={() => void abortRetry(tabId)}
-              >
-                abort retry
-              </Button>
+              <span className="text-[11px] text-ink-mid">auto-retry</span>
               <Switch
                 on={autoRetry}
                 label="auto-retry"
@@ -396,6 +441,8 @@ function ModesPopover({ tabId }: { tabId: string }) {
             </div>
           </div>
         </Panel>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -411,13 +458,15 @@ function CompactModes({ tabId }: { tabId: string }) {
   const [autoRetry, setAutoRetryLocal] = useState(true);
   return (
     <div className="space-y-3 border-t border-line p-3">
-      <ModeRow label="steering" value={session?.steeringMode ?? null} known={STEERING_MODES} onChange={(v) => void setSteeringMode(tabId, v)} />
-      <ModeRow label="follow-up" value={session?.followUpMode ?? null} known={STEERING_MODES} onChange={(v) => void setFollowUpMode(tabId, v)} />
-      <ModeRow label="interrupt" value={session?.interruptMode ?? null} known={INTERRUPT_MODES} onChange={(v) => void setInterruptMode(tabId, v)} />
+      <ModeRow label="steering" value={session?.steeringMode ?? null} known={STEERING_MODES} onChange={(v) => void setSteeringMode(tabId, v)} hint={ROW_HINTS.steering} optionHints={QUEUE_MODE_HINTS} />
+      <ModeRow label="follow-up" value={session?.followUpMode ?? null} known={STEERING_MODES} onChange={(v) => void setFollowUpMode(tabId, v)} hint={ROW_HINTS["follow-up"]} optionHints={QUEUE_MODE_HINTS} />
+      <ModeRow label="interrupt" value={session?.interruptMode ?? null} known={INTERRUPT_MODES} onChange={(v) => void setInterruptMode(tabId, v)} hint={ROW_HINTS.interrupt} optionHints={INTERRUPT_MODE_HINTS} />
       <div className="flex items-center justify-between gap-3 border-t border-line-soft pt-3">
-        <span className="text-xs text-ink-mid">auto-retry</span>
         <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>abort retry</Button>
-        <Switch on={autoRetry} label="auto-retry" onChange={(next) => { setAutoRetryLocal(next); void setAutoRetry(tabId, next); }} />
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-ink-mid">auto-retry</span>
+          <Switch on={autoRetry} label="auto-retry" onChange={(next) => { setAutoRetryLocal(next); void setAutoRetry(tabId, next); }} />
+        </div>
       </div>
     </div>
   );
