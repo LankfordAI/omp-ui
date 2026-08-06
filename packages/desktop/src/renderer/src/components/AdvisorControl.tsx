@@ -27,12 +27,12 @@ const EMPTY: ModelInfo[] = [];
 const EMPTY_FAVORITES: string[] = [];
 
 /** omp's selector form is `provider/id`; that is what `modelRoles.advisor` holds. */
-function selectorFor(model: ModelInfo): string {
+export function selectorFor(model: ModelInfo): string {
   return `${model.provider}/${model.id}`;
 }
 
 /** The tail of a selector, which is all that fits on a chip. */
-function shortLabel(selector: string): string {
+export function shortLabel(selector: string): string {
   const slash = selector.lastIndexOf("/");
   const tail = slash === -1 ? selector : selector.slice(slash + 1);
   // Drop omp's `:level` suffix — the level is the advisor's, not the user's pick.
@@ -47,7 +47,7 @@ function shortLabel(selector: string): string {
  * never mistaken for a level.
  */
 const LEVEL_RE = /^[a-z]+$/;
-function splitRole(selector: string): { model: string; level?: string } {
+export function splitRole(selector: string): { model: string; level?: string } {
   const colon = selector.lastIndexOf(":");
   if (colon !== -1) {
     const tail = selector.slice(colon + 1);
@@ -250,7 +250,7 @@ export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: 
 /** Same paging rule as the main model palette: search, don't scroll 414 rows. */
 const VISIBLE_LIMIT = 120;
 
-function AdvisorModelPalette({
+export function AdvisorModelPalette({
   models,
   current,
   inherited,

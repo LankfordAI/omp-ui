@@ -1137,7 +1137,7 @@ describe("handleRpcFrame routing", () => {
       },
     });
     openReview("c2");
-    useStore.getState().executePlan(TAB, "existing", false);
+    useStore.getState().executePlan(TAB, "existing", { addressAdvisor: false });
     await flushMicrotasks();
     const prompt = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
@@ -1257,6 +1257,224 @@ describe("handleRpcFrame routing", () => {
     expect(prompt).toBeDefined();
     expect(String(prompt!.cmd.message)).toContain("pin the toolchain");
     await flushMicrotasks();
+  });
+
+  /** Staged model with efforts, distinct from anything seeded on the tab. */
+  const MODEL_X = { id: "mx", name: "MX", provider: "p2", thinking: { efforts: ["low", "high"] } };
+
+  /** Review frame whose plan file read resolves — fresh spawns seed from it. */
+  const openReviewWithPlan = (id: string) => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id,
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "t",
+          planFilePath: "local://p.md",
+          planAbsPath: "/lineage/local/p.md",
+        }),
+    });
+  };
+
+  it("prepends the orchestrate keyword to the implementation prompt (existing context)", async () => {
+    openReview("o1");
+    useStore.getState().executePlan(TAB, "existing", { orchestrate: true });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === TAB &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message).startsWith("orchestrate\n\nThe plan review is complete")).toBe(
+      true,
+    );
+  });
+
+  it("leaves the keyword off by default", async () => {
+    openReview("o2");
+    useStore.getState().executePlan(TAB, "existing");
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === TAB &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message).startsWith("orchestrate")).toBe(false);
+  });
+
+  it("prepends the orchestrate keyword to a fresh session's seed", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    openReviewWithPlan("o3");
+    // Let the plan file read resolve so executePlan captures the plan text.
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh", { orchestrate: true });
+    await flushMicrotasks();
+    // Boot the fresh tab to ready — resolves the spawn's readiness wait.
+    useStore.setState({
+      rpc: { ...useStore.getState().rpc, "fresh-tab": tabState({ status: "ready", planText: null }) },
+    });
+    await flushMicrotasks();
+    const prompt = sent.find((s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt");
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message).startsWith("orchestrate\n\nA plan was approved")).toBe(true);
+  });
+
+  it("applies staged model and thinking level before the same-session prompt", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low" },
+        }),
+      },
+    });
+    openReview("m1");
+    useStore.getState().executePlan(TAB, "existing", {
+      model: MODEL_X,
+      thinkingLevel: "high",
+      advisor: false,
+      advisorModel: null,
+    });
+    await flushMicrotasks();
+    const onTab = (s: (typeof sent)[number]) => s.tabId === TAB;
+    // The staged pair applies over RPC first; each awaited command stalls the
+    // chain until the test answers it.
+    const setModel = sent.find((s) => onTab(s) && s.cmd.type === "set_model");
+    expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
+    respond(TAB, setModel!.cmd, {});
+    await flushMicrotasks();
+    const setLevel = sent.find((s) => onTab(s) && s.cmd.type === "set_thinking_level");
+    expect(setLevel?.cmd).toMatchObject({ level: "high" });
+    respond(TAB, setLevel!.cmd, {});
+    await flushMicrotasks();
+    const modelIdx = sent.findIndex((s) => onTab(s) && s.cmd.type === "set_model");
+    const levelIdx = sent.findIndex((s) => onTab(s) && s.cmd.type === "set_thinking_level");
+    const promptIdx = sent.findIndex(
+      (s) => onTab(s) && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(modelIdx).toBeGreaterThanOrEqual(0);
+    expect(modelIdx).toBeLessThan(levelIdx);
+    expect(levelIdx).toBeLessThan(promptIdx);
+    // setModel persists the then-current level first; setThinkingLevel
+    // re-persists with the new one, so the last call carries the final pair.
+    expect(mockBackend.setSessionModel).toHaveBeenLastCalledWith(TAB, "p2/mx", "high");
+  });
+
+  it("an unchanged staged tuple is a no-op", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low" },
+        }),
+      },
+    });
+    openReview("m2");
+    useStore.getState().executePlan(TAB, "existing", {
+      model: { id: "m1", name: "M1", provider: "p" },
+      thinkingLevel: "low",
+      advisor: false,
+      advisorModel: null,
+    });
+    await flushMicrotasks();
+    expect(sent.some((s) => s.cmd.type === "set_model")).toBe(false);
+    expect(sent.some((s) => s.cmd.type === "set_thinking_level")).toBe(false);
+    expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+    // Staging what is already live must preserve today's behavior exactly.
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === TAB &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+  });
+
+  it("an advisor change relaunches the session before dispatching", async () => {
+    useStore.setState({ state: stateWithRecord(null), rpc: { [TAB]: tabState() } });
+    openReview("a1");
+    useStore.getState().executePlan(TAB, "existing", {
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+    });
+    await flushMicrotasks();
+    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, "openrouter/a/b:high");
+    const implementationPrompt = () =>
+      sent.find(
+        (s) =>
+          s.tabId === TAB &&
+          s.cmd.type === "prompt" &&
+          String(s.cmd.message).includes("execute the approved plan"),
+      );
+    // The relaunch parked the tab at "starting" — the prompt waits on readiness.
+    expect(implementationPrompt()).toBeUndefined();
+    useStore.setState({ rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, status: "ready" } } });
+    await flushMicrotasks();
+    const prompt = implementationPrompt();
+    expect(prompt).toBeDefined();
+    // A relaunched session has no plan turn in flight, so the prompt steers.
+    expect(prompt!.cmd.streamingBehavior).toBe("steer");
+  });
+
+  it("a failed advisor relaunch never dispatches the prompt", async () => {
+    useStore.setState({ state: stateWithRecord(null), rpc: { [TAB]: tabState() } });
+    openReview("a2");
+    useStore.getState().executePlan(TAB, "existing", {
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+    });
+    await flushMicrotasks();
+    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, "openrouter/a/b:high");
+    useStore.setState({ rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, status: "error" } } });
+    await flushMicrotasks();
+    expect(
+      sent.some(
+        (s) => s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+      ),
+    ).toBe(false);
+  });
+
+  it("a fresh session receives the staged advisor tuple and model", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    openReviewWithPlan("a3");
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh", {
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+      model: MODEL_X,
+      thinkingLevel: "high",
+    });
+    await flushMicrotasks();
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ advisor: true, advisorModel: "openrouter/a/b:high" }),
+    );
+    useStore.setState({
+      rpc: { ...useStore.getState().rpc, "fresh-tab": tabState({ status: "ready", planText: null }) },
+    });
+    await flushMicrotasks();
+    const onFresh = (s: (typeof sent)[number]) => s.tabId === "fresh-tab";
+    const setModel = sent.find((s) => onFresh(s) && s.cmd.type === "set_model");
+    expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
+    respond("fresh-tab", setModel!.cmd, {});
+    await flushMicrotasks();
+    const setLevel = sent.find((s) => onFresh(s) && s.cmd.type === "set_thinking_level");
+    expect(setLevel?.cmd).toMatchObject({ level: "high" });
+    respond("fresh-tab", setLevel!.cmd, {});
+    await flushMicrotasks();
+    const modelIdx = sent.findIndex((s) => onFresh(s) && s.cmd.type === "set_model");
+    const levelIdx = sent.findIndex((s) => onFresh(s) && s.cmd.type === "set_thinking_level");
+    const promptIdx = sent.findIndex((s) => onFresh(s) && s.cmd.type === "prompt");
+    expect(modelIdx).toBeGreaterThanOrEqual(0);
+    expect(modelIdx).toBeLessThan(levelIdx);
+    expect(levelIdx).toBeLessThan(promptIdx);
   });
 
   it("still shows a plain select dialog when the title is not a plan review", () => {

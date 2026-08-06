@@ -3,9 +3,12 @@ import type { ImageAttachment } from "@omp-ui/core/types";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
-import type { PlanExecutionContext } from "../lib/plan-concerns";
+import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
+import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
+import { AdvisorModelPalette, shortLabel, splitRole } from "./AdvisorControl";
 import { Markdown } from "./Markdown";
+import { ModelPalette } from "./ModelSelector";
 import { AttachmentButton, Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";
 
 /**
@@ -33,6 +36,9 @@ const CONTEXTS: Array<{
   { id: "compacted", label: "this session, compacted", hint: "compact context, then implement here" },
   { id: "fresh", label: "fresh session", hint: "a new chat seeded with the plan" },
 ];
+
+/** Stable empty array so the selector doesn't resubscribe on every store tick. */
+const EMPTY_MODELS: ModelInfo[] = [];
 
 export function PlanReview({ tabId }: { tabId: string }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
@@ -85,6 +91,60 @@ export function PlanReview({ tabId }: { tabId: string }) {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
 
+  const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
+  const currentThinking = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
+  const availableModels = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY_MODELS);
+  const sessionRecord = useStore((s) => findRecord(s.state, tabId));
+  const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
+  const advisorDefaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectCwd] : undefined));
+
+  const [stagedModel, setStagedModel] = useState<ModelInfo | null>(currentModel);
+  const [stagedThinking, setStagedThinking] = useState<string | null>(currentThinking);
+  const [stagedAdvisor, setStagedAdvisor] = useState(sessionRecord?.advisor ?? false);
+  const [stagedAdvisorModel, setStagedAdvisorModel] = useState<string | null>(
+    sessionRecord?.advisorModel ?? null,
+  );
+  const [orchestrate, setOrchestrate] = useState(false);
+  const [pickingModel, setPickingModel] = useState(false);
+  const [pickingAdvisorModel, setPickingAdvisorModel] = useState(false);
+  const [levelMenu, setLevelMenu] = useState<"main" | "advisor" | null>(null);
+
+  // A new proposal re-seeds the staged parameters from the session's current
+  // values (React's adjust-state-during-render pattern). Defer/reopen keeps the
+  // user's staging because the review object is unchanged; orchestrate always
+  // resets to off (decided: never remembered).
+  const [seededFor, setSeededFor] = useState<unknown>(null);
+  if (review !== seededFor) {
+    setSeededFor(review);
+    setStagedModel(currentModel);
+    setStagedThinking(currentThinking);
+    setStagedAdvisor(sessionRecord?.advisor ?? false);
+    setStagedAdvisorModel(sessionRecord?.advisorModel ?? null);
+    setOrchestrate(false);
+  }
+
+  // omp's config supplies the inherited advisor default, read in main.
+  useEffect(() => {
+    if (projectCwd !== undefined) void loadAdvisorDefaults(projectCwd);
+  }, [projectCwd, loadAdvisorDefaults]);
+
+  /** Anchors for the two thinking-level popovers. */
+  const mainLevelAnchor = useRef<HTMLSpanElement | null>(null);
+  const advisorLevelAnchor = useRef<HTMLSpanElement | null>(null);
+
+  // Outside pointerdown closes an open level menu (AdvisorControl's pattern).
+  useEffect(() => {
+    if (levelMenu === null) return;
+    const dismiss = (e: PointerEvent) => {
+      const target = e.target;
+      const anchors = [mainLevelAnchor.current, advisorLevelAnchor.current];
+      if (target instanceof Node && anchors.some((a) => a !== null && a.contains(target))) return;
+      setLevelMenu(null);
+    };
+    window.addEventListener("pointerdown", dismiss);
+    return () => window.removeEventListener("pointerdown", dismiss);
+  }, [levelMenu]);
+
   const isRepo =
     projectCwd !== undefined && branchInfo !== undefined && branchInfo.repoRoot !== null;
 
@@ -123,6 +183,17 @@ export function PlanReview({ tabId }: { tabId: string }) {
   if (!review || deferred) return null;
   const { request } = review;
 
+  // What the advisor row shows: the staged pin, else omp's configured default
+  // (AdvisorControl's effective/inherited logic). omp encodes the level as a
+  // `:level` suffix on the selector.
+  const effectiveAdvisor = stagedAdvisorModel ?? advisorDefaults?.model ?? null;
+  const advisorInherited = stagedAdvisorModel === null;
+  const advisorSplit = effectiveAdvisor === null ? null : splitRole(effectiveAdvisor);
+  const advisorModelInfo =
+    availableModels.find((m) => `${m.provider}/${m.id}` === advisorSplit?.model) ?? null;
+  const advisorEfforts = advisorModelInfo?.thinking?.efforts ?? [];
+  const mainEfforts = stagedModel?.thinking?.efforts ?? [];
+
   const refine = () => {
     const notes = { text: changes, images: images.length ? images : undefined };
     refinePlan(tabId, changes.trim() !== "" || images.length > 0 ? notes : undefined);
@@ -137,14 +208,24 @@ export function PlanReview({ tabId }: { tabId: string }) {
       (branchChoice === "existing" && existingName === null));
 
   const execute = async (): Promise<void> => {
+    // Staged parameters ride as one options bag; the store applies them to
+    // whichever session receives the implementation.
+    const options: PlanExecutionOptions = {
+      addressAdvisor,
+      orchestrate,
+      model: stagedModel,
+      thinkingLevel: stagedThinking,
+      advisor: stagedAdvisor,
+      advisorModel: stagedAdvisorModel,
+    };
     if (!isRepo || branchChoice === "current") {
-      executePlan(tabId, context, addressAdvisor);
+      executePlan(tabId, context, options);
       return;
     }
     const name = branchChoice === "new" ? newName.trim() : existingName;
     if (name === null || name === "") return; // unreachable — the button is disabled
     if (branchChoice === "existing" && name === branchInfo!.current) {
-      executePlan(tabId, context, addressAdvisor);
+      executePlan(tabId, context, options);
       return;
     }
     // Switching branches moves the working tree — a session mid-turn on this
@@ -168,7 +249,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
       setConfirmBusy(false);
       return;
     }
-    executePlan(tabId, context, addressAdvisor);
+    executePlan(tabId, context, options);
   };
 
   const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -202,6 +283,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
   };
 
   return (
+    <>
     <Modal onClose={dismiss} width="w-[68rem]">
       <div className="plan-review flex max-h-[80vh] flex-col">
         <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-3.5">
@@ -344,6 +426,170 @@ export function PlanReview({ tabId }: { tabId: string }) {
               </div>
             </fieldset>
 
+            <fieldset className="mt-5 border-t border-line pt-4">
+              <legend className="text-[11px] font-medium text-ink">Model</legend>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                Staged for the session that receives the implementation — nothing changes until execute.
+              </p>
+
+              <span className="mt-3 block text-[10px] text-ink-faint">model</span>
+              {availableModels.length === 0 ? (
+                <button
+                  type="button"
+                  disabled
+                  title="no models available"
+                  className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                >
+                  {stagedModel === null ? "session default" : stagedModel.name || stagedModel.id}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title={
+                    stagedModel === null
+                      ? "the session keeps its current model"
+                      : `${stagedModel.provider}/${stagedModel.id}`
+                  }
+                  onClick={() => setPickingModel(true)}
+                  className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                >
+                  {stagedModel === null ? "session default" : stagedModel.name || stagedModel.id}
+                </button>
+              )}
+
+              {mainEfforts.length > 0 && (
+                <>
+                  <span className="mt-3 block text-[10px] text-ink-faint">thinking</span>
+                  <span ref={mainLevelAnchor} className="relative flex">
+                    <button
+                      type="button"
+                      title="the session's thinking level for the implementation"
+                      onClick={() => setLevelMenu((m) => (m === "main" ? null : "main"))}
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                    >
+                      {stagedThinking ?? "think —"}
+                    </button>
+                    {levelMenu === "main" && (
+                      <div className="animate-rise edge-lit absolute left-0 top-full z-20 mt-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
+                        <span className="px-1.5 pb-1 pt-0.5">
+                          <Label>thinking</Label>
+                        </span>
+                        {mainEfforts.map((effort) => (
+                          <button
+                            key={effort}
+                            type="button"
+                            onClick={() => {
+                              setLevelMenu(null);
+                              setStagedThinking(effort);
+                            }}
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                              effort === stagedThinking ? "text-iris" : "text-ink-mid",
+                            )}
+                          >
+                            {effort}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                </>
+              )}
+
+              <div className="mt-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="block text-[11px] font-medium text-ink">Advisor</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                    A change restarts a same-session implementation at execute time.
+                  </span>
+                </div>
+                <Switch on={stagedAdvisor} onChange={setStagedAdvisor} label="advisor for the implementation" />
+              </div>
+
+              {stagedAdvisor && (
+                <>
+                  <span className="mt-3 block text-[10px] text-ink-faint">advisor model</span>
+                  {availableModels.length === 0 ? (
+                    <button
+                      type="button"
+                      disabled
+                      title="no models available"
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                    >
+                      {effectiveAdvisor === null
+                        ? "omp default"
+                        : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title={effectiveAdvisor ?? "omp's modelRoles.advisor"}
+                      onClick={() => setPickingAdvisorModel(true)}
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                    >
+                      {effectiveAdvisor === null
+                        ? "omp default"
+                        : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
+                    </button>
+                  )}
+                </>
+              )}
+
+              {stagedAdvisor && advisorSplit !== null && advisorEfforts.length > 0 && (
+                <>
+                  <span className="mt-3 block text-[10px] text-ink-faint">advisor thinking</span>
+                  <span ref={advisorLevelAnchor} className="relative flex">
+                    <button
+                      type="button"
+                      title="the advisor's thinking level for the implementation"
+                      onClick={() => setLevelMenu((m) => (m === "advisor" ? null : "advisor"))}
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                    >
+                      {advisorSplit?.level ?? "think —"}
+                    </button>
+                    {levelMenu === "advisor" && (
+                      <div className="animate-rise edge-lit absolute left-0 top-full z-20 mt-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
+                        <span className="px-1.5 pb-1 pt-0.5">
+                          <Label>advisor thinking</Label>
+                        </span>
+                        {advisorSplit?.level !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLevelMenu(null);
+                              setStagedAdvisorModel(advisorSplit!.model);
+                            }}
+                            className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
+                            title="return to omp's default thinking level for this model"
+                          >
+                            default —
+                          </button>
+                        )}
+                        {advisorEfforts.map((effort) => (
+                          <button
+                            key={effort}
+                            type="button"
+                            onClick={() => {
+                              setLevelMenu(null);
+                              // Pinning the level pins the whole selector
+                              // (AdvisorControl's setLevel contract).
+                              setStagedAdvisorModel(`${advisorSplit!.model}:${effort}`);
+                            }}
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                              effort === advisorSplit?.level ? "text-iris" : "text-ink-mid",
+                            )}
+                          >
+                            {effort}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                </>
+              )}
+            </fieldset>
+
             {isRepo && (
               <fieldset className="mt-5 border-t border-line pt-4">
                 <legend className="text-[11px] font-medium text-ink">Git branch</legend>
@@ -459,6 +705,16 @@ export function PlanReview({ tabId }: { tabId: string }) {
               </fieldset>
             )}
 
+            <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
+              <div className="min-w-0">
+                <span className="block text-[11px] font-medium text-ink">Orchestrate</span>
+                <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                  Fan the implementation out to subagents — omp's orchestrate keyword leads the prompt.
+                </span>
+              </div>
+              <Switch on={orchestrate} onChange={setOrchestrate} label="orchestrate the implementation" />
+            </div>
+
             {advisorConfigured && (
               <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
                 <div className="min-w-0">
@@ -482,6 +738,8 @@ export function PlanReview({ tabId }: { tabId: string }) {
             <Label>ready to dispatch</Label>
             <p className="mt-0.5 truncate text-[11px] text-ink-dim">
               {CONTEXTS.find((c) => c.id === context)?.label}
+              {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
+              {orchestrate && " · orchestrate"}
               {isRepo && (
                 <>
                   {" · "}
@@ -515,5 +773,33 @@ export function PlanReview({ tabId }: { tabId: string }) {
         </footer>
       </div>
     </Modal>
+
+    {pickingModel && (
+      <ModelPalette
+        models={availableModels}
+        current={stagedModel}
+        onClose={() => setPickingModel(false)}
+        // Composer parity: picking a model keeps the staged thinking level —
+        // omp clamps an invalid one.
+        onPick={(picked) => {
+          setPickingModel(false);
+          setStagedModel(picked);
+        }}
+      />
+    )}
+    {pickingAdvisorModel && (
+      <AdvisorModelPalette
+        models={availableModels}
+        current={effectiveAdvisor}
+        inherited={advisorInherited}
+        defaultModel={advisorDefaults?.model ?? null}
+        onClose={() => setPickingAdvisorModel(false)}
+        onPick={(selector) => {
+          setPickingAdvisorModel(false);
+          setStagedAdvisorModel(selector);
+        }}
+      />
+    )}
+    </>
   );
 }

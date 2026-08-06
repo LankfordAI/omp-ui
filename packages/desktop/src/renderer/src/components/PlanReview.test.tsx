@@ -27,6 +27,11 @@ const backendMock = {
   listBranches: vi.fn(async () => branches),
   checkoutBranch: vi.fn(async () => {}),
   suggestBranchName: vi.fn(async (): Promise<string | null> => null),
+  // The review modal loads advisor defaults on mount; the store's staged
+  // model/advisor paths call the setters below.
+  getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setSessionModel: vi.fn(async () => {}),
+  setSessionAdvisor: vi.fn(async () => {}),
   rpcSend: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
@@ -138,6 +143,18 @@ function render(): void {
 const buttonByText = (text: string): HTMLButtonElement => {
   const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
     (candidate) => candidate.textContent === text,
+  );
+  expect(found).toBeDefined();
+  return found!;
+};
+
+/** Palette rows are multi-span, so exact textContent matching misses them. */
+const buttonContainingText = (
+  text: string,
+  rootEl: ParentNode = document.body,
+): HTMLButtonElement => {
+  const found = [...rootEl.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.textContent?.includes(text),
   );
   expect(found).toBeDefined();
   return found!;
@@ -459,5 +476,70 @@ describe("PlanReview refine attachment picker (issue #65)", () => {
       message: "Revise the plan per the attached change notes.",
       images: [IMAGE_ONE],
     });
+  });
+});
+
+describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
+  it("shows the session's model and an off orchestrate switch by default", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          model: { id: "k3", name: "Kimi K3", provider: "openrouter" },
+        }),
+      },
+    });
+    render();
+
+    expect(document.body.textContent).toContain("Kimi K3");
+    const orchestrateSwitch = document.body.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="orchestrate the implementation"]',
+    );
+    expect(orchestrateSwitch).not.toBeNull();
+    expect(orchestrateSwitch!.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("toggling orchestrate prepends the keyword to the implementation prompt", async () => {
+    render();
+    const orchestrateSwitch = document.body.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="orchestrate the implementation"]',
+    )!;
+    await act(async () => orchestrateSwitch.click());
+    await act(async () => {
+      executeButton().click();
+      await Promise.resolve();
+    });
+
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+    expect(promptFrame()).toBeDefined();
+    expect(String(promptFrame()!.message).startsWith("orchestrate\n\n")).toBe(true);
+  });
+
+  it("a staged model pick flows to the set_model frame at execute", async () => {
+    const MODEL_A = { id: "a", name: "Model A", provider: "p" };
+    const MODEL_B = { id: "b", name: "Model B", provider: "p" };
+    useStore.setState({
+      rpc: { [TAB]: tabState({ model: MODEL_A, availableModels: [MODEL_A, MODEL_B] }) },
+    });
+    render();
+
+    await act(async () => buttonByText("Model A").click());
+    // The palette stacks a second overlay root on top of the review modal.
+    const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const palette = overlays[overlays.length - 1]!;
+    // The palette opens on its (empty) favorites tab — the models list under
+    // their provider tab.
+    await act(async () => palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click());
+    await act(async () => buttonContainingText("Model B", palette).click());
+    await act(async () => {
+      executeButton().click();
+      await Promise.resolve();
+    });
+
+    // setModel awaits a response that never arrives here, so the chain stalls
+    // before the prompt — the set_model frame is the observable effect.
+    const setModelFrame = backendMock.rpcSend.mock.calls
+      .map((c) => c[1] as Record<string, unknown>)
+      .find((frame) => frame.type === "set_model");
+    expect(setModelFrame).toMatchObject({ type: "set_model", provider: "p", modelId: "b" });
   });
 });

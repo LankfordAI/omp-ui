@@ -92,7 +92,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
 /** Rendering 414 rows costs more than it informs; the palette pages by search. */
 const VISIBLE_LIMIT = 120;
 
-function ModelPalette({
+export function ModelPalette({
   models,
   current,
   onPick,

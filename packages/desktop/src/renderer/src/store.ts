@@ -37,7 +37,9 @@ import { arrField, field, strField } from "./lib/fields";
 import {
   PlanConcernWatcher,
   withConcerns,
+  withOrchestrate,
   type PlanExecutionContext,
+  type PlanExecutionOptions,
 } from "./lib/plan-concerns";
 import { randomId } from "./lib/random-id";
 import {
@@ -460,12 +462,16 @@ interface UiStore {
    * this replies, so it must be answered on every exit from the review pane.
    * `context` picks where implementation runs: the same session (`existing`),
    * the same session after compacting its context (`compacted`), or a freshly
-   * spawned session seeded with the plan (`fresh`). `addressAdvisor` (default
-   * true) holds dispatch for the drafting turn's advisor review (which lands
-   * only after the execute verdict lets the turn end) and folds any concerns
-   * into the implementation prompt.
+   * spawned session seeded with the plan (`fresh`). `options` stages the
+   * implementation dispatch: `addressAdvisor` (default true) holds dispatch
+   * for the drafting turn's advisor review (which lands only after the
+   * execute verdict lets the turn end) and folds any concerns into the
+   * implementation prompt; `orchestrate` prepends omp's orchestrate magic
+   * keyword; `model`/`thinkingLevel`/`advisor`/`advisorModel` are applied to
+   * whichever session receives the implementation, with undefined fields
+   * keeping current values.
    */
-  executePlan(tabId: string, context: PlanExecutionContext, addressAdvisor?: boolean): void;
+  executePlan(tabId: string, context: PlanExecutionContext, options?: PlanExecutionOptions): void;
   /**
    * Refuses a plan review, sending the agent back to revise the draft.
    * `notes` (optional text + images) are delivered to the planner as revision
@@ -843,24 +849,70 @@ export const useStore = create<UiStore>()((set, get) => {
     context: PlanExecutionContext,
     planText: string | null,
     concerns: string | null,
+    options?: PlanExecutionOptions,
   ): void => {
+    const message = withOrchestrate(
+      withConcerns(EXECUTION_PROMPT, concerns),
+      options?.orchestrate === true,
+    );
     if (context === "fresh") {
-      void spawnFreshImplementation(tabId, planText, concerns);
+      void spawnFreshImplementation(tabId, planText, concerns, options);
       return;
     }
-    if (context === "compacted") {
-      // `compact` runs between turns, so the just-accepted plan turn must end
-      // (it has by now) before compacting, then prompt the implementer.
+    // What the receiving session runs today — only staged *changes* are applied.
+    const tab = get().rpc[tabId];
+    const rec = findRecord(get().state, tabId);
+    const stagedModel = options?.model ?? null;
+    const modelChanged =
+      stagedModel !== null &&
+      `${stagedModel.provider}/${stagedModel.id}` !==
+        (tab?.model ? `${tab.model.provider}/${tab.model.id}` : null);
+    const thinkingChanged =
+      options?.thinkingLevel != null &&
+      options.thinkingLevel !== (tab?.session.thinkingLevel ?? null);
+    const advisorChanged =
+      options?.advisor !== undefined &&
+      rec !== undefined &&
+      (rec.advisor !== options.advisor ||
+        (rec.advisorModel ?? null) !== (options.advisorModel ?? null));
+
+    if (advisorChanged) {
+      // omp binds the advisor at process start, so the change is a relaunch and
+      // the implementation prompt must wait for the booted session — a queued
+      // follow-up would die with the old process. The plan turn ends first so
+      // the kill cannot orphan the verdict's tool result.
       void (async () => {
         await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
-        await get().compactSession(tabId);
-        await get().sendPrompt(tabId, withConcerns(EXECUTION_PROMPT, concerns), "prompt");
+        if (modelChanged) await get().setModel(tabId, stagedModel!);
+        if (thinkingChanged) await get().setThinkingLevel(tabId, options!.thinkingLevel!);
+        await get().setSessionAdvisor(tabId, options!.advisor!, options!.advisorModel ?? null);
+        // A failed relaunch alerts and leaves the tab dead — never prompt it.
+        await pollUntil(
+          tabId,
+          (t) => t?.status === "ready" || t?.status === "error" || get().exited[tabId] !== undefined,
+        );
+        if (get().rpc[tabId]?.status !== "ready") return;
+        if (context === "compacted") await get().compactSession(tabId);
+        await get().sendPrompt(tabId, message, "prompt");
       })();
       return;
     }
-    // Existing context: followUp queues the prompt until the current turn
-    // ends, so it races nothing — the implementer runs in this same session.
-    void get().sendPrompt(tabId, withConcerns(EXECUTION_PROMPT, concerns), "follow_up");
+
+    void (async () => {
+      if (modelChanged) await get().setModel(tabId, stagedModel!);
+      if (thinkingChanged) await get().setThinkingLevel(tabId, options!.thinkingLevel!);
+      if (context === "compacted") {
+        // `compact` runs between turns, so the just-accepted plan turn must end
+        // before compacting, then prompt the implementer.
+        await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
+        await get().compactSession(tabId);
+        await get().sendPrompt(tabId, message, "prompt");
+        return;
+      }
+      // Existing context: followUp queues the prompt until the current turn
+      // ends, so it races nothing — the implementer runs in this same session.
+      await get().sendPrompt(tabId, message, "follow_up");
+    })();
   };
 
   /**
@@ -874,7 +926,7 @@ export const useStore = create<UiStore>()((set, get) => {
     getItems: (tabId) => get().rpc[tabId]?.items ?? [],
     onNotice: (tabId, text) => appendItem(tabId, noticeItem(text, "info")),
     onDispatch: (tabId, intent, concerns) =>
-      dispatchExecutePlan(tabId, intent.context, intent.planText, concerns),
+      dispatchExecutePlan(tabId, intent.context, intent.planText, concerns, intent.options),
   });
 
   const eraseSession = async (tabId: string): Promise<void> => {
@@ -913,24 +965,28 @@ export const useStore = create<UiStore>()((set, get) => {
     srcTabId: string,
     planText: string | null,
     concerns: string | null = null,
+    options?: PlanExecutionOptions,
   ): Promise<void> => {
     const rec = findRecord(get().state, srcTabId);
     if (!rec) return;
     const projectCwd = rec.projectCwd;
-    // A fresh implementation session inherits the complete last-used advisor
-    // tuple for this project, falling back to omp only before the first choice.
+    // A staged tuple (the modal always sends one) wins over the project's
+    // last-used defaults; legacy callers keep the fallback chain.
     await get().loadAdvisorDefaults(projectCwd);
     const defaults = get().advisorDefaults[projectCwd];
     const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
-    const lastAdvisorModel = project?.lastAdvisorModel ?? defaults?.model ?? null;
-    const advisor = project?.lastAdvisor ?? defaults?.enabled ?? false;
+    const advisor = options?.advisor ?? project?.lastAdvisor ?? defaults?.enabled ?? false;
+    const advisorModel =
+      options?.advisor !== undefined
+        ? (options.advisorModel ?? null)
+        : (project?.lastAdvisorModel ?? defaults?.model ?? null);
     let freshId: string;
     try {
       ({ tabId: freshId } = await backend.spawnSession({
         projectCwd,
         mode: "rpc-ui",
         advisor,
-        advisorModel: lastAdvisorModel,
+        advisorModel,
         cols: 80,
         rows: 24,
       }));
@@ -948,9 +1004,27 @@ export const useStore = create<UiStore>()((set, get) => {
       noticeItem("plan approved — implementation dispatched to a fresh session", "info"),
     );
     await pollUntil(freshId, (t) => t?.status === "ready");
+    // Staged main-model parameters ride the composer's own actions, so they
+    // persist into session parameter memory exactly like a composer change.
+    const stagedModel = options?.model ?? null;
+    if (stagedModel !== null) {
+      const cur = get().rpc[freshId]?.model;
+      if (
+        `${stagedModel.provider}/${stagedModel.id}` !==
+        (cur ? `${cur.provider}/${cur.id}` : null)
+      ) {
+        await get().setModel(freshId, stagedModel);
+      }
+    }
+    if (
+      options?.thinkingLevel != null &&
+      options.thinkingLevel !== (get().rpc[freshId]?.session.thinkingLevel ?? null)
+    ) {
+      await get().setThinkingLevel(freshId, options.thinkingLevel);
+    }
     const lead = "A plan was approved for this project. Implement it now.";
     const seed = planText ? `${lead}\n\n${planText}\n\nProceed with the implementation.` : lead;
-    await get().sendPrompt(freshId, withConcerns(seed, concerns), "prompt");
+    await get().sendPrompt(freshId, withOrchestrate(withConcerns(seed, concerns), options?.orchestrate === true), "prompt");
   };
 
   const applyRpcState = (tabId: string, resp: unknown): void => {
@@ -2069,7 +2143,7 @@ export const useStore = create<UiStore>()((set, get) => {
       });
     },
 
-    executePlan(tabId, context, addressAdvisor = true) {
+    executePlan(tabId, context, options) {
       // The fresh context embeds the plan text in the new session's prompt, so
       // capture it before the gate's answer clears the pane.
       const tab = get().rpc[tabId];
@@ -2095,11 +2169,11 @@ export const useStore = create<UiStore>()((set, get) => {
       // in the same turn and is left immediate. The watcher owns the gate; the
       // store just checks its own advisor config for whether a review is coming.
       const configured = get().rpc[tabId]?.advisorStats?.configured === true;
-      if (addressAdvisor && configured) {
-        concernWatcher.begin(tabId, { context, planText });
+      if ((options?.addressAdvisor ?? true) && configured) {
+        concernWatcher.begin(tabId, { context, planText, options });
         return;
       }
-      dispatchExecutePlan(tabId, context, planText, null);
+      dispatchExecutePlan(tabId, context, planText, null, options);
     },
 
     refinePlan(tabId, notes) {

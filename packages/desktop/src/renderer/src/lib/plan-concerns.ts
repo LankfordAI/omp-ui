@@ -1,3 +1,4 @@
+import type { ModelInfo } from "./rpc-types";
 import type { AdvisorNote, RenderItem } from "./transcript";
 
 /**
@@ -40,6 +41,36 @@ export function withConcerns(base: string, concerns: string | null): string {
   return concerns ? `${base}\n\n${concerns}` : base;
 }
 
+/**
+ * Everything the review pane stages for the implementation dispatch. Undefined
+ * fields keep the receiving session's current value; the modal always sends
+ * the full staged tuple, legacy callers send none.
+ */
+export interface PlanExecutionOptions {
+  /** Fold the advisor's plan-turn review into the implementation prompt (default true). */
+  addressAdvisor?: boolean;
+  /** Prepend omp's `orchestrate` magic keyword to the implementation prompt. */
+  orchestrate?: boolean;
+  /** Staged main model; applied to the receiving session when it differs. */
+  model?: ModelInfo | null;
+  /** Staged main thinking level; applied when it differs. */
+  thinkingLevel?: string | null;
+  /** Staged advisor flag; a change on a live same-session context relaunches it. */
+  advisor?: boolean;
+  /** Staged advisor `model[:level]` selector; null defers to omp's modelRoles.advisor. */
+  advisorModel?: string | null;
+}
+
+/**
+ * Prepends omp's `orchestrate` magic keyword. omp builds the hidden
+ * orchestration notice from the keyword in the prompt text itself, so the
+ * word must lead the message as standalone prose — the blank line keeps the
+ * ported LEFT/RIGHT boundary rules (lib/magic-keywords.ts) matching.
+ */
+export function withOrchestrate(base: string, orchestrate: boolean): string {
+  return orchestrate ? `orchestrate\n\n${base}` : base;
+}
+
 /** Renders concerns as an explicit instruction block, or null when none. */
 export function renderConcernsBlock(notes: AdvisorNote[]): string | null {
   if (notes.length === 0) return null;
@@ -54,6 +85,7 @@ export function renderConcernsBlock(notes: AdvisorNote[]): string | null {
 export interface PlanConcernIntent {
   context: PlanExecutionContext;
   planText: string | null;
+  options?: PlanExecutionOptions;
 }
 
 export interface PlanConcernCallbacks {
