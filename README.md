@@ -2,10 +2,10 @@
 
 A cross-platform desktop GUI for [Oh My Pi](https://github.com/can1357/oh-my-pi) — the `omp` coding agent.
 
-**Project sidebar on the left. Either an embedded OMP TUI or a native
-transcript in the main pane.** Jump between repos without managing a fleet of
-terminal windows. Full advisor integration, session management, and a native
-rendering mode over `--mode=rpc-ui`.
+**Project sidebar on the left. A terminal tab or a native transcript in the
+main pane.** Jump between projects without managing a fleet of terminal
+windows. Full advisor integration, session management, plan mode, remote
+access, and a native rendering mode over `--mode=rpc-ui`.
 
 Think **T3 Code, but for Oh My Pi**: a launcher and session manager for `omp`,
 not a browser of your `~/.omp` history — the sidebar tracks only sessions
@@ -15,7 +15,57 @@ Built on **Electron** — a uniform Chromium webview on every platform, so the
 xterm.js terminal renders and performs identically everywhere. Rationale and
 rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 
-## Architecture (three phases)
+## Features
+
+- **Two tab modes.** Every session runs as a **terminal tab** — omp's TUI
+  unmodified under a PTY, every keybinding, theme, and skill intact — or a
+  **native transcript tab** rendering the rpc-ui event stream as markdown,
+  tool cards, diffs, and advisor cards. Switching modes restarts the session
+  in place; the default mode is a setting.
+- **Session HUD.** Liveness, click-to-rename title, context meter, spend, and
+  the session controls: compact, auto-compact, export, branch, new, refresh,
+  steering / follow-up / interrupt queue modes.
+- **Composer.** Model and thinking-level pickers, a session-scoped advisor
+  with its own model picker
+  ([ADR-0005](docs/adr/0005-session-scoped-advisor-via-config-overlay.md)),
+  pasted image attachments, and `@`-mentions of project files. The five
+  composer parameters are remembered per project and seed the next session.
+- **Plan mode and plan review.** Read-only planning driven by a generated
+  extension ([ADR-0007](docs/adr/0007-plan-mode-via-generated-extension.md)),
+  gated on your verdict: execute into the same session, a compacted session,
+  or a fresh one seeded with the plan — or send it back with revision notes.
+- **Inspector rail.** Todos, Agents, Session, Plans, and branch Diffs panes
+  behind an icon strip — one pane at a time, badge counts on the strip.
+- **Command palette.** `Ctrl/⌘+K` searches every session, project, tab
+  action, and slash command.
+- **Themes.** Curated token sets that re-skin the UI, the terminal, and
+  syntax highlighting at once; the signal accent stays reserved for agent
+  liveness ([ADR-0004](docs/adr/0004-design-tokens-and-primitives.md)).
+- **Managed omp binary.** omp-ui installs and updates its own copy of the
+  `omp` CLI — nothing to install first. Running sessions keep their binary;
+  new sessions pick up the update.
+- **Per-project MCP servers.** Inspect and toggle a project's MCP servers
+  from the session HUD or the palette.
+- **Remote access and provider keys.** An optional, token-authenticated
+  browser/phone mirror of your live sessions, and OS-keyring API keys
+  supplied to every spawn. Both detailed below.
+
+## Install
+
+Releases are **Linux-only** (AppImage). The canonical installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash
+```
+
+It verifies the download against `SHA256SUMS.txt`, installs the AppImage to
+`~/.local/bin`, and registers a desktop entry; `install.sh --uninstall`
+removes it. Or grab the AppImage straight from
+[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). The stack
+stays cross-platform — widening later is a packaging task, not a port
+([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)).
+
+## How it works
 
 ```
 ┌──────────────┬────────────────────────────────────────┬─────────────┐
@@ -24,12 +74,12 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 │ Projects     │ Session HUD    liveness · context ·    │    Rail     │
 │ Sessions     │                spend · controls        │             │
 │              ├────────────────────────────────────────┤  Todos      │
-│ filter       │                                        │  Console    │
-│ live dots    │  Transcript (rpc-ui)   or   xterm.js   │  Agents     │
-│ new session +│  markdown · tool cards      (PTY TUI)  │  Session    │
-│              │  diffs · advisories                    │             │
+│ filter       │                                        │  Agents     │
+│ live dots    │  Transcript (rpc-ui)   or   xterm.js   │  Session    │
+│ new session +│  markdown · tool cards      (PTY TUI)  │  Plans      │
+│              │  diffs · advisories                    │  Diffs      │
 │ collapses    ├────────────────────────────────────────┤  collapses  │
-│ to icons     │ Composer   steer · queue · /commands   │  to icons   │
+│ to icons     │ Composer   model · advisor · /commands │  to icons   │
 └──────────────┴────────────────────────────────────────┴─────────────┘
          Electron IPC (OmpBackend interface) │
 ┌────────────────────────────────────────────▼────────────────────────┐
@@ -40,41 +90,37 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
                         omp --cwd=<project>   omp --resume=<session-id>
 ```
 
-A command palette (`Ctrl/⌘+K`) searches every session, project, and tab
-action. Design tokens and the primitive vocabulary are fixed by
-[ADR-0004](docs/adr/0004-design-tokens-and-primitives.md).
+The app is single-instance. The renderer talks only to a typed `OmpBackend`
+interface — Electron IPC locally, WebSocket remotely — and all OMP-facing
+logic lives in the transport-agnostic `packages/core`
+([ADR-0002](docs/adr/0002-transport-agnostic-core.md)). Owned sessions get
+per-lineage pinned session dirs under `~/.omp/agent/sessions/`
+([ADR-0003](docs/adr/0003-per-lineage-session-dirs.md)).
 
-### Phase 1: PTY Embed
-Spawn `omp` under a [node-pty](https://github.com/microsoft/node-pty) PTY (the
-same PTY layer VS Code, Hyper, and Tabby use). Raw PTY bytes stream via
-Electron IPC into `xterm.js` in the renderer. OMP's TUI runs unmodified —
-every keybinding, theme, and skill works. Pasting an image is bridged to the
-TUI's own bracketed-paste path ([ADR-0006](docs/adr/0006-image-paste-in-both-modes.md)),
-since a PTY carries no byte channel. Build in ~2 weeks.
+### Terminal tabs (PTY)
 
-**Files:** `docs/phase-1-pty-embed.md`
+`omp` spawns under a [node-pty](https://github.com/microsoft/node-pty) PTY —
+the same PTY layer VS Code, Hyper, and Tabby use. Raw PTY bytes stream over
+Electron IPC into `xterm.js` in the renderer, so OMP's TUI runs unmodified.
+Pasting an image is bridged to the TUI's own bracketed-paste path
+([ADR-0006](docs/adr/0006-image-paste-in-both-modes.md)), since a PTY carries
+no byte channel. Design doc: `docs/phase-1-pty-embed.md`.
 
-### Phase 2: RPC-UI Native Render
+### Native transcript tabs (rpc-ui)
+
 `--mode=rpc-ui` is OMP's headless JSON protocol over stdin/stdout. The main
 pane renders the `AgentSessionEvent` stream as native components: markdown
-assistant text, per-tool cards with live partial output, line-numbered diffs,
-advisor cards by severity, and a usage receipt per turn. The composer carries
-the controls that belong beside the text — model, thinking level, an advisor
-on/off with its own model picker
-([ADR-0005](docs/adr/0005-session-scoped-advisor-via-config-overlay.md)), and
-pasted image attachments — while the session HUD and inspector rail expose the
-rest: steering / follow-up / interrupt modes, compaction, auto-retry, branch,
-export, todos, subagents, bash, and all 49 slash commands through a fuzzy
-palette.
+assistant text with a usage receipt per turn, per-tool cards with live
+partial output, line-numbered diffs, and advisor cards by severity. New
+sessions auto-title from the first substantive prompt via omp's own small
+model. Design doc: `docs/phase-2-rpc-ui.md`.
 
-**Files:** `docs/phase-2-rpc-ui.md`
+### ACP
 
-### Phase 3: ACP Integration
-OMP already serves the [Agent Client Protocol](https://agentclientprotocol.com)
-via `omp acp` — Zed lists Pi Coding Agent in its ACP Registry today. This phase
-documents the integration and optionally builds a thin ACP client wrapper.
-
-**Files:** `docs/phase-3-acp.md`
+OMP itself serves the [Agent Client Protocol](https://agentclientprotocol.com)
+via `omp acp` — Zed lists Pi Coding Agent in its ACP Registry today. omp-ui
+deliberately does not wrap ACP; the integration notes live in
+`docs/phase-3-acp.md`. Design decisions: `docs/adr/`.
 
 ## Repository layout
 
@@ -87,6 +133,24 @@ packages/
 └── server/    # Node HTTP + WebSocket wrapper around packages/core: serves the
                # renderer bundle to a browser and implements OmpBackend over WS.
 ```
+
+## Development
+
+Requires Node 22+.
+
+```bash
+npm install
+npm run dev        # electron-vite dev --watch, hot-reloads on change
+npm test           # vitest across workspaces
+npm run typecheck  # tsc across workspaces
+npm run lint       # eslint
+npm run package    # build + electron-builder → AppImage
+```
+
+House rules live in `AGENTS.md`; the domain vocabulary (session, lineage,
+owned session, inspector rail, …) is defined in `CONTEXT.md` — use it in
+code, commits, and issues. `packages/core` must stay free of Electron
+imports (ADR-0002).
 
 ## Remote access
 
@@ -192,7 +256,7 @@ switch on the Updates page, separate from the omp-ui one; "Check for omp
 updates" from the command palette runs whether or not the launch check is on.
 
 
-## Session Storage
+## Session storage
 
 OMP stores sessions under `~/.omp/agent/sessions/` (default; overridable via
 env, XDG, and `--session-dir`) with a per-project subdirectory. See
