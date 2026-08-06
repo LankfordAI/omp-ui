@@ -447,7 +447,6 @@ interface UiStore {
   exportHtml(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;
-  newRpcSession(tabId: string): Promise<void>;
 
   /**
    * Turns plan mode on or off for this tab. Drives the generated extension's
@@ -2027,21 +2026,21 @@ export const useStore = create<UiStore>()((set, get) => {
     },
 
     async branchSession(tabId) {
-      // `branch` needs the entry to branch from; the last user message is the
-      // only one a "branch this session" button can mean.
-      const listed = await runCommand(tabId, { type: "get_branch_messages" });
-      if (listed === null) return;
-      const entryId = strField(arrField(respData(listed), "messages").at(-1), "entryId");
-      if (!entryId) {
-        patchRpc(tabId, { error: "no user message to branch from" });
-        return;
+      // Full-fidelity branch (issue #83): the backend copies the transcript
+      // into a new lineage and registers it; the source session — this tab
+      // included — keeps running untouched. omp's `branch` RPC is the wrong
+      // tool here: it rewinds past the last user message in place.
+      if (!findRecord(get().state, tabId)) return;
+      try {
+        const { tabId: forked } = await backend.forkSession(tabId);
+        // The fork's record normally arrives by broadcast, but openSession
+        // reads it from state — pull state explicitly so a slow broadcast
+        // can't strand the new tab.
+        set({ state: await backend.getState() });
+        await get().openSession(forked);
+      } catch (err) {
+        alertError(err);
       }
-      const resp = await runCommand(tabId, { type: "branch", entryId });
-      if (resp === null) return;
-      if (field(respData(resp), "cancelled") === true) return;
-      // The session id changes; the record catches up via the watcher broadcast.
-      await loadHistory(tabId).catch(() => {});
-      await get().refreshState(tabId);
     },
 
     async renameSessionTo(tabId, name) {
@@ -2049,38 +2048,6 @@ export const useStore = create<UiStore>()((set, get) => {
       if (resp === null) return;
       // A user-chosen name is final — the auto-titler must not overwrite it.
       patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
-    },
-
-    async newRpcSession(tabId) {
-      const resp = await runCommand(tabId, { type: "new_session" });
-      if (resp === null) return;
-      if (field(respData(resp), "cancelled") === true) return;
-      patchRpc(tabId, {
-        items: [],
-        todos: [],
-        stats: null,
-        subagents: [],
-        // The subagent lifecycle belongs to the session that just ended:
-        // buffers, the retained roster, and any open detail view all reset.
-        subagentItems: {},
-        selectedSubagent: null,
-        initialPrompt: null,
-        hasRenamed: false,
-        // A new session in this tab is a new plan lifecycle: the old plan
-        // belongs to the session that just went away.
-        plan: null,
-        planReview: null,
-        planText: null,
-        planDeferred: false,
-        plans: [],
-      });
-      // A new plan lifecycle — kill any wait left by the outgoing session.
-      concernWatcher.cancel(tabId);
-      // Marker memory dies with the session too, and the subscription drops
-      // back to "progress" if a detail view was open.
-      get().rpc[tabId]?.subagentMarkers?.clear();
-      syncSubagentSubscription(tabId);
-      await get().refreshState(tabId);
     },
 
     async setPlanMode(tabId, enabled) {

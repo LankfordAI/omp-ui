@@ -102,6 +102,7 @@ export {
   unarchiveSession,
   type SessionLocation,
 } from "./archive";
+export { forkSessionFile } from "./fork";
 export { RpcChunkReassembler } from "./rpc/codec";
 export {
   RpcClient,

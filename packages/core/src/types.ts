@@ -451,6 +451,13 @@ export interface OmpBackend {
    */
   deleteSession(tabId: string): Promise<void>;
   /**
+   * Full-fidelity branch (issue #83): copies the session's transcript into a
+   * new lineage dir under a fresh session id and registers it, ready to open
+   * in a new tab. The source session — file, record, live process — is left
+   * untouched. Rejects when the source is archived or has no transcript yet.
+   */
+  forkSession(tabId: string): Promise<{ tabId: string }>;
+  /**
    * Re-pins a session's advisor state. omp binds both the enable flag and the
    * `advisor` role at process start, so a live session is respawned with
    * `--resume`; a dormant one just records the choice for its next launch.

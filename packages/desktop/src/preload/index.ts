@@ -30,6 +30,7 @@ const api: OmpBackend = {
   terminateSession: (tabId) => ipcRenderer.invoke(CH.sessionTerminate, tabId),
   switchMode: (tabId, mode) => ipcRenderer.invoke(CH.sessionSwitchMode, tabId, mode),
   deleteSession: (tabId) => ipcRenderer.invoke(CH.sessionDelete, tabId),
+  forkSession: (tabId) => ipcRenderer.invoke(CH.sessionFork, tabId),
   setSessionAdvisor: (tabId, advisor, advisorModel) =>
     ipcRenderer.invoke(CH.sessionSetAdvisor, tabId, advisor, advisorModel),
   getAdvisorDefaults: (projectCwd) => ipcRenderer.invoke(CH.advisorDefaults, projectCwd),

@@ -22,6 +22,7 @@ export const CH = {
   sessionTerminate: "session:terminate",
   sessionSwitchMode: "session:switchMode",
   sessionDelete: "session:delete",
+  sessionFork: "session:fork",
   sessionSetAdvisor: "session:setAdvisor",
   advisorDefaults: "advisor:defaults",
   titleGenerate: "title:generate",

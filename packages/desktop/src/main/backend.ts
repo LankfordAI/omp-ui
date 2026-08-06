@@ -8,6 +8,7 @@ import {
   browseDirectories,
   checkoutBranch,
   deleteSessionFiles,
+  forkSessionFile,
   formatModelRole,
   generateBranchNameWithOmp,
   generateTitleWithOmp,
@@ -296,6 +297,7 @@ export class MainBackend {
         [CH.sessionTerminate]: (tabId: string) => this.terminate(tabId),
         [CH.sessionSwitchMode]: (tabId: string, mode: SessionMode) => this.switchMode(tabId, mode),
         [CH.sessionDelete]: (tabId: string) => this.deleteSession(tabId),
+        [CH.sessionFork]: (tabId: string) => this.forkSession(tabId),
         [CH.sessionSetAdvisor]: (tabId: string, advisor: boolean, advisorModel: string | null) =>
           this.setSessionAdvisor(tabId, advisor, advisorModel),
         [CH.advisorDefaults]: (projectCwd: string): AdvisorDefaults =>
@@ -943,6 +945,56 @@ export class MainBackend {
     }
     this.registry.removeSession(tabId);
     await this.broadcast();
+  }
+
+  /**
+   * Branches a session by copying its transcript (issue #83): the fork lands
+   * in a fresh lineage dir under a new session id, the source keeps running
+   * untouched, and the new record inherits the source's mode, model, and
+   * advisor tuple so the fork boots exactly like the session it came from.
+   * omp's `branch` RPC is deliberately not used — it rewinds past the last
+   * user message and switches the live process in place.
+   */
+  async forkSession(tabId: string): Promise<{ tabId: string }> {
+    const source = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (!source) throw new Error(`unknown session tab ${tabId}`);
+    const loc = await resolveSessionLocation(
+      this.sessionsRoot,
+      this.archiveRoot,
+      source.lineageDir,
+      source.sessionId,
+    );
+    if (loc.where !== "active") {
+      throw new Error(
+        loc.where === "archived"
+          ? "unarchive the session before branching it"
+          : "this session has no transcript to branch yet",
+      );
+    }
+    const lineageDir = mintLineageDirName(source.projectCwd);
+    const sessionId = randomUUID();
+    await forkSessionFile(loc.filePath, path.join(this.sessionsRoot, lineageDir), sessionId);
+    const fork = this.registry.addSession({
+      tabId: randomUUID(),
+      sessionId,
+      lineageDir,
+      projectCwd: source.projectCwd,
+      launchedAt: new Date().toISOString(),
+      mode: source.mode,
+      model: source.model,
+      thinkingLevel: source.thinkingLevel,
+      advisor: source.advisor,
+      advisorModel: source.advisorModel,
+      // cachedTitle mirrors the file's title line by hydration invariant, and
+      // the fork preserves that line — a cosmetic suffix here would be stomped
+      // by the very broadcast below.
+      cachedTitle: source.cachedTitle,
+      cachedModified: new Date().toISOString(),
+    });
+    // The renderer opens the fork right after this resolves, so the broadcast
+    // must already be on its way — openSession reads the record from state.
+    await this.broadcast();
+    return { tabId: fork.tabId };
   }
 
   /**

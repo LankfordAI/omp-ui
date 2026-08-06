@@ -484,7 +484,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const exportHtml = useStore((s) => s.exportHtml);
   const branchSession = useStore((s) => s.branchSession);
-  const newRpcSession = useStore((s) => s.newRpcSession);
+  const newSession = useStore((s) => s.newSession);
   const refreshState = useStore((s) => s.refreshState);
   const refreshStats = useStore((s) => s.refreshStats);
   const refreshAdvisorStats = useStore((s) => s.refreshAdvisorStats);
@@ -534,8 +534,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
               <div className="flex min-h-11 items-center justify-between rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               <Button onClick={() => void exportHtml(tabId)}>export</Button>
               {projectCwd !== undefined && <Button onClick={() => openMcpManager(tabId, projectCwd)}>MCP</Button>}
-              <Button onClick={() => void branchSession(tabId)}>branch</Button>
-              <Button onClick={() => void newRpcSession(tabId)}>new</Button>
+              <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)}>branch</Button>
+              <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }}>new</Button>
               <Button onClick={refresh}>refresh</Button>
             </div>
           </div>
@@ -651,10 +651,18 @@ export function SessionHud({ tabId }: { tabId: string }) {
             <IconMcp />
           </IconButton>
         )}
-        <IconButton label="branch this session" onClick={() => void branchSession(tabId)}>
+        <IconButton label="branch this session into a new tab" onClick={() => void branchSession(tabId)}>
           <IconBranch />
         </IconButton>
-        <IconButton label="new session in this tab" onClick={() => void newRpcSession(tabId)}>
+        {/* Same command as the composer's bare /new and mod+shift+n: spawn a
+            new live session tab in this project, not an in-tab reset (#82). */}
+        <IconButton
+          label="new session in current project"
+          disabled={projectCwd === undefined}
+          onClick={() => {
+            if (projectCwd !== undefined) void newSession(projectCwd);
+          }}
+        >
           <IconNew />
         </IconButton>
         <IconButton

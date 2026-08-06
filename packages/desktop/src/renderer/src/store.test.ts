@@ -97,6 +97,7 @@ const mockBackend = {
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
+  forkSession: vi.fn(),
   toggleFavorite: vi.fn(),
   ptyWrite: vi.fn(),
   ptyResize: vi.fn(),
@@ -1862,6 +1863,39 @@ describe("prompting, slash commands, and session ops", () => {
     expect(JSON.stringify(items)).not.toContain("xxxx");
   });
 
+  it("branchSession forks the transcript into a new tab and leaves the source untouched (issue #83)", async () => {
+    const forked = { ...stateWithRecord("sess-fork").projects[0]!.sessions[0]!, tabId: "tab-fork" };
+    backendState.projects[0]!.sessions.push(forked);
+    mockBackend.forkSession.mockResolvedValueOnce({ tabId: "tab-fork" });
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      activeTabId: TAB,
+    });
+
+    await useStore.getState().branchSession(TAB);
+
+    expect(mockBackend.forkSession).toHaveBeenCalledWith(TAB);
+    // The fork opens through the normal resume path and takes focus.
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeTabId: "tab-fork", projectCwd: "/p", mode: "rpc-ui" }),
+    );
+    expect(useStore.getState().activeTabId).toBe("tab-fork");
+    expect(useStore.getState().tabs.map((t) => t.tabId)).toEqual([TAB, "tab-fork"]);
+    // The source tab's transcript and runtime are exactly as they were.
+    expect(useStore.getState().rpc[TAB]).toEqual(tabState());
+  });
+
+  it("a failed branch alerts and changes nothing", async () => {
+    mockBackend.forkSession.mockRejectedValueOnce(new Error("this session has no transcript to branch yet"));
+    useStore.setState({ activeTabId: TAB });
+
+    await useStore.getState().branchSession(TAB);
+
+    expect(alerts.at(-1)).toBe("this session has no transcript to branch yet");
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(useStore.getState().activeTabId).toBe(TAB);
+  });
+
   it("setTodos sends phases with tasks and re-reads the server's copy", async () => {
     const phases = [{ phase: "Build", tasks: [{ content: "wire it", status: "pending" }] }];
     const promise = useStore.getState().setTodos(TAB, phases);
@@ -2233,33 +2267,6 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     useStore.getState().closeSubagent(TAB);
     expect(levels()).toEqual(["events", "progress"]);
     expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBeNull();
-  });
-
-  it("session reset clears the markers, buffers, retained roster, and open detail", async () => {
-    heartbeat(TAB, "a", "scout");
-    useStore.getState().openSubagent(TAB, "a");
-    expect(useStore.getState().rpc[TAB]!.subagentItems?.a).toHaveLength(1);
-    sent.length = 0;
-    const levels: unknown[] = [];
-    const promise = useStore.getState().newRpcSession(TAB);
-    for (let wave = 0; wave < 5; wave++) {
-      await flushMicrotasks();
-      for (const { cmd } of sent.splice(0)) {
-        if (cmd.type === "set_subagent_subscription") levels.push(cmd.level);
-        respond(TAB, cmd, {});
-      }
-    }
-    await promise;
-    const tab = useStore.getState().rpc[TAB]!;
-    expect(tab.items).toEqual([]);
-    expect(tab.subagentItems).toEqual({});
-    expect(tab.subagents).toEqual([]);
-    expect(tab.selectedSubagent).toBeNull();
-    // The subscription de-escalated back to progress.
-    expect(levels).toEqual(["progress"]);
-    // Marker memory is gone: the same heartbeat stamps fresh.
-    heartbeat(TAB, "a", "scout");
-    expect(markerLabels(TAB)).toEqual(["subagent scout: running"]);
   });
 
   it("a ready-frame re-boot sends progress, then re-escalates while a detail is open", async () => {

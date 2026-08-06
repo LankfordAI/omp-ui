@@ -117,7 +117,7 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     expect(header.querySelector('button[aria-label="add project"]')).not.toBeNull();
     expect(header.querySelector('button[aria-label="new session in current project"]')).not.toBeNull();
     // the rpc-ui HUD rides the same strip
-    expect(header.querySelector('button[aria-label="branch this session"]')).not.toBeNull();
+    expect(header.querySelector('button[aria-label^="branch this session"]')).not.toBeNull();
     // flat bg, no noise texture — the overlay can only paint a flat colour (#59)
     expect(header.className).not.toContain("ambient");
     expect(header.className).toContain("bg-void");

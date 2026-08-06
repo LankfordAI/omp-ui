@@ -15,6 +15,7 @@ const TAB = "tab-mobile";
 const compactSession = vi.fn(async () => {});
 const exportHtml = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
+const newSession = vi.fn(async () => {});
 const toggleConsole = vi.fn();
 let root: Root | null = null;
 
@@ -44,7 +45,7 @@ beforeEach(() => {
       planText: null, planDeferred: false, plans: [], advisorStats: null },
     },
     compactSurface: null,
-    compactSession, exportHtml, branchSession, toggleConsole,
+    compactSession, exportHtml, branchSession, newSession, toggleConsole,
   });
 });
 
@@ -95,6 +96,18 @@ describe("wide Session HUD", () => {
     expect(document.body.textContent).not.toContain("steering");
   });
 
+  it("runs the /new spawn from the title-bar button (#82)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="new session in current project"]')!;
+    expect(trigger.disabled).toBe(false);
+    act(() => trigger.click());
+    expect(newSession).toHaveBeenCalledWith("/p");
+  });
 });
 
 describe("compact Session HUD", () => {
@@ -121,9 +134,12 @@ describe("compact Session HUD", () => {
     const compact = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "compact")!;
     const exportButton = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "export")!;
     const branch = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "branch")!;
-    act(() => { compact.click(); exportButton.click(); branch.click(); });
+    const fresh = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "new")!;
+    act(() => { compact.click(); exportButton.click(); branch.click(); fresh.click(); });
     expect(compactSession).toHaveBeenCalledWith(TAB);
     expect(exportHtml).toHaveBeenCalledWith(TAB);
     expect(branchSession).toHaveBeenCalledWith(TAB);
+    // #82: "new" runs the same spawn as /new and mod+shift+n, not an in-tab reset.
+    expect(newSession).toHaveBeenCalledWith("/p");
   });
 });

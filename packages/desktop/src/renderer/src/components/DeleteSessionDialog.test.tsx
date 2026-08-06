@@ -33,6 +33,7 @@ const backendMock = {
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
+  forkSession: vi.fn(),
   setSessionAdvisor: vi.fn(),
   getAdvisorDefaults: vi.fn(),
   setSessionModel: vi.fn(),

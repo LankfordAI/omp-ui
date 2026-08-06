@@ -110,6 +110,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     terminateSession: (tabId) => req(CH.sessionTerminate, tabId),
     switchMode: (tabId, mode) => req(CH.sessionSwitchMode, tabId, mode),
     deleteSession: (tabId) => req(CH.sessionDelete, tabId),
+    forkSession: (tabId) => req(CH.sessionFork, tabId),
     setSessionAdvisor: (tabId, advisor, advisorModel) =>
       req(CH.sessionSetAdvisor, tabId, advisor, advisorModel),
     getAdvisorDefaults: (projectCwd) => req(CH.advisorDefaults, projectCwd),
