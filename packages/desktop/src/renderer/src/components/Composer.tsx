@@ -68,7 +68,6 @@ export function Composer({ tabId }: { tabId: string }) {
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
-  const cycleThinkingLevel = useStore((s) => s.cycleThinkingLevel);
 
   const [text, setText] = useState("");
   /**
@@ -600,13 +599,11 @@ export function Composer({ tabId }: { tabId: string }) {
                   disabled={dead}
                   title={
                     efforts.length > 0
-                      ? `thinking level — click to cycle, right-click to pick (${efforts.join(", ")})`
-                      : "thinking level — click to cycle"
+                      ? `thinking level — click to pick (${efforts.join(", ")})`
+                      : "thinking level"
                   }
-                  onClick={() => void cycleThinkingLevel(tabId)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    if (efforts.length > 0) setEffortMenu(!effortMenu);
+                  onClick={() => {
+                    if (efforts.length > 0) setEffortMenu((m) => !m);
                   }}
                   className={cn(
                     CAPSULE_SEGMENT,

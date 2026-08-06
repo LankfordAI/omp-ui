@@ -435,7 +435,6 @@ interface UiStore {
 
   setModel(tabId: string, model: ModelInfo): Promise<void>;
   setThinkingLevel(tabId: string, level: string): Promise<void>;
-  cycleThinkingLevel(tabId: string): Promise<void>;
 
   setSteeringMode(tabId: string, mode: string): Promise<void>;
   setFollowUpMode(tabId: string, mode: string): Promise<void>;
@@ -1973,20 +1972,6 @@ export const useStore = create<UiStore>()((set, get) => {
     async setThinkingLevel(tabId, level) {
       const resp = await runCommand(tabId, { type: "set_thinking_level", level });
       if (resp === null) return;
-      patchSession(tabId, { thinkingLevel: level });
-      const model = get().rpc[tabId]?.model;
-      await backend.setSessionModel(
-        tabId,
-        model ? `${model.provider}/${model.id}` : null,
-        level,
-      );
-    },
-
-    async cycleThinkingLevel(tabId) {
-      const resp = await runCommand(tabId, { type: "cycle_thinking_level" });
-      if (resp === null) return;
-      const level = strField(respData(resp), "level");
-      if (!level) return;
       patchSession(tabId, { thinkingLevel: level });
       const model = get().rpc[tabId]?.model;
       await backend.setSessionModel(
