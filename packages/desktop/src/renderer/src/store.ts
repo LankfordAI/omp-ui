@@ -1077,7 +1077,16 @@ export const useStore = create<UiStore>()((set, get) => {
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) => {
-        set((s) => ({ exited: { ...s.exited, [tabId]: code } }));
+        set((s) => {
+          // An rpc-mode omp that dies mid-tool sends no agent_end or
+          // omp_ui_error frame — this exit is the only signal, so running
+          // tool cards are settled here (issue #93).
+          const tab = s.rpc[tabId];
+          const items = tab ? settleRunningTools(tab.items) : undefined;
+          const rpc =
+            tab && items !== tab.items ? { ...s.rpc, [tabId]: { ...tab, items: items! } } : s.rpc;
+          return { exited: { ...s.exited, [tabId]: code }, rpc };
+        });
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
       backend.onShellExit((tabId, code) => {
