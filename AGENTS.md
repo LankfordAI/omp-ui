@@ -15,14 +15,6 @@ Instructions for coding agents working in this repository.
   (ADR-0002). `packages/desktop` is the Electron shell. Never introduce an
   Electron dependency into `core`.
 
-## Dev server
-
-**NEVER kill the dev server.** The user runs `npm run dev`
-(`electron-vite dev --watch` in `packages/desktop`) themselves. Do not stop,
-restart, or kill it — no `kill`/`pkill` on electron/vite/node processes, no
-starting a competing `npm run dev` of your own. It hot-reloads on file
-changes; if a change needs a restart, say so and let the user do it.
-
 ## Feature requests and bugs → GitHub issues
 
 **Every incoming feature request or bug report MUST be captured as a GitHub
