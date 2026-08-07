@@ -73,6 +73,18 @@ steering, not enforcement. The guard is the guarantee, so a session whose omp
 lacks `sendCustomMessage` stays armed and warns rather than disarming or
 running half-protected.
 
+_Amended after issue #117: the instruction is not delivered once, it is delivered on
+both edges. omp's own plan-mode context was ephemeral — re-derived per turn from the
+private field — so clearing the state cleared the model's view of the mode. A hidden
+custom message is not: it is appended to the conversation and stays there, while
+`appendModeChange("none")` only writes a transcript entry the model never sees. So
+entry states that it supersedes every earlier plan-mode and plan-format instruction,
+and exit delivers a matching `omp-ui:plan-mode-exit` retraction. The retraction is
+steering like the instruction it cancels — the guard is already down when it is sent,
+so a delivery failure is silent and the next entry supersedes the stale copy. The
+execute path is the one exception: its `ToolResult` already tells the agent plan mode
+exited, and the agent is blocked mid-turn inside its own proposal._
+
 ## Risk
 
 ADR-0007's unsupported-surface note now covers two wrapped prototype methods
