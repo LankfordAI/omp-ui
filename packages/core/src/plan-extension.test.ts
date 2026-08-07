@@ -51,6 +51,19 @@ describe("writePlanExtension", () => {
     expect(source).toContain("setPlanProposalHandler");
   });
 
+  it("arms the read-only guard by wrapping getPlanModeState, not by setting plan state", () => {
+    const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
+    // omp's write guard reads the public getPlanModeState, but its per-turn
+    // plan-authoring mandate reads a private field, so the two cannot be
+    // separated through setPlanModeState. The mode is entered by wrapping the
+    // getter and delivering omp-ui's own instruction instead (ADR-0013).
+    expect(source).toContain("getPlanModeState = function");
+    expect(source).toContain("read-only, enforced by omp's own plan-mode write guard");
+    // omp's per-turn planning mandate creeping back is the regression that
+    // matters: it would force a plan on every turn again.
+    expect(source).not.toContain("sendPlanModeContext");
+  });
+
   it("carries the html rendition contract into the generated source", () => {
     const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
     // The renderer sends the format as the command's second token, the

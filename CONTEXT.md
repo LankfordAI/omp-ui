@@ -121,13 +121,14 @@ a mechanically derived title from the prompt stands in.
 _Avoid_: session name generation, summary, label
 
 **Plan mode**:
-A session state in which omp explores read-only and drafts an execution spec
-instead of editing. omp's rpc protocol cannot express it at all, so omp-ui
-drives it through an extension generated into the lineage dir and passed as
-`-e` at spawn (ADR-0007). It toggles in-process — unlike the advisor pin, it
-never respawns the session. The read-only guarantee is omp's own write guard,
-not omp-ui's.
-_Avoid_: planning mode, read-only mode, plan-first
+A session state in which omp explores read-only and answers in place. The
+read-only guarantee is omp's own plan-mode write guard, not omp-ui's; a plan
+artifact is drafted and gated on plan review only when the user's own prompt
+asks for one — the mode itself mandates no plan. omp's rpc protocol cannot
+express it at all, so omp-ui drives it through an extension generated into
+the lineage dir and passed as `-e` at spawn (ADR-0007, ADR-0013). It toggles
+in-process — unlike the advisor pin, it never respawns the session.
+_Avoid_: planning mode, plan-first
 
 **Plan review**:
 The gate between drafting and implementing. The agent submits by writing its
