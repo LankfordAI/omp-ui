@@ -6,6 +6,7 @@ import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { ConsoleToggle } from "./ConsoleDrawer";
+import { PlanToggle } from "./PlanToggle";
 import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
@@ -148,16 +149,6 @@ export function IconRefresh() {
     <Svg>
       <path d="M13.5 8a5.5 5.5 0 11-1.9-4.2" {...S} />
       <path d="M13.6 2v3.6H10" {...S} />
-    </Svg>
-  );
-}
-
-function IconPlan() {
-  return (
-    <Svg>
-      <path {...S} d="M4.5 2.5h5l3 3v8a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z" />
-      <path {...S} d="M9.5 2.5v3h3" />
-      <path {...S} d="M6.5 9.5l1.25 1.25 2.25-2.5" />
     </Svg>
   );
 }
@@ -491,7 +482,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
-  const setPlanMode = useStore((s) => s.setPlanMode);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const openMcpManager = useStore((s) => s.openMcpManager);
   const compact = useCompactShell();
@@ -529,7 +519,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <p className="font-mono text-xs text-ink-dim">advisor · {exactNum(advisorStats.contextTokens)} tokens · {advisorStats.subscription && advisorStats.cost === 0 ? "subscription" : formatCost(advisorStats.cost)}</p>}
             {notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}
             <div className="grid grid-cols-2 gap-2">
-              <Button variant={plan?.enabled ? "solid" : "outline"} tone="iris" disabled={plan?.unavailable !== undefined} title={plan?.unavailable ? `plan mode unavailable: ${plan.unavailable}` : undefined} onClick={() => void setPlanMode(tabId, !(plan?.enabled ?? false))}>plan</Button>
+              <PlanToggle tabId={tabId} layout="sheet" />
               <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)}>compact</Button>
               <div className="flex min-h-11 items-center justify-between rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               <Button onClick={() => void exportHtml(tabId)}>export</Button>
@@ -601,25 +591,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       <div className="flex shrink-0 items-center gap-1 border-l border-line-soft pl-2.5">
-        <Button
-          size="xs"
-          variant={plan?.enabled ? "solid" : "ghost"}
-          tone="iris"
-          // The extension reaches omp's plan API through unsupported surface,
-          // so it reports `unavailable` rather than letting the toggle lie.
-          disabled={plan?.unavailable !== undefined}
-          title={
-            plan?.unavailable
-              ? `plan mode unavailable: ${plan.unavailable}`
-              : plan?.enabled
-                ? "leave plan mode (restores write access)"
-                : "plan first: the agent explores read-only and drafts a plan for review"
-          }
-          onClick={() => void setPlanMode(tabId, !(plan?.enabled ?? false))}
-        >
-          <IconPlan />
-          <span className="hidden lg:inline">plan</span>
-        </Button>
+        <PlanToggle tabId={tabId} />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <Button
           size="xs"

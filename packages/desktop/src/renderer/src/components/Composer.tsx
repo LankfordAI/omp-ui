@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { ImageAttachment } from "@omp-ui/core/types";
+import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
@@ -27,6 +28,7 @@ import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
+import { PlanToggle } from "./PlanToggle";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep, Sheet } from "./ui";
 
@@ -46,10 +48,17 @@ export function Composer({ tabId }: { tabId: string }) {
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const storeError = useStore((s) => s.rpc[tabId]?.error);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
-  // omp-ui's /new leads the list; the filter keeps an omp-advertised `new`
-  // (none in 17.2.6) from showing in-process semantics the pick would never run.
+  // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
+  // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
+  // driver the intercept rewrites to, so both are filtered out.
   const paletteCommands = useMemo(
-    () => [UI_NEW_COMMAND, ...commands.filter((c) => c.name !== "new")],
+    () => [
+      UI_NEW_COMMAND,
+      UI_PLAN_COMMAND,
+      ...commands.filter(
+        (c) => c.name !== "new" && c.name !== "plan" && c.name !== PLAN_COMMAND,
+      ),
+    ],
     [commands],
   );
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
@@ -668,6 +677,12 @@ export function Composer({ tabId }: { tabId: string }) {
 
             <AdvisorControl tabId={tabId} disabled={dead} />
 
+            <PlanToggle
+              tabId={tabId}
+              disabled={dead}
+              onToggled={() => box.current?.focus({ preventScroll: true })}
+            />
+
             <BranchChip projectCwd={projectCwd} />
 
             <AttachmentButton disabled={dead} onClick={() => imagePicker.current?.click()} />
@@ -782,6 +797,7 @@ export function Composer({ tabId }: { tabId: string }) {
           <div><Label>model</Label><div className="mt-1 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div></div>
           <div><Label>thinking level</Label><div className="mt-1 flex flex-wrap gap-2">{efforts.length > 0 ? efforts.map((effort) => <Button key={effort} variant={effort === thinkingLevel ? "solid" : "outline"} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)}>{effort}</Button>) : <span className="text-xs text-ink-faint">no thinking levels available</span>}</div></div>
           <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
+          <div className="flex min-h-11 items-center gap-2"><PlanToggle tabId={tabId} layout="sheet" disabled={dead} className="min-h-11 flex-1" /></div>
           <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
           {running && <div className="grid grid-cols-2 gap-2"><Button disabled={!canSend} onClick={() => submit("follow_up")}>Queue</Button><Button disabled={!canSend} onClick={() => submit("interrupt")}>Interrupt-and-send</Button></div>}
         </div>
@@ -834,6 +850,17 @@ export function Composer({ tabId }: { tabId: string }) {
 const UI_NEW_COMMAND: SlashCommandInfo = {
   name: "new",
   description: "new live session in a new tab",
+  source: "omp-ui",
+};
+
+/**
+ * omp-ui's plan toggle. omp's /plan is TUI-only (ADR-0007) and the plan
+ * extension's own omp-ui-plan would be a second row for the same action,
+ * so this is the palette's single plan entry; runSlashCommand intercepts it.
+ */
+const UI_PLAN_COMMAND: SlashCommandInfo = {
+  name: "plan",
+  description: "plan mode — read-only exploration, plan reviewed before execution",
   source: "omp-ui",
 };
 

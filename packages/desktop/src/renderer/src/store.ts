@@ -2456,6 +2456,20 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
         }
       }
+      // omp-ui's plan toggle: omp's /plan is TUI-only, so over rpc it would
+      // reach the model as literal prompt text and start an agent turn
+      // (ADR-0007). Bare forms only — "/plan …" with any other argument still
+      // reaches omp verbatim, and a pty tab's TUI owns its own /plan.
+      const planLine = message.trim();
+      const planOn = /^\/plan(?:\s+on)?$/.test(planLine);
+      const planOff = /^\/(?:plan\s+off|no-plan)$/.test(planLine);
+      if (planOn || planOff) {
+        const tab = get().tabs.find((t) => t.tabId === tabId);
+        if (tab?.mode === "rpc-ui") {
+          await get().setPlanMode(tabId, planOn);
+          return;
+        }
+      }
       // Replies arrive asynchronously as command_output frames, which the
       // store drops — the drawer's output pane is gone (issue #43).
       await runCommand(tabId, { type: "prompt", message });

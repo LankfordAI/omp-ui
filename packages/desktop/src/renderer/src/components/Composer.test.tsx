@@ -14,6 +14,9 @@ const clipboardImageMock = vi.hoisted(() => ({
 vi.mock("../lib/clipboard-image", () => clipboardImageMock);
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no layout, hence no scrollIntoView; the slash palette calls it on
+// the active row exactly like CommandPalette and ModelSelector do.
+HTMLElement.prototype.scrollIntoView = vi.fn();
 const backendMock = {
   listProjectFiles: vi.fn(async () => ({ files: [], truncated: false })),
   resolveFileMentions: vi.fn(async () => ({ contextText: "", images: [] })),
@@ -248,5 +251,98 @@ describe("Composer focus treatment", () => {
     await act(async () => rootEl.removeAttribute("inert"));
     expect(document.activeElement).toBe(textarea);
     trigger.remove();
+  });
+});
+
+describe("Composer plan toggle", () => {
+  const setPlanMode = vi.fn(async () => {});
+  const runSlashCommand = vi.fn(async () => {});
+
+  beforeEach(() => {
+    // The suite-wide beforeEach forces the compact shell; these exercise the
+    // desktop control row.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({ setPlanMode, runSlashCommand });
+  });
+
+  it("toggles plan mode on and reclaims the caret", () => {
+    seed("ready");
+    renderComposer();
+    const toggle = document.body.querySelector<HTMLButtonElement>(
+      'button[title="plan first: the agent explores read-only and drafts a plan for review"]',
+    )!;
+    act(() => toggle.click());
+    expect(setPlanMode).toHaveBeenCalledWith(TAB, true);
+    expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+  });
+
+  it("reflects active plan mode and exits on click", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: true, planFilePath: "local://x-plan.md", planAbsPath: "/x-plan.md", approved: false },
+        },
+      },
+    });
+    renderComposer();
+    const toggle = document.body.querySelector<HTMLButtonElement>(
+      'button[title="leave plan mode (restores write access)"]',
+    )!;
+    act(() => toggle.click());
+    expect(setPlanMode).toHaveBeenCalledWith(TAB, false);
+  });
+
+  it("disables the toggle when plan mode is unavailable", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: {
+            enabled: false,
+            planFilePath: null,
+            planAbsPath: null,
+            approved: false,
+            unavailable: "no active omp session",
+          },
+        },
+      },
+    });
+    renderComposer();
+    const toggle = document.body.querySelector<HTMLButtonElement>(
+      'button[title="plan mode unavailable: no active omp session"]',
+    )!;
+    expect(toggle.disabled).toBe(true);
+  });
+
+  it("shows one canonical plan row in the palette and runs it", () => {
+    seed("ready");
+    // omp's TUI-only `plan` and the extension's driver command are both
+    // filtered out of the palette; only the omp-ui entry remains.
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          commands: [
+            { name: "plan", description: "tui only", source: "builtin" },
+            { name: "omp-ui-plan", description: "driver", source: "extension" },
+          ],
+        },
+      },
+    });
+    renderComposer();
+    typeDraft("/plan");
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter((b) =>
+      b.textContent?.includes("/plan"),
+    );
+    expect(rows).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("omp-ui-plan");
+    act(() => rows[0]!.click());
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/plan");
   });
 });

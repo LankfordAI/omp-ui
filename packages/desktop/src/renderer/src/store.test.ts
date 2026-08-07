@@ -1987,6 +1987,68 @@ describe("prompting, slash commands, and session ops", () => {
     await promise;
   });
 
+  it("runSlashCommand /plan toggles plan mode on instead of prompting omp", async () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { [TAB]: tabState() },
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/plan");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on" });
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand /plan on matches the bare toggle", async () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { [TAB]: tabState() },
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/plan on");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on" });
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand /plan off exits plan mode", async () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { [TAB]: tabState() },
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/plan off");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan off" });
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand /no-plan exits plan mode", async () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { [TAB]: tabState() },
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/no-plan");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan off" });
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand forwards /plan with arguments to omp", async () => {
+    const promise = useStore.getState().runSlashCommand(TAB, "/plan rewrite auth");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/plan rewrite auth" });
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand forwards /plan from a pty tab to its TUI", async () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "pty", projectCwd: "/p", hidden: false }],
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/plan");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/plan" });
+    await settleAll();
+    await promise;
+  });
+
   it("busy is true while a command is in flight and survives a concurrent one", async () => {
     const first = useStore.getState().rpcCommand(TAB, { type: "get_state" });
     const second = useStore.getState().rpcCommand(TAB, { type: "get_session_stats" });
