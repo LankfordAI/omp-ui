@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import { PLAN_COMMAND, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY } from "./plan";
@@ -94,5 +95,215 @@ describe("writePlanExtension", () => {
       (d) => d.category === ts.DiagnosticCategory.Error,
     );
     expect(errors.map((e) => String(e.messageText))).toEqual([]);
+  });
+});
+
+/** The fake AgentSession's record of one hidden custom message. */
+interface SentMessage {
+  customType: string;
+  content: string;
+  deliverAs: string;
+}
+
+interface PlanUi {
+  setStatus: (key: string, text: string | undefined) => void;
+  select: (title: string, options: string[]) => Promise<string | undefined>;
+  notify: (message: string, level?: string) => void;
+}
+
+interface ExtensionApi {
+  pi: { AgentSession: { prototype: Record<string, unknown> } };
+  registerCommand: (
+    name: string,
+    options: {
+      description?: string;
+      handler: (args: string, ctx: { ui: PlanUi }) => Promise<void>;
+    },
+  ) => void;
+}
+
+type ExtensionFactory = (api: ExtensionApi) => void;
+
+/**
+ * The extension is delivered as generated source, so the only honest test is to
+ * transpile what `writePlanExtension` wrote and run it. Its whole state lives
+ * inside the default export, so each harness gets its own instance — and its own
+ * session class, because the extension patches the prototype.
+ */
+async function loadExtension(): Promise<ExtensionFactory> {
+  const file = writePlanExtension(tempLineage());
+  const { outputText } = ts.transpileModule(fs.readFileSync(file, "utf8"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  });
+  const js = file.replace(/\.ts$/, ".mjs");
+  fs.writeFileSync(js, outputText, "utf8");
+  const mod: unknown = await import(pathToFileURL(js).href);
+  if (!mod || typeof mod !== "object" || !("default" in mod) || typeof mod.default !== "function") {
+    throw new Error("generated extension has no default export");
+  }
+  // The generated module is ours; its default export is the extension factory.
+  return mod.default as ExtensionFactory;
+}
+
+interface Harness {
+  run: (args: string) => Promise<void>;
+  /** Fire without awaiting, to interleave two transitions. */
+  dispatch: (args: string) => Promise<void>;
+  status: () => { enabled: boolean } | null;
+  /** What omp's write guard sees. */
+  guardArmed: () => boolean;
+  sent: SentMessage[];
+  tools: () => string[];
+  notices: string[];
+}
+
+function harness(
+  factory: ExtensionFactory,
+  options?: { canSendMessages?: boolean },
+): Harness {
+  const sent: SentMessage[] = [];
+  const notices: string[] = [];
+  let tools = ["read", "grep", "write"];
+  let planState: { enabled: boolean } | undefined;
+
+  // A fresh class per harness: the extension patches prototype methods.
+  class FakeSession {
+    isStreaming = false;
+    sessionManager = {
+      getArtifactsDir: () => "/tmp/omp-ui-fake-artifacts",
+      appendModeChange: () => undefined,
+    };
+    getPlanModeState(): { enabled: boolean } | undefined {
+      return planState;
+    }
+    setPlanModeState(state: { enabled: boolean } | undefined): void {
+      planState = state;
+    }
+    getPlanReferencePath(): string {
+      return "";
+    }
+    setPlanReferencePath(): void {}
+    setPlanProposalHandler(): void {}
+    async preparePlanForReview(title: string) {
+      return { content: [{ type: "text", text: title }] };
+    }
+    async setActiveToolsByName(names: string[]): Promise<void> {
+      // Await first: this is the yield the swallowed-toggle race needs (#118).
+      await Promise.resolve();
+      tools = [...names];
+    }
+    getEnabledToolNames(): string[] {
+      return [...tools];
+    }
+    hasBuiltInTool(): boolean {
+      return true;
+    }
+    prompt(): Promise<boolean> {
+      return Promise.resolve(true);
+    }
+  }
+  if (options?.canSendMessages !== false) {
+    Object.defineProperty(FakeSession.prototype, "sendCustomMessage", {
+      value: async function (
+        msg: { customType: string; content: string },
+        opts: { deliverAs: string },
+      ) {
+        sent.push({ customType: msg.customType, content: msg.content, deliverAs: opts.deliverAs });
+        return false;
+      },
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  let handler: ((args: string, ctx: { ui: PlanUi }) => Promise<void>) | undefined;
+  let statusText: string | undefined;
+  const ui: PlanUi = {
+    setStatus: (_key, text) => {
+      statusText = text;
+    },
+    select: async () => undefined,
+    notify: (message) => {
+      notices.push(message);
+    },
+  };
+
+  factory({
+    pi: { AgentSession: { prototype: FakeSession.prototype as unknown as Record<string, unknown> } },
+    registerCommand: (_name, opts) => {
+      handler = opts.handler;
+    },
+  });
+
+  const session = new FakeSession();
+  // The extension captures the session off prompt; omp dispatches slash commands
+  // from inside prompt, so this is what a real toggle does first.
+  void session.prompt();
+
+  const dispatch = (args: string): Promise<void> => {
+    if (!handler) throw new Error("the extension registered no command");
+    return handler(args, { ui });
+  };
+
+  return {
+    run: dispatch,
+    dispatch,
+    status: () => (statusText === undefined ? null : JSON.parse(statusText)),
+    guardArmed: () => session.getPlanModeState()?.enabled === true,
+    sent,
+    tools: () => [...tools],
+    notices,
+  };
+}
+
+const entries = (sent: SentMessage[]) => sent.filter((m) => m.customType === "omp-ui:plan-mode");
+const exits = (sent: SentMessage[]) => sent.filter((m) => m.customType === "omp-ui:plan-mode-exit");
+
+describe("plan mode transitions", () => {
+  it("tells the agent the mode ended, because exiting is otherwise invisible", async () => {
+    const h = harness(await loadExtension());
+    await h.run("on html");
+    await h.run("off");
+
+    const last = h.sent.at(-1);
+    expect(last?.customType).toBe("omp-ui:plan-mode-exit");
+    expect(last?.content).toContain("Plan mode is OFF");
+    // The stacked entry instructions cannot be deleted, so the retraction has to
+    // supersede them by name.
+    expect(last?.content).toContain("plan-format");
+    expect(h.status()?.enabled).toBe(false);
+    expect(h.guardArmed()).toBe(false);
+  });
+
+  it("retracts once per entry, so re-entering cannot stack an unanswered mode", async () => {
+    const h = harness(await loadExtension());
+    for (const args of ["on html", "off", "on html", "off"]) await h.run(args);
+
+    expect(entries(h.sent)).toHaveLength(2);
+    expect(exits(h.sent)).toHaveLength(2);
+    // Issue #117: the second exit is the failure the user saw.
+    expect(h.sent.at(-1)?.customType).toBe("omp-ui:plan-mode-exit");
+  });
+
+  it("makes every entry supersede the instructions still in the conversation", async () => {
+    const h = harness(await loadExtension());
+    await h.run("on html");
+
+    expect(entries(h.sent)[0]?.content).toContain("supersedes every earlier omp-ui");
+  });
+
+  it("never tells a session it left a mode it was never told it entered", async () => {
+    const h = harness(await loadExtension());
+    await h.run("off");
+    expect(h.sent).toHaveLength(0);
+
+    // An omp that cannot carry hidden instructions still arms the guard, and
+    // exiting it must stay silent rather than warn twice.
+    const mute = harness(await loadExtension(), { canSendMessages: false });
+    await mute.run("on html");
+    expect(mute.guardArmed()).toBe(true);
+    await mute.run("off");
+    expect(mute.guardArmed()).toBe(false);
+    expect(mute.status()?.enabled).toBe(false);
   });
 });

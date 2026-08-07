@@ -77,6 +77,8 @@ const REFINE = ${JSON.stringify(PLAN_REFINE)};
  * with a plan written and proposed only when the user asks for one.
  */
 const READ_ONLY_PLAN_INSTRUCTION =
+  "Plan mode is ON as of this message; it supersedes every earlier omp-ui " +
+  "plan-mode and plan-format instruction in this conversation.\\n\\n" +
   "This session is in plan mode: read-only, enforced by omp's own plan-mode write guard" +
   " — working-tree writes, deletes, renames, and state-changing commands are " +
   "rejected; only local:// session artifacts may be written.\\n\\n" +
@@ -97,6 +99,23 @@ const READ_ONLY_PLAN_INSTRUCTION =
 /** Notified when the instruction above cannot be delivered. The mode stays on. */
 const MODE_INSTRUCTION_UNAVAILABLE =
   "plan-mode instruction unavailable on this omp; the write guard still applies";
+
+/**
+ * Sent hidden when plan mode is left, mirroring the entry instruction. Exiting
+ * otherwise changes nothing the model can see: the write guard is a tool-side
+ * check, and appendModeChange("none") writes a transcript entry, not a message.
+ * The entry instruction is a durable conversation message, so the mode has to be
+ * closed in the same channel it was opened in (issue #117).
+ */
+const PLAN_MODE_EXIT_INSTRUCTION =
+  "Plan mode is OFF as of this message. The read-only guard is lifted: you have " +
+  "full write access to the working tree again, and state-changing commands are " +
+  "allowed.\\n\\n" +
+  "Every earlier omp-ui plan-mode and plan-format instruction in this conversation " +
+  "is superseded and no longer applies — they described a mode that has ended. Do " +
+  "NOT write plan artifacts, and NEVER write to xd://propose, unless a later " +
+  "instruction turns plan mode back on. Carry out the user's request normally, " +
+  "making the changes they ask for.";
 
 /**
  * Sent to the agent (hidden, like omp's own plan-mode context) when the
@@ -191,6 +210,11 @@ export default function (pi: PlanExtensionApi) {
   // getPlanModeState wrapper below fakes enabled state so omp's own write
   // guard treats the working tree as read-only.
   let readOnly = false;
+  // True while the agent holds an entry instruction that has not been retracted.
+  // Exit only speaks when there is something to retract, so a session whose omp
+  // cannot carry hidden instructions is never told it left a mode it was never
+  // told it entered.
+  let instructionDelivered = false;
   // The unwrapped prototype method. Every read the extension itself does goes
   // through this, so the extension never sees its own fake.
   let realGetPlanModeState: ((this: PlanSession) => PlanModeState | undefined) | null = null;
@@ -294,7 +318,10 @@ export default function (pi: PlanExtensionApi) {
     ui.setStatus(STATUS_KEY, JSON.stringify(status));
   }
 
-  async function exitPlanMode(active: PlanSession): Promise<void> {
+  async function exitPlanMode(
+    active: PlanSession,
+    options?: { announce?: boolean },
+  ): Promise<void> {
     active.setPlanProposalHandler(null);
     // Defensive no-op: this extension never sets real plan state, but an
     // omp-internal path might have, and that would outlive the flag below.
@@ -303,6 +330,14 @@ export default function (pi: PlanExtensionApi) {
     if (previousTools) await active.setActiveToolsByName(previousTools);
     previousTools = undefined;
     active.sessionManager.appendModeChange("none");
+    // The execute path answers the agent with a ToolResult that already says
+    // plan mode exited, and the agent is blocked mid-turn inside its own
+    // proposal — a steer there would land beside that answer.
+    if (options?.announce === false) {
+      instructionDelivered = false;
+      return;
+    }
+    await sendExitInstruction(active);
   }
 
   /**
@@ -361,7 +396,7 @@ export default function (pi: PlanExtensionApi) {
     // here — the renderer issues a separate implementation prompt (same
     // session, compacted, or a fresh session), so stop and wait for it.
     active.setPlanReferencePath(planFilePath);
-    await exitPlanMode(active);
+    await exitPlanMode(active, { announce: false });
     approved = true;
     publish();
     return {
@@ -448,8 +483,33 @@ export default function (pi: PlanExtensionApi) {
         },
         { deliverAs: active.isStreaming ? "steer" : "nextTurn", triggerTurn: false },
       );
+      instructionDelivered = true;
     } catch {
       ui?.notify(MODE_INSTRUCTION_UNAVAILABLE, "warning");
+    }
+  }
+
+  /**
+   * Retracts the entry instruction. Best effort and silent: the guard is already
+   * down by the time this runs, and the next entry instruction supersedes any
+   * stale copy, so a delivery failure must never fail the exit or warn.
+   */
+  async function sendExitInstruction(active: PlanSession): Promise<void> {
+    if (!instructionDelivered) return;
+    instructionDelivered = false;
+    if (typeof active.sendCustomMessage !== "function") return;
+    try {
+      await active.sendCustomMessage(
+        {
+          customType: "omp-ui:plan-mode-exit",
+          content: PLAN_MODE_EXIT_INSTRUCTION,
+          display: false,
+          attribution: "agent",
+        },
+        { deliverAs: active.isStreaming ? "steer" : "nextTurn", triggerTurn: false },
+      );
+    } catch {
+      // Deliberately silent — see the doc comment.
     }
   }
 
