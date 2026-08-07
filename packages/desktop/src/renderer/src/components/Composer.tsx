@@ -219,6 +219,13 @@ export function Composer({ tabId }: { tabId: string }) {
     if (mirror.current !== null) mirror.current.scrollTop = el.scrollTop;
   }, [text, compact]);
 
+  // A freshly spawned session lands with the caret ready to type — the point of the
+  // composer is that the next keystroke is a message. Tabs stay mounted (switching
+  // only toggles `display`), so this runs once per session, never on a tab switch.
+  useEffect(() => {
+    box.current?.focus({ preventScroll: true });
+  }, []);
+
   // The shimmer runs only while focused with a keyword on screen, matching omp's
   // editor; everything else shows the static phase-0 palette.
   useEffect(() => {

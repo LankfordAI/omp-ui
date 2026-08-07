@@ -222,4 +222,10 @@ describe("Composer focus treatment", () => {
     seed("ready"); renderComposer();
     expect(document.body.querySelector("textarea")?.classList.contains("outline-none!")).toBe(true);
   });
+
+  it("focuses the textarea on mount so a new session is ready to type", () => {
+    seed("ready");
+    renderComposer();
+    expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+  });
 });
