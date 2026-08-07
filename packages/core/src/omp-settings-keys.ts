@@ -13,6 +13,10 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<{ title: string; keys: readonly s
   },
   { title: "Context", keys: ["compaction.enabled", "compaction.idleEnabled", "autoResume"] },
   {
+    title: "Providers",
+    keys: ["providers.streamIdleTimeoutSeconds", "providers.streamFirstEventTimeoutSeconds"],
+  },
+  {
     title: "Display",
     keys: ["display.showTokenUsage", "hideThinkingBlock", "git.enabled", "colorBlindMode"],
   },

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { formatDuration } from "../lib/duration";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
@@ -20,7 +21,7 @@ import type {
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
 import { PlanCard } from "./PlanCard";
-import { AdvisoryNotes, ToolCard, formatDuration } from "./ToolCard";
+import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { TranscriptContextMenu } from "./TranscriptContextMenu";
 import { Chip, Disclosure, Empty, Label, copyFallback, type Tone } from "./ui";
 

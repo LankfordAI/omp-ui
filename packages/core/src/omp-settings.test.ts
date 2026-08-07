@@ -232,6 +232,18 @@ describe("writeOmpSetting", () => {
     expect(seen[3]).toBe("false");
   });
 
+  it("puts a negative number after `--` so omp's CLI does not read it as a flag (issue #105)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "providers.streamIdleTimeoutSeconds", value: -1 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "providers.streamIdleTimeoutSeconds", "--json", "--", "-1"]);
+  });
+
   it("propagates omp's stderr message unchanged", async () => {
     await expect(
       writeOmpSetting({ ompPath: OMP, key: "advisor.syncBacklog", value: "nope" }, async () => {

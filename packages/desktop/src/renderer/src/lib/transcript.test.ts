@@ -522,6 +522,48 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(toneOf("todo_reminder")).toBe("copper");
   });
 
+  it("labels auto_retry_start with attempt, budget, and retry delay (issue #100)", () => {
+    const item = reduceEvent([], { type: "auto_retry_start", attempt: 2, maxAttempts: 10, delayMs: 4000 })[0];
+    expect(item).toMatchObject({
+      kind: "marker",
+      label: "auto-retry 2/10 started — retrying in 4.0s",
+      tone: "copper",
+    });
+  });
+
+  it("labels a recovered auto_retry_end as retry succeeded (issue #100)", () => {
+    const item = reduceEvent([], { type: "auto_retry_end", success: true, attempt: 2 })[0];
+    expect(item).toMatchObject({ kind: "marker", label: "retry succeeded", tone: "signal" });
+  });
+
+  it("labels a failed auto_retry_end with the clipped final error (issue #100)", () => {
+    const item = reduceEvent([], {
+      type: "auto_retry_end",
+      success: false,
+      attempt: 10,
+      finalError: "e".repeat(200),
+    })[0];
+    if (item?.kind !== "marker") throw new Error("expected a marker");
+    expect(item.label.startsWith("auto-retry failed: ")).toBe(true);
+    expect(item.label.length).toBeLessThanOrEqual(140);
+    expect(item.label.endsWith("…")).toBe(true);
+    expect(item.tone).toBe("rose");
+  });
+
+  it("labels retry_fallback_applied with the provider switch (issue #100)", () => {
+    const item = reduceEvent([], {
+      type: "retry_fallback_applied",
+      from: "openrouter/kimi",
+      to: "anthropic/claude",
+      role: "default",
+    })[0];
+    expect(item).toMatchObject({
+      kind: "marker",
+      label: "retry fallback: openrouter/kimi → anthropic/claude",
+      tone: "copper",
+    });
+  });
+
   it("renders notice and irc_message", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, { type: "notice", message: "watch out" });

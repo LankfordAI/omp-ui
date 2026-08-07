@@ -310,7 +310,13 @@ export async function writeOmpSetting(
   // call independent of whatever project layer happens to be around.
   const neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-cfg-"));
   try {
-    await run(["config", "set", key, serialized, "--json"], {
+    // omp's CLI parses a leading-dash value as a flag (`-1` = provider default
+    // for the stream watchdogs, issue #105), so negatives ride after `--`,
+    // which must come last: everything past it is positional.
+    const args = serialized.startsWith("-")
+      ? ["config", "set", key, "--json", "--", serialized]
+      : ["config", "set", key, serialized, "--json"];
+    await run(args, {
       cwd: neutralCwd,
       env: process.env,
     });

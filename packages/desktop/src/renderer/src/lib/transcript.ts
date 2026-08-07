@@ -1,4 +1,5 @@
-import { field, numField, strField } from "./fields";
+import { formatDuration } from "./duration";
+import { boolField, field, numField, strField } from "./fields";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 
 export interface AdvisorNote {
@@ -117,6 +118,12 @@ export type RenderItem =
   | PlanItem;
 
 let counter = 0;
+
+/** Marker labels are hairlines — long provider errors get clipped. */
+function truncateLabel(s: string, max = 120): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
 export function markerItem(label: string, tone?: MarkerItem["tone"]): MarkerItem {
   return { kind: "marker", id: `marker-${++counter}`, label, tone };
 }
@@ -525,12 +532,34 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       return [...items, markerItem("auto-compaction started", "copper")];
     case "auto_compaction_end":
       return [...items, markerItem("auto-compaction finished", "copper")];
-    case "auto_retry_start":
-      return [...items, markerItem("auto-retry started", "copper")];
-    case "auto_retry_end":
+    case "auto_retry_start": {
+      const attempt = numField(event, "attempt");
+      const maxAttempts = numField(event, "maxAttempts");
+      const delayMs = numField(event, "delayMs");
+      const label =
+        attempt !== undefined && maxAttempts !== undefined
+          ? `auto-retry ${attempt}/${maxAttempts} started` +
+            (delayMs !== undefined ? ` — retrying in ${formatDuration(delayMs)}` : "")
+          : "auto-retry started";
+      return [...items, markerItem(label, "copper")];
+    }
+    case "auto_retry_end": {
+      const success = boolField(event, "success");
+      if (success === true) return [...items, markerItem("retry succeeded", "signal")];
+      if (success === false) {
+        const finalError = strField(event, "finalError");
+        return [...items, markerItem(`auto-retry failed${finalError ? `: ${truncateLabel(finalError)}` : ""}`, "rose")];
+      }
       return [...items, markerItem("auto-retry finished", "copper")];
-    case "retry_fallback_applied":
-      return [...items, markerItem("retry fallback applied", "copper")];
+    }
+    case "retry_fallback_applied": {
+      const from = strField(event, "from");
+      const to = strField(event, "to");
+      return [
+        ...items,
+        markerItem(from && to ? `retry fallback: ${from} → ${to}` : "retry fallback applied", "copper"),
+      ];
+    }
     // omp emits `retry_fallback_succeeded`; `retry_succeeded` is the older name.
     case "retry_fallback_succeeded":
     case "retry_succeeded":

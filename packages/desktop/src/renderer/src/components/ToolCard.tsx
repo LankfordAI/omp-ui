@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { formatDuration } from "../lib/duration";
 import { langFromPath, useHighlightTokens } from "../lib/highlight";
 import { strField } from "../lib/fields";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
@@ -12,14 +13,7 @@ import { Chip, Chevron, Disclosure, Label, Panel, ProgressSweep, type Tone } fro
 const LONG_OUTPUT_LINES = 12;
 const ARG_VALUE_MAX = 120;
 
-/** `12ms` / `1.4s` / `2m 05s`. Shared with the assistant usage receipt. */
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  return `${minutes}m ${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`;
-}
+
 
 /* -------------------------------------------------------------- glyphs */
 

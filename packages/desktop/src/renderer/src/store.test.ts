@@ -914,6 +914,106 @@ describe("handleRpcFrame routing", () => {
     expect(tab.advisorStats?.active).toBe(true);
   });
 
+  describe("provider stream stall notices (issue #100)", () => {
+    const stallFrame = {
+      type: "auto_retry_start",
+      attempt: 1,
+      maxAttempts: 10,
+      delayMs: 2000,
+      errorMessage: "OpenAI responses stream stalled while waiting for the next event",
+    };
+
+    it("appends one warn notice with the measured silence and the stage it struck at", () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(1_000_000);
+        const store = useStore.getState();
+        store.handleRpcFrame(TAB, {
+          type: "message_start",
+          message: { role: "assistant", content: [] },
+        });
+        store.handleRpcFrame(TAB, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "x" },
+        });
+        vi.setSystemTime(1_000_000 + 123_000);
+        useStore.getState().handleRpcFrame(TAB, stallFrame);
+        const items = useStore.getState().rpc[TAB]!.items;
+        const last = items[items.length - 1];
+        expect(last?.kind).toBe("notice");
+        if (last?.kind !== "notice") return;
+        expect(last.level).toBe("warn");
+        expect(last.text).toContain("provider stream stall #1");
+        expect(last.text).toContain("silent 2m 03s after streaming text");
+        expect(last.text).toContain(
+          "Upstream error: OpenAI responses stream stalled while waiting for the next event",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("increments the per-tab stall counter across stalls", () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(1_000_000);
+        useStore.getState().handleRpcFrame(TAB, stallFrame);
+        vi.setSystemTime(1_100_000);
+        useStore.getState().handleRpcFrame(TAB, { ...stallFrame, attempt: 2 });
+        const notices = useStore.getState().rpc[TAB]!.items.filter((i) => i.kind === "notice");
+        expect(notices).toHaveLength(2);
+        if (notices[0]?.kind !== "notice" || notices[1]?.kind !== "notice") return;
+        expect(notices[0].text).toContain("provider stream stall #1");
+        expect(notices[1].text).toContain("provider stream stall #2");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stays silent for a non-stall retry (no Timeout bit, no watchdog message)", () => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 10,
+        delayMs: 2000,
+        errorMessage: "429 rate limit",
+      });
+      const tab = useStore.getState().rpc[TAB]!;
+      expect(tab.items.filter((i) => i.kind === "notice")).toEqual([]);
+      const last = tab.items[tab.items.length - 1];
+      expect(last).toMatchObject({
+        kind: "marker",
+        label: "auto-retry 1/10 started — retrying in 2.0s",
+      });
+    });
+
+    it("detects the stall from the Timeout errorId bit alone, without a message", () => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 10,
+        delayMs: 2000,
+        errorId: 0x0006_0000,
+      });
+      const notices = useStore.getState().rpc[TAB]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      const notice = notices[0];
+      if (notice?.kind !== "notice") return;
+      expect(notice.level).toBe("warn");
+      expect(notice.text).toContain("provider stream stall #1");
+      expect(notice.text).not.toContain("Upstream error:");
+    });
+
+    it("reports when no provider stream activity was observed before the stall", () => {
+      useStore.getState().handleRpcFrame(TAB, stallFrame);
+      const notices = useStore.getState().rpc[TAB]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      const notice = notices[0];
+      if (notice?.kind !== "notice") return;
+      expect(notice.text).toContain("no provider stream activity observed");
+    });
+  });
+
   it("refreshAdvisorStats asks the extension over a slash command", async () => {
     const pending = useStore.getState().refreshAdvisorStats(TAB);
     const entry = sent.pop()!;

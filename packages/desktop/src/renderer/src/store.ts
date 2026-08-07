@@ -32,6 +32,7 @@ import {
   type AdvisorStatsView,
 } from "@omp-ui/core/advisor-stats";
 import { backend } from "./backend";
+import { formatDuration } from "./lib/duration";
 import {
   desktopViewStorage,
   loadDesktopView,
@@ -41,7 +42,7 @@ import {
   type DesktopViewStateV1,
 } from "./lib/desktop-view-state";
 import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
-import { arrField, field, strField } from "./lib/fields";
+import { arrField, field, numField, strField } from "./lib/fields";
 import {
   PlanConcernWatcher,
   withConcerns,
@@ -77,6 +78,7 @@ import {
   planProposalItem,
   reduceEvent,
   settleRunningTools,
+  type NoticeItem,
   type RenderItem,
 } from "./lib/transcript";
 
@@ -147,6 +149,14 @@ export interface RpcTabState {
   extensionStatus: Record<string, string>;
   /** Not rendered — mutated in place. */
   pendingCommands: Map<string, PendingCommand>;
+  /**
+   * Not rendered — mutated in place. Last provider-stream activity observed on
+   * this tab (issue #100): when, and what the stream was doing, so a stall
+   * notice can report the silence and the stage it struck at.
+   */
+  streamActivity?: { at: number; label: string };
+  /** Not rendered — mutated in place. Provider stream stalls diagnosed on this tab (issue #100). */
+  stallCount?: number;
   extensionQueue: unknown[];
   /** True while any rpc command is in flight. */
   busy: boolean;
@@ -206,6 +216,8 @@ function freshRpcTabState(): RpcTabState {
     subagentLevel: "progress",
     extensionStatus: {},
     pendingCommands: new Map(),
+    streamActivity: undefined,
+    stallCount: 0,
     extensionQueue: [],
     busy: false,
     initialPrompt: null,
@@ -577,6 +589,74 @@ export function findRecord(
     if (hit) return hit;
   }
   return undefined;
+}
+
+/** pi-ai's StreamTimeoutError classifier bit (Flag.Timeout, pi-ai error/flags.ts). */
+const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
+/** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
+const STALL_MESSAGE_RE = /stream (stalled|timed out) while waiting for the (next|first) event/i;
+
+/**
+ * What the provider stream was last observed doing, for the stall notice's
+ * stage report. Returns null for frames that are not provider activity —
+ * crucially the error-settlement burst (message_end, tool_execution_end,
+ * retry lifecycle), which arrives with the stall itself.
+ */
+function streamActivityLabel(frame: object): string | null {
+  const type = "type" in frame ? frame.type : undefined;
+  switch (type) {
+    case "turn_start":
+      return "turn started";
+    case "message_start":
+      return strField(field(frame, "message"), "role") === "assistant" ? "response opened" : null;
+    case "message_update": {
+      switch (strField(field(frame, "assistantMessageEvent"), "type")) {
+        case "text_delta":
+          return "streaming text";
+        case "thinking_delta":
+          return "streaming thinking";
+        case "toolcall_start":
+        case "toolcall_delta":
+          return "streaming tool-call arguments";
+        case "toolcall_end":
+          return "tool-call arguments complete";
+        default:
+          return null;
+      }
+    }
+    case "tool_execution_start":
+    case "tool_execution_update":
+      return "running tools";
+    default:
+      return null;
+  }
+}
+
+/**
+ * The per-stall diagnostic notice (issue #100), or null when this retry is
+ * not a stream stall. Detection prefers omp's Timeout errorId bit, falling
+ * back to the stable watchdog message text; either alone suffices.
+ */
+function stallNotice(tab: RpcTabState, frame: object): NoticeItem | null {
+  const errorMessage = strField(frame, "errorMessage") ?? "";
+  const errorId = numField(frame, "errorId") ?? 0;
+  if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && !STALL_MESSAGE_RE.test(errorMessage)) {
+    return null;
+  }
+  tab.stallCount = (tab.stallCount ?? 0) + 1;
+  const activity = tab.streamActivity;
+  const upstream = errorMessage ? ` Upstream error: ${errorMessage}` : "";
+  if (!activity) {
+    return noticeItem(
+      `provider stream stall #${tab.stallCount} — no provider stream activity observed this process before the error.${upstream}`,
+      "warn",
+    );
+  }
+  return noticeItem(
+    `provider stream stall #${tab.stallCount} — silent ${formatDuration(Date.now() - activity.at)} after ${activity.label}. ` +
+      `omp's idle watchdog defaults to 2m (Settings → omp → Providers); silence near that budget points at the provider leg (proxy or upstream model), not omp-ui.${upstream}`,
+    "warn",
+  );
 }
 
 /** Global + per-project focus bookkeeping for one tab activation: every
@@ -1978,9 +2058,14 @@ export const useStore = create<UiStore>()((set, get) => {
           });
           return;
         default: {
+          // Last-sign-of-life tracking for stall diagnosis (issue #100) — before the
+          // reducer consumes the frame, and never for the settlement burst.
+          const activityLabel = streamActivityLabel(frame);
+          if (activityLabel !== null) tab.streamActivity = { at: Date.now(), label: activityLabel };
           // The AgentSessionEvent stream — the actual transcript.
           const nextItems = reduceEvent(tab.items, frame);
-          patchRpc(tabId, { items: nextItems });
+          const stall = type === "auto_retry_start" ? stallNotice(tab, frame) : null;
+          patchRpc(tabId, { items: stall ? [...nextItems, stall] : nextItems });
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
           concernWatcher.feed(tabId);
