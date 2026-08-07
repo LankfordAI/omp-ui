@@ -291,6 +291,8 @@ beforeEach(() => {
     state: null,
     tabs: [],
     activeTabId: null,
+    focusedTabByProject: {},
+    restoringTabs: false,
     exited: {},
     rpc: {},
     deleteConfirmation: null,
@@ -2323,6 +2325,216 @@ describe("deleteSession", () => {
 
     expect(useStore.getState().deleteConfirmation).toBeNull();
     expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+  });
+});
+
+describe("focusedTabByProject tracks every tab-activation path (issue #99)", () => {
+  const projectState = (sessions: BackendState["projects"][0]["sessions"]) => ({
+    defaultMode: "rpc-ui",
+    modelFavorites: [],
+    skipDeleteConfirmation: false,
+    themeId: "graphite",
+    appUpdateCheckOnLaunch: true,
+    ompUpdateCheckOnLaunch: true,
+    dismissedAppUpdateVersion: null,
+    dismissedOmpUpdateVersion: null,
+    projects: [
+      { project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null }, sessions },
+    ],
+  });
+  const rec = (tabId: string, live: LiveState = "live") => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--p--${tabId}`,
+    projectCwd: "/p",
+    launchedAt: "t",
+    mode: "rpc-ui" as const,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: null,
+    cachedModified: null,
+    title: "New session",
+    status: null,
+    live,
+  });
+
+  it("newSession records the spawned tab as the project's focus", async () => {
+    backendState = projectState([rec(TAB)]) as BackendState;
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh" });
+    useStore.setState({
+      state: backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    const st = useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe("fresh");
+    expect(st.activeTabId).toBe("fresh");
+  });
+
+  it("openSession on a dormant record resumes and records focus", async () => {
+    backendState = projectState([rec(TAB, "dormant")]) as BackendState;
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
+    useStore.setState({ state: backendState });
+
+    await useStore.getState().openSession(TAB);
+
+    const st = useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(TAB);
+    expect(st.activeTabId).toBe(TAB);
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectCwd: "/p",
+        mode: "rpc-ui",
+        advisor: false,
+        resumeTabId: TAB,
+      }),
+    );
+  });
+
+  it("openSession on an existing tab unhides and records focus without reseeding", async () => {
+    backendState = projectState([rec(TAB)]) as BackendState;
+    useStore.setState({
+      state: backendState,
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }],
+    });
+
+    await useStore.getState().openSession(TAB);
+
+    const st = useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(TAB);
+    expect(st.activeTabId).toBe(TAB);
+    expect(st.tabs.find((t) => t.tabId === TAB)?.hidden).toBe(false);
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it("focusTab records the focused tab's project", () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }],
+    });
+
+    useStore.getState().focusTab(TAB);
+
+    const st = useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(TAB);
+    expect(st.activeTabId).toBe(TAB);
+  });
+
+  it("resumeDead behind a dormant record records focus", async () => {
+    backendState = projectState([rec(TAB, "dormant")]) as BackendState;
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
+    useStore.setState({
+      state: backendState,
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }],
+    });
+
+    await useStore.getState().resumeDead(TAB);
+
+    const st = useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(TAB);
+    expect(st.activeTabId).toBe(TAB);
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeTabId: TAB, projectCwd: "/p", mode: "rpc-ui" }),
+    );
+  });
+});
+
+describe("hiding or deleting a project's remembered focus moves or drops it (issue #99)", () => {
+  const rec = (tabId: string) => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--p--${tabId}`,
+    projectCwd: "/p",
+    launchedAt: "t",
+    mode: "rpc-ui" as const,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: null,
+    cachedModified: null,
+    title: "New session",
+    status: null,
+    live: "live" as const,
+  });
+  const twoSessionState = () =>
+    ({
+      defaultMode: "rpc-ui",
+      modelFavorites: [],
+      skipDeleteConfirmation: true,
+      themeId: "graphite",
+      appUpdateCheckOnLaunch: true,
+      ompUpdateCheckOnLaunch: true,
+      dismissedAppUpdateVersion: null,
+      dismissedOmpUpdateVersion: null,
+      projects: [
+        {
+          project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+          sessions: [rec(TAB), rec("other")],
+        },
+      ],
+    }) as BackendState;
+
+  it("hideTab moves the project's focus to its last non-hidden tab", () => {
+    useStore.setState({
+      state: twoSessionState(),
+      tabs: [
+        { tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false },
+        { tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false },
+      ],
+      activeTabId: TAB,
+      focusedTabByProject: { "/p": TAB },
+    });
+
+    useStore.getState().hideTab(TAB);
+
+    const st = useStore.getState();
+    // Per-project focus moves to the surviving tab of the same project…
+    expect(st.focusedTabByProject["/p"]).toBe("other");
+    // …and the global fallback also lands on the last non-hidden tab overall.
+    expect(st.activeTabId).toBe("other");
+  });
+
+  it("hideTab drops the project entry when the hidden tab was its only one", () => {
+    useStore.setState({
+      state: { ...twoSessionState(), projects: [{ ...twoSessionState().projects[0]!, sessions: [rec(TAB)] }] },
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      activeTabId: TAB,
+      focusedTabByProject: { "/p": TAB },
+    });
+
+    useStore.getState().hideTab(TAB);
+
+    expect(useStore.getState().focusedTabByProject).toEqual({});
+  });
+
+  it("deleting the focused tab moves focus to the surviving sibling", async () => {
+    useStore.setState({
+      state: twoSessionState(),
+      tabs: [
+        { tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false },
+        { tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false },
+      ],
+      activeTabId: TAB,
+      focusedTabByProject: { "/p": TAB },
+    });
+
+    await useStore.getState().deleteSession(TAB);
+
+    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+    expect(useStore.getState().focusedTabByProject["/p"]).toBe("other");
+  });
+
+  it("deleting the last tab of a project drops its focus entry", async () => {
+    useStore.setState({
+      state: { ...twoSessionState(), projects: [{ ...twoSessionState().projects[0]!, sessions: [rec(TAB)] }] },
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      activeTabId: TAB,
+      focusedTabByProject: { "/p": TAB },
+    });
+
+    await useStore.getState().deleteSession(TAB);
+
+    expect(useStore.getState().focusedTabByProject).toEqual({});
   });
 });
 

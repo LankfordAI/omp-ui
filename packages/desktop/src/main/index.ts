@@ -1,9 +1,15 @@
 import { join } from "node:path";
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, dialog, screen } from "electron";
 import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
+import {
+  fitWindowBounds,
+  loadWindowState,
+  saveWindowState,
+  windowStatePath,
+} from "./window-state";
 
 // Dev and packaged builds resolve the same package.json name, so by default
 // they also share userData — and with it the single-instance lock: an
@@ -28,6 +34,9 @@ if (!app.requestSingleInstanceLock()) {
   let backend: MainBackend | null = null;
   let forceQuit = false;
   let quitDialogOpen = false;
+  // The `before-quit` flush reads window geometry from the renderer process;
+  // the closure is set once whenReady has a window (see whenReady below).
+  let flushWindowState: (() => void) | null = null;
 
   /**
    * The awaitable core of the quit guard: resolves true when the quit may
@@ -79,9 +88,24 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
+    // Tier-3 update restore (issue #99): the window's geometry outlives an
+    // update relaunch. loadWindowState guards every corruption path; a missing
+    // or unusable file keeps the 1600x1000 defaults below.
+    const winStateFile = windowStatePath(app.getPath("userData"));
+    let savedWindowState = loadWindowState(winStateFile);
+    if (savedWindowState) {
+      // getDisplayMatching and workArea are only valid after whenReady.
+      const fitted = fitWindowBounds(
+        savedWindowState.bounds,
+        screen.getDisplayMatching(savedWindowState.bounds).workArea,
+      );
+      if (fitted === null) savedWindowState = null;
+      else savedWindowState = { ...savedWindowState, bounds: fitted };
+    }
     const win = new BrowserWindow({
-      width: 1600,
-      height: 1000,
+      ...(savedWindowState === null
+        ? { width: 1600, height: 1000 }
+        : savedWindowState.bounds),
       title: "omp-ui",
       backgroundColor: "#0a0b0d",
       // The wordmark tile (build/icon.png). Only shipped in dev checkouts —
@@ -102,7 +126,38 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
 
+    if (savedWindowState?.maximized) win.maximize();
+
     setupSpellcheck(win);
+
+    // Debounced capture: a final drag inside the debounce window is read fresh
+    // at flush, never lost. Persist neither minimized nor fullscreen state.
+    let winStateTimer: ReturnType<typeof setTimeout> | undefined;
+    const queueWindowStateSave = (): void => {
+      clearTimeout(winStateTimer);
+      winStateTimer = setTimeout(() => {
+        winStateTimer = undefined;
+        flushWindowState?.();
+      }, 250);
+    };
+    flushWindowState = (): void => {
+      if (winStateTimer !== undefined) {
+        clearTimeout(winStateTimer);
+        winStateTimer = undefined;
+      }
+      // Normal bounds even while maximized: the flag restores maximize, and
+      // getNormalBounds keeps the unmaximized rectangle the next launch gets.
+      const bounds = win.getNormalBounds();
+      saveWindowState(winStateFile, {
+        schemaVersion: 1,
+        bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+        maximized: win.isMaximized(),
+      });
+    };
+    win.on("move", queueWindowStateSave);
+    win.on("resize", queueWindowStateSave);
+    win.on("maximize", queueWindowStateSave);
+    win.on("unmaximize", queueWindowStateSave);
 
     // Renderer anchors keep calling window.open (Markdown.tsx / tool slabs);
     // every one of those lands here, denied in-window and routed to the system
@@ -167,6 +222,10 @@ if (!app.requestSingleInstanceLock()) {
       e.preventDefault();
       return;
     }
+    // Persist the window geometry while the app is still alive; the sync,
+    // failure-tolerating write can never block the quit. The final drag
+    // inside the debounce window is read fresh here (see whenReady).
+    flushWindowState?.();
     backend?.killAll();
     // Pasted-image scratch files are only ever needed by a live omp process.
     clearImageScratch();

@@ -158,7 +158,7 @@ function ProjectSection({
 }: FilteredGroup & { query: string; openTerminalMenu: OpenTerminalMenu; compact: boolean; onActivate: () => void }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
-  const activeTabId = useStore((st) => st.activeTabId);
+  const focusedTabId = useStore((st) => st.focusedTabByProject[group.project.path]);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
 
@@ -172,7 +172,10 @@ function ProjectSection({
     setVisible(PAGE);
   }
 
-  const activeIndex = sessions.findIndex((s) => s.tabId === activeTabId);
+  // Pagination follows this project's remembered focus, not the global active
+  // tab: after another project takes global focus (or after an update restore)
+  // each project's list still shows the session last focused in it.
+  const activeIndex = sessions.findIndex((s) => s.tabId === focusedTabId);
   const { shown, remaining } = sessionWindow(sessions.length, visible, activeIndex);
   const page = sessions.slice(0, shown);
 

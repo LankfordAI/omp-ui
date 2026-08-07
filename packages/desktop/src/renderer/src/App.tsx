@@ -152,6 +152,20 @@ function TitleBar() {
   );
 }
 
+/**
+ * Quiet boot surface shown while init's tier-3 restore resumes the previous
+ * run's tabs (issue #99). Renders in place of the Welcome screen so the app
+ * is clearly doing something, without flashing the empty landing page mid
+ * restore.
+ */
+function RestoringSessions() {
+  return (
+    <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5">
+      <p className="font-display text-sm text-ink-dim">Restoring sessions…</p>
+    </div>
+  );
+}
+
 function Welcome() {
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
@@ -197,6 +211,7 @@ function Welcome() {
 export default function App() {
   const init = useStore((s) => s.init);
   const tabs = useStore((s) => s.tabs);
+  const restoringTabs = useStore((s) => s.restoringTabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
@@ -313,7 +328,7 @@ export default function App() {
                 </div>
               );
             })}
-            {visibleTabs.length === 0 && <Welcome />}
+            {visibleTabs.length === 0 && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>

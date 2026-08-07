@@ -32,6 +32,14 @@ import {
   type AdvisorStatsView,
 } from "@omp-ui/core/advisor-stats";
 import { backend } from "./backend";
+import {
+  desktopViewStorage,
+  loadDesktopView,
+  projectDesktopView,
+  saveDesktopView,
+  shouldRestoreDesktopView,
+  type DesktopViewStateV1,
+} from "./lib/desktop-view-state";
 import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
 import { arrField, field, strField } from "./lib/fields";
 import {
@@ -272,6 +280,16 @@ interface UiStore {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;
+  /**
+   * Per-project last-focused tab, keyed by project path (issue #99 tier 3).
+   * The sidebar's per-project pagination and the app-update restore both read
+   * it; every active-tab mutation routes through `focusOn` so it never drifts
+   * from activeTabId. Tabs that a project no longer owns (or sessions gone)
+   * are pruned by the onStateChanged handler.
+   */
+  focusedTabByProject: Record<string, string>;
+  /** True while init's tier-3 restore resumes the previous run's tabs. */
+  restoringTabs: boolean;
   exited: Record<string, number>;
   /** Console-drawer shell exit codes, keyed by tabId (issue #42). */
   shellExited: Record<string, number>;
@@ -559,6 +577,59 @@ export function findRecord(
     if (hit) return hit;
   }
   return undefined;
+}
+
+/** Global + per-project focus bookkeeping for one tab activation: every
+ * active-tab mutation routes through here so focusedTabByProject never
+ * drifts from activeTabId (issue #99 tier 3). */
+function focusOn(
+  s: { activeTabId: string | null; focusedTabByProject: Record<string, string> },
+  tabId: string,
+  projectCwd: string | undefined,
+): { activeTabId: string | null; focusedTabByProject: Record<string, string> } {
+  return {
+    activeTabId: tabId,
+    focusedTabByProject:
+      projectCwd === undefined
+        ? s.focusedTabByProject
+        : { ...s.focusedTabByProject, [projectCwd]: tabId },
+  };
+}
+
+/** A tab leaving visibility (hide/delete) that a project remembered as its
+ * focus: move the memory to the project's last remaining non-hidden tab, or
+ * forget it. `tabs` is the post-removal array. */
+function forgetFocus(
+  focusedTabByProject: Record<string, string>,
+  tabId: string,
+  tabs: TabInfo[],
+): Record<string, string> {
+  const entry = Object.entries(focusedTabByProject).find(([, t]) => t === tabId);
+  if (entry === undefined) return focusedTabByProject;
+  const [projectCwd] = entry;
+  const remaining = tabs.filter((t) => !t.hidden && t.projectCwd === projectCwd);
+  const next = { ...focusedTabByProject };
+  if (remaining.length > 0) next[projectCwd] = remaining[remaining.length - 1]!.tabId;
+  else delete next[projectCwd];
+  return next;
+}
+
+/** Drops focus entries whose tab or project record no longer exists in the
+ * authoritative BackendState (session deleted, project removed), so stale
+ * persistence cannot survive. */
+function pruneFocus(
+  focusedTabByProject: Record<string, string>,
+  state: BackendState,
+): Record<string, string> {
+  const projects = new Set(state.projects.map((g) => g.project.path));
+  const tabIds = new Set(state.projects.flatMap((g) => g.sessions.map((s) => s.tabId)));
+  const next: Record<string, string> = {};
+  let changed = false;
+  for (const [projectCwd, tabId] of Object.entries(focusedTabByProject)) {
+    if (projects.has(projectCwd) && tabIds.has(tabId)) next[projectCwd] = tabId;
+    else changed = true;
+  }
+  return changed ? next : focusedTabByProject;
 }
 
 function dropExited(exited: Record<string, number>, tabId: string): Record<string, number> {
@@ -954,7 +1025,13 @@ export const useStore = create<UiStore>()((set, get) => {
         s.activeTabId === tabId
           ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
           : s.activeTabId;
-      return { rpc, tabs, activeTabId, exited: dropExited(s.exited, tabId) };
+      return {
+        rpc,
+        tabs,
+        activeTabId,
+        focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
+        exited: dropExited(s.exited, tabId),
+      };
     });
   };
 
@@ -997,7 +1074,7 @@ export const useStore = create<UiStore>()((set, get) => {
     }
     set((s) => ({
       tabs: [...s.tabs, { tabId: freshId, mode: "rpc-ui", projectCwd, hidden: false }],
-      activeTabId: freshId,
+      ...focusOn(s, freshId, projectCwd),
       exited: dropExited(s.exited, freshId),
     }));
     appendItem(
@@ -1093,6 +1170,8 @@ export const useStore = create<UiStore>()((set, get) => {
     state: null,
     tabs: [],
     activeTabId: null,
+    focusedTabByProject: {},
+    restoringTabs: false,
     exited: {},
     shellExited: {},
     rpc: {},
@@ -1147,6 +1226,7 @@ export const useStore = create<UiStore>()((set, get) => {
             const rec = findRecord(state, t.tabId);
             return rec && rec.mode !== t.mode ? { ...t, mode: rec.mode } : t;
           }),
+          focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
         }));
         syncTheme(state);
       });
@@ -1179,6 +1259,45 @@ export const useStore = create<UiStore>()((set, get) => {
       });
       const booted = get().state;
       if (booted) syncTheme(booted);
+
+      // Tier-3 update restore (issue #99): after a changed app-version relaunch,
+      // resume the tabs the previous run had open and re-focus the user's spot.
+      const viewStorage = desktopViewStorage();
+      if (viewStorage) {
+        const saved = loadDesktopView(viewStorage);
+        const currentVersion = get().appUpdate.currentVersion;
+        if (shouldRestoreDesktopView(saved, currentVersion)) {
+          set({ restoringTabs: true });
+          try {
+            await restoreSavedTabs(saved!);
+          } finally {
+            set({ restoringTabs: false });
+          }
+        }
+        // Mandatory first persist: the restored view, or the current open view
+        // replacing a stale snapshot so a later version change cannot resurrect
+        // it. A null current version leaves the snapshot untouched.
+        if (currentVersion !== null) {
+          saveDesktopView(viewStorage, projectDesktopView(get(), currentVersion));
+        }
+      }
+      // One ordinary subscriber — no middleware — keeps rpc-frame traffic out of
+      // localStorage and the restore from overwriting the pre-update snapshot.
+      useStore.subscribe((state, previous) => {
+        if (state.restoringTabs) return;
+        if (
+          state.tabs === previous.tabs &&
+          state.activeTabId === previous.activeTabId &&
+          state.focusedTabByProject === previous.focusedTabByProject &&
+          state.appUpdate.currentVersion === previous.appUpdate.currentVersion
+        ) {
+          return;
+        }
+        const version = state.appUpdate.currentVersion;
+        const storage = desktopViewStorage();
+        if (storage === null || version === null) return;
+        saveDesktopView(storage, projectDesktopView(state, version));
+      });
     },
 
     openProjectPicker() {
@@ -1426,7 +1545,7 @@ export const useStore = create<UiStore>()((set, get) => {
         });
         set((s) => ({
           tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
-          activeTabId: tabId,
+          ...focusOn(s, tabId, projectCwd),
           exited: dropExited(s.exited, tabId),
         }));
       } catch (err) {
@@ -1441,7 +1560,7 @@ export const useStore = create<UiStore>()((set, get) => {
         // cross-process session lock; two writers would corrupt the .jsonl).
         set((s) => ({
           tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: false } : t)),
-          activeTabId: tabId,
+          ...focusOn(s, tabId, s.tabs.find((t) => t.tabId === tabId)?.projectCwd),
         }));
         return;
       }
@@ -1458,7 +1577,7 @@ export const useStore = create<UiStore>()((set, get) => {
         });
         set((s) => ({
           tabs: [...s.tabs, { tabId, mode: rec.mode, projectCwd: rec.projectCwd, hidden: false }],
-          activeTabId: tabId,
+          ...focusOn(s, tabId, rec.projectCwd),
           exited: dropExited(s.exited, tabId),
         }));
       } catch (err) {
@@ -1469,7 +1588,7 @@ export const useStore = create<UiStore>()((set, get) => {
     focusTab(tabId) {
       set((s) => ({
         tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: false } : t)),
-        activeTabId: tabId,
+        ...focusOn(s, tabId, s.tabs.find((t) => t.tabId === tabId)?.projectCwd),
       }));
     },
 
@@ -1481,7 +1600,11 @@ export const useStore = create<UiStore>()((set, get) => {
           const visible = tabs.filter((t) => !t.hidden);
           activeTabId = visible.length > 0 ? visible[visible.length - 1]!.tabId : null;
         }
-        return { tabs, activeTabId };
+        return {
+          tabs,
+          activeTabId,
+          focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
+        };
       });
     },
 
@@ -1530,7 +1653,7 @@ export const useStore = create<UiStore>()((set, get) => {
         });
         set((s) => ({
           tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: false } : t)),
-          activeTabId: tabId,
+          ...focusOn(s, tabId, rec.projectCwd),
           exited: dropExited(s.exited, tabId),
         }));
       } catch (err) {
@@ -2326,3 +2449,36 @@ export const useStore = create<UiStore>()((set, get) => {
     },
   };
 });
+
+/** Resumes the tabs saved before an update relaunch, in saved renderer
+ * order. Deleted records and missing-on-disk sessions stay dormant; every
+ * other record resumes through openSession, whose spawn dedupes a tab already
+ * live and whose per-tab catch reports without aborting the sequence. Settles
+ * focus to the successfully restored tabs after the loop. */
+async function restoreSavedTabs(saved: DesktopViewStateV1): Promise<void> {
+  const restored: string[] = [];
+  for (const tabId of saved.tabIds) {
+    const rec = findRecord(useStore.getState().state, tabId);
+    if (rec === undefined || rec.live === "missing") continue;
+    await useStore.getState().openSession(tabId);
+    if (useStore.getState().tabs.some((t) => t.tabId === tabId)) restored.push(tabId);
+  }
+  const restoredSet = new Set(restored);
+  const focusedTabByProject: Record<string, string> = {};
+  const lastRestoredByProject = new Map<string, string>();
+  for (const tabId of restored) {
+    const rec = findRecord(useStore.getState().state, tabId);
+    if (rec) lastRestoredByProject.set(rec.projectCwd, tabId);
+  }
+  for (const [projectCwd, tabId] of Object.entries(saved.focusedTabByProject)) {
+    if (restoredSet.has(tabId)) focusedTabByProject[projectCwd] = tabId;
+  }
+  for (const [projectCwd, tabId] of lastRestoredByProject) {
+    if (!(projectCwd in focusedTabByProject)) focusedTabByProject[projectCwd] = tabId;
+  }
+  let activeTabId = saved.activeTabId;
+  if (activeTabId === null || !restoredSet.has(activeTabId)) {
+    activeTabId = restored.length > 0 ? restored[restored.length - 1]! : null;
+  }
+  useStore.setState({ focusedTabByProject, activeTabId });
+}

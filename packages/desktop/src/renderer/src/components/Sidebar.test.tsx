@@ -123,6 +123,7 @@ const state: BackendState = {
 };
 
 let root: Root | null = null;
+const originalMatchMedia = window.matchMedia;
 
 function renderSidebar(): void {
   const host = document.createElement("div");
@@ -170,10 +171,13 @@ beforeEach(() => {
     state,
     tabs: [],
     activeTabId: null,
+    focusedTabByProject: {},
+    restoringTabs: false,
     exited: {},
     rpc: {},
     advisorDefaults: {},
     sidebarCollapsed: false,
+    compactSurface: null,
     newSession,
     openSession,
   });
@@ -185,10 +189,13 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
   useStore.setState({
     state: null,
     tabs: [],
     activeTabId: null,
+    focusedTabByProject: {},
+    restoringTabs: false,
     exited: {},
     rpc: {},
     advisorDefaults: {},
@@ -283,5 +290,74 @@ describe("Sidebar session creation", () => {
     act(() => terminal.click());
     expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
     expect(useStore.getState().compactSurface).toBeNull();
+  });
+});
+
+describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
+  /** `projA`/`projB` each have PAGE+1=9 sessions, one per tab id `aN` / `bN`. */
+  const projA = "/p/a";
+  const projB = "/p/b";
+  const session = (tabId: string, projectCwd: string, title: string) => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--${tabId}--sid-${tabId}`,
+    projectCwd,
+    launchedAt: "2026-08-03T00:00:00.000Z",
+    mode: "rpc-ui" as const,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: title,
+    cachedModified: "2026-08-03T00:00:00.000Z",
+    title,
+    status: "complete" as const,
+    live: "live" as const,
+  });
+  const project = (path: string, name: string) => ({
+    project: { path, name, addedAt: "t", lastModel: null, lastAdvisorModel: null },
+    sessions: Array.from({ length: 9 }, (_, i) =>
+      session(`${path === projA ? "a" : "b"}-session-${i + 1}`, path, `Project ${name} session ${i + 1}`),
+    ),
+  });
+  const manySessionState: BackendState = {
+    defaultMode: "rpc-ui",
+    modelFavorites: [],
+    skipDeleteConfirmation: false,
+    themeId: "graphite",
+    appUpdateCheckOnLaunch: true,
+    ompUpdateCheckOnLaunch: true,
+    dismissedAppUpdateVersion: null,
+    dismissedOmpUpdateVersion: null,
+    projects: [project(projA, "A"), project(projB, "B")],
+  };
+
+  it("sizes each project's page by its remembered focus while selection stays global", () => {
+    useStore.setState({
+      state: manySessionState,
+      // Global focus is project A's FIRST session; each project's remembered
+      // focus is its OWN LAST session. Pagination must follow the per-project
+      // memory, so project B shows past its first page — while the selected
+      // styling (SessionRow reads the global activeTabId itself) stays on A-1.
+      activeTabId: "a-session-1",
+      focusedTabByProject: { [projA]: "a-session-9", [projB]: "b-session-9" },
+    });
+    renderSidebar();
+
+    // Project B's last session is on screen: pagination followed B's focus,
+    // not the global active tab (which lives in project A's list).
+    const bLast = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.includes("Project B session 9"),
+    );
+    if (bLast === undefined) console.error("DEBUG DOM:", document.body.innerHTML);
+    expect(bLast).not.toBeUndefined();
+    // Pagination widened past the first PAGE (8) page.
+    expect(document.body.textContent).toContain("showing 9 of 9");
+
+    // Selection styling is global: A-1 (the global activeTabId) is marked.
+    const aFirst = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.includes("Project A session 1"),
+    )!;
+    expect(aFirst.getAttribute("aria-current")).toBe("page");
+    // B-9 is visible but NOT selected, even though it is project B's focus.
+    expect(bLast!.getAttribute("aria-current")).toBeNull();
   });
 });

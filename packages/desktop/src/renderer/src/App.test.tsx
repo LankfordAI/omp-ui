@@ -45,6 +45,8 @@ function seed(): void {
       { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: false },
     ],
     activeTabId: "rpc",
+    focusedTabByProject: {},
+    restoringTabs: false,
     rpc: { rpc: runtime({
       todos: [{ phase: "work", tasks: [{ content: "open", status: "pending" }] }],
       subagents: [{ id: "agent-1", name: "worker", status: "working" }],
@@ -131,5 +133,18 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
     act(() => (header.querySelector('button[aria-label="collapse sidebar"]') as HTMLButtonElement).click());
     expect(useStore.getState().sidebarCollapsed).toBe(true);
+  });
+});
+
+describe("update restore surface (issue #99)", () => {
+  it("shows Restoring sessions in place of Welcome, then swaps to Welcome", () => {
+    useStore.setState({ tabs: [], activeTabId: null, restoringTabs: true });
+    renderApp();
+
+    expect(document.body.textContent).toContain("Restoring sessions");
+    expect(document.body.textContent).not.toContain("Add project");
+
+    act(() => useStore.setState({ restoringTabs: false }));
+    expect(document.body.textContent).toContain("Add project");
   });
 });
