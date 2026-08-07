@@ -228,4 +228,25 @@ describe("Composer focus treatment", () => {
     renderComposer();
     expect(document.activeElement).toBe(document.body.querySelector("textarea"));
   });
+
+  it("reclaims focus when the overlay that spawned the session closes (#102)", async () => {
+    // The composer mounts while a sheet holds #root inert. jsdom ignores inert, so
+    // simulate the reported aftermath — focus pulled back to the overlay trigger —
+    // then tear the sheet down and assert the composer reclaims the caret.
+    const rootEl = document.createElement("div");
+    rootEl.id = "root";
+    document.body.append(rootEl);
+    rootEl.setAttribute("inert", "");
+    seed("ready");
+    renderComposer();
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const trigger = document.createElement("button");
+    document.body.append(trigger);
+    act(() => trigger.focus());
+    expect(document.activeElement).toBe(trigger);
+    // Overlay teardown; `await act` flushes the MutationObserver microtask.
+    await act(async () => rootEl.removeAttribute("inert"));
+    expect(document.activeElement).toBe(textarea);
+    trigger.remove();
+  });
 });

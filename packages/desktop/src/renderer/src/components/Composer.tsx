@@ -219,11 +219,32 @@ export function Composer({ tabId }: { tabId: string }) {
     if (mirror.current !== null) mirror.current.scrollTop = el.scrollTop;
   }, [text, compact]);
 
-  // A freshly spawned session lands with the caret ready to type — the point of the
-  // composer is that the next keystroke is a message. Tabs stay mounted (switching
-  // only toggles `display`), so this runs once per session, never on a tab switch.
+  // A freshly spawned session should land with the caret ready to type — the point of
+  // the composer is that the next keystroke is a message. Tabs stay mounted (switching
+  // only toggles `display`), so this runs once per session, never on a tab switch. A
+  // session started from inside an open overlay (command palette, compact session/HUD
+  // sheets, ui.tsx useOverlay) mounts the box while that overlay holds `#root` inert, so
+  // the focus above cannot land and the sheet's close restores the trigger instead; when
+  // the last overlay tears down it removes #root's `inert` in the same synchronous task
+  // as that restore, and our MutationObserver microtask runs after — so reclaim the caret
+  // the moment the box becomes focusable and it isn't holding focus.
   useEffect(() => {
-    box.current?.focus({ preventScroll: true });
+    const el = box.current;
+    if (el === null) return;
+    const reclaim = () => {
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
+    };
+    reclaim();
+    const root = document.getElementById("root");
+    if (root === null) return;
+    // Only sessions spawned under a sheet need the deferred reclaim; a normal mount
+    // already focused the box above, and later overlay teardowns are no-ops here.
+    if (root.getAttribute("inert") === null) return;
+    const observer = new MutationObserver(() => {
+      if (root.getAttribute("inert") === null) reclaim();
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["inert"] });
+    return () => observer.disconnect();
   }, []);
 
   // The shimmer runs only while focused with a keyword on screen, matching omp's
