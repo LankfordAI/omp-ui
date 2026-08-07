@@ -9,6 +9,7 @@ import type {
   RemoteState,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
+import { ADVISOR_REPLY_SETTLE_MS } from "./lib/advisor-reply";
 import type { RpcTabState } from "./store";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
@@ -197,6 +198,7 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     planDeferred: false,
     plans: [],
     advisorStats: null,
+    advisorReply: true,
     ...patch,
   };
 }
@@ -1175,44 +1177,108 @@ describe("handleRpcFrame routing", () => {
   };
 
   it("holds execute for the drafting turn's advisor review, then folds its concerns", async () => {
-    // Configured advisor = a review of the plan turn is on its way after the verdict.
-    useStore.setState({
-      rpc: {
-        [TAB]: tabState({
-          advisorStats: {
-            available: true,
-            configured: true,
-            active: true,
-            model: "m",
-            subscription: false,
-            contextWindow: 200000,
-            contextTokens: 0,
-            cost: 0,
-            totalTokens: 0,
-          },
-        }),
-      },
-    });
-    openReview("c1");
-    useStore.getState().executePlan(TAB, "existing");
-    // The verdict lands immediately — omp's agent is blocked on it.
-    const verdict = sent.find((s) => s.cmd.type === "extension_ui_response");
-    expect(verdict!.cmd).toMatchObject({ id: "c1", value: "execute" });
-    // …but the implementation waits for the review: the turn that produced the
-    // plan is still ending, so its review cannot have landed yet.
-    expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
-    // The advisor reviews the now-finished plan turn.
-    useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("Hardcoded key", "blocker", "security"));
+    // Fake timers for the whole test: the same review that feeds the fold also
+    // arms the idle auto-reply, and only a fake clock can advance past its
+    // settle window to prove the fold's dispatch stays the only prompt.
+    vi.useFakeTimers();
+    try {
+      // Configured advisor = a review of the plan turn is on its way after the verdict.
+      useStore.setState({
+        rpc: {
+          [TAB]: tabState({
+            advisorStats: {
+              available: true,
+              configured: true,
+              active: true,
+              model: "m",
+              subscription: false,
+              contextWindow: 200000,
+              contextTokens: 0,
+              cost: 0,
+              totalTokens: 0,
+            },
+          }),
+        },
+      });
+      openReview("c1");
+      useStore.getState().executePlan(TAB, "existing");
+      // The verdict lands immediately — omp's agent is blocked on it.
+      const verdict = sent.find((s) => s.cmd.type === "extension_ui_response");
+      expect(verdict!.cmd).toMatchObject({ id: "c1", value: "execute" });
+      // …but the implementation waits for the review: the turn that produced the
+      // plan is still ending, so its review cannot have landed yet.
+      expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+      // The advisor reviews the now-finished plan turn.
+      useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("Hardcoded key", "blocker", "security"));
+      await flushMicrotasks();
+      const prompt = sent.find(
+        (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+      );
+      expect(prompt).toBeDefined();
+      expect(String(prompt!.cmd.message)).toContain("advisor flagged");
+      expect(String(prompt!.cmd.message)).toContain("Hardcoded key");
+      expect(String(prompt!.cmd.message)).toContain("[blocker]");
+      const tab = useStore.getState().rpc[TAB]!;
+      expect(tab.items.at(-1)).toMatchObject({ kind: "notice", text: expect.stringContaining("1 concern") });
+      // The fold already answered this review; the auto-reply must not send a second.
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
+      await flushMicrotasks();
+      expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers a review that lands on an idle session with a follow-up prompt", async () => {
+    // The armed settle timer must be the fake one, so install before the frame.
+    vi.useFakeTimers();
+    try {
+      // The production frame sequence, and it is load-bearing: an advisory can
+      // only follow a turn, so `agent_end` always precedes it. The watcher feed
+      // runs *before* that frame's status patch (store.ts), so the tab still
+      // reads `running` there — which is exactly what baselines the cursor onto
+      // the `agent finished` marker and leaves the next frame's advisory above
+      // it. Feeding the advisory first would instead seed the baseline past it,
+      // as a resumed tab's history correctly is.
+      useStore.setState({ rpc: { [TAB]: tabState({ status: "running" }) } });
+      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
+      useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("Do it now", "concern", "ops"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+    } finally {
+      vi.useRealTimers();
+    }
     await flushMicrotasks();
-    const prompt = sent.find(
-      (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+    const replies = sent.filter((s) => s.cmd.type === "prompt");
+    expect(replies).toHaveLength(1);
+    // followUp keeps the reply on the same session without restarting its turn.
+    expect(replies[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
+    expect(String(replies[0]!.cmd.message)).toContain("Do it now");
+    expect(String(replies[0]!.cmd.message)).toContain("[concern]");
+    // The transcript says why a prompt nobody typed appeared.
+    const items = useStore.getState().rpc[TAB]!.items;
+    const announcement = items.find(
+      (i) => i.kind === "notice" && /answering it \(1 finding\)/.test(i.text),
     );
-    expect(prompt).toBeDefined();
-    expect(String(prompt!.cmd.message)).toContain("advisor flagged");
-    expect(String(prompt!.cmd.message)).toContain("Hardcoded key");
-    expect(String(prompt!.cmd.message)).toContain("[blocker]");
-    const tab = useStore.getState().rpc[TAB]!;
-    expect(tab.items.at(-1)).toMatchObject({ kind: "notice", text: expect.stringContaining("1 concern") });
+    expect(announcement).toBeDefined();
+  });
+
+  it("sends nothing when the session has advisor auto-reply switched off", async () => {
+    vi.useFakeTimers();
+    try {
+      // Same production sequence as the case above, so the only thing
+      // suppressing the reply here is the opt-out.
+      useStore.setState({ rpc: { [TAB]: tabState({ status: "running", advisorReply: false }) } });
+      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("Do it now", "concern", "ops"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
+    expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    const items = useStore.getState().rpc[TAB]!.items;
+    expect(items.some((i) => i.kind === "notice" && i.text.includes("answering it"))).toBe(false);
   });
 
   it("executes immediately, and reads no transcript, when the fold is off", async () => {

@@ -32,6 +32,7 @@ import {
   type AdvisorStatsView,
 } from "@omp-ui/core/advisor-stats";
 import { backend } from "./backend";
+import { AdvisorReplyWatcher } from "./lib/advisor-reply";
 import { formatDuration } from "./lib/duration";
 import {
   desktopViewStorage,
@@ -197,6 +198,13 @@ export interface RpcTabState {
    * omp's surface (or has not run a turn yet) and the HUD omits the element.
    */
   advisorStats: AdvisorStatsView | null;
+  /**
+   * Auto-answer an advisor review that lands while this session is idle
+   * (issue #104). Per session, default on; a user switching it off restores the
+   * passive card-only behavior. Not persisted — it survives the advisor
+   * relaunch via bootRpcTab, like the Agents pane's drill-down.
+   */
+  advisorReply: boolean;
 }
 
 function freshRpcTabState(): RpcTabState {
@@ -228,6 +236,7 @@ function freshRpcTabState(): RpcTabState {
     planDeferred: false,
     plans: [],
     advisorStats: null,
+    advisorReply: true,
   };
 }
 export type SidebarSessionState =
@@ -465,6 +474,8 @@ interface UiStore {
    * project for future new sessions — null clears that memory.
    */
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
+  /** Turns this session's advisor auto-reply on/off (issue #104). Renderer-only state. */
+  setAdvisorReply(tabId: string, enabled: boolean): void;
 
   setModel(tabId: string, model: ModelInfo): Promise<void>;
   setThinkingLevel(tabId: string, level: string): Promise<void>;
@@ -1077,8 +1088,44 @@ export const useStore = create<UiStore>()((set, get) => {
   const concernWatcher = new PlanConcernWatcher({
     getItems: (tabId) => get().rpc[tabId]?.items ?? [],
     onNotice: (tabId, text) => appendItem(tabId, noticeItem(text, "info")),
-    onDispatch: (tabId, intent, concerns) =>
-      dispatchExecutePlan(tabId, intent.context, intent.planText, concerns, intent.options),
+    onDispatch: (tabId, intent, concerns) => {
+      // The no-double-dispatch guarantee. concernWatcher.feed settles
+      // synchronously inside the frame handler, so by the time
+      // advisorReplyWatcher.feed runs on that same frame `isActive` already
+      // reads false — this reset is what stops the reply watcher from
+      // separately answering the very review this dispatch just folded in.
+      advisorReplyWatcher.reset(tabId);
+      dispatchExecutePlan(tabId, intent.context, intent.planText, concerns, intent.options);
+    },
+  });
+
+  /**
+   * Answers an advisor review that lands after `agent finished`, when nothing in
+   * the idle session would carry it back to the main model (issue #104). Same
+   * collection core as the plan fold; the watcher owns the batch window, the
+   * transcript baseline, and the consecutive-reply guard.
+   */
+  const advisorReplyWatcher = new AdvisorReplyWatcher({
+    getItems: (tabId) => get().rpc[tabId]?.items ?? [],
+    canReply: (tabId) => {
+      const tab = get().rpc[tabId];
+      if (!tab) return false;
+      if (!tab.advisorReply) return false;
+      // "ready" only: starting/running/error are all no-prompt states, and a
+      // running turn already receives the advisor's notes in its own context.
+      if (tab.status !== "ready") return false;
+      if (get().exited[tabId] !== undefined) return false;
+      // The agent is blocked inside a plan proposal — a follow-up would queue
+      // behind a gate that only the user can resolve.
+      if (tab.planReview !== null || tab.planDeferred) return false;
+      // ADR-0009's fold owns this very review and dispatches it itself.
+      if (concernWatcher.isActive(tabId)) return false;
+      return true;
+    },
+    onNotice: (tabId, text, level) => appendItem(tabId, noticeItem(text, level)),
+    onReply: (tabId, message) => {
+      void get().sendPrompt(tabId, message, "advisor_reply");
+    },
   });
 
   const eraseSession = async (tabId: string): Promise<void> => {
@@ -1091,6 +1138,7 @@ export const useStore = create<UiStore>()((set, get) => {
     const tab = get().rpc[tabId];
     // A dangling concern-wait timer must not fire into the dead tab's slot.
     concernWatcher.cancel(tabId);
+    advisorReplyWatcher.cancel(tabId);
     if (tab) {
       for (const pending of tab.pendingCommands.values()) {
         clearTimeout(pending.timer);
@@ -1232,6 +1280,9 @@ export const useStore = create<UiStore>()((set, get) => {
     // must not outlive the render items it was deduping against.
     get().rpc[tabId]?.subagentMarkers?.clear();
     patchRpc(tabId, { items: historyToItems(arrField(respData(resp), "messages")) });
+    // A resumed transcript's advisories are history, not a live review: the
+    // baseline moves past them so nothing here is ever answered.
+    advisorReplyWatcher.reset(tabId);
   };
 
   /**
@@ -1782,6 +1833,7 @@ export const useStore = create<UiStore>()((set, get) => {
       try {
         // A pending concern handoff belongs to the session that just went away.
         concernWatcher.cancel(tabId);
+        advisorReplyWatcher.cancel(tabId);
         // A re-boot must not slam the Agents pane's drill-down shut: the open
         // detail view and the retained buffers behind it survive the process
         // restart, and the subscription re-escalates after boot (issue #63).
@@ -1790,6 +1842,9 @@ export const useStore = create<UiStore>()((set, get) => {
           ...freshRpcTabState(),
           selectedSubagent: prior?.selectedSubagent ?? null,
           subagentItems: prior?.subagentItems ?? {},
+          // Same reasoning: the opt-out is the user's standing choice for this
+          // session, and the advisor relaunch is what reboots the tab.
+          advisorReply: prior?.advisorReply ?? true,
         });
         // The tab may not exist in state yet — ensure the slot exists.
         if (!get().rpc[tabId]) {
@@ -2069,6 +2124,16 @@ export const useStore = create<UiStore>()((set, get) => {
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
           concernWatcher.feed(tabId);
+          // A review that lands with the session idle has nothing carrying it
+          // back to the main model — answer it (issue #104).
+          //
+          // This position is load-bearing; do not move it. The agent_start /
+          // agent_end status patches below run AFTER this call, so on the
+          // agent_end frame the tab still reads "running": canReply refuses,
+          // and the cursor simply advances past the `agent finished` marker.
+          // The advisory arriving on a later frame is then above that cursor,
+          // with the tab finally "ready" — which is exactly the case to answer.
+          advisorReplyWatcher.feed(tabId);
           if (type === "thinking_level_changed") {
             const level = strField(frame, "thinkingLevel");
             if (level) {
@@ -2177,13 +2242,23 @@ export const useStore = create<UiStore>()((set, get) => {
     async sendPrompt(tabId, message, route = "steer", images) {
       const tab = get().rpc[tabId];
       if (!tab) return;
-      // Titling reads the first substantive prompt, whichever route it took.
-      get().setInitialPrompt(tabId, message);
+      if (route === "advisor_reply") {
+        // omp-ui's own answer to a late review: it must not title the session and
+        // must not re-arm the loop guard it was dispatched by.
+      } else {
+        // Titling reads the first substantive prompt, whichever route it took.
+        get().setInitialPrompt(tabId, message);
+        advisorReplyWatcher.reset(tabId);
+      }
       // Always the `prompt` frame, never `steer`/`follow_up`: only AgentSession.prompt
       // builds the magic-keyword notices (orchestrate/ultrathink/workflowz), so those
       // frames would silently drop the keyword mid-run. `streamingBehavior` is what
       // omp's own TUI passes, and omp ignores it while the agent is idle.
-      const streamingBehavior = route === "follow_up" ? "followUp" : "steer";
+      //
+      // An advisor reply rides followUp, not steer: if a turn started between the
+      // settle and this send, the reply queues behind it instead of interrupting.
+      const streamingBehavior =
+        route === "follow_up" || route === "advisor_reply" ? "followUp" : "steer";
       const cmd = { type: "prompt", message, streamingBehavior };
       // `images` is omitted entirely when empty: omp's own client sends no key
       // rather than an empty array, and every byte here is on one JSON line.
@@ -2196,6 +2271,7 @@ export const useStore = create<UiStore>()((set, get) => {
 
     async abortAndPrompt(tabId, message, images) {
       get().setInitialPrompt(tabId, message);
+      advisorReplyWatcher.reset(tabId);
       const type = "abort_and_prompt";
       await runCommand(tabId, images?.length ? { type, message, images } : { type, message });
     },
@@ -2238,6 +2314,10 @@ export const useStore = create<UiStore>()((set, get) => {
       // setSessionAdvisor persists the complete advisor tuple for both this
       // session and the next one; selecting a model also enables the advisor.
       await get().setSessionAdvisor(tabId, true, selector);
+    },
+
+    setAdvisorReply(tabId, enabled) {
+      patchRpc(tabId, { advisorReply: enabled });
     },
 
     async setModel(tabId, model) {

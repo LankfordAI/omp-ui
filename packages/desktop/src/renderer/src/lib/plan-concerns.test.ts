@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdvisorNote, RenderItem } from "./transcript";
 import {
-  collectNewConcerns,
+  PLAN_CONCERNS_LEAD,
   PLAN_CONCERNS_WAIT_MS,
   PlanConcernWatcher,
-  renderConcernsBlock,
   withConcerns,
   type PlanConcernIntent,
 } from "./plan-concerns";
@@ -29,65 +28,6 @@ const toolDone = (id: string, notes: AdvisorNote[] = []): RenderItem => ({
   args: {},
   status: "done",
   ...(notes.length > 0 && { notes }),
-});
-
-describe("collectNewConcerns", () => {
-  it("excludes findings at or before fromIndex and includes those after", () => {
-    const items: RenderItem[] = [
-      advisory("adv-1", [note("old", "nit", "style")]),
-      { kind: "marker", id: "m1", label: "boundary" },
-      advisory("adv-2", [note("new", "concern", "ops")]),
-    ];
-    expect(collectNewConcerns(items, 1)).toEqual([note("new", "concern", "ops")]);
-  });
-
-  it("collects notes from advisory cards and tool results alike", () => {
-    const items: RenderItem[] = [
-      advisory("adv-1", [note("card note", "nit", "style")]),
-      toolDone("tool-1", [note("tool note", "concern", "ops")]),
-    ];
-    const out = collectNewConcerns(items, 0);
-    expect(out).toHaveLength(2);
-    expect(out[0]).toEqual(note("card note", "nit", "style"));
-    expect(out[1]).toEqual(note("tool note", "concern", "ops"));
-  });
-
-  it("dedupes an echoed note across the card and the tool result", () => {
-    const echo = note("Hardcoded key", "blocker", "security");
-    const items: RenderItem[] = [advisory("adv-1", [echo]), toolDone("tool-1", [echo])];
-    expect(collectNewConcerns(items, 0)).toEqual([echo]);
-  });
-
-  it("dedupes repeats within a single card, first-seen order wins", () => {
-    const items: RenderItem[] = [advisory("adv-1", [note("a"), note("b"), note("a")])];
-    expect(collectNewConcerns(items, 0).map((n) => n.note)).toEqual(["a", "b"]);
-  });
-
-  it("returns [] when the baseline is past the end (history reload)", () => {
-    const items: RenderItem[] = [advisory("adv-1", [note("a")])];
-    expect(collectNewConcerns(items, items.length + 5)).toEqual([]);
-    expect(collectNewConcerns([], 0)).toEqual([]);
-  });
-});
-
-describe("renderConcernsBlock", () => {
-  it("returns null for no notes", () => {
-    expect(renderConcernsBlock([])).toBeNull();
-  });
-
-  it("formats severity, advisor, and note exactly, defaulting severity", () => {
-    const block = renderConcernsBlock([
-      { note: "no sev" },
-      { note: "sev one", severity: "blocker" },
-      { note: "sev two", severity: "concern", advisor: "ops" },
-    ]);
-    expect(block).toBe(
-      "The advisor flagged these concerns about the plan. Address them:\n\n" +
-        "- [note] no sev\n" +
-        "- [blocker] sev one\n" +
-        "- [concern] (ops) sev two",
-    );
-  });
 });
 
 describe("withConcerns", () => {
@@ -149,6 +89,7 @@ describe("PlanConcernWatcher", () => {
     watcher.feed(TAB);
     expect(dispatches).toHaveLength(1);
     expect(dispatches[0]!.concerns).toContain("- [blocker] (security) Hardcoded key");
+    expect(dispatches[0]!.concerns).toContain(PLAN_CONCERNS_LEAD);
     expect(notices).toEqual([
       "verdict accepted — waiting for the advisor's review before the next step",
       "advisor's review folded into the implementation (1 concern)",

@@ -54,6 +54,7 @@ function tabState(): RpcTabState {
     planDeferred: false,
     plans: [],
     advisorStats: null,
+    advisorReply: true,
   };
 }
 

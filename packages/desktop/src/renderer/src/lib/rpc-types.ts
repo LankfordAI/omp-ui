@@ -90,7 +90,12 @@ export interface SubagentInfo {
   label?: string;
 }
 
-export type PromptRoute = "prompt" | "steer" | "follow_up";
+/**
+ * Where a dispatched prompt came from. `advisor_reply` is omp-ui's own answer to
+ * a late advisor review: it rides `followUp` like a queued prompt, but it never
+ * titles the session and never resets the auto-reply loop guard.
+ */
+export type PromptRoute = "prompt" | "steer" | "follow_up" | "advisor_reply";
 
 /** A never-loaded session: every field neutral, nothing pretending to be known. */
 export function emptySessionRuntime(): SessionRuntime {

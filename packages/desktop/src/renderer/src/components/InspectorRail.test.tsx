@@ -39,6 +39,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     planDeferred: false,
     plans: [],
     advisorStats: null,
+    advisorReply: true,
     ...patch,
   };
 }

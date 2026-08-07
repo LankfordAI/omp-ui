@@ -150,6 +150,18 @@ context; refine stays immediate because the planner revises in situ, where the
 advisor's notes already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
 
+**Advisor reply**:
+The follow-up prompt omp-ui dispatches into a live rpc-ui session when advisor
+findings land in its transcript while the session is idle, so a review that
+arrived after the turn closed is answered instead of sitting unread. Findings
+are batched over a short settle window and folded into one prompt through the
+same collector the plan-execute fold uses (ADR-0012). Consecutive replies are
+capped, and reaching the cap posts a `notice` in the transcript saying a prompt
+re-arms it; any non-reply prompt resets the count. The fold is a per-session
+switch in the composer's advisor control, default on. Terminal tabs are
+excluded — a PTY carries no prompt channel to inject into.
+_Avoid_: advisor loop, auto-prompt, advisor echo
+
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists the focus session's plan
 history — the pending plan first, with review / request changes / not now

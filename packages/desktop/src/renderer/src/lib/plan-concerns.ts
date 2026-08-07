@@ -1,5 +1,6 @@
+import { collectNewConcerns, renderConcernsBlock } from "./advisor-concerns";
 import type { ModelInfo } from "./rpc-types";
-import type { AdvisorNote, RenderItem } from "./transcript";
+import type { RenderItem } from "./transcript";
 
 /**
  * Where an approved plan is implemented, chosen on the review pane.
@@ -11,30 +12,8 @@ export type PlanExecutionContext = "existing" | "compacted" | "fresh";
 /** How long after a plan verdict to let the drafting turn's advisor review land. */
 export const PLAN_CONCERNS_WAIT_MS = 15_000;
 
-const noteKey = (n: AdvisorNote): string => `${n.advisor ?? ""}|${n.severity ?? ""}|${n.note}`;
-
-/**
- * Advisor findings appended to the transcript after `fromIndex`: standalone
- * advisory cards plus notes attached to tool results (the advisor comments on
- * the plan's propose tool result and also posts its end-of-turn card). One
- * review can arrive in both shapes, so notes are deduped on
- * `advisor|severity|note` before the fold — the settle decision and the fold
- * are this one function, so they can never disagree.
- */
-export function collectNewConcerns(items: RenderItem[], fromIndex: number): AdvisorNote[] {
-  const seen = new Set<string>();
-  const notes: AdvisorNote[] = [];
-  for (const item of items.slice(fromIndex)) {
-    const itemNotes = item.kind === "advisory" || item.kind === "tool" ? (item.notes ?? []) : [];
-    for (const note of itemNotes) {
-      const key = noteKey(note);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      notes.push(note);
-    }
-  }
-  return notes;
-}
+/** The instruction lead on the plan-execution fold. */
+export const PLAN_CONCERNS_LEAD = "The advisor flagged these concerns about the plan. Address them:";
 
 /** Appends the advisor block to a dispatch prompt, when there is one. */
 export function withConcerns(base: string, concerns: string | null): string {
@@ -69,17 +48,6 @@ export interface PlanExecutionOptions {
  */
 export function withOrchestrate(base: string, orchestrate: boolean): string {
   return orchestrate ? `orchestrate\n\n${base}` : base;
-}
-
-/** Renders concerns as an explicit instruction block, or null when none. */
-export function renderConcernsBlock(notes: AdvisorNote[]): string | null {
-  if (notes.length === 0) return null;
-  const lines = notes.map((note) => {
-    const severity = note.severity ?? "note";
-    const who = note.advisor ? ` (${note.advisor})` : "";
-    return `- [${severity}]${who} ${note.note}`;
-  });
-  return "The advisor flagged these concerns about the plan. Address them:\n\n" + lines.join("\n");
 }
 
 export interface PlanConcernIntent {
@@ -153,7 +121,7 @@ export class PlanConcernWatcher {
     if (!wait) return;
     this.cancel(tabId);
     const notes = collectNewConcerns(this.callbacks.getItems(tabId), wait.baseline);
-    const concerns = renderConcernsBlock(notes);
+    const concerns = renderConcernsBlock(notes, PLAN_CONCERNS_LEAD);
     if (concerns) {
       this.callbacks.onNotice(
         tabId,

@@ -52,7 +52,7 @@ function seed(status: "ready" | "running", dead = false): void {
     branches: { "/p": { repoRoot: null, current: null, branches: [], defaultBranch: null } },
     rpc: { [TAB]: { status, items: [], todos: [], model: { id: "model-x", name: "Model X", provider: "test", input: ["text"], contextWindow: 1000 }, availableModels: [], commands: [],
       session: { ...emptySessionRuntime(), thinkingLevel: "medium" }, stats: null, subagents: [], extensionStatus: {}, pendingCommands: new Map(), extensionQueue: [], busy: false,
-      initialPrompt: null, hasRenamed: true, plan: null, planReview: null, planText: null, planDeferred: false, plans: [], advisorStats: null },
+      initialPrompt: null, hasRenamed: true, plan: null, planReview: null, planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
     },
     compactSurface: null, sendPrompt, abortAndPrompt, abortAgent,
   });
