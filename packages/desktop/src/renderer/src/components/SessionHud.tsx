@@ -558,7 +558,24 @@ export function SessionHud({ tabId }: { tabId: string }) {
 
       <span className="min-w-0 flex-1" />
 
-      {usage && <ContextCluster usage={usage} />}
+      {/* Main usage and main spend read as one group (issue #107). The wrapper keeps
+          `usage` and `stats` independent conditionals: either can be null without
+          dropping the other. */}
+      {(usage || stats) && (
+        <div className="flex shrink-0 items-center gap-2">
+          {usage && <ContextCluster usage={usage} />}
+          {stats && (
+            <div
+              className="hidden shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-mid lg:flex"
+              title={`${formatCost(stats.cost)} · ${exactNum(stats.tokens.total)} tokens · ${stats.premiumRequests} premium requests`}
+            >
+              <span>{formatCost(stats.cost)}</span>
+              <span className="text-line-strong">·</span>
+              <span>{compactNum(stats.tokens.total)} tok</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* `available:true` is emitted for both on and off sessions (off reports
           configured:false), so the record flag alone was the gate — and it can be
@@ -567,17 +584,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
           advisor shows even if the record lags; an off session stays hidden. */}
       {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && (
         <AdvisorCluster stats={advisorStats} />
-      )}
-
-      {stats && (
-        <div
-          className="hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:bg-raised hover:text-ink-mid lg:flex"
-          title={`${formatCost(stats.cost)} · ${exactNum(stats.tokens.total)} tokens · ${stats.premiumRequests} premium requests`}
-        >
-          <span>{formatCost(stats.cost)}</span>
-          <span className="text-line-strong">·</span>
-          <span>{compactNum(stats.tokens.total)} tok</span>
-        </div>
       )}
 
       {notices.length > 0 && (

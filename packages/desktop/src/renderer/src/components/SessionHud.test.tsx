@@ -108,6 +108,39 @@ describe("wide Session HUD", () => {
     act(() => trigger.click());
     expect(newSession).toHaveBeenCalledWith("/p");
   });
+
+  it("co-locates the main spend with the main meter, before the advisor cluster (#107)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB],
+          stats: {
+            userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
+            tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 1_000_000, cacheWrite: 0, total: 1_100_000 },
+            cost: 0.0886, premiumRequests: 3, contextUsage: null,
+          },
+          advisorStats: {
+            available: true, configured: true, active: false, model: null, subscription: false,
+            contextWindow: 1000, contextTokens: 200, cost: 0.273, totalTokens: 0,
+          },
+        },
+      },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const text = document.body.textContent!;
+    const mainCost = text.indexOf("$0.0886");
+    const adv = text.indexOf("adv");
+    const advisorCost = text.indexOf("$0.2730");
+    expect(mainCost).toBeGreaterThanOrEqual(0);
+    expect(mainCost).toBeLessThan(adv);
+    expect(adv).toBeLessThan(advisorCost);
+    expect(text.slice(0, adv)).toContain("1.1M tok");
+  });
 });
 
 describe("compact Session HUD", () => {
