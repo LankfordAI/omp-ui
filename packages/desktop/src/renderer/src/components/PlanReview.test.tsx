@@ -103,6 +103,7 @@ function backendState(titles: Record<string, string>): BackendState {
   return {
     defaultMode: "rpc-ui",
     planFormat: "html",
+    advisorAutoReply: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",

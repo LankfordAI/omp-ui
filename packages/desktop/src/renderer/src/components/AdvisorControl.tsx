@@ -62,8 +62,6 @@ export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: 
   const setSessionAdvisor = useStore((s) => s.setSessionAdvisor);
   const setAdvisorModel = useStore((s) => s.setAdvisorModel);
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
-  const autoReply = useStore((s) => s.rpc[tabId]?.advisorReply ?? true);
-  const setAdvisorReply = useStore((s) => s.setAdvisorReply);
   const projectCwd = record?.projectCwd;
   const defaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectCwd] : undefined));
   const [picking, setPicking] = useState(false);
@@ -152,26 +150,6 @@ export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: 
             "advisor off"
           )}
         </button>
-
-        {/* A review that lands after the turn ends reaches an idle session with
-            nothing to carry it back to the model (issue #104). This is the
-            per-session opt-out; it only means anything while the advisor runs. */}
-        {on && (
-          <button
-            type="button"
-            disabled={disabled}
-            aria-pressed={autoReply}
-            title={
-              autoReply
-                ? "auto-reply on — an advisor comment that lands after the turn ends is answered automatically · click to turn off"
-                : "auto-reply off — a late advisor comment is left unanswered in the transcript · click to turn on"
-            }
-            onClick={() => setAdvisorReply(tabId, !autoReply)}
-            className={cn(CAPSULE_SEGMENT, "text-[10px]", autoReply ? "text-iris" : "text-ink-faint")}
-          >
-            {autoReply ? "auto-reply" : "auto-reply off"}
-          </button>
-        )}
 
         {/* The model only matters while the advisor runs, so the picker only
             appears then — an always-visible dropdown for a disabled feature

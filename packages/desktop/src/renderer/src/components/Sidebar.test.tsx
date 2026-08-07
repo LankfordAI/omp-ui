@@ -71,6 +71,7 @@ const projectPath = "/projects/one";
 const state: BackendState = {
   defaultMode: "rpc-ui",
   planFormat: "html",
+  advisorAutoReply: true,
   modelFavorites: [],
   skipDeleteConfirmation: false,
   themeId: "graphite",
@@ -322,6 +323,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
   const manySessionState: BackendState = {
     defaultMode: "rpc-ui",
     planFormat: "html",
+    advisorAutoReply: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",

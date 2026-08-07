@@ -264,6 +264,10 @@ export class MainBackend {
           this.registry.setPlanFormat(format);
           await this.broadcast();
         },
+        [CH.settingsSetAdvisorAutoReply]: async (on: boolean) => {
+          this.registry.setAdvisorAutoReply(on);
+          await this.broadcast();
+        },
         [CH.settingsSetSkipDeleteConfirmation]: async (skip: boolean) => {
           this.registry.setSkipDeleteConfirmation(skip);
           await this.broadcast();
@@ -1135,6 +1139,7 @@ export class MainBackend {
       projects: groups,
       defaultMode: this.registry.defaultMode,
       planFormat: this.registry.planFormat,
+      advisorAutoReply: this.registry.advisorAutoReply,
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
       themeId: this.registry.themeId,

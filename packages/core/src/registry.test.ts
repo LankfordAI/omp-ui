@@ -41,6 +41,8 @@ describe("Registry.load", () => {
     expect(reg.skipDeleteConfirmation).toBe(false);
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.planFormat).toBe("html");
+    // Issue #111: auto-reply defaults on.
+    expect(reg.advisorAutoReply).toBe(true);
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -169,6 +171,22 @@ describe("Registry persistence", () => {
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
     expect(Registry.load(absent).planFormat).toBe("html");
+  });
+
+  it("round-trips advisor auto-reply and defaults to on for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setAdvisorAutoReply(false);
+    expect(Registry.load(file).advisorAutoReply).toBe(false);
+    reg.setAdvisorAutoReply(true);
+    expect(Registry.load(file).advisorAutoReply).toBe(true);
+
+    const junk = tmpFile();
+    fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { advisorAutoReply: "no" } }));
+    expect(Registry.load(junk).advisorAutoReply).toBe(true);
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).advisorAutoReply).toBe(true);
   });
 
   it("defaults theme and launch update checks when the settings fields are absent", () => {

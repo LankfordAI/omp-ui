@@ -19,6 +19,7 @@ let backendState: BackendState = {
   projects: [],
   defaultMode: "rpc-ui",
   planFormat: "html",
+  advisorAutoReply: true,
   modelFavorites: [],
   skipDeleteConfirmation: false,
   themeId: "graphite",
@@ -213,6 +214,7 @@ function stateWithRecord(sessionId: string | null, live: LiveState = "live"): Ba
   return {
     defaultMode: "rpc-ui",
     planFormat: "html",
+    advisorAutoReply: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -289,6 +291,7 @@ beforeEach(() => {
     projects: [],
     defaultMode: "rpc-ui",
     planFormat: "html",
+    advisorAutoReply: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -2650,6 +2653,7 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
   const projectState = (sessions: BackendState["projects"][0]["sessions"]) => ({
     defaultMode: "rpc-ui",
     planFormat: "html",
+    advisorAutoReply: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -2779,6 +2783,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
     ({
       defaultMode: "rpc-ui",
       planFormat: "html",
+      advisorAutoReply: true,
       modelFavorites: [],
       skipDeleteConfirmation: true,
       themeId: "graphite",

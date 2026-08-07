@@ -7,6 +7,7 @@ export const CH = {
   sessionSetModel: "session:setModel",
   settingsSetDefaultMode: "settings:setDefaultMode",
   settingsSetPlanFormat: "settings:setPlanFormat",
+  settingsSetAdvisorAutoReply: "settings:setAdvisorAutoReply",
   settingsSetSkipDeleteConfirmation: "settings:setSkipDeleteConfirmation",
   settingsSetThemeId: "settings:setThemeId",
   settingsSetAppUpdateCheckOnLaunch: "settings:setAppUpdateCheckOnLaunch",

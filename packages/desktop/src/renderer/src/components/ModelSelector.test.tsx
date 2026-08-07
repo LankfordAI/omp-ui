@@ -22,6 +22,7 @@ const models: ModelInfo[] = [
 const state = {
   defaultMode: "rpc-ui",
   planFormat: "html",
+  advisorAutoReply: true,
   modelFavorites: [],
   skipDeleteConfirmation: false,
   themeId: "graphite",

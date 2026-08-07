@@ -85,6 +85,8 @@ export interface BackendState {
   defaultMode: SessionMode;
   /** Plan authoring format the next plan-mode toggle asks the agent for. */
   planFormat: PlanFormat;
+  /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
+  advisorAutoReply: boolean;
   modelFavorites: string[];
   /** Whether destructive session deletion proceeds without a renderer warning. */
   skipDeleteConfirmation: boolean;
@@ -417,6 +419,7 @@ export interface OmpBackend {
   removeProject(path: string): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
+  setAdvisorAutoReply(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;

@@ -250,6 +250,7 @@ describe("Settings General page plan format (issue #109)", () => {
     projects: [],
     defaultMode: "rpc-ui",
     planFormat,
+    advisorAutoReply: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",

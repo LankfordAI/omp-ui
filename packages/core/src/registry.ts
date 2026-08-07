@@ -14,6 +14,8 @@ interface RegistryData {
     defaultMode: SessionMode;
     /** How the agent authors plans for review (see core/plan-extension.ts). */
     planFormat: PlanFormat;
+    /** Auto-answer a late advisor review (issue #111); app-level, default on. */
+    advisorAutoReply: boolean;
     modelFavorites: string[];
     skipDeleteConfirmation: boolean;
     /** Release version whose update card the user dismissed ("Later"). */
@@ -48,6 +50,7 @@ function emptyRegistry(): RegistryData {
       // HTML is the default review rendition (issue #109); the canonical
       // markdown plan is written either way.
       planFormat: "html",
+      advisorAutoReply: true,
       modelFavorites: [],
       skipDeleteConfirmation: false,
       dismissedAppUpdateVersion: null,
@@ -170,6 +173,12 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     settingsObj !== undefined && "planFormat" in settingsObj && settingsObj.planFormat === "md"
       ? "md"
       : "html";
+  const rawAdvisorAutoReply =
+    settingsObj !== undefined &&
+    "advisorAutoReply" in settingsObj &&
+    typeof settingsObj.advisorAutoReply === "boolean"
+      ? settingsObj.advisorAutoReply
+      : true;
   const favRaw =
     settingsObj !== undefined && "modelFavorites" in settingsObj
       ? settingsObj.modelFavorites
@@ -241,6 +250,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
     planFormat: rawPlanFormat,
+    advisorAutoReply: rawAdvisorAutoReply,
     modelFavorites:
       Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
     skipDeleteConfirmation: rawSkipDeleteConfirmation,
@@ -424,6 +434,16 @@ export class Registry {
   setPlanFormat(format: PlanFormat): void {
     if (this.#data.settings.planFormat === format) return;
     this.#data.settings.planFormat = format;
+    this.#save();
+  }
+
+  get advisorAutoReply(): boolean {
+    return this.#data.settings.advisorAutoReply;
+  }
+
+  setAdvisorAutoReply(on: boolean): void {
+    if (this.#data.settings.advisorAutoReply === on) return;
+    this.#data.settings.advisorAutoReply = on;
     this.#save();
   }
 
