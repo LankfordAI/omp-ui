@@ -102,14 +102,21 @@ function readLink(src: string, i: number): { span: MdSpan; next: number } | null
       ? dest.slice(1, -1)
       : (dest.split(/[ \t]+/)[0] ?? "");
   if (href === "") return null;
-  return { span: { kind: "link", spans: parseInline(text), href }, next: paren + 1 };
+  // A bracket-link label never nests links (issue #101): `[url](url)` renders
+  // the label as plain text, so the autolinker cannot double-link it.
+  return { span: { kind: "link", spans: parseInline(text, false), href }, next: paren + 1 };
 }
 
 /**
  * `*`/`_` emphasis. The flanking checks are the whole reason this is not a
  * regex: they keep `snake_case_name` and `a * b` out of the emphasis path.
  */
-function readEmphasis(src: string, i: number, ch: string): { span: MdSpan; next: number } | null {
+function readEmphasis(
+  src: string,
+  i: number,
+  ch: string,
+  links: boolean,
+): { span: MdSpan; next: number } | null {
   const open = Math.min(runLength(src, i, ch), 3);
   const start = i + open;
   if (start >= src.length || SPACE.test(src[start] ?? " ")) return null;
@@ -122,10 +129,10 @@ function readEmphasis(src: string, i: number, ch: string): { span: MdSpan; next:
 
   const text = src.slice(start, close);
   if (text === "") return null;
-  return { span: { kind: open >= 2 ? "strong" : "em", spans: parseInline(text) }, next };
+  return { span: { kind: open >= 2 ? "strong" : "em", spans: parseInline(text, links) }, next };
 }
 
-function parseInline(src: string): MdSpan[] {
+function parseInline(src: string, links = true): MdSpan[] {
   const out: MdSpan[] = [];
   let buf = "";
   const flush = (): void => {
@@ -158,6 +165,20 @@ function parseInline(src: string): MdSpan[] {
       continue;
     }
 
+    // Bare-URL autolink (issue #101). Code spans were consumed above, fences
+    // never reach inline parsing, and `[...](href)` targets are consumed by
+    // readLink below — so "never inside code" and "never double-link the
+    // target" fall out of the scan order, no state needed.
+    if (links && (c === "h" || c === "H")) {
+      const url = bareUrlAt(src, i);
+      if (url) {
+        flush();
+        out.push({ kind: "link", spans: [{ kind: "text", text: url.href }], href: url.href });
+        i = url.next;
+        continue;
+      }
+    }
+
     if (c === "[") {
       const link = readLink(src, i);
       if (link) {
@@ -169,7 +190,7 @@ function parseInline(src: string): MdSpan[] {
     }
 
     if (c === "*" || c === "_") {
-      const em = readEmphasis(src, i, c);
+      const em = readEmphasis(src, i, c, links);
       if (em) {
         flush();
         out.push(em.span);
@@ -529,7 +550,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     // header keeps rendering as a paragraph and reflows to a table.
     const tableCells = splitTableRow(line);
     if (tableCells && isDelimiterRow(lines[i + 1] ?? "")) {
-      const headers = tableCells.map(parseInline);
+      const headers = tableCells.map((cell) => parseInline(cell));
       const rows: MdSpan[][][] = [];
       let j = i + 2;
       // Consume every following line that splits as a row; blank lines and
@@ -537,7 +558,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       while (j < lines.length) {
         const cells = splitTableRow(lines[j] ?? "");
         if (!cells) break;
-        rows.push(cells.map(parseInline));
+        rows.push(cells.map((cell) => parseInline(cell)));
         j++;
       }
       blocks.push({ kind: "table", headers, rows });
@@ -602,4 +623,28 @@ const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 export function isSafeHref(href: string): boolean {
   const trimmed = href.trim();
   return trimmed !== "" && !CONTROL_CHAR.test(trimmed) && SAFE_SCHEME.test(trimmed);
+}
+
+/** Trailing punctuation a bare URL sheds before linking (quotes, closers, emphasis). */
+const BARE_URL_TAIL = /[.,;:!?'"\]}*_]+$/;
+
+/**
+ * Bare-URL autolink (issue #101): http(s) at i, ending at whitespace, trailing
+ * punctuation and unbalanced `)` trimmed. Null when there is no host yet (the
+ * streaming case) or the URL is glued to a word char.
+ */
+export function bareUrlAt(src: string, i: number): { href: string; next: number } | null {
+  const prefix = src.slice(i, i + 8).toLowerCase();
+  const schemeLen = prefix.startsWith("https://") ? 8 : prefix.startsWith("http://") ? 7 : 0;
+  if (schemeLen === 0) return null;
+  if (i > 0 && WORD_CHAR.test(src[i - 1] ?? "")) return null; // word-glued: no link
+  let end = i + schemeLen;
+  while (end < src.length && !SPACE.test(src[end] ?? "")) end++;
+  let href = src.slice(i, end).replace(BARE_URL_TAIL, "");
+  // Balanced-paren URLs keep their parens; only an unmatched `)` is sentence-final.
+  while (href.endsWith(")") && (href.match(/\)/g)?.length ?? 0) > (href.match(/\(/g)?.length ?? 0)) {
+    href = href.slice(0, -1);
+  }
+  if (href.length <= schemeLen) return null; // scheme only — no host yet
+  return { href, next: i + href.length }; // trimmed chars stay as following text
 }

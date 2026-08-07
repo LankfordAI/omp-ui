@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
 import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
+import { openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
 
 // Dev and packaged builds resolve the same package.json name, so by default
@@ -102,6 +103,14 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     setupSpellcheck(win);
+
+    // Renderer anchors keep calling window.open (Markdown.tsx / tool slabs);
+    // every one of those lands here, denied in-window and routed to the system
+    // browser via the scheme allow-list (issue #101).
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      openExternalSafe(url);
+      return { action: "deny" };
+    });
 
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");

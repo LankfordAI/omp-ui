@@ -5,7 +5,7 @@ import { strField } from "../lib/fields";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { DiffViewer } from "./DiffViewer";
-import { Markdown } from "./Markdown";
+import { linkify, Markdown } from "./Markdown";
 import { Chip, Chevron, Disclosure, Label, Panel, ProgressSweep, type Tone } from "./ui";
 
 /** Result blocks longer than this collapse; a done card with one also starts closed. */
@@ -208,7 +208,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
 
   if (kind === "bash") {
     const command = strField(args, "command") ?? strField(args, "cmd");
-    if (command) return <Slab className="max-h-32 text-ink">{command}</Slab>;
+    if (command) return <Slab className="max-h-32 text-ink">{linkify(command)}</Slab>;
   }
 
   if (kind === "search") {
@@ -239,7 +239,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
           {subagent && <Chip tone="iris" mono>{subagent}</Chip>}
           {prompt && (
             <Slab className="max-h-32">
-              {prompt.length > 400 ? `${prompt.slice(0, 400)}…` : prompt}
+              {linkify(prompt.length > 400 ? `${prompt.slice(0, 400)}…` : prompt)}
             </Slab>
           )}
         </div>
@@ -366,6 +366,10 @@ export function ToolCard({ item }: { item: ToolItem }) {
     () => (item.resultText ? item.resultText.split("\n").length : 0),
     [item.resultText],
   );
+  const resultText = useMemo(
+    () => (item.resultText === undefined ? undefined : linkify(item.resultText)),
+    [item.resultText],
+  );
   const hasDiff = (item.diff?.length ?? 0) > 0;
   const longOutput = resultLines > LONG_OUTPUT_LINES;
   // A finished, quiet card earns its silence; anything unresolved or reviewable
@@ -446,7 +450,7 @@ export function ToolCard({ item }: { item: ToolItem }) {
             <div className="space-y-1">
               <Label>streaming</Label>
               <Slab className="max-h-32" pin>
-                {item.partialText}
+                {linkify(item.partialText)}
               </Slab>
             </div>
           )}
@@ -467,12 +471,12 @@ export function ToolCard({ item }: { item: ToolItem }) {
                   className="mt-1 max-h-48"
                   tone={item.status === "error" ? "rose" : "neutral"}
                 >
-                  {item.resultText}
+                  {resultText}
                 </Slab>
               </Disclosure>
             ) : (
               <Slab className="max-h-48" tone={item.status === "error" ? "rose" : "neutral"}>
-                {item.resultText}
+                {resultText}
               </Slab>
             ))}
 

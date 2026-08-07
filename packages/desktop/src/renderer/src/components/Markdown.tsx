@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
-import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
+import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
 import { CopyButton } from "./ui";
 
 /**
@@ -27,6 +27,31 @@ const HEADING_CLASS: Record<number, string> = {
 
 const HEADING_TAG = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 
+/**
+ * One external link anchor: no `href` attribute (renderer never navigates; the
+ * absence also kills middle-click/drag), clicks route window.open — intercepted
+ * by main's setWindowOpenHandler → shell.openExternal (issue #101).
+ */
+function OpenExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      role="link"
+      tabIndex={0}
+      title={href}
+      onClick={() => window.open(href, "_blank", "noopener,noreferrer")}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          window.open(href, "_blank", "noopener,noreferrer");
+        }
+      }}
+      className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
+    >
+      {children}
+    </a>
+  );
+}
+
 function Spans({ spans }: { spans: MdSpan[] }) {
   return (
     <>
@@ -51,25 +76,10 @@ function Spans({ spans }: { spans: MdSpan[] }) {
               </em>
             );
           case "link":
-            // No `href` attribute at all: the renderer must never navigate, and
-            // its absence also kills middle-click and drag-to-navigate.
             return isSafeHref(span.href) ? (
-              <a
-                key={i}
-                role="link"
-                tabIndex={0}
-                title={span.href}
-                onClick={() => window.open(span.href, "_blank", "noopener,noreferrer")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    window.open(span.href, "_blank", "noopener,noreferrer");
-                  }
-                }}
-                className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
-              >
+              <OpenExternalLink key={i} href={span.href}>
                 <Spans spans={span.spans} />
-              </a>
+              </OpenExternalLink>
             ) : (
               // A rejected scheme becomes plain text with no tooltip: echoing
               // the target back would still put `javascript:…` on screen as if
@@ -84,6 +94,35 @@ function Spans({ spans }: { spans: MdSpan[] }) {
       })}
     </>
   );
+}
+
+/**
+ * Bare-URL autolink for plain-text surfaces (tool slabs, issue #101). Because
+ * `bareUrlAt` only ever emits `http(s)://` targets, no `isSafeHref` gate is
+ * needed here.
+ */
+export function linkify(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i] ?? "";
+    const url = c === "h" || c === "H" ? bareUrlAt(text, i) : null;
+    if (url === null) {
+      i++;
+      continue;
+    }
+    if (i > cursor) out.push(text.slice(cursor, i)); // plain text before the URL
+    out.push(
+      <OpenExternalLink key={i} href={url.href}>
+        {url.href}
+      </OpenExternalLink>,
+    );
+    cursor = url.next;
+    i = url.next;
+  }
+  if (cursor < text.length) out.push(text.slice(cursor)); // tail incl. trimmed punctuation
+  return out;
 }
 
 /**

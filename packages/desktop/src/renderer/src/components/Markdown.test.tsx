@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Markdown } from "./Markdown";
+import { linkify, Markdown } from "./Markdown";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -123,5 +123,79 @@ describe("Markdown nested spans and item blocks (issues #40, #41)", () => {
     expect(pre!.textContent).toContain("votes: 0");
     expect(el.textContent).not.toContain("```");
     act(() => root.unmount());
+  });
+});
+
+describe("bare URL autolinking (issue #101)", () => {
+  it("renders a bare URL as one clickable anchor", () => {
+    const { el, root } = render("see https://a.dev now");
+    const anchors = el.querySelectorAll('a[role="link"]');
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]!.getAttribute("title")).toBe("https://a.dev");
+    expect(anchors[0]!.textContent).toBe("https://a.dev");
+    expect(el.textContent).toContain("https://a.dev");
+    act(() => root.unmount());
+  });
+
+  it("leaves a URL inside a code span unlinked", () => {
+    const { el, root } = render("`https://a.dev`");
+    expect(el.querySelectorAll('a[role="link"]')).toHaveLength(0);
+    act(() => root.unmount());
+  });
+});
+
+describe("linkify (tool slabs, issue #101)", () => {
+  it("turns bare URLs into anchors and keeps surrounding text", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        <pre>
+          {linkify("run curl https://a.dev/x now")}
+        </pre>,
+      );
+    });
+    const anchors = host.querySelectorAll('a[role="link"]');
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]!.getAttribute("title")).toBe("https://a.dev/x");
+    expect(host.textContent).toBe("run curl https://a.dev/x now");
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("keeps trimmed punctuation as plain text in the slab", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        <pre>
+          {linkify("see https://a.dev). done")}
+        </pre>,
+      );
+    });
+    const anchors = host.querySelectorAll('a[role="link"]');
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]!.getAttribute("title")).toBe("https://a.dev");
+    expect(host.textContent).toBe("see https://a.dev). done");
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("leaves scheme-only and word-glued text unlinked", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        <pre>
+          {linkify("https:// foohttps://a.dev")}
+        </pre>,
+      );
+    });
+    expect(host.querySelectorAll('a[role="link"]')).toHaveLength(0);
+    act(() => root.unmount());
+    host.remove();
   });
 });

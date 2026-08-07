@@ -653,3 +653,111 @@ describe("parseMarkdown robustness", () => {
     expect(literalText(parseMarkdown(src))).toBe(src);
   });
 });
+
+describe("bare URL autolinking (issue #101)", () => {
+  it("links a bare http(s) URL between text spans", () => {
+    expect(parseMarkdown("see https://www.githubstatus.com now")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "text", text: "see " },
+        {
+          kind: "link",
+          spans: [{ kind: "text", text: "https://www.githubstatus.com" }],
+          href: "https://www.githubstatus.com",
+        },
+        { kind: "text", text: " now" },
+      ],
+    });
+  });
+
+  it("links a bare URL inside a heading", () => {
+    expect(parseMarkdown("# https://a.dev")[0]).toMatchObject({
+      kind: "heading",
+      spans: [{ kind: "link", href: "https://a.dev" }],
+    });
+  });
+
+  it("trims trailing punctuation but keeps it in the literal text", () => {
+    for (const src of ["see https://a.dev.", "(see https://a.dev)", "see https://a.dev)."]) {
+      const blocks = parseMarkdown(src);
+      const spans = blocks[0]?.kind === "p" ? blocks[0].spans : [];
+      expect(spans.find((s) => s.kind === "link")).toMatchObject({
+        kind: "link",
+        href: "https://a.dev",
+      });
+      expect(literalText(blocks)).toBe(src);
+    }
+  });
+
+  it("keeps balanced parentheses inside the URL", () => {
+    expect(parseMarkdown("https://en.wikipedia.org/wiki/Foo_(bar)")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "link",
+          spans: [{ kind: "text", text: "https://en.wikipedia.org/wiki/Foo_(bar)" }],
+          href: "https://en.wikipedia.org/wiki/Foo_(bar)",
+        },
+      ],
+    });
+  });
+
+  it("keeps a scheme with no host and a word-glued scheme as plain text", () => {
+    expect(parseMarkdown("https://")[0]).toEqual({
+      kind: "p",
+      spans: [{ kind: "text", text: "https://" }],
+    });
+    expect(parseMarkdown("foohttps://a.dev")[0]).toEqual({
+      kind: "p",
+      spans: [{ kind: "text", text: "foohttps://a.dev" }],
+    });
+  });
+
+  it("never autolinks inside code spans or fenced blocks", () => {
+    expect(parseMarkdown("`https://a.dev`")[0]).toEqual({
+      kind: "p",
+      spans: [{ kind: "code", text: "https://a.dev" }],
+    });
+    expect(parseMarkdown("```\nhttps://a.dev\n```")[0]).toEqual({
+      kind: "code",
+      lang: null,
+      text: "https://a.dev",
+    });
+  });
+
+  it("does not double-link a bracket-link label", () => {
+    const blocks = parseMarkdown("[label https://a.dev](https://a.dev)");
+    const spans = blocks[0]?.kind === "p" ? blocks[0].spans : [];
+    expect(spans.filter((s) => s.kind === "link")).toHaveLength(1);
+    expect(spans[0]).toEqual({
+      kind: "link",
+      spans: [{ kind: "text", text: "label https://a.dev" }],
+      href: "https://a.dev",
+    });
+  });
+
+  it("links a bare URL inside strong", () => {
+    expect(parseMarkdown("**https://a.dev**")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "strong",
+          spans: [{ kind: "link", spans: [{ kind: "text", text: "https://a.dev" }], href: "https://a.dev" }],
+        },
+      ],
+    });
+  });
+
+  it("round-trips every character with trimmed punctuation as text", () => {
+    for (const src of [
+      "see https://a.dev, and https://b.dev!",
+      "https://a.dev.",
+      "(see https://a.dev)",
+      "https://a.dev).",
+      "x https://a.dev] y",
+      "https://a.dev'quoted'",
+    ]) {
+      expect(literalText(parseMarkdown(src))).toBe(src);
+    }
+  });
+});
