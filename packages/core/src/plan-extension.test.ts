@@ -306,4 +306,18 @@ describe("plan mode transitions", () => {
     expect(mute.guardArmed()).toBe(false);
     expect(mute.status()?.enabled).toBe(false);
   });
+
+  it("applies interleaved toggles in arrival order", async () => {
+    const h = harness(await loadExtension());
+    // Issue #118: dispatched together, the off used to be swallowed by the on.
+    const on = h.dispatch("on html");
+    const off = h.dispatch("off");
+    await on;
+    await off;
+
+    expect(h.status()?.enabled).toBe(false);
+    expect(h.guardArmed()).toBe(false);
+    expect(h.tools()).toEqual(["read", "grep", "write"]);
+    expect(exits(h.sent)).toHaveLength(1);
+  });
 });

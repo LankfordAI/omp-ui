@@ -513,30 +513,48 @@ export default function (pi: PlanExtensionApi) {
     }
   }
 
+  // omp dispatches each /omp-ui-plan through AgentSession.prototype.prompt without
+  // waiting for the previous one, so two quick toggles interleave: an "off" that
+  // lands while "on" is awaiting setActiveToolsByName reads a still-false readOnly,
+  // decides it is a no-op, publishes enabled:false while the mode arms behind it,
+  // and is swallowed (issue #118). One chain keeps transitions in arrival order.
+  let chain: Promise<void> = Promise.resolve();
+
+  function serialize(work: () => Promise<void>): Promise<void> {
+    const next = chain.then(work, work);
+    // A failed toggle must not wedge every later one.
+    chain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
   pi.registerCommand(COMMAND, {
     description: "omp-ui plan mode control",
-    handler: async (args: string, ctx: { ui: PlanUi }) => {
-      ui = ctx.ui;
-      const reason = unusable();
-      const active = session;
-      if (reason || !active) {
+    handler: (args: string, ctx: { ui: PlanUi }) =>
+      serialize(async () => {
+        ui = ctx.ui;
+        const reason = unusable();
+        const active = session;
+        if (reason || !active) {
+          publish();
+          ctx.ui.notify("Plan mode unavailable: " + (reason ?? "no active omp session"), "error");
+          return;
+        }
+        // \`on|off\` then an optional format; absent verb toggles.
+        const tokens = args.trim().toLowerCase().split(/\\s+/).filter(t => t !== "");
+        const on = realGetPlanModeState?.call(active)?.enabled === true || readOnly;
+        const next = tokens[0] === "on" ? true : tokens[0] === "off" ? false : !on;
+        if (tokens[1] === "html" || tokens[1] === "md") format = tokens[1];
+        if (next === on) {
+          publish();
+          return;
+        }
+        if (next) await enterPlanMode(active);
+        else await exitPlanMode(active);
         publish();
-        ctx.ui.notify("Plan mode unavailable: " + (reason ?? "no active omp session"), "error");
-        return;
-      }
-      // \`on|off\` then an optional format; absent verb toggles.
-      const tokens = args.trim().toLowerCase().split(/\\s+/).filter(t => t !== "");
-      const on = realGetPlanModeState?.call(active)?.enabled === true || readOnly;
-      const next = tokens[0] === "on" ? true : tokens[0] === "off" ? false : !on;
-      if (tokens[1] === "html" || tokens[1] === "md") format = tokens[1];
-      if (next === on) {
-        publish();
-        return;
-      }
-      if (next) await enterPlanMode(active);
-      else await exitPlanMode(active);
-      publish();
-    },
+      }),
   });
 }
 `;
