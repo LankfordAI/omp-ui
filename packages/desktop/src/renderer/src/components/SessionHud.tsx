@@ -549,7 +549,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       {plan?.enabled && (
-        <Chip tone="iris" className="shrink-0" title={plan.planFilePath ?? "drafting a plan"}>
+        <Chip tone="iris" className="shrink-0" title={plan.planFilePath ?? "read-only exploration — no plan drafted"}>
           plan
         </Chip>
       )}

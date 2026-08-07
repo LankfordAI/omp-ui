@@ -9,6 +9,11 @@ import { Button } from "./ui";
  * drive the one in-process toggle (ADR-0007): setPlanMode sends
  * /omp-ui-plan on|off, and the extension's published status — never the click
  * — is what re-renders this button.
+ *
+ * "On" means read-only-first (ADR-0013): omp's own write guard is armed and the
+ * agent answers in place. It no longer force-injects omp's per-turn plan
+ * authoring mandate, so a plan is drafted and gated on review only when the
+ * user's prompt asks for one.
  */
 
 const S = { fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" } as const;
@@ -80,7 +85,7 @@ export function PlanToggle({
           ? `plan mode unavailable: ${unavailable}`
           : plan?.enabled
             ? "leave plan mode (restores write access)"
-            : "plan first: the agent explores read-only and drafts a plan for review"
+            : "plan mode: read-only exploration — a plan is drafted and reviewed only when you ask"
       }
       onClick={toggle}
       className={className}

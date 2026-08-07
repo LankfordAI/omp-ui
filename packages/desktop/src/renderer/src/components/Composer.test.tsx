@@ -274,7 +274,7 @@ describe("Composer plan toggle", () => {
     seed("ready");
     renderComposer();
     const toggle = document.body.querySelector<HTMLButtonElement>(
-      'button[title="plan first: the agent explores read-only and drafts a plan for review"]',
+      'button[title="plan mode: read-only exploration — a plan is drafted and reviewed only when you ask"]',
     )!;
     act(() => toggle.click());
     expect(setPlanMode).toHaveBeenCalledWith(TAB, true);

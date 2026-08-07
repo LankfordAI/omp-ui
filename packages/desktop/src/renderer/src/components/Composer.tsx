@@ -860,7 +860,7 @@ const UI_NEW_COMMAND: SlashCommandInfo = {
  */
 const UI_PLAN_COMMAND: SlashCommandInfo = {
   name: "plan",
-  description: "plan mode — read-only exploration, plan reviewed before execution",
+  description: "plan mode — read-only; a plan is drafted and reviewed on request",
   source: "omp-ui",
 };
 

@@ -33,6 +33,9 @@ Verified against omp 17.1.8 by driving a real `--mode=rpc-ui` process:
 
 ## What is actually reachable
 
+_Superseded in part by ADR-0013: the plan API is still reached exactly this
+way, but `setPlanModeState` is no longer how plan mode is entered._
+
 `AgentSession` carries the whole plan API as public methods —
 `setPlanModeState`, `setPlanProposalHandler`, `preparePlanForReview`,
 `setPlanReferencePath`, `setActiveToolsByName`. An extension can drive all of
