@@ -37,6 +37,7 @@ const backendMock = {
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
   setPlanFormat: vi.fn(async () => {}),
+  setAdvisorAutoReply: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -287,5 +288,47 @@ describe("Settings General page plan format (issue #109)", () => {
     await renderSettings();
     expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe("true");
     expect(buttonWithText("html")!.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("Settings General page advisor auto-reply (issue #111)", () => {
+  const seedAutoReply = (advisorAutoReply: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: {
+        projects: [],
+        defaultMode: "rpc-ui",
+        planFormat: "html",
+        advisorAutoReply,
+        modelFavorites: [],
+        skipDeleteConfirmation: false,
+        themeId: "graphite",
+        appUpdateCheckOnLaunch: true,
+        ompUpdateCheckOnLaunch: true,
+        dismissedAppUpdateVersion: null,
+        dismissedOmpUpdateVersion: null,
+      },
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const autoReplySwitch = (): HTMLElement =>
+    document.querySelector('[role="switch"][aria-label="Advisor auto-reply"]') as HTMLElement;
+
+  it("shows the setting on and persists switching it off", async () => {
+    seedAutoReply(true);
+    await renderSettings();
+    expect(autoReplySwitch().getAttribute("aria-checked")).toBe("true");
+    click(autoReplySwitch());
+    expect(backendMock.setAdvisorAutoReply).toHaveBeenCalledWith(false);
+  });
+
+  it("reflects a persisted off setting", async () => {
+    seedAutoReply(false);
+    await renderSettings();
+    expect(autoReplySwitch().getAttribute("aria-checked")).toBe("false");
   });
 });

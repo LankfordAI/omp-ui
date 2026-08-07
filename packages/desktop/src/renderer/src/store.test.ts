@@ -100,6 +100,7 @@ const mockBackend = {
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   setPlanFormat: vi.fn(async () => {}),
+  setAdvisorAutoReply: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -704,6 +705,22 @@ describe("bootRpcTab", () => {
     const tab = useStore.getState().rpc[TAB]!;
     expect(tab.status).toBe("error");
     expect(tab.error).toMatch(/process dead/);
+  });
+
+  it("seeds advisorReply from the persisted advisorAutoReply setting (issue #111)", async () => {
+    backendState = { ...stateWithRecord(null), advisorAutoReply: false };
+    useStore.setState({ state: backendState });
+    await driveBoot(TAB);
+    expect(useStore.getState().rpc[TAB]!.advisorReply).toBe(false);
+  });
+
+  it("sweeps advisorReply across open tabs when the setting flips (issue #111)", async () => {
+    backendState = stateWithRecord(null);
+    useStore.setState({ state: backendState, rpc: { [TAB]: tabState({ advisorReply: true }) } });
+    useStore.setState({ state: { ...backendState, advisorAutoReply: false } });
+    expect(useStore.getState().rpc[TAB]!.advisorReply).toBe(false);
+    useStore.setState({ state: { ...backendState, advisorAutoReply: true } });
+    expect(useStore.getState().rpc[TAB]!.advisorReply).toBe(true);
   });
 });
 

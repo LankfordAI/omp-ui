@@ -174,6 +174,7 @@ function GeneralPage() {
   const setDefaultMode = useStore((s) => s.setDefaultMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const setSkipDeleteConfirmation = useStore((s) => s.setSkipDeleteConfirmation);
+  const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
   const planFormat = state?.planFormat ?? "html";
@@ -233,6 +234,16 @@ function GeneralPage() {
             </button>
           ))}
         </Capsule>
+      </Row>
+      <Row
+        title="Advisor auto-reply"
+        hint="An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript."
+      >
+        <Switch
+          on={state?.advisorAutoReply ?? true}
+          onChange={(next) => void setAdvisorAutoReply(next)}
+          label="Advisor auto-reply"
+        />
       </Row>
       <Row
         title="Skip the delete confirmation"

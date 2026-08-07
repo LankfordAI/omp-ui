@@ -206,14 +206,15 @@ export interface RpcTabState {
   advisorStats: AdvisorStatsView | null;
   /**
    * Auto-answer an advisor review that lands while this session is idle
-   * (issue #104). Per session, default on; a user switching it off restores the
-   * passive card-only behavior. Not persisted — it survives the advisor
-   * relaunch via bootRpcTab, like the Agents pane's drill-down.
+   * (issue #104). Seeded from the persisted app-level advisorAutoReply
+   * setting (issue #111) at boot and re-seeded on relaunch; the module-level
+   * subscription at the bottom of this file sweeps every open tab when a
+   * state write flips the setting. No longer a per-session toggle.
    */
   advisorReply: boolean;
 }
 
-function freshRpcTabState(): RpcTabState {
+function freshRpcTabState(advisorReply: boolean): RpcTabState {
   return {
     status: "starting",
     items: [],
@@ -243,7 +244,7 @@ function freshRpcTabState(): RpcTabState {
     planDeferred: false,
     plans: [],
     advisorStats: null,
-    advisorReply: true,
+    advisorReply,
   };
 }
 export type SidebarSessionState =
@@ -392,6 +393,7 @@ interface UiStore {
   toggleSidebarCollapsed(): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
+  setAdvisorAutoReply(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   /**
    * The one action that sets before it persists: a theme switch must feel
@@ -482,9 +484,6 @@ interface UiStore {
    * project for future new sessions — null clears that memory.
    */
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
-  /** Turns this session's advisor auto-reply on/off (issue #104). Renderer-only state. */
-  setAdvisorReply(tabId: string, enabled: boolean): void;
-
   setModel(tabId: string, model: ModelInfo): Promise<void>;
   setThinkingLevel(tabId: string, level: string): Promise<void>;
 
@@ -1498,6 +1497,14 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
+    async setAdvisorAutoReply(on) {
+      try {
+        await backend.setAdvisorAutoReply(on);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
     async setSkipDeleteConfirmation(skip) {
       try {
         await backend.setSkipDeleteConfirmation(skip);
@@ -1862,16 +1869,13 @@ export const useStore = create<UiStore>()((set, get) => {
         // restart, and the subscription re-escalates after boot (issue #63).
         const prior = get().rpc[tabId];
         patchRpc(tabId, {
-          ...freshRpcTabState(),
+          ...freshRpcTabState(get().state?.advisorAutoReply ?? true),
           selectedSubagent: prior?.selectedSubagent ?? null,
           subagentItems: prior?.subagentItems ?? {},
-          // Same reasoning: the opt-out is the user's standing choice for this
-          // session, and the advisor relaunch is what reboots the tab.
-          advisorReply: prior?.advisorReply ?? true,
         });
         // The tab may not exist in state yet — ensure the slot exists.
         if (!get().rpc[tabId]) {
-          set((s) => ({ rpc: { ...s.rpc, [tabId]: freshRpcTabState() } }));
+          set((s) => ({ rpc: { ...s.rpc, [tabId]: freshRpcTabState(get().state?.advisorAutoReply ?? true) } }));
         }
         // Boot can outrun init()'s first getState — the record decides whether
         // history (get_messages) is fetched, so don't read it from thin air.
@@ -2340,10 +2344,6 @@ export const useStore = create<UiStore>()((set, get) => {
       await get().setSessionAdvisor(tabId, true, selector);
     },
 
-    setAdvisorReply(tabId, enabled) {
-      patchRpc(tabId, { advisorReply: enabled });
-    },
-
     async setModel(tabId, model) {
       const resp = await runCommand(tabId, {
         type: "set_model",
@@ -2667,6 +2667,27 @@ export const useStore = create<UiStore>()((set, get) => {
       return backend.suggestBranchName(projectCwd, planContext).catch(() => null);
     },
   };
+});
+
+// Advisor auto-reply is an app-level setting (issue #111); each tab's
+// advisorReply is a seeded snapshot of it. Any state write that flips the
+// setting — a settings broadcast, init's first getState, a boot-time fetch —
+// sweeps every open rpc tab. Module scope, not init(): the store module is
+// evaluated once per renderer, and store tests never call the one-shot init().
+useStore.subscribe((curr, prev) => {
+  const next = curr.state?.advisorAutoReply;
+  if (next === undefined || next === prev.state?.advisorAutoReply) return;
+  let changed = false;
+  const rpc: Record<string, RpcTabState> = {};
+  for (const [tabId, tab] of Object.entries(curr.rpc)) {
+    if (tab.advisorReply === next) {
+      rpc[tabId] = tab;
+    } else {
+      rpc[tabId] = { ...tab, advisorReply: next };
+      changed = true;
+    }
+  }
+  if (changed) useStore.setState({ rpc });
 });
 
 /** Resumes the tabs saved before an update relaunch, in saved renderer
