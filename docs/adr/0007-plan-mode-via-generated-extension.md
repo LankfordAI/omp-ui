@@ -97,3 +97,27 @@ emitted source.
   (`plan-mode/model-transition.ts`); omp-ui runs plan mode on whatever model the
   composer shows. Revisit if planning quality on a small model disappoints —
   the transition module is pure and portable if so.
+- **The HTML review rendition is a companion file, not a plan format.** Issue
+  #109 asked for HTML plans. omp 17.2.10 hardcodes `local://<slug>-plan.md`
+  across the plan-mode context template, the `xd://propose` tool description,
+  the write guard's error, and the slug→path derivation, so a canonical HTML
+  plan is unreachable without forking omp. Instead the markdown plan stays
+  mandatory — it is what the propose gate validates, what reference pinning
+  points at, and what seeds a fresh implementation session — and under the
+  `html` plan format the extension asks the agent, via one hidden
+  `sendCustomMessage`, to also maintain `local://<slug>-plan.html`. The review
+  request carries its confined absolute path (`planHtmlAbsPath`, null under
+  `md`), read over the same `plan:read` channel, so the modal renders it and
+  silently falls back to the markdown when it is absent. An omp without
+  `sendCustomMessage` degrades the session to `md` with one warning rather than
+  promising a rendition nothing will write.
+- **Agent-authored HTML renders under an empty sandbox, and cannot navigate.**
+  The modal embeds it as `srcDoc` in `<iframe sandbox="">` — zero tokens, so no
+  scripts, no same-origin access, no forms, no popups, no top navigation; the
+  file never becomes a `file://` URL, keeping the read on the confined channel.
+  Verified in the app: a `<script>` the planner was asked to embed sits in the
+  frame's DOM without ever running. An empty sandbox still permits the frame to
+  navigate *itself*, which would replace the reviewed plan with a remote page
+  off a model-chosen URL, so the main process denies every subframe navigation
+  (`will-frame-navigate`) and routes web URLs to the system browser through the
+  same `openExternalSafe` policy `window.open` already uses (issue #101).

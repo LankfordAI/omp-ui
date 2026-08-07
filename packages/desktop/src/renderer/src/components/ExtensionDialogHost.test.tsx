@@ -19,7 +19,7 @@ function runtime(queue: unknown[]): RpcTabState {
   return { status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {}, pendingCommands: new Map(),
     extensionQueue: queue, busy: false, initialPrompt: null, hasRenamed: true, plan: null, planReview: null,
-    planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true };
+    planHtml: null, planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true };
 }
 
 function renderRequest(...queue: unknown[]): void {

@@ -18,6 +18,7 @@ const sent: Array<{ tabId: string; cmd: Record<string, unknown> }> = [];
 let backendState: BackendState = {
   projects: [],
   defaultMode: "rpc-ui",
+  planFormat: "html",
   modelFavorites: [],
   skipDeleteConfirmation: false,
   themeId: "graphite",
@@ -89,11 +90,15 @@ const mockBackend = {
   setSessionModel: vi.fn(async () => {}),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   generateTitle: vi.fn(async (): Promise<string | null> => null),
-  readPlanFile: vi.fn(async (): Promise<string | null> => "# Plan\n\nstep one\n"),
+  readPlanFile: vi.fn(
+    async (_tabId: string, absPath: string): Promise<string | null> =>
+      absPath.endsWith(".html") ? "<h1>Plan</h1>" : "# Plan\n\nstep one\n",
+  ),
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
+  setPlanFormat: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -195,6 +200,7 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planHtml: null,
     planDeferred: false,
     plans: [],
     advisorStats: null,
@@ -206,6 +212,7 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
 function stateWithRecord(sessionId: string | null, live: LiveState = "live"): BackendState {
   return {
     defaultMode: "rpc-ui",
+    planFormat: "html",
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -281,6 +288,7 @@ beforeEach(() => {
   backendState = {
     projects: [],
     defaultMode: "rpc-ui",
+    planFormat: "html",
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -345,7 +353,7 @@ describe("deriveSidebarSessionState", () => {
         tabState({
           status: "running",
           planReview: {
-            request: { title: "review", planFilePath: "local://p.md", planAbsPath: null },
+            request: { title: "review", planFilePath: "local://p.md", planAbsPath: null, planHtmlAbsPath: null },
             frame: { id: "p" },
           },
         }),
@@ -498,10 +506,11 @@ describe("native RPC relaunch preparation", () => {
       session: { ...emptySessionRuntime(), isStreaming: true },
       extensionQueue: [{ id: "question" }],
       planReview: {
-        request: { title: "review", planFilePath: "local://p.md", planAbsPath: null },
+        request: { title: "review", planFilePath: "local://p.md", planAbsPath: null, planHtmlAbsPath: null },
         frame: { id: "plan" },
       },
       planText: "# stale plan",
+      planHtml: "<h1>stale plan</h1>",
       error: "stale failure",
     });
 
@@ -512,6 +521,7 @@ describe("native RPC relaunch preparation", () => {
     expect(rpc.extensionQueue).toEqual([]);
     expect(rpc.planReview).toBeNull();
     expect(rpc.planText).toBeNull();
+    expect(rpc.planHtml).toBeNull();
     expect(rpc.error).toBeUndefined();
     expect(rpc.items).toEqual([expect.objectContaining({ id: "kept" })]);
   };
@@ -1048,6 +1058,73 @@ describe("handleRpcFrame routing", () => {
     expect(tab.extensionQueue).toHaveLength(0);
     // The agent is blocked on this select — nothing may answer it early.
     expect(sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+  });
+
+  it("loads the html rendition when the review names one", async () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p2h",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "add auth",
+          planFilePath: "local://auth-plan.md",
+          planAbsPath: "/lineage/local/auth-plan.md",
+          planHtmlAbsPath: "/lineage/local/auth-plan.html",
+        }),
+    });
+    await flushMicrotasks();
+    const tab = useStore.getState().rpc[TAB]!;
+    // Both files load: the markdown stays the execution spec, the html is what
+    // the review pane renders.
+    expect(tab.planText).toBe("# Plan\n\nstep one\n");
+    expect(tab.planHtml).toBe("<h1>Plan</h1>");
+  });
+
+  it("leaves planHtml null for a markdown-only review", async () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p2m",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "add auth",
+          planFilePath: "local://auth-plan.md",
+          planAbsPath: "/lineage/local/auth-plan.md",
+        }),
+    });
+    await flushMicrotasks();
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.planText).toBe("# Plan\n\nstep one\n");
+    expect(tab.planHtml).toBeNull();
+    expect(mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to markdown when the html rendition cannot be read", async () => {
+    mockBackend.readPlanFile.mockImplementation(async (_tabId: string, absPath: string) => {
+      if (absPath.endsWith(".html")) throw new Error("ENOENT");
+      return "# Plan\n\nstep one\n";
+    });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p2f",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "add auth",
+          planFilePath: "local://auth-plan.md",
+          planAbsPath: "/lineage/local/auth-plan.md",
+          planHtmlAbsPath: "/lineage/local/auth-plan.html",
+        }),
+    });
+    await flushMicrotasks();
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.planHtml).toBeNull();
+    expect(tab.planText).toBe("# Plan\n\nstep one\n");
+    expect(tab.planReview).not.toBeNull();
   });
 
   it("executing a review answers with the execute verdict and closes the pane", async () => {
@@ -2059,7 +2136,8 @@ describe("prompting, slash commands, and session ops", () => {
       rpc: { [TAB]: tabState() },
     });
     const promise = useStore.getState().runSlashCommand(TAB, "/plan");
-    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on" });
+    // The configured plan format rides the `on` command (issue #109).
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on html" });
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
     await settleAll();
     await promise;
@@ -2071,7 +2149,19 @@ describe("prompting, slash commands, and session ops", () => {
       rpc: { [TAB]: tabState() },
     });
     const promise = useStore.getState().runSlashCommand(TAB, "/plan on");
-    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on" });
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on html" });
+    await settleAll();
+    await promise;
+  });
+
+  it("runSlashCommand /plan carries the markdown format when that is the setting", async () => {
+    useStore.setState({
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { [TAB]: tabState() },
+      state: { ...stateWithRecord("s1"), planFormat: "md" },
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/plan");
+    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/omp-ui-plan on md" });
     await settleAll();
     await promise;
   });
@@ -2559,6 +2649,7 @@ describe("deleteSession", () => {
 describe("focusedTabByProject tracks every tab-activation path (issue #99)", () => {
   const projectState = (sessions: BackendState["projects"][0]["sessions"]) => ({
     defaultMode: "rpc-ui",
+    planFormat: "html",
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -2687,6 +2778,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
   const twoSessionState = () =>
     ({
       defaultMode: "rpc-ui",
+      planFormat: "html",
       modelFavorites: [],
       skipDeleteConfirmation: true,
       themeId: "graphite",

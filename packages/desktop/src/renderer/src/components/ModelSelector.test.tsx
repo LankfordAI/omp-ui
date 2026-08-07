@@ -21,6 +21,7 @@ const models: ModelInfo[] = [
 ];
 const state = {
   defaultMode: "rpc-ui",
+  planFormat: "html",
   modelFavorites: [],
   skipDeleteConfirmation: false,
   themeId: "graphite",
@@ -51,6 +52,7 @@ function tabState(): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planHtml: null,
     planDeferred: false,
     plans: [],
     advisorStats: null,

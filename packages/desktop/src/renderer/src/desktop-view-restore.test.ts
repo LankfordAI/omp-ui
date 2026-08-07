@@ -137,6 +137,7 @@ const session = (
 
 const backendState: BackendState = {
   defaultMode: "rpc-ui",
+  planFormat: "html",
   modelFavorites: [],
   skipDeleteConfirmation: false,
   themeId: "graphite",

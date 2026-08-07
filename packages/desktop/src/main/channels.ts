@@ -6,6 +6,7 @@ export const CH = {
   projectRemove: "project:remove",
   sessionSetModel: "session:setModel",
   settingsSetDefaultMode: "settings:setDefaultMode",
+  settingsSetPlanFormat: "settings:setPlanFormat",
   settingsSetSkipDeleteConfirmation: "settings:setSkipDeleteConfirmation",
   settingsSetThemeId: "settings:setThemeId",
   settingsSetAppUpdateCheckOnLaunch: "settings:setAppUpdateCheckOnLaunch",

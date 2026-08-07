@@ -9,6 +9,7 @@ import type {
   OmpSettingsSnapshot,
   OmpSettingValue,
   OmpUpdateState,
+  PlanFormat,
   ProviderKeysSnapshot,
   RemoteBind,
   RemoteState,
@@ -184,6 +185,11 @@ export interface RpcTabState {
   /** Plan markdown for the review pane, read off disk. */
   planText: string | null;
   /**
+   * HTML rendition of the pending plan, read off disk; null for markdown-only
+   * plans and whenever the companion file is missing or unreadable.
+   */
+  planHtml: string | null;
+  /**
    * The review pane was dismissed without answering the gate ("not now"): the
    * plan stays pending and the agent stays paused; the rail's plans pane is
    * where it is re-opened. Cleared when a verdict lands or a new plan is read.
@@ -233,6 +239,7 @@ function freshRpcTabState(): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planHtml: null,
     planDeferred: false,
     plans: [],
     advisorStats: null,
@@ -384,6 +391,7 @@ interface UiStore {
   closeCompactSurface(): void;
   toggleSidebarCollapsed(): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
+  setPlanFormat(format: PlanFormat): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   /**
    * The one action that sets before it persists: a theme switch must feel
@@ -527,6 +535,12 @@ interface UiStore {
    * plan transcript item, the loaded text is copied onto it too.
    */
   loadPlanText(tabId: string, absPath: string | null, itemId?: string): Promise<void>;
+  /**
+   * Loads the plan's HTML rendition for the review pane. `absPath` is null for
+   * a markdown-only plan; a failed read leaves `planHtml` null so the pane
+   * falls back to the markdown.
+   */
+  loadPlanHtml(tabId: string, absPath: string | null): Promise<void>;
   /**
    * Dismisses the plan review WITHOUT answering the gate: the agent stays
    * paused on its proposal and the plan stays pending in the rail's plans tab,
@@ -874,6 +888,7 @@ export const useStore = create<UiStore>()((set, get) => {
       extensionQueue: [],
       planReview: null,
       planText: null,
+      planHtml: null,
       planDeferred: false,
       error: undefined,
     });
@@ -1002,7 +1017,7 @@ export const useStore = create<UiStore>()((set, get) => {
       id,
       value,
     });
-    patchRpc(tabId, { planReview: null, planText: null, planDeferred: false });
+    patchRpc(tabId, { planReview: null, planText: null, planHtml: null, planDeferred: false });
     return true;
   };
 
@@ -1470,6 +1485,14 @@ export const useStore = create<UiStore>()((set, get) => {
     async setDefaultMode(mode) {
       try {
         await backend.setDefaultMode(mode);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    async setPlanFormat(format) {
+      try {
+        await backend.setPlanFormat(format);
       } catch (err) {
         alertError(err);
       }
@@ -2055,6 +2078,7 @@ export const useStore = create<UiStore>()((set, get) => {
             const planItem = planProposalItem(review.title, review.planFilePath, review.planAbsPath);
             appendItem(tabId, planItem);
             void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
+            void get().loadPlanHtml(tabId, review.planHtmlAbsPath);
             return;
           }
           const entry = extensionStatusEntry(frame);
@@ -2431,9 +2455,12 @@ export const useStore = create<UiStore>()((set, get) => {
     async setPlanMode(tabId, enabled) {
       // The extension owns the state; the UI never assumes the toggle took —
       // it re-renders when the extension publishes its status frame.
+      // The format rides the `on` command, so the extension — not a later
+      // Settings flip — decides what this session's plans are authored as.
+      const format = get().state?.planFormat ?? "html";
       await runCommand(tabId, {
         type: "prompt",
-        message: `/${PLAN_COMMAND} ${enabled ? "on" : "off"}`,
+        message: `/${PLAN_COMMAND} ${enabled ? `on ${format}` : "off"}`,
       });
     },
 
@@ -2519,6 +2546,19 @@ export const useStore = create<UiStore>()((set, get) => {
         // The pane falls back to the plan's path — a failed read must never
         // strand the review, because the agent is waiting on the verdict.
         patchRpc(tabId, { planText: null });
+      }
+    },
+
+    async loadPlanHtml(tabId, absPath) {
+      if (!absPath) {
+        patchRpc(tabId, { planHtml: null });
+        return;
+      }
+      try {
+        patchRpc(tabId, { planHtml: await backend.readPlanFile(tabId, absPath) });
+      } catch {
+        // A markdown-only fallback still reviews fine; never strand the gate.
+        patchRpc(tabId, { planHtml: null });
       }
     },
 

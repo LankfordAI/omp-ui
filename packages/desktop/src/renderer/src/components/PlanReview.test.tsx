@@ -67,10 +67,12 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
         title: "Fix the login race",
         planFilePath: "local://fix-login-race-plan.md",
         planAbsPath: "/x/fix-login-race-plan.md",
+        planHtmlAbsPath: "/x/fix-login-race-plan.html",
       },
       frame: { id: "p1" },
     },
     planText: "# Fix\n\nsteps",
+    planHtml: null,
     planDeferred: false,
     plans: [],
     advisorStats: null,
@@ -100,6 +102,7 @@ function sessionRecord(tabId: string, title: string) {
 function backendState(titles: Record<string, string>): BackendState {
   return {
     defaultMode: "rpc-ui",
+    planFormat: "html",
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
@@ -542,5 +545,56 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
       .map((c) => c[1] as Record<string, unknown>)
       .find((frame) => frame.type === "set_model");
     expect(setModelFrame).toMatchObject({ type: "set_model", provider: "p", modelId: "b" });
+  });
+});
+
+describe("PlanReview plan rendering (issue #109)", () => {
+  const planFrame = (): HTMLIFrameElement | null =>
+    document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
+
+  it("renders the html rendition in an empty-sandbox iframe, markdown suppressed", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          planText: "# Fix\n\nmarkdown-only-body",
+          planHtml: "<h1>Fix</h1><p>html-body</p>",
+        }),
+      },
+    });
+    render();
+
+    const frame = planFrame();
+    expect(frame).not.toBeNull();
+    // The empty token list is the whole security story: no scripts, no
+    // same-origin access, no forms, no popups, no navigation.
+    expect(frame!.getAttribute("sandbox")).toBe("");
+    expect(frame!.getAttribute("srcdoc")).toBe("<h1>Fix</h1><p>html-body</p>");
+    expect(document.body.textContent).not.toContain("markdown-only-body");
+    // Only the plan area changes — every control still answers the gate.
+    expect(executeButton()).toBeDefined();
+    expect(buttonByText("refine")).toBeDefined();
+    expect(buttonByText("not now")).toBeDefined();
+    expect(document.body.textContent).toContain("implementation setup");
+  });
+
+  it("renders the markdown plan when there is no html rendition", () => {
+    useStore.setState({
+      rpc: { [TAB]: tabState({ planText: "# Fix\n\nmarkdown-only-body", planHtml: null }) },
+    });
+    render();
+
+    expect(planFrame()).toBeNull();
+    expect(document.body.textContent).toContain("markdown-only-body");
+    expect(executeButton()).toBeDefined();
+  });
+
+  it("keeps the unreadable-plan warning when neither rendition loaded", () => {
+    useStore.setState({
+      rpc: { [TAB]: tabState({ planText: null, planHtml: null }) },
+    });
+    render();
+
+    expect(planFrame()).toBeNull();
+    expect(document.body.textContent).toContain("The plan file could not be read");
   });
 });

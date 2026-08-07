@@ -167,6 +167,20 @@ if (!app.requestSingleInstanceLock()) {
       return { action: "deny" };
     });
 
+    // The plan-review iframe (PlanReview.tsx) is the only iframe in the app and
+    // renders agent-authored HTML under `sandbox=""` — no scripts, opaque
+    // origin. An empty sandbox still blocks only *top* navigation, so a link
+    // click inside it navigates the frame itself: the reviewed plan would be
+    // replaced by a remote page and a request would leave the machine off a
+    // model-chosen URL. The frame only ever loads its own srcdoc, so deny every
+    // other subframe navigation and route web URLs to the system browser,
+    // exactly like window.open above.
+    win.webContents.on("will-frame-navigate", (details) => {
+      if (details.isMainFrame || details.url.startsWith("about:")) return;
+      details.preventDefault();
+      openExternalSafe(details.url);
+    });
+
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     const be = new MainBackend(win, registryFile, {

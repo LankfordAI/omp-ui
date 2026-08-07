@@ -51,6 +51,26 @@ describe("writePlanExtension", () => {
     expect(source).toContain("setPlanProposalHandler");
   });
 
+  it("carries the html rendition contract into the generated source", () => {
+    const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
+    // The renderer sends the format as the command's second token, the
+    // instruction rides a hidden custom message, and the review request names
+    // the companion file derived from the canonical markdown plan.
+    expect(source).toContain('tokens[1] === "html"');
+    expect(source).toContain("sendCustomMessage");
+    expect(source).toContain('replace(/\\.md$/, ".html")');
+    expect(source).toContain("planHtmlAbsPath");
+    expect(source).toContain("local://<slug>-plan.html");
+  });
+
+  it("keeps markdown canonical, so omp's own plan gate still has its artifact", () => {
+    const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
+    // omp hardcodes -plan.md through its propose gate and write guard: the
+    // instruction must never offer the html file as a replacement.
+    expect(source).toContain("local://<slug>-plan.md (still required");
+    expect(source).toContain('let format: "html" | "md" = "md"');
+  });
+
   it("writes a syntactically valid TS extension omp can transpile", () => {
     const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
     const { diagnostics } = ts.transpileModule(source, {

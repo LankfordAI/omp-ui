@@ -61,6 +61,28 @@ const COMMAND = ${JSON.stringify(PLAN_COMMAND)};
 const EXECUTE = ${JSON.stringify(PLAN_EXECUTE)};
 const REFINE = ${JSON.stringify(PLAN_REFINE)};
 
+/**
+ * Sent to the agent (hidden, like omp's own plan-mode context) when the
+ * session plans in html format. omp hardcodes local://<slug>-plan.md across
+ * its propose gate, write guard, and slug derivation, so the markdown plan
+ * stays canonical and the html file is a companion rendition for the reviewer.
+ */
+const HTML_PLAN_INSTRUCTION =
+  "This session reviews plans as HTML. In addition to the canonical " +
+  "local://<slug>-plan.md (still required — write it as usual; it remains the " +
+  "execution spec the implementer receives), you MUST maintain an HTML " +
+  "rendition at local://<slug>-plan.html (same slug). Write it before writing " +
+  "the slug to xd://propose, and rewrite it after every revision so both files " +
+  "carry the same decisions and steps. The HTML file is what the human reviewer " +
+  "sees: a complete, self-contained document — inline CSS only, no external " +
+  "resources, no JavaScript (scripts will not run). Use the extra expressiveness " +
+  "(layout, tables, callouts, inline SVG diagrams) to make the plan easier to " +
+  "review.";
+
+/** Notified once when the html rendition cannot be requested at all. */
+const HTML_UNAVAILABLE =
+  "HTML plan rendition unavailable on this omp; falling back to markdown plans";
+
 /** The slice of omp's AgentSession this extension drives. */
 interface PlanSession {
   isStreaming?: boolean;
@@ -80,6 +102,15 @@ interface PlanSession {
   getEnabledToolNames: () => string[];
   hasBuiltInTool?: (name: string) => boolean;
   sendPlanModeContext?: (options: { deliverAs: "steer" }) => Promise<void>;
+  /**
+   * Delivers a hidden instruction into the conversation. Unsupported surface
+   * like the rest of this session access; absent on an older omp, in which
+   * case html plans degrade to markdown.
+   */
+  sendCustomMessage?: (
+    msg: { customType: string; content: string; display: boolean; attribution: string },
+    opts: { deliverAs: "steer" | "nextTurn"; triggerTurn: boolean },
+  ) => Promise<unknown>;
 }
 
 interface ToolResult {
@@ -108,6 +139,9 @@ export default function (pi: PlanExtensionApi) {
   let session: PlanSession | null = null;
   let unavailable: string | undefined;
   let approved = false;
+  // Which format the renderer asked for on the last \`on\`. A bare \`on\` typed by
+  // hand keeps markdown — the renderer always sends the format explicitly.
+  let format: "html" | "md" = "md";
   let previousTools: string[] | undefined;
   let ui: PlanUi | null = null;
 
@@ -200,6 +234,8 @@ export default function (pi: PlanExtensionApi) {
       title: details.title ?? title,
       planFilePath,
       planAbsPath: absolutePlanPath(planFilePath),
+      planHtmlAbsPath:
+        format === "html" ? absolutePlanPath(planFilePath.replace(/\\.md$/, ".html")) : null,
     };
 
     let answer: string | undefined;
@@ -227,7 +263,12 @@ export default function (pi: PlanExtensionApi) {
               "Plan refinement requested. The user's revision notes may arrive as a " +
               "follow-up message; incorporate them, revise " +
               planFilePath +
-              ", then write its title to xd://propose again when ready.",
+              ", then write its title to xd://propose again when ready." +
+              (format === "html"
+                ? " Also rewrite " +
+                  planFilePath.replace(/\\.md$/, ".html") +
+                  " to match the revised plan."
+                : ""),
           },
         ],
         details,
@@ -279,6 +320,34 @@ export default function (pi: PlanExtensionApi) {
     if (active.isStreaming && typeof active.sendPlanModeContext === "function") {
       await active.sendPlanModeContext({ deliverAs: "steer" });
     }
+    if (format === "html") await requestHtmlRendition(active);
+  }
+
+  /**
+   * Asks the agent to keep an html rendition beside the canonical plan. If the
+   * session cannot carry the instruction, drop to markdown rather than promise
+   * the reviewer a rendition nothing will write.
+   */
+  async function requestHtmlRendition(active: PlanSession): Promise<void> {
+    if (typeof active.sendCustomMessage !== "function") {
+      format = "md";
+      ui?.notify(HTML_UNAVAILABLE, "warning");
+      return;
+    }
+    try {
+      await active.sendCustomMessage(
+        {
+          customType: "omp-ui:plan-format",
+          content: HTML_PLAN_INSTRUCTION,
+          display: false,
+          attribution: "agent",
+        },
+        { deliverAs: active.isStreaming ? "steer" : "nextTurn", triggerTurn: false },
+      );
+    } catch {
+      format = "md";
+      ui?.notify(HTML_UNAVAILABLE, "warning");
+    }
   }
 
   pi.registerCommand(COMMAND, {
@@ -292,9 +361,11 @@ export default function (pi: PlanExtensionApi) {
         ctx.ui.notify("Plan mode unavailable: " + (reason ?? "no active omp session"), "error");
         return;
       }
-      const want = args.trim().toLowerCase();
+      // \`on|off\` then an optional format; absent verb toggles.
+      const tokens = args.trim().toLowerCase().split(/\\s+/).filter(t => t !== "");
       const on = active.getPlanModeState()?.enabled === true;
-      const next = want === "on" ? true : want === "off" ? false : !on;
+      const next = tokens[0] === "on" ? true : tokens[0] === "off" ? false : !on;
+      if (tokens[1] === "html" || tokens[1] === "md") format = tokens[1];
       if (next === on) {
         publish();
         return;
