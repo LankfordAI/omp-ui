@@ -150,6 +150,21 @@ context; refine stays immediate because the planner revises in situ, where the
 advisor's notes already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
 
+**Plan format**:
+How the agent is asked to author a plan for review, set once in Settings →
+General and carried on the plan-mode toggle: `html` (default) or `md`. omp
+hardcodes `local://<slug>-plan.md` through its propose gate, write guard, and
+slug derivation, so the markdown plan is always written and stays the
+execution spec the implementer receives. Under `html` the extension also asks
+the agent, through one hidden custom message, to maintain an **HTML plan
+rendition** at `local://<slug>-plan.html` — a self-contained document (inline
+CSS, no external resources, no scripts) that the review modal renders in a
+`sandbox=""` iframe instead of the markdown. The rendition is a review
+surface, never an input: a missing, unreadable, or never-written `.html` falls
+back to the markdown rendering, and an omp that cannot carry the instruction
+degrades the session to `md` with one warning.
+_Avoid_: plan theme, plan template, rich plan, plan export
+
 **Advisor reply**:
 The follow-up prompt omp-ui dispatches into a live rpc-ui session when advisor
 findings land in its transcript while the session is idle, so a review that

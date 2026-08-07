@@ -43,6 +43,8 @@ const EMPTY_MODELS: ModelInfo[] = [];
 export function PlanReview({ tabId }: { tabId: string }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
   const planText = useStore((s) => s.rpc[tabId]?.planText);
+  /** Present only when the session planned in html format and the file read. */
+  const planHtml = useStore((s) => s.rpc[tabId]?.planHtml);
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
@@ -300,8 +302,27 @@ export function PlanReview({ tabId }: { tabId: string }) {
         </header>
 
         <div className="plan-review-layout grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_21rem] overflow-hidden">
-          <section className="plan-review-document min-h-0 overflow-y-auto px-5 py-4" aria-label="proposed plan">
-            {planText ? (
+          <section
+            className={cn(
+              "plan-review-document min-h-0 px-5 py-4",
+              // The iframe scrolls its own content (unreachable for parent
+              // measurement under an empty sandbox), so the section stops being
+              // the scroll container and just hands it the leftover height.
+              planHtml ? "flex flex-col overflow-hidden" : "overflow-y-auto",
+            )}
+            aria-label="proposed plan"
+          >
+            {planHtml ? (
+              // sandbox="" is the empty token list: no scripts, no same-origin
+              // access, no forms, no popups, no navigation. srcDoc keeps the
+              // read on the confined plan:read channel rather than a file:// URL.
+              <iframe
+                title="proposed plan"
+                sandbox=""
+                srcDoc={planHtml}
+                className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
+              />
+            ) : planText ? (
               <Markdown text={planText} />
             ) : (
               <p className="text-sm text-ink-dim">
@@ -310,7 +331,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
               </p>
             )}
 
-            <div className="mt-6 border-t border-line pt-4">
+            <div className={cn("mt-6 border-t border-line pt-4", planHtml && "shrink-0")}>
               <div className="flex items-baseline justify-between gap-3">
                 <div>
                   <Label>send it back</Label>

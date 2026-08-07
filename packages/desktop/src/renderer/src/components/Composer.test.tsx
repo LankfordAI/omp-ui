@@ -38,6 +38,7 @@ let root: Root | null = null;
 
 const state = {
   defaultMode: "rpc-ui", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
+  planFormat: "html",
   appUpdateCheckOnLaunch: true, ompUpdateCheckOnLaunch: true, dismissedAppUpdateVersion: null, dismissedOmpUpdateVersion: null,
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastAdvisorModel: null }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
@@ -52,7 +53,7 @@ function seed(status: "ready" | "running", dead = false): void {
     branches: { "/p": { repoRoot: null, current: null, branches: [], defaultBranch: null } },
     rpc: { [TAB]: { status, items: [], todos: [], model: { id: "model-x", name: "Model X", provider: "test", input: ["text"], contextWindow: 1000 }, availableModels: [], commands: [],
       session: { ...emptySessionRuntime(), thinkingLevel: "medium" }, stats: null, subagents: [], extensionStatus: {}, pendingCommands: new Map(), extensionQueue: [], busy: false,
-      initialPrompt: null, hasRenamed: true, plan: null, planReview: null, planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
+      initialPrompt: null, hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
     },
     compactSurface: null, sendPrompt, abortAndPrompt, abortAgent,
   });

@@ -36,6 +36,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     plan: null,
     planReview: null,
     planText: null,
+    planHtml: null,
     planDeferred: false,
     plans: [],
     advisorStats: null,

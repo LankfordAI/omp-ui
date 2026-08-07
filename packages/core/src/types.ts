@@ -13,6 +13,13 @@ export type SessionMode = "pty" | "rpc-ui";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
 /**
+ * How the agent is asked to author plans for review: `html` adds a rich,
+ * self-contained HTML rendition beside the canonical markdown plan, `md`
+ * keeps markdown only. See core/plan-extension.ts.
+ */
+export type PlanFormat = "html" | "md";
+
+/**
  * A pasted image, shaped exactly like omp's `ImageContent` (minus the
  * OpenAI-only `detail` hint). `data` is bare base64 — never a `data:` URL.
  * Lives here rather than in images.ts because the renderer imports this file
@@ -76,6 +83,8 @@ export interface ProjectGroup {
 export interface BackendState {
   projects: ProjectGroup[];
   defaultMode: SessionMode;
+  /** Plan authoring format the next plan-mode toggle asks the agent for. */
+  planFormat: PlanFormat;
   modelFavorites: string[];
   /** Whether destructive session deletion proceeds without a renderer warning. */
   skipDeleteConfirmation: boolean;
@@ -407,6 +416,7 @@ export interface OmpBackend {
   browseDirectories(partialPath: string): Promise<DirBrowseResult>;
   removeProject(path: string): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
+  setPlanFormat(format: PlanFormat): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;

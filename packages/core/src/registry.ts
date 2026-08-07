@@ -1,11 +1,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { OwnedSessionRecord, ProjectRecord, RemoteBind, SessionMode } from "./types";
+import type {
+  OwnedSessionRecord,
+  PlanFormat,
+  ProjectRecord,
+  RemoteBind,
+  SessionMode,
+} from "./types";
 
 interface RegistryData {
   schemaVersion: 1;
   settings: {
     defaultMode: SessionMode;
+    /** How the agent authors plans for review (see core/plan-extension.ts). */
+    planFormat: PlanFormat;
     modelFavorites: string[];
     skipDeleteConfirmation: boolean;
     /** Release version whose update card the user dismissed ("Later"). */
@@ -37,6 +45,9 @@ function emptyRegistry(): RegistryData {
       // The native transcript is the primary mode (the sidebar's mode toggle
       // went away with #10); pty stays an explicit per-spawn menu choice.
       defaultMode: "rpc-ui",
+      // HTML is the default review rendition (issue #109); the canonical
+      // markdown plan is written either way.
+      planFormat: "html",
       modelFavorites: [],
       skipDeleteConfirmation: false,
       dismissedAppUpdateVersion: null,
@@ -155,6 +166,10 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     settingsObj !== undefined && "defaultMode" in settingsObj && isSessionMode(settingsObj.defaultMode)
       ? settingsObj.defaultMode
       : undefined;
+  const rawPlanFormat: PlanFormat =
+    settingsObj !== undefined && "planFormat" in settingsObj && settingsObj.planFormat === "md"
+      ? "md"
+      : "html";
   const favRaw =
     settingsObj !== undefined && "modelFavorites" in settingsObj
       ? settingsObj.modelFavorites
@@ -225,6 +240,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       : "";
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
+    planFormat: rawPlanFormat,
     modelFavorites:
       Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
     skipDeleteConfirmation: rawSkipDeleteConfirmation,
@@ -398,6 +414,16 @@ export class Registry {
 
   setDefaultMode(mode: SessionMode): void {
     this.#data.settings.defaultMode = mode;
+    this.#save();
+  }
+
+  get planFormat(): PlanFormat {
+    return this.#data.settings.planFormat;
+  }
+
+  setPlanFormat(format: PlanFormat): void {
+    if (this.#data.settings.planFormat === format) return;
+    this.#data.settings.planFormat = format;
     this.#save();
   }
 

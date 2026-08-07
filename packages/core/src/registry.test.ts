@@ -39,6 +39,8 @@ describe("Registry.load", () => {
     expect(reg.sessions).toEqual([]);
     expect(reg.defaultMode).toBe("rpc-ui");
     expect(reg.skipDeleteConfirmation).toBe(false);
+    // Issue #109: HTML is the default plan review rendition.
+    expect(reg.planFormat).toBe("html");
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -151,6 +153,22 @@ describe("Registry persistence", () => {
     expect(Registry.load(file).dismissedOmpUpdateVersion).toBe("1.2.0");
     reg.setDismissedOmpUpdateVersion(null);
     expect(Registry.load(file).dismissedOmpUpdateVersion).toBeNull();
+  });
+
+  it("round-trips the plan format and falls back to html for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setPlanFormat("md");
+    expect(Registry.load(file).planFormat).toBe("md");
+    reg.setPlanFormat("html");
+    expect(Registry.load(file).planFormat).toBe("html");
+
+    const junk = tmpFile();
+    fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { planFormat: "pdf" } }));
+    expect(Registry.load(junk).planFormat).toBe("html");
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).planFormat).toBe("html");
   });
 
   it("defaults theme and launch update checks when the settings fields are absent", () => {

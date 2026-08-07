@@ -172,9 +172,11 @@ function CommitField({
 function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
+  const setPlanFormat = useStore((s) => s.setPlanFormat);
   const setSkipDeleteConfirmation = useStore((s) => s.setSkipDeleteConfirmation);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
+  const planFormat = state?.planFormat ?? "html";
 
   return (
     <div className="divide-y divide-line-soft px-4">
@@ -198,6 +200,33 @@ function GeneralPage() {
                 CAPSULE_SEGMENT,
                 "px-2 text-[11px]",
                 mode === value ? "bg-hover text-ink" : "text-ink-mid",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </Capsule>
+      </Row>
+      <Row
+        title="Plan format"
+        hint="How the agent authors plans for review — a rich HTML document rendered in the review modal, or markdown only."
+      >
+        <Capsule>
+          {(
+            [
+              ["html", "html"],
+              ["md", "markdown"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={planFormat === value}
+              onClick={() => void setPlanFormat(value)}
+              className={cn(
+                CAPSULE_SEGMENT,
+                "px-2 text-[11px]",
+                planFormat === value ? "bg-hover text-ink" : "text-ink-mid",
               )}
             >
               {label}

@@ -52,6 +52,7 @@ import {
   type McpSetEnabledRequest,
   type OmpSettingValue,
   type OwnedSessionRecord,
+  type PlanFormat,
   type ProjectGroup,
   type ProviderKeysSnapshot,
   type PtyHandle,
@@ -257,6 +258,10 @@ export class MainBackend {
         },
         [CH.settingsSetDefaultMode]: async (mode: SessionMode) => {
           this.registry.setDefaultMode(mode);
+          await this.broadcast();
+        },
+        [CH.settingsSetPlanFormat]: async (format: PlanFormat) => {
+          this.registry.setPlanFormat(format);
           await this.broadcast();
         },
         [CH.settingsSetSkipDeleteConfirmation]: async (skip: boolean) => {
@@ -1129,6 +1134,7 @@ export class MainBackend {
     return {
       projects: groups,
       defaultMode: this.registry.defaultMode,
+      planFormat: this.registry.planFormat,
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
       themeId: this.registry.themeId,

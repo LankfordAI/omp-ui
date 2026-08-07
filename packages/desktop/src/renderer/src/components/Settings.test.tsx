@@ -4,8 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
+  BackendState,
   OmpSettingsSnapshot,
   OmpUpdateState,
+  PlanFormat,
 } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -34,6 +36,7 @@ const backendMock = {
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
+  setPlanFormat: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -239,5 +242,49 @@ describe("Settings Updates page (issue #89)", () => {
     await renderSettings();
     click(buttonWithText("Update now")!);
     expect(backendMock.downloadOmpUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Settings General page plan format (issue #109)", () => {
+  const generalState = (planFormat: PlanFormat): BackendState => ({
+    projects: [],
+    defaultMode: "rpc-ui",
+    planFormat,
+    modelFavorites: [],
+    skipDeleteConfirmation: false,
+    themeId: "graphite",
+    appUpdateCheckOnLaunch: true,
+    ompUpdateCheckOnLaunch: true,
+    dismissedAppUpdateVersion: null,
+    dismissedOmpUpdateVersion: null,
+  });
+
+  const seedGeneral = (planFormat: PlanFormat): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: generalState(planFormat),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("shows the configured format and persists a switch to markdown", async () => {
+    seedGeneral("html");
+    await renderSettings();
+    expect(document.body.textContent).toContain("Plan format");
+    expect(buttonWithText("html")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe("false");
+
+    click(buttonWithText("markdown")!);
+    expect(backendMock.setPlanFormat).toHaveBeenCalledWith("md");
+  });
+
+  it("reflects a persisted markdown setting", async () => {
+    seedGeneral("md");
+    await renderSettings();
+    expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("html")!.getAttribute("aria-pressed")).toBe("false");
   });
 });

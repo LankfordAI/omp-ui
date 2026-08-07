@@ -21,6 +21,7 @@ let root: Root | null = null;
 
 const state = {
   defaultMode: "rpc-ui", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
+  planFormat: "html",
   appUpdateCheckOnLaunch: true, ompUpdateCheckOnLaunch: true,
   dismissedAppUpdateVersion: null, dismissedOmpUpdateVersion: null,
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastAdvisorModel: null }, sessions: [{
@@ -42,7 +43,7 @@ beforeEach(() => {
       session: { ...emptySessionRuntime(), contextUsage: { tokens: 20, contextWindow: 100, percent: 20 } },
       stats: null, subagents: [], extensionStatus: { advisor: "available" }, pendingCommands: new Map(), extensionQueue: [], busy: false,
       initialPrompt: null, hasRenamed: true, plan: { enabled: true, planFilePath: "/plan.md", planAbsPath: "/plan.md", approved: false }, planReview: null,
-      planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
+      planHtml: null, planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
     },
     compactSurface: null,
     compactSession, exportHtml, branchSession, newSession, toggleConsole,

@@ -58,12 +58,26 @@ describe("parsePlanReviewTitle", () => {
         title: "add auth",
         planFilePath: "local://auth-plan.md",
         planAbsPath: "/l/local/auth-plan.md",
+        planHtmlAbsPath: "/l/local/auth-plan.html",
       });
     expect(parsePlanReviewTitle(title)).toEqual({
       title: "add auth",
       planFilePath: "local://auth-plan.md",
       planAbsPath: "/l/local/auth-plan.md",
+      planHtmlAbsPath: "/l/local/auth-plan.html",
     });
+  });
+
+  it("reports no html rendition for a markdown-only plan", () => {
+    // A session planning in md format — and every extension predating the
+    // html rendition — omits the field entirely.
+    const title =
+      PLAN_REVIEW_SENTINEL +
+      JSON.stringify({ planFilePath: "local://p.md", planAbsPath: "/l/local/p.md" });
+    expect(parsePlanReviewTitle(title)?.planHtmlAbsPath).toBeNull();
+    const junk =
+      PLAN_REVIEW_SENTINEL + JSON.stringify({ planFilePath: "local://p.md", planHtmlAbsPath: 7 });
+    expect(parsePlanReviewTitle(junk)?.planHtmlAbsPath).toBeNull();
   });
 
   it("falls back to the plan path when the agent dropped the title", () => {

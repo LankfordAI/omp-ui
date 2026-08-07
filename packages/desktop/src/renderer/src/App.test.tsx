@@ -31,7 +31,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     pendingCommands: new Map(), extensionQueue: [], busy: false, initialPrompt: null,
-    hasRenamed: true, plan: null, planReview: null, planText: null, planDeferred: false,
+    hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     plans: [], advisorStats: null, advisorReply: true, ...patch,
   };
 }
@@ -50,7 +50,7 @@ function seed(): void {
     rpc: { rpc: runtime({
       todos: [{ phase: "work", tasks: [{ content: "open", status: "pending" }] }],
       subagents: [{ id: "agent-1", name: "worker", status: "working" }],
-      planReview: { request: { title: "Plan", planFilePath: "local://plan.md", planAbsPath: "/plan.md" }, frame: { id: "p" } },
+      planReview: { request: { title: "Plan", planFilePath: "local://plan.md", planAbsPath: "/plan.md", planHtmlAbsPath: null }, frame: { id: "p" } },
     }) },
     compactSurface: null,
     sidebarCollapsed: false,

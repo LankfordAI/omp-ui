@@ -13,7 +13,10 @@ export const PLAN_STATUS_KEY = "omp-ui:plan";
  */
 export const PLAN_REVIEW_SENTINEL = "omp-ui:plan-review:";
 
-/** Slash command the renderer sends to drive the mode. Takes `on`/`off`. */
+/**
+ * Slash command the renderer sends to drive the mode. Takes `on`/`off`,
+ * optionally followed by the plan format (`html`/`md`) on `on`.
+ */
 export const PLAN_COMMAND = "omp-ui-plan";
 
 /** The two verdicts the renderer may give the approval `select`.
@@ -48,6 +51,12 @@ export interface PlanReviewRequest {
   title: string;
   planFilePath: string;
   planAbsPath: string | null;
+  /**
+   * Absolute path of the plan's HTML rendition, or null for a markdown-only
+   * plan. Set only when the session is planning in `html` format; the review
+   * pane falls back to the markdown when the file is missing or unreadable.
+   */
+  planHtmlAbsPath: string | null;
 }
 
 /** Parses the JSON published on {@link PLAN_STATUS_KEY}; null when malformed. */
@@ -80,6 +89,7 @@ export function parsePlanReviewTitle(title: string | undefined): PlanReviewReque
     title: typeof record.title === "string" ? record.title : planFilePath,
     planFilePath,
     planAbsPath: typeof record.planAbsPath === "string" ? record.planAbsPath : null,
+    planHtmlAbsPath: typeof record.planHtmlAbsPath === "string" ? record.planHtmlAbsPath : null,
   };
 }
 

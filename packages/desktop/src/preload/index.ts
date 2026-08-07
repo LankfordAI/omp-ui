@@ -10,6 +10,7 @@ const api: OmpBackend = {
   browseDirectories: (partialPath) => ipcRenderer.invoke(CH.dirBrowse, partialPath),
   removeProject: (path) => ipcRenderer.invoke(CH.projectRemove, path),
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
+  setPlanFormat: (format) => ipcRenderer.invoke(CH.settingsSetPlanFormat, format),
   setSkipDeleteConfirmation: (skip) =>
     ipcRenderer.invoke(CH.settingsSetSkipDeleteConfirmation, skip),
   setThemeId: (id) => ipcRenderer.invoke(CH.settingsSetThemeId, id),
