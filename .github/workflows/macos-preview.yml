@@ -1,0 +1,126 @@
+name: macOS Preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  package:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Stamp preview version
+        run: npm version "0.0.0-preview.${GITHUB_RUN_NUMBER}" --no-git-tag-version
+        working-directory: packages/desktop
+      - name: Rebuild node-pty
+        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
+      - name: Package macOS preview
+        run: npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Assert native package contents and generate checksums
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          dist="packages/desktop/dist"
+          dmgs=("$dist"/*-mac-"$ARCH".dmg)
+          zips=("$dist"/*-mac-"$ARCH".zip)
+
+          if (( ${#dmgs[@]} != 1 )); then
+            printf 'Expected exactly one %s DMG, found %s\n' "$ARCH" "${#dmgs[@]}" >&2
+            printf 'DMG candidates: %s\n' "${dmgs[*]:-none}" >&2
+            exit 1
+          fi
+          if (( ${#zips[@]} != 1 )); then
+            printf 'Expected exactly one %s ZIP, found %s\n' "$ARCH" "${#zips[@]}" >&2
+            printf 'ZIP candidates: %s\n' "${zips[*]:-none}" >&2
+            exit 1
+          fi
+
+          apps=()
+          while IFS= read -r -d '' app; do
+            apps+=("$app")
+          done < <(find "$dist" -type d -name 'omp-ui.app' -prune -print0)
+          if (( ${#apps[@]} != 1 )); then
+            printf 'Expected exactly one unpacked omp-ui.app, found %s\n' "${#apps[@]}" >&2
+            printf 'App candidates: %s\n' "${apps[*]:-none}" >&2
+            exit 1
+          fi
+
+          app="${apps[0]}"
+          pty="$app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node"
+          executable="$app/Contents/MacOS/omp-ui"
+          test -f "$pty" || { printf 'Missing unpacked node-pty binary: %s\n' "$pty" >&2; exit 1; }
+          test -f "$executable" || { printf 'Missing app executable: %s\n' "$executable" >&2; exit 1; }
+
+          pty_type="$(file -b "$pty")"
+          executable_type="$(file -b "$executable")"
+          case "$ARCH" in
+            arm64)
+              required_arch=arm64
+              forbidden_arch=x86_64
+              ;;
+            x64)
+              required_arch=x86_64
+              forbidden_arch=arm64
+              ;;
+            *)
+              printf 'Unsupported architecture: %s\n' "$ARCH" >&2
+              exit 1
+              ;;
+          esac
+
+          for description in "$pty_type" "$executable_type"; do
+            if [[ "$description" != *"$required_arch"* || "$description" == *"$forbidden_arch"* ]]; then
+              printf 'Expected thin %s Mach-O binary, got: %s\n' "$required_arch" "$description" >&2
+              exit 1
+            fi
+          done
+
+          dmg="${dmgs[0]##*/}"
+          zip="${zips[0]##*/}"
+          checksums="SHA256SUMS-macos-${ARCH}.txt"
+          (cd "$dist" && shasum -a 256 "$dmg" "$zip" > "$checksums")
+      - name: Upload macOS preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: omp-ui-macos-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            packages/desktop/dist/*-mac-${{ matrix.arch }}.dmg
+            packages/desktop/dist/*-mac-${{ matrix.arch }}.zip
+            packages/desktop/dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

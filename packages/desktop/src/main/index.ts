@@ -10,6 +10,7 @@ import {
   saveWindowState,
   windowStatePath,
 } from "./window-state";
+import { installApplicationMenu } from "./application-menu";
 
 // Dev and packaged builds resolve the same package.json name, so by default
 // they also share userData — and with it the single-instance lock: an
@@ -33,6 +34,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   let backend: MainBackend | null = null;
   let forceQuit = false;
+  let appQuitting = false;
   let quitDialogOpen = false;
   // The `before-quit` flush reads window geometry from the renderer process;
   // the closure is set once whenReady has a window (see whenReady below).
@@ -67,10 +69,10 @@ if (!app.requestSingleInstanceLock()) {
   };
 
   /**
-   * Quit-guard shared by the title-bar X (window close) and every quit that
-   * starts with before-quit (Ctrl+Q, app menu, app.quit()). killAll must run
-   * only when the quit actually proceeds — draining `live` first would make
-   * the confirm never show. Returns true when the quit may proceed.
+   * Quit guard used by non-Darwin window close and every quit that starts with
+   * before-quit (Ctrl+Q, app menu, app.quit()). killAll must run only when the
+   * quit actually proceeds — draining `live` first would make the confirm
+   * never show. Returns true when the quit may proceed.
    */
   const confirmQuitIfLive = (): boolean => {
     if (forceQuit || !backend || backend.liveCount === 0) return true;
@@ -87,7 +89,17 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
 
+  app.on("activate", () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+
   void app.whenReady().then(() => {
+    installApplicationMenu();
+
     // Tier-3 update restore (issue #99): the window's geometry outlives an
     // update relaunch. loadWindowState guards every corruption path; a missing
     // or unusable file keeps the 1600x1000 defaults below.
@@ -117,6 +129,9 @@ if (!app.requestSingleInstanceLock()) {
       // colors); the renderer supplies the drag region. Alt reveals the menu.
       titleBarStyle: "hidden",
       titleBarOverlay: { color: "#0a0b0d", symbolColor: "#a8b2bf", height: 36 },
+      ...(process.platform === "darwin"
+        ? { trafficLightPosition: { x: 12, y: 10 } }
+        : {}),
       autoHideMenuBar: true,
       webPreferences: {
         preload: join(__dirname, "../preload/index.js"),
@@ -185,9 +200,11 @@ if (!app.requestSingleInstanceLock()) {
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     const be = new MainBackend(win, registryFile, {
       confirmQuit: confirmLiveQuit,
-      // The updater is packaged-builds-only by default; the env overrides
-      // exist so a dev run can exercise the real flow against a real release.
-      appUpdateEnabled: app.isPackaged || process.env.OMP_UI_APP_UPDATE_ENABLE === "1",
+      // omp-ui updates are packaged-Linux-only by default; the env override
+      // lets a dev run exercise the real flow against a real release.
+      appUpdateEnabled:
+        (app.isPackaged && process.platform === "linux") ||
+        process.env.OMP_UI_APP_UPDATE_ENABLE === "1",
       appVersion: process.env.OMP_UI_APP_UPDATE_VERSION ?? app.getVersion(),
       // Dev-only AppImage fake: APPIMAGE is never set outside a real AppImage
       // run, so without this the electron-updater path is unreachable in dev.
@@ -211,7 +228,12 @@ if (!app.requestSingleInstanceLock()) {
     void be.captureShellKeys();
 
     win.on("close", (e) => {
-      if (!confirmQuitIfLive()) e.preventDefault();
+      if (process.platform === "darwin" && !appQuitting) {
+        e.preventDefault();
+        win.hide();
+      } else if (process.platform !== "darwin" && !confirmQuitIfLive()) {
+        e.preventDefault();
+      }
     });
 
     if (process.env.ELECTRON_RENDERER_URL) {
@@ -240,6 +262,7 @@ if (!app.requestSingleInstanceLock()) {
     // failure-tolerating write can never block the quit. The final drag
     // inside the debounce window is read fresh here (see whenReady).
     flushWindowState?.();
+    appQuitting = true;
     backend?.killAll();
     // Pasted-image scratch files are only ever needed by a live omp process.
     clearImageScratch();

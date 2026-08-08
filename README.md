@@ -258,6 +258,45 @@ binary — only new sessions pick up the install. Its launch check has its own
 switch on the Updates page, separate from the omp-ui one; "Check for omp
 updates" from the command palette runs whether or not the launch check is on.
 
+### Unsigned macOS preview
+
+Stable releases remain Linux-only. The unsigned macOS preview is an internal,
+team-only artifact, not a public macOS release.
+[Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) remains the tracker
+for a signed and notarized macOS release.
+
+To install a preview:
+
+1. In this repository, open **Actions → macOS Preview → Run workflow**. Choose
+   `arm64` for Apple Silicon or `x64` for Intel.
+2. Download the `omp-ui-macos-<architecture>-<commit>` artifact from that
+   trusted Actions run. In the extracted artifact directory, verify both the
+   DMG and ZIP against the included architecture-specific checksum manifest:
+
+   ```sh
+   shasum -a 256 -c SHA256SUMS-macos-<architecture>.txt
+   ```
+
+   Continue only if every file reports `OK`.
+3. Mount the DMG and copy **omp-ui** to **Applications**.
+4. For the first open, use Apple's supported override flow exactly: attempt to
+   launch **omp-ui** once, then open **System Settings → Privacy & Security →
+   Security → Open Anyway**, authenticate, and confirm **Open**.
+
+This override is appropriate only for an artifact downloaded from this
+repository's trusted Actions run whose checksum matches the included manifest.
+Do not disable Gatekeeper globally, and do not remove quarantine with `xattr`.
+
+Preview limitations:
+
+- no publisher identity;
+- no notarization;
+- no omp-ui automatic updates;
+- 14-day Actions artifact retention; and
+- team-only use.
+
+Managed **omp binary** updates remain enabled; the automatic-update limitation
+applies only to omp-ui itself.
 
 ## Session storage
 

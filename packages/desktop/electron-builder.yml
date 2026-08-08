@@ -16,6 +16,15 @@ linux:
   category: Development
   synopsis: Desktop GUI for the omp coding agent
   maintainer: Austin Lankford <austin@austinlankford.com>
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  identity: null
+  notarize: false
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  target:
+    - dmg
+    - zip
 publish:
   provider: github
   owner: LankfordAI

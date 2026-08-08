@@ -15,7 +15,10 @@
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build && npm run build:web",
     "build:web": "vite build --config vite.web.config.ts",
-    "package": "npm run build && electron-builder --linux",
+    "package": "npm run package:linux",
+    "package:linux": "npm run build && electron-builder --linux",
+    "package:mac": "npm run build && electron-builder --mac",
+    "rebuild:native": "electron-rebuild -f -w node-pty",
     "icon": "node scripts/render-icon.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
