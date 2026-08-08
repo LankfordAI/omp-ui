@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Modal, Sheet } from "./ui";
+import { Button, Modal, Sheet } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -69,5 +69,26 @@ describe("Modal", () => {
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(top).toHaveBeenCalledOnce();
     expect(bottom).not.toHaveBeenCalled();
+  });
+});
+
+describe("Button selected state", () => {
+  it("emits aria-pressed and the check glyph when selected", async () => {
+    await render(<Button selected tone="iris">medium</Button>);
+    const button = document.body.querySelector("button")!;
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.querySelector("svg")).not.toBeNull();
+  });
+
+  it("emits aria-pressed=false and no glyph when unselected", async () => {
+    await render(<Button selected={false} tone="iris">low</Button>);
+    const button = document.body.querySelector("button")!;
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.querySelector("svg")).toBeNull();
+  });
+
+  it("omits aria-pressed entirely for plain action buttons", async () => {
+    await render(<Button tone="copper">Steer</Button>);
+    expect(document.body.querySelector("button")!.hasAttribute("aria-pressed")).toBe(false);
   });
 });

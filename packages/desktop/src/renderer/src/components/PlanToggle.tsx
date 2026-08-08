@@ -63,7 +63,7 @@ export function PlanToggle({
   if (layout === "sheet") {
     return (
       <Button
-        variant={plan?.enabled ? "solid" : "outline"}
+        selected={plan?.enabled ?? false}
         tone="iris"
         disabled={disabled || unavailable !== undefined}
         title={unavailable ? `plan mode unavailable: ${unavailable}` : undefined}

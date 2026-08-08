@@ -125,6 +125,20 @@ describe("compact Composer", () => {
     await act(async () => byText("Interrupt-and-send").click());
     expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", []);
   });
+
+  it("marks the active effort and plan state in the options sheet", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { [TAB]: { ...s.rpc[TAB]!, model: { ...s.rpc[TAB]!.model!, thinking: { efforts: ["low", "medium", "high"] } } } },
+    }));
+    renderComposer();
+    act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
+    const byText = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === text)!;
+    expect(byText("medium").getAttribute("aria-pressed")).toBe("true");
+    expect(byText("low").getAttribute("aria-pressed")).toBe("false");
+    expect(byText("high").getAttribute("aria-pressed")).toBe("false");
+    expect(byText("plan").getAttribute("aria-pressed")).toBe("false");
+  });
 });
 
 describe("Composer attachment picker", () => {

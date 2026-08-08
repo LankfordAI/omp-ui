@@ -830,7 +830,7 @@ export function Composer({ tabId }: { tabId: string }) {
             <div className="mt-2 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div>
             {efforts.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
-                {efforts.map((effort) => <Button key={effort} variant={effort === thinkingLevel ? "solid" : "outline"} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11">{effort}</Button>)}
+                {efforts.map((effort) => <Button key={effort} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 font-mono">{effort}</Button>)}
               </div>
             )}
           </div>

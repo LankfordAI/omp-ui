@@ -60,6 +60,24 @@ const TONE_BORDER_OUTLINE_HOVER: Record<Tone, string> = {
   iris: "hover:border-iris-dim",
 };
 
+/** Full-accent border, resting: the ring that marks a selected choice (Button `selected`). */
+const TONE_BORDER_FULL: Record<Tone, string> = {
+  neutral: "border-line-strong",
+  signal: "border-signal",
+  copper: "border-copper",
+  rose: "border-rose",
+  iris: "border-iris",
+};
+
+/** The selected-choice glyph. Rendered by Button, never by callers. */
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.8} aria-hidden className="size-3.5 shrink-0">
+      <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------------ Button */
 
 type ButtonVariant = "solid" | "ghost" | "outline";
@@ -70,6 +88,7 @@ export function Button({
   variant = "outline",
   tone = "neutral",
   size = "sm",
+  selected,
   disabled,
   title,
   type = "button",
@@ -80,19 +99,26 @@ export function Button({
   variant?: ButtonVariant;
   tone?: Tone;
   size?: "xs" | "sm";
+  /** Marks a choice/toggle. Defined ⇒ aria-pressed is emitted and the
+   *  selected/unselected paint overrides `variant`. */
+  selected?: boolean;
   disabled?: boolean;
   title?: string;
   type?: "button" | "submit";
   className?: string;
 }) {
   const variantClass =
-    variant === "solid"
-      ? tone === "neutral"
-        ? "bg-ink text-void hover:brightness-125"
-        : cn(TONE_CHIP[tone], TONE_BORDER_RAISED[tone], TONE_BORDER_FULL_HOVER[tone])
-      : variant === "ghost"
-        ? cn("border-transparent bg-transparent hover:bg-hover", TONE_TEXT[tone])
-        : cn(TONE_CHIP[tone], TONE_BORDER_OUTLINE_HOVER[tone]);
+    selected !== undefined
+      ? selected
+        ? cn(TONE_CHIP[tone], TONE_BORDER_FULL[tone], "font-semibold")
+        : "border-line bg-transparent text-ink-mid hover:border-line-strong hover:text-ink"
+      : variant === "solid"
+        ? tone === "neutral"
+          ? "bg-ink text-void hover:brightness-125"
+          : cn(TONE_CHIP[tone], TONE_BORDER_RAISED[tone], TONE_BORDER_FULL_HOVER[tone])
+        : variant === "ghost"
+          ? cn("border-transparent bg-transparent hover:bg-hover", TONE_TEXT[tone])
+          : cn(TONE_CHIP[tone], TONE_BORDER_OUTLINE_HOVER[tone]);
 
   // Disabled collapses every variant to one deliberate ghost: transparent
   // fill, neutral border, the theme's ink-dim text (≥3:1 on raised in every
@@ -108,6 +134,7 @@ export function Button({
       type={type}
       title={title}
       disabled={disabled}
+      aria-pressed={selected}
       onClick={onClick}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-md border font-medium",
@@ -119,6 +146,7 @@ export function Button({
         className,
       )}
     >
+      {selected === true && <CheckIcon />}
       {children}
     </button>
   );
