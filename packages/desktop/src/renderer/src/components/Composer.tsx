@@ -43,6 +43,26 @@ const MAX_ROWS = 12;
 /** A counter below this is noise; above it the user is writing something long. */
 const COUNTER_AT = 400;
 
+/** Sliders — the compact options trigger, echoing the HUD's queue-modes icon. */
+function IconTune() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" className="size-4 shrink-0">
+      <path d="M2 4.5h4.6M10.4 4.5H14M2 11.5h2.6M8.4 11.5H14" />
+      <circle cx="8.5" cy="4.5" r="1.7" />
+      <circle cx="6.5" cy="11.5" r="1.7" />
+    </svg>
+  );
+}
+
+/** Arrow-up send glyph for the compact primary control. */
+function IconSend() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="size-4">
+      <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+    </svg>
+  );
+}
+
 export function Composer({ tabId }: { tabId: string }) {
   const status = useStore((s) => s.rpc[tabId]?.status);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
@@ -764,18 +784,29 @@ export function Composer({ tabId }: { tabId: string }) {
           </div>
           )}
           {compact && (
-            <div className="flex min-h-11 items-center gap-2 px-2 pb-1.5">
+            <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
               <AttachmentButton compact disabled={dead} onClick={() => imagePicker.current?.click()} />
-              <Button variant="ghost" className="min-w-0 flex-1 justify-start" onClick={() => showCompactSurface("composer-options")}>
-                prompt options · <span className="truncate font-mono">{currentModel?.name || currentModel?.id || "no model"}</span>
+              <Button
+                variant="ghost"
+                title="prompt options"
+                className="h-11 min-w-0 flex-1 justify-start gap-2 px-2 text-ink-mid"
+                onClick={() => showCompactSurface("composer-options")}
+              >
+                <IconTune />
+                <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || "no model"}</span>
+                <span className="sr-only">prompt options</span>
               </Button>
+              {queued > 0 && <Chip mono tone="copper" title="messages waiting for the current turn to finish">{queued}</Chip>}
               {running ? (
                 <>
-                  <Button tone="copper" disabled={!canSend} onClick={() => submit("steer")}>{isSlash ? "Run" : "Steer"}</Button>
-                  <Button tone="rose" variant="ghost" onClick={() => void abortAgent(tabId)}>Abort</Button>
+                  <Button tone="copper" variant="solid" disabled={!canSend} onClick={() => submit("steer")} className="h-11 rounded-lg px-4">{isSlash ? "Run" : "Steer"}</Button>
+                  <Button tone="rose" variant="outline" onClick={() => void abortAgent(tabId)} className="h-11 rounded-lg px-3">Abort</Button>
                 </>
               ) : (
-                <Button variant="solid" disabled={!canSend} onClick={() => submit("prompt")}>{isSlash ? "Run" : "Send"}</Button>
+                <Button variant="solid" disabled={!canSend} onClick={() => submit("prompt")} className="h-11 gap-1.5 rounded-lg px-4">
+                  <IconSend />
+                  {isSlash ? "Run" : "Send"}
+                </Button>
               )}
             </div>
           )}
@@ -793,13 +824,33 @@ export function Composer({ tabId }: { tabId: string }) {
         </div>
       </div>
       <Sheet open={compactSurface === "composer-options"} placement="bottom" label="prompt options" onClose={closeCompactSurface}>
-        <div className="space-y-3 p-3">
-          <div><Label>model</Label><div className="mt-1 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div></div>
-          <div><Label>thinking level</Label><div className="mt-1 flex flex-wrap gap-2">{efforts.length > 0 ? efforts.map((effort) => <Button key={effort} variant={effort === thinkingLevel ? "solid" : "outline"} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)}>{effort}</Button>) : <span className="text-xs text-ink-faint">no thinking levels available</span>}</div></div>
-          <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
-          <div className="flex min-h-11 items-center gap-2"><PlanToggle tabId={tabId} layout="sheet" disabled={dead} className="min-h-11 flex-1" /></div>
-          <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
-          {running && <div className="grid grid-cols-2 gap-2"><Button disabled={!canSend} onClick={() => submit("follow_up")}>Queue</Button><Button disabled={!canSend} onClick={() => submit("interrupt")}>Interrupt-and-send</Button></div>}
+        <div className="space-y-4 p-4">
+          <div>
+            <Label>model</Label>
+            <div className="mt-2 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div>
+            {efforts.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {efforts.map((effort) => <Button key={effort} variant={effort === thinkingLevel ? "solid" : "outline"} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11">{effort}</Button>)}
+              </div>
+            )}
+          </div>
+          <div>
+            <Label>session</Label>
+            <div className="mt-2 space-y-2">
+              <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
+              <div className="flex min-h-11 items-center gap-2"><PlanToggle tabId={tabId} layout="sheet" disabled={dead} className="min-h-11 flex-1" /></div>
+              <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
+            </div>
+          </div>
+          {running && (
+            <div>
+              <Label>while running</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Button disabled={!canSend} onClick={() => submit("follow_up")} className="min-h-11">Queue</Button>
+                <Button disabled={!canSend} onClick={() => submit("interrupt")} className="min-h-11">Interrupt-and-send</Button>
+              </div>
+            </div>
+          )}
         </div>
       </Sheet>
 

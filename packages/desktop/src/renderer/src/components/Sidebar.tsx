@@ -550,21 +550,9 @@ export function Sidebar() {
         displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : "w-[17rem]",
       )}
     >
-      {/* Header — compact sheet only. On desktop its controls live in the title
-          bar (issue #60); the compact shell has no merged bar, so it keeps its own. */}
-      {compact && (
-        <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line px-3">
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
-            <span className="truncate font-display text-sm font-semibold tracking-tight text-ink">
-              omp<span className="text-ink-faint">-ui</span>
-            </span>
-          </span>
-          <IconButton label="add project" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
-            <IconPlus />
-          </IconButton>
-        </header>
-      )}
+      {/* No compact header: the Sheet chrome already names the surface and
+          carries the close control; add-project rides the filter row below.
+          On desktop the controls live in the title bar (issue #60). */}
 
       {displayedCollapsed ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -574,31 +562,38 @@ export function Sidebar() {
         <>
           {/* -------- filter -------- */}
           <div className="shrink-0 border-b border-line px-3 py-2.5">
-            <div className="flex items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
-              <span className="shrink-0 text-ink-faint">
-                <IconSearch />
-              </span>
-              <input
-                type="text"
-                value={query}
-                spellCheck={false}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="filter sessions…"
-                aria-label="filter sessions"
-                className={cn(
-                  "min-w-0 flex-1 bg-transparent py-1.5 text-xs text-ink",
-                  "placeholder:font-mono placeholder:text-ink-faint focus:outline-none",
+            <div className="flex items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
+                <span className="shrink-0 text-ink-faint">
+                  <IconSearch />
+                </span>
+                <input
+                  type="text"
+                  value={query}
+                  spellCheck={false}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="filter sessions…"
+                  aria-label="filter sessions"
+                  className={cn(
+                    "min-w-0 flex-1 bg-transparent py-1.5 text-xs text-ink",
+                    "placeholder:font-mono placeholder:text-ink-faint focus:outline-none",
+                  )}
+                />
+                {filtering && (
+                  <>
+                    <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
+                      {matchCount}
+                    </span>
+                    <IconButton label="clear filter" onClick={() => setQuery("")} className="size-5">
+                      <IconClose />
+                    </IconButton>
+                  </>
                 )}
-              />
-              {filtering && (
-                <>
-                  <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
-                    {matchCount}
-                  </span>
-                  <IconButton label="clear filter" onClick={() => setQuery("")} className="size-5">
-                    <IconClose />
-                  </IconButton>
-                </>
+              </div>
+              {compact && (
+                <IconButton label="add project" onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
+                  <IconPlus />
+                </IconButton>
               )}
             </div>
           </div>

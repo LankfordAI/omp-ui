@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 
@@ -467,6 +467,16 @@ function useOverlay(open: boolean, onClose?: () => void) {
   return root;
 }
 
+const SHEET_POSITION: Record<"left" | "right" | "bottom", string> = {
+  left: "inset-y-0 left-0 w-[min(22rem,92vw)] border-r animate-sheet-left",
+  right: "inset-y-0 right-0 w-[min(22rem,92vw)] border-l animate-sheet-right",
+  bottom:
+    "inset-x-0 bottom-0 max-h-[min(82dvh,var(--app-viewport-height,82dvh))] rounded-t-2xl border-t animate-sheet-up",
+};
+
+/** Past this many pixels of downward drag, releasing dismisses a bottom sheet. */
+const SHEET_DISMISS_PX = 72;
+
 export function Sheet({
   open,
   placement,
@@ -481,17 +491,48 @@ export function Sheet({
   children: ReactNode;
 }) {
   const root = useOverlay(open, onClose);
+  // Bottom-sheet swipe-to-dismiss. The drag lives on the handle/header only,
+  // so the body keeps native scrolling; transforms are written straight to the
+  // node — a re-render per pointermove would fight the browser for 60fps.
+  const drag = useRef<{ pointerId: number; startY: number; delta: number } | null>(null);
   if (!open) return null;
-  const position =
-    placement === "left"
-      ? "inset-y-0 left-0 w-[min(22rem,92vw)] border-r"
-      : placement === "right"
-        ? "inset-y-0 right-0 w-[min(22rem,92vw)] border-l"
-        : "inset-x-0 bottom-0 max-h-[min(78dvh,var(--app-viewport-height,78dvh))] border-t rounded-t-xl";
+
+  const beginDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    if (placement !== "bottom") return;
+    // Capturing over a control would swallow its click — the close button
+    // lives inside this header. Drags start on the passive chrome only.
+    if (e.target instanceof Element && e.target.closest("button") !== null) return;
+    drag.current = { pointerId: e.pointerId, startY: e.clientY, delta: 0 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const moveDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    if (d === null || d.pointerId !== e.pointerId) return;
+    // Only downward travel moves the sheet; upward drag is a no-op, not a grow.
+    d.delta = Math.max(0, e.clientY - d.startY);
+    if (root.current) {
+      root.current.style.transform = d.delta > 0 ? `translateY(${d.delta}px)` : "";
+      root.current.style.transition = "none";
+    }
+  };
+  const endDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    if (d === null || d.pointerId !== e.pointerId) return;
+    drag.current = null;
+    if (d.delta > SHEET_DISMISS_PX) {
+      onClose();
+      return;
+    }
+    // Spring back: hand the transform to a transition, then clear it.
+    if (root.current) {
+      root.current.style.transition = "transform 0.2s var(--ease-out-quint)";
+      root.current.style.transform = "";
+    }
+  };
 
   return createPortal(
     <div data-overlay-root className="fixed inset-0 z-[60]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="pointer-events-none absolute inset-0 bg-void/65 backdrop-blur-sm" aria-hidden />
+      <div className="animate-scrim pointer-events-none absolute inset-0 bg-void/65 backdrop-blur-sm" aria-hidden />
       <section
         ref={root}
         role="dialog"
@@ -499,15 +540,31 @@ export function Sheet({
         aria-label={label}
         tabIndex={-1}
         className={cn(
-          "ambient edge-lit animate-rise absolute flex max-h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden border-line-strong bg-sunken",
-          position,
+          "ambient edge-lit absolute flex max-h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden border-line-strong bg-sunken",
+          SHEET_POSITION[placement],
         )}
       >
-        <header className="flex min-h-11 shrink-0 items-center gap-3 border-b border-line px-[max(0.75rem,var(--safe-left))] py-1.5">
-          <Label className="min-w-0 flex-1 truncate">{label}</Label>
-          <IconButton label={`close ${label}`} onClick={onClose}>
-            <span aria-hidden className="text-lg leading-none">×</span>
-          </IconButton>
+        <header
+          className={cn(
+            "relative shrink-0 border-b border-line",
+            placement === "bottom" && "touch-none",
+          )}
+          onPointerDown={beginDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          {placement === "bottom" && (
+            <div aria-hidden className="flex justify-center pt-2">
+              <span className="h-1 w-9 rounded-full bg-line-strong" />
+            </div>
+          )}
+          <div className="flex min-h-11 items-center gap-3 px-[max(1rem,var(--safe-left))] pr-[max(0.5rem,var(--safe-right))]">
+            <h2 className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-ink">{label}</h2>
+            <IconButton label={`close ${label}`} onClick={onClose} className="size-11">
+              <span aria-hidden className="text-lg leading-none">×</span>
+            </IconButton>
+          </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[var(--safe-bottom)]">
           {children}

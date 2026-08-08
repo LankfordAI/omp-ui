@@ -117,7 +117,7 @@ describe("compact Composer", () => {
     const byText = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === text)!;
     expect(byText("Steer")).toBeDefined();
     expect(byText("Abort")).toBeDefined();
-    act(() => byText("prompt options · Model X").click());
+    act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
     await act(async () => byText("Queue").click());
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", []);
 

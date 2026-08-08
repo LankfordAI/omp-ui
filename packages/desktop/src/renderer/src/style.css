@@ -81,6 +81,10 @@
   --animate-breathe: breathe 2.4s ease-in-out infinite;
   --animate-sweep: sweep 1.6s linear infinite;
   --animate-caret: caret 1.05s step-end infinite;
+  --animate-sheet-left: sheet-in-left 0.3s var(--ease-out-quint) both;
+  --animate-sheet-right: sheet-in-right 0.3s var(--ease-out-quint) both;
+  --animate-sheet-up: sheet-in-up 0.3s var(--ease-out-quint) both;
+  --animate-scrim: scrim-in 0.24s ease-out both;
 }
 
 @keyframes rise {
@@ -129,6 +133,42 @@
 @keyframes caret {
   50% {
     opacity: 0;
+  }
+}
+
+@keyframes sheet-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes sheet-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes sheet-in-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -264,6 +304,11 @@
     padding-left: max(0.5rem, var(--safe-left));
   }
   .compact-lifecycle-visible { opacity: 1 !important; }
+  /* A compact window is scanned by touch or a cramped pointer either way:
+   * session lifecycle controls (stop / resume / delete) stay visible instead
+   * of hover-revealed, and rows grow to comfortable tap height. */
+  .group\/row { min-height: 44px; }
+  .group\/row button { opacity: 1 !important; }
   .model-palette { flex-direction: column; height: 100%; max-height: none !important; }
   .model-provider-rail {
     width: 100% !important;

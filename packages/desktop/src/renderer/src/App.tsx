@@ -11,7 +11,7 @@ import { SessionHud } from "./components/SessionHud";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
-import { Button, Chevron, Chip, IconButton } from "./components/ui";
+import { Button, Chevron, IconButton } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
 import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
@@ -74,6 +74,42 @@ function IconFolderPlus() {
     >
       <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.6h5A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
       <path d="M8 7.5v3.4M6.3 9.2h3.4" />
+    </svg>
+  );
+}
+
+/** Hamburger — the compact shell's projects-and-sessions trigger. */
+function IconMenu() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+    >
+      <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+    </svg>
+  );
+}
+
+/** Side panel — the compact shell's inspector trigger, echoing the rail. */
+function IconInspect() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M10 2.5v11" />
     </svg>
   );
 }
@@ -329,19 +365,25 @@ export default function App() {
          * however long the session title is.
          */
         <nav
-          className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-void px-[max(0.5rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.5rem,var(--safe-right))] [app-region:drag]"
+          className="flex min-h-11 shrink-0 items-center gap-1 border-b border-line bg-void px-[max(0.25rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.25rem,var(--safe-right))] [app-region:drag]"
           style={IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
         >
-          <Button variant="ghost" className="min-w-11 px-2 [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
-            <span aria-hidden>☰</span><span className="sr-only">projects and sessions</span>
+          <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
+            <IconMenu />
+            <span className="sr-only">projects and sessions</span>
           </Button>
           <span className="min-w-0 flex-1 text-center">
-            <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
+            <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
           </span>
           {activeTab?.mode === "rpc-ui" ? (
-            <Button variant="ghost" className="min-w-11 justify-center px-2 [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
-              <span aria-hidden>◎</span><span className="sr-only">inspector</span>
-              {inspectorCount > 0 && <Chip tone="copper" mono>{inspectorCount}</Chip>}
+            <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
+              <IconInspect />
+              <span className="sr-only">inspector</span>
+              {inspectorCount > 0 && (
+                <span aria-hidden className="absolute right-1 top-1.5 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">
+                  {inspectorCount > 99 ? "99+" : inspectorCount}
+                </span>
+              )}
             </Button>
           ) : <span className="w-11" />}
           {/* Reserve the caption-button strip so no control slides under it.

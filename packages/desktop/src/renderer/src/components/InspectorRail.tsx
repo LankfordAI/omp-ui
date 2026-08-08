@@ -776,27 +776,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       setOpen(true);
     }
   };
-  const tabs = (
-    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto p-1.5">
-      {TABS.map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          title={label}
-          aria-pressed={id === tab}
-          onClick={() => select(id)}
-          className={cn(
-            "flex min-h-7 shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] transition-colors",
-            id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
-          )}
-        >
-          <TabIcon tab={id} />
-          <span className="whitespace-nowrap">{label}</span>
-          {badges[id] > 0 && <span className="rounded-full bg-copper-wash px-1 font-mono text-[9px] leading-4 text-copper">{badges[id] > 99 ? "99+" : badges[id]}</span>}
-        </button>
-      ))}
-    </div>
-  );
   const pane = (
     <>
       {tab === "todos" && <TodoPanel tabId={tabId} />}
@@ -810,7 +789,26 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label="inspector" onClose={closeCompactSurface}>
-        <div className="sticky top-0 z-10 border-b border-line bg-sunken">{tabs}</div>
+        <div className="sticky top-0 z-10 grid grid-cols-5 border-b border-line bg-sunken">
+          {TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              title={label}
+              aria-pressed={id === tab}
+              onClick={() => select(id)}
+              className={cn(
+                "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
+                id === tab ? "bg-raised text-ink" : "text-ink-dim",
+              )}
+            >
+              <TabIcon tab={id} />
+              <span>{label}</span>
+              {badges[id] > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">{badges[id] > 99 ? "99+" : badges[id]}</span>}
+              {id === tab && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
+            </button>
+          ))}
+        </div>
         <div>{pane}</div>
       </Sheet>
     );

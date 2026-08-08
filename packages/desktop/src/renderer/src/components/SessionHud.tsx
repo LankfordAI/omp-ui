@@ -173,6 +173,16 @@ function IconMcp() {
   );
 }
 
+function IconKebab() {
+  return (
+    <Svg>
+      <circle cx="8" cy="3.2" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="12.8" r="1.2" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
 /* --------------------------------------------------------------- fragments */
 
 const STATUS: Record<string, { tone: Tone; pulse: boolean }> = {
@@ -506,32 +516,43 @@ export function SessionHud({ tabId }: { tabId: string }) {
   };
 
   if (compact) {
+    const sheetAction = "min-h-11 justify-start gap-2 px-3 text-xs";
     return (
       <>
-        <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken px-3">
+        <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
           {plan?.enabled && <Chip tone="iris">plan</Chip>}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} />}
-          <ConsoleToggle tabId={tabId} className="min-h-11 min-w-11" />
-          <Button variant="ghost" onClick={() => showCompactSurface("session-actions")}>session actions</Button>
+          <ConsoleToggle tabId={tabId} className="size-11" />
+          <IconButton label="session actions" onClick={() => showCompactSurface("session-actions")} className="size-11">
+            <IconKebab />
+            <span className="sr-only">session actions</span>
+          </IconButton>
         </header>
         <Sheet open={surface === "session-actions"} placement="bottom" label="session actions" onClose={closeCompactSurface}>
-          <div className="space-y-3 p-3">
-            <div className="flex items-center gap-2"><Label className="shrink-0">session</Label><TitleField tabId={tabId} title={title ?? "untitled"} /></div>
-            {usage && <div className="flex items-center justify-between gap-3"><Label>main usage</Label><ContextCluster usage={usage} /></div>}
-            {stats && <p className="font-mono text-xs text-ink-dim">{formatCost(stats.cost)} · {exactNum(stats.tokens.total)} tokens · {stats.premiumRequests} premium requests</p>}
-            {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <p className="font-mono text-xs text-ink-dim">advisor · {exactNum(advisorStats.contextTokens)} tokens · {advisorStats.subscription && advisorStats.cost === 0 ? "subscription" : formatCost(advisorStats.cost)}</p>}
-            {notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}
-            <div className="grid grid-cols-2 gap-2">
-              <PlanToggle tabId={tabId} layout="sheet" />
-              <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)}>compact</Button>
-              <div className="flex min-h-11 items-center justify-between rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
-              <Button onClick={() => void exportHtml(tabId)}>export</Button>
-              {projectCwd !== undefined && <Button onClick={() => openMcpManager(tabId, projectCwd)}>MCP</Button>}
-              <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)}>branch</Button>
-              <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }}>new</Button>
-              <Button onClick={refresh}>refresh</Button>
+          <div className="space-y-4 p-4">
+            <TitleField tabId={tabId} title={title ?? "untitled"} />
+            {(usage || stats || advisorStats?.available === true || notices.length > 0) && (
+              <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
+                {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} /></div>}
+                {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
+                {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{compactNum(advisorStats.contextTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
+                {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
+              </div>
+            )}
+            <div>
+              <Label>actions</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <PlanToggle tabId={tabId} layout="sheet" className={sheetAction} />
+                <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
+                <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
+                {projectCwd !== undefined && <Button onClick={() => openMcpManager(tabId, projectCwd)} className={sheetAction}><IconMcp />MCP</Button>}
+                <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />branch</Button>
+                <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />new</Button>
+                <Button onClick={refresh} className={sheetAction}><IconRefresh />refresh</Button>
+                <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
+              </div>
             </div>
           </div>
           <CompactModes tabId={tabId} />
