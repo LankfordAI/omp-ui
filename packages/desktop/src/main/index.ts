@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog, screen } from "electron";
 import { clearImageScratch } from "@omp-ui/core";
 import { MainBackend } from "./backend";
+import { appUpdateEnabledForBuild } from "./app-update-policy";
 import { openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
 import {
@@ -199,9 +200,11 @@ if (!app.requestSingleInstanceLock()) {
       confirmQuit: confirmLiveQuit,
       // omp-ui updates are packaged-Linux-only by default; the env override
       // lets a dev run exercise the real flow against a real release.
-      appUpdateEnabled:
-        (app.isPackaged && process.platform === "linux") ||
-        process.env.OMP_UI_APP_UPDATE_ENABLE === "1",
+      appUpdateEnabled: appUpdateEnabledForBuild({
+        packaged: app.isPackaged,
+        platform: process.platform,
+        forceEnabled: process.env.OMP_UI_APP_UPDATE_ENABLE === "1",
+      }),
       appVersion: process.env.OMP_UI_APP_UPDATE_VERSION ?? app.getVersion(),
       // Dev-only AppImage fake: APPIMAGE is never set outside a real AppImage
       // run, so without this the electron-updater path is unreachable in dev.

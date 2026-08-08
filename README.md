@@ -55,7 +55,7 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 
 ## Install
 
-Releases are **Linux-only** (AppImage). The canonical installer:
+Linux AppImage is the canonical supported release. Install it with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash
@@ -64,8 +64,9 @@ curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/in
 It verifies the download against `SHA256SUMS.txt`, installs the AppImage to
 `~/.local/bin`, and registers a desktop entry; `install.sh --uninstall`
 removes it. Or grab the AppImage straight from
-[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). The stack
-stays cross-platform — widening later is a packaging task, not a port
+[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). Unsupported,
+unsigned Mac builds are documented under [Unsigned macOS preview](#unsigned-macos-preview).
+The supported Linux path remains AppImage-only
 ([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)).
 
 ## How it works
@@ -212,18 +213,19 @@ Rationale and threat model:
 
 ## Distribution
 
-Releases are **Linux-only** (the dev machine is Fedora) and tag-driven: pushing
-`v*` runs `.github/workflows/release.yml`, which publishes the **AppImage**
-(electron-builder) to the GitHub release plus the update metadata:
-`latest-linux.yml` (sha512 + blockmap, for the in-app update path) and
-`SHA256SUMS.txt` (verified by `packaging/install.sh` and manual downloads).
-The AppImage is the sole first-party Linux artifact
+Pushing a `v*` tag runs `.github/workflows/release.yml`. Every release includes
+the supported Linux **AppImage** and unsigned `arm64`/`x64` macOS preview DMGs
+and ZIPs. Only Linux application-update metadata (`latest-linux.yml`, with its
+sha512 and blockmap) is published; unsigned previews never publish
+`latest-mac.yml`. One combined `SHA256SUMS.txt` covers the AppImage and all four
+macOS files and remains compatible with `packaging/install.sh`, which selects
+only the AppImage's matching line.
+
+The AppImage remains the sole first-party supported Linux artifact
 ([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)); the earlier
-deb, rpm, and Flatpak packages were dropped after v0.4.0 — installs from
-those packages migrate with the canonical installer:
+deb, rpm, and Flatpak packages were dropped after v0.4.0. Installs from those
+packages migrate with the canonical installer:
 `curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash`.
-The stack stays cross-platform — uniform Chromium is why Electron was chosen
-(ADR-0001) — so widening later is a packaging task, not a port.
 
 The installed app **checks for newer releases** in the background at launch,
 and on demand via the command palette's "Check for updates". A newer stable
@@ -260,43 +262,48 @@ updates" from the command palette runs whether or not the launch check is on.
 
 ### Unsigned macOS preview
 
-Stable releases remain Linux-only. The unsigned macOS preview is an internal,
-team-only artifact, not a public macOS release.
-[Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) remains the tracker
-for a signed and notarized macOS release.
+Each [GitHub release](https://github.com/LankfordAI/omp-ui/releases/latest)
+includes unsupported, unsigned macOS preview builds. Download the DMG matching
+your Mac:
 
-To install a preview:
+- Apple Silicon: `omp-ui-<version>-mac-preview-arm64.dmg`
+- Intel: `omp-ui-<version>-mac-preview-x64.dmg`
 
-1. In this repository, open **Actions → macOS Preview → Run workflow**. Choose
-   `arm64` for Apple Silicon or `x64` for Intel.
-2. Download the `omp-ui-macos-<architecture>-<commit>` artifact from that
-   trusted Actions run. In the extracted artifact directory, verify both the
-   DMG and ZIP against the included architecture-specific checksum manifest:
+The matching ZIP is published for preview inspection and future update
+readiness, but it is not advertised through application-update metadata.
+[Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) remains open for
+the signed, notarized stable milestone.
 
-   ```sh
-   shasum -a 256 -c SHA256SUMS-macos-<architecture>.txt
-   ```
+Verify the download before installing. Download `SHA256SUMS.txt` beside the
+chosen DMG or ZIP, select that asset's line, and check it. For example, for the
+Apple Silicon DMG:
 
-   Continue only if every file reports `OK`.
-3. Mount the DMG and copy **omp-ui** to **Applications**.
-4. For the first open, use Apple's supported override flow exactly: attempt to
-   launch **omp-ui** once, then open **System Settings → Privacy & Security →
-   Security → Open Anyway**, authenticate, and confirm **Open**.
+```sh
+grep 'omp-ui-.*-mac-preview-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
+```
 
-This override is appropriate only for an artifact downloaded from this
-repository's trusted Actions run whose checksum matches the included manifest.
-Do not disable Gatekeeper globally, and do not remove quarantine with `xattr`.
+Change `arm64` to `x64`, or `.dmg` to `.zip`, for another asset. Running
+`shasum -a 256 -c SHA256SUMS.txt` against a directory containing only one
+download also prints harmless `No such file` messages for the other four
+manifest entries; the selected-line form avoids that noise. Continue only if
+the chosen file reports `OK`.
+
+Mount the DMG and copy **omp-ui** to **Applications**. For the first open, use
+Apple's supported override flow: attempt to launch **omp-ui** once, then open
+**System Settings → Privacy & Security → Security → Open Anyway**, authenticate,
+and confirm **Open**. Do not disable Gatekeeper globally, and do not remove
+quarantine with `xattr`.
 
 Preview limitations:
 
-- no publisher identity;
-- no notarization;
-- no omp-ui automatic updates;
-- 14-day Actions artifact retention; and
-- team-only use.
+- no publisher identity or notarization;
+- unsupported preview status; and
+- no omp-ui automatic updates — install a new version by downloading the next
+  release's preview DMG.
 
-Managed **omp binary** updates remain enabled; the automatic-update limitation
-applies only to omp-ui itself.
+Managed **omp binary** install and updates remain enabled independently. omp-ui
+selects `omp-darwin-arm64` on Apple Silicon or `omp-darwin-x64` on Intel; the
+automatic-update limitation applies only to the omp-ui application.
 
 ## Session storage
 

@@ -21,7 +21,7 @@ mac:
   icon: build/icon.png
   identity: null
   notarize: false
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  artifactName: ${productName}-${version}-mac-preview-${arch}.${ext}
   target:
     - dmg
     - zip

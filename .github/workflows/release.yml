@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  release-linux:
     runs-on: [self-hosted, gfx1201]
     steps:
       - uses: actions/checkout@v4
@@ -34,23 +34,127 @@ jobs:
           else
             npm version "$tag" --no-git-tag-version --workspace @omp-ui/desktop
           fi
-      - name: Build and publish packages
-        run: npm run package --workspace @omp-ui/desktop -- --publish always
+      - name: Build and publish Linux package
+        run: npm run package:linux --workspace @omp-ui/desktop -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Generate and upload SHA256SUMS
+      - name: Assert Linux artifact and update metadata exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd packages/desktop/dist
+          appimages=(*.AppImage)
+          if (( ${#appimages[@]} != 1 )); then
+            printf 'Expected exactly one AppImage, found %s\n' "${#appimages[@]}" >&2
+            exit 1
+          fi
+          test -f latest-linux.yml
+          grep -q "sha512" latest-linux.yml
+          grep -Fq "${appimages[0]}" latest-linux.yml
+
+  release-macos:
+    needs: release-linux
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Stamp version from tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          current="$(node -p 'require("./packages/desktop/package.json").version')"
+          if [ "$current" = "$tag" ]; then
+            echo "package.json already at $current — nothing to stamp"
+          else
+            npm version "$tag" --no-git-tag-version --workspace @omp-ui/desktop
+          fi
+      - name: Rebuild node-pty
+        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
+      - name: Package macOS preview
+        run: npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Verify macOS preview package
+        shell: bash
+        run: bash packages/desktop/scripts/verify-macos-package.sh "${{ matrix.arch }}"
+      - name: Upload macOS preview to release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd packages/desktop/dist
-          sha256sum *.AppImage > SHA256SUMS.txt
+          set -euo pipefail
+          shopt -s nullglob
+          dist="packages/desktop/dist"
+          rm -f "$dist/latest-mac.yml"
+          test ! -e "$dist/latest-mac.yml"
+          dmgs=("$dist"/*-mac-preview-${{ matrix.arch }}.dmg)
+          zips=("$dist"/*-mac-preview-${{ matrix.arch }}.zip)
+          gh release upload "$GITHUB_REF_NAME" \
+            "${dmgs[0]}" \
+            "${zips[0]}" \
+            "$dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+
+  release-manifest:
+    needs: [release-linux, release-macos]
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*.AppImage'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
+      - name: Generate and upload canonical checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd release-assets
+          appimages=(*.AppImage)
+          dmgs=(*-mac-preview-*.dmg)
+          zips=(*-mac-preview-*.zip)
+          (( ${#appimages[@]} == 1 ))
+          (( ${#dmgs[@]} == 2 ))
+          (( ${#zips[@]} == 2 ))
+          files=("${appimages[@]}" "${dmgs[@]}" "${zips[@]}")
+          test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq 5
+          sha256sum "${files[@]}" | sort -k2 > SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 5
           gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt
-      - name: Assert artifacts and update metadata exist
+      - name: Assert release metadata and asset boundary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd packages/desktop/dist
-          ls -l
-          test -n "$(ls *.AppImage)"
-          # AppImage self-update metadata (electron-updater) + the checksums
-          # install.sh and manual downloads verify against.
-          test -f latest-linux.yml && grep -q "sha512" latest-linux.yml && grep -q "\.AppImage" latest-linux.yml
-          test -f SHA256SUMS.txt && test "$(wc -l < SHA256SUMS.txt)" -ge 1
+          set -euo pipefail
+          mkdir release-metadata
+          gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-linux.yml'
+          appimage="$(basename release-assets/*.AppImage)"
+          grep -q "sha512" release-metadata/latest-linux.yml
+          grep -Fq "$appimage" release-metadata/latest-linux.yml
+          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' > release-assets.txt
+          if grep -Fxq 'latest-mac.yml' release-assets.txt; then
+            echo 'latest-mac.yml must not be published for unsigned previews' >&2
+            exit 1
+          fi
