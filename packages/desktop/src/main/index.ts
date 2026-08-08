@@ -12,14 +12,18 @@ import {
 } from "./window-state";
 import { installApplicationMenu } from "./application-menu";
 
-// Dev and packaged builds resolve the same package.json name, so by default
-// they also share userData — and with it the single-instance lock: an
-// installed copy running made every `npm run dev` forward to it and quit
-// (issue #13). Unpackaged runs get their own userData; keyed on isPackaged
-// rather than ELECTRON_RENDERER_URL so bare `electron .` dev runs split too.
-// Must precede requestSingleInstanceLock, which scopes the lock to userData.
+// Packaged, standalone unpackaged, and electron-vite runs need independent
+// userData dirs because requestSingleInstanceLock is scoped to userData. A
+// long-lived standalone run (for example, one launched by a desktop service)
+// must not make `npm run dev` start its renderer server and immediately exit.
+// Keep the historical unpackaged path for standalone runs so their registry
+// does not move; electron-vite exposes ELECTRON_RENDERER_URL and gets a
+// dedicated identity. This must precede requestSingleInstanceLock below.
 if (!app.isPackaged) {
-  app.setPath("userData", join(app.getPath("appData"), "@omp-ui/desktop-dev"));
+  const name = process.env.ELECTRON_RENDERER_URL
+    ? "@omp-ui/desktop-dev-server"
+    : "@omp-ui/desktop-dev";
+  app.setPath("userData", join(app.getPath("appData"), name));
 }
 
 // Dev/test seam: opt-in CDP endpoint for programmatic renderer inspection.
