@@ -191,6 +191,18 @@ async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
   });
 }
 
+async function typeIntoTextarea(el: HTMLTextAreaElement, value: string): Promise<void> {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/** The refine change-notes box: the only textarea in the pane. */
+const notesBox = (): HTMLTextAreaElement =>
+  document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+
 /** The verdict frame answering the blocked plan-review select, if one was sent. */
 function verdictFrame(): Record<string, unknown> | undefined {
   const call = backendMock.rpcSend.mock.calls.find(
@@ -480,6 +492,53 @@ describe("PlanReview refine attachment picker (issue #65)", () => {
       message: "Revise the plan per the attached change notes.",
       images: [IMAGE_ONE],
     });
+  });
+});
+
+describe("PlanReview change notes (issue #113)", () => {
+  it("clears text and attachments on refine, so the revised proposal opens empty", async () => {
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
+    render();
+    await act(async () => {
+      choose(imagePicker(), [new File(["one"], "one.png", { type: "image/png" })], "picked");
+      await Promise.resolve();
+    });
+    await typeIntoTextarea(notesBox(), "drop the API layer");
+
+    await act(async () => {
+      buttonByText("refine").click();
+      await Promise.resolve();
+    });
+    expect(promptFrame()?.message).toContain("drop the API layer");
+
+    // The revised proposal lands while the pane is still mounted — the exact
+    // condition that used to leave the draft standing.
+    await act(async () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: tabState({
+            planReview: {
+              request: {
+                title: "Fix the login race",
+                planFilePath: "local://fix-login-race-plan.md",
+                planAbsPath: "/x/fix-login-race-plan.md",
+              },
+              frame: { id: "p2" },
+            },
+          }),
+        },
+      });
+    });
+    expect(notesBox().value).toBe("");
+    expect(document.body.querySelectorAll('img[alt^="change note "]')).toHaveLength(0);
+  });
+
+  it("keeps the draft when the review is only deferred", async () => {
+    render();
+    await typeIntoTextarea(notesBox(), "still thinking");
+    await act(async () => buttonByText("not now").click());
+    await act(async () => useStore.getState().showPlanReview(TAB));
+    expect(notesBox().value).toBe("still thinking");
   });
 });
 

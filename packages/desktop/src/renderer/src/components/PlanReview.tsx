@@ -200,6 +200,14 @@ export function PlanReview({ tabId }: { tabId: string }) {
   const refine = () => {
     const notes = { text: changes, images: images.length ? images : undefined };
     refinePlan(tabId, changes.trim() !== "" || images.length > 0 ? notes : undefined);
+    // The draft has been spent. RpcTab keeps this pane mounted for the whole
+    // life of an active tab, so refine → revised proposal never unmounts it and
+    // nothing else would ever clear these — the stale notes would reappear on
+    // the next review, re-submittable by accident (issue #113). "Not now" keeps
+    // its draft on purpose: deferring asks for no revision.
+    setChanges("");
+    setImages([]);
+    setPasteError(null);
   };
   // Escape/scrim: defer, matching "not now" — never answer the gate with notes
   // the user did not finish writing. The plan stays pending in the plans tab.
