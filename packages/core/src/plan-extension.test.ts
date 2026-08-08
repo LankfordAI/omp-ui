@@ -485,6 +485,7 @@ describe("plan mode transitions", () => {
 
     const last = h.sent.at(-1);
     expect(last?.customType).toBe("omp-ui:plan-mode-exit");
+    expect(last?.content).toContain("Build mode is ON");
     expect(last?.content).toContain("Plan mode is OFF");
     // The stacked entry instructions cannot be deleted, so the retraction has to
     // supersede them by name.

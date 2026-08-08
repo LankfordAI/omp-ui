@@ -132,7 +132,7 @@ const MODE_INSTRUCTION_UNAVAILABLE =
  * closed in the same channel it was opened in (issue #117).
  */
 const PLAN_MODE_EXIT_INSTRUCTION =
-  "Plan mode is OFF as of this message. The read-only guard is lifted: you have " +
+  "Build mode is ON as of this message. Plan mode is OFF. The read-only guard is lifted: you have " +
   "full write access to the working tree again, and state-changing commands are " +
   "allowed.\\n\\n" +
   "Every earlier omp-ui plan-mode and plan-format instruction in this conversation " +

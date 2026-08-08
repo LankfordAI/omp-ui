@@ -120,14 +120,21 @@ and omp refuses every later title. When the model declines or is unreachable,
 a mechanically derived title from the prompt stands in.
 _Avoid_: session name generation, summary, label
 
+**Build mode**:
+A session state with full working-tree write access and state-changing commands
+allowed; the complement of Plan mode. Selecting Build lifts omp's plan-mode
+guard in-process. It grants permission to edit but does not require every
+answer to edit.
+_Avoid_: plan off, normal mode, write mode
+
 **Plan mode**:
 A session state in which omp explores read-only and answers in place. The
 read-only guarantee is omp's own plan-mode write guard, not omp-ui's; a plan
 artifact is drafted and gated on plan review only when the user's own prompt
 asks for one — the mode itself mandates no plan. omp's rpc protocol cannot
 express it at all, so omp-ui drives it through an extension generated into
-the lineage dir and passed as `-e` at spawn (ADR-0007, ADR-0013). It toggles
-in-process — unlike the advisor pin, it never respawns the session.
+the lineage dir and passed as `-e` at spawn (ADR-0007, ADR-0013). Switching
+between Build and Plan happens in-process; it never respawns the session.
 _Avoid_: planning mode, plan-first
 
 **Plan review**:
@@ -153,7 +160,7 @@ _Avoid_: plan approval dialog, confirmation, plan prompt
 
 **Plan format**:
 How the agent is asked to author a plan for review, set once in Settings →
-General and carried on the plan-mode toggle: `html` (default) or `md`. Under
+General and carried when Plan mode is selected: `html` (default) or `md`. Under
 `html` the agent writes exactly one file, `local://<slug>-plan.html` — a
 self-contained document (inline CSS, no external resources, no scripts) that
 the review modal renders in a `sandbox=""` iframe. That file is the plan: it is

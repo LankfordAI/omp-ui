@@ -6,7 +6,7 @@ import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { ConsoleToggle } from "./ConsoleDrawer";
-import { PlanToggle } from "./PlanToggle";
+import { BuildPlanControl } from "./BuildPlanControl";
 import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
@@ -544,7 +544,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             <div>
               <Label>actions</Label>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <PlanToggle tabId={tabId} layout="sheet" className={sheetAction} />
+                <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
                 {projectCwd !== undefined && <Button onClick={() => openMcpManager(tabId, projectCwd)} className={sheetAction}><IconMcp />MCP</Button>}
@@ -629,7 +629,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       <div className="flex shrink-0 items-center gap-1 border-l border-line-soft pl-2.5 [app-region:no-drag]">
-        <PlanToggle tabId={tabId} />
+        <BuildPlanControl tabId={tabId} />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <Button
           size="xs"

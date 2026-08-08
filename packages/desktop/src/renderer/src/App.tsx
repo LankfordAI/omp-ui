@@ -23,7 +23,7 @@ import { findRecord, useStore } from "./store";
 const HINTS: [combo: string, what: string][] = [
   ["mod+k", "command palette"],
   ["mod+shift+n", "new session in the current project"],
-  ["mod+shift+p", "toggle plan mode"],
+  ["mod+shift+p", "switch Build / Plan mode"],
   ["mod+j", "toggle console"],
   ["mod+=", "larger transcript text"],
 ];
@@ -289,8 +289,8 @@ export default function App() {
       const projectCwd = tabs.find((t) => t.tabId === activeTabId)?.projectCwd;
       if (projectCwd !== undefined) void newSession(projectCwd);
     },
-    // The keyboard twin of the composer's plan toggle: the same in-process
-    // flip (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI
+    // The keyboard twin of the composer's Build / Plan selector: the same
+    // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI
     // owns plan mode. A mod combo so it fires mid-draft (hotkeys.ts
     // suppresses bare combos in typing targets); focus never moves, so a
     // partially typed prompt survives.

@@ -215,7 +215,7 @@ describe("compact Session HUD", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     const actions = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("session actions"))!;
     act(() => actions.click());
-    for (const label of ["plan", "compact", "auto-compact", "export", "MCP", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
+    for (const label of ["build", "plan", "compact", "auto-compact", "export", "MCP", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
       expect(document.body.textContent).toContain(label);
     }
     const compact = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "compact")!;

@@ -28,7 +28,7 @@ import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
-import { PlanToggle } from "./PlanToggle";
+import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep, Sheet } from "./ui";
 
@@ -697,10 +697,10 @@ export function Composer({ tabId }: { tabId: string }) {
 
             <AdvisorControl tabId={tabId} disabled={dead} />
 
-            <PlanToggle
+            <BuildPlanControl
               tabId={tabId}
               disabled={dead}
-              onToggled={() => box.current?.focus({ preventScroll: true })}
+              onSelected={() => box.current?.focus({ preventScroll: true })}
             />
 
             <BranchChip projectCwd={projectCwd} />
@@ -838,7 +838,7 @@ export function Composer({ tabId }: { tabId: string }) {
             <Label>session</Label>
             <div className="mt-2 space-y-2">
               <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
-              <div className="flex min-h-11 items-center gap-2"><PlanToggle tabId={tabId} layout="sheet" disabled={dead} className="min-h-11 flex-1" /></div>
+              <div className="flex min-h-11 items-center gap-2"><BuildPlanControl tabId={tabId} layout="sheet" disabled={dead} className="min-h-11 flex-1" /></div>
               <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
             </div>
           </div>
@@ -905,7 +905,7 @@ const UI_NEW_COMMAND: SlashCommandInfo = {
 };
 
 /**
- * omp-ui's plan toggle. omp's /plan is TUI-only (ADR-0007) and the plan
+ * omp-ui's Build / Plan selector. omp's /plan is TUI-only (ADR-0007) and the plan
  * extension's own omp-ui-plan would be a second row for the same action,
  * so this is the palette's single plan entry; runSlashCommand intercepts it.
  */

@@ -137,7 +137,7 @@ describe("compact Composer", () => {
     expect(byText("medium").getAttribute("aria-pressed")).toBe("true");
     expect(byText("low").getAttribute("aria-pressed")).toBe("false");
     expect(byText("high").getAttribute("aria-pressed")).toBe("false");
-    expect(byText("plan").getAttribute("aria-pressed")).toBe("false");
+    expect(byText("plan").getAttribute("aria-checked")).toBe("false");
   });
 });
 
@@ -270,9 +270,15 @@ describe("Composer focus treatment", () => {
   });
 });
 
-describe("Composer plan toggle", () => {
+describe("Composer BuildPlanControl", () => {
   const setPlanMode = vi.fn(async () => {});
   const runSlashCommand = vi.fn(async () => {});
+
+  function modeSegment(name: "build" | "plan"): HTMLButtonElement {
+    return [...document.body.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
+      (button) => button.textContent?.trim() === name,
+    )!;
+  }
 
   beforeEach(() => {
     // The suite-wide beforeEach forces the compact shell; these exercise the
@@ -284,18 +290,33 @@ describe("Composer plan toggle", () => {
     useStore.setState({ setPlanMode, runSlashCommand });
   });
 
-  it("toggles plan mode on and reclaims the caret", () => {
+  it("selects Build and unselects Plan when plan mode is disabled", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    });
+    renderComposer();
+    expect(modeSegment("build").getAttribute("aria-checked")).toBe("true");
+    expect(modeSegment("plan").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("selects Plan and reclaims the textarea caret", () => {
     seed("ready");
     renderComposer();
-    const toggle = document.body.querySelector<HTMLButtonElement>(
-      'button[title="plan mode: read-only exploration — a plan is drafted and reviewed only when you ask"]',
-    )!;
-    act(() => toggle.click());
+    const plan = modeSegment("plan");
+    act(() => plan.focus());
+    expect(document.activeElement).toBe(plan);
+    act(() => plan.click());
     expect(setPlanMode).toHaveBeenCalledWith(TAB, true);
     expect(document.activeElement).toBe(document.body.querySelector("textarea"));
   });
 
-  it("reflects active plan mode and exits on click", () => {
+  it("selects Plan and unselects Build when plan mode is enabled", () => {
     seed("ready");
     useStore.setState({
       rpc: {
@@ -306,14 +327,37 @@ describe("Composer plan toggle", () => {
       },
     });
     renderComposer();
-    const toggle = document.body.querySelector<HTMLButtonElement>(
-      'button[title="leave plan mode (restores write access)"]',
-    )!;
-    act(() => toggle.click());
+    expect(modeSegment("plan").getAttribute("aria-checked")).toBe("true");
+    expect(modeSegment("build").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("selects Build from Plan mode", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: true, planFilePath: "local://x-plan.md", planAbsPath: "/x-plan.md", approved: false },
+        },
+      },
+    });
+    renderComposer();
+    act(() => modeSegment("build").click());
     expect(setPlanMode).toHaveBeenCalledWith(TAB, false);
   });
 
-  it("disables the toggle when plan mode is unavailable", () => {
+  it("does not transition an already-selected segment and still reclaims focus", () => {
+    seed("ready");
+    renderComposer();
+    const build = modeSegment("build");
+    act(() => build.focus());
+    expect(document.activeElement).toBe(build);
+    act(() => build.click());
+    expect(setPlanMode).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+  });
+
+  it("disables only unavailable Plan while keeping Build selected", () => {
     seed("ready");
     useStore.setState({
       rpc: {
@@ -330,10 +374,13 @@ describe("Composer plan toggle", () => {
       },
     });
     renderComposer();
-    const toggle = document.body.querySelector<HTMLButtonElement>(
-      'button[title="plan mode unavailable: no active omp session"]',
-    )!;
-    expect(toggle.disabled).toBe(true);
+    const build = modeSegment("build");
+    const plan = modeSegment("plan");
+    expect(build.getAttribute("aria-checked")).toBe("true");
+    expect(build.disabled).toBe(false);
+    expect(plan.getAttribute("aria-checked")).toBe("false");
+    expect(plan.disabled).toBe(true);
+    expect(plan.title).toBe("plan mode unavailable: no active omp session");
   });
 
   it("shows one canonical plan row in the palette and runs it", () => {
