@@ -179,12 +179,18 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   }, [theme]);
 
   // Re-fit when a hidden/inactive tab resurfaces (display:none → real box).
+  // Focus follows the active terminal tab (issue #126): whenever a tab becomes
+  // the active one — a fresh spawn, a mount while already active, or a sidebar
+  // resurface — the xterm textarea is focused so the user can type without a
+  // second click. The effect fires after the mount effect has built the xterm
+  // instance, so the focus lands once the first keystrokes can be delivered.
   useEffect(() => {
     if (!active) return;
     const t = termRef.current;
     if (!t) return;
     t.fit.fit();
     backend.ptyResize(tabId, t.term.cols, t.term.rows);
+    t.term.focus();
   }, [active, tabId]);
 
   return (

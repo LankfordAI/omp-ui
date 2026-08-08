@@ -112,6 +112,29 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+describe("TerminalTab focus", () => {
+  it("focuses the terminal when it is or becomes the active tab (issue #126)", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+
+    // Mounted inactive: nothing steals focus from the currently active surface.
+    act(() => root!.render(<TerminalTab tabId={TAB} active={false} />));
+    expect(mocks.focus).not.toHaveBeenCalled();
+
+    // A fresh spawn is active in the same commit; the post-mount refit focuses
+    // once the xterm instance exists, so the first keystrokes land in it.
+    act(() => root!.render(<TerminalTab tabId={TAB} active />));
+    expect(mocks.focus).toHaveBeenCalledTimes(1);
+
+    // Re-surfacing a hidden terminal focuses again; the effect only refires on
+    // the false→true flip, so a same-instance re-render adds no stale focus.
+    act(() => root!.render(<TerminalTab tabId={TAB} active={false} />));
+    act(() => root!.render(<TerminalTab tabId={TAB} active />));
+    expect(mocks.focus).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("TerminalTab attachment picker", () => {
   it("delivers selected images serially in order and accepts the same file again", async () => {
     let releaseFirst!: () => void;
