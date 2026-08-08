@@ -1,10 +1,11 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fitWindowBounds,
   loadWindowState,
+  saveBrowserWindowState,
   saveWindowState,
   windowStatePath,
 } from "./window-state";
@@ -33,6 +34,28 @@ describe("window-state", () => {
     expect(saveWindowState(file, validState)).toBe(true);
     expect(loadWindowState(file)).toEqual(validState);
     expect(readdirSync(dir)).toEqual(["window-state.json"]);
+  });
+
+  it("skips native geometry getters after the BrowserWindow is destroyed", () => {
+    const getNormalBounds = vi.fn(() => validState.bounds);
+    const isMaximized = vi.fn(() => true);
+    expect(saveBrowserWindowState(windowStatePath(dir), {
+      isDestroyed: () => true,
+      getNormalBounds,
+      isMaximized,
+    })).toBe(false);
+    expect(getNormalBounds).not.toHaveBeenCalled();
+    expect(isMaximized).not.toHaveBeenCalled();
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("turns a native teardown race into a failed save instead of an exception", () => {
+    expect(saveBrowserWindowState(windowStatePath(dir), {
+      isDestroyed: () => false,
+      getNormalBounds: () => { throw new Error("Object has been destroyed"); },
+      isMaximized: () => true,
+    })).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it("returns null for malformed JSON", () => {

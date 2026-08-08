@@ -1,3 +1,4 @@
+import type { BrowserWindow } from "electron";
 import { readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -57,6 +58,32 @@ export function saveWindowState(file: string, state: WindowState): boolean {
     } catch {
       // Best-effort cleanup only; the caller never observes an exception.
     }
+    return false;
+  }
+}
+
+/**
+ * Captures geometry only while Electron's native window still exists. During
+ * dev-server shutdown, window-all-closed can trigger a second before-quit
+ * after BrowserWindow destruction; every native getter throws in that state.
+ * Keep the lifecycle guard beside the getters so every caller gets the same
+ * failure-tolerant contract (issue #131).
+ */
+export function saveBrowserWindowState(
+  file: string,
+  win: Pick<BrowserWindow, "getNormalBounds" | "isDestroyed" | "isMaximized">,
+): boolean {
+  try {
+    if (win.isDestroyed()) return false;
+    const bounds = win.getNormalBounds();
+    return saveWindowState(file, {
+      schemaVersion: 1,
+      bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+      maximized: win.isMaximized(),
+    });
+  } catch {
+    // A native teardown racing the guard must never turn shutdown into a
+    // main-process exception dialog.
     return false;
   }
 }

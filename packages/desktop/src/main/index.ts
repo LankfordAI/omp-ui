@@ -7,7 +7,7 @@ import { setupSpellcheck } from "./spellcheck";
 import {
   fitWindowBounds,
   loadWindowState,
-  saveWindowState,
+  saveBrowserWindowState,
   windowStatePath,
 } from "./window-state";
 import { installApplicationMenu } from "./application-menu";
@@ -164,14 +164,7 @@ if (!app.requestSingleInstanceLock()) {
         clearTimeout(winStateTimer);
         winStateTimer = undefined;
       }
-      // Normal bounds even while maximized: the flag restores maximize, and
-      // getNormalBounds keeps the unmaximized rectangle the next launch gets.
-      const bounds = win.getNormalBounds();
-      saveWindowState(winStateFile, {
-        schemaVersion: 1,
-        bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
-        maximized: win.isMaximized(),
-      });
+      saveBrowserWindowState(winStateFile, win);
     };
     win.on("move", queueWindowStateSave);
     win.on("resize", queueWindowStateSave);

@@ -273,6 +273,41 @@
 }
 
 
+/* The desktop title bar has progressive density steps between the wide layout and
+ * the compact shell. Query the HUD's actual allocation rather than the window:
+ * native caption buttons and macOS traffic lights consume different widths.
+ * Controls remain; readouts disappear from lowest to highest priority before
+ * overflow-hidden can clip the action cluster (issue #129). */
+.titlebar-hud {
+  container-name: titlebar-hud;
+  container-type: inline-size;
+}
+
+@container titlebar-hud (max-width: 84rem) {
+  .titlebar-notices { display: none !important; }
+}
+
+@container titlebar-hud (max-width: 72rem) {
+  .titlebar-advisor { display: none !important; }
+}
+
+@container titlebar-hud (max-width: 64rem) {
+  .titlebar-main-stats { display: none !important; }
+}
+
+@container titlebar-hud (max-width: 54rem) {
+  .titlebar-context-tokens,
+  .titlebar-compact-label { display: none !important; }
+}
+
+@container titlebar-hud (max-width: 44rem) {
+  .titlebar-context-meter { display: none !important; }
+}
+
+@media (min-width: 900px) and (max-width: 1099px) {
+  .titlebar-brand { display: none; }
+}
+
 @media (max-width: 899px) {
   .compact-modal-fullscreen {
     width: 100vw !important;

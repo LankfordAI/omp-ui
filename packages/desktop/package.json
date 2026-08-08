@@ -12,6 +12,7 @@
   },
   "main": "./out/main/index.js",
   "scripts": {
+    "predev": "install-electron --no",
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build && npm run build:web",
     "build:web": "vite build --config vite.web.config.ts",

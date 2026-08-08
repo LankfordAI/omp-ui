@@ -160,7 +160,7 @@ function TitleBar() {
     >
       <div className="flex shrink-0 items-center gap-1 pl-3 [app-region:no-drag]">
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
-        <span className="pr-1 font-display text-sm font-semibold tracking-tight text-ink">
+        <span className="titlebar-brand pr-1 font-display text-sm font-semibold tracking-tight text-ink">
           omp<span className="text-ink-faint">-ui</span>
         </span>
         <IconButton

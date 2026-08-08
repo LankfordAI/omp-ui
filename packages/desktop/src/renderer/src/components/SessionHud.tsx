@@ -245,8 +245,8 @@ function ContextCluster({ usage }: { usage: ContextUsage }) {
   const exact = `${exactNum(usage.tokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens (${percent.toFixed(2)}%)`;
   return (
     <div className="flex shrink-0 items-center gap-2" title={exact}>
-      <Meter fraction={fraction} className="w-20" title={exact} />
-      <span className="hidden font-mono text-[11px] tabular-nums text-ink-mid md:inline">
+      <Meter fraction={fraction} className="titlebar-context-meter w-20" title={exact} />
+      <span className="titlebar-context-tokens hidden font-mono text-[11px] tabular-nums text-ink-mid md:inline">
         {compactNum(usage.tokens)} / {window > 0 ? compactNum(window) : "?"}
       </span>
       <span
@@ -278,7 +278,7 @@ function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
     `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
     ` (${percent.toFixed(2)}%) · ${stats.subscription ? "subscription billing" : formatCost(stats.cost)}`;
   return (
-    <div className="hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex [app-region:no-drag]" title={exact}>
+    <div className="titlebar-advisor hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex [app-region:no-drag]" title={exact}>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">adv</span>
       <Meter fraction={window > 0 ? stats.contextTokens / window : 0} className="w-14" title={exact} />
       <span className="font-mono text-[10px] tabular-nums text-ink-dim" title={exact}>
@@ -567,7 +567,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // Draggable regions swallow every pointer event, so a new control added to
   // this row MUST sit inside a no-drag box — and never wrap `flex-1`.
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:drag]">
+    <div className="titlebar-hud flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:drag]">
       {session?.isCompacting ? (
         <Chip tone="copper" className="shrink-0 [app-region:no-drag]">
           <Dot tone="copper" pulse />
@@ -598,7 +598,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {usage && <ContextCluster usage={usage} />}
           {stats && (
             <div
-              className="hidden shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-mid lg:flex"
+              className="titlebar-main-stats hidden shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-mid lg:flex"
               title={`${formatCost(stats.cost)} · ${exactNum(stats.tokens.total)} tokens · ${stats.premiumRequests} premium requests`}
             >
               <span>{formatCost(stats.cost)}</span>
@@ -619,7 +619,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       {notices.length > 0 && (
-        <div className="hidden min-w-0 shrink items-center gap-1 xl:flex [app-region:no-drag]">
+        <div className="titlebar-notices hidden min-w-0 shrink items-center gap-1 xl:flex [app-region:no-drag]">
           {notices.slice(0, 2).map(([key, text]) => (
             <Chip key={key} mono title={`${key}: ${text}`}>
               <span className="block max-w-[9rem] truncate">{text}</span>
@@ -640,7 +640,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           onClick={() => void compactSession(tabId)}
         >
           <IconCompact />
-          <span className="hidden lg:inline">compact</span>
+          <span className="titlebar-compact-label hidden lg:inline">compact</span>
         </Button>
         <Switch
           on={session?.autoCompactionEnabled ?? false}
