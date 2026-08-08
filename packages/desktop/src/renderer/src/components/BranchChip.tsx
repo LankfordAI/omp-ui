@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { findRecord, useStore } from "../store";
 import { Button } from "./ui";
@@ -40,11 +40,10 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
   /** Branch name awaiting the busy-session confirm; null when not confirming. */
   const [confirm, setConfirm] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (projectCwd !== undefined && info === undefined) void refreshBranches(projectCwd);
-  }, [projectCwd, info, refreshBranches]);
-
-  if (projectCwd === undefined || info === undefined || info.repoRoot === null) return null;
+  /** Wraps the trigger *and* the popover, so one containment test covers both. */
+  const rootRef = useRef<HTMLSpanElement>(null);
+  /** Focus returns here when Escape closes the popover. */
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const closeMenu = (): void => {
     setMenuOpen(false);
@@ -54,6 +53,54 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
     setError(null);
     setConfirm(null);
   };
+
+  /**
+   * Escape peels one layer at a time: the new-branch form and the busy-session
+   * confirm are sub-states of the open popover, not separate surfaces.
+   */
+  const escapeStage = (): void => {
+    if (mode === "create") {
+      setMode("list");
+      setName("");
+      return;
+    }
+    if (confirm !== null) {
+      setConfirm(null);
+      return;
+    }
+    closeMenu();
+  };
+
+  useEffect(() => {
+    if (projectCwd !== undefined && info === undefined) void refreshBranches(projectCwd);
+  }, [projectCwd, info, refreshBranches]);
+
+  // Click-outside / Escape dismissal (issue #114), matching the terminal menu
+  // in Sidebar.tsx. The trigger is *inside* rootRef, so a click on it is not an
+  // outside click — its own onClick toggles, and the popover closes exactly once.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      const root = rootRef.current;
+      if (root !== null && event.target instanceof Node && root.contains(event.target)) return;
+      closeMenu();
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      const closing = mode === "list" && confirm === null;
+      escapeStage();
+      if (closing) triggerRef.current?.focus();
+    };
+    window.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [menuOpen, mode, confirm]);
+
+  if (projectCwd === undefined || info === undefined || info.repoRoot === null) return null;
 
   const toggleMenu = (): void => {
     if (menuOpen) {
@@ -92,8 +139,9 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
   );
 
   return (
-    <span className="relative flex">
+    <span ref={rootRef} className="relative flex">
       <button
+        ref={triggerRef}
         type="button"
         aria-expanded={menuOpen}
         title={`branch — ${info.current ?? "detached HEAD"} (click to switch)`}
@@ -112,18 +160,6 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
       {menuOpen && (
         <div
           className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-60 flex-col rounded-md border border-line-strong bg-overlay p-1"
-          onKeyDown={(e) => {
-            if (e.key !== "Escape") return;
-            e.stopPropagation();
-            if (mode === "create") {
-              setMode("list");
-              setName("");
-            } else if (confirm !== null) {
-              setConfirm(null);
-            } else {
-              closeMenu();
-            }
-          }}
         >
           {confirm !== null ? (
             <>

@@ -130,4 +130,35 @@ describe("BranchChip", () => {
 
     expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "topic", { create: true });
   });
+
+  it("closes on an outside pointerdown, and not on one inside the popover (issue #114)", async () => {
+    render();
+    await act(async () => chip().click());
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+
+    const inside = document.body.querySelector<HTMLInputElement>(
+      'input[aria-label="filter branches"]',
+    )!;
+    act(() => inside.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+
+    act(() => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+    expect(chip().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("Escape steps out of the create form first, then closes and refocuses the trigger", async () => {
+    render();
+    await act(async () => chip().click());
+    await act(async () => buttonByText("new branch…").click());
+    expect(document.body.querySelector('input[aria-label="new branch name"]')).not.toBeNull();
+
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.body.querySelector('input[aria-label="new branch name"]')).toBeNull();
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+    expect(document.activeElement).toBe(chip());
+  });
 });
