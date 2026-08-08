@@ -70,8 +70,7 @@ async function spawnOauthReady(scope: Scope, what: string, resumeSessionId?: str
       return harness;
     } catch (error) {
       lastError = error;
-      harness.kill();
-      await sleep(500);
+      await harness.kill();
     }
   }
   throw new OauthUnavailable(`oauth session never became ready (${what}): ${String(lastError)}`);
@@ -102,15 +101,11 @@ async function materializeSessionId(scope: Scope): Promise<string> {
         OAUTH_SESSION_TIMEOUT_MS,
         "oauth session file to materialize",
       );
-      harness.kill();
-      // Kill is async from the child's perspective; omp flushes the session
-      // file on exit. Give it a beat before re-spawning against the session.
-      await sleep(500);
+      await harness.kill();
       return sessionId;
     } catch (error) {
       lastError = error;
-      harness.kill();
-      await sleep(500);
+      await harness.kill();
     }
   }
   throw new OauthUnavailable(
@@ -138,12 +133,50 @@ interface Harness {
   advisorFrames(): AdvisorFrame[];
   /** Any response frames from THIS process (indexed from its spawn). */
   seenResponse(): boolean;
-  kill(): void;
+  /** Signals the child and resolves once it has actually exited. */
+  kill(): Promise<void>;
 }
 
 function makeScope(): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-advlive-"));
   return { base, lineage: path.join(base, "lin"), frames: [] };
+}
+
+/**
+ * Deletes a scope tree. Retries because a straggler write between the child's
+ * exit and the walk still surfaces as ENOTEMPTY (#123) — `force` forgives a
+ * missing path, not a directory being written to.
+ */
+function removeScope(scope: Scope): void {
+  fs.rmSync(scope.base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}
+
+// SIGTERM only asks omp to stop; it can still be flushing the session file
+// under the lineage dir afterwards. Deleting the scope during that window is
+// what made teardown flake with ENOTEMPTY (#123).
+const EXIT_GRACE_MS = 5_000;
+
+/**
+ * Resolves once the child has exited, escalating to SIGKILL after the grace
+ * period. Gives up at twice the grace rather than hanging the suite — a child
+ * that never spawned has no exit to deliver, and `removeScope`'s retries are
+ * the backstop for whatever is left on disk.
+ *
+ * These are real timers on purpose: the thing being waited on is a real OS
+ * process, and a fake clock cannot make it exit. Neither timer is a tuned
+ * sleep — the exit itself is the signal, and both are cleared the moment it
+ * arrives, so the common path costs nothing.
+ */
+function awaitExit(client: RpcClient, exited: Promise<void>): Promise<void> {
+  return new Promise((resolve) => {
+    const escalate = setTimeout(() => client.kill("SIGKILL"), EXIT_GRACE_MS);
+    const abandon = setTimeout(resolve, EXIT_GRACE_MS * 2);
+    void exited.then(() => {
+      clearTimeout(escalate);
+      clearTimeout(abandon);
+      resolve();
+    });
+  });
 }
 
 function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
@@ -152,6 +185,12 @@ function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
   const overlay = writeAdvisorOverlay(scope.lineage, null, true);
   if (!overlay) throw new Error("advisor overlay was not written");
   let killed = false;
+  // Promise.withResolvers would read better but needs ES2024; the node
+  // tsconfig targets ES2022 (same reason as `sleep` above).
+  let markExited!: () => void;
+  const exited = new Promise<void>((resolve) => {
+    markExited = resolve;
+  });
   // Frames are shared across a scope (fresh + resumed processes), so each
   // harness only considers frames published at/after its own spawn.
   const fromIndex = scope.frames.length;
@@ -165,7 +204,7 @@ function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
     configOverlays: [overlay],
     extensions: [planExt, extension],
     onFrame: (frame) => tail.push(frame as Frame),
-    onExit: () => {},
+    onExit: () => markExited(),
     onError: () => {},
   });
   return {
@@ -175,10 +214,12 @@ function spawnHarness(scope: Scope, resumeSessionId?: string): Harness {
         .filter((f) => f.type === "extension_ui_request" && f.statusKey === ADVISOR_STATS_KEY)
         .map((f) => ({ text: f.statusText ?? "" })),
     seenResponse: () => tail.some((f) => f.type === "response"),
-    kill: () => {
-      if (killed) return;
-      killed = true;
-      client.kill();
+    kill: async () => {
+      if (!killed) {
+        killed = true;
+        client.kill();
+      }
+      await awaitExit(client, exited);
     },
   };
 }
@@ -204,16 +245,16 @@ function assertAvailableCost(frames: AdvisorFrame[]): void {
   expect(typeof view.cost).toBe("number");
 }
 
-const disposers: (() => void)[] = [];
+const disposers: (() => void | Promise<void>)[] = [];
 
-afterEach(() => {
-  for (const dispose of disposers.splice(0)) dispose();
+afterEach(async () => {
+  for (const dispose of disposers.splice(0)) await dispose();
 });
 
 describe.skipIf(!ompPath)("advisor-stats live (real omp)", () => {
   it("publishes an available:true cost frame on a fresh boot arm", { timeout: 180000 }, async (ctx) => {
     const scope = makeScope();
-    disposers.push(() => fs.rmSync(scope.base, { recursive: true, force: true }));
+    disposers.push(() => removeScope(scope));
     let harness: Harness;
     try {
       harness = await spawnOauthReady(scope, "oauth ready response");
@@ -229,13 +270,13 @@ describe.skipIf(!ompPath)("advisor-stats live (real omp)", () => {
       );
       assertAvailableCost(frames);
     } finally {
-      harness.kill();
+      await harness.kill();
     }
   });
 
   it("auto-publishes a fresh available:true frame after a real turn", { timeout: 180000 }, async (ctx) => {
     const scope = makeScope();
-    disposers.push(() => fs.rmSync(scope.base, { recursive: true, force: true }));
+    disposers.push(() => removeScope(scope));
     let harness: Harness;
     try {
       harness = await spawnOauthReady(scope, "oauth ready response");
@@ -258,13 +299,13 @@ describe.skipIf(!ompPath)("advisor-stats live (real omp)", () => {
       );
       assertAvailableCost(frames);
     } finally {
-      harness.kill();
+      await harness.kill();
     }
   });
 
   it("shows the readout on --resume before any new turn", { timeout: 420000 }, async (ctx) => {
     const scope = makeScope();
-    disposers.push(() => fs.rmSync(scope.base, { recursive: true, force: true }));
+    disposers.push(() => removeScope(scope));
     let sessionId: string;
     try {
       sessionId = await materializeSessionId(scope);
@@ -286,7 +327,7 @@ describe.skipIf(!ompPath)("advisor-stats live (real omp)", () => {
       );
       assertAvailableCost(frames);
     } finally {
-      resumed.kill();
+      await resumed.kill();
     }
   });
 });
