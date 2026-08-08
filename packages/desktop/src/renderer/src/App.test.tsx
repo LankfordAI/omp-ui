@@ -105,6 +105,41 @@ describe("compact App shell", () => {
     expect(document.body.querySelector('[data-terminal-tab="pty"]')).not.toBeNull();
     expect(document.body.querySelector('[data-terminal-tab="pty"]')?.parentElement?.style.display).toBe("none");
   });
+
+  it("is the window's drag surface with every control carved out (issue #121)", () => {
+    renderApp();
+    const nav = document.body.querySelector("nav")!;
+    expect(nav.className).toContain("[app-region:drag]");
+
+    // A drag region swallows every pointer event, so each control must sit
+    // inside a no-drag box under the nav (SessionHud's #108 contract).
+    const carvedOut = (el: HTMLElement): boolean => {
+      for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+        if (n.classList.contains("[app-region:no-drag]")) return true;
+        if (n === nav) return false;
+      }
+      return false;
+    };
+    const controls = [...nav.querySelectorAll<HTMLElement>("button")];
+    expect(controls.length).toBe(3);
+    for (const control of controls) expect(carvedOut(control)).toBe(true);
+
+    // The title must not be the flex-1 box: a no-drag flex-1 would leave no
+    // grabbable row at all (#108).
+    const title = controls[1]!;
+    expect(title.className).not.toContain("flex-1");
+    expect(title.parentElement!.className).toContain("flex-1");
+    expect(title.parentElement!.classList.contains("[app-region:no-drag]")).toBe(false);
+  });
+
+  it("reserves no native caption strip outside the Electron shell", () => {
+    // jsdom's UA carries no `Electron/`, so this covers the remote web client:
+    // a phone must not lose 132px to buttons that do not exist.
+    renderApp();
+    const nav = document.body.querySelector<HTMLElement>("nav")!;
+    expect(nav.style.paddingLeft).toBe("");
+    expect([...nav.children].some((c) => (c as HTMLElement).style.width !== "")).toBe(false);
+  });
 });
 
 describe("desktop merged title bar (issues #59/#60)", () => {

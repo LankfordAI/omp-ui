@@ -14,7 +14,7 @@ import { TerminalTab } from "./components/TerminalTab";
 import { Button, Chevron, Chip, IconButton } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
-import { IS_MAC, IS_WINDOWS } from "./lib/platform";
+import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { findRecord, useStore } from "./store";
@@ -312,17 +312,35 @@ export default function App() {
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden bg-void font-sans text-ink">
       {!compact && <TitleBar />}
       {compact && (
-        <nav className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-void px-[max(0.5rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.5rem,var(--safe-right))]">
-          <Button variant="ghost" className="min-w-11 px-2" onClick={() => showCompactSurface("sessions")}>
+        /*
+         * The compact shell has no TitleBar, so this row is the window's only
+         * web drag surface (issue #121). Same contract as TitleBar above: the
+         * nav is the drag region and every control carves itself back out.
+         * The title deliberately is NOT the flex-1 box — a no-drag flex-1
+         * would eat the whole affordance (#108). It sits inside a draggable
+         * flex-1 span and is capped so at least 4rem of grabbable row remains
+         * however long the session title is.
+         */
+        <nav
+          className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-void px-[max(0.5rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.5rem,var(--safe-right))] [app-region:drag]"
+          style={IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
+        >
+          <Button variant="ghost" className="min-w-11 px-2 [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
             <span aria-hidden>☰</span><span className="sr-only">projects and sessions</span>
           </Button>
-          <button type="button" className="min-w-0 flex-1 truncate px-2 text-center font-display text-sm font-semibold" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
+          <span className="min-w-0 flex-1 text-center">
+            <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
+          </span>
           {activeTab?.mode === "rpc-ui" ? (
-            <Button variant="ghost" className="min-w-11 justify-center px-2" onClick={() => showCompactSurface("inspector")}>
+            <Button variant="ghost" className="min-w-11 justify-center px-2 [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
               <span aria-hidden>◎</span><span className="sr-only">inspector</span>
               {inspectorCount > 0 && <Chip tone="copper" mono>{inspectorCount}</Chip>}
             </Button>
           ) : <span className="w-11" />}
+          {/* Reserve the caption-button strip so no control slides under it.
+              Left undeclared, like TitleBar's: the native overlay owns the hit
+              test there anyway. */}
+          {IS_ELECTRON && OVERLAY_INSET > 0 && <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />}
         </nav>
       )}
       <div className="flex min-h-0 flex-1 border-t border-line">
