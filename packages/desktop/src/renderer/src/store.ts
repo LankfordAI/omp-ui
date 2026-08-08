@@ -17,6 +17,7 @@ import type {
   SessionSummary,
 } from "@omp-ui/core/types";
 import {
+  isHtmlPlanPath,
   parsePlanReviewTitle,
   parsePlanStatus,
   PLAN_COMMAND,
@@ -52,6 +53,7 @@ import {
   type PlanExecutionContext,
   type PlanExecutionOptions,
 } from "./lib/plan-concerns";
+import { planSeedText } from "./lib/plan-seed";
 import { randomId } from "./lib/random-id";
 import {
   emptySessionRuntime,
@@ -182,11 +184,12 @@ export interface RpcTabState {
    * replies, so it must be answered on every path out of the review pane.
    */
   planReview: { request: PlanReviewRequest; frame: unknown } | null;
-  /** Plan markdown for the review pane, read off disk. */
+  /** The pending plan's body for the review pane, read off disk. */
   planText: string | null;
   /**
-   * HTML rendition of the pending plan, read off disk; null for markdown-only
-   * plans and whenever the companion file is missing or unreadable.
+   * The pending plan's body when it was authored as HTML — the same text as
+   * `planText`, flagged for iframe rendering. Null for a markdown plan and for
+   * any plan that could not be read.
    */
   planHtml: string | null;
   /**
@@ -530,16 +533,11 @@ interface UiStore {
    */
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
   /**
-   * Loads the plan markdown for the review pane; when `itemId` names an inline
-   * plan transcript item, the loaded text is copied onto it too.
+   * Loads the pending plan's body for the review pane, and flags it as HTML
+   * when the file is one, so the pane picks its renderer. When `itemId` names
+   * an inline plan transcript item, the loaded text is copied onto it too.
    */
   loadPlanText(tabId: string, absPath: string | null, itemId?: string): Promise<void>;
-  /**
-   * Loads the plan's HTML rendition for the review pane. `absPath` is null for
-   * a markdown-only plan; a failed read leaves `planHtml` null so the pane
-   * falls back to the markdown.
-   */
-  loadPlanHtml(tabId: string, absPath: string | null): Promise<void>;
   /**
    * Dismisses the plan review WITHOUT answering the gate: the agent stays
    * paused on its proposal and the plan stays pending in the rail's plans tab,
@@ -1243,7 +1241,8 @@ export const useStore = create<UiStore>()((set, get) => {
       await get().setThinkingLevel(freshId, options.thinkingLevel);
     }
     const lead = "A plan was approved for this project. Implement it now.";
-    const seed = planText ? `${lead}\n\n${planText}\n\nProceed with the implementation.` : lead;
+    const body = planSeedText(planText);
+    const seed = body ? `${lead}\n\n${body}\n\nProceed with the implementation.` : lead;
     await get().sendPrompt(freshId, withOrchestrate(withConcerns(seed, concerns), options?.orchestrate === true), "prompt");
   };
 
@@ -2082,7 +2081,6 @@ export const useStore = create<UiStore>()((set, get) => {
             const planItem = planProposalItem(review.title, review.planFilePath, review.planAbsPath);
             appendItem(tabId, planItem);
             void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
-            void get().loadPlanHtml(tabId, review.planHtmlAbsPath);
             return;
           }
           const entry = extensionStatusEntry(frame);
@@ -2531,12 +2529,14 @@ export const useStore = create<UiStore>()((set, get) => {
 
     async loadPlanText(tabId, absPath, itemId) {
       if (!absPath) {
-        patchRpc(tabId, { planText: null });
+        patchRpc(tabId, { planText: null, planHtml: null });
         return;
       }
       try {
         const text = await backend.readPlanFile(tabId, absPath);
-        patchRpc(tabId, { planText: text });
+        // One file, one read: the html plan IS the plan, so `planHtml` is the
+        // render-mode flag rather than a second document (ADR-0014).
+        patchRpc(tabId, { planText: text, planHtml: isHtmlPlanPath(absPath) ? text : null });
         if (itemId !== undefined) {
           patchItems(tabId, (i) =>
             i.kind === "plan" && i.id === itemId ? { ...i, text } : i,
@@ -2545,20 +2545,7 @@ export const useStore = create<UiStore>()((set, get) => {
       } catch {
         // The pane falls back to the plan's path — a failed read must never
         // strand the review, because the agent is waiting on the verdict.
-        patchRpc(tabId, { planText: null });
-      }
-    },
-
-    async loadPlanHtml(tabId, absPath) {
-      if (!absPath) {
-        patchRpc(tabId, { planHtml: null });
-        return;
-      }
-      try {
-        patchRpc(tabId, { planHtml: await backend.readPlanFile(tabId, absPath) });
-      } catch {
-        // A markdown-only fallback still reviews fine; never strand the gate.
-        patchRpc(tabId, { planHtml: null });
+        patchRpc(tabId, { planText: null, planHtml: null });
       }
     },
 

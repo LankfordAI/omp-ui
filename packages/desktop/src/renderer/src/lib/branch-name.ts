@@ -7,7 +7,7 @@
 export function branchNameFromPlanPath(planFilePath: string): string {
   const file = planFilePath.split("/").pop() ?? "";
   return file
-    .replace(/\.md$/, "")
+    .replace(/\.(?:md|html)$/i, "")
     .replace(/-plan$/, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

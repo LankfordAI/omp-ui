@@ -210,7 +210,7 @@ function GeneralPage() {
       </Row>
       <Row
         title="Plan format"
-        hint="How the agent authors plans for review — a rich HTML document rendered in the review modal, or markdown only."
+        hint="How the agent authors a plan for review — one self-contained HTML document rendered in the review modal, or markdown."
       >
         <Capsule>
           {(

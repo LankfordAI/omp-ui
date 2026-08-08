@@ -1,3 +1,4 @@
+import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
 import { Chip, Disclosure, Label, Panel } from "./ui";
@@ -23,7 +24,18 @@ export function PlanCard({ item }: { item: PlanItem }) {
         {item.text !== null ? (
           <Disclosure summary={<Label>show plan</Label>}>
             <div className="mt-1">
-              <Markdown text={item.text} />
+              {isHtmlPlanPath(item.planFilePath) ? (
+                // Same empty sandbox as the review modal: no scripts, no
+                // same-origin access, no navigation (ADR-0007).
+                <iframe
+                  title="proposed plan"
+                  sandbox=""
+                  srcDoc={item.text}
+                  className="h-[28rem] w-full rounded-md border border-line bg-white"
+                />
+              ) : (
+                <Markdown text={item.text} />
+              )}
             </div>
           </Disclosure>
         ) : (

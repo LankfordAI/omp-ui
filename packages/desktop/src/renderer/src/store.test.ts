@@ -357,7 +357,7 @@ describe("deriveSidebarSessionState", () => {
         tabState({
           status: "running",
           planReview: {
-            request: { title: "review", planFilePath: "local://p.md", planAbsPath: null, planHtmlAbsPath: null },
+            request: { title: "review", planFilePath: "local://p.md", planAbsPath: null },
             frame: { id: "p" },
           },
         }),
@@ -510,7 +510,7 @@ describe("native RPC relaunch preparation", () => {
       session: { ...emptySessionRuntime(), isStreaming: true },
       extensionQueue: [{ id: "question" }],
       planReview: {
-        request: { title: "review", planFilePath: "local://p.md", planAbsPath: null, planHtmlAbsPath: null },
+        request: { title: "review", planFilePath: "local://p.md", planAbsPath: null },
         frame: { id: "plan" },
       },
       planText: "# stale plan",
@@ -1080,7 +1080,7 @@ describe("handleRpcFrame routing", () => {
     expect(sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
   });
 
-  it("loads the html rendition when the review names one", async () => {
+  it("reads one file and flags an html plan for iframe rendering", async () => {
     useStore.getState().handleRpcFrame(TAB, {
       type: "extension_ui_request",
       id: "p2h",
@@ -1089,20 +1089,20 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({
           title: "add auth",
-          planFilePath: "local://auth-plan.md",
-          planAbsPath: "/lineage/local/auth-plan.md",
-          planHtmlAbsPath: "/lineage/local/auth-plan.html",
+          planFilePath: "local://auth-plan.html",
+          planAbsPath: "/lineage/local/auth-plan.html",
         }),
     });
     await flushMicrotasks();
     const tab = useStore.getState().rpc[TAB]!;
-    // Both files load: the markdown stays the execution spec, the html is what
-    // the review pane renders.
-    expect(tab.planText).toBe("# Plan\n\nstep one\n");
+    // The html file IS the plan — one read, and planHtml is only the flag that
+    // says "render this text in an iframe", never a second document.
+    expect(mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
+    expect(tab.planText).toBe("<h1>Plan</h1>");
     expect(tab.planHtml).toBe("<h1>Plan</h1>");
   });
 
-  it("leaves planHtml null for a markdown-only review", async () => {
+  it("leaves planHtml null for a markdown plan", async () => {
     useStore.getState().handleRpcFrame(TAB, {
       type: "extension_ui_request",
       id: "p2m",
@@ -1117,16 +1117,13 @@ describe("handleRpcFrame routing", () => {
     });
     await flushMicrotasks();
     const tab = useStore.getState().rpc[TAB]!;
+    expect(mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
     expect(tab.planText).toBe("# Plan\n\nstep one\n");
     expect(tab.planHtml).toBeNull();
-    expect(mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to markdown when the html rendition cannot be read", async () => {
-    mockBackend.readPlanFile.mockImplementation(async (_tabId: string, absPath: string) => {
-      if (absPath.endsWith(".html")) throw new Error("ENOENT");
-      return "# Plan\n\nstep one\n";
-    });
+  it("clears both plan fields when an html plan cannot be read", async () => {
+    mockBackend.readPlanFile.mockRejectedValueOnce(new Error("ENOENT"));
     useStore.getState().handleRpcFrame(TAB, {
       type: "extension_ui_request",
       id: "p2f",
@@ -1135,15 +1132,16 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({
           title: "add auth",
-          planFilePath: "local://auth-plan.md",
-          planAbsPath: "/lineage/local/auth-plan.md",
-          planHtmlAbsPath: "/lineage/local/auth-plan.html",
+          planFilePath: "local://auth-plan.html",
+          planAbsPath: "/lineage/local/auth-plan.html",
         }),
     });
     await flushMicrotasks();
     const tab = useStore.getState().rpc[TAB]!;
+    // A failed read must not leave the pane flagged for iframe rendering with
+    // nothing to render — the review itself stays open either way.
+    expect(tab.planText).toBeNull();
     expect(tab.planHtml).toBeNull();
-    expect(tab.planText).toBe("# Plan\n\nstep one\n");
     expect(tab.planReview).not.toBeNull();
   });
 
@@ -1249,6 +1247,48 @@ describe("handleRpcFrame routing", () => {
     );
     expect(prompt).toBeDefined();
     expect(prompt!.cmd.message).toContain("Implement it now");
+    await flushMicrotasks();
+  });
+
+  it("seeds a fresh session with an html plan's spec, not its stylesheet", async () => {
+    const htmlPlan = [
+      "<!doctype html>",
+      "<html><head><style>",
+      "  h1 { color: rebeccapurple; }",
+      "</style></head>",
+      "<body><h1>Ship the auth rewrite</h1></body>",
+      "</html>",
+    ].join("\n");
+    mockBackend.readPlanFile.mockResolvedValueOnce(htmlPlan);
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p7h",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "t",
+          planFilePath: "local://p-plan.html",
+          planAbsPath: "/lineage/local/p-plan.html",
+        }),
+    });
+    // Let the plan file read resolve so executePlan captures the plan text.
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    await flushMicrotasks();
+    // Boot the fresh tab to ready — resolves the spawn's readiness wait.
+    useStore.setState({
+      rpc: { ...useStore.getState().rpc, "fresh-tab": tabState({ status: "ready", planText: null }) },
+    });
+    await flushMicrotasks();
+    const prompt = sent.find((s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt");
+    expect(prompt).toBeDefined();
+    // The implementer needs the spec inline; the presentation layer is pure
+    // token cost in a prompt.
+    expect(String(prompt!.cmd.message)).toContain("Ship the auth rewrite");
+    expect(String(prompt!.cmd.message)).not.toContain("rebeccapurple");
     await flushMicrotasks();
   });
 

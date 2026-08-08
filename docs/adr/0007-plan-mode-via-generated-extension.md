@@ -92,7 +92,7 @@ emitted source.
 - **No respawn.** Unlike the advisor, plan mode toggles in-process at any time,
   which is why it earns a HUD button rather than a relaunch.
 - **The plan file is read off disk, path-confined.** It lives at
-  `<lineage>/<session>/local/<slug>-plan.md`. The `plan:read` IPC channel
+  `<lineage>/<session>/local/<slug>-plan.{html,md}`. The `plan:read` IPC channel
   resolves and confines every request to the session's own lineage dir, so a
   crafted `local://` name cannot turn it into an arbitrary file reader.
 - **The `plan` model role is deliberately not applied.** omp's TUI swaps to the
@@ -100,20 +100,10 @@ emitted source.
   (`plan-mode/model-transition.ts`); omp-ui runs plan mode on whatever model the
   composer shows. Revisit if planning quality on a small model disappoints —
   the transition module is pure and portable if so.
-- **The HTML review rendition is a companion file, not a plan format.** Issue
-  #109 asked for HTML plans. omp 17.2.10 hardcodes `local://<slug>-plan.md`
-  across the plan-mode context template, the `xd://propose` tool description,
-  the write guard's error, and the slug→path derivation, so a canonical HTML
-  plan is unreachable without forking omp. Instead the markdown plan stays
-  mandatory — it is what the propose gate validates, what reference pinning
-  points at, and what seeds a fresh implementation session — and under the
-  `html` plan format the extension asks the agent, via one hidden
-  `sendCustomMessage`, to also maintain `local://<slug>-plan.html`. The review
-  request carries its confined absolute path (`planHtmlAbsPath`, null under
-  `md`), read over the same `plan:read` channel, so the modal renders it and
-  silently falls back to the markdown when it is absent. An omp without
-  `sendCustomMessage` degrades the session to `md` with one warning rather than
-  promising a rendition nothing will write.
+- **The HTML review rendition is a companion file, not a plan format.**
+  _Superseded by [ADR-0014](0014-html-plans-authored-directly.md): an html plan
+  is now authored directly as the single plan file, and there is no markdown
+  companion._
 - **Agent-authored HTML renders under an empty sandbox, and cannot navigate.**
   The modal embeds it as `srcDoc` in `<iframe sandbox="">` — zero tokens, so no
   scripts, no same-origin access, no forms, no popups, no top navigation; the
