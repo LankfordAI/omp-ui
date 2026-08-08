@@ -4,6 +4,7 @@ export const CH = {
   projectAdd: "project:add",
   dirBrowse: "dir:browse",
   projectRemove: "project:remove",
+  projectMove: "project:move",
   sessionSetModel: "session:setModel",
   settingsSetDefaultMode: "settings:setDefaultMode",
   settingsSetPlanFormat: "settings:setPlanFormat",

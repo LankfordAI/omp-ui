@@ -243,6 +243,82 @@ describe("Registry mutations", () => {
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-b"]);
   });
 
+  it("moveProject inserts before a sibling in either direction", () => {
+    const reg = Registry.load(tmpFile());
+    reg.addProject("/abs/a");
+    reg.addProject("/abs/b");
+    reg.addProject("/abs/c");
+    // A later project before an earlier one — the `to` index is looked up
+    // after the splice, so it lands ahead of the previously-removed slot.
+    reg.moveProject("/abs/c", "/abs/a");
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
+    // And an earlier project before a later one.
+    reg.moveProject("/abs/a", "/abs/c");
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/c", "/abs/b"]);
+  });
+
+  it("moveProject appends when beforePath is null or no longer registered", () => {
+    const reg = Registry.load(tmpFile());
+    reg.addProject("/abs/a");
+    reg.addProject("/abs/b");
+    reg.addProject("/abs/c");
+    reg.moveProject("/abs/a", null);
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
+    reg.moveProject("/abs/b", "/abs/gone");
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
+  });
+
+  it("moveProject is a stable no-op when the project already sits before its target", () => {
+    const reg = Registry.load(tmpFile());
+    reg.addProject("/abs/a");
+    reg.addProject("/abs/b");
+    reg.addProject("/abs/c");
+    reg.moveProject("/abs/a", "/abs/b");
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+  });
+
+  it("moveProject leaves the order alone when the target is the project itself", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    for (const p of ["/abs/a", "/abs/b", "/abs/c", "/abs/d"]) reg.addProject(p);
+    // The sidebar computes `beforePath` from the row below the drop point, so
+    // dropping a project just above itself asks to move it before itself. That
+    // is the "leave it put" gesture, and it must not reorder anything. Four
+    // projects, not three: with three, appending happens to land the moved
+    // project back where it started, which hides the bug entirely.
+    reg.moveProject("/abs/c", "/abs/c");
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c", "/abs/d"]);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(raw.projects.map((p: { path: string }) => p.path)).toEqual([
+      "/abs/a",
+      "/abs/b",
+      "/abs/c",
+      "/abs/d",
+    ]);
+  });
+
+  it("moveProject with an unknown source is a no-op and writes nothing", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/a");
+    reg.addProject("/abs/b");
+    reg.addProject("/abs/c");
+    reg.moveProject("/abs/zzz", "/abs/b");
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(raw.projects.map((p: { path: string }) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+  });
+
+  it("moveProject persists the new order across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/a");
+    reg.addProject("/abs/b");
+    reg.addProject("/abs/c");
+    reg.moveProject("/abs/c", "/abs/a");
+    expect(Registry.load(file).projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
+  });
+
   it("setSessionAdvisor records the flag and the pinned model together", () => {
     const reg = Registry.load(tmpFile());
     reg.addSession(sessionRecord());

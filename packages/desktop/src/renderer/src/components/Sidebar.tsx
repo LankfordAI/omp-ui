@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
@@ -80,6 +80,25 @@ function IconGear() {
   );
 }
 
+/** Six-dot drag handle for project reorder (issue #115). */
+function IconGrip() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="currentColor"
+    >
+      <circle cx="5.5" cy="4" r="0.9" />
+      <circle cx="10.5" cy="4" r="0.9" />
+      <circle cx="5.5" cy="8" r="0.9" />
+      <circle cx="10.5" cy="8" r="0.9" />
+      <circle cx="5.5" cy="12" r="0.9" />
+      <circle cx="10.5" cy="12" r="0.9" />
+    </svg>
+  );
+}
+
 /* -------------------------------------------------------------- primitives */
 
 /** Three pulsing bars — the honest "we have not heard from the backend yet". */
@@ -146,6 +165,39 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
   return out;
 }
 
+/**
+ * Which registered path a dragged project should land *before*, given the
+ * pointer over the section at `index`. Bottom half of any section means "after
+ * this one", i.e. before its successor — or the end of the list when there is
+ * none (null). Top half means before this section's project.
+ */
+function beforePathOf(
+  paths: string[],
+  index: number,
+  clientY: number,
+  rectTop: number,
+  rectBottom: number,
+): string | null {
+  const mid = (rectTop + rectBottom) / 2;
+  const after = clientY >= mid;
+  return after ? (paths[index + 1] ?? null) : paths[index];
+}
+
+interface ProjectSectionProps extends FilteredGroup {
+  query: string;
+  openTerminalMenu: OpenTerminalMenu;
+  compact: boolean;
+  onActivate: () => void;
+  // issue #115 drag-and-drop reorder of projects
+  canDrag?: boolean;
+  dragging?: boolean;
+  dropIndicator?: "before" | "after" | null;
+  onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
+  onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
+  onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd?: () => void;
+}
+
 /* --------------------------------------------------------- project section */
 
 function ProjectSection({
@@ -155,7 +207,14 @@ function ProjectSection({
   openTerminalMenu,
   compact,
   onActivate,
-}: FilteredGroup & { query: string; openTerminalMenu: OpenTerminalMenu; compact: boolean; onActivate: () => void }) {
+  canDrag = false,
+  dragging = false,
+  dropIndicator = null,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}: ProjectSectionProps) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const focusedTabId = useStore((st) => st.focusedTabByProject[group.project.path]);
@@ -183,9 +242,31 @@ function ProjectSection({
   const live = liveCount(sessions);
 
   return (
-    <section className="pb-1">
+    <section
+      className={cn(
+        "pb-1",
+        dragging && "opacity-60",
+        // The insertion line uses neutral emphasis — ADR-0004 reserves the
+        // signal accent for liveness/success.
+        dropIndicator === "before" && "border-t-2 border-line-strong",
+        dropIndicator === "after" && "border-b-2 border-line-strong",
+      )}
+      data-drop-indicator={dropIndicator ?? undefined}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
-        <div className="group/proj flex items-start gap-1.5">
+        <div
+          className={cn("group/proj flex items-start gap-1.5", canDrag && "cursor-grab active:cursor-grabbing")}
+          draggable={canDrag}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        >
+          {canDrag && (
+            <span className="mt-px shrink-0 self-center text-ink-faint opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100">
+              <IconGrip />
+            </span>
+          )}
           <button
             type="button"
             aria-expanded={open}
@@ -318,6 +399,7 @@ export function Sidebar() {
   const openProjectPicker = useStore((st) => st.openProjectPicker);
   const openSettings = useStore((st) => st.openSettings);
   const newSession = useStore((st) => st.newSession);
+  const moveProject = useStore((st) => st.moveProject);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
@@ -329,6 +411,11 @@ export function Sidebar() {
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
   const terminalMenuRef = useRef<HTMLDivElement>(null);
   const terminalMenuItemRef = useRef<HTMLButtonElement>(null);
+  // issue #115 drag-and-drop reorder. `dragPath` is the project being dragged;
+  // `dropIndicator`/`dropIndex` describe where the insertion line is drawn.
+  const [dragPath, setDragPath] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<"before" | "after" | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
 
   const openTerminalMenu: OpenTerminalMenu = (projectCwd, event) => {
     event.preventDefault();
@@ -376,6 +463,15 @@ export function Sidebar() {
 
   const groups = state?.projects ?? null;
   const filtered = useMemo(() => applyFilter(groups ?? [], query), [groups, query]);
+  // Paths in render order, used to resolve where a drop lands. Everything
+  // recomputes from the live list, so a stale pointer resolves against the
+  // current rows even when the filter changed mid-drag.
+  const filteredPaths = useMemo(() => filtered.map((f) => f.group.project.path), [filtered]);
+  // A lone project can't be reordered; the compact sheet's touch surface gets
+  // no drag affordances (issue #115 scoping). Filtering also disables the
+  // drag: drops resolve against the *visible* rows, so with neighbours hidden
+  // the insertion line would promise a position the reorder cannot honour.
+  const canDrag = !compact && query.trim() === "" && (groups?.length ?? 0) > 1;
 
   const matchCount = filtered.reduce((n, f) => n + f.sessions.length, 0);
   const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
@@ -469,17 +565,68 @@ export function Sidebar() {
                 }
               />
             )}
-            {filtered.map((f) => (
-              <ProjectSection
-                key={f.group.project.path}
-                group={f.group}
-                sessions={f.sessions}
-                query={query}
-                openTerminalMenu={openTerminalMenu}
-                compact={compact}
-                onActivate={closeCompactSurface}
-              />
-            ))}
+            {filtered.map((f, index) => {
+              const path = f.group.project.path;
+
+              const handleDragStart = (e: ReactDragEvent<HTMLElement>) => {
+                e.dataTransfer?.setData("text/plain", path); // required for Firefox
+                if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+                setDragPath(path);
+              };
+
+              const handleDragOver = (e: ReactDragEvent<HTMLElement>) => {
+                if (dragPath === null || dragPath === path) return; // own row: no indicator
+                e.preventDefault(); // allow the drop
+                const rect = e.currentTarget.getBoundingClientRect();
+                const beforePath = beforePathOf(filteredPaths, index, e.clientY, rect.top, rect.bottom);
+                // "before" → insertion above this project (top half); "after" →
+                // below it (bottom half: before the next project, or the end of
+                // the list). Recomputed fresh on drop, so this is display only.
+                setDropIndicator(beforePath === path ? "before" : "after");
+                setDropIndex(index);
+              };
+
+              const handleDrop = (e: ReactDragEvent<HTMLElement>) => {
+                e.preventDefault();
+                if (dragPath !== null && dragPath !== path) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const beforePath = beforePathOf(filteredPaths, index, e.clientY, rect.top, rect.bottom);
+                  // Dropping just above itself resolves to "before itself" —
+                  // the "leave it put" gesture. The registry treats it as a
+                  // no-op regardless; skipping the call here also spares a
+                  // pointless save and state broadcast.
+                  if (beforePath !== dragPath) void moveProject(dragPath, beforePath);
+                }
+                setDragPath(null);
+                setDropIndicator(null);
+                setDropIndex(null);
+              };
+
+              const handleDragEnd = () => {
+                setDragPath(null);
+                setDropIndicator(null);
+                setDropIndex(null);
+              };
+
+              return (
+                <ProjectSection
+                  key={path}
+                  group={f.group}
+                  sessions={f.sessions}
+                  query={query}
+                  openTerminalMenu={openTerminalMenu}
+                  compact={compact}
+                  onActivate={closeCompactSurface}
+                  canDrag={canDrag}
+                  dragging={dragPath === path}
+                  dropIndicator={dropIndex === index ? dropIndicator : null}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onDragEnd={handleDragEnd}
+                />
+              );
+            })}
           </div>
         </>
       )}

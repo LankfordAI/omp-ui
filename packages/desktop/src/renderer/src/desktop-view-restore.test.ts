@@ -58,6 +58,7 @@ const mockBackend = {
   addProject: vi.fn(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
+  moveProject: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(),
   setSessionModel: vi.fn(async () => {}),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),

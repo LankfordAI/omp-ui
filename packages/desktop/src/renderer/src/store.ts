@@ -436,6 +436,8 @@ interface UiStore {
   /** Registers `path` via the backend; rejects with the backend's message. */
   addProject(path: string): Promise<void>;
   removeProject(path: string): Promise<void>;
+  /** Reorders a project in the sidebar; null `beforePath` appends to the end. */
+  moveProject(projectPath: string, beforePath: string | null): Promise<void>;
   toggleFavorite(key: string): Promise<void>;
   newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
   openSession(tabId: string): Promise<void>;
@@ -1636,6 +1638,16 @@ export const useStore = create<UiStore>()((set, get) => {
         return;
       try {
         await backend.removeProject(path);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
+    // No optimistic update: the `stateChanged` broadcast replaces `state`
+    // authoritatively, exactly like removeProject.
+    async moveProject(projectPath, beforePath) {
+      try {
+        await backend.moveProject(projectPath, beforePath);
       } catch (err) {
         alertError(err);
       }
