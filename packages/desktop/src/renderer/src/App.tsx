@@ -35,6 +35,9 @@ const HINTS: [combo: string, what: string][] = [
 // visual-fit value — if a theme draws wider buttons, adjust this one line.
 // macOS paints no overlay; its traffic lights sit top-left, so the inset
 // moves to the left edge instead.
+// Both insets are Electron-only: the remote web client (#37) serves this same
+// bundle to a browser tab, where there are no caption buttons to avoid, so
+// every use is gated on IS_ELECTRON (#122).
 const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
 const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
 
@@ -115,7 +118,9 @@ function TitleBar() {
   return (
     <header
       className="relative flex h-9 shrink-0 select-none items-center gap-1 bg-void [app-region:drag]"
-      style={TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
+      style={
+        IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined
+      }
     >
       <div className="flex shrink-0 items-center gap-1 pl-3 [app-region:no-drag]">
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
@@ -155,7 +160,9 @@ function TitleBar() {
         </>
       )}
 
-      {OVERLAY_INSET > 0 && <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />}
+      {IS_ELECTRON && OVERLAY_INSET > 0 && (
+        <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />
+      )}
     </header>
   );
 }

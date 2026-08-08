@@ -160,6 +160,17 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     expect(header.className).toContain("bg-void");
   });
 
+  it("reserves no native caption strip outside the Electron shell (issue #122)", () => {
+    // The remote web client is served this same bundle in an ordinary browser
+    // tab, where jsdom's UA (like the browser's) carries no `Electron/`: the
+    // strip must run the full window width rather than park 132px of dead
+    // space where native window controls would be, squeezing the HUD.
+    renderApp();
+    const header = document.body.querySelector<HTMLElement>("header")!;
+    expect(header.style.paddingLeft).toBe("");
+    expect([...header.children].some((c) => (c as HTMLElement).style.width !== "")).toBe(false);
+  });
+
   it("shows no HUD controls for a terminal tab and toggles the sidebar from the strip", () => {
     renderApp();
     act(() => useStore.setState({ activeTabId: "pty" }));
