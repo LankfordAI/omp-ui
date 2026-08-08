@@ -50,7 +50,7 @@ function seed(): void {
     rpc: { rpc: runtime({
       todos: [{ phase: "work", tasks: [{ content: "open", status: "pending" }] }],
       subagents: [{ id: "agent-1", name: "worker", status: "working" }],
-      planReview: { request: { title: "Plan", planFilePath: "local://plan.md", planAbsPath: "/plan.md", planHtmlAbsPath: null }, frame: { id: "p" } },
+      planReview: { request: { title: "Plan", planFilePath: "local://plan.md", planAbsPath: "/plan.md" }, frame: { id: "p" } },
     }) },
     compactSurface: null,
     sidebarCollapsed: false,

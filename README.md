@@ -34,9 +34,9 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
   extension ([ADR-0007](docs/adr/0007-plan-mode-via-generated-extension.md)),
   gated on your verdict: execute into the same session, a compacted session,
   or a fresh one seeded with the plan — or send it back with revision notes.
-  Plans are reviewed as a rich HTML document by default (Settings → General
-  switches to markdown); the canonical `local://<slug>-plan.md` stays the spec
-  the implementer receives.
+  Plans are authored and reviewed as one self-contained HTML document by
+  default (Settings → General switches to markdown); that single file is the
+  spec the implementer receives.
 - **Inspector rail.** Todos, Agents, Session, Plans, and branch Diffs panes
   behind an icon strip — one pane at a time, badge counts on the strip.
 - **Command palette.** `Ctrl/⌘+K` searches every session, project, tab

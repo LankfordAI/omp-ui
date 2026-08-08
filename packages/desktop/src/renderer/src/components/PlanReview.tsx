@@ -4,6 +4,7 @@ import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
+import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { AdvisorModelPalette, shortLabel, splitRole } from "./AdvisorControl";
@@ -171,7 +172,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
       return;
     }
     const fallback = branchNameFromPlanPath(planFilePath);
-    const planContext = `${planTitle ?? planFilePath}\n\n${planText.slice(0, 2000)}`;
+    const planContext = `${planTitle ?? planFilePath}\n\n${(planSeedText(planText) ?? "").slice(0, 2000)}`;
     let live = true;
     void suggestBranchName(projectCwd, planContext).then((suggested) => {
       if (!live || suggested === null) return;

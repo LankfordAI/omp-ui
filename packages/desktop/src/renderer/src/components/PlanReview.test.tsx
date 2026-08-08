@@ -67,7 +67,6 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
         title: "Fix the login race",
         planFilePath: "local://fix-login-race-plan.md",
         planAbsPath: "/x/fix-login-race-plan.md",
-        planHtmlAbsPath: "/x/fix-login-race-plan.html",
       },
       frame: { id: "p1" },
     },

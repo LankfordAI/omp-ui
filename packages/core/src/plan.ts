@@ -32,7 +32,10 @@ export const PLAN_REFINE = "refine";
 /** Published on `PLAN_STATUS_KEY`; mirrors what the renderer needs to render. */
 export interface PlanStatus {
   enabled: boolean;
-  /** `local://<slug>-plan.md`, or null before the agent has named one. */
+  /**
+   * `local://<slug>-plan.html` under the `html` plan format,
+   * `local://<slug>-plan.md` under `md`; null before the agent has named one.
+   */
   planFilePath: string | null;
   /** Absolute path of the same file, so the renderer can read it. */
   planAbsPath: string | null;
@@ -49,14 +52,14 @@ export interface PlanStatus {
 /** Payload encoded after {@link PLAN_REVIEW_SENTINEL} on the approval select. */
 export interface PlanReviewRequest {
   title: string;
-  planFilePath: string;
-  planAbsPath: string | null;
   /**
-   * Absolute path of the plan's HTML rendition, or null for a markdown-only
-   * plan. Set only when the session is planning in `html` format; the review
-   * pane falls back to the markdown when the file is missing or unreadable.
+   * The one plan file. Its extension is the format: `-plan.html` is reviewed in
+   * a sandboxed iframe, `-plan.md` as rendered markdown. There is no second
+   * file — see ADR-0014.
    */
-  planHtmlAbsPath: string | null;
+  planFilePath: string;
+  /** Absolute path of the same file, so the renderer can read it. */
+  planAbsPath: string | null;
 }
 
 /** Parses the JSON published on {@link PLAN_STATUS_KEY}; null when malformed. */
@@ -89,13 +92,21 @@ export function parsePlanReviewTitle(title: string | undefined): PlanReviewReque
     title: typeof record.title === "string" ? record.title : planFilePath,
     planFilePath,
     planAbsPath: typeof record.planAbsPath === "string" ? record.planAbsPath : null,
-    planHtmlAbsPath: typeof record.planHtmlAbsPath === "string" ? record.planHtmlAbsPath : null,
   };
 }
 
-/** True for the plan-mode artifact path shape, `local://<slug>-plan.md`. */
+/** True for the plan-mode artifact path shape, `local://<slug>-plan.{md,html}`. */
 export function isPlanArtifactPath(path: string | undefined | null): boolean {
-  return typeof path === "string" && path.startsWith("local://") && path.endsWith("-plan.md");
+  return typeof path === "string" && path.startsWith("local://") && /-plan\.(?:md|html)$/i.test(path);
+}
+
+/**
+ * True for a plan authored as HTML — the review surfaces render it in an empty
+ * sandbox instead of as markdown. Matches a `local://` URL or an absolute path,
+ * because the renderer decides off whichever it holds.
+ */
+export function isHtmlPlanPath(path: string | undefined | null): boolean {
+  return typeof path === "string" && /-plan\.html$/i.test(path);
 }
 
 function parseObject(text: string | undefined): Record<string, unknown> | null {
