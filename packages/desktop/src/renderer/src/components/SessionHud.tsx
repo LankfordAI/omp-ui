@@ -182,7 +182,12 @@ const STATUS: Record<string, { tone: Tone; pulse: boolean }> = {
   error: { tone: "rose", pulse: false },
 };
 
-/** Click-to-rename title. Enter commits; Escape and blur both abandon. */
+/**
+ * Click-to-rename title. Enter commits; Escape and blur both abandon.
+ * Both faces are no-drag: in the wide HUD they sit inside the title bar's
+ * drag region, which would otherwise swallow the click (#108). Harmless
+ * no-op in the compact sheet, which is not a drag region.
+ */
 function TitleField({ tabId, title }: { tabId: string; title: string }) {
   const renameSessionTo = useStore((s) => s.renameSessionTo);
   const [draft, setDraft] = useState<string | null>(null);
@@ -193,7 +198,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
         type="button"
         title={`${title} — click to rename`}
         onClick={() => setDraft(title)}
-        className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-[13px] text-ink transition-colors hover:bg-hover"
+        className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-[13px] text-ink transition-colors hover:bg-hover [app-region:no-drag]"
       >
         {title}
       </button>
@@ -218,7 +223,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
           setDraft(null);
         }
       }}
-      className="min-w-0 flex-1 rounded border border-line-strong bg-void px-1.5 py-0.5 font-display text-[13px] text-ink outline-none focus:border-signal-dim"
+      className="min-w-0 flex-1 rounded border border-line-strong bg-void px-1.5 py-0.5 font-display text-[13px] text-ink outline-none focus:border-signal-dim [app-region:no-drag]"
     />
   );
 }
@@ -263,7 +268,7 @@ function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
     `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
     ` (${percent.toFixed(2)}%) · ${stats.subscription ? "subscription billing" : formatCost(stats.cost)}`;
   return (
-    <div className="hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex" title={exact}>
+    <div className="hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex [app-region:no-drag]" title={exact}>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">adv</span>
       <Meter fraction={window > 0 ? stats.contextTokens / window : 0} className="w-14" title={exact} />
       <span className="font-mono text-[10px] tabular-nums text-ink-dim" title={exact}>
@@ -534,22 +539,28 @@ export function SessionHud({ tabId }: { tabId: string }) {
       </>
     );
   }
+  // The HUD is the widest stretch of the merged title bar (issue #60), so it
+  // owns the window's drag affordance: the root is the drag region and every
+  // control below carves itself back out with [app-region:no-drag] (#108). A
+  // blanket no-drag here left the strip ungrabbable except for two 4px gaps.
+  // Draggable regions swallow every pointer event, so a new control added to
+  // this row MUST sit inside a no-drag box — and never wrap `flex-1`.
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:no-drag]">
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:drag]">
       {session?.isCompacting ? (
-        <Chip tone="copper" className="shrink-0">
+        <Chip tone="copper" className="shrink-0 [app-region:no-drag]">
           <Dot tone="copper" pulse />
           compacting
         </Chip>
       ) : (
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-dim" title={`rpc status: ${status}`}>
+        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-dim [app-region:no-drag]" title={`rpc status: ${status}`}>
           <Dot tone={face.tone} pulse={face.pulse} />
           {status}
         </span>
       )}
 
       {plan?.enabled && (
-        <Chip tone="iris" className="shrink-0" title={plan.planFilePath ?? "read-only exploration — no plan drafted"}>
+        <Chip tone="iris" className="shrink-0 [app-region:no-drag]" title={plan.planFilePath ?? "read-only exploration — no plan drafted"}>
           plan
         </Chip>
       )}
@@ -562,7 +573,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           `usage` and `stats` independent conditionals: either can be null without
           dropping the other. */}
       {(usage || stats) && (
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 [app-region:no-drag]">
           {usage && <ContextCluster usage={usage} />}
           {stats && (
             <div
@@ -587,7 +598,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       {notices.length > 0 && (
-        <div className="hidden min-w-0 shrink items-center gap-1 xl:flex">
+        <div className="hidden min-w-0 shrink items-center gap-1 xl:flex [app-region:no-drag]">
           {notices.slice(0, 2).map(([key, text]) => (
             <Chip key={key} mono title={`${key}: ${text}`}>
               <span className="block max-w-[9rem] truncate">{text}</span>
@@ -596,7 +607,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </div>
       )}
 
-      <div className="flex shrink-0 items-center gap-1 border-l border-line-soft pl-2.5">
+      <div className="flex shrink-0 items-center gap-1 border-l border-line-soft pl-2.5 [app-region:no-drag]">
         <PlanToggle tabId={tabId} />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <Button
