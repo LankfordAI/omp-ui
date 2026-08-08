@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
@@ -80,7 +80,7 @@ function IconGear() {
   );
 }
 
-/** Six-dot drag handle for project reorder (issue #115). */
+/** Drag handle and keyboard reorder control for a project (issues #115, #120). */
 function IconGrip() {
   return (
     <svg
@@ -188,8 +188,10 @@ interface ProjectSectionProps extends FilteredGroup {
   openTerminalMenu: OpenTerminalMenu;
   compact: boolean;
   onActivate: () => void;
-  // issue #115 drag-and-drop reorder of projects
-  canDrag?: boolean;
+  // issue #115 pointer reorder, issue #120 keyboard reorder — one gate for both
+  canReorder?: boolean;
+  registerGrip?: (path: string, el: HTMLButtonElement | null) => void;
+  onReorder?: (delta: -1 | 1) => void;
   dragging?: boolean;
   dropIndicator?: "before" | "after" | null;
   onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
@@ -207,7 +209,9 @@ function ProjectSection({
   openTerminalMenu,
   compact,
   onActivate,
-  canDrag = false,
+  canReorder = false,
+  registerGrip,
+  onReorder,
   dragging = false,
   dropIndicator = null,
   onDragStart,
@@ -257,15 +261,31 @@ function ProjectSection({
     >
       <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
         <div
-          className={cn("group/proj flex items-start gap-1.5", canDrag && "cursor-grab active:cursor-grabbing")}
-          draggable={canDrag}
+          className={cn("group/proj flex items-start gap-1.5", canReorder && "cursor-grab active:cursor-grabbing")}
+          draggable={canReorder}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
-          {canDrag && (
-            <span className="mt-px shrink-0 self-center text-ink-faint opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100">
+          {canReorder && (
+            <button
+              type="button"
+              ref={(el) => {
+                registerGrip?.(project.path, el);
+              }}
+              aria-label={`reorder ${project.name}`}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+              title={`reorder ${project.name} — drag, or Alt+↑ / Alt+↓`}
+              onKeyDown={(e) => {
+                if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+                // Ours: neither scroll the list nor wake Electron's
+                // auto-hidden menu bar (main/index.ts: autoHideMenuBar).
+                e.preventDefault();
+                onReorder?.(e.key === "ArrowUp" ? -1 : 1);
+              }}
+              className="mt-px shrink-0 self-center rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+            >
               <IconGrip />
-            </span>
+            </button>
           )}
           <button
             type="button"
@@ -416,6 +436,18 @@ export function Sidebar() {
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<"before" | "after" | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  // issue #120 keyboard reorder. Grips are registered by path so focus can be
+  // restored to the moved project after the registry's broadcast re-renders the
+  // list (React reorders by moving the DOM subtree, which blurs it).
+  const gripRefs = useRef(new Map<string, HTMLButtonElement>());
+  const registerGrip = useCallback((path: string, el: HTMLButtonElement | null) => {
+    if (el === null) gripRefs.current.delete(path);
+    else gripRefs.current.set(path, el);
+  }, []);
+  /** The keyboard move in flight, and the slot it must land in. */
+  const pendingMove = useRef<{ path: string; name: string; index: number } | null>(null);
+  /** Live-region text: the *result* of a reorder, never the request. */
+  const [reorderNote, setReorderNote] = useState("");
 
   const openTerminalMenu: OpenTerminalMenu = (projectCwd, event) => {
     event.preventDefault();
@@ -467,11 +499,42 @@ export function Sidebar() {
   // recomputes from the live list, so a stale pointer resolves against the
   // current rows even when the filter changed mid-drag.
   const filteredPaths = useMemo(() => filtered.map((f) => f.group.project.path), [filtered]);
+  // The move is only real once the broadcast has replaced `state`. Waiting for
+  // the expected slot means a refused or coalesced move announces nothing, and
+  // focus is restored on the render that actually moved the row.
+  useEffect(() => {
+    const pending = pendingMove.current;
+    if (pending === null || filteredPaths[pending.index] !== pending.path) return;
+    pendingMove.current = null;
+    gripRefs.current.get(pending.path)?.focus();
+    setReorderNote(
+      `${pending.name} moved to position ${pending.index + 1} of ${filteredPaths.length}`,
+    );
+  }, [filteredPaths]);
   // A lone project can't be reordered; the compact sheet's touch surface gets
   // no drag affordances (issue #115 scoping). Filtering also disables the
-  // drag: drops resolve against the *visible* rows, so with neighbours hidden
-  // the insertion line would promise a position the reorder cannot honour.
-  const canDrag = !compact && query.trim() === "" && (groups?.length ?? 0) > 1;
+  // reorder: positions resolve against the *visible* rows, so with neighbours
+  // hidden the insertion line — or an Alt+Arrow step — would promise a place
+  // the reorder cannot honour. One gate covers both input paths: the pointer
+  // drag (issue #115) and the keyboard move (issue #120).
+  const canReorder = !compact && query.trim() === "" && (groups?.length ?? 0) > 1;
+
+  const reorderProject = (index: number, delta: -1 | 1): void => {
+    const path = filteredPaths[index];
+    const name = filtered[index]?.group.project.name;
+    if (path === undefined || name === undefined) return;
+    const target = index + delta;
+    if (target < 0 || target >= filteredPaths.length) {
+      setReorderNote(`${name} is already ${delta < 0 ? "first" : "last"}`);
+      return;
+    }
+    // moveProject inserts *before* a sibling: one step up is "before the
+    // predecessor"; one step down is "before the successor's successor", and
+    // null past the end of the list.
+    const beforePath = delta < 0 ? filteredPaths[index - 1]! : (filteredPaths[index + 2] ?? null);
+    pendingMove.current = { path, name, index: target };
+    void moveProject(path, beforePath);
+  };
 
   const matchCount = filtered.reduce((n, f) => n + f.sessions.length, 0);
   const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
@@ -617,7 +680,9 @@ export function Sidebar() {
                   openTerminalMenu={openTerminalMenu}
                   compact={compact}
                   onActivate={closeCompactSurface}
-                  canDrag={canDrag}
+                  canReorder={canReorder}
+                  registerGrip={registerGrip}
+                  onReorder={(delta) => reorderProject(index, delta)}
                   dragging={dragPath === path}
                   dropIndicator={dropIndex === index ? dropIndicator : null}
                   onDragStart={handleDragStart}
@@ -686,6 +751,12 @@ export function Sidebar() {
           </span>
         )}
       </footer>
+      {/* The reorder result, announced for keyboard and assistive-tech users
+          (issue #120). Text only changes when a move lands, so a repeated
+          boundary press is silent — correct: nothing changed. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {reorderNote}
+      </p>
     </aside>
   );
   return compact ? (

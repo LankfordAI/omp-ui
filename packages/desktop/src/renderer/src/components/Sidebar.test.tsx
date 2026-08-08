@@ -521,3 +521,73 @@ describe("Sidebar project drag-and-drop (issue #115)", () => {
     expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(0);
   });
 });
+
+describe("Sidebar keyboard project reorder (issue #120)", () => {
+  /** The broadcast the main process would send after a successful move. */
+  const orderedState = (paths: string[]): BackendState => ({
+    ...threeProjectState,
+    projects: paths.map((p) => threeProjectState.projects.find((g) => g.project.path === p)!),
+  });
+  const grip = (name: string): HTMLButtonElement => button(`reorder ${name}`);
+  const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
+  const press = async (el: HTMLElement, key: string): Promise<void> => {
+    await act(async () => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
+    });
+  };
+
+  beforeEach(() => {
+    backendMock.moveProject.mockClear();
+    useStore.setState({ state: threeProjectState });
+  });
+
+  it("moves a project down, then announces and refocuses once the order lands", async () => {
+    renderSidebar();
+    await press(grip("Alpha"), "ArrowDown");
+    expect(backendMock.moveProject).toHaveBeenCalledWith(dragAlpha, dragGamma);
+    // Nothing is announced until the registry's broadcast replaces `state`.
+    expect(note()).toBe("");
+
+    await act(async () => {
+      useStore.setState({ state: orderedState([dragBeta, dragAlpha, dragGamma]) });
+    });
+    expect(note()).toBe("Alpha moved to position 2 of 3");
+    expect(document.activeElement).toBe(grip("Alpha"));
+  });
+
+  it("moves the last project up by inserting it before its predecessor", async () => {
+    renderSidebar();
+    await press(grip("Gamma"), "ArrowUp");
+    expect(backendMock.moveProject).toHaveBeenCalledWith(dragGamma, dragBeta);
+  });
+
+  it("appends when the second-to-last project moves down", async () => {
+    renderSidebar();
+    await press(grip("Beta"), "ArrowDown");
+    expect(backendMock.moveProject).toHaveBeenCalledWith(dragBeta, null);
+  });
+
+  it("refuses to move past either end and says so instead", async () => {
+    renderSidebar();
+    await press(grip("Alpha"), "ArrowUp");
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+    expect(note()).toBe("Alpha is already first");
+    await press(grip("Gamma"), "ArrowDown");
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+    expect(note()).toBe("Gamma is already last");
+  });
+
+  it("ignores an unmodified arrow key so list navigation is untouched", async () => {
+    renderSidebar();
+    await act(async () => {
+      grip("Alpha").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+  });
+
+  it("offers no reorder handle when there is only one project", () => {
+    useStore.setState({ state: { ...threeProjectState, projects: [threeProjectState.projects[0]!] } });
+    renderSidebar();
+    expect(document.body.querySelector('button[aria-label^="reorder "]')).toBeNull();
+  });
+});
