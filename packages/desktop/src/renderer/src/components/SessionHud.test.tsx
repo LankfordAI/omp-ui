@@ -143,6 +143,58 @@ describe("wide Session HUD", () => {
     expect(adv).toBeLessThan(advisorCost);
     expect(text.slice(0, adv)).toContain("1.1M tok");
   });
+
+  it("keeps the title bar's whitespace draggable without swallowing a control (#108)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB],
+          stats: {
+            userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
+            tokens: { input: 10, output: 10, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 20 },
+            cost: 0.01, premiumRequests: 1, contextUsage: null,
+          },
+          advisorStats: {
+            available: true, configured: true, active: false, model: null, subscription: false,
+            contextWindow: 1000, contextTokens: 200, cost: 0.1, totalTokens: 0,
+          },
+        },
+      },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+
+    // The HUD is the widest stretch of the merged title bar, so its root is
+    // the window's drag surface — a blanket no-drag here left the strip
+    // ungrabbable except for two 4px gaps (#108).
+    const hud = host.firstElementChild as HTMLElement;
+    expect(hud.classList.contains("[app-region:drag]")).toBe(true);
+
+    // A drag region ignores all pointer events, so every control and every
+    // hover tooltip must sit inside a no-drag box under that root.
+    const carvedOut = (el: HTMLElement): boolean => {
+      for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+        if (n.classList.contains("[app-region:no-drag]")) return true;
+        if (n === hud) return false;
+      }
+      return false;
+    };
+    const controls = [...hud.querySelectorAll<HTMLElement>('button, input, [role="switch"], [title]')];
+    expect(controls.length).toBeGreaterThan(8);
+    for (const el of controls) {
+      expect(carvedOut(el), el.getAttribute("aria-label") ?? el.getAttribute("title") ?? el.textContent ?? "").toBe(true);
+    }
+
+    // ...and the flexible spacer that supplies the drag surface must stay out
+    // of every no-drag box, or there is nothing left to grab.
+    const spacer = [...hud.children].find((c) => c.classList.contains("flex-1")) as HTMLElement | undefined;
+    expect(spacer).toBeDefined();
+    expect(carvedOut(spacer!)).toBe(false);
+  });
 });
 
 describe("compact Session HUD", () => {

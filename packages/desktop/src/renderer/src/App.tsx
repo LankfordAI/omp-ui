@@ -89,6 +89,13 @@ function IconFolderPlus() {
  * rect is composited over web content and would cover its right end (the
  * segment under the min/max/close buttons). It lives as a border-t on the
  * content wrapper below, the first row the overlay doesn't reach.
+ * Drag polarity: this header is the window's drag region, and every
+ * interactive or hover-informative box inside it — here and in SessionHud's
+ * wide branch — must carve itself out with [app-region:no-drag]. Draggable
+ * regions ignore all pointer events, and a no-drag box wrapped around a
+ * flex-1 container removes the whole drag affordance (issue #108). The
+ * OVERLAY_INSET spacer below is deliberately left undeclared: it stays
+ * draggable, and the native overlay hit test owns it anyway.
  */
 function TitleBar() {
   const tabs = useStore((s) => s.tabs);
