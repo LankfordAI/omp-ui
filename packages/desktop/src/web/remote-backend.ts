@@ -93,6 +93,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     addProject: (path) => req(CH.projectAdd, path),
     browseDirectories: (partialPath) => req(CH.dirBrowse, partialPath),
     removeProject: (path) => req(CH.projectRemove, path),
+    moveProject: (projectPath, beforePath) => req(CH.projectMove, projectPath, beforePath),
     setDefaultMode: (mode) => req(CH.settingsSetDefaultMode, mode),
     setPlanFormat: (format) => req(CH.settingsSetPlanFormat, format),
     setAdvisorAutoReply: (on) => req(CH.settingsSetAdvisorAutoReply, on),

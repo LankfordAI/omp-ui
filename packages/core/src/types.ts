@@ -417,6 +417,14 @@ export interface OmpBackend {
   /** Directory listing for the in-app project picker (read-only, never mutates). */
   browseDirectories(partialPath: string): Promise<DirBrowseResult>;
   removeProject(path: string): Promise<void>;
+  /**
+   * Moves a registered project to sit immediately before `beforePath` in the
+   * sidebar order; a null `beforePath` (or one that is not registered) appends
+   * it to the end. The order is the persisted registry order, so the change
+   * survives a restart. An unknown `projectPath`, and a `beforePath` equal to
+   * it, are no-ops.
+   */
+  moveProject(projectPath: string, beforePath: string | null): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;

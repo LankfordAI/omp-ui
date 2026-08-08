@@ -22,6 +22,7 @@ const backendMock = {
   addProject: vi.fn(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
+  moveProject: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -122,6 +123,23 @@ const state: BackendState = {
       ],
     },
   ],
+};
+
+// issue #115: the DnD suite needs three reorderable projects; the same session
+// fixture is cloned per project so every row carries a real (but tiny) list.
+const dragAlpha = "/projects/alpha";
+const dragBeta = "/projects/beta";
+const dragGamma = "/projects/gamma";
+const threeProjectState: BackendState = {
+  ...state,
+  projects: [dragAlpha, dragBeta, dragGamma].map((p, i) => ({
+    project: {
+      ...state.projects[0]!.project,
+      path: p,
+      name: ["Alpha", "Beta", "Gamma"][i],
+    },
+    sessions: state.projects[0]!.sessions.map((s) => ({ ...s, projectCwd: p })),
+  })),
 };
 
 let root: Root | null = null;
@@ -363,5 +381,143 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     expect(aFirst.getAttribute("aria-current")).toBe("page");
     // B-9 is visible but NOT selected, even though it is project B's focus.
     expect(bLast!.getAttribute("aria-current")).toBeNull();
+  });
+});
+
+describe("Sidebar project drag-and-drop (issue #115)", () => {
+  /** Deterministic geometry: every section spans y 0–100, so clientY 40 = top half. */
+  const mockSectionRects = (): void => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 100,
+      height: 100,
+      left: 0,
+      right: 200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+  };
+
+  const dragEvent = (type: string, clientY: number, dataTransfer: object): MouseEvent => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
+    // jsdom's MouseEvent carries no dataTransfer; the component only ever uses
+    // setData/effectAllowed, so a plain fixture object suffices.
+    Object.defineProperty(event, "dataTransfer", { value: dataTransfer, configurable: true });
+    return event;
+  };
+
+  const makeDataTransfer = (): { setData: (...args: unknown[]) => void; effectAllowed: string } => ({
+    setData: vi.fn(),
+    effectAllowed: "",
+  });
+
+  function sectionFor(name: string): HTMLElement {
+    const found = [...document.querySelectorAll<HTMLElement>("section")].find((el) =>
+      el.textContent?.includes(name),
+    );
+    if (found === undefined) throw new Error(`section not found: ${name}`);
+    return found;
+  }
+
+  function headerFor(name: string): HTMLElement {
+    const found = sectionFor(name).querySelector<HTMLElement>("[draggable]");
+    if (found === null) throw new Error(`draggable header not found: ${name}`);
+    return found;
+  }
+
+  beforeEach(() => {
+    backendMock.moveProject.mockClear();
+    useStore.setState({ state: threeProjectState });
+    mockSectionRects();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("moves before a project when dropped on its top half", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      headerFor("Alpha").dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    await act(async () => {
+      sectionFor("Gamma").dispatchEvent(dragEvent("dragover", 40, dt));
+    });
+    expect(sectionFor("Gamma").getAttribute("data-drop-indicator")).toBe("before");
+    await act(async () => {
+      sectionFor("Gamma").dispatchEvent(dragEvent("drop", 40, dt));
+    });
+    expect(backendMock.moveProject).toHaveBeenCalledWith(dragAlpha, dragGamma);
+    expect(sectionFor("Gamma").getAttribute("data-drop-indicator")).toBeNull();
+  });
+
+  it("appends when dropped on the last project's bottom half", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      headerFor("Beta").dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    await act(async () => {
+      sectionFor("Gamma").dispatchEvent(dragEvent("dragover", 60, dt));
+    });
+    expect(sectionFor("Gamma").getAttribute("data-drop-indicator")).toBe("after");
+    await act(async () => {
+      sectionFor("Gamma").dispatchEvent(dragEvent("drop", 60, dt));
+    });
+    expect(backendMock.moveProject).toHaveBeenCalledWith(dragBeta, null);
+  });
+
+  it("is a no-op when dropped back onto its own row", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      headerFor("Alpha").dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    await act(async () => {
+      sectionFor("Alpha").dispatchEvent(dragEvent("dragover", 40, dt));
+      sectionFor("Alpha").dispatchEvent(dragEvent("drop", 40, dt));
+    });
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+    expect(sectionFor("Alpha").getAttribute("data-drop-indicator")).toBeNull();
+  });
+
+  it("is a no-op when dropped just above itself, the 'leave it put' gesture", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      headerFor("Gamma").dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    // Bottom half of Beta means "after Beta", which is *before Gamma* — the
+    // dragged project itself. The gesture must not reorder, and must not spend
+    // a save and a broadcast saying so.
+    await act(async () => {
+      sectionFor("Beta").dispatchEvent(dragEvent("dragover", 60, dt));
+      sectionFor("Beta").dispatchEvent(dragEvent("drop", 60, dt));
+    });
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+  });
+
+  it("offers no drag affordance while the filter hides rows", async () => {
+    renderSidebar();
+    expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(3);
+    const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
+    expect(filter).not.toBeNull();
+    // React reads the value off its own descriptor, so a bare `.value =` write
+    // is invisible to onChange; the native setter is what a real keystroke does.
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setValue.call(filter!, "Alpha");
+      filter!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Drops resolve against the visible rows, so a hidden neighbour would make
+    // the insertion line promise a position the reorder cannot honour.
+    // `draggable` is enumerated, not boolean: React emits draggable="false",
+    // so the attribute is still present and only its value says "off".
+    expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(0);
   });
 });

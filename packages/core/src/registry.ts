@@ -360,6 +360,36 @@ export class Registry {
     this.#save();
   }
 
+  /**
+   * Moves `projectPath` to sit immediately before `beforePath` in the sidebar
+   * order; a null `beforePath` (or one that is not registered) appends the
+   * project to the end. The order is the persisted registry array order, so the
+   * change survives a restart. An unknown `projectPath`, and a `beforePath`
+   * equal to it, are no-ops (no save).
+   */
+  moveProject(projectPath: string, beforePath: string | null): void {
+    // "Before itself" is the sidebar's own "leave it put" drop (it derives
+    // beforePath from the row below the pointer). It must return here: the
+    // splice below would hide the project from the beforePath lookup, and the
+    // miss would append it to the end.
+    if (beforePath === projectPath) return;
+    const from = this.#data.projects.findIndex((p) => p.path === projectPath);
+    if (from === -1) return; // unknown source: no-op, no write
+    const [moved] = this.#data.projects.splice(from, 1);
+    // `to` is looked up after the splice, so indices have already shifted —
+    // "insert before the removed element's neighbour" stays correct.
+    if (beforePath !== null) {
+      const to = this.#data.projects.findIndex((p) => p.path === beforePath);
+      if (to !== -1) {
+        this.#data.projects.splice(to, 0, moved);
+        this.#save();
+        return;
+      }
+    }
+    this.#data.projects.push(moved);
+    this.#save();
+  }
+
   /** Records an advisor choice for this session and the next one in its project. */
   setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): void {
     const record = this.#data.sessions.find((s) => s.tabId === tabId);

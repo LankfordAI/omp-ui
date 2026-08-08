@@ -9,6 +9,7 @@ const api: OmpBackend = {
   addProject: (path) => ipcRenderer.invoke(CH.projectAdd, path),
   browseDirectories: (partialPath) => ipcRenderer.invoke(CH.dirBrowse, partialPath),
   removeProject: (path) => ipcRenderer.invoke(CH.projectRemove, path),
+  moveProject: (projectPath, beforePath) => ipcRenderer.invoke(CH.projectMove, projectPath, beforePath),
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
   setPlanFormat: (format) => ipcRenderer.invoke(CH.settingsSetPlanFormat, format),
   setAdvisorAutoReply: (on) => ipcRenderer.invoke(CH.settingsSetAdvisorAutoReply, on),
