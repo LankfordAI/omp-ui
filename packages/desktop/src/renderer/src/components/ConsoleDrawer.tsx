@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { backend } from "../backend";
+import { IS_WINDOWS } from "../lib/platform";
 import { useStore } from "../store";
 import { ShellDrawer } from "./ShellDrawer";
 import { Button, IconButton, IconClose } from "./ui";
@@ -65,8 +66,11 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
           <Button
             size="xs"
             variant="ghost"
-            title="send `clear` to the shell"
-            onClick={() => backend.shellWrite(tabId, "clear\n")}
+            title="clear the terminal"
+            // `cls` is accepted by cmd and PowerShell alike (it is a built-in
+            // Clear-Host alias there), while `clear` is the Unix spelling —
+            // sending the wrong one makes the shell reject it (issue #166).
+            onClick={() => backend.shellWrite(tabId, IS_WINDOWS ? "cls\n" : "clear\n")}
           >
             clear
           </Button>
