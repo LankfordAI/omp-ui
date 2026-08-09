@@ -539,6 +539,30 @@ export const useStore = create<UiStore>()((set, get, api) => {
     return true;
   };
 
+  /**
+   * Guarantees the live session is in Build before the implementation prompt
+   * runs (issue #165). The execute verdict already exits plan mode in-process
+   * inside the extension's proposal handler; this waits for that exit's
+   * status frame, and if it never surfaces, drives the mode off directly
+   * with the mode command. Bounded: a stuck session must not delay
+   * implementation indefinitely. `plan == null` means no extension status was
+   * ever published — the session was never armed, so Build holds by
+   * construction.
+   */
+  const ensureBuildMode = async (tabId: string): Promise<void> => {
+    const build = (t: RpcTabState | undefined) =>
+      t?.plan == null ||
+      t?.plan.enabled === false ||
+      get().exited[tabId] !== undefined;
+    await pollUntil(tabId, build);
+    if (get().rpc[tabId]?.plan?.enabled !== true) return;
+    // The verdict's in-process exit never surfaced — force it. Fire-and-forget:
+    // the extension's status frame releases the wait, and a failed command must
+    // not delay or abort dispatch (issue #165).
+    void get().setPlanMode(tabId, false).catch(() => {});
+    await pollUntil(tabId, build, 5_000);
+  };
+
   /** Sends the implementation prompt for a settled execute verdict. */
   const dispatchExecutePlan = (
     tabId: string,
@@ -589,6 +613,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         );
         if (get().rpc[tabId]?.status !== "ready") return;
         if (context === "compacted") await get().compactSession(tabId);
+        await ensureBuildMode(tabId);
         await get().sendPrompt(tabId, message, "prompt");
       })();
       return;
@@ -602,11 +627,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // before compacting, then prompt the implementer.
         await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
         await get().compactSession(tabId);
+        await ensureBuildMode(tabId);
         await get().sendPrompt(tabId, message, "prompt");
         return;
       }
       // Existing context: followUp queues the prompt until the current turn
       // ends, so it races nothing — the implementer runs in this same session.
+      // The gate only yields for a genuinely armed session: an unarmed one is
+      // already Build and must dispatch in the same synchronous frame the
+      // verdict lands in (issue #165).
+      if (get().rpc[tabId]?.plan?.enabled === true) await ensureBuildMode(tabId);
       await get().sendPrompt(tabId, message, "follow_up");
     })();
   };
@@ -728,6 +758,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         advisorModel,
         cols: 80,
         rows: 24,
+        startInPlanMode: false,
       }));
     } catch (err) {
       alertError(err);

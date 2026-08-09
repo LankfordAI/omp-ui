@@ -215,7 +215,7 @@ export class SessionManager {
       }
 
       return req.mode === "rpc-ui"
-        ? this.spawnRpc(record, req.resumeTabId === undefined, ompPath)
+        ? this.spawnRpc(record, req.startInPlanMode ?? req.resumeTabId === undefined, ompPath)
         : await this.spawnPty(record, req, ompPath);
     } finally {
       if (req.resumeTabId) {

@@ -9,6 +9,7 @@ import type {
   RemoteState,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
+import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { ADVISOR_REPLY_SETTLE_MS } from "./lib/advisor-reply";
 import { backendState as makeBackendState, rpcTabState, tabInfo } from "./test/fixtures";
 
@@ -1226,6 +1227,91 @@ describe("handleRpcFrame routing", () => {
     await flushMicrotasks();
   });
 
+  it("holds the implementation prompt until the session reports Build after execute (issue #165)", async () => {
+    // The proposing session published armed status; the verdict's exit frame
+    // is still in flight when the verdict is answered.
+    useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          plan: { enabled: true, planFilePath: "local://p.md", planAbsPath: "/p.md", approved: false },
+        },
+      },
+    }));
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "p3c",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    useStore.getState().executePlan(TAB, "existing");
+    // Verdict landed, but no implementation prompt yet — it waits for Build.
+    expect(sent.find((s) => s.cmd.type === "prompt")).toBeUndefined();
+    // The extension's in-process exit publishes its status frame.
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "st1",
+      method: "setStatus",
+      statusKey: PLAN_STATUS_KEY,
+      statusText: JSON.stringify({ enabled: false, planFilePath: null, planAbsPath: null, approved: true }),
+    });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    await flushMicrotasks();
+  });
+
+  it("forces plan mode off before dispatching when the verdict's exit never publishes (issue #165)", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState((s) => ({
+        rpc: {
+          ...s.rpc,
+          [TAB]: {
+            ...s.rpc[TAB]!,
+            plan: { enabled: true, planFilePath: "local://p.md", planAbsPath: "/p.md", approved: false },
+          },
+        },
+      }));
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "extension_ui_request",
+        id: "p3d",
+        method: "select",
+        title:
+          "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+      });
+      useStore.getState().executePlan(TAB, "existing");
+      // No exit frame ever arrives; the bounded wait expires and the mode
+      // command is sent directly.
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushMicrotasks();
+      const off = sent.find(
+        (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message) === "/omp-ui-plan off",
+      );
+      expect(off).toBeDefined();
+      // The forced exit answers with its status frame; implementation follows.
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "extension_ui_request",
+        id: "st2",
+        method: "setStatus",
+        statusKey: PLAN_STATUS_KEY,
+        statusText: JSON.stringify({ enabled: false, planFilePath: null, planAbsPath: null, approved: true }),
+      });
+      await flushMicrotasks();
+      expect(
+        sent.find(
+          (s) => s.tabId === TAB && s.cmd.type === "prompt" && String(s.cmd.message).includes("execute the approved plan"),
+        ),
+      ).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refining a review answers with the refine verdict and sends no prompt", () => {
     useStore.getState().handleRpcFrame(TAB, {
       type: "extension_ui_request",
@@ -1278,7 +1364,7 @@ describe("handleRpcFrame routing", () => {
     expect(response?.cmd).toMatchObject({ id: "p7", value: "execute" });
     await flushMicrotasks();
     expect(mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ projectCwd: "/p", mode: "rpc-ui" }),
+      expect.objectContaining({ projectCwd: "/p", mode: "rpc-ui", startInPlanMode: false }),
     );
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
     useStore.setState({
@@ -1595,7 +1681,7 @@ describe("handleRpcFrame routing", () => {
     useStore.getState().handleRpcFrame(TAB, advisorReviewFrame("pin the toolchain", "concern", "ops"));
     await flushMicrotasks();
     expect(mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ projectCwd: "/p", mode: "rpc-ui" }),
+      expect.objectContaining({ projectCwd: "/p", mode: "rpc-ui", startInPlanMode: false }),
     );
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
     useStore.setState({

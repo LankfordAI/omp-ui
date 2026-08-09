@@ -34,6 +34,7 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
   extension ([ADR-0007](docs/adr/0007-plan-mode-via-generated-extension.md)),
   gated on your verdict: execute into the same session, a compacted session,
   or a fresh one seeded with the plan — or send it back with revision notes.
+  Implementation always begins in Build mode, whatever the default agent mode says.
   Plans are authored and reviewed as one self-contained HTML document by
   default (Settings → General switches to markdown); that single file is the
   spec the implementer receives.

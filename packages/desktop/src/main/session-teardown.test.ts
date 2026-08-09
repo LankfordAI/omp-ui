@@ -350,6 +350,22 @@ describe("live session teardown (issue #64)", () => {
     );
   });
 
+  it("never arms Plan for a plan-execution spawn even when Plan is the default (issue #165)", async () => {
+    setup();
+    await invoke(CH.spawnSession, {
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      startInPlanMode: false,
+    });
+
+    expect(RpcClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ initialCommands: undefined }),
+    );
+  });
+
   it("mode switch away from rpc-ui waits for the rpc child to exit before spawning PTY", async () => {
     setup();
     const res = (await invoke(CH.spawnSession, {

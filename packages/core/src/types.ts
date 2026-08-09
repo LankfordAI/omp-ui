@@ -154,6 +154,13 @@ export interface SpawnRequest {
   cols: number;
   rows: number;
   resumeTabId?: string;
+  /**
+   * Initial Plan/Build posture for a brand-new rpc-ui session. Omitted means
+   * "follow the Default agent mode" (the current behavior). Plan execution
+   * passes false so the implementation session is never born read-only
+   * (issue #165).
+   */
+  startInPlanMode?: boolean;
 }
 
 /** omp's own advisor defaults, read from its config (see core/omp-config.ts). */

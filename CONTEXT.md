@@ -142,7 +142,8 @@ The app preference that chooses whether a new native session starts in Plan or
 Build. It does not change live or resumed sessions and does not apply to terminal
 tabs. The default appears first in every mode selector and stays visually quiet;
 the alternate receives the stronger selection accent and is the only mode named
-in the Session HUD when active.
+in the Session HUD when active. It never controls plan implementation: every
+execution context of an approved plan begins in Build (issue #165).
 _Avoid_: default session mode, startup plan mode
 
 **Plan review**:
@@ -151,7 +152,8 @@ plan's slug to `xd://propose`, which blocks it until the user answers execute
 or refine. Execute lands a single verdict and the renderer dispatches the
 implementation into a chosen context — the same session, the same session
 after compacting its context, or a freshly spawned session seeded with the
-plan — as a normal prompt. Refine sends the agent back to revise the draft,
+plan — as a normal prompt. Implementation always begins in Build mode,
+whatever the Default agent mode says (issue #165). Refine sends the agent back to revise the draft,
 optionally carrying the user's revision notes (text + images). Abandoning the
 pane — Escape, scrim-click, or "not now" — is the third, non-answering verdict:
 `deferPlanReview` dismisses it without resolving the gate, so the agent stays
