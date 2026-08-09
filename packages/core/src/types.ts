@@ -405,6 +405,8 @@ export interface ProviderKeysSnapshot {
  * The renderer↔backend seam (ADR-0002). Changes only by extension — a future
  * packages/server reproduces exactly this surface over WebSocket.
  */
+export type AppUpdateRestartResult = "confirmation-required" | "restarting" | "unavailable";
+
 export interface OmpBackend {
   getState(): Promise<BackendState>;
   /**
@@ -614,8 +616,11 @@ export interface OmpBackend {
   openAppUpdateReleaseNotes(): Promise<void>;
   /** Reveals the downloaded artifact in its folder (manual installer formats). */
   showAppUpdateDownload(): Promise<void>;
-  /** Restarts into a downloaded AppImage/NSIS update; asks first when sessions are live. */
-  restartForAppUpdate(): Promise<void>;
+  /**
+   * Requests a restart into a staged update. The first call leaves `confirmed`
+   * false; `confirmation-required` must be answered in the initiating renderer.
+   */
+  restartForAppUpdate(confirmed?: boolean): Promise<AppUpdateRestartResult>;
   /** Arms or disarms applying the staged AppImage/NSIS update on the next natural quit. */
   setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   /**

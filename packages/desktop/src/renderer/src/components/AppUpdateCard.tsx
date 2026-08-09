@@ -1,6 +1,6 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useStore } from "../store";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, Modal } from "./ui";
 
 /**
  * The update card (issue #18): a small non-modal card in the lower-right
@@ -12,12 +12,56 @@ import { Button, IconButton } from "./ui";
  * Renders nothing for idle/checking — background failures stay silent by
  * design. No `signal` tokens: ADR-0004 reserves signal for agent liveness.
  */
+/** Shared restart action used by both update surfaces. */
+export function AppUpdateRestartAction({ size }: { size?: "xs" }) {
+  const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  const [confirming, setConfirming] = useState(false);
+
+  const restart = async (confirmed = false): Promise<void> => {
+    const result = await restartForAppUpdate(confirmed);
+    setConfirming(result === "confirmation-required");
+  };
+
+  return (
+    <>
+      <Button size={size} variant="solid" onClick={() => void restart()}>
+        Restart now
+      </Button>
+      {confirming && (
+        <Modal onClose={() => setConfirming(false)} width="w-[28rem]" mobile="dialog">
+          <section role="alertdialog" aria-modal="true" aria-labelledby="restart-update-title">
+            <header className="border-b border-line px-4 py-3.5">
+              <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-copper">
+                Live sessions
+              </p>
+              <h2 id="restart-update-title" className="font-display text-base font-semibold text-ink">
+                Restart omp-ui now?
+              </h2>
+            </header>
+            <div className="px-4 py-4">
+              <p className="text-sm leading-relaxed text-ink-dim">
+                One or more sessions are still live. Restarting will stop their agents and apply the update.
+              </p>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+              <Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+              <Button variant="solid" tone="copper" onClick={() => void restart(true)}>
+                Restart and stop sessions
+              </Button>
+            </footer>
+          </section>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 export function AppUpdateCard() {
   const appUpdate = useStore((s) => s.appUpdate);
   const downloadAppUpdate = useStore((s) => s.downloadAppUpdate);
   const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
-  const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  
   const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
   const dismissAppUpdate = useStore((s) => s.dismissAppUpdate);
 
@@ -95,9 +139,7 @@ export function AppUpdateCard() {
             : "restart to apply — your sessions keep running until then"}
         </p>
         <div className="mt-3 flex items-center gap-2">
-          <Button variant="solid" onClick={() => void restartForAppUpdate()}>
-            Restart now
-          </Button>
+          <AppUpdateRestartAction />
           <Button
             variant="ghost"
             onClick={() => void setAppUpdateInstallOnQuit(!installOnQuit)}

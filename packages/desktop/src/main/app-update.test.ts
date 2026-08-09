@@ -114,12 +114,14 @@ interface MadeUpdater {
   updater: AppUpdaterType;
   downloadsDir: string;
   dismissed: { value: string | null };
-  confirmQuit: Mock<() => Promise<boolean>>;
+  hasLiveSessions: Mock<() => boolean>;
+  authorizeQuit: Mock<() => void>;
 }
 
 function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
   const dismissed = { value: null as string | null };
-  const confirmQuit = vi.fn(async () => true);
+  const hasLiveSessions = vi.fn(() => false);
+  const authorizeQuit = vi.fn();
   const downloadsDir = mkTmp();
   const updater = new AppUpdater({
     win: {} as never,
@@ -130,13 +132,14 @@ function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
     setDismissed: (v) => {
       dismissed.value = v;
     },
-    confirmQuit,
+    hasLiveSessions,
+    authorizeQuit,
     send: (channel, state) => sent.push({ channel, state: { ...state } }),
     channel: "app:updateState",
     platform: "linux",
     ...overrides,
   });
-  return { updater, downloadsDir, dismissed, confirmQuit };
+  return { updater, downloadsDir, dismissed, hasLiveSessions, authorizeQuit };
 }
 
 const statuses = (): AppUpdateState["status"][] => sent.map((s) => s.state.status);
@@ -467,25 +470,28 @@ describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
     expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
   });
 
-  it("restarts only after the live-session quit guard agrees", async () => {
+  it("requires renderer confirmation for live sessions, then authorizes restart", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater, confirmQuit } = await stageAutoUpdate(autoUpdater);
+    const { updater, hasLiveSessions, authorizeQuit } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
+    hasLiveSessions.mockReturnValue(true);
 
-    confirmQuit.mockResolvedValueOnce(false);
-    await updater.restart();
+    expect(updater.restart()).toBe("confirmation-required");
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
-    await updater.restart();
+    expect(authorizeQuit).not.toHaveBeenCalled();
+
+    expect(updater.restart(true)).toBe("restarting");
+    expect(hasLiveSessions).toHaveBeenCalledTimes(2);
+    expect(authorizeQuit).toHaveBeenCalledTimes(1);
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(
       ...(format === "nsis" ? [true, true] : []),
     );
-    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores restart until the update is downloaded", async () => {
+  it("reports restart unavailable until the update is downloaded", async () => {
     const autoUpdater = makeFakeAutoUpdater();
     const { updater } = await stageAutoUpdate(autoUpdater);
-    await updater.restart();
+    expect(updater.restart()).toBe("unavailable");
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
   });
 

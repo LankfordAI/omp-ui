@@ -89,7 +89,7 @@ const api: OmpBackend = {
   downloadAppUpdate: () => ipcRenderer.invoke(CH.appUpdateDownload),
   openAppUpdateReleaseNotes: () => ipcRenderer.invoke(CH.appUpdateOpenNotes),
   showAppUpdateDownload: () => ipcRenderer.invoke(CH.appUpdateShowDownload),
-  restartForAppUpdate: () => ipcRenderer.invoke(CH.appUpdateRestart),
+  restartForAppUpdate: (confirmed) => ipcRenderer.invoke(CH.appUpdateRestart, confirmed),
   setAppUpdateInstallOnQuit: (on) => ipcRenderer.invoke(CH.appUpdateInstallOnQuit, on),
   dismissAppUpdate: (version, remember) =>
     ipcRenderer.invoke(CH.appUpdateDismiss, version, remember),

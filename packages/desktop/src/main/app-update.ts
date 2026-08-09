@@ -11,6 +11,7 @@ import {
   selectAsset,
   type AppReleaseInfo,
   type AppPackageFormat,
+  type AppUpdateRestartResult,
   type AppUpdateState,
   type DownloadFetchLike,
   type FetchLike,
@@ -58,8 +59,10 @@ export interface AppUpdaterDeps {
   downloadsDir: string; // app.getPath("downloads")
   getDismissed: () => string | null;
   setDismissed: (version: string | null) => void;
-  /** Runs the live-session quit guard; resolves true when quit may proceed. */
-  confirmQuit: () => Promise<boolean>;
+  /** Main-process live-session authority, re-read immediately before restart. */
+  hasLiveSessions: () => boolean;
+  /** Marks the app's quit guard as satisfied after renderer confirmation. */
+  authorizeQuit: () => void;
   send: (channel: string, state: AppUpdateState) => void;
   channel: string; // CH.appUpdateState
   fetchImpl?: FetchLike; // tests
@@ -348,15 +351,20 @@ export class AppUpdater {
   }
 
   /**
-   * Restarts into the downloaded AppImage/NSIS update. Live sessions still get
-   * their say first — the same quit guard as the window close button.
+   * Two-step restart contract: a live session makes the first request return
+   * to the initiating renderer for confirmation. A confirmed retry re-reads
+   * live state, authorizes the process quit guard, then installs.
    */
-  async restart(): Promise<void> {
-    if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) return;
-    if (this.autoUpdater === null) return;
-    if (!(await this.deps.confirmQuit())) return;
+  restart(confirmed = false): AppUpdateRestartResult {
+    if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) {
+      return "unavailable";
+    }
+    if (this.autoUpdater === null) return "unavailable";
+    if (this.deps.hasLiveSessions() && !confirmed) return "confirmation-required";
+    this.deps.authorizeQuit();
     if (this.state.format === "nsis") this.autoUpdater.quitAndInstall(true, true);
     else this.autoUpdater.quitAndInstall();
+    return "restarting";
   }
 
   /**

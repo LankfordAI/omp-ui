@@ -220,6 +220,26 @@ describe("remote server lifecycle", () => {
     expect(res.value).toHaveProperty("projects");
   });
 
+  it("returns the app-update restart handshake over the remote socket", async () => {
+    await invoke(CH.remoteSetPort, 45687);
+    await invoke(CH.remoteSetEnabled, true);
+    const ws = await connect(45687, lastPush().token);
+    const reply = new Promise<Record<string, unknown>>((resolve) => {
+      ws.once("message", (raw: Buffer) =>
+        resolve(JSON.parse(raw.toString("utf8")) as Record<string, unknown>),
+      );
+    });
+
+    ws.send(JSON.stringify({ t: "req", id: 138, ch: CH.appUpdateRestart, args: [false] }));
+
+    expect(await reply).toMatchObject({
+      t: "res",
+      id: 138,
+      ok: true,
+      value: "unavailable",
+    });
+  });
+
   it("disabling stops the listener and frees the port", async () => {
     await invoke(CH.remoteSetPort, 45684);
     await invoke(CH.remoteSetEnabled, true);

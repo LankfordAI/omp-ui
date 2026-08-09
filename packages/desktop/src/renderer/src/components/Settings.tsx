@@ -1,3 +1,4 @@
+import { AppUpdateRestartAction } from "./AppUpdateCard";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   AppUpdateState,
@@ -391,7 +392,7 @@ function UpdatesPage() {
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const downloadOmpUpdate = useStore((s) => s.downloadOmpUpdate);
   const downloadAppUpdate = useStore((s) => s.downloadAppUpdate);
-  const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  
   const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
   const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
@@ -431,11 +432,9 @@ function UpdatesPage() {
                 </Button>
               ))}
             {appUpdate.status === "downloaded" &&
-              (appUpdate.format === "appimage" ? (
+              (appUpdate.format === "appimage" || appUpdate.format === "nsis" ? (
                 <>
-                  <Button size="xs" variant="solid" onClick={() => void restartForAppUpdate()}>
-                    Restart now
-                  </Button>
+                  <AppUpdateRestartAction size="xs" />
                   <Button
                     size="xs"
                     variant="ghost"

@@ -185,6 +185,28 @@ describe("AppUpdateCard", () => {
     },
   );
 
+  it("confirms a restart with live sessions in the initiating renderer", async () => {
+    backendMock.restartForAppUpdate
+      .mockResolvedValueOnce("confirmation-required")
+      .mockResolvedValueOnce("restarting");
+    useStore.setState({
+      appUpdate: appUpdateState({
+        status: "downloaded",
+        latestVersion: "1.2.0",
+        format: "appimage",
+      }),
+    });
+    renderCard();
+
+    await act(async () => buttonWithText("Restart now").click());
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      "sessions are still live",
+    );
+    await act(async () => buttonWithText("Restart and stop sessions").click());
+    expect(backendMock.restartForAppUpdate).toHaveBeenNthCalledWith(1, false);
+    expect(backendMock.restartForAppUpdate).toHaveBeenNthCalledWith(2, true);
+  });
+
   it.each(["appimage", "nsis"] as const)(
     "shows and disarms a %s install-on-quit choice",
     (format) => {

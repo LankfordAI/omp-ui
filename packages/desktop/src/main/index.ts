@@ -45,12 +45,7 @@ if (!app.requestSingleInstanceLock()) {
   // the closure is set once whenReady has a window (see whenReady below).
   let flushWindowState: (() => void) | null = null;
 
-  /**
-   * The awaitable core of the quit guard: resolves true when the quit may
-   * proceed (no live sessions, or the user confirmed). The app updater's
-   * "Restart now" awaits this directly; the window/quit events use the sync
-   * wrapper below.
-   */
+  /** Awaitable quit guard used by window and application quit paths. */
   const confirmLiveQuit = async (): Promise<boolean> => {
     if (forceQuit || !backend || backend.liveCount === 0) return true;
     if (quitDialogOpen) return false;
@@ -197,7 +192,9 @@ if (!app.requestSingleInstanceLock()) {
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     const be = new MainBackend(win, registryFile, {
-      confirmQuit: confirmLiveQuit,
+      authorizeAppUpdateQuit: () => {
+        forceQuit = true;
+      },
       // omp-ui updates are enabled for packaged Linux and Windows builds; the
       // env override lets a dev run exercise the real flow against a release.
       appUpdateEnabled: appUpdateEnabledForBuild({

@@ -161,7 +161,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     downloadAppUpdate: () => req(CH.appUpdateDownload),
     openAppUpdateReleaseNotes: () => req(CH.appUpdateOpenNotes),
     showAppUpdateDownload: () => req(CH.appUpdateShowDownload),
-    restartForAppUpdate: () => req(CH.appUpdateRestart),
+    restartForAppUpdate: (confirmed) => req(CH.appUpdateRestart, confirmed),
     setAppUpdateInstallOnQuit: (on) => req(CH.appUpdateInstallOnQuit, on),
     dismissAppUpdate: (version, remember) => req(CH.appUpdateDismiss, version, remember),
     onAppUpdateState: (cb) => on(CH.appUpdateState, (state) => cb(state as never)),

@@ -134,7 +134,7 @@ export class MainBackend {
     private readonly win: BrowserWindow,
     registryFile: string,
     opts: {
-      confirmQuit?: () => Promise<boolean>;
+      authorizeAppUpdateQuit?: () => void;
       appUpdateEnabled?: boolean;
       appVersion?: string;
       appUpdateEnv?: NodeJS.ProcessEnv;
@@ -167,7 +167,8 @@ export class MainBackend {
       downloadsDir: app.getPath("downloads"),
       getDismissed: () => this.registry.dismissedAppUpdateVersion,
       setDismissed: (v) => this.registry.setDismissedAppUpdateVersion(v),
-      confirmQuit: opts.confirmQuit ?? (async () => true),
+      hasLiveSessions: () => this.live.size > 0,
+      authorizeQuit: opts.authorizeAppUpdateQuit ?? (() => {}),
       send: (ch, s) => this.send(ch, s),
       channel: CH.appUpdateState,
     });
@@ -381,7 +382,7 @@ export class MainBackend {
         [CH.appUpdateDownload]: () => this.appUpdater.download(),
         [CH.appUpdateOpenNotes]: () => this.appUpdater.openReleaseNotes(),
         [CH.appUpdateShowDownload]: () => this.appUpdater.showDownload(),
-        [CH.appUpdateRestart]: () => this.appUpdater.restart(),
+        [CH.appUpdateRestart]: (confirmed = false) => this.appUpdater.restart(confirmed),
         [CH.appUpdateInstallOnQuit]: (on: boolean) => this.appUpdater.setInstallOnQuit(on),
         [CH.appUpdateDismiss]: (version: string, remember: boolean) =>
           this.appUpdater.dismiss(version, remember),

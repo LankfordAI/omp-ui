@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   AdvisorDefaults,
+  AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
   BranchList,
@@ -382,7 +383,7 @@ interface UiStore {
   downloadAppUpdate(): Promise<void>;
   openAppUpdateReleaseNotes(): Promise<void>;
   showAppUpdateDownload(): Promise<void>;
-  restartForAppUpdate(): Promise<void>;
+  restartForAppUpdate(confirmed?: boolean): Promise<AppUpdateRestartResult>;
   setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   dismissAppUpdate(version: string, remember: boolean): Promise<void>;
   openProjectPicker(): void;
@@ -1685,8 +1686,8 @@ export const useStore = create<UiStore>()((set, get) => {
       await backend.showAppUpdateDownload();
     },
 
-    async restartForAppUpdate() {
-      await backend.restartForAppUpdate();
+    async restartForAppUpdate(confirmed = false) {
+      return backend.restartForAppUpdate(confirmed);
     },
 
     async setAppUpdateInstallOnQuit(on) {
