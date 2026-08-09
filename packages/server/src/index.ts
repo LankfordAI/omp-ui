@@ -36,8 +36,8 @@ export interface RemoteServerHandle {
   close(): Promise<void>;
 }
 
-/** The same cap core/rpc/client.ts enforces upstream. */
-const MAX_PAYLOAD = 1_048_576;
+/** Matches core/rpc's maximum reassembled logical frame. */
+const MAX_PAYLOAD = 64 * 1024 * 1024;
 const COOKIE_MAX_AGE = 31_536_000;
 /** How long a 1001 close handshake gets before the socket is torn down anyway. */
 const CLOSE_DRAIN_MS = 250;
@@ -203,6 +203,10 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   });
 
   wss.on("connection", (ws: WebSocket) => {
+    // `ws` emits receiver failures (including maxPayload close 1009) here. A
+    // malformed remote client may lose its socket, but must never crash the
+    // Electron main process with an uncaught exception.
+    ws.on("error", () => {});
     ws.on("message", (raw: Buffer, isBinary: boolean) => {
       if (isBinary) return; // clients never send binary — nothing upstream takes bytes.
       let frame: unknown;

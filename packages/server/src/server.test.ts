@@ -221,6 +221,31 @@ describe("startRemoteServer websocket", () => {
     expect(replied).toBe(true);
   });
 
+  it("accepts an Attachment-sized remote notification", async () => {
+    const { base, host } = await serve();
+    const ws = await connect(base, TOKEN);
+    const payload = "x".repeat(2 * 1024 * 1024);
+    ws.send(JSON.stringify({ t: "notify", ch: "pty:write", args: ["tab", payload] }));
+
+    const reply = nextJson(ws);
+    ws.send(JSON.stringify({ t: "req", id: 5, ch: "state:get", args: [] }));
+    await reply;
+    expect(host.notified).toEqual([{ ch: "pty:write", args: ["tab", payload] }]);
+  });
+
+  it("closes an over-limit client without taking down the server", async () => {
+    const { base } = await serve();
+    const ws = await connect(base, TOKEN);
+    const closed = new Promise<number>((resolve) => ws.once("close", resolve));
+    ws.send("x".repeat(64 * 1024 * 1024 + 1));
+    expect(await closed).toBe(1009);
+
+    const replacement = await connect(base, TOKEN);
+    const reply = nextJson(replacement);
+    replacement.send(JSON.stringify({ t: "req", id: 6, ch: "state:get", args: [] }));
+    expect(await reply).toMatchObject({ id: 6, ok: true });
+  }, 15_000);
+
   it("ignores non-JSON and unshaped frames without closing the socket", async () => {
     const { base } = await serve();
     const ws = await connect(base, TOKEN);
