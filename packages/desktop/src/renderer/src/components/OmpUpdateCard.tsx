@@ -1,6 +1,6 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useStore } from "../store";
-import { Button, IconButton } from "./ui";
+import { Button, UpdateCard } from "./ui";
 
 /**
  * The omp binary install/update card (issue #19): a small non-modal card
@@ -19,23 +19,7 @@ export function OmpUpdateCard() {
   const version = latestVersion ?? "";
   const dismissOfferedVersion = () => void dismissOmpUpdate(version, true);
 
-  // Transient answers to a manual check clear themselves (the TerminalTab
-  // note-pill idiom); sticky states wait for an explicit click.
-  useEffect(() => {
-    if (status !== "up-to-date") return;
-    const timer = window.setTimeout(() => void dismissOmpUpdate("", false), 5000);
-    return () => window.clearTimeout(timer);
-  }, [status, dismissOmpUpdate]);
-
   if (status === "idle" || status === "checking") return null;
-
-  const close = (
-    <IconButton label="dismiss" onClick={() => void dismissOmpUpdate("", false)}>
-      <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
-        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-      </svg>
-    </IconButton>
-  );
 
   let body: ReactNode;
   if (status === "available") {
@@ -105,8 +89,7 @@ export function OmpUpdateCard() {
       </>
     );
   } else {
-    // up-to-date / error: a single line plus the ✕. up-to-date auto-dismisses
-    // via the effect above; an error is sticky.
+    // The shared shell auto-dismisses up-to-date; errors stay sticky.
     const title =
       status === "up-to-date"
         ? `omp is up to date (${installedVersion})`
@@ -114,31 +97,30 @@ export function OmpUpdateCard() {
           ? "Update check failed"
           : "Install failed";
     body = (
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-ink">{title}</p>
-          {status === "error" && error !== null && (
-            <p className="mt-0.5 break-words text-xs text-ink-dim">{error}</p>
-          )}
-        </div>
-        {close}
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-ink">{title}</p>
+        {status === "error" && error !== null && (
+          <p className="mt-0.5 break-words text-xs text-ink-dim">{error}</p>
+        )}
       </div>
     );
   }
 
   const offered = status === "available" || status === "missing";
+  const transient = status === "up-to-date";
+  const onDismiss = offered
+    ? dismissOfferedVersion
+    : transient || status === "error"
+      ? () => void dismissOmpUpdate("", false)
+      : undefined;
+
   return (
-    <div className="edge-lit animate-rise relative rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
-      {offered && (
-        <div className="absolute right-2 top-2">
-          <IconButton label={`dismiss omp ${version} offer`} onClick={dismissOfferedVersion}>
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-            </svg>
-          </IconButton>
-        </div>
-      )}
-      <div className={offered ? "pr-6" : undefined}>{body}</div>
-    </div>
+    <UpdateCard
+      dismissLabel={offered ? `dismiss omp ${version} offer` : onDismiss ? "dismiss" : undefined}
+      onDismiss={onDismiss}
+      autoDismissMs={transient ? 5000 : undefined}
+    >
+      {body}
+    </UpdateCard>
   );
 }

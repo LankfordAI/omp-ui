@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useStore } from "../store";
-import { Button, IconButton, Modal } from "./ui";
+import { Button, Modal, UpdateCard } from "./ui";
 
 /**
  * The update card (issue #18): a small non-modal card in the lower-right
@@ -61,7 +61,6 @@ export function AppUpdateCard() {
   const downloadAppUpdate = useStore((s) => s.downloadAppUpdate);
   const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
-  
   const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
   const dismissAppUpdate = useStore((s) => s.dismissAppUpdate);
 
@@ -69,23 +68,7 @@ export function AppUpdateCard() {
     appUpdate;
   const version = latestVersion ?? "";
 
-  // Transient answers to a manual check clear themselves (the TerminalTab
-  // note-pill idiom); sticky states wait for an explicit click.
-  useEffect(() => {
-    if (status !== "up-to-date" && status !== "disabled") return;
-    const timer = window.setTimeout(() => void dismissAppUpdate("", false), 5000);
-    return () => window.clearTimeout(timer);
-  }, [status, dismissAppUpdate]);
-
   if (status === "idle" || status === "checking") return null;
-
-  const close = (
-    <IconButton label="dismiss" onClick={() => void dismissAppUpdate("", false)}>
-      <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
-        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-      </svg>
-    </IconButton>
-  );
 
   let body: ReactNode;
   if (status === "available") {
@@ -173,8 +156,7 @@ export function AppUpdateCard() {
       </>
     );
   } else {
-    // up-to-date / disabled / error: a single line plus the ✕. The first two
-    // auto-dismiss via the effect above; an error is sticky.
+    // The shared shell auto-dismisses up-to-date/disabled; errors stay sticky.
     const title =
       status === "up-to-date"
         ? `omp-ui is up to date (${currentVersion})`
@@ -184,33 +166,30 @@ export function AppUpdateCard() {
             ? "Update check failed"
             : "Download failed";
     body = (
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-ink">{title}</p>
-          {status === "error" && error !== null && (
-            <p className="mt-0.5 break-words text-xs text-ink-dim">{error}</p>
-          )}
-        </div>
-        {close}
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-ink">{title}</p>
+        {status === "error" && error !== null && (
+          <p className="mt-0.5 break-words text-xs text-ink-dim">{error}</p>
+        )}
       </div>
     );
   }
 
+  const offered = status === "available";
+  const transient = status === "up-to-date" || status === "disabled";
+  const onDismiss = offered
+    ? () => void dismissAppUpdate(version, true)
+    : transient || status === "error"
+      ? () => void dismissAppUpdate("", false)
+      : undefined;
+
   return (
-    <div className="edge-lit animate-rise relative rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
-      {status === "available" && (
-        <div className="absolute right-2 top-2">
-          <IconButton
-            label={`dismiss omp-ui ${version} update`}
-            onClick={() => void dismissAppUpdate(version, true)}
-          >
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-            </svg>
-          </IconButton>
-        </div>
-      )}
-      <div className={status === "available" ? "pr-6" : undefined}>{body}</div>
-    </div>
+    <UpdateCard
+      dismissLabel={offered ? `dismiss omp-ui ${version} update` : onDismiss ? "dismiss" : undefined}
+      onDismiss={onDismiss}
+      autoDismissMs={transient ? 5000 : undefined}
+    >
+      {body}
+    </UpdateCard>
   );
 }

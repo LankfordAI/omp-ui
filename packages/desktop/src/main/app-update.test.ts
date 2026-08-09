@@ -1,12 +1,12 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import {
-  sha256Hex,
-  type AppUpdateState,
-  type DownloadFetchLike,
-  type FetchLike,
+import type {
+  AppUpdateState,
+  DownloadFetchLike,
+  FetchLike,
 } from "@omp-ui/core";
 import type { AppUpdaterDeps, AppUpdater as AppUpdaterType, AutoUpdaterLike } from "./app-update";
 
@@ -327,7 +327,7 @@ describe("AppUpdater.download (deb/rpm/flatpak)", () => {
   }
 
   it("downloads the verified asset, reports progress, and opens the installer", async () => {
-    const sums = `${await sha256Hex(PAYLOAD)}  omp-ui_1.2.0_amd64.deb\n`;
+    const sums = `${crypto.createHash("sha256").update(PAYLOAD).digest("hex")}  omp-ui_1.2.0_amd64.deb\n`;
     const { updater, downloadsDir } = await availableDeb(sums);
     sent.length = 0;
     await updater.download();
@@ -481,8 +481,10 @@ describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
     expect(authorizeQuit).not.toHaveBeenCalled();
 
     expect(updater.restart(true)).toBe("restarting");
+    expect(updater.restart(true)).toBe("restarting");
     expect(hasLiveSessions).toHaveBeenCalledTimes(2);
     expect(authorizeQuit).toHaveBeenCalledTimes(1);
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(
       ...(format === "nsis" ? [true, true] : []),
     );

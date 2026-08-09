@@ -1,8 +1,7 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { execFile } from "node:child_process";
+import { downloadFileAtomically } from "./download";
+import type { DownloadFetchLike, FetchLike } from "./fetch";
 import { resolveOmpBinary } from "./paths";
-import type { DownloadFetchLike } from "./app-update";
 import type { OmpUpdateInfo } from "./types";
 
 // Pure, transport- and UI-agnostic omp install/update logic. The Electron main
@@ -64,18 +63,8 @@ export function ompAssetName(
   return `omp-${p}-${a}${p === "windows" ? ".exe" : ""}`;
 }
 
-/** The narrow HTTP surface both fetch and the test double satisfy. */
-export interface FetchLike {
-  (url: string, init?: { signal?: AbortSignal }): Promise<{
-    ok: boolean;
-    status: number;
-    json(): Promise<unknown>;
-    arrayBuffer(): Promise<ArrayBuffer>;
-  }>;
-}
-
 const globalFetch = fetch as unknown as FetchLike;
-const globalDownloadFetch = fetch as unknown as DownloadFetchLike;
+
 
 /** Runs `omp --version` and resolves with its stdout. Inject for tests. */
 export type VersionRunner = (ompPath: string) => Promise<string>;
@@ -117,11 +106,8 @@ export async function fetchLatestOmpVersion(
 }
 
 /**
- * Downloads the prebuilt omp binary for this host into `targetPath`,
- * written atomically (temp file + rename) so a partial download never
- * leaves a truncated binary behind. `onProgress(percent | null)` fires per
- * chunk while streaming (null when the response carries no content-length);
- * a null body falls back to arrayBuffer().
+ * Downloads the prebuilt omp binary for this host and validates the temporary
+ * executable before atomically replacing the managed copy.
  */
 export async function downloadOmp(opts: {
   version: string;
@@ -140,53 +126,26 @@ export async function downloadOmp(opts: {
     throw new Error(`unsupported platform/arch for omp binary (${process.platform}/${process.arch})`);
   }
   const version = opts.version.replace(/^v/, "");
-  const url = `${OMP_RELEASE_BASE}/v${version}/${asset}`;
-  const res = await (opts.fetchImpl ?? globalDownloadFetch)(url, {
-    signal: AbortSignal.timeout(10 * 60_000),
+  await downloadFileAtomically({
+    url: `${OMP_RELEASE_BASE}/v${version}/${asset}`,
+    targetPath: opts.targetPath,
+    description: `omp ${version}`,
+    fetchImpl: opts.fetchImpl,
+    mode: process.platform === "win32" ? undefined : 0o755,
+    onProgress: opts.onProgress,
+    validateTemp:
+      opts.verifyRunner === null
+        ? undefined
+        : async (tempPath) => {
+            const runner = opts.verifyRunner ?? execVersionRunner;
+            // The managed copy outranks PATH, so only commit a candidate that
+            // proves it can execute as omp.
+            const installed = await readInstalledOmpVersion(tempPath, runner);
+            if (installed === null) {
+              throw new Error(`downloaded omp binary failed validation (${tempPath})`);
+            }
+          },
   });
-  if (!res.ok) throw new Error(`failed to download omp ${version}: HTTP ${res.status}`);
-  const lengthHeader = res.headers?.get?.("content-length") ?? null;
-  const total = lengthHeader === null ? NaN : Number(lengthHeader);
-  const track = Number.isFinite(total) && total > 0;
-  if (!track) opts.onProgress?.(null);
-
-  let buf: Buffer;
-  if (res.body) {
-    const reader = res.body.getReader();
-    const chunks: Buffer[] = [];
-    let read = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value ?? new Uint8Array());
-      chunks.push(chunk);
-      read += chunk.length;
-      if (track) opts.onProgress?.(Math.floor((read / total) * 100));
-    }
-    buf = Buffer.concat(chunks);
-  } else {
-    buf = Buffer.from(await res.arrayBuffer());
-  }
-  await fs.promises.mkdir(path.dirname(opts.targetPath), { recursive: true });
-  const executableSuffix = path.extname(opts.targetPath).toLowerCase() === ".exe" ? ".exe" : "";
-  const targetWithoutSuffix = executableSuffix
-    ? opts.targetPath.slice(0, -executableSuffix.length)
-    : opts.targetPath;
-  const tmp = `${targetWithoutSuffix}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}${executableSuffix}`;
-  await fs.promises.writeFile(tmp, buf);
-  if (process.platform !== "win32") await fs.promises.chmod(tmp, 0o755);
-  if (opts.verifyRunner !== null) {
-    const runner = opts.verifyRunner ?? execVersionRunner;
-    // The managed copy outranks PATH, so a bad body (captive-portal HTML,
-    // truncated 200, wrong arch) would permanently shadow a working omp.
-    // Only commit the rename once the file proves it runs.
-    const installed = await readInstalledOmpVersion(tmp, runner);
-    if (installed === null) {
-      await fs.promises.rm(tmp, { force: true });
-      throw new Error(`downloaded omp binary failed validation (${tmp})`);
-    }
-  }
-  await fs.promises.rename(tmp, opts.targetPath);
 }
 
 /**

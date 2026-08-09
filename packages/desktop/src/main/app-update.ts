@@ -16,6 +16,7 @@ import {
   type DownloadFetchLike,
   type FetchLike,
 } from "@omp-ui/core";
+import { UpdateController, type UpdateControllerDeps } from "./update-controller";
 
 // Main-process orchestration for omp-ui's own release updates (issue #18).
 // All the machine work — release lookup, package-format detection, the
@@ -52,19 +53,15 @@ export interface AutoUpdaterLike {
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
 }
 
-export interface AppUpdaterDeps {
+export interface AppUpdaterDeps extends UpdateControllerDeps<AppUpdateState> {
   win: BrowserWindow;
   enabled: boolean;
   currentVersion: string;
   downloadsDir: string; // app.getPath("downloads")
-  getDismissed: () => string | null;
-  setDismissed: (version: string | null) => void;
   /** Main-process live-session authority, re-read immediately before restart. */
   hasLiveSessions: () => boolean;
   /** Marks the app's quit guard as satisfied after renderer confirmation. */
   authorizeQuit: () => void;
-  send: (channel: string, state: AppUpdateState) => void;
-  channel: string; // CH.appUpdateState
   fetchImpl?: FetchLike; // tests
   downloadFetchImpl?: DownloadFetchLike; // tests
   autoUpdaterFactory?: () => Promise<AutoUpdaterLike>; // tests; default below
@@ -109,8 +106,7 @@ const defaultAutoUpdaterFactory = async (): Promise<AutoUpdaterLike> => {
   return autoUpdater;
 };
 
-export class AppUpdater {
-  state: AppUpdateState;
+export class AppUpdater extends UpdateController<AppUpdateState> {
   /** Dev/unversioned builds never check: off unless packaged AND semver-stamped. */
   private readonly enabled: boolean;
   /** The release behind the current offer/stage, kept for notes and downloads. */
@@ -120,45 +116,33 @@ export class AppUpdater {
   private autoUpdateStaging = false;
   private autoUpdateStageVisible = false;
   private installOnQuitArmed = false;
+  private restarting = false;
 
   constructor(private readonly deps: AppUpdaterDeps) {
+    super(
+      {
+        status: "idle",
+        currentVersion: deps.currentVersion,
+        latestVersion: null,
+        releaseUrl: null,
+        releaseName: null,
+        format: detectPackageFormat(deps.env, deps.exists, deps.platform),
+        progress: null,
+        downloadedPath: null,
+        installOnQuit: false,
+        error: null,
+      },
+      deps,
+    );
     this.enabled =
       deps.enabled &&
       deps.currentVersion !== "0.0.0" &&
       parseSemver(deps.currentVersion) !== null;
-    this.state = {
-      status: "idle",
-      currentVersion: deps.currentVersion,
-      latestVersion: null,
-      releaseUrl: null,
-      releaseName: null,
-      format: detectPackageFormat(deps.env, deps.exists, deps.platform),
-      progress: null,
-      downloadedPath: null,
-      installOnQuit: false,
-      error: null,
-    };
-    // A remembered dismissal suppresses only its exact offered version, and
-    // every offer is newer than the running build — so once this build has
-    // caught up to the dismissed version the entry can never fire again and
-    // would only sit on the Settings Updates page as a stale "Dismissed" row
-    // (issue #88). Unparseable/0.0.0 dev-build versions sort lowest in
-    // compareVersions, so they never reap. The running version is fixed for
-    // the process's lifetime, so construction is the only reap point needed.
-    const dismissed = deps.getDismissed();
-    if (dismissed !== null && compareVersions(dismissed, deps.currentVersion) <= 0) {
-      deps.setDismissed(null);
-    }
+    // The running version is fixed for this process, so stale dismissal
+    // reaping happens once at construction.
+    this.reapDismissed(deps.currentVersion);
   }
 
-  private push(): void {
-    this.deps.send(this.deps.channel, this.state);
-  }
-
-  private set(patch: Partial<AppUpdateState>): void {
-    this.state = { ...this.state, ...patch };
-    this.push();
-  }
 
   /**
    * One check against the latest stable GitHub release. `manual` (palette)
@@ -182,7 +166,7 @@ export class AppUpdater {
     }
     // "Later" stays quiet for that release on background checks; an explicit
     // manual check is the user asking, so it always answers.
-    if (!manual && this.deps.getDismissed() === release.version) {
+    if (this.offerIsDismissed(release.version, manual)) {
       this.set({ status: "idle" });
       return this.state;
     }
@@ -356,11 +340,13 @@ export class AppUpdater {
    * live state, authorizes the process quit guard, then installs.
    */
   restart(confirmed = false): AppUpdateRestartResult {
+    if (this.restarting) return "restarting";
     if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) {
       return "unavailable";
     }
     if (this.autoUpdater === null) return "unavailable";
     if (this.deps.hasLiveSessions() && !confirmed) return "confirmation-required";
+    this.restarting = true;
     this.deps.authorizeQuit();
     if (this.state.format === "nsis") this.autoUpdater.quitAndInstall(true, true);
     else this.autoUpdater.quitAndInstall();
@@ -390,9 +376,8 @@ export class AppUpdater {
    * the visible state.
    */
   dismiss(version: string, remember: boolean): void {
-    if (remember && version) this.deps.setDismissed(version);
     this.release = null;
-    this.set({
+    this.dismissState(version, remember, {
       status: "idle",
       latestVersion: null,
       releaseUrl: null,

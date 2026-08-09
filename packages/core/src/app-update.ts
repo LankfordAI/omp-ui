@@ -1,7 +1,8 @@
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parseSemver, type FetchLike } from "./omp-update";
+import { downloadFileAtomically } from "./download";
+import type { DownloadFetchLike, FetchLike } from "./fetch";
+import { parseSemver } from "./omp-update";
 import type { AppPackageFormat } from "./types";
 
 // Pure, transport- and UI-agnostic omp-ui release update logic. The Electron
@@ -158,39 +159,9 @@ export async function fetchSha256Sums(
   }
 }
 
-export async function sha256Hex(data: Buffer): Promise<string> {
-  return crypto.createHash("sha256").update(data).digest("hex");
-}
-
 /**
- * Streaming fetch surface for large assets (real global fetch satisfies it).
- * `headers`/`body` are optional so plain JSON/arrayBuffer test doubles also
- * satisfy it — callers fall back to indeterminate progress and arrayBuffer().
- */
-export interface DownloadFetchLike {
-  (url: string, init?: { signal?: AbortSignal }): Promise<{
-    ok: boolean;
-    status: number;
-    headers?: { get(name: string): string | null };
-    body?: {
-      getReader(): {
-        read(): Promise<{ done: boolean; value?: Uint8Array }>;
-      };
-    } | null;
-    arrayBuffer(): Promise<ArrayBuffer>;
-  }>;
-}
-
-const defaultDownloadFetch = fetch as unknown as DownloadFetchLike;
-
-/**
- * Streams a release asset to `targetPath`, written atomically (temp file +
- * rename, same idiom as downloadOmp) so a partial download never leaves a
- * truncated artifact behind. The full bytes are verified against
- * `expectedSha256`; on mismatch or HTTP failure the tmp file is removed and
- * the error propagates. `onProgress(percent | null)` fires per chunk (null
- * when the response carries no content-length). Falls back to arrayBuffer()
- * when the body is null.
+ * Downloads and checksum-verifies a release asset before atomically replacing
+ * the target. The shared downloader owns streaming, progress, and cleanup.
  */
 export async function downloadAppAsset(opts: {
   url: string;
@@ -199,42 +170,12 @@ export async function downloadAppAsset(opts: {
   fetchImpl?: DownloadFetchLike;
   onProgress?: (percent: number | null) => void;
 }): Promise<void> {
-  const res = await (opts.fetchImpl ?? defaultDownloadFetch)(opts.url, {
-    signal: AbortSignal.timeout(10 * 60_000),
+  await downloadFileAtomically({
+    url: opts.url,
+    targetPath: opts.targetPath,
+    description: path.basename(opts.targetPath),
+    expectedSha256: opts.expectedSha256,
+    fetchImpl: opts.fetchImpl,
+    onProgress: opts.onProgress,
   });
-  if (!res.ok) {
-    throw new Error(`failed to download ${path.basename(opts.targetPath)}: HTTP ${res.status}`);
-  }
-  const lengthHeader = res.headers?.get?.("content-length") ?? null;
-  const total = lengthHeader === null ? NaN : Number(lengthHeader);
-  const track = Number.isFinite(total) && total > 0;
-  if (!track) opts.onProgress?.(null);
-
-  let buf: Buffer;
-  if (res.body) {
-    const reader = res.body.getReader();
-    const chunks: Buffer[] = [];
-    let read = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value ?? new Uint8Array());
-      chunks.push(chunk);
-      read += chunk.length;
-      if (track) opts.onProgress?.(Math.floor((read / total) * 100));
-    }
-    buf = Buffer.concat(chunks);
-  } else {
-    buf = Buffer.from(await res.arrayBuffer());
-  }
-
-  await fs.promises.mkdir(path.dirname(opts.targetPath), { recursive: true });
-  const tmp = `${opts.targetPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
-  await fs.promises.writeFile(tmp, buf);
-  const actual = await sha256Hex(buf);
-  if (actual.toLowerCase() !== opts.expectedSha256.toLowerCase()) {
-    await fs.promises.rm(tmp, { force: true });
-    throw new Error(`checksum mismatch for ${path.basename(opts.targetPath)}`);
-  }
-  await fs.promises.rename(tmp, opts.targetPath);
 }

@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -12,11 +13,9 @@ import {
   parseLatestRelease,
   parseSha256Sums,
   selectAsset,
-  sha256Hex,
   type AppReleaseInfo,
-  type DownloadFetchLike,
 } from "./app-update";
-import type { FetchLike } from "./omp-update";
+import type { DownloadFetchLike, FetchLike } from "./fetch";
 
 /** Exact-ArrayBuffer copy (Buffer/Uint8Array `.buffer` types as ArrayBufferLike). */
 const toArrayBuffer = (data: Uint8Array): ArrayBuffer => {
@@ -252,123 +251,53 @@ describe("fetchSha256Sums", () => {
   });
 });
 
-describe("sha256Hex", () => {
-  it("matches the known SHA-256 vector for 'abc'", async () => {
-    expect(await sha256Hex(Buffer.from("abc"))).toBe(
-      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-    );
-  });
-});
-
-/** Chunks `data` into `n` pieces behind a streaming DownloadFetchLike double. */
-function streamFetch(data: Buffer, n: number, withLength = true): DownloadFetchLike {
-  const size = Math.ceil(data.length / n);
-  const chunks: Uint8Array[] = [];
-  for (let off = 0; off < data.length; off += size) chunks.push(data.subarray(off, off + size));
-  return async () => ({
+describe("downloadAppAsset", () => {
+  const payload = Buffer.from("omp-ui release artifact bytes\n");
+  const payloadSha = crypto.createHash("sha256").update(payload).digest("hex");
+  const fetchImpl: DownloadFetchLike = async () => ({
     ok: true,
     status: 200,
-    headers: { get: (name) => (name === "content-length" && withLength ? String(data.length) : null) },
-    body: {
-      getReader: () => {
-        let i = 0;
-        return {
-          read: async () =>
-            i < chunks.length
-              ? { done: false, value: chunks[i++] }
-              : { done: true as const, value: undefined },
-        };
-      },
-    },
-    arrayBuffer: async () => toArrayBuffer(data),
-  });
-}
-
-describe("downloadAppAsset", () => {
-  const PAYLOAD = Buffer.from("omp-ui release artifact bytes\n".repeat(16));
-  let payloadSha: string;
-
-  it("streams chunks to the target with strictly increasing progress ending at 100", async () => {
-    payloadSha = await sha256Hex(PAYLOAD);
-    const dir = mkTmp();
-    const target = path.join(dir, "omp-ui_1.2.3_amd64.deb");
-    const progress: (number | null)[] = [];
-    await downloadAppAsset({
-      url: "https://example.test/asset",
-      targetPath: target,
-      expectedSha256: payloadSha,
-      fetchImpl: streamFetch(PAYLOAD, 3),
-      onProgress: (p) => progress.push(p),
-    });
-    expect(fs.readFileSync(target)).toEqual(PAYLOAD);
-    expect(progress.length).toBeGreaterThanOrEqual(3);
-    for (const p of progress) expect(typeof p).toBe("number");
-    const nums = progress as number[];
-    for (let i = 1; i < nums.length; i++) {
-      expect(nums[i]).toBeGreaterThan(nums[i - 1]);
-    }
-    expect(nums[nums.length - 1]).toBe(100);
+    headers: { get: () => String(payload.length) },
+    body: null,
+    arrayBuffer: async () => toArrayBuffer(payload),
   });
 
-  it("throws on checksum mismatch, leaving no target and no tmp file", async () => {
-    const dir = mkTmp();
-    const target = path.join(dir, "omp-ui_1.2.3_amd64.deb");
-    await expect(
-      downloadAppAsset({
-        url: "https://example.test/asset",
-        targetPath: target,
-        expectedSha256: "0".repeat(64),
-        fetchImpl: streamFetch(PAYLOAD, 2),
-      }),
-    ).rejects.toThrow(/checksum mismatch/);
-    expect(fs.existsSync(target)).toBe(false);
-    expect(fs.readdirSync(dir)).toEqual([]);
-  });
-
-  it("throws on HTTP failure", async () => {
-    const target = path.join(mkTmp(), "asset.deb");
-    await expect(
-      downloadAppAsset({
-        url: "https://example.test/asset",
-        targetPath: target,
-        expectedSha256: "0".repeat(64),
-        fetchImpl: async () =>
-          ({ ok: false, status: 404, headers: { get: () => null }, body: null }) as never,
-      }),
-    ).rejects.toThrow(/HTTP 404/);
-    expect(fs.existsSync(target)).toBe(false);
-  });
-
-  it("falls back to arrayBuffer when the body is null", async () => {
-    payloadSha = await sha256Hex(PAYLOAD);
-    const target = path.join(mkTmp(), "asset.deb");
-    const fetchImpl: DownloadFetchLike = async () => ({
-      ok: true,
-      status: 200,
-      headers: { get: () => null },
-      body: null,
-      arrayBuffer: async () => toArrayBuffer(PAYLOAD),
-    });
+  it("writes an asset only when its checksum matches", async () => {
+    const target = path.join(mkTmp(), "omp-ui_1.2.3_amd64.deb");
     await downloadAppAsset({
       url: "https://example.test/asset",
       targetPath: target,
       expectedSha256: payloadSha,
       fetchImpl,
     });
-    expect(fs.readFileSync(target)).toEqual(PAYLOAD);
+    expect(fs.readFileSync(target)).toEqual(payload);
   });
 
-  it("reports indeterminate progress when content-length is absent", async () => {
-    payloadSha = await sha256Hex(PAYLOAD);
+  it("reports the asset name and leaves no file on checksum mismatch", async () => {
+    const dir = mkTmp();
+    const target = path.join(dir, "omp-ui_1.2.3_amd64.deb");
+    await expect(
+      downloadAppAsset({
+        url: "https://example.test/asset",
+        targetPath: target,
+        expectedSha256: "0".repeat(64),
+        fetchImpl,
+      }),
+    ).rejects.toThrow("checksum mismatch for omp-ui_1.2.3_amd64.deb");
+    expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("reports HTTP failures without creating a target", async () => {
     const target = path.join(mkTmp(), "asset.deb");
-    const progress: (number | null)[] = [];
-    await downloadAppAsset({
-      url: "https://example.test/asset",
-      targetPath: target,
-      expectedSha256: payloadSha,
-      fetchImpl: streamFetch(PAYLOAD, 2, false),
-      onProgress: (p) => progress.push(p),
-    });
-    expect(progress).toEqual([null]);
+    await expect(
+      downloadAppAsset({
+        url: "https://example.test/asset",
+        targetPath: target,
+        expectedSha256: payloadSha,
+        fetchImpl: async () =>
+          ({ ok: false, status: 404, headers: { get: () => null }, body: null }) as never,
+      }),
+    ).rejects.toThrow("failed to download asset.deb: HTTP 404");
+    expect(fs.existsSync(target)).toBe(false);
   });
 });

@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Button, Modal, Sheet } from "./ui";
+import { Button, Modal, Sheet, UpdateCard } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -90,5 +90,75 @@ describe("Button selected state", () => {
   it("omits aria-pressed entirely for plain action buttons", async () => {
     await render(<Button tone="copper">Steer</Button>);
     expect(document.body.querySelector("button")!.hasAttribute("aria-pressed")).toBe(false);
+  });
+});
+
+describe("UpdateCard", () => {
+  it("renders an accessible dismiss action and reserves body space", async () => {
+    const dismiss = vi.fn();
+    await render(
+      <UpdateCard dismissLabel="dismiss update" onDismiss={dismiss}>
+        <span>available</span>
+      </UpdateCard>,
+    );
+    const button = document.body.querySelector<HTMLButtonElement>('button[aria-label="dismiss update"]')!;
+    act(() => button.click());
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(document.body.querySelector(".pr-6")?.textContent).toBe("available");
+  });
+
+  it("auto-dismisses after the configured interval", () => {
+    vi.useFakeTimers();
+    try {
+      const dismiss = vi.fn();
+      const host = document.createElement("div");
+      document.body.append(host);
+      root = createRoot(host);
+      act(() => root!.render(
+        <UpdateCard dismissLabel="dismiss" onDismiss={dismiss} autoDismissMs={5000}>
+          up to date
+        </UpdateCard>,
+      ));
+      act(() => vi.advanceTimersByTime(4999));
+      expect(dismiss).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(1));
+      expect(dismiss).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears its timer on unmount and leaves untimed cards sticky", () => {
+    vi.useFakeTimers();
+    try {
+      const timedDismiss = vi.fn();
+      const timedHost = document.createElement("div");
+      document.body.append(timedHost);
+      root = createRoot(timedHost);
+      act(() => root!.render(
+        <UpdateCard dismissLabel="dismiss" onDismiss={timedDismiss} autoDismissMs={5000}>
+          transient
+        </UpdateCard>,
+      ));
+      act(() => root!.unmount());
+      root = null;
+      act(() => vi.advanceTimersByTime(5000));
+      expect(timedDismiss).not.toHaveBeenCalled();
+
+      document.body.replaceChildren();
+      const stickyDismiss = vi.fn();
+      const stickyHost = document.createElement("div");
+      document.body.append(stickyHost);
+      root = createRoot(stickyHost);
+      act(() => root!.render(
+        <UpdateCard dismissLabel="dismiss" onDismiss={stickyDismiss}>
+          error
+        </UpdateCard>,
+      ));
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(stickyDismiss).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1,6 +1,5 @@
 import {
   checkOmpUpdate as coreCheckOmpUpdate,
-  compareVersions,
   downloadOmp,
   managedOmpPath,
   type DownloadFetchLike,
@@ -8,6 +7,7 @@ import {
   type OmpUpdateState,
   type VersionRunner,
 } from "@omp-ui/core";
+import { UpdateController, type UpdateControllerDeps } from "./update-controller";
 
 // Main-process orchestration for omp install/update (issue #19), mirroring
 // app-update.ts: core owns the machine work (version reads, registry lookup,
@@ -17,13 +17,9 @@ import {
 // Nothing downloads without an explicit Update now/Install click, and a
 // failed install leaves the previous binary untouched (core tmp+rename).
 
-export interface OmpUpdaterDeps {
-  getDismissed: () => string | null;
-  setDismissed: (version: string | null) => void;
+export interface OmpUpdaterDeps extends UpdateControllerDeps<OmpUpdateState> {
   /** Fires only after a successful install so the caller re-resolves the binary. */
   onApplied: (version: string) => void;
-  send: (channel: string, state: OmpUpdateState) => void;
-  channel: string; // CH.ompUpdateState
   fetchImpl?: FetchLike; // tests
   downloadFetchImpl?: DownloadFetchLike; // tests
   runner?: VersionRunner; // tests: version reads AND download verification
@@ -32,28 +28,22 @@ export interface OmpUpdaterDeps {
   installPath?: string | null;
 }
 
-export class OmpUpdater {
-  state: OmpUpdateState;
+export class OmpUpdater extends UpdateController<OmpUpdateState> {
 
   constructor(private readonly deps: OmpUpdaterDeps) {
-    this.state = {
-      status: "idle",
-      installPath: null,
-      installedVersion: null,
-      latestVersion: null,
-      progress: null,
-      error: null,
-    };
+    super(
+      {
+        status: "idle",
+        installPath: null,
+        installedVersion: null,
+        latestVersion: null,
+        progress: null,
+        error: null,
+      },
+      deps,
+    );
   }
 
-  private push(): void {
-    this.deps.send(this.deps.channel, this.state);
-  }
-
-  private set(patch: Partial<OmpUpdateState>): void {
-    this.state = { ...this.state, ...patch };
-    this.push();
-  }
 
   /**
    * One check against the npm registry's latest omp release. `manual`
@@ -89,7 +79,7 @@ export class OmpUpdater {
     }
     // "Later" stays quiet for that version on background checks; an explicit
     // manual check is the user asking, so it always answers.
-    if (!manual && this.deps.getDismissed() === info.latestVersion) {
+    if (this.offerIsDismissed(info.latestVersion, manual)) {
       this.set({ ...facts, status: "idle" });
       return this.state;
     }
@@ -147,22 +137,12 @@ export class OmpUpdater {
    * the visible state. Last-known install facts are kept.
    */
   dismiss(version: string, remember: boolean): void {
-    if (remember && version) this.deps.setDismissed(version);
-    this.set({ status: "idle", latestVersion: null, progress: null, error: null });
+    this.dismissState(version, remember, {
+      status: "idle",
+      latestVersion: null,
+      progress: null,
+      error: null,
+    });
   }
 
-  /**
-   * Drops a remembered dismissal the installed omp has caught up to (issue
-   * #88). The background check suppresses only the exact dismissed version
-   * and every offer is newer than the installed one, so a dismissal at or
-   * below it can never fire again — keeping it would only show a stale
-   * "Dismissed" row on the Settings Updates page. A missing omp (null
-   * version) keeps its dismissal: it still suppresses the install offer for
-   * that exact version.
-   */
-  private reapDismissed(installedVersion: string | null): void {
-    const dismissed = this.deps.getDismissed();
-    if (dismissed === null || installedVersion === null) return;
-    if (compareVersions(dismissed, installedVersion) <= 0) this.deps.setDismissed(null);
-  }
 }

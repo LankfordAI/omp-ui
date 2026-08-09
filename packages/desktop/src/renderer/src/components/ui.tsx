@@ -187,6 +187,44 @@ export function IconButton({
   );
 }
 
+/** Shared surface, dismissal affordance, and transient timer for update cards. */
+export function UpdateCard({
+  children,
+  dismissLabel,
+  onDismiss,
+  autoDismissMs,
+}: {
+  children: ReactNode;
+  dismissLabel?: string;
+  onDismiss?: () => void;
+  autoDismissMs?: number;
+}) {
+  useEffect(() => {
+    if (onDismiss === undefined || autoDismissMs === undefined) return;
+    const timer = window.setTimeout(onDismiss, autoDismissMs);
+    return () => window.clearTimeout(timer);
+  }, [autoDismissMs, onDismiss]);
+
+  if (onDismiss !== undefined && !dismissLabel) {
+    throw new Error("dismissLabel is required when UpdateCard is dismissible");
+  }
+
+  return (
+    <div className="edge-lit animate-rise relative rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
+      {onDismiss !== undefined && (
+        <div className="absolute right-2 top-2">
+          <IconButton label={dismissLabel!} onClick={onDismiss}>
+            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+            </svg>
+          </IconButton>
+        </div>
+      )}
+      <div className={onDismiss === undefined ? undefined : "pr-6"}>{children}</div>
+    </div>
+  );
+}
+
 /**
  * Paperclip trigger for a hidden `<input type="file" accept="image/*">` owned
  * by the caller: this is pure presentation, the picker wiring (click the
