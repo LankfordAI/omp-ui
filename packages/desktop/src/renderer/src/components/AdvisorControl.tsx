@@ -363,7 +363,7 @@ export function AdvisorModelPalette({
     <Modal onClose={onClose} width="w-[40rem]">
       <div className="model-palette flex max-h-[70vh]">
         <ModelRail activeTab={tab} onTabChange={setTab} providers={providers} />
-        <div className="min-w-0 flex flex-1 flex-col">
+        <div className="min-h-0 min-w-0 flex flex-1 flex-col">
           {/* Search bar */}
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             <Label>advisor model</Label>
