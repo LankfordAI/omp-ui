@@ -54,6 +54,10 @@ jobs:
           grep -Fq "${appimages[0]}" latest-linux.yml
 
   release-macos:
+    # Temporarily disabled: Apple notarytool returns HTTP 500 for this new
+    # account (issue #124). Re-enable by deleting this `if` once a manual
+    # macos-preview.yml run notarizes successfully.
+    if: false
     needs: release-linux
     strategy:
       fail-fast: false
@@ -176,6 +180,9 @@ jobs:
 
   release-manifest:
     needs: [release-linux, release-macos, release-windows]
+    # release-macos is temporarily disabled (issue #124); run the manifest as
+    # long as the required Linux and Windows lanes succeeded.
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.release-windows.result == 'success' && (needs.release-macos.result == 'success' || needs.release-macos.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
@@ -189,8 +196,8 @@ jobs:
           set -euo pipefail
           mkdir release-assets
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*.AppImage'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg' || true
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip' || true
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
       - name: Generate and upload canonical checksums
         shell: bash
@@ -205,13 +212,18 @@ jobs:
           zips=(*-mac-preview-*.zip)
           installers=(*-windows-preview-x64-setup.exe)
           (( ${#appimages[@]} == 1 ))
-          (( ${#dmgs[@]} == 2 ))
-          (( ${#zips[@]} == 2 ))
+          # macOS assets are all-or-nothing: two DMGs and two ZIPs when the
+          # macOS lane ran, none while it is disabled (issue #124).
+          if (( ${#dmgs[@]} != 0 || ${#zips[@]} != 0 )); then
+            (( ${#dmgs[@]} == 2 ))
+            (( ${#zips[@]} == 2 ))
+          fi
           (( ${#installers[@]} == 1 ))
           files=("${appimages[@]}" "${dmgs[@]}" "${zips[@]}" "${installers[@]}")
-          test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq 6
+          expected=$(( 2 + ${#dmgs[@]} + ${#zips[@]} ))
+          test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq "$expected"
           sha256sum "${files[@]}" | sort -k2 > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq 6
+          test "$(wc -l < SHA256SUMS.txt)" -eq "$expected"
           gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt
       - name: Assert release metadata and asset boundary
         shell: bash
