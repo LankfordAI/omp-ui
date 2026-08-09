@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 
@@ -74,6 +74,14 @@ function CheckIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.8} aria-hidden className="size-3.5 shrink-0">
       <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconClose({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} aria-hidden className={cn("size-2.5", className)}>
+      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
     </svg>
   );
 }
@@ -214,9 +222,7 @@ export function UpdateCard({
       {onDismiss !== undefined && (
         <div className="absolute right-2 top-2">
           <IconButton label={dismissLabel!} onClick={onDismiss}>
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-            </svg>
+            <IconClose />
           </IconButton>
         </div>
       )}
@@ -334,6 +340,8 @@ const TONE_CAPSULE: Record<Tone, string> = {
   iris: "border-iris-dim/50 bg-iris-wash divide-iris-dim/40",
 };
 
+const CAPSULE_FRAME = "inline-flex h-6 min-w-0 shrink-0 items-stretch divide-x rounded-md border";
+
 /**
  * A segmented control cluster: one bordered pill, hairline dividers between
  * segments. Children are flat segments (buttons/spans) — they bring no border
@@ -356,7 +364,7 @@ export function Capsule({
     <span
       title={title}
       className={cn(
-        "inline-flex h-6 min-w-0 shrink-0 items-stretch divide-x rounded-md border",
+        CAPSULE_FRAME,
         TONE_CAPSULE[tone],
         className,
       )}
@@ -373,6 +381,104 @@ export const CAPSULE_SEGMENT = cn(
   "transition-colors duration-150 hover:bg-hover",
   "disabled:pointer-events-none disabled:text-ink-faint",
 );
+
+export interface ChoiceCapsuleOption<T extends string> {
+  value: T;
+  label: ReactNode;
+  disabled?: boolean;
+  title?: string;
+  className?: string;
+  selectedClassName?: string;
+  unselectedClassName?: string;
+}
+
+/** A labelled single-choice capsule with one Tab stop and arrow-key selection. */
+export function ChoiceCapsule<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  tone = "neutral",
+  className,
+  optionClassName,
+}: {
+  label: string;
+  value: T;
+  options: readonly ChoiceCapsuleOption<T>[];
+  onChange: (value: T) => void;
+  tone?: Tone;
+  className?: string;
+  optionClassName?: string;
+}) {
+  const buttons = useRef<Array<HTMLButtonElement | null>>([]);
+  const matchingIndex = options.findIndex((option) => option.value === value);
+  const firstEnabledIndex = options.findIndex((option) => option.disabled !== true);
+  const selectedIndex =
+    matchingIndex >= 0 ? matchingIndex : firstEnabledIndex >= 0 ? firstEnabledIndex : options.length > 0 ? 0 : -1;
+
+  const nextEnabled = (from: number, direction: -1 | 1): number => {
+    for (let step = 1; step <= options.length; step += 1) {
+      const candidate = (from + direction * step + options.length) % options.length;
+      if (options[candidate]?.disabled !== true) return candidate;
+    }
+    return -1;
+  };
+
+  return (
+    <span
+      role="group"
+      aria-label={label}
+      className={cn(CAPSULE_FRAME, TONE_CAPSULE[tone], className)}
+    >
+      {options.map((option, index) => {
+        const selected = index === selectedIndex;
+        return (
+          <button
+            key={option.value}
+            ref={(button) => {
+              buttons.current[index] = button;
+            }}
+            type="button"
+            title={option.title}
+            disabled={option.disabled}
+            aria-pressed={selected}
+            tabIndex={selected && option.disabled !== true ? 0 : -1}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => {
+              const target =
+                event.key === "ArrowLeft" || event.key === "ArrowUp"
+                  ? nextEnabled(index, -1)
+                  : event.key === "ArrowRight" || event.key === "ArrowDown"
+                    ? nextEnabled(index, 1)
+                    : event.key === "Home"
+                      ? firstEnabledIndex
+                      : event.key === "End"
+                        ? nextEnabled(0, -1)
+                        : null;
+              if (target === null) return;
+
+              event.preventDefault();
+              const targetOption = options[target];
+              if (targetOption === undefined) return;
+              buttons.current[target]?.focus();
+              onChange(targetOption.value);
+            }}
+            className={cn(
+              CAPSULE_SEGMENT,
+              optionClassName,
+              option.className,
+              selected
+                ? (option.selectedClassName ?? "bg-hover text-ink")
+                : (option.unselectedClassName ?? "text-ink-mid"),
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
 
 /* ------------------------------------------------------------------- Panel */
 
@@ -628,7 +734,7 @@ export function Sheet({
           <div className="flex min-h-11 items-center gap-3 px-[max(1rem,var(--safe-left))] pr-[max(0.5rem,var(--safe-right))]">
             <h2 className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-ink">{label}</h2>
             <IconButton label={`close ${label}`} onClick={onClose} className="size-11">
-              <span aria-hidden className="text-lg leading-none">×</span>
+              <IconClose />
             </IconButton>
           </div>
         </header>
@@ -647,11 +753,15 @@ export function Modal({
   onClose,
   width = "w-[30rem]",
   mobile = "fullscreen",
+  role = "dialog",
+  labelledBy,
 }: {
   children: ReactNode;
   onClose?: () => void;
   width?: string;
   mobile?: "fullscreen" | "dialog";
+  role?: "dialog" | "alertdialog";
+  labelledBy?: string;
 }) {
   const root = useOverlay(true, onClose);
   return createPortal(
@@ -662,8 +772,9 @@ export function Modal({
     >
       <div
         ref={root}
-        role="dialog"
+        role={role}
         aria-modal="true"
+        aria-labelledby={labelledBy}
         tabIndex={-1}
         className={cn(
           "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-line-strong bg-overlay",
@@ -673,13 +784,55 @@ export function Modal({
       >
         {onClose && (
           <IconButton label="close dialog" onClick={onClose} className="compact-modal-close absolute right-2 top-2 z-20 hidden bg-raised">
-            <span aria-hidden className="text-lg leading-none">×</span>
+            <IconClose />
           </IconButton>
         )}
         {children}
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** Destructive or disruptive decision overlay with one semantic alertdialog surface. */
+export function ConfirmDialog({
+  kicker,
+  title,
+  tone,
+  children,
+  actions,
+  onClose,
+  width,
+}: {
+  kicker: ReactNode;
+  title: ReactNode;
+  tone: Tone;
+  children: ReactNode;
+  actions: ReactNode;
+  onClose: () => void;
+  width?: string;
+}) {
+  const titleId = useId();
+
+  return (
+    <Modal
+      role="alertdialog"
+      labelledBy={titleId}
+      onClose={onClose}
+      width={width}
+      mobile="dialog"
+    >
+      <header className="border-b border-line px-4 py-3.5">
+        <p className={cn("mb-1 font-mono text-[10px] uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
+          {kicker}
+        </p>
+        <h2 id={titleId} className="font-display text-base font-semibold text-ink">
+          {title}
+        </h2>
+      </header>
+      <div className="px-4 py-4">{children}</div>
+      <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">{actions}</footer>
+    </Modal>
   );
 }
 

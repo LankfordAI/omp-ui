@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
+import type { OmpOneShotProcess, OmpOneShotSpawn } from "./omp-process";
 import {
   generateBranchNameWithOmp,
   generateTitleWithOmp,
@@ -8,8 +9,6 @@ import {
   parseTitleOutput,
   sanitizeBranchName,
   sanitizeModelTitle,
-  type TitleProcess,
-  type TitleSpawnFn,
 } from "./title-model";
 
 /** A fake omp run: emits `stdout`, then exits with `code`. */
@@ -17,15 +16,15 @@ function fakeOmp(
   stdout: string,
   code: number | null = 0,
   opts: { spawnError?: Error; hang?: boolean } = {},
-): { spawn: TitleSpawnFn; argv: string[][]; killed: () => number } {
+): { spawn: OmpOneShotSpawn; argv: string[][]; killed: () => number } {
   const argv: string[][] = [];
   let kills = 0;
-  const spawn: TitleSpawnFn = (_omp, args) => {
+  const spawn: OmpOneShotSpawn = (_omp, args) => {
     argv.push(args);
     const out = new PassThrough();
     const err = new PassThrough();
     const exits = new EventEmitter();
-    const proc: TitleProcess = {
+    const proc: OmpOneShotProcess = {
       stdout: out,
       stderr: err,
       kill: () => {
@@ -52,7 +51,7 @@ function run(stdout: string, code: number | null = 0): Promise<string | null> {
     projectCwd: "/p",
     model: "a/tiny",
     prompt: "fix the parser",
-    spawnProcess: fakeOmp(stdout, code).spawn,
+    spawn: fakeOmp(stdout, code).spawn,
   });
 }
 
@@ -120,7 +119,7 @@ describe("generateTitleWithOmp", () => {
         projectCwd: "/p",
         model: null,
         prompt: "fix the parser",
-        spawnProcess: spawn,
+        spawn,
       }),
     ).resolves.toBeNull();
   });
@@ -133,7 +132,7 @@ describe("generateTitleWithOmp", () => {
         projectCwd: "/p",
         model: null,
         prompt: "fix the parser",
-        spawnProcess: fake.spawn,
+        spawn: fake.spawn,
         timeoutMs: 10,
       }),
     ).resolves.toBeNull();
@@ -148,7 +147,7 @@ describe("generateTitleWithOmp", () => {
       projectCwd: "/proj",
       model: "a/tiny:medium",
       prompt: "fix the parser",
-      spawnProcess: fake.spawn,
+      spawn: fake.spawn,
     });
     const args = fake.argv[0]!;
     // --no-session keeps title runs out of the sessions root entirely, so one
@@ -167,7 +166,7 @@ describe("generateTitleWithOmp", () => {
       projectCwd: "/p",
       model: null,
       prompt: "fix the parser",
-      spawnProcess: fake.spawn,
+      spawn: fake.spawn,
     });
     expect(fake.argv[0]).not.toContain("--model");
   });
@@ -181,7 +180,7 @@ describe("generateTitleWithOmp", () => {
       projectCwd: "/p",
       model: null,
       prompt: "@package.json --help is broken",
-      spawnProcess: fake.spawn,
+      spawn: fake.spawn,
     });
     const args = fake.argv[0]!;
     expect(args.at(-2)).toBe("--");
@@ -254,7 +253,7 @@ describe("generateBranchNameWithOmp", () => {
       projectCwd: "/p",
       model: "a/tiny",
       prompt: "Fix the login race\n\n# plan",
-      spawnProcess: fakeOmp(stdout, code).spawn,
+      spawn: fakeOmp(stdout, code).spawn,
     });
 
   it("returns the model's branch name on a clean run", async () => {
@@ -273,7 +272,7 @@ describe("generateBranchNameWithOmp", () => {
         projectCwd: "/p",
         model: null,
         prompt: "plan",
-        spawnProcess: () => {
+        spawn: () => {
           throw new Error("ENOENT");
         },
       }),
@@ -288,7 +287,7 @@ describe("generateBranchNameWithOmp", () => {
         projectCwd: "/p",
         model: null,
         prompt: "plan",
-        spawnProcess: spawn,
+        spawn,
       }),
     ).resolves.toBeNull();
   });
@@ -301,7 +300,7 @@ describe("generateBranchNameWithOmp", () => {
         projectCwd: "/p",
         model: null,
         prompt: "plan",
-        spawnProcess: fake.spawn,
+        spawn: fake.spawn,
         timeoutMs: 10,
       }),
     ).resolves.toBeNull();
@@ -316,7 +315,7 @@ describe("generateBranchNameWithOmp", () => {
       projectCwd: "/p",
       model: null,
       prompt: "plan",
-      spawnProcess: fake.spawn,
+      spawn: fake.spawn,
     });
     const args = fake.argv[0]!;
     expect(args).toContain("--no-session");

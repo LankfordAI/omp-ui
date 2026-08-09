@@ -47,7 +47,7 @@ if (!app.requestSingleInstanceLock()) {
 
   /** Awaitable quit guard used by window and application quit paths. */
   const confirmLiveQuit = async (): Promise<boolean> => {
-    if (forceQuit || !backend || backend.liveCount === 0) return true;
+    if (forceQuit || !backend || backend.sessions.liveCount === 0) return true;
     if (quitDialogOpen) return false;
     quitDialogOpen = true;
     const win = BrowserWindow.getAllWindows()[0];
@@ -58,7 +58,7 @@ if (!app.requestSingleInstanceLock()) {
         buttons: ["Quit", "Cancel"],
         defaultId: 1,
         cancelId: 1,
-        message: `${backend.liveCount} agent session(s) still running — quit?`,
+        message: `${backend.sessions.liveCount} agent session(s) still running — quit?`,
       });
       if (r.response !== 0) return false;
       forceQuit = true;
@@ -75,7 +75,7 @@ if (!app.requestSingleInstanceLock()) {
    * never show. Returns true when the quit may proceed.
    */
   const confirmQuitIfLive = (): boolean => {
-    if (forceQuit || !backend || backend.liveCount === 0) return true;
+    if (forceQuit || !backend || backend.sessions.liveCount === 0) return true;
     void confirmLiveQuit().then((ok) => {
       if (ok) app.quit();
     });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useCompactShell } from "../lib/responsive";
-import { useStore } from "../store";
+import { useStore, type RpcFailure } from "../store";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
@@ -28,17 +28,19 @@ function TranscriptSkeleton() {
 export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
+  const refreshState = useStore((s) => s.refreshState);
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
   const compact = useCompactShell();
-  const [dismissedError, setDismissedError] = useState<string | null>(null);
+  const [dismissedFailure, setDismissedFailure] = useState<RpcFailure | null>(null);
 
   useEffect(() => {
     if (!rpc) void bootRpcTab(tabId);
   }, [rpc, tabId, bootRpcTab]);
 
   const status = rpc?.status ?? "starting";
-  const error = rpc?.error && rpc.error !== dismissedError ? rpc.error : null;
+  const failure = rpc?.failure && rpc.failure !== dismissedFailure ? rpc.failure : null;
+  const failureText = failure ? `${failure.message}\n\n${failure.recovery}` : "";
   // `busy` is ref-counted off in-flight rpc commands, so the sweep is honest for
   // any blocking round-trip (compact, export, branch), not just boot.
   const working = status === "starting" || (rpc?.busy ?? false);
@@ -60,24 +62,33 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
         </div>
       )}
 
-      {error && (
+      {failure && (
         <div className="px-3 pt-2">
           <Panel tone="rose" className="animate-rise flex items-start gap-2 px-2.5 py-2">
             <p className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] leading-snug text-rose">
-              {error}
+              {failureText}
             </p>
-            <CopyButton text={error} />
-            <Button size="xs" variant="ghost" tone="rose" onClick={() => void bootRpcTab(tabId)}>
-              retry boot
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              title="dismiss"
-              onClick={() => setDismissedError(error)}
-            >
-              ✕
-            </Button>
+            <CopyButton text={failureText} label="Copy" />
+            {failure.kind === "boot" && (
+              <Button size="xs" variant="ghost" tone="rose" onClick={() => void bootRpcTab(tabId)}>
+                Retry boot
+              </Button>
+            )}
+            {!failure.fatal && (
+              <>
+                <Button size="xs" variant="ghost" tone="rose" onClick={() => void refreshState(tabId)}>
+                  Refresh state
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  tone="rose"
+                  onClick={() => setDismissedFailure(failure)}
+                >
+                  Dismiss
+                </Button>
+              </>
+            )}
           </Panel>
         </div>
       )}

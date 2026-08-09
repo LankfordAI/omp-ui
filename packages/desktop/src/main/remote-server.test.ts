@@ -23,7 +23,7 @@ vi.mock("electron", () => ({
 }));
 
 const { MainBackend } = await import("./backend");
-const { CH } = await import("./channels");
+const { CH } = await import("@omp-ui/core");
 const { REMOTE_WS_PATH } = await import("@omp-ui/server/protocol");
 
 const sent: Array<{ channel: string; args: unknown[] }> = [];
@@ -48,7 +48,7 @@ function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 
 /** Every remote:state push so far, newest last. */
 function pushes(): RemoteState[] {
-  return sent.filter((s) => s.channel === CH.remoteState).map((s) => s.args[0] as RemoteState);
+  return sent.filter((s) => s.channel === CH.onRemoteState).map((s) => s.args[0] as RemoteState);
 }
 
 function lastPush(): RemoteState {
@@ -95,13 +95,13 @@ afterEach(async () => {
   backend.killAll();
   // killAll fires remote.stop() without awaiting; drain the manager's chain so the next test
   // does not race a closing listener onto its own port.
-  await invoke(CH.remoteSetEnabled, false);
+  await invoke(CH.setRemoteEnabled, false);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
 describe("remote server lifecycle", () => {
   it("reports stopped with a minted token on a fresh registry", async () => {
-    const state = (await invoke(CH.remoteGetState)) as RemoteState;
+    const state = (await invoke(CH.getRemoteState)) as RemoteState;
     expect(state.status).toBe("stopped");
     expect(state.enabled).toBe(false);
     expect(state.bind).toBe("localhost");
@@ -113,8 +113,8 @@ describe("remote server lifecycle", () => {
   });
 
   it("starts listening on enable and answers /healthz with the token", async () => {
-    await invoke(CH.remoteSetPort, 45677);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45677);
+    await invoke(CH.setRemoteEnabled, true);
 
     const state = lastPush();
     expect(state.status).toBe("listening");
@@ -129,12 +129,12 @@ describe("remote server lifecycle", () => {
   });
 
   it("restarts onto a new port without touching sessions", async () => {
-    await invoke(CH.remoteSetPort, 45678);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45678);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
     const before = backend.liveCount;
 
-    await invoke(CH.remoteSetPort, 45679);
+    await invoke(CH.setRemotePort, 45679);
     expect(lastPush().port).toBe(45679);
     expect(lastPush().status).toBe("listening");
 
@@ -146,11 +146,11 @@ describe("remote server lifecycle", () => {
   });
 
   it("rejects an out-of-range port and keeps the server where it was", async () => {
-    await invoke(CH.remoteSetPort, 45680);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45680);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
 
-    await expect(invoke(CH.remoteSetPort, 80)).rejects.toThrow(
+    await expect(invoke(CH.setRemotePort, 80)).rejects.toThrow(
       "port must be a whole number between 1024 and 65535",
     );
     expect(lastPush().port).toBe(45680);
@@ -159,14 +159,14 @@ describe("remote server lifecycle", () => {
   });
 
   it("regenerating the token drops connected clients and 401s the old token", async () => {
-    await invoke(CH.remoteSetPort, 45681);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45681);
+    await invoke(CH.setRemoteEnabled, true);
     const oldToken = lastPush().token;
 
     const ws = await connect(45681, oldToken);
     const closed = new Promise<void>((resolve) => ws.once("close", () => resolve()));
 
-    await invoke(CH.remoteRegenerateToken);
+    await invoke(CH.regenerateRemoteToken);
     await closed;
 
     const newToken = lastPush().token;
@@ -180,30 +180,30 @@ describe("remote server lifecycle", () => {
   });
 
   it("mirrors a state broadcast to a connected remote client", async () => {
-    await invoke(CH.remoteSetPort, 45682);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45682);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
     const ws = await connect(45682, token);
 
     const frame = new Promise<Record<string, unknown>>((resolve) => {
       const onMessage = (raw: Buffer): void => {
         const parsed = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
-        if (parsed.ch === CH.stateChanged) resolve(parsed);
+        if (parsed.ch === CH.onStateChanged) resolve(parsed);
         else ws.once("message", onMessage);
       };
       ws.once("message", onMessage);
     });
 
     // Any registry mutation broadcasts; addProject is the cheapest one with no child process.
-    await invoke(CH.projectAdd, base);
+    await invoke(CH.addProject, base);
     const ev = await frame;
     expect(ev.t).toBe("ev");
-    expect(ev.ch).toBe(CH.stateChanged);
+    expect(ev.ch).toBe(CH.onStateChanged);
   });
 
   it("serves a request from the shared handler table over the socket", async () => {
-    await invoke(CH.remoteSetPort, 45683);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45683);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
     const ws = await connect(45683, token);
 
@@ -212,7 +212,7 @@ describe("remote server lifecycle", () => {
         resolve(JSON.parse(raw.toString("utf8")) as Record<string, unknown>),
       );
     });
-    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.stateGet, args: [] }));
+    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
 
     const res = await reply;
     expect(res).toMatchObject({ t: "res", id: 1, ok: true });
@@ -221,8 +221,8 @@ describe("remote server lifecycle", () => {
   });
 
   it("returns the app-update restart handshake over the remote socket", async () => {
-    await invoke(CH.remoteSetPort, 45687);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45687);
+    await invoke(CH.setRemoteEnabled, true);
     const ws = await connect(45687, lastPush().token);
     const reply = new Promise<Record<string, unknown>>((resolve) => {
       ws.once("message", (raw: Buffer) =>
@@ -230,7 +230,7 @@ describe("remote server lifecycle", () => {
       );
     });
 
-    ws.send(JSON.stringify({ t: "req", id: 138, ch: CH.appUpdateRestart, args: [false] }));
+    ws.send(JSON.stringify({ t: "req", id: 138, ch: CH.restartForAppUpdate, args: [false] }));
 
     expect(await reply).toMatchObject({
       t: "res",
@@ -241,20 +241,20 @@ describe("remote server lifecycle", () => {
   });
 
   it("disabling stops the listener and frees the port", async () => {
-    await invoke(CH.remoteSetPort, 45684);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45684);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
     expect((await fetch(`http://127.0.0.1:45684/healthz?t=${token}`)).status).toBe(200);
 
-    await invoke(CH.remoteSetEnabled, false);
+    await invoke(CH.setRemoteEnabled, false);
     expect(lastPush().status).toBe("stopped");
     expect(lastPush().urls).toEqual([]);
     await expect(fetch(`http://127.0.0.1:45684/healthz?t=${token}`)).rejects.toThrow();
   });
 
   it("publishes an error status when the port is already taken", async () => {
-    await invoke(CH.remoteSetPort, 45685);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45685);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
 
     // A second backend against the same port is the realistic collision.
@@ -264,8 +264,8 @@ describe("remote server lifecycle", () => {
     const ourHandlers = new Map(handlers);
     sent.length = 0;
     other.registerIpc();
-    await invoke(CH.remoteSetPort, 45685);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45685);
+    await invoke(CH.setRemoteEnabled, true);
     otherState.push(lastPush());
 
     expect(otherState[0].status).toBe("error");
@@ -278,8 +278,8 @@ describe("remote server lifecycle", () => {
   });
 
   it("keeps serving remote clients after the desktop window is gone", async () => {
-    await invoke(CH.remoteSetPort, 45686);
-    await invoke(CH.remoteSetEnabled, true);
+    await invoke(CH.setRemotePort, 45686);
+    await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
     const ws = await connect(45686, token);
 
@@ -290,13 +290,13 @@ describe("remote server lifecycle", () => {
       const frame = new Promise<Record<string, unknown>>((resolve) => {
         const onMessage = (raw: Buffer): void => {
           const parsed = JSON.parse(raw.toString("utf8")) as Record<string, unknown>;
-          if (parsed.ch === CH.stateChanged) resolve(parsed);
+          if (parsed.ch === CH.onStateChanged) resolve(parsed);
           else ws.once("message", onMessage);
         };
         ws.once("message", onMessage);
       });
-      await invoke(CH.projectAdd, base);
-      expect((await frame).ch).toBe(CH.stateChanged);
+      await invoke(CH.addProject, base);
+      expect((await frame).ch).toBe(CH.onStateChanged);
     } finally {
       Object.assign(win, {
         isDestroyed: () => false,

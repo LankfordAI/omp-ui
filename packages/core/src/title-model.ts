@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import * as path from "node:path";
+import { runOmpOnce, type OmpOneShotSpawn } from "./omp-process";
 
 /**
  * Small-model one-shots from omp's own small model: session titles and git
@@ -70,20 +69,6 @@ const EMPTY_TITLE_TAG = /<title\s*\/>/i;
 // eslint-disable-next-line no-control-regex -- stripping them is the point
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 
-export interface TitleProcess {
-  stdout: NodeJS.ReadableStream;
-  stderr: NodeJS.ReadableStream;
-  kill(): void;
-  onExit(cb: (code: number | null) => void): void;
-  onSpawnError(cb: (err: Error) => void): void;
-}
-
-export type TitleSpawnFn = (
-  ompPath: string,
-  args: string[],
-  env: NodeJS.ProcessEnv,
-) => TitleProcess;
-
 export interface TitleRequest {
   ompPath: string;
   /** Run dir, so omp layers this project's `.omp/config.yml` as it normally would. */
@@ -92,20 +77,9 @@ export interface TitleRequest {
   model: string | null;
   /** The user message to title. */
   prompt: string;
-  /** Test seam — defaults to child_process.spawn over pipes. */
-  spawnProcess?: TitleSpawnFn;
+  /** Test seam forwarded to the generic one-shot runner. */
+  spawn?: OmpOneShotSpawn;
   timeoutMs?: number;
-}
-
-function defaultSpawn(ompPath: string, args: string[], env: NodeJS.ProcessEnv): TitleProcess {
-  const child = spawn(ompPath, args, { stdio: ["ignore", "pipe", "pipe"], env });
-  return {
-    stdout: child.stdout,
-    stderr: child.stderr,
-    kill: () => child.kill(),
-    onExit: (cb) => child.on("close", cb),
-    onSpawnError: (cb) => child.on("error", cb),
-  };
 }
 
 /**
@@ -143,53 +117,23 @@ export function parseTitleOutput(stdout: string): string | null {
  * never take a session down with it.
  */
 export async function generateTitleWithOmp(req: TitleRequest): Promise<string | null> {
-  const args = ["-p", "--no-session", "--cwd", req.projectCwd];
+  const argv = ["-p", "--no-session", "--cwd", req.projectCwd];
   // Omitted when unset, so omp resolves the same default chain it uses itself.
-  if (req.model !== null) args.push("--model", req.model);
+  if (req.model !== null) argv.push("--model", req.model);
   // Everything a title run has no use for. `--no-session` also keeps this out
   // of the sessions root, so it can never be mistaken for an owned session.
-  args.push("--no-tools", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules");
-  args.push("--system-prompt", TITLE_SYSTEM_PROMPT);
+  argv.push("--no-tools", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules");
+  argv.push("--system-prompt", TITLE_SYSTEM_PROMPT);
   // `--` so a prompt starting with `-` or `@` is argv data, not flags/file refs.
-  args.push("--", `<user>${req.prompt}</user>`);
+  argv.push("--", `<user>${req.prompt}</user>`);
 
-  // Same shim-proofing as spawnOmp: keep the resolved binary's dir on PATH.
-  const env = {
-    ...process.env,
-    PATH: [path.dirname(req.ompPath), process.env.PATH].filter(Boolean).join(path.delimiter),
-  };
-
-  const spawnProcess = req.spawnProcess ?? defaultSpawn;
-  let child: TitleProcess;
-  try {
-    child = spawnProcess(req.ompPath, args, env);
-  } catch {
-    return null;
-  }
-
-  return new Promise<string | null>((resolve) => {
-    let stdout = "";
-    let settled = false;
-    const finish = (title: string | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(title);
-    };
-    const timer = setTimeout(() => {
-      child.kill();
-      finish(null);
-    }, req.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    // Drained but discarded: omp writes its "Working..." spinner here, and an
-    // unread pipe would eventually stall the child.
-    child.stderr.on("data", () => {});
-    child.onSpawnError(() => finish(null));
-    child.onExit((code) => finish(code === 0 ? parseTitleOutput(stdout) : null));
+  const stdout = await runOmpOnce({
+    ompPath: req.ompPath,
+    argv,
+    timeout: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    spawn: req.spawn,
   });
+  return stdout === null ? null : parseTitleOutput(stdout);
 }
 
 /**
@@ -261,51 +205,21 @@ export function parseBranchNameOutput(stdout: string): string | null {
  * the caller owns the mechanical fallback.
  */
 export async function generateBranchNameWithOmp(req: TitleRequest): Promise<string | null> {
-  const args = ["-p", "--no-session", "--cwd", req.projectCwd];
+  const argv = ["-p", "--no-session", "--cwd", req.projectCwd];
   // Omitted when unset, so omp resolves the same default chain it uses itself.
-  if (req.model !== null) args.push("--model", req.model);
+  if (req.model !== null) argv.push("--model", req.model);
   // Everything a naming run has no use for. `--no-session` also keeps this out
   // of the sessions root, so it can never be mistaken for an owned session.
-  args.push("--no-tools", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules");
-  args.push("--system-prompt", BRANCH_NAME_SYSTEM_PROMPT);
+  argv.push("--no-tools", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules");
+  argv.push("--system-prompt", BRANCH_NAME_SYSTEM_PROMPT);
   // `--` so a prompt starting with `-` or `@` is argv data, not flags/file refs.
-  args.push("--", `<user>${req.prompt}</user>`);
+  argv.push("--", `<user>${req.prompt}</user>`);
 
-  // Same shim-proofing as spawnOmp: keep the resolved binary's dir on PATH.
-  const env = {
-    ...process.env,
-    PATH: [path.dirname(req.ompPath), process.env.PATH].filter(Boolean).join(path.delimiter),
-  };
-
-  const spawnProcess = req.spawnProcess ?? defaultSpawn;
-  let child: TitleProcess;
-  try {
-    child = spawnProcess(req.ompPath, args, env);
-  } catch {
-    return null;
-  }
-
-  return new Promise<string | null>((resolve) => {
-    let stdout = "";
-    let settled = false;
-    const finish = (name: string | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(name);
-    };
-    const timer = setTimeout(() => {
-      child.kill();
-      finish(null);
-    }, req.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    // Drained but discarded: omp writes its "Working..." spinner here, and an
-    // unread pipe would eventually stall the child.
-    child.stderr.on("data", () => {});
-    child.onSpawnError(() => finish(null));
-    child.onExit((code) => finish(code === 0 ? parseBranchNameOutput(stdout) : null));
+  const stdout = await runOmpOnce({
+    ompPath: req.ompPath,
+    argv,
+    timeout: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    spawn: req.spawn,
   });
+  return stdout === null ? null : parseBranchNameOutput(stdout);
 }

@@ -7,10 +7,10 @@ import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-con
 import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
-import { AdvisorModelPalette, shortLabel, splitRole } from "./AdvisorControl";
+import { shortLabel, splitRole } from "./AdvisorControl";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
-import { AttachmentButton, Button, CopyButton, IconButton, Label, Modal, Switch } from "./ui";
+import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Modal, Switch } from "./ui";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
@@ -369,9 +369,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
                             onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
                             className="size-4 rounded-full border border-line-strong bg-overlay"
                           >
-                            <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className="size-2.5">
-                              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-                            </svg>
+                            <IconClose />
                           </IconButton>
                         </span>
                       </span>
@@ -806,6 +804,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
 
     {pickingModel && (
       <ModelPalette
+        variant="main"
         models={availableModels}
         current={stagedModel}
         onClose={() => setPickingModel(false)}
@@ -818,7 +817,8 @@ export function PlanReview({ tabId }: { tabId: string }) {
       />
     )}
     {pickingAdvisorModel && (
-      <AdvisorModelPalette
+      <ModelPalette
+        variant="advisor"
         models={availableModels}
         current={effectiveAdvisor}
         inherited={advisorInherited}

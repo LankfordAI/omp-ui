@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { backend } from "../backend";
 import { useStore } from "../store";
 import { ShellDrawer } from "./ShellDrawer";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, IconClose } from "./ui";
 
 /**
  * The console as a Session HUD-controlled drawer: a full-width login shell
@@ -71,9 +71,7 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
             clear
           </Button>
           <IconButton label="close console (mod+j)" onClick={() => toggleConsole(tabId)}>
-            <svg viewBox="0 0 16 16" aria-hidden className="size-3">
-              <path d="M4 4l8 8M12 4l-8 8" {...S} />
-            </svg>
+            <IconClose className="size-3" />
           </IconButton>
         </div>
       </div>

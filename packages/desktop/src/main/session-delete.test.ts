@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the three surfaces it touches.
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
@@ -20,8 +21,20 @@ vi.mock("electron", () => ({
   },
 }));
 
+vi.mock("@omp-ui/core", async (importOriginal) => {
+  const core = await importOriginal<typeof import("@omp-ui/core")>();
+  return {
+    ...core,
+    spawnOmp: vi.fn(),
+    resolveSessionLocation: vi.fn(core.resolveSessionLocation),
+  };
+});
+
 const { MainBackend } = await import("./backend");
-const { CH } = await import("./channels");
+const { CH } = await import("@omp-ui/core");
+const { spawnOmp, resolveSessionLocation } = await import("@omp-ui/core");
+const spawnOmpMock = vi.mocked(spawnOmp);
+const resolveSessionLocationMock = vi.mocked(resolveSessionLocation);
 
 const SESSION_ID = "019faeab-cc7b-7000-8bfc-67242a2869d8";
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
@@ -37,6 +50,8 @@ const win = {
 };
 
 let base: string;
+let nextDiesOn: "default" | "SIGKILL" | "never" = "default";
+const spawnedSignals: string[][] = [];
 
 /** Real registry file + real lineage dirs in both roots, exactly as ADR-0003 lays them out. */
 function setup(): {
@@ -51,6 +66,9 @@ function setup(): {
   delete process.env.XDG_DATA_HOME;
   delete process.env.OMP_PROFILE;
   delete process.env.PI_PROFILE;
+  const ompBin = path.join(base, "omp");
+  fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+  process.env.OMP_UI_OMP_PATH = ompBin;
 
   const sessionsRoot = path.join(agentDir, "sessions");
   const archiveRoot = path.join(agentDir, "archive", "sessions");
@@ -71,29 +89,31 @@ function setup(): {
   fs.writeFileSync(path.join(archiveRoot, LINEAGE, "old.jsonl.gz"), "gz");
 
   const registryFile = path.join(base, "registry.json");
-  fs.writeFileSync(
-    registryFile,
-    JSON.stringify({
-      schemaVersion: 1,
-      settings: { defaultMode: "pty" },
-      projects: [
-        { path: "/proj", name: "proj", addedAt: "2026-07-29T00:00:00.000Z" },
-      ],
-      sessions: [
-        {
-          tabId: "tab-1",
-          sessionId: SESSION_ID,
-          lineageDir: LINEAGE,
-          projectCwd: "/proj",
-          launchedAt: "2026-07-29T16:18:42.427Z",
-          mode: "pty",
-          advisor: false,
-          cachedTitle: "Old session",
-          cachedModified: "2026-07-29T16:18:42.427Z",
-        },
-      ],
-    }),
-  );
+  seedRegistry(registryFile, {
+    settings: { defaultMode: "pty" },
+    projects: [
+      {
+        path: "/proj",
+        name: "proj",
+        addedAt: "2026-07-29T00:00:00.000Z",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+    ],
+    sessions: [
+      ownedSessionRecord({
+        tabId: "tab-1",
+        sessionId: SESSION_ID,
+        lineageDir: LINEAGE,
+        projectCwd: "/proj",
+        launchedAt: "2026-07-29T16:18:42.427Z",
+        mode: "pty",
+        advisor: false,
+        cachedTitle: "Old session",
+        cachedModified: "2026-07-29T16:18:42.427Z",
+      }),
+    ],
+  });
 
   handlers.clear();
   sent.length = 0;
@@ -106,55 +126,49 @@ const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(nu
 const readRegistry = (): { sessions: unknown[] } =>
   JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));
 
-/**
- * The two in-flight collections the delete path consults. They are private to
- * MainBackend and there is no public way to fake a running session, so these
- * tests reach in deliberately — the cast names the real shape of fields this
- * file owns, rather than asserting a shape onto external data.
- */
-interface FakeLive {
-  kind: string;
-  pty: { kill: (signal?: string) => void };
-  exited: Promise<void>;
-  markExited: () => void;
-  suppressExit?: boolean;
-}
-interface BackendInternals {
-  live: Map<string, FakeLive>;
-  spawning: Map<string, Promise<void>>;
-}
-const internals = (backend: InstanceType<typeof MainBackend>): BackendInternals =>
-  backend as unknown as BackendInternals;
-
-/**
- * Stands in for a running process the way spawnPty registers one: `exited`
- * settles only when the fake honours a signal, so a delete really does have to
- * reap it. `diesOn` picks which signal the fake obeys ("never" = neither).
- */
-function fakeLive(diesOn: "default" | "SIGKILL" | "never"): FakeLive & { signals: string[] } {
-  const signals: string[] = [];
-  let markExited = (): void => {};
-  const exited = new Promise<void>((resolve) => {
-    markExited = () => resolve();
+async function launchLive(diesOn: "default" | "SIGKILL" | "never"): Promise<string[]> {
+  nextDiesOn = diesOn;
+  await invoke(CH.spawnSession, {
+    projectCwd: "/proj",
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24,
+    resumeTabId: "tab-1",
   });
-  return {
-    kind: "pty",
-    signals,
-    exited,
-    markExited,
-    pty: {
-      kill: (signal?: string) => {
-        signals.push(signal ?? "default");
-        const obeys =
-          diesOn === "default" ? signal === undefined : diesOn === "SIGKILL" && signal === "SIGKILL";
-        if (obeys) markExited();
-      },
-    },
-  };
+  return spawnedSignals.at(-1)!;
 }
 
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
+  delete process.env.OMP_UI_OMP_PATH;
+  spawnedSignals.length = 0;
+  nextDiesOn = "default";
+  resolveSessionLocationMock.mockClear();
+  spawnOmpMock.mockReset();
+  spawnOmpMock.mockImplementation((opts) => {
+    const signals: string[] = [];
+    spawnedSignals.push(signals);
+    let exitCb: ((event: { exitCode: number }) => void) | undefined;
+    const kill: Mock = vi.fn((signal?: string) => {
+      signals.push(signal ?? "default");
+      const obeys =
+        nextDiesOn === "default"
+          ? signal === undefined
+          : nextDiesOn === "SIGKILL" && signal === "SIGKILL";
+      if (obeys) exitCb?.({ exitCode: 0 });
+    });
+    return {
+      id: opts.id,
+      onData: () => vi.fn(),
+      onExit: (cb) => {
+        exitCb = cb;
+      },
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill,
+    };
+  });
 });
 
 describe("session:delete", () => {
@@ -162,16 +176,16 @@ describe("session:delete", () => {
     const { sessionsRoot, archiveRoot } = setup();
 
     // The row is visible before the delete — the precondition the sidebar shows.
-    const before = (await invoke(CH.stateGet)) as { projects: { sessions: { title: string }[] }[] };
+    const before = (await invoke(CH.getState)) as { projects: { sessions: { title: string }[] }[] };
     expect(before.projects[0]!.sessions.map((s) => s.title)).toEqual(["Old session"]);
 
-    await invoke(CH.sessionDelete, "tab-1");
+    await invoke(CH.deleteSession, "tab-1");
 
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
     expect(fs.existsSync(path.join(archiveRoot, LINEAGE))).toBe(false);
     expect(readRegistry().sessions).toEqual([]);
     // The sidebar learns about it by broadcast, not by polling.
-    const broadcast = sent.filter((m) => m.channel === CH.stateChanged).at(-1);
+    const broadcast = sent.filter((m) => m.channel === CH.onStateChanged).at(-1);
     const state = broadcast!.args[0] as { projects: { sessions: unknown[] }[] };
     expect(state.projects[0]!.sessions).toEqual([]);
     // The shared roots survive: omp's own sessions live there too.
@@ -180,32 +194,30 @@ describe("session:delete", () => {
   });
 
   it("stops a live session, then erases the record and its files", async () => {
-    const { backend, sessionsRoot } = setup();
-    const live = fakeLive("default");
-    internals(backend).live.set("tab-1", live);
+    const { sessionsRoot } = setup();
+    const signals = await launchLive("default");
 
-    await invoke(CH.sessionDelete, "tab-1");
+    await invoke(CH.deleteSession, "tab-1");
 
-    expect(live.signals).toEqual(["default"]);
+    expect(signals).toEqual(["default"]);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
     expect(readRegistry().sessions).toEqual([]);
     // The tab is going away — an exit notice would be noise about a session
     // the user just deleted.
-    expect(sent.filter((m) => m.channel === CH.ptyExit)).toEqual([]);
+    expect(sent.filter((m) => m.channel === CH.onPtyExit)).toEqual([]);
   });
 
   it("escalates to SIGKILL when omp ignores the first signal", async () => {
     vi.useFakeTimers();
     try {
-      const { backend, sessionsRoot } = setup();
-      const live = fakeLive("SIGKILL");
-      internals(backend).live.set("tab-1", live);
+      const { sessionsRoot } = setup();
+      const signals = await launchLive("SIGKILL");
 
-      const done = invoke(CH.sessionDelete, "tab-1") as Promise<void>;
+      const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
       await vi.advanceTimersByTimeAsync(3_000);
       await done;
 
-      expect(live.signals).toEqual(["default", "SIGKILL"]);
+      expect(signals).toEqual(["default", "SIGKILL"]);
       expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
       expect(readRegistry().sessions).toEqual([]);
     } finally {
@@ -218,19 +230,18 @@ describe("session:delete", () => {
   it("keeps the session when even SIGKILL does not reap the process", async () => {
     vi.useFakeTimers();
     try {
-      const { backend, sessionsRoot } = setup();
-      const live = fakeLive("never");
-      internals(backend).live.set("tab-1", live);
+      const { sessionsRoot } = setup();
+      await launchLive("never");
 
-      const done = invoke(CH.sessionDelete, "tab-1") as Promise<void>;
+      const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
       const settled = expect(done).rejects.toThrow(/did not exit/);
       await vi.advanceTimersByTimeAsync(5_000);
       await settled;
 
       expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);
       expect(readRegistry().sessions).toHaveLength(1);
-      // Still live, so its exit must reach the renderer again.
-      expect(live.suppressExit).toBe(false);
+      // Still live, so a later exit would remain renderer-visible.
+      expect(spawnOmpMock).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -240,41 +251,54 @@ describe("session:delete", () => {
   // as live, so a delete arriving in that window has to wait for the spawn
   // rather than race the process that is about to own these files.
   it("waits for an in-flight resume spawn before deleting", async () => {
-    const { backend, sessionsRoot } = setup();
-    const live = fakeLive("default");
-    let spawnDone = (): void => {};
-    internals(backend).spawning.set(
-      "tab-1",
-      new Promise<void>((resolve) => {
-        spawnDone = () => resolve();
-      }),
-    );
+    const { sessionsRoot } = setup();
+    let finishLookup = (): void => {};
+    let lookupStarted = (): void => {};
+    const started = new Promise<void>((resolve) => {
+      lookupStarted = resolve;
+    });
+    const realLookup = resolveSessionLocationMock.getMockImplementation()!;
+    resolveSessionLocationMock.mockImplementationOnce(async (...args) => {
+      lookupStarted();
+      await new Promise<void>((resolve) => {
+        finishLookup = resolve;
+      });
+      return realLookup(...args);
+    });
 
-    const done = invoke(CH.sessionDelete, "tab-1") as Promise<void>;
-    // Nothing may happen while the spawn is still in flight.
+    const spawning = invoke(CH.spawnSession, {
+      projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: "tab-1",
+    }) as Promise<unknown>;
+    await started;
+    const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
+    // Nothing may happen while resume is still resolving its transcript.
     await Promise.resolve();
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);
 
-    internals(backend).live.set("tab-1", live);
-    internals(backend).spawning.delete("tab-1");
-    spawnDone();
+    finishLookup();
+    await spawning;
     await done;
 
-    expect(live.signals).toEqual(["default"]);
+    expect(spawnedSignals[0]).toEqual(["default"]);
     expect(readRegistry().sessions).toEqual([]);
   });
 
   it("keeps the record when the files cannot be deleted, so the row stays retryable", async () => {
     setup();
     const rm = vi.spyOn(fs.promises, "rm").mockRejectedValueOnce(new Error("EBUSY"));
-    await expect(invoke(CH.sessionDelete, "tab-1")).rejects.toThrow(/EBUSY/);
+    await expect(invoke(CH.deleteSession, "tab-1")).rejects.toThrow(/EBUSY/);
     expect(readRegistry().sessions).toHaveLength(1);
     rm.mockRestore();
   });
 
   it("is a no-op for an unknown tab", async () => {
     setup();
-    await expect(invoke(CH.sessionDelete, "nope")).resolves.toBeUndefined();
+    await expect(invoke(CH.deleteSession, "nope")).resolves.toBeUndefined();
     expect(readRegistry().sessions).toHaveLength(1);
   });
 });

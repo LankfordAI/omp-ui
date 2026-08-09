@@ -1,16 +1,9 @@
-import {
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type Ref,
-} from "react";
+import { useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import type { SlashCommandInfo } from "../lib/rpc-types";
 import { Chip, Label, type Tone } from "./ui";
+import { PaletteList, usePaletteNav } from "./palette";
 
 /**
  * Inline command palette above the composer. omp exposes 49 commands with
@@ -44,10 +37,12 @@ interface Scored {
   hits: number[];
 }
 
-/** Structured cursor: which command, and which of its subcommands (if any). */
-interface Cursor {
-  cmd: number;
-  sub: number | null;
+type Subcommand = NonNullable<SlashCommandInfo["subcommands"]>[number];
+
+interface Navigable {
+  command: SlashCommandInfo;
+  subcommand?: Subcommand;
+  hits: number[];
 }
 
 export function SlashPalette({
@@ -64,8 +59,6 @@ export function SlashPalette({
   onClose(): void;
   ref?: Ref<SlashPaletteHandle>;
 }) {
-  const [cursor, setCursor] = useState<Cursor>({ cmd: 0, sub: null });
-  const activeRow = useRef<HTMLButtonElement | null>(null);
 
   // Only the command word filters: once the user starts typing an argument the
   // list should hold still rather than empty out.
@@ -104,76 +97,35 @@ export function SlashPalette({
     return ordered.filter((g) => g.items.length > 0);
   }, [commands, needle]);
 
-  const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
-
-  // A changed query invalidates the cursor rather than shifting it.
-  useEffect(() => {
-    setCursor({ cmd: 0, sub: null });
-  }, [needle]);
-
-  const active: Cursor = {
-    cmd: flat.length === 0 ? 0 : Math.min(cursor.cmd, flat.length - 1),
-    sub: cursor.sub,
-  };
-  const activeSubs = flat[active.cmd]?.command.subcommands ?? [];
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      handleKey(e) {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          onClose();
-          return true;
-        }
-        const picked = flat[active.cmd];
-        if (picked === undefined) return false;
-        const subs = picked.command.subcommands ?? [];
-
-        if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
-          e.preventDefault();
-          // Descend into the expanded subcommands before moving on.
-          setCursor(
-            active.sub === null
-              ? subs.length > 0
-                ? { cmd: active.cmd, sub: 0 }
-                : { cmd: (active.cmd + 1) % flat.length, sub: null }
-              : active.sub + 1 < subs.length
-                ? { cmd: active.cmd, sub: active.sub + 1 }
-                : { cmd: (active.cmd + 1) % flat.length, sub: null },
-          );
-          return true;
-        }
-        if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
-          e.preventDefault();
-          setCursor(
-            active.sub === null
-              ? { cmd: (active.cmd - 1 + flat.length) % flat.length, sub: null }
-              : active.sub === 0
-                ? { cmd: active.cmd, sub: null }
-                : { cmd: active.cmd, sub: active.sub - 1 },
-          );
-          return true;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          onPick(picked.command, active.sub === null ? undefined : subs[active.sub]);
-          return true;
-        }
-        return false;
-      },
-    }),
-    [flat, active.cmd, active.sub, onPick, onClose],
+  const groupedRows = useMemo(
+    () => groups.map((group) => ({
+      ...group,
+      items: group.items.flatMap<Navigable>((item) => [
+        { command: item.command, hits: item.hits },
+        ...(item.command.subcommands ?? []).map((subcommand) => ({
+          command: item.command,
+          subcommand,
+          hits: item.hits,
+        })),
+      ]),
+    })),
+    [groups],
   );
+  const rows = useMemo(() => groupedRows.flatMap((group) => group.items), [groupedRows]);
+  const { active, setActive, activeRef, handleKey } = usePaletteNav({
+    items: rows,
+    resetKey: needle,
+    acceptTab: true,
+    onPick: (item) => onPick(item.command, item.subcommand),
+    onClose,
+  });
 
-  useEffect(() => {
-    activeRow.current?.scrollIntoView({ block: "nearest" });
-  }, [active.cmd, active.sub]);
+  useImperativeHandle(ref, () => ({ handleKey }), [handleKey]);
 
   const shell =
     "animate-rise edge-lit absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg border border-line-strong bg-overlay";
 
-  if (flat.length === 0) {
+  if (rows.length === 0) {
     return (
       <div className={cn(shell, "px-3 py-2.5")}>
         <p className="text-xs text-ink-dim">
@@ -185,8 +137,8 @@ export function SlashPalette({
 
   let row = -1;
   return (
-    <div className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] overflow-y-auto py-1")}>
-      {groups.map((group) => (
+    <PaletteList className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] py-1")}>
+      {groupedRows.map((group) => (
         <div key={group.label}>
           <div className="px-3 pb-1 pt-1.5">
             <Label>{group.label}</Label>
@@ -194,79 +146,78 @@ export function SlashPalette({
           {group.items.map((item) => {
             row += 1;
             const self = row;
-            const onSelf = self === active.cmd;
-            const parentActive = onSelf && active.sub === null;
-            const source = item.command.source;
-            return (
-              <div key={item.command.name}>
+            const isActive = self === active;
+            const sub = item.subcommand;
+            if (sub !== undefined) {
+              return (
                 <button
+                  key={`${item.command.name}:${sub.name}`}
                   type="button"
-                  ref={parentActive ? activeRow : null}
-                  // Keep the caret in the textarea: a blur would tear the palette down.
+                  aria-label={`/${item.command.name} ${sub.name}: ${sub.description}`}
+                  ref={isActive ? activeRef : null}
                   onMouseDown={(e) => e.preventDefault()}
-                  onMouseEnter={() => setCursor({ cmd: self, sub: null })}
-                  onClick={() => onPick(item.command)}
+                  onMouseEnter={() => setActive(self)}
+                  onClick={() => onPick(item.command, sub)}
                   className={cn(
-                    "flex w-full items-baseline gap-2 px-3 py-1 text-left",
-                    parentActive ? "bg-hover" : "hover:bg-raised",
+                    "flex w-full items-baseline gap-2 py-0.5 pl-8 pr-3 text-left",
+                    isActive ? "bg-hover" : "hover:bg-raised",
                   )}
                 >
-                  <span className="shrink-0 font-mono text-xs text-ink">
-                    /
-                    {highlightRuns(item.command.name, item.hits).map((part, i) => (
-                      <span key={i} className={part.hit ? "text-signal" : undefined}>
-                        {part.text}
-                      </span>
-                    ))}
+                  <span className="shrink-0 font-mono text-[11px] text-ink-mid">
+                    /{item.command.name} {sub.name}
                   </span>
-                  {item.command.input?.hint && (
+                  {sub.usage !== undefined && sub.usage !== "" && (
                     <span className="shrink-0 font-mono text-[10px] text-ink-faint">
-                      {item.command.input.hint}
+                      {sub.usage}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
-                    {item.command.description}
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint">
+                    {sub.description}
                   </span>
-                  {source !== undefined && source !== "builtin" && (
-                    <Chip tone={SOURCE_TONE[source] ?? "neutral"}>{source}</Chip>
-                  )}
                 </button>
-                {onSelf &&
-                  activeSubs.map((sub, i) => {
-                    const subActive = active.sub === i;
-                    return (
-                      <button
-                        key={sub.name}
-                        type="button"
-                        ref={subActive ? activeRow : null}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onMouseEnter={() => setCursor({ cmd: self, sub: i })}
-                        onClick={() => onPick(item.command, sub)}
-                        className={cn(
-                          "flex w-full items-baseline gap-2 py-0.5 pl-8 pr-3 text-left",
-                          subActive ? "bg-hover" : "hover:bg-raised",
-                        )}
-                      >
-                        <span className="shrink-0 font-mono text-[11px] text-ink-mid">
-                          /{item.command.name} {sub.name}
-                        </span>
-                        {/* `usage` is the subcommand's own argument hint, e.g. "<name>". */}
-                        {sub.usage !== undefined && sub.usage !== "" && (
-                          <span className="shrink-0 font-mono text-[10px] text-ink-faint">
-                            {sub.usage}
-                          </span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint">
-                          {sub.description}
-                        </span>
-                      </button>
-                    );
-                  })}
-              </div>
+              );
+            }
+
+            const source = item.command.source;
+            return (
+              <button
+                key={item.command.name}
+                type="button"
+                aria-label={`/${item.command.name}: ${item.command.description}`}
+                ref={isActive ? activeRef : null}
+                // Keep the caret in the textarea: a blur would tear the palette down.
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setActive(self)}
+                onClick={() => onPick(item.command)}
+                className={cn(
+                  "flex w-full items-baseline gap-2 px-3 py-1 text-left",
+                  isActive ? "bg-hover" : "hover:bg-raised",
+                )}
+              >
+                <span className="shrink-0 font-mono text-xs text-ink">
+                  /
+                  {highlightRuns(item.command.name, item.hits).map((part, i) => (
+                    <span key={i} className={part.hit ? "text-signal" : undefined}>
+                      {part.text}
+                    </span>
+                  ))}
+                </span>
+                {item.command.input?.hint && (
+                  <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                    {item.command.input.hint}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
+                  {item.command.description}
+                </span>
+                {source !== undefined && source !== "builtin" && (
+                  <Chip tone={SOURCE_TONE[source] ?? "neutral"}>{source}</Chip>
+                )}
+              </button>
             );
           })}
         </div>
       ))}
-    </div>
+    </PaletteList>
   );
 }

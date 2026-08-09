@@ -4,11 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
-  BackendState,
   OmpSettingsSnapshot,
   OmpUpdateState,
   PlanFormat,
 } from "@omp-ui/core/types";
+import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -249,25 +249,11 @@ describe("Settings Updates page (issue #89)", () => {
 });
 
 describe("Settings General page plan format (issue #109)", () => {
-  const generalState = (planFormat: PlanFormat): BackendState => ({
-    projects: [],
-    defaultMode: "rpc-ui",
-    defaultAgentMode: "plan",
-    planFormat,
-    advisorAutoReply: true,
-    modelFavorites: [],
-    skipDeleteConfirmation: false,
-    themeId: "graphite",
-    appUpdateCheckOnLaunch: true,
-    ompUpdateCheckOnLaunch: true,
-    dismissedAppUpdateVersion: null,
-    dismissedOmpUpdateVersion: null,
-  });
 
   const seedGeneral = (planFormat: PlanFormat): void => {
     useStore.setState({
       settingsPage: "general",
-      state: generalState(planFormat),
+      state: backendState({ planFormat }),
       tabs: [],
       activeTabId: null,
       appUpdate: appUpdateState({}),
@@ -298,20 +284,7 @@ describe("Settings General page default agent mode (issue #143)", () => {
   it("shows Plan by default and persists Build", async () => {
     useStore.setState({
       settingsPage: "general",
-      state: {
-        projects: [],
-        defaultMode: "rpc-ui",
-        defaultAgentMode: "plan",
-        planFormat: "html",
-        advisorAutoReply: true,
-        modelFavorites: [],
-        skipDeleteConfirmation: false,
-        themeId: "graphite",
-        appUpdateCheckOnLaunch: true,
-        ompUpdateCheckOnLaunch: true,
-        dismissedAppUpdateVersion: null,
-        dismissedOmpUpdateVersion: null,
-      },
+      state: backendState(),
       tabs: [],
       activeTabId: null,
       appUpdate: appUpdateState({}),
@@ -329,20 +302,7 @@ describe("Settings General page advisor auto-reply (issue #111)", () => {
   const seedAutoReply = (advisorAutoReply: boolean): void => {
     useStore.setState({
       settingsPage: "general",
-      state: {
-        projects: [],
-        defaultMode: "rpc-ui",
-        defaultAgentMode: "plan",
-        planFormat: "html",
-        advisorAutoReply,
-        modelFavorites: [],
-        skipDeleteConfirmation: false,
-        themeId: "graphite",
-        appUpdateCheckOnLaunch: true,
-        ompUpdateCheckOnLaunch: true,
-        dismissedAppUpdateVersion: null,
-        dismissedOmpUpdateVersion: null,
-      },
+      state: backendState({ advisorAutoReply }),
       tabs: [],
       activeTabId: null,
       appUpdate: appUpdateState({}),

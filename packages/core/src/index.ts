@@ -10,6 +10,7 @@ export * from "./omp-update";
 export * from "./app-update";
 export * from "./session-file";
 export * from "./types";
+export * from "./backend-channels";
 export { Registry } from "./registry";
 export { spawnOmp, spawnShell, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
@@ -29,6 +30,7 @@ export {
 } from "./advisor-stats";
 export {
   parsePlanReviewTitle,
+  planMessage,
   parsePlanStatus,
   PLAN_COMMAND,
   PLAN_EXECUTE,
@@ -75,6 +77,13 @@ export {
 } from "./provider-catalog";
 export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
+  ompChildEnv,
+  runOmpOnce,
+  type OmpOneShotProcess,
+  type OmpOneShotSpawn,
+  type RunOmpOnceOptions,
+} from "./omp-process";
+export {
   generateBranchNameWithOmp,
   generateTitleWithOmp,
   parseBranchNameOutput,
@@ -82,20 +91,20 @@ export {
   sanitizeBranchName,
   sanitizeModelTitle,
   TITLE_MODEL_ROLES,
-  type TitleProcess,
   type TitleRequest,
-  type TitleSpawnFn,
 } from "./title-model";
 export {
   base64Bytes,
   bracketedImagePaste,
   clearImageScratch,
+  extensionToMime,
   imageExtension,
   imageScratchDir,
   isSupportedImageMime,
   writeImageToScratch,
   MAX_IMAGE_BYTES,
   SUPPORTED_IMAGE_MIME_TYPES,
+  type SupportedImageMime,
 } from "./images";
 export {
   deleteSessionFiles,

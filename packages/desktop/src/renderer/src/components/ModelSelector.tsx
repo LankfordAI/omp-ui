@@ -4,8 +4,9 @@ import { filterModelsForTab } from "../lib/model-filter";
 import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
 import { useStore } from "../store";
-import { CAPSULE_SEGMENT, Chevron, Chip, Dot, Label, Modal, StarIcon } from "./ui";
+import { CAPSULE_SEGMENT, Chevron, Chip, Dot, IconButton, Label, Modal, StarIcon } from "./ui";
 import { ModelRail } from "./ModelRail";
+import { usePaletteNav } from "./palette";
 
 /**
  * omp offers 414 models. A `<select>` cannot be navigated, so this is a
@@ -76,6 +77,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
       </button>
       {open && (
         <ModelPalette
+          variant="main"
           models={models}
           current={model}
           onClose={() => setOpen(false)}
@@ -92,57 +94,80 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
 /** Rendering 414 rows costs more than it informs; the palette pages by search. */
 const VISIBLE_LIMIT = 120;
 
-export function ModelPalette({
-  models,
-  current,
-  onPick,
-  onClose,
-}: {
+type ModelPaletteProps = {
   models: ModelInfo[];
-  current: ModelInfo | null;
-  onPick(model: ModelInfo): void;
   onClose(): void;
-}) {
+} & (
+  | {
+      variant: "main";
+      current: ModelInfo | null;
+      onPick(model: ModelInfo): void;
+    }
+  | {
+      variant: "advisor";
+      current: string | null;
+      inherited: boolean;
+      defaultModel: string | null;
+      onPick(model: string | null): void;
+    }
+);
+
+type ModelPaletteRow =
+  | { kind: "configured-advisor" }
+  | { kind: "model"; model: ModelInfo };
+
+function selectorFor(model: ModelInfo): string {
+  return `${model.provider}/${model.id}`;
+}
+
+export function ModelPalette(props: ModelPaletteProps) {
+  const { models, onClose } = props;
   const favoriteKeys = useStore((s) => s.state?.modelFavorites ?? EMPTY_FAVORITES);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const openSettings = useStore((s) => s.openSettings);
   const favorites = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
 
   const [query, setQuery] = useState("");
-  const [index, setIndex] = useState(0);
-  const activeRow = useRef<HTMLButtonElement | null>(null);
   const search = useRef<HTMLInputElement | null>(null);
 
-  // Derive unique providers sorted alphabetically
   const providers = useMemo(() => {
     const seen = new Set<string>();
     const result: string[] = [];
-    for (const m of models) {
-      if (!seen.has(m.provider)) {
-        seen.add(m.provider);
-        result.push(m.provider);
+    for (const model of models) {
+      if (!seen.has(model.provider)) {
+        seen.add(model.provider);
+        result.push(model.provider);
       }
     }
     return result.sort((a, b) => a.localeCompare(b));
   }, [models]);
 
-  // Every palette mount starts from the stable Favorites entry point.
-  const [tab, setTab] = useState("favorites");
+  const currentSelector = props.variant === "main"
+    ? props.current === null ? null : selectorFor(props.current)
+    : props.current;
+  const currentProvider = useMemo(() => {
+    if (currentSelector === null) return null;
+    const slash = currentSelector.indexOf("/");
+    return slash > 0 ? currentSelector.slice(0, slash) : null;
+  }, [currentSelector]);
 
-  // Build ordered tab list for keyboard cycling
-  const tabOrder = useMemo(
-    () => ["favorites", ...providers],
-    [providers],
-  );
+  // Main model selection always opens at Favorites. Advisor selection opens
+  // where its effective model lives, preserving the provider-first workflow.
+  const [tab, setTab] = useState(() => {
+    if (props.variant === "advisor") {
+      if (currentProvider !== null && providers.includes(currentProvider)) return currentProvider;
+      return providers[0] ?? "favorites";
+    }
+    return "favorites";
+  });
+  const tabOrder = useMemo(() => ["favorites", ...providers], [providers]);
 
   useEffect(() => {
     search.current?.focus();
   }, []);
 
-  // Filter by tab, then fuzzy search
   const { shown, matched } = useMemo(() => {
     const filtered = filterModelsForTab(models, tab, favorites);
-
     const scored: { model: ModelInfo; score: number }[] = [];
     for (const model of filtered) {
       const best = fuzzyBest(query, [
@@ -151,9 +176,8 @@ export function ModelPalette({
         { text: model.provider, weight: 0.6 },
       ]);
       if (best === null) continue;
-      const isCurrent =
-        current !== null && model.id === current.id && model.provider === current.provider;
-      scored.push({ model, score: best.score + (isCurrent ? 0.5 : 0) });
+      const currentBonus = selectorFor(model) === currentSelector ? 0.5 : 0;
+      scored.push({ model, score: best.score + currentBonus });
     }
     scored.sort(
       (a, b) =>
@@ -161,73 +185,78 @@ export function ModelPalette({
         a.model.provider.localeCompare(b.model.provider) ||
         a.model.name.localeCompare(b.model.name),
     );
-    return { shown: scored.slice(0, VISIBLE_LIMIT).map((s) => s.model), matched: scored.length };
-  }, [models, query, current, tab, favorites]);
+    return {
+      shown: scored.slice(0, VISIBLE_LIMIT).map(({ model }) => model),
+      matched: scored.length,
+    };
+  }, [models, query, currentSelector, tab, favorites]);
 
-  useEffect(() => {
-    setIndex(0);
-  }, [query, tab]);
+  const isFavoritesTab = tab === "favorites";
+  const rows = useMemo<ModelPaletteRow[]>(() => {
+    const modelRows: ModelPaletteRow[] = shown.map((model) => ({ kind: "model", model }));
+    return props.variant === "advisor" && !isFavoritesTab
+      ? [{ kind: "configured-advisor" }, ...modelRows]
+      : modelRows;
+  }, [shown, props.variant, isFavoritesTab]);
 
-  useEffect(() => {
-    activeRow.current?.scrollIntoView({ block: "nearest" });
-  }, [index]);
+  const pickRow = (row: ModelPaletteRow) => {
+    if (row.kind === "configured-advisor") {
+      if (props.variant === "advisor") props.onPick(null);
+      return;
+    }
+    if (props.variant === "main") props.onPick(row.model);
+    else props.onPick(selectorFor(row.model));
+  };
 
-  const active = shown.length === 0 ? 0 : Math.min(index, shown.length - 1);
+  const { active, setActive, activeRef, handleKey } = usePaletteNav({
+    items: rows,
+    resetKey: `${tab}\u0000${query}`,
+    onPick: pickRow,
+    onClose,
+  });
 
-  // Cycle tabs via Ctrl+Tab / Ctrl+Shift+Tab
   const cycleTab = (forward: boolean) => {
-    const idx = tabOrder.indexOf(tab);
-    if (idx === -1) return;
+    const index = tabOrder.indexOf(tab);
+    if (index === -1) return;
     const next = forward
-      ? (idx + 1) % tabOrder.length
-      : (idx - 1 + tabOrder.length) % tabOrder.length;
+      ? (index + 1) % tabOrder.length
+      : (index - 1 + tabOrder.length) % tabOrder.length;
     setTab(tabOrder[next]!);
   };
 
-  const isFavoritesTab = tab === "favorites";
   const tabTotal = isFavoritesTab
-    ? models.filter((m) => favorites.has(`${m.provider}/${m.id}`)).length
-    : models.filter((m) => m.provider === tab).length;
-  const placeholder = isFavoritesTab
-    ? "search favorites…"
-    : `search ${tabTotal} models…`;
+    ? models.filter((model) => favorites.has(selectorFor(model))).length
+    : models.filter((model) => model.provider === tab).length;
+  const placeholder = isFavoritesTab ? "search favorites…" : `search ${tabTotal} models…`;
 
   return (
     <Modal onClose={onClose} width="w-[40rem]">
       <div className="model-palette flex max-h-[70vh]">
         <ModelRail activeTab={tab} onTabChange={setTab} providers={providers} />
         <div className="min-h-0 min-w-0 flex flex-1 flex-col">
-          {/* Search bar */}
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4 text-ink-faint">
-              <circle cx="7" cy="7" r="4.5" stroke="currentColor" />
-              <path d="M10.5 10.5 14 14" stroke="currentColor" strokeLinecap="round" />
-            </svg>
+            {props.variant === "advisor" ? (
+              <Label>advisor model</Label>
+            ) : (
+              <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4 text-ink-faint">
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" />
+                <path d="M10.5 10.5 14 14" stroke="currentColor" strokeLinecap="round" />
+              </svg>
+            )}
             <input
               ref={search}
               value={query}
               placeholder={placeholder}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.ctrlKey && (e.key === "]" || e.code === "BracketRight")) {
-                  e.preventDefault();
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.ctrlKey && (event.key === "]" || event.code === "BracketRight")) {
+                  event.preventDefault();
                   cycleTab(true);
-                } else if (e.ctrlKey && (e.key === "[" || e.code === "BracketLeft")) {
-                  e.preventDefault();
+                } else if (event.ctrlKey && (event.key === "[" || event.code === "BracketLeft")) {
+                  event.preventDefault();
                   cycleTab(false);
-                } else if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
-                  e.preventDefault();
-                  if (shown.length > 0) setIndex((active + 1) % shown.length);
-                } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
-                  e.preventDefault();
-                  if (shown.length > 0) setIndex((active - 1 + shown.length) % shown.length);
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  const picked = shown[active];
-                  if (picked !== undefined) onPick(picked);
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  onClose();
+                } else {
+                  handleKey(event);
                 }
               }}
               className="min-w-0 flex-1 bg-transparent font-sans text-sm outline-none placeholder:text-ink-faint"
@@ -238,7 +267,12 @@ export function ModelPalette({
             </Label>
           </div>
 
-          {/* Model list */}
+          {props.variant === "advisor" && (
+            <p className="border-b border-line px-3 py-1.5 text-[11px] text-ink-dim">
+              omp binds the advisor model at startup, so picking one restarts this session and resumes it.
+            </p>
+          )}
+
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
             {isFavoritesTab && tabTotal === 0 && (
               <p className="px-3 py-3 text-xs text-ink-dim">
@@ -251,85 +285,117 @@ export function ModelPalette({
             {shown.length === 0 && tabTotal > 0 && (
               <p className="px-3 py-3 text-xs text-ink-dim">nothing matches that search</p>
             )}
-            {shown.map((model, i) => {
-              const isCurrent = current !== null && model.id === current.id && model.provider === current.provider;
-              const modelKey = `${model.provider}/${model.id}`;
-              const isFav = favorites.has(modelKey);
+
+            {rows.map((row, index) => {
+              if (row.kind === "configured-advisor") {
+                const inherited = props.variant === "advisor" && props.inherited;
+                return (
+                  <button
+                    key="configured-advisor"
+                    type="button"
+                    ref={index === active ? activeRef : null}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => pickRow(row)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left",
+                      index === active ? "bg-hover" : inherited ? "bg-raised" : "hover:bg-raised",
+                    )}
+                  >
+                    <span className="grid w-2 shrink-0 place-items-center">
+                      {inherited && <Dot tone="signal" title="in use" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-display text-sm text-ink">
+                        use omp&apos;s configured advisor
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-ink-faint">
+                        {props.variant === "advisor" && (props.defaultModel ?? "modelRoles.advisor is unset — omp resolves its slow model chain")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              }
+
+              const { model } = row;
+              const modelKey = selectorFor(model);
+              const isFavorite = favorites.has(modelKey);
+              const isCurrent = modelKey === currentSelector;
               const price = priceLabel(model.cost);
               const window = windowLabel(model.contextWindow);
               return (
-                <button
+                <div
                   key={modelKey}
-                  type="button"
-                  ref={i === active ? activeRow : null}
-                  onMouseEnter={() => setIndex(i)}
-                  onClick={() => onPick(model)}
+                  onMouseEnter={() => setActive(index)}
                   className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left",
-                    i === active ? "bg-hover" : isCurrent ? "bg-raised" : "hover:bg-raised",
+                    "flex w-full items-stretch",
+                    index === active ? "bg-hover" : isCurrent ? "bg-raised" : "hover:bg-raised",
                   )}
                 >
-                  <span className="grid w-2 shrink-0 place-items-center">
-                    {isCurrent && <Dot tone="signal" title="current model" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-display text-sm text-ink">{model.name}</span>
-                    <span className="block truncate font-mono text-[10px] text-ink-faint">
-                      {model.provider}/{model.id}
-                    </span>
-                  </span>
-                  {/* Star toggle — span, not button, to avoid nested button HTML */}
-                  <span
-                    role="button"
-                    tabIndex={-1}
-                    title={isFav ? "remove from favorites" : "add to favorites"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void toggleFavorite(modelKey);
-                    }}
-                    className="cursor-pointer text-ink-faint hover:text-copper"
+                  <button
+                    type="button"
+                    ref={index === active ? activeRef : null}
+                    onClick={() => pickRow(row)}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
                   >
-                    <StarIcon filled={isFav} className={cn("size-3.5", isFav && "text-copper")} />
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    {model.reasoning === true && <Chip tone="iris">reasoning</Chip>}
-                    {model.input?.includes("image") === true && <Chip tone="signal">vision</Chip>}
-                    {window !== null && (
-                      <Chip mono title={`${model.contextWindow} token context window`}>
-                        {window}
-                      </Chip>
-                    )}
-                    {price !== null && (
-                      <Chip mono title="USD per million tokens (input/output)">
-                        {price}
-                      </Chip>
-                    )}
-                  </span>
-                </button>
+                    <span className="grid w-2 shrink-0 place-items-center">
+                      {isCurrent && (props.variant === "main" || !props.inherited) && (
+                        <Dot
+                          tone="signal"
+                          title={props.variant === "main" ? "current model" : "pinned to this session"}
+                        />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-display text-sm text-ink">{model.name}</span>
+                      <span className="block truncate font-mono text-[10px] text-ink-faint">{modelKey}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {model.reasoning === true && <Chip tone="iris">reasoning</Chip>}
+                      {props.variant === "main" && model.input?.includes("image") === true && (
+                        <Chip tone="signal">vision</Chip>
+                      )}
+                      {props.variant === "main" && window !== null && (
+                        <Chip mono title={`${model.contextWindow} token context window`}>{window}</Chip>
+                      )}
+                      {props.variant === "main" && price !== null && (
+                        <Chip mono title="USD per million tokens (input/output)">{price}</Chip>
+                      )}
+                    </span>
+                  </button>
+                  <IconButton
+                    label={isFavorite ? "remove from favorites" : "add to favorites"}
+                    tone="copper"
+                    onClick={() => void toggleFavorite(modelKey)}
+                    className="mr-2 self-center"
+                  >
+                    <StarIcon filled={isFavorite} className={cn("size-3.5", isFavorite && "text-copper")} />
+                  </IconButton>
+                </div>
               );
             })}
           </div>
 
-          {/* Help footer */}
           <div className="flex items-center gap-3 border-t border-line px-3 py-1.5 text-[10px] text-ink-faint">
             <span>↑↓ move</span>
             <span>enter pick</span>
             <span>esc close</span>
             <span>ctrl+[ ] tabs</span>
-            <span className="flex-1" />
-            {/* The one place a missing provider is actually noticed — the fix is
-                a click away rather than a support thread. */}
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                openSettings("providers");
-              }}
-              className="text-ink-faint underline decoration-dotted hover:text-ink-mid"
-            >
-              provider keys
-            </button>
-            <span>prices are USD per Mtok</span>
+            {props.variant === "main" && (
+              <>
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    openSettings("providers");
+                  }}
+                  className="text-ink-faint underline decoration-dotted hover:text-ink-mid"
+                >
+                  provider keys
+                </button>
+                <span>prices are USD per Mtok</span>
+              </>
+            )}
           </div>
         </div>
       </div>

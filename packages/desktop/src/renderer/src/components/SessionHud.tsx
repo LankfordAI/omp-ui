@@ -478,6 +478,12 @@ function CompactModes({ tabId }: { tabId: string }) {
   );
 }
 
+function exceptionalModeTooltip(mode: "build" | "plan", planFilePath: string | null | undefined): string {
+  return mode === "build"
+    ? "Build mode — working-tree writes and state-changing commands are allowed"
+    : `Plan mode — read-only exploration — ${planFilePath ?? "no plan drafted"}`;
+}
+
 /* ---------------------------------------------------------------- the HUD */
 
 export function SessionHud({ tabId }: { tabId: string }) {
@@ -525,7 +531,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
-          {exceptionalAgentMode && <Chip tone="iris">{exceptionalAgentMode}</Chip>}
+          {exceptionalAgentMode && <Chip tone="iris" title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}>{exceptionalAgentMode}</Chip>}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -588,7 +594,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Chip
           tone="iris"
           className="shrink-0 [app-region:no-drag]"
-          title={`${exceptionalAgentMode === "build" ? "Build" : "Plan"} mode — ${exceptionalAgentMode === "build" ? "working-tree writes and state-changing commands are allowed" : "read-only exploration"}`}
+          title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}
         >
           {exceptionalAgentMode}
         </Chip>

@@ -6,6 +6,7 @@ import { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 import {
   base64Bytes,
   bracketedImagePaste,
+  extensionToMime,
   imageExtension,
   isSupportedImageMime,
   writeImageToScratch,
@@ -46,6 +47,25 @@ describe("imageExtension", () => {
     // bracketed paste degrades to literal text in the prompt.
     expect(imageExtension("image/bmp")).toBe("png");
     expect(isSupportedImageMime("image/bmp")).toBe(false);
+  });
+});
+
+describe("extensionToMime", () => {
+  it("normalizes case and an optional leading dot", () => {
+    expect(extensionToMime(".PNG")).toBe("image/png");
+    expect(extensionToMime("JpG")).toBe("image/jpeg");
+    expect(extensionToMime(".GiF")).toBe("image/gif");
+    expect(extensionToMime("WEBP")).toBe("image/webp");
+  });
+
+  it("accepts jpeg as an alias for jpg", () => {
+    expect(extensionToMime("jpeg")).toBe("image/jpeg");
+    expect(extensionToMime(".JPEG")).toBe("image/jpeg");
+  });
+
+  it("returns undefined for an unknown extension", () => {
+    expect(extensionToMime("bmp")).toBeUndefined();
+    expect(extensionToMime(".svg")).toBeUndefined();
   });
 });
 

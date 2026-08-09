@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { filterModelsForTab } from "../lib/model-filter";
-import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
-import { Capsule, CAPSULE_SEGMENT, Chip, Dot, Label, Modal, StarIcon } from "./ui";
-import { ModelRail } from "./ModelRail";
+import { Capsule, CAPSULE_SEGMENT, Dot, Label } from "./ui";
+import { ModelPalette } from "./ModelSelector";
 
 /**
  * The advisor switch, in the composer next to the model it affects.
@@ -23,13 +21,6 @@ import { ModelRail } from "./ModelRail";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
 const EMPTY: ModelInfo[] = [];
-/** Stable empty array for favorites so the useMemo dependency is referentially stable. */
-const EMPTY_FAVORITES: string[] = [];
-
-/** omp's selector form is `provider/id`; that is what `modelRoles.advisor` holds. */
-export function selectorFor(model: ModelInfo): string {
-  return `${model.provider}/${model.id}`;
-}
 
 /** The tail of a selector, which is all that fits on a chip. */
 export function shortLabel(selector: string): string {
@@ -232,7 +223,8 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
       </Capsule>
 
       {picking && (
-        <AdvisorModelPalette
+        <ModelPalette
+          variant="advisor"
           models={models}
           current={effective}
           inherited={inherited}
@@ -248,257 +240,3 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
   );
 }
 
-/** Same paging rule as the main model palette: search, don't scroll 414 rows. */
-const VISIBLE_LIMIT = 120;
-
-export function AdvisorModelPalette({
-  models,
-  current,
-  inherited,
-  defaultModel,
-  onPick,
-  onClose,
-}: {
-  models: ModelInfo[];
-  current: string | null;
-  inherited: boolean;
-  defaultModel: string | null;
-  onPick(selector: string | null): void;
-  onClose(): void;
-}) {
-  const favoriteKeys = useStore((s) => s.state?.modelFavorites ?? EMPTY_FAVORITES);
-  const toggleFavorite = useStore((s) => s.toggleFavorite);
-  const favorites = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
-
-  const [query, setQuery] = useState("");
-  const [index, setIndex] = useState(0);
-  const activeRow = useRef<HTMLButtonElement | null>(null);
-  const search = useRef<HTMLInputElement | null>(null);
-
-  // Derive unique providers sorted alphabetically
-  const providers = useMemo(() => {
-    const seen = new Set<string>();
-    const result: string[] = [];
-    for (const m of models) {
-      if (!seen.has(m.provider)) {
-        seen.add(m.provider);
-        result.push(m.provider);
-      }
-    }
-    return result.sort((a, b) => a.localeCompare(b));
-  }, [models]);
-
-  // Default tab: prefer current advisor model's provider
-  const currentProvider = useMemo(() => {
-    if (!current) return null;
-    const slash = current.lastIndexOf("/");
-    return slash > 0 ? current.slice(0, slash) : null;
-  }, [current]);
-
-  const [tab, setTab] = useState<string>(() => {
-    if (currentProvider && providers.includes(currentProvider)) return currentProvider;
-    return providers[0] ?? "favorites";
-  });
-
-  const tabOrder = useMemo(() => ["favorites", ...providers], [providers]);
-
-  useEffect(() => {
-    search.current?.focus();
-  }, []);
-
-  // Filter by tab, then fuzzy search
-  const shown = useMemo(() => {
-    const filtered = filterModelsForTab(models, tab, favorites);
-
-    const scored: { model: ModelInfo; score: number }[] = [];
-    for (const model of filtered) {
-      const best = fuzzyBest(query, [
-        { text: model.name, weight: 1 },
-        { text: model.id, weight: 0.95 },
-        { text: model.provider, weight: 0.6 },
-      ]);
-      if (best === null) continue;
-      const isCurrent = selectorFor(model) === current;
-      const bonus = (isCurrent ? 0.5 : 0) + (model.reasoning === true ? 0.05 : 0);
-      scored.push({ model, score: best.score + bonus });
-    }
-    scored.sort(
-      (a, b) =>
-        b.score - a.score ||
-        a.model.provider.localeCompare(b.model.provider) ||
-        a.model.name.localeCompare(b.model.name),
-    );
-    return scored.slice(0, VISIBLE_LIMIT).map((s) => s.model);
-  }, [models, query, current, tab, favorites]);
-
-  useEffect(() => {
-    setIndex(0);
-  }, [query, tab]);
-
-  useEffect(() => {
-    activeRow.current?.scrollIntoView({ block: "nearest" });
-  }, [index]);
-
-  // Row offset: 1 when "use default" row is shown (not on Favorites tab), 0 otherwise
-  const isFavoritesTab = tab === "favorites";
-  const tabTotal = isFavoritesTab
-    ? models.filter((m) => favorites.has(`${m.provider}/${m.id}`)).length
-    : models.filter((m) => m.provider === tab).length;
-  const offset = isFavoritesTab ? 0 : 1;
-  const rows = shown.length + offset;
-  const active = rows === 0 ? 0 : Math.min(index, rows - 1);
-
-  const cycleTab = (forward: boolean) => {
-    const idx = tabOrder.indexOf(tab);
-    if (idx === -1) return;
-    const next = forward
-      ? (idx + 1) % tabOrder.length
-      : (idx - 1 + tabOrder.length) % tabOrder.length;
-    setTab(tabOrder[next]!);
-  };
-
-  const placeholder = isFavoritesTab ? "search favorites…" : `search ${tabTotal} models…`;
-
-  return (
-    <Modal onClose={onClose} width="w-[40rem]">
-      <div className="model-palette flex max-h-[70vh]">
-        <ModelRail activeTab={tab} onTabChange={setTab} providers={providers} />
-        <div className="min-h-0 min-w-0 flex flex-1 flex-col">
-          {/* Search bar */}
-          <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-            <Label>advisor model</Label>
-            <input
-              ref={search}
-              value={query}
-              placeholder={placeholder}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.ctrlKey && (e.key === "]" || e.code === "BracketRight")) {
-                  e.preventDefault();
-                  cycleTab(true);
-                } else if (e.ctrlKey && (e.key === "[" || e.code === "BracketLeft")) {
-                  e.preventDefault();
-                  cycleTab(false);
-                } else if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
-                  e.preventDefault();
-                  if (rows > 0) setIndex((active + 1) % rows);
-                } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
-                  e.preventDefault();
-                  if (rows > 0) setIndex((active - 1 + rows) % rows);
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (rows === 0) return;
-                  // Reset to default only when "use default" row exists and is active
-                  if (offset === 1 && active === 0) {
-                    onPick(null);
-                    return;
-                  }
-                  const picked = shown[active - offset];
-                  if (picked !== undefined) onPick(selectorFor(picked));
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  onClose();
-                }
-              }}
-              className="min-w-0 flex-1 bg-transparent font-sans text-sm outline-none placeholder:text-ink-faint"
-            />
-          </div>
-
-          <p className="border-b border-line px-3 py-1.5 text-[11px] text-ink-dim">
-            omp binds the advisor model at startup, so picking one restarts this
-            session and resumes it.
-          </p>
-
-          <div className="min-h-0 flex-1 overflow-y-auto py-1">
-            {/* "use default" row — only when NOT on Favorites tab */}
-            {!isFavoritesTab && (
-              <button
-                type="button"
-                ref={active === 0 ? activeRow : null}
-                onMouseEnter={() => setIndex(0)}
-                onClick={() => onPick(null)}
-                className={cn(
-                  "flex w-full items-center gap-2 px-3 py-1.5 text-left",
-                  active === 0 ? "bg-hover" : inherited ? "bg-raised" : "hover:bg-raised",
-                )}
-              >
-                <span className="grid w-2 shrink-0 place-items-center">
-                  {inherited && <Dot tone="signal" title="in use" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-display text-sm text-ink">
-                    use omp&apos;s configured advisor
-                  </span>
-                  <span className="block truncate font-mono text-[10px] text-ink-faint">
-                    {defaultModel ?? "modelRoles.advisor is unset — omp resolves its slow model chain"}
-                  </span>
-                </span>
-              </button>
-            )}
-
-            {isFavoritesTab && models.filter((m) => favorites.has(`${m.provider}/${m.id}`)).length === 0 && (
-              <p className="px-3 py-3 text-xs text-ink-dim">
-                No favorites yet. Star models from any provider tab to see them here.
-              </p>
-            )}
-
-            {shown.length === 0 && !isFavoritesTab && query !== "" && (
-              <p className="px-3 py-3 text-xs text-ink-dim">nothing matches that search</p>
-            )}
-
-            {shown.map((model, i) => {
-              const selector = selectorFor(model);
-              const modelKey = `${model.provider}/${model.id}`;
-              const isFav = favorites.has(modelKey);
-              const isCurrent = selector === current;
-              const row = i + offset;
-              return (
-                <button
-                  key={selector}
-                  type="button"
-                  ref={row === active ? activeRow : null}
-                  onMouseEnter={() => setIndex(row)}
-                  onClick={() => onPick(selector)}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left",
-                    row === active ? "bg-hover" : isCurrent ? "bg-raised" : "hover:bg-raised",
-                  )}
-                >
-                  <span className="grid w-2 shrink-0 place-items-center">
-                    {isCurrent && !inherited && <Dot tone="signal" title="pinned to this session" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-display text-sm text-ink">{model.name}</span>
-                    <span className="block truncate font-mono text-[10px] text-ink-faint">
-                      {selector}
-                    </span>
-                  </span>
-                  <span
-                    role="button"
-                    tabIndex={-1}
-                    title={isFav ? "remove from favorites" : "add to favorites"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void toggleFavorite(modelKey);
-                    }}
-                    className="cursor-pointer text-ink-faint hover:text-copper"
-                  >
-                    <StarIcon filled={isFav} className={cn("size-3.5", isFav && "text-copper")} />
-                  </span>
-                  {model.reasoning === true && <Chip tone="iris">reasoning</Chip>}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center gap-3 border-t border-line px-3 py-1.5 text-[10px] text-ink-faint">
-            <span>↑↓ move</span>
-            <span>enter pick</span>
-            <span>esc close</span>
-            <span>ctrl+[ ] tabs</span>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}

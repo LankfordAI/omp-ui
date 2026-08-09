@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useStore } from "../store";
-import { Button, Modal, UpdateCard } from "./ui";
+import { Button, ConfirmDialog, UpdateCard } from "./ui";
 
 /**
  * The update card (issue #18): a small non-modal card in the lower-right
@@ -28,29 +28,27 @@ export function AppUpdateRestartAction({ size }: { size?: "xs" }) {
         Restart now
       </Button>
       {confirming && (
-        <Modal onClose={() => setConfirming(false)} width="w-[28rem]" mobile="dialog">
-          <section role="alertdialog" aria-modal="true" aria-labelledby="restart-update-title">
-            <header className="border-b border-line px-4 py-3.5">
-              <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-copper">
-                Live sessions
-              </p>
-              <h2 id="restart-update-title" className="font-display text-base font-semibold text-ink">
-                Restart omp-ui now?
-              </h2>
-            </header>
-            <div className="px-4 py-4">
-              <p className="text-sm leading-relaxed text-ink-dim">
-                One or more sessions are still live. Restarting will stop their agents and apply the update.
-              </p>
-            </div>
-            <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-              <Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+        <ConfirmDialog
+          kicker="Live sessions"
+          title="Restart omp-ui now?"
+          tone="copper"
+          onClose={() => setConfirming(false)}
+          width="w-[28rem]"
+          actions={
+            <>
+              <Button variant="ghost" onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
               <Button variant="solid" tone="copper" onClick={() => void restart(true)}>
                 Restart and stop sessions
               </Button>
-            </footer>
-          </section>
-        </Modal>
+            </>
+          }
+        >
+          <p className="text-sm leading-relaxed text-ink-dim">
+            One or more sessions are still live. Restarting will stop their agents and apply the update.
+          </p>
+        </ConfirmDialog>
       )}
     </>
   );

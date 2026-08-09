@@ -2,8 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
+import { backendState, rpcTabState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -12,6 +12,9 @@ const { useStore } = await import("../store");
 const { SessionHud } = await import("./SessionHud");
 
 const TAB = "tab-mobile";
+const BUILD_MODE_TOOLTIP = "Build mode — working-tree writes and state-changing commands are allowed";
+const PLAN_MODE_TOOLTIP_WITH_PATH = "Plan mode — read-only exploration — /plan.md";
+const PLAN_MODE_TOOLTIP_WITHOUT_PATH = "Plan mode — read-only exploration — no plan drafted";
 const compactSession = vi.fn(async () => {});
 const exportHtml = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
@@ -19,18 +22,36 @@ const newSession = vi.fn(async () => {});
 const toggleConsole = vi.fn();
 let root: Root | null = null;
 
-const state = {
-  defaultMode: "rpc-ui", defaultAgentMode: "plan", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
-  planFormat: "html",
-  advisorAutoReply: true,
-  appUpdateCheckOnLaunch: true, ompUpdateCheckOnLaunch: true,
-  dismissedAppUpdateVersion: null, dismissedOmpUpdateVersion: null,
-  projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastAdvisorModel: null }, sessions: [{
-    tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t",
-    mode: "rpc-ui", advisor: false, advisorModel: null, cachedTitle: "Mobile session",
-    cachedModified: "t", title: "Mobile session", status: "complete", live: "live",
-  }] }],
-} as BackendState;
+const state = backendState({
+  projects: [
+    {
+      project: {
+        path: "/p",
+        name: "P",
+        addedAt: "t",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+      sessions: [
+        {
+          tabId: TAB,
+          sessionId: "s",
+          lineageDir: "lineage",
+          projectCwd: "/p",
+          launchedAt: "t",
+          mode: "rpc-ui",
+          advisor: false,
+          advisorModel: null,
+          cachedTitle: "Mobile session",
+          cachedModified: "t",
+          title: "Mobile session",
+          status: "complete",
+          live: "live",
+        },
+      ],
+    },
+  ],
+});
 
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -40,11 +61,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   useStore.setState({
     state,
-    rpc: { [TAB]: { status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
-      session: { ...emptySessionRuntime(), contextUsage: { tokens: 20, contextWindow: 100, percent: 20 } },
-      stats: null, subagents: [], extensionStatus: { advisor: "available" }, pendingCommands: new Map(), extensionQueue: [], busy: false,
-      initialPrompt: null, hasRenamed: true, plan: { enabled: true, planFilePath: "/plan.md", planAbsPath: "/plan.md", approved: false }, planReview: null,
-      planHtml: null, planText: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
+    rpc: {
+      [TAB]: rpcTabState({
+        status: "ready",
+        hasRenamed: true,
+        session: {
+          ...emptySessionRuntime(),
+          contextUsage: { tokens: 20, contextWindow: 100, percent: 20 },
+        },
+        extensionStatus: { advisor: "available" },
+        plan: {
+          enabled: true,
+          planFilePath: "/plan.md",
+          planAbsPath: "/plan.md",
+          approved: false,
+        },
+      }),
     },
     compactSurface: null,
     compactSession, exportHtml, branchSession, newSession, toggleConsole,
@@ -144,15 +176,15 @@ describe("wide Session HUD", () => {
     expect(text.slice(0, adv)).toContain("1.1M tok");
   });
 
-  it("shows a Build exception chip only outside the default Plan mode (#142)", () => {
+  it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     });
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    expect(host.querySelector('[title="/plan.md"]')).toBeNull();
-    expect(host.querySelector('[title^="Build mode"]')).toBeNull();
+    expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
+    expect(host.querySelector("[title^=\"Build mode\"]")).toBeNull();
 
     act(() => useStore.setState({
       rpc: {
@@ -162,10 +194,10 @@ describe("wide Session HUD", () => {
         },
       },
     }));
-    expect(host.querySelector('[title^="Build mode"]')?.textContent).toContain("build");
+    expect(host.querySelector(`[title="${BUILD_MODE_TOOLTIP}"]`)?.textContent).toContain("build");
   });
 
-  it("shows Plan as the exception when Build is configured as default (#143)", () => {
+  it("describes exceptional Plan with its path or the undrafted fallback (#143)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -173,8 +205,17 @@ describe("wide Session HUD", () => {
     useStore.setState((s) => ({ state: { ...s.state!, defaultAgentMode: "build" } }));
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.querySelector(`[title="${PLAN_MODE_TOOLTIP_WITH_PATH}"]`)?.textContent).toContain("plan");
 
-    expect(host.querySelector('[title^="Plan mode"]')?.textContent).toContain("plan");
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    }));
+    expect(host.querySelector(`[title="${PLAN_MODE_TOOLTIP_WITHOUT_PATH}"]`)?.textContent).toContain("plan");
   });
 
   it("keeps the title bar's whitespace draggable without swallowing a control (#108)", () => {
@@ -243,11 +284,12 @@ describe("compact Session HUD", () => {
     expect(toggleConsole).toHaveBeenCalledWith(TAB);
   });
 
-  it("omits the default Plan chip and shows Build only when selected (#142)", () => {
+  it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.querySelector("header")?.textContent).not.toContain("plan");
     expect(host.querySelector("header")?.textContent).not.toContain("build");
+    expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
 
     act(() => useStore.setState({
       rpc: {
@@ -257,7 +299,24 @@ describe("compact Session HUD", () => {
         },
       },
     }));
-    expect(host.querySelector("header")?.textContent).toContain("build");
+    expect(host.querySelector(`[title="${BUILD_MODE_TOOLTIP}"]`)?.textContent).toContain("build");
+  });
+
+  it("describes exceptional Plan with its path or the undrafted fallback (#143)", () => {
+    useStore.setState((s) => ({ state: { ...s.state!, defaultAgentMode: "build" } }));
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.querySelector(`[title="${PLAN_MODE_TOOLTIP_WITH_PATH}"]`)?.textContent).toContain("plan");
+
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    }));
+    expect(host.querySelector(`[title="${PLAN_MODE_TOOLTIP_WITHOUT_PATH}"]`)?.textContent).toContain("plan");
   });
 
   it("keeps displaced actions reachable and passes the same tab id", () => {

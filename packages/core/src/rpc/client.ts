@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import * as path from "node:path";
 import type { Readable, Writable } from "node:stream";
+import { ompChildEnv } from "../omp-process";
 import { RpcChunkReassembler } from "./codec";
 
 export interface RpcChildProcess {
@@ -90,11 +90,7 @@ export class RpcClient {
     if (opts.advisor) args.push("--advisor");
     for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
     for (const extension of opts.extensions ?? []) args.push("-e", extension);
-    // Same shim-proofing as spawnOmp: keep the resolved binary's dir on PATH.
-    const env = {
-      ...process.env,
-      PATH: [path.dirname(opts.ompPath), process.env.PATH].filter(Boolean).join(path.delimiter),
-    };
+    const env = ompChildEnv(opts.ompPath);
     const spawnProcess = opts.spawnProcess ?? defaultSpawn;
     this.#proc = spawnProcess(opts.ompPath, args, env);
     this.#proc.stdout.on("data", (chunk: Buffer) => this.#onStdout(chunk));

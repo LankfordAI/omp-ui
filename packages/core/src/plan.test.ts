@@ -3,9 +3,19 @@ import {
   isHtmlPlanPath,
   isPlanArtifactPath,
   parsePlanReviewTitle,
+  planMessage,
   parsePlanStatus,
   PLAN_REVIEW_SENTINEL,
 } from "./plan";
+
+describe("planMessage", () => {
+  it("builds the literal html, markdown, and off commands", () => {
+    expect(planMessage(true, "html")).toBe("/omp-ui-plan on html");
+    expect(planMessage(true, "md")).toBe("/omp-ui-plan on md");
+    expect(planMessage(false, "html")).toBe("/omp-ui-plan off");
+    expect(planMessage(false, "md")).toBe("/omp-ui-plan off");
+  });
+});
 
 describe("parsePlanStatus", () => {
   it("reads a published status", () => {

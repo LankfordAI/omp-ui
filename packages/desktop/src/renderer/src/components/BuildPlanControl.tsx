@@ -1,6 +1,6 @@
 import { cn } from "../lib/cn";
 import { useStore } from "../store";
-import { Capsule, CAPSULE_SEGMENT } from "./ui";
+import { ChoiceCapsule } from "./ui";
 
 const BUILD_TITLE = "build mode — working-tree writes and state-changing commands are allowed.";
 const PLAN_TITLE =
@@ -31,49 +31,31 @@ export function BuildPlanControl({
     onSelected?.();
   };
 
+  const modes = [defaultAgentMode, defaultAgentMode === "plan" ? "build" : "plan"] as const;
+
   return (
-    <span
-      role="radiogroup"
-      aria-label="session mode"
-      className={cn(sheet ? "flex h-11 w-full" : "inline-flex", className)}
-    >
-      <Capsule className={sheet ? "h-full w-full" : undefined}>
-        {([defaultAgentMode, defaultAgentMode === "plan" ? "build" : "plan"] as const).map(
-          (mode) => {
-            const target = mode === "plan";
-            const selected = target === planEnabled;
-            const alternate = mode !== defaultAgentMode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                disabled={disabled || (target && unavailable !== undefined)}
-                title={
-                  target
-                    ? unavailable === undefined
-                      ? PLAN_TITLE
-                      : `plan mode unavailable: ${unavailable}`
-                    : BUILD_TITLE
-                }
-                onClick={() => select(target)}
-                className={cn(
-                  CAPSULE_SEGMENT,
-                  sheet ? "flex-1 justify-center" : "text-[11px]",
-                  selected
-                    ? alternate
-                      ? "bg-iris-wash text-iris"
-                      : "bg-hover text-ink"
-                    : "text-ink-mid",
-                )}
-              >
-                {mode}
-              </button>
-            );
-          },
-        )}
-      </Capsule>
-    </span>
+    <ChoiceCapsule
+      label="session mode"
+      value={planEnabled ? "plan" : "build"}
+      options={modes.map((mode) => {
+        const target = mode === "plan";
+        const alternate = mode !== defaultAgentMode;
+        return {
+          value: mode,
+          label: mode,
+          disabled: disabled || (target && unavailable !== undefined),
+          title: target
+            ? unavailable === undefined
+              ? PLAN_TITLE
+              : `plan mode unavailable: ${unavailable}`
+            : BUILD_TITLE,
+          className: sheet ? "flex-1 justify-center" : "text-[11px]",
+          selectedClassName: alternate ? "bg-iris-wash text-iris" : "bg-hover text-ink",
+          unselectedClassName: "text-ink-mid",
+        };
+      })}
+      onChange={(mode) => select(mode === "plan")}
+      className={cn(sheet ? "h-11 w-full" : undefined, className)}
+    />
   );
 }

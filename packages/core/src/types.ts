@@ -1,5 +1,5 @@
-// Pure types, zero imports — the renderer imports these type-only via the
-// @omp-ui/core/types subpath, so this file must stay dependency-free.
+// Pure types, zero runtime imports — the renderer imports these type-only via
+// the @omp-ui/core/types subpath.
 
 export type SessionStatus =
   | "complete"
@@ -165,8 +165,8 @@ export interface AdvisorDefaults {
 
 /**
  * omp's own settings, as the settings surface's omp page sees them (see
- * core/omp-settings.ts). Declared here so the IPC signatures in `OmpBackend`
- * stay in the dependency-free file.
+ * core/omp-settings.ts). Declared here so the shared channel spec can stay
+ * transport-agnostic.
  */
 export type OmpSettingType = "boolean" | "number" | "string" | "enum" | "array" | "record";
 export type OmpSettingValue = boolean | number | string | string[] | Record<string, unknown>;
@@ -240,6 +240,9 @@ export interface AppUpdateState {
   installOnQuit: boolean;
   error: string | null;
 }
+
+/** Result of requesting a restart into a staged app update. */
+export type AppUpdateRestartResult = "confirmation-required" | "restarting" | "unavailable";
 
 /** Where the omp binary install/update flow stands (see desktop main/omp-update.ts). */
 export type OmpUpdateStatus =
@@ -330,19 +333,6 @@ export interface DirBrowseResult {
   error: "invalid" | "missing" | "denied" | null;
 }
 
-/**
- * One channel's implementation. Deliberately `never[]`: each handler declares its own parameter
- * types, and the two dispatchers (Electron IPC, the remote WebSocket) cast once at the call site
- * rather than making every handler body validate `unknown` args. See MainBackend.handlers().
- */
-export type ChannelHandler = (...args: never[]) => unknown;
-
-/** The two halves of the channel table: `request` expects a reply, `notify` never replies. */
-export interface ChannelTable {
-  request: Readonly<Record<string, ChannelHandler>>;
-  notify: Readonly<Record<string, ChannelHandler>>;
-}
-
 /** Which interface the embedded remote server binds to. */
 export type RemoteBind = "localhost" | "lan";
 
@@ -404,242 +394,4 @@ export interface ProviderKeysSnapshot {
   backend: string;
 }
 
-/**
- * The renderer↔backend seam (ADR-0002). Changes only by extension — a future
- * packages/server reproduces exactly this surface over WebSocket.
- */
-export type AppUpdateRestartResult = "confirmation-required" | "restarting" | "unavailable";
-
-export interface OmpBackend {
-  getState(): Promise<BackendState>;
-  /**
-   * Registers a directory as a project. `path` may be ~-prefixed or absolute;
-   * the backend expands, resolves, and validates it is an existing directory,
-   * rejecting with a user-facing message otherwise. An already-registered path
-   * resolves to its existing record.
-   */
-  addProject(path: string): Promise<ProjectRecord>;
-  /** Directory listing for the in-app project picker (read-only, never mutates). */
-  browseDirectories(partialPath: string): Promise<DirBrowseResult>;
-  removeProject(path: string): Promise<void>;
-  /**
-   * Moves a registered project to sit immediately before `beforePath` in the
-   * sidebar order; a null `beforePath` (or one that is not registered) appends
-   * it to the end. The order is the persisted registry order, so the change
-   * survives a restart. An unknown `projectPath`, and a `beforePath` equal to
-   * it, are no-ops.
-   */
-  moveProject(projectPath: string, beforePath: string | null): Promise<void>;
-  setDefaultMode(mode: SessionMode): Promise<void>;
-  setDefaultAgentMode(mode: AgentMode): Promise<void>;
-  setPlanFormat(format: PlanFormat): Promise<void>;
-  setAdvisorAutoReply(on: boolean): Promise<void>;
-  setSkipDeleteConfirmation(skip: boolean): Promise<void>;
-  setThemeId(id: string): Promise<void>;
-  setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
-  setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
-  /** Clears the remembered omp-ui update dismissal so the offer can return. */
-  clearDismissedAppUpdate(): Promise<void>;
-  /** Clears the remembered omp update dismissal so the offer can return. */
-  clearDismissedOmpUpdate(): Promise<void>;
-  /** Repaints the native title-bar overlay to match the active theme. */
-  setWindowChrome(background: string, symbol: string): Promise<void>;
-  /**
-   * omp's own settings for the allowlist, with the layer each value comes from.
-   * `projectCwd` selects the project layer to account for; pass null to read
-   * the global layer alone.
-   */
-  readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
-  /**
-   * Writes one omp setting to the GLOBAL layer via `omp config set`. `value`
-   * is serialized per its schema type. Rejects with omp's own stderr message.
-   */
-  writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
-  /**
-   * Provider credentials omp-ui supplies to every omp it launches, with the
-   * source of each. `projectCwd` scopes the report-only `.env` scan; pass null
-   * to skip it. Never returns key material — only masked tails.
-   */
-  readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
-  /**
-   * Stores one provider credential, encrypted by the OS credential store, and
-   * applies it so the next session sees it. Rejects when the variable is not a
-   * known provider variable, the value is not a single non-empty line, or the
-   * platform offers no credential store.
-   */
-  setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
-  /** Forgets a stored credential; inherited or login-shell values take over again. */
-  clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;
-  spawnSession(req: SpawnRequest): Promise<{ tabId: string }>;
-  terminateSession(tabId: string): Promise<void>;
-  switchMode(tabId: string, mode: SessionMode): Promise<void>;
-  /**
-   * Deletes a session: the registry record plus its lineage files in the active
-   * and archive roots (transcript + artifacts). Irreversible; rejects while the
-   * session is live.
-   */
-  deleteSession(tabId: string): Promise<void>;
-  /**
-   * Full-fidelity branch (issue #83): copies the session's transcript into a
-   * new lineage dir under a fresh session id and registers it, ready to open
-   * in a new tab. The source session — file, record, live process — is left
-   * untouched. Rejects when the source is archived or has no transcript yet.
-   */
-  forkSession(tabId: string): Promise<{ tabId: string }>;
-  /**
-   * Re-pins a session's advisor state. omp binds both the enable flag and the
-   * `advisor` role at process start, so a live session is respawned with
-   * `--resume`; a dormant one just records the choice for its next launch.
-   */
-  setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): Promise<void>;
-  /** omp's own advisor defaults for a project (global config + project overlay). */
-  getAdvisorDefaults(projectCwd: string): Promise<AdvisorDefaults>;
-  /**
-   * Records the main model and thinking level for both this session and the
-   * next session in its project. Null values defer to omp's config.
-   */
-  setSessionModel(
-    tabId: string,
-    model: string | null,
-    thinkingLevel: string | null,
-  ): Promise<void>;
-  /**
-   * Titles a first user prompt with omp's own small model (the `tiny`/`commit`/
-   * `smol` role chain). Resolves to null whenever the model declines or the run
-   * fails — the caller keeps its derived title in that case.
-   */
-  generateTitle(projectCwd: string, prompt: string): Promise<string | null>;
-  /**
-   * Suggests a git branch name for a plan with omp's own small model (the
-   * `tiny`/`commit`/`smol` role chain, same as titling). Resolves to null on
-   * every failure path — the caller pre-fills its derived name.
-   */
-  suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
-  /**
-   * Reads a plan artifact for the review pane, by absolute path. Confined to
-   * the session's lineage dir by the implementation; null when the file is
-   * absent or out of bounds.
-   */
-  readPlanFile(tabId: string, absPath: string): Promise<string | null>;
-  /**
-   * Opens an absolute path with the system default handler (a browser for the
-   * exported transcript HTML). Rejects when the handler reports a failure.
-   */
-  openPath(absPath: string): Promise<void>;
-  /** Reveals an absolute path selected in the platform file manager. */
-  showPathInFolder(absPath: string): Promise<void>;
-  /**
-   * Working-tree changes on the active branch of a project's git repo: tracked
-   * changes vs HEAD plus new untracked files. Null fields when the project is
-   * not inside a git repository.
-   */
-  getBranchDiff(projectCwd: string): Promise<BranchDiff>;
-  /**
-   * Local branches of a project's git repo, default branch first. Null fields
-   * when the project is not inside a git repository.
-   */
-  listBranches(projectCwd: string): Promise<BranchList>;
-  /**
-   * Switches the project's repo to `name` (`checkout -b` when opts.create).
-   * Rejects with git's stderr when git refuses — the branch menu shows that
-   * message verbatim.
-   */
-  checkoutBranch(projectCwd: string, name: string, opts?: { create?: boolean }): Promise<void>;
-  /** MCP servers resolved for a project's cwd, redacted; errors are per-file. */
-  getMcpServers(projectCwd: string): Promise<McpServersResult>;
-  /** Toggles one server via omp's own write algorithm; returns the refreshed list. */
-  setMcpServerEnabled(req: McpSetEnabledRequest): Promise<McpServersResult>;
-  /**
-   * Restarts a live session in place (kill + relaunch with `--resume`, same
-   * dance as the advisor/mode-switch relaunch) so it picks up changed MCP
-   * config. Rejects when the session is not live.
-   */
-  restartSession(tabId: string): Promise<void>;
-  /**
-   * Project-relative file listing for the composer's @ picker;
-   * gitignore-aware, with a walk fallback outside repos.
-   */
-  listProjectFiles(projectCwd: string): Promise<{ files: string[]; truncated: boolean }>;
-  /**
-   * Busy-route mention resolution: omp skips @-extraction on steer/follow_up,
-   * so omp-ui inlines mention contents itself on those routes.
-   */
-  resolveFileMentions(projectCwd: string, message: string): Promise<ResolvedMentionContext>;
-  /**
-   * Writes pasted image bytes to a scratch file and delivers its path to the
-   * PTY as a bracketed paste — omp's TUI loads the file itself. The PTY carries
-   * no byte channel, so this is the only route for terminal-mode images.
-   */
-  ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void>;
-  ptyWrite(tabId: string, data: string): void;
-  ptyResize(tabId: string, cols: number, rows: number): void;
-  /**
-   * Spawns the user's login shell ($SHELL -l; COMSPEC on Windows) in `cwd` for
-   * the tab's console-drawer terminal (issue #42). Replaces any shell already
-   * running for the tab. Rejects when the shell binary cannot be spawned.
-   */
-  shellSpawn(tabId: string, cwd: string, cols: number, rows: number): Promise<void>;
-  /** Kills the tab's console-drawer shell if one runs; its exit is suppressed. */
-  shellKill(tabId: string): void;
-  shellWrite(tabId: string, data: string): void;
-  shellResize(tabId: string, cols: number, rows: number): void;
-  onShellData(cb: (tabId: string, data: Uint8Array) => void): void;
-  onShellExit(cb: (tabId: string, exitCode: number) => void): void;
-  rpcSend(tabId: string, command: object): void;
-  onPtyData(cb: (tabId: string, data: Uint8Array) => void): void;
-  onPtyExit(cb: (tabId: string, exitCode: number) => void): void;
-  onRpcFrame(cb: (tabId: string, frame: object) => void): void;
-  onStateChanged(cb: (state: BackendState) => void): void;
-  toggleFavorite(key: string): Promise<void>;
-  /** Current omp binary update state. */
-  getOmpUpdateState(): Promise<OmpUpdateState>;
-  /** Manual check — surfaces up-to-date/error transiently, bypasses dismissal. */
-  checkOmpUpdate(): Promise<OmpUpdateState>;
-  /**
-   * Starts the opt-in install/update of the managed omp binary. No-op unless
-   * an update or install is offered. Progress flows via onOmpUpdateState.
-   */
-  downloadOmpUpdate(): Promise<void>;
-  /**
-   * Hides the card. `remember: true` also persists the version so background
-   * checks stay quiet for that offer; `false` is a transient hide.
-   */
-  dismissOmpUpdate(version: string, remember: boolean): Promise<void>;
-  onOmpUpdateState(cb: (state: OmpUpdateState) => void): void;
-  /** Current app (omp-ui) update state. */
-  getAppUpdateState(): Promise<AppUpdateState>;
-  /** Manual check — surfaces up-to-date/error/disabled transiently. */
-  checkAppUpdate(): Promise<AppUpdateState>;
-  /**
-   * Starts the package-appropriate manual action for non-auto-update formats:
-   * verified download + system-installer handoff. AppImage/NSIS staging begins
-   * as soon as a check finds an update (issue #99, issue #125).
-   */
-  downloadAppUpdate(): Promise<void>;
-  /** Opens the pending release's GitHub page. */
-  openAppUpdateReleaseNotes(): Promise<void>;
-  /** Reveals the downloaded artifact in its folder (manual installer formats). */
-  showAppUpdateDownload(): Promise<void>;
-  /**
-   * Requests a restart into a staged update. The first call leaves `confirmed`
-   * false; `confirmation-required` must be answered in the initiating renderer.
-   */
-  restartForAppUpdate(confirmed?: boolean): Promise<AppUpdateRestartResult>;
-  /** Arms or disarms applying the staged AppImage/NSIS update on the next natural quit. */
-  setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
-  /**
-   * Hides the card. `remember: true` also persists the version so background
-   * checks stay quiet for that release; `false` is a transient hide.
-   */
-  dismissAppUpdate(version: string, remember: boolean): Promise<void>;
-  onAppUpdateState(cb: (state: AppUpdateState) => void): void;
-  /** Embedded remote-access server settings + live status (issue #37). */
-  getRemoteState(): Promise<RemoteState>;
-  setRemoteEnabled(on: boolean): Promise<void>;
-  setRemoteBind(bind: RemoteBind): Promise<void>;
-  /** Rejects when the port is not a whole number in 1024–65535. */
-  setRemotePort(port: number): Promise<void>;
-  /** Mints a fresh token and restarts the server, dropping every connected client. */
-  regenerateRemoteToken(): Promise<void>;
-  onRemoteState(cb: (state: RemoteState) => void): void;
-}
+export type { OmpBackend } from "./backend-channels";

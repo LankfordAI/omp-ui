@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { extensionToMime } from "./images";
 import type { ImageAttachment, ResolvedMentionContext } from "./types";
 
 /**
@@ -35,7 +36,7 @@ const MENTION_BOUNDARY_REGEX = /[\s([{<"'`]/;
 /** omp's DEFAULT_DIR_LIMIT. */
 const DIR_LISTING_LIMIT = 500;
 /** omp's MAX_AUTO_READ_IMAGE_BYTES. */
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const OMP_MAX_AUTO_READ_IMAGE_BYTES = 25 * 1024 * 1024;
 
 function isMentionBoundary(text: string, index: number): boolean {
   return index === 0 || MENTION_BOUNDARY_REGEX.test(text[index - 1] as string);
@@ -74,15 +75,6 @@ function extractMentions(text: string): string[] {
  * MAX_AUTO_READ_TEXT_BYTES — see the module header.
  */
 const MAX_TEXT_BYTES = 256 * 1024;
-
-/** images.ts's EXTENSIONS is mime→ext, so the lookup direction needs its own map. */
-const IMAGE_MIME_BY_EXT: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -149,9 +141,9 @@ export async function resolveFileMentions(
         continue;
       }
 
-      const mimeType = IMAGE_MIME_BY_EXT[path.extname(mention).toLowerCase()];
+      const mimeType = extensionToMime(path.extname(mention));
       if (mimeType !== undefined) {
-        if (stat.size > MAX_IMAGE_BYTES) {
+        if (stat.size > OMP_MAX_AUTO_READ_IMAGE_BYTES) {
           contextText += skipBlock(mention, "too large", stat.size);
           continue;
         }

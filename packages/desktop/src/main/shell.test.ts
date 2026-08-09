@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { PtyHandle } from "@omp-ui/core";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the three surfaces it touches.
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
@@ -29,7 +30,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => ({
 }));
 
 const { MainBackend } = await import("./backend");
-const { CH } = await import("./channels");
+const { CH } = await import("@omp-ui/core");
 const { spawnShell } = await import("@omp-ui/core");
 const spawnShellMock = vi.mocked(spawnShell);
 
@@ -90,30 +91,32 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
   fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
 
   const registryFile = path.join(base, "registry.json");
-  fs.writeFileSync(
-    registryFile,
-    JSON.stringify({
-      schemaVersion: 1,
-      settings: { defaultMode: "rpc-ui" },
-      projects: [{ path: "/proj", name: "proj", addedAt: "2026-07-29T00:00:00.000Z" }],
-      sessions: [
-        {
-          tabId: TAB,
-          sessionId: null,
-          lineageDir: LINEAGE,
-          projectCwd: "/proj",
-          launchedAt: "2026-07-29T16:18:42.427Z",
-          mode: "rpc-ui",
-          model: "openrouter/openai/gpt-5.6",
-          thinkingLevel: "high",
-          advisor: false,
-          advisorModel: null,
-          cachedTitle: null,
-          cachedModified: null,
-        },
-      ],
-    }),
-  );
+  seedRegistry(registryFile, {
+    settings: { defaultMode: "rpc-ui" },
+    projects: [
+      {
+        path: "/proj",
+        name: "proj",
+        addedAt: "2026-07-29T00:00:00.000Z",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+    ],
+    sessions: [
+      ownedSessionRecord({
+        tabId: TAB,
+        sessionId: null,
+        lineageDir: LINEAGE,
+        projectCwd: "/proj",
+        launchedAt: "2026-07-29T16:18:42.427Z",
+        mode: "rpc-ui",
+        model: "openrouter/openai/gpt-5.6",
+        thinkingLevel: "high",
+        advisor: false,
+        advisorModel: null,
+      }),
+    ],
+  });
 
   handlers.clear();
   sent.length = 0;
@@ -166,7 +169,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
 
     const chunk = Buffer.from("prompt$ ");
     fake.dataCb!(chunk);
-    expect(sent).toContainEqual({ channel: CH.shellData, args: [TAB, chunk] });
+    expect(sent).toContainEqual({ channel: CH.onShellData, args: [TAB, chunk] });
   });
 
   it("natural exit unregisters the handle and reports the exit code", () => {
@@ -175,7 +178,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     const fake = fakeShells[0]!;
 
     fake.exitCb!({ exitCode: 3 });
-    expect(sent).toContainEqual({ channel: CH.shellExit, args: [TAB, 3] });
+    expect(sent).toContainEqual({ channel: CH.onShellExit, args: [TAB, 3] });
 
     // Gone from the map: a later write is a no-op.
     invoke(CH.shellWrite, TAB, "ls\n");
@@ -192,7 +195,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     expect(first.kill).toHaveBeenCalled();
     // The old process's exit arrives after the replacement registered: silent.
     first.exitCb!({ exitCode: 0 });
-    expect(sent.find((m) => m.channel === CH.shellExit)).toBeUndefined();
+    expect(sent.find((m) => m.channel === CH.onShellExit)).toBeUndefined();
 
     // The successor is still the registered handle.
     invoke(CH.shellWrite, TAB, "pwd\n");
@@ -208,7 +211,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     invoke(CH.shellKill, TAB);
     expect(fake.kill).toHaveBeenCalled();
     fake.exitCb!({ exitCode: 0 });
-    expect(sent.find((m) => m.channel === CH.shellExit)).toBeUndefined();
+    expect(sent.find((m) => m.channel === CH.onShellExit)).toBeUndefined();
   });
 
   it("respawn detaches the predecessor's data listener: its last output never reaches the tab (issue #64)", () => {
@@ -242,6 +245,8 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     const fake = fakeShells[0]!;
 
     backend.killAll();
+    expect(fake.detachData).toHaveBeenCalled();
+    expect(fake.dataCb).toBeNull();
     expect(fake.kill).toHaveBeenCalled();
     invoke(CH.shellWrite, TAB, "ls\n");
     expect(fake.write).not.toHaveBeenCalled();
@@ -252,7 +257,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
     const fake = fakeShells[0]!;
 
-    invoke(CH.sessionTerminate, TAB);
+    invoke(CH.terminateSession, TAB);
     expect(fake.kill).toHaveBeenCalled();
   });
 
@@ -261,7 +266,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
     const fake = fakeShells[0]!;
 
-    await invoke(CH.sessionDelete, TAB);
+    await invoke(CH.deleteSession, TAB);
     expect(fake.kill).toHaveBeenCalled();
   });
 });

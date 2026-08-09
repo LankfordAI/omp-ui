@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import type { ChannelTable } from "@omp-ui/core/types";
+import type { ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
 import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
 import { mintRemoteToken } from "./token";
@@ -21,7 +21,7 @@ interface FakeHost extends RemoteHost {
 function fakeHost(): FakeHost {
   const notified: Array<{ ch: string; args: unknown[] }> = [];
   const sinks = new Set<(channel: string, args: unknown[]) => void>();
-  const table: ChannelTable = {
+  const table = {
     request: {
       "state:get": () => ({ ok: 1 }),
       boom: () => {
@@ -29,11 +29,11 @@ function fakeHost(): FakeHost {
       },
     },
     notify: {
-      "pty:write": ((tabId: string, data: string) => {
+      "pty:write": (tabId: string, data: string) => {
         notified.push({ ch: "pty:write", args: [tabId, data] });
-      }) as never,
+      },
     },
-  };
+  } as unknown as ChannelTable;
   return {
     notified,
     handlers: () => table,

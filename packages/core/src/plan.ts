@@ -1,6 +1,8 @@
-// The plan-mode wire contract. Pure — zero imports — because the renderer
-// imports it directly via the @omp-ui/core/plan subpath, exactly like types.ts.
-// The generating half (which writes the extension file) lives in
+import type { PlanFormat } from "./types";
+
+// The plan-mode wire contract. Pure — the type-only import is erased — because
+// the renderer imports it directly via the @omp-ui/core/plan subpath, exactly
+// like types.ts. The generating half (which writes the extension file) lives in
 // plan-extension.ts and consumes these same constants, so the two sides of the
 // channel can never drift.
 
@@ -18,6 +20,11 @@ export const PLAN_REVIEW_SENTINEL = "omp-ui:plan-review:";
  * optionally followed by the plan format (`html`/`md`) on `on`.
  */
 export const PLAN_COMMAND = "omp-ui-plan";
+
+/** Builds the extension slash command that toggles plan mode for one session. */
+export function planMessage(enabled: boolean, format: PlanFormat): string {
+  return enabled ? `/${PLAN_COMMAND} on ${format}` : `/${PLAN_COMMAND} off`;
+}
 
 /** The two verdicts the renderer may give the approval `select`.
  *

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUpdateState, BackendState, OmpUpdateState, RemoteState } from "@omp-ui/core/types";
 import { DESKTOP_VIEW_STORAGE_KEY, type DesktopViewStateV1 } from "./lib/desktop-view-state";
-import type { RpcTabState } from "./store";
+import { backendState as makeBackendState, rpcTabState, tabInfo } from "./test/fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
@@ -136,18 +136,7 @@ const session = (
   live,
 });
 
-const backendState: BackendState = {
-  defaultMode: "rpc-ui",
-  defaultAgentMode: "plan",
-  planFormat: "html",
-  advisorAutoReply: true,
-  modelFavorites: [],
-  skipDeleteConfirmation: false,
-  themeId: "graphite",
-  appUpdateCheckOnLaunch: true,
-  ompUpdateCheckOnLaunch: true,
-  dismissedAppUpdateVersion: null,
-  dismissedOmpUpdateVersion: null,
+const backendState: BackendState = makeBackendState({
   projects: [
     {
       project: { path: "/p/a", name: "a", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
@@ -162,7 +151,7 @@ const backendState: BackendState = {
       ],
     },
   ],
-};
+});
 
 /** The snapshot a previous (1.0.0) run persisted, ordered pty → rpc → gone. */
 const SEED_SNAPSHOT: DesktopViewStateV1 = {
@@ -196,6 +185,22 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
   it("resumes surviving tabs in saved order and settles focus to them", async () => {
     seedSnapshot();
     const store = await freshStore();
+    const snapshots: Array<{
+      state: BackendState | null;
+      appUpdate: AppUpdateState;
+      ompUpdate: OmpUpdateState;
+      remote: RemoteState;
+    }> = [];
+    mockBackend.spawnSession.mockImplementation(async (req: { resumeTabId: string }) => {
+      const current = store.useStore.getState();
+      snapshots.push({
+        state: current.state,
+        appUpdate: current.appUpdate,
+        ompUpdate: current.ompUpdate,
+        remote: current.remote,
+      });
+      return { tabId: req.resumeTabId };
+    });
 
     await store.useStore.getState().init();
 
@@ -226,6 +231,15 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     expect(st.activeTabId).toBe("rpc-1");
     expect(st.focusedTabByProject).toEqual({ "/p/a": "pty-1", "/p/b": "rpc-1" });
     expect(st.restoringTabs).toBe(false);
+    expect(snapshots).toHaveLength(2);
+    for (const snapshot of snapshots) {
+      expect(snapshot).toEqual({
+        state: backendState,
+        appUpdate,
+        ompUpdate: idleOmpUpdate,
+        remote: idleRemoteState,
+      });
+    }
 
     // The mandatory first persist now describes the restored view.
     const saved = readSnapshot();
@@ -297,10 +311,10 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     await store.useStore.getState().init();
     expect(spy).toHaveBeenCalledTimes(1); // mandatory empty-view persist
 
-    store.useStore.setState({ rpc: { someTab: {} as RpcTabState } });
+    store.useStore.setState({ rpc: { someTab: rpcTabState() } });
     expect(spy).toHaveBeenCalledTimes(1); // rpc traffic never persists
 
-    store.useStore.setState({ tabs: [{ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false }], rpc: {} });
+    store.useStore.setState({ tabs: [tabInfo({ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false })], rpc: {} });
     expect(spy).toHaveBeenCalledTimes(2);
 
     store.useStore.getState().focusTab("t1");

@@ -5,7 +5,8 @@ import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { useStore } from "../store";
-import { Button, Chip, Empty, Modal } from "./ui";
+import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
+import { Button, Chip, Modal } from "./ui";
 
 /**
  * In-app, keyboard-driven directory picker for "Add project" (issue #16).
@@ -33,12 +34,9 @@ export function ProjectPicker() {
   const [entries, setEntries] = useState<DirBrowseEntry[]>([]);
   const [parentPath, setParentPath] = useState("");
   const [browseError, setBrowseError] = useState<DirBrowseResult["error"]>(null);
-  /** −1 = no selection: plain Enter unambiguously targets the resolved path. */
-  const [active, setActive] = useState(-1);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const rowsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const gen = useRef(0);
 
   useEffect(() => {
@@ -55,13 +53,8 @@ export function ProjectPicker() {
       setEntries(r.entries);
       setParentPath(r.parentPath);
       setBrowseError(r.error);
-      setActive(-1);
     });
   }, [query]);
-
-  useEffect(() => {
-    if (active >= 0) rowsRef.current[active]?.scrollIntoView({ block: "nearest" });
-  }, [active]);
 
   const trimmed = query.trim();
   const trailingSep = /[/\\]$/.test(trimmed) || trimmed === "~";
@@ -97,40 +90,26 @@ export function ProjectPicker() {
       });
   };
 
-  const move = (delta: number): void => {
-    if (rows.length === 0) return;
-    setActive((i) => {
-      if (i < 0) return delta > 0 ? 0 : rows.length - 1;
-      return (i + delta + rows.length) % rows.length;
-    });
-  };
+  function consumeEnter(event: ReactKeyboardEvent): boolean {
+    const mod = event.metaKey || event.ctrlKey;
+    if (!mod && active >= 0) return false;
+    submit(resolvedPath);
+    return true;
+  }
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
-    const mod = e.metaKey || e.ctrlKey;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      move(1);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      move(-1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (mod) {
-        submit(resolvedPath);
-      } else if (active >= 0 && rows[active]) {
-        descend(rows[active]);
-      } else {
-        submit(resolvedPath);
-      }
-    } else if (e.key === "Tab" && active >= 0 && rows[active]) {
-      e.preventDefault();
-      descend(rows[active]);
-    }
-  };
+  const { active, activeRef, handleKey } = usePaletteNav({
+    items: rows,
+    resetKey: query,
+    initialIndex: -1,
+    onPick: descend,
+    onClose: closeProjectPicker,
+    acceptTab: true,
+    onEnter: consumeEnter,
+  });
 
   return (
     <Modal onClose={closeProjectPicker} width="w-[34rem]">
-      <div className="flex items-center gap-2.5 border-b border-line px-3.5 py-3">
+      <PaletteSearchHeader>
         <svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-ink-dim">
           <path
             d="M1.5 4.5a1 1 0 0 1 1-1h3.4l1.6 1.7h6a1 1 0 0 1 1 1v6.3a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"
@@ -147,28 +126,26 @@ export function ProjectPicker() {
           placeholder="~/path/to/project"
           aria-label="project directory path"
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
+          onKeyDown={handleKey}
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
         />
         {!compact && <Chip mono>{formatHotkey("escape")}</Chip>}
-      </div>
+      </PaletteSearchHeader>
 
-      <div className="max-h-[24rem] overflow-y-auto py-1.5">
+      <PaletteList>
         {browseError === "invalid" && (
-          <Empty title="Type a path" hint="Start with ~/ or an absolute /path." />
+          <PaletteEmpty title="Type a path" hint="Start with ~/ or an absolute /path." />
         )}
-        {browseError === "missing" && <Empty title="No such directory" hint={parentPath} />}
-        {browseError === "denied" && <Empty title="Permission denied" hint={parentPath} />}
+        {browseError === "missing" && <PaletteEmpty title="No such directory" hint={parentPath} />}
+        {browseError === "denied" && <PaletteEmpty title="Permission denied" hint={parentPath} />}
         {browseError === null && rows.length === 0 && (
-          <Empty title="No matching directories" hint="Enter adds the path shown below." />
+          <PaletteEmpty title="No matching directories" hint="Enter adds the path shown below." />
         )}
         {rows.map((row, i) => (
           <button
             key={row.kind === "up" ? ".." : row.entry.fullPath}
             type="button"
-            ref={(el) => {
-              rowsRef.current[i] = el;
-            }}
+            ref={i === active ? activeRef : null}
             // Focus must stay on the path input: all keyboard handling lives
             // there, and a focused row would swallow Enter/mod+Enter (#23).
             // Focus moves on mousedown, so that's where it's blocked.
@@ -195,7 +172,7 @@ export function ProjectPicker() {
             </span>
           </button>
         ))}
-      </div>
+      </PaletteList>
 
       {submitError && (
         <p className="border-t border-line px-3.5 py-2 text-xs text-rose">{submitError}</p>

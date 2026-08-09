@@ -2,9 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState, BranchList } from "@omp-ui/core/types";
-import { emptySessionRuntime } from "../lib/rpc-types";
-import type { RpcTabState } from "../store";
+import type { BranchList } from "@omp-ui/core/types";
+import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -42,26 +41,12 @@ const { PlanReview } = await import("./PlanReview");
 
 const TAB = "tab-1";
 
-function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
-  return {
+function tabState(patch: Parameters<typeof rpcTabState>[0] = {}) {
+  return rpcTabState({
     status: "ready",
-    items: [],
-    todos: [],
-    model: null,
-    availableModels: [],
-    commands: [],
-    session: emptySessionRuntime(),
-    stats: null,
-    subagents: [],
-    extensionStatus: {},
-    pendingCommands: new Map(),
-    extensionQueue: [],
-    busy: false,
-    initialPrompt: null,
     // Skip the auto-title path: the implementation prompt would otherwise
     // reach for backend.generateTitle, which this mock does not provide.
     hasRenamed: true,
-    plan: null,
     planReview: {
       request: {
         title: "Fix the login race",
@@ -71,13 +56,8 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
       frame: { id: "p1" },
     },
     planText: "# Fix\n\nsteps",
-    planHtml: null,
-    planDeferred: false,
-    plans: [],
-    advisorStats: null,
-    advisorReply: true,
     ...patch,
-  };
+  });
 }
 
 function sessionRecord(tabId: string, title: string) {
@@ -98,19 +78,8 @@ function sessionRecord(tabId: string, title: string) {
   };
 }
 
-function backendState(titles: Record<string, string>): BackendState {
-  return {
-    defaultMode: "rpc-ui",
-    defaultAgentMode: "plan",
-    planFormat: "html",
-    advisorAutoReply: true,
-    modelFavorites: [],
-    skipDeleteConfirmation: false,
-    themeId: "graphite",
-    appUpdateCheckOnLaunch: true,
-    ompUpdateCheckOnLaunch: true,
-    dismissedAppUpdateVersion: null,
-    dismissedOmpUpdateVersion: null,
+function stateWithSessions(titles: Record<string, string>) {
+  return backendState({
     projects: [
       {
         project: {
@@ -123,16 +92,17 @@ function backendState(titles: Record<string, string>): BackendState {
         sessions: Object.entries(titles).map(([tabId, title]) => sessionRecord(tabId, title)),
       },
     ],
-  };
+  });
 }
 
 /** The standard seed: one gate-blocked review tab on a git-backed project. */
 function seed(): void {
   useStore.setState({
-    tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+    tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+    advisorDefaults: {},
     branches: { "/p": branches },
     rpc: { [TAB]: tabState() },
-    state: backendState({ [TAB]: "Planning session" }),
+    state: stateWithSessions({ [TAB]: "Planning session" }),
   });
 }
 
@@ -308,14 +278,14 @@ describe("PlanReview git branch section (issue #25)", () => {
   it("confirms before switching branches under a mid-turn session", async () => {
     useStore.setState({
       tabs: [
-        { tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false },
-        { tabId: "tab-2", mode: "rpc-ui", projectCwd: "/p", hidden: false },
+        tabInfo({ tabId: TAB, projectCwd: "/p" }),
+        tabInfo({ tabId: "tab-2", projectCwd: "/p" }),
       ],
       rpc: {
         [TAB]: tabState(),
         "tab-2": tabState({ planReview: null, planText: null, status: "running" }),
       },
-      state: backendState({ [TAB]: "Planning session", "tab-2": "Busy work" }),
+      state: stateWithSessions({ [TAB]: "Planning session", "tab-2": "Busy work" }),
     });
     render();
 
@@ -605,6 +575,37 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
       .map((c) => c[1] as Record<string, unknown>)
       .find((frame) => frame.type === "set_model");
     expect(setModelFrame).toMatchObject({ type: "set_model", provider: "p", modelId: "b" });
+  });
+
+  it("stages the configured advisor from the current provider-first palette", async () => {
+    const ADVISOR = { id: "advisor-a", name: "Advisor A", provider: "p" };
+    const DEFAULT = { id: "default", name: "Default Advisor", provider: "q" };
+    const persisted = stateWithSessions({ [TAB]: "Planning session" });
+    useStore.setState({
+      state: {
+        ...persisted,
+        projects: persisted.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((session) =>
+            session.tabId === TAB
+              ? { ...session, advisor: true, advisorModel: "p/advisor-a" }
+              : session,
+          ),
+        })),
+      },
+      advisorDefaults: { "/p": { enabled: true, model: "q/default" } },
+      rpc: { [TAB]: tabState({ availableModels: [ADVISOR, DEFAULT] }) },
+    });
+    render();
+
+    await act(async () => buttonByText("Advisor A").click());
+    const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const palette = overlays[overlays.length - 1]!;
+    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(palette.textContent).toContain("picking one restarts this session and resumes it");
+
+    await act(async () => buttonContainingText("use omp's configured advisor", palette).click());
+    expect(buttonByText("Default Advisor")).toBeDefined();
   });
 });
 

@@ -215,6 +215,32 @@ describe("ProjectPicker", () => {
     expect(backendMock.browseDirectories).toHaveBeenCalledWith(`${HOME}/alpha/`);
   });
 
+  it("supports Ctrl-N navigation and Tab selection through the shared engine", async () => {
+    await renderPicker();
+    await press("n", { ctrlKey: true }); // ".."
+    await press("n", { ctrlKey: true }); // "alpha"
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/alpha/`);
+    expect(backendMock.browseDirectories).toHaveBeenCalledWith(`${HOME}/alpha/`);
+  });
+
+  it("keeps empty results and the no-selection cursor safe", async () => {
+    backendMock.addProject.mockResolvedValue({});
+    backendMock.browseDirectories.mockResolvedValue({ parentPath: "/", entries: [], error: null });
+    await renderPicker();
+
+    await press("ArrowDown");
+    await press("ArrowUp");
+    await press("n", { ctrlKey: true });
+    await press("p", { ctrlKey: true });
+    expect(rowNames()).toEqual([]);
+    expect(document.body.textContent).toContain("No matching directories");
+
+    await press("Enter");
+    expect(backendMock.addProject).toHaveBeenCalledWith("/");
+    expect(useStore.getState().projectPickerOpen).toBe(false);
+  });
+
   it("descends to the parent via the .. row", async () => {
     await renderPicker();
     await press("ArrowDown"); // ".."

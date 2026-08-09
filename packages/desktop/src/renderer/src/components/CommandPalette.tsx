@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { findRecord, useStore } from "../store";
-import { Chip, Dot, Empty, Label, Modal, type Tone } from "./ui";
+import { Chip, Dot, Label, Modal, type Tone } from "./ui";
+import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
 /**
  * The one keyboard surface for "go somewhere / do something". Anything the
@@ -75,9 +76,7 @@ function rank(query: string, action: Action): { score: number; hits: number[] } 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const rowsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const compact = useCompactShell();
 
   const state = useStore((s) => s.state);
@@ -93,19 +92,6 @@ export function CommandPalette() {
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
 
-  const show = useCallback((seed?: string) => {
-    setQuery(seed ?? "");
-    setActive(0);
-    setOpen(true);
-  }, []);
-
-  useHotkeys({ "mod+k": (e) => { e.preventDefault(); show(); } });
-
-  useEffect(() => {
-    const onOpen = (e: CustomEvent<PaletteOpenDetail | undefined>): void => show(e.detail?.query);
-    window.addEventListener(PALETTE_EVENT, onOpen);
-    return () => window.removeEventListener(PALETTE_EVENT, onOpen);
-  }, [show]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -217,52 +203,39 @@ export function CommandPalette() {
     return scored.map((s) => s.row);
   }, [actions, query]);
 
-  const clamped = results.length === 0 ? 0 : Math.min(active, results.length - 1);
-
-  useEffect(() => {
-    rowsRef.current[clamped]?.scrollIntoView({ block: "nearest" });
-  }, [clamped, open]);
-
   const close = useCallback(() => setOpen(false), []);
-
-  if (!open) return null;
-
-  const move = (delta: number): void => {
-    if (results.length === 0) return;
-    setActive((i) => {
-      const from = Math.min(i, results.length - 1);
-      return (from + delta + results.length) % results.length;
-    });
-  };
-
-  const commit = (): void => {
-    const row = results[clamped];
-    if (!row) return;
+  const pick = useCallback((row: Row): void => {
     close();
     row.action.run();
-  };
+  }, [close]);
+  const { active: clamped, setActive, activeRef, handleKey } = usePaletteNav({
+    items: results,
+    resetKey: query,
+    onPick: pick,
+    onClose: close,
+  });
 
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
-    const mod = e.metaKey || e.ctrlKey;
-    const key = e.key.toLowerCase();
-    // !e.shiftKey: mod+shift+n is the app-level new-session hotkey, not "move down".
-    if (key === "arrowdown" || (mod && !e.shiftKey && key === "n")) {
-      e.preventDefault();
-      move(1);
-    } else if (key === "arrowup" || (mod && !e.shiftKey && key === "p")) {
-      e.preventDefault();
-      move(-1);
-    } else if (key === "enter") {
-      e.preventDefault();
-      commit();
-    }
-  };
+  const show = useCallback((seed?: string) => {
+    setQuery(seed ?? "");
+    setActive(0);
+    setOpen(true);
+  }, [setActive]);
+
+  useHotkeys({ "mod+k": (e) => { e.preventDefault(); show(); } });
+
+  useEffect(() => {
+    const onOpen = (e: CustomEvent<PaletteOpenDetail | undefined>): void => show(e.detail?.query);
+    window.addEventListener(PALETTE_EVENT, onOpen);
+    return () => window.removeEventListener(PALETTE_EVENT, onOpen);
+  }, [show]);
+
+  if (!open) return null;
 
   let lastGroup = "";
 
   return (
     <Modal onClose={close} width="w-[34rem]">
-      <div className="flex items-center gap-2.5 border-b border-line px-3.5 py-3">
+      <PaletteSearchHeader>
         <svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-ink-dim">
           <circle
             cx="7"
@@ -288,17 +261,16 @@ export function CommandPalette() {
           placeholder="Search sessions, projects, actions…"
           onChange={(e) => {
             setQuery(e.target.value);
-            setActive(0);
           }}
-          onKeyDown={onKeyDown}
+          onKeyDown={handleKey}
           className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint focus:outline-none"
         />
         {!compact && <Chip mono>{formatHotkey("escape")}</Chip>}
-      </div>
+      </PaletteSearchHeader>
 
-      <div className="max-h-[24rem] overflow-y-auto py-1.5">
+      <PaletteList>
         {results.length === 0 && (
-          <Empty title="Nothing matches" hint="Try fewer letters — matching is fuzzy, not exact." />
+          <PaletteEmpty title="Nothing matches" hint="Try fewer letters — matching is fuzzy, not exact." />
         )}
         {results.map(({ action, hits }, i) => {
           const header = action.group === lastGroup ? null : action.group;
@@ -310,11 +282,9 @@ export function CommandPalette() {
               )}
               <button
                 type="button"
-                ref={(el) => {
-                  rowsRef.current[i] = el;
-                }}
+                ref={i === clamped ? activeRef : null}
                 onMouseMove={() => setActive(i)}
-                onClick={commit}
+                onClick={() => pick(results[i])}
                 className={cn(
                   "flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left transition-colors",
                   i === clamped ? "bg-hover" : "hover:bg-hover/50",
@@ -351,16 +321,16 @@ export function CommandPalette() {
             </div>
           );
         })}
-      </div>
+      </PaletteList>
 
       <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-[10px] text-ink-faint">
         <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
         <span>navigate</span>
         <span className="font-mono">{formatHotkey("enter")}</span>
         <span>run</span>
-        <span className="font-mono">{formatHotkey("mod+n")}</span>
+        <span className="font-mono">Ctrl+N</span>
         <span>/</span>
-        <span className="font-mono">{formatHotkey("mod+p")}</span>
+        <span className="font-mono">Ctrl+P</span>
         <span>also move</span>
       </div>
     </Modal>

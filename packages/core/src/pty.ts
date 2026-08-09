@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as pty from "node-pty";
+import { ompChildEnv } from "./omp-process";
 import { batched } from "./pty-batch";
 
 export interface PtyHandle {
@@ -67,13 +67,7 @@ export function spawnOmp(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    // omp may be a runtime shim (e.g. #!/usr/bin/env bun) — a .desktop/AppImage
-    // launch can lack its dir on PATH, so expose the resolved binary's dir to
-    // the child regardless of the parent environment.
-    env: {
-      ...process.env,
-      PATH: [path.dirname(opts.ompPath), process.env.PATH].filter(Boolean).join(path.delimiter),
-    },
+    env: ompChildEnv(opts.ompPath),
     encoding: null, // raw Buffers, not decoded strings
   });
 

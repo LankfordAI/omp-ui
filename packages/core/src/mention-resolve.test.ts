@@ -76,15 +76,15 @@ describe("resolveFileMentions", () => {
     );
   });
 
-  it("attaches a small image and leaves a marker block", async () => {
+  it("attaches an image with a case-insensitive jpeg alias and leaves a marker block", async () => {
     const dir = tmpDir();
-    const payload = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    write(dir, "pic.png", payload);
-    const { contextText, images } = await resolveFileMentions(dir, "what is @pic.png");
+    const payload = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+    write(dir, "pic.JPEG", payload);
+    const { contextText, images } = await resolveFileMentions(dir, "what is @pic.JPEG");
     expect(images).toEqual([
-      { type: "image", data: payload.toString("base64"), mimeType: "image/png" },
+      { type: "image", data: payload.toString("base64"), mimeType: "image/jpeg" },
     ]);
-    expect(contextText).toBe('\n\n<file path="pic.png">\n[Image attached]\n</file>');
+    expect(contextText).toBe('\n\n<file path="pic.JPEG">\n[Image attached]\n</file>');
   });
 
   it("lists a directory with a trailing-slash suffix for subdirs", async () => {

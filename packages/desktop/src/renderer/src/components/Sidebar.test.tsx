@@ -2,7 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState, OmpUpdateState } from "@omp-ui/core/types";
+import type { OmpUpdateState } from "@omp-ui/core/types";
+import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -69,18 +70,7 @@ const openSession = vi.fn(async () => {});
 const newSession = vi.fn(async () => {});
 
 const projectPath = "/projects/one";
-const state: BackendState = {
-  defaultMode: "rpc-ui",
-  defaultAgentMode: "plan",
-  planFormat: "html",
-  advisorAutoReply: true,
-  modelFavorites: [],
-  skipDeleteConfirmation: false,
-  themeId: "graphite",
-  appUpdateCheckOnLaunch: true,
-  ompUpdateCheckOnLaunch: true,
-  dismissedAppUpdateVersion: null,
-  dismissedOmpUpdateVersion: null,
+const state = backendState({
   projects: [
     {
       project: {
@@ -124,15 +114,14 @@ const state: BackendState = {
       ],
     },
   ],
-};
+});
 
 // issue #115: the DnD suite needs three reorderable projects; the same session
 // fixture is cloned per project so every row carries a real (but tiny) list.
 const dragAlpha = "/projects/alpha";
 const dragBeta = "/projects/beta";
 const dragGamma = "/projects/gamma";
-const threeProjectState: BackendState = {
-  ...state,
+const threeProjectState = backendState({
   projects: [dragAlpha, dragBeta, dragGamma].map((p, i) => ({
     project: {
       ...state.projects[0]!.project,
@@ -141,7 +130,7 @@ const threeProjectState: BackendState = {
     },
     sessions: state.projects[0]!.sessions.map((s) => ({ ...s, projectCwd: p })),
   })),
-};
+});
 
 let root: Root | null = null;
 const originalMatchMedia = window.matchMedia;
@@ -339,20 +328,9 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
       session(`${path === projA ? "a" : "b"}-session-${i + 1}`, path, `Project ${name} session ${i + 1}`),
     ),
   });
-  const manySessionState: BackendState = {
-    defaultMode: "rpc-ui",
-    defaultAgentMode: "plan",
-    planFormat: "html",
-    advisorAutoReply: true,
-    modelFavorites: [],
-    skipDeleteConfirmation: false,
-    themeId: "graphite",
-    appUpdateCheckOnLaunch: true,
-    ompUpdateCheckOnLaunch: true,
-    dismissedAppUpdateVersion: null,
-    dismissedOmpUpdateVersion: null,
+  const manySessionState = backendState({
     projects: [project(projA, "A"), project(projB, "B")],
-  };
+  });
 
   it("sizes each project's page by its remembered focus while selection stays global", () => {
     useStore.setState({
@@ -526,10 +504,12 @@ describe("Sidebar project drag-and-drop (issue #115)", () => {
 
 describe("Sidebar keyboard project reorder (issue #120)", () => {
   /** The broadcast the main process would send after a successful move. */
-  const orderedState = (paths: string[]): BackendState => ({
-    ...threeProjectState,
-    projects: paths.map((p) => threeProjectState.projects.find((g) => g.project.path === p)!),
-  });
+  const orderedState = (paths: string[]) =>
+    backendState({
+      projects: paths.map((p) =>
+        threeProjectState.projects.find((group) => group.project.path === p)!,
+      ),
+    });
   const grip = (name: string): HTMLButtonElement => button(`reorder ${name}`);
   const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
   const press = async (el: HTMLElement, key: string): Promise<void> => {

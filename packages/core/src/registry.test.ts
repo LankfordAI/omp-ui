@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { Registry } from "./registry";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
+import { Registry, SETTINGS } from "./registry";
+import type { RegistrySettings } from "./registry";
 import type { OwnedSessionRecord } from "./types";
 
 const tmpDirs: string[] = [];
@@ -31,6 +32,40 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     ...patch,
   };
 }
+
+describe("SETTINGS", () => {
+  it("describes every persisted setting with its exact value type", () => {
+    type ExpectedDescriptors = {
+      [K in keyof RegistrySettings]: {
+        fallback: () => RegistrySettings[K];
+        parse: (value: unknown) => RegistrySettings[K];
+      };
+    };
+
+    expectTypeOf(SETTINGS).toEqualTypeOf<ExpectedDescriptors>();
+    expect(Object.keys(SETTINGS)).toEqual([
+      "defaultMode",
+      "defaultAgentMode",
+      "planFormat",
+      "advisorAutoReply",
+      "modelFavorites",
+      "skipDeleteConfirmation",
+      "dismissedAppUpdateVersion",
+      "dismissedOmpUpdateVersion",
+      "themeId",
+      "appUpdateCheckOnLaunch",
+      "ompUpdateCheckOnLaunch",
+      "remoteEnabled",
+      "remoteBind",
+      "remotePort",
+      "remoteToken",
+    ]);
+  });
+
+  it("creates fresh mutable fallbacks", () => {
+    expect(SETTINGS.modelFavorites.fallback()).not.toBe(SETTINGS.modelFavorites.fallback());
+  });
+});
 
 describe("Registry.load", () => {
   it("starts empty when the file is missing", () => {
@@ -112,6 +147,70 @@ describe("Registry.load", () => {
     );
 
     expect(Registry.load(file).defaultAgentMode).toBe("plan");
+  });
+
+  it("falls back independently across malformed setting families", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: {
+          defaultMode: "terminal",
+          defaultAgentMode: "PLAN",
+          planFormat: "markdown",
+          advisorAutoReply: "true",
+          modelFavorites: [42, "kept", null, "also-kept"],
+          skipDeleteConfirmation: 1,
+          dismissedAppUpdateVersion: false,
+          dismissedOmpUpdateVersion: {},
+          themeId: "",
+          appUpdateCheckOnLaunch: "yes",
+          ompUpdateCheckOnLaunch: 0,
+          remoteEnabled: "no",
+          remoteBind: "public",
+          remotePort: 1023,
+          remoteToken: 123,
+        },
+        projects: [],
+        sessions: [],
+      }),
+    );
+
+    const reg = Registry.load(file);
+    expect(reg.defaultMode).toBe("rpc-ui");
+    expect(reg.defaultAgentMode).toBe("plan");
+    expect(reg.planFormat).toBe("html");
+    expect(reg.advisorAutoReply).toBe(true);
+    expect(reg.getFavorites()).toEqual(["kept", "also-kept"]);
+    expect(reg.skipDeleteConfirmation).toBe(false);
+    expect(reg.dismissedAppUpdateVersion).toBeNull();
+    expect(reg.dismissedOmpUpdateVersion).toBeNull();
+    expect(reg.themeId).toBe("graphite");
+    expect(reg.appUpdateCheckOnLaunch).toBe(true);
+    expect(reg.ompUpdateCheckOnLaunch).toBe(true);
+    expect(reg.remoteEnabled).toBe(false);
+    expect(reg.remoteBind).toBe("localhost");
+    expect(reg.remotePort).toBe(4677);
+    expect(reg.remoteToken).toBe("");
+  });
+
+  it("accepts only bounded integer remote ports", () => {
+    for (const [value, expected] of [
+      [1024, 1024],
+      [65535, 65535],
+      [1023, 4677],
+      [65536, 4677],
+      [1234.5, 4677],
+      ["4677", 4677],
+    ] as const) {
+      const file = tmpFile();
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ schemaVersion: 1, settings: { remotePort: value } }),
+      );
+      expect(Registry.load(file).remotePort).toBe(expected);
+    }
   });
 });
 
@@ -222,14 +321,51 @@ describe("Registry persistence", () => {
   it("round-trips a non-default theme and launch update checks across a reload", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setThemeId("monokai");
+    reg.setThemeId("theme-from-a-newer-build");
     reg.setAppUpdateCheckOnLaunch(false);
     reg.setOmpUpdateCheckOnLaunch(false);
 
     const reloaded = Registry.load(file);
-    expect(reloaded.themeId).toBe("monokai");
+    expect(reloaded.themeId).toBe("theme-from-a-newer-build");
     expect(reloaded.appUpdateCheckOnLaunch).toBe(false);
     expect(reloaded.ompUpdateCheckOnLaunch).toBe(false);
+  });
+
+  it("does not write when a public setting setter receives the current value", () => {
+    const sameValueSetters: Array<[string, (registry: Registry) => void]> = [
+      ["defaultMode", (registry) => registry.setDefaultMode("rpc-ui")],
+      ["defaultAgentMode", (registry) => registry.setDefaultAgentMode("plan")],
+      ["planFormat", (registry) => registry.setPlanFormat("html")],
+      ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
+      ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],
+      ["themeId", (registry) => registry.setThemeId("graphite")],
+      ["appUpdateCheckOnLaunch", (registry) => registry.setAppUpdateCheckOnLaunch(true)],
+      ["ompUpdateCheckOnLaunch", (registry) => registry.setOmpUpdateCheckOnLaunch(true)],
+      ["remoteEnabled", (registry) => registry.setRemoteEnabled(false)],
+      ["remoteBind", (registry) => registry.setRemoteBind("localhost")],
+      ["remotePort", (registry) => registry.setRemotePort(4677)],
+      ["remoteToken", (registry) => registry.setRemoteToken("")],
+      ["dismissedAppUpdateVersion", (registry) => registry.setDismissedAppUpdateVersion(null)],
+      ["dismissedOmpUpdateVersion", (registry) => registry.setDismissedOmpUpdateVersion(null)],
+    ];
+
+    for (const [name, setSameValue] of sameValueSetters) {
+      const file = tmpFile();
+      const reg = Registry.load(file);
+      const marker = `unchanged-${name}`;
+      fs.writeFileSync(file, marker);
+      setSameValue(reg);
+      expect(fs.readFileSync(file, "utf8"), name).toBe(marker);
+    }
+  });
+
+  it("uses Object.is when comparing setting values", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setRemotePort(Number.NaN);
+    fs.writeFileSync(file, "unchanged-NaN");
+    reg.setRemotePort(Number.NaN);
+    expect(fs.readFileSync(file, "utf8")).toBe("unchanged-NaN");
   });
 
   it("leaves no tmp file behind after save", () => {

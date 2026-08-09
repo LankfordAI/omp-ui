@@ -1,0 +1,631 @@
+[
+  {
+    "id": "graphite",
+    "label": "Graphite",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#0a0b0d",
+      "--color-sunken": "#0e1013",
+      "--color-surface": "#14171b",
+      "--color-raised": "#1a1e23",
+      "--color-overlay": "#22272e",
+      "--color-hover": "#2a3037",
+      "--color-line": "#23282f",
+      "--color-line-soft": "#1b1f24",
+      "--color-line-strong": "#333a43",
+      "--color-ink": "#e8ecf1",
+      "--color-ink-mid": "#a8b2bf",
+      "--color-ink-dim": "#6f7b8a",
+      "--color-ink-faint": "#4a5361",
+      "--color-signal": "#4ade9f",
+      "--color-signal-dim": "#2a8f65",
+      "--color-signal-wash": "#0f2a20",
+      "--color-copper": "#f0a868",
+      "--color-copper-dim": "#a8703c",
+      "--color-copper-wash": "#2a1e12",
+      "--color-rose": "#f2748c",
+      "--color-rose-dim": "#a34355",
+      "--color-rose-wash": "#2b1419",
+      "--color-iris": "#9d8cf5",
+      "--color-iris-dim": "#6152a8",
+      "--color-iris-wash": "#1c1830",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#5f6b7c",
+      "string": "#e0b184",
+      "constant": "#e39db5",
+      "function": "#7fb8e8",
+      "type": "#6fc7d4",
+      "property": "#a8c5e8"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#ef9cad",
+        "brightGreen": "#7ee3ba",
+        "brightYellow": "#edbe95",
+        "brightBlue": "#a2bff0",
+        "brightMagenta": "#b6acf4",
+        "brightCyan": "#91dfdc",
+        "blue": "#7fa9f0",
+        "cyan": "#66d9d2"
+      },
+      "code": {
+        "inserted": "#8fd4b8"
+      }
+    }
+  },
+  {
+    "id": "dark-modern",
+    "label": "Dark Modern",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#141414",
+      "--color-sunken": "#181818",
+      "--color-surface": "#1f1f1f",
+      "--color-raised": "#252526",
+      "--color-overlay": "#2d2d30",
+      "--color-hover": "#37373d",
+      "--color-line": "#2b2b2b",
+      "--color-line-soft": "#242424",
+      "--color-line-strong": "#3c3c3c",
+      "--color-ink": "#e7e7e7",
+      "--color-ink-mid": "#b5b5b5",
+      "--color-ink-dim": "#8b8b8b",
+      "--color-ink-faint": "#5f5f5f",
+      "--color-signal": "#4ec9a2",
+      "--color-signal-dim": "#2f8468",
+      "--color-signal-wash": "#12271f",
+      "--color-copper": "#dcb67a",
+      "--color-copper-dim": "#957a4d",
+      "--color-copper-wash": "#2a2114",
+      "--color-rose": "#f14c4c",
+      "--color-rose-dim": "#a13636",
+      "--color-rose-wash": "#2c1616",
+      "--color-iris": "#9c8cf0",
+      "--color-iris-dim": "#61549c",
+      "--color-iris-wash": "#1d1a2e",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#6a9955",
+      "string": "#ce9178",
+      "constant": "#b5cea8",
+      "function": "#dcdcaa",
+      "type": "#4ec9b0",
+      "property": "#9cdcfe"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#ee7f7f",
+        "brightGreen": "#80d3b9",
+        "brightYellow": "#e0c69e",
+        "brightBlue": "#86b5dc",
+        "brightMagenta": "#b5aaed",
+        "brightCyan": "#80d3c2",
+        "blue": "#569cd6"
+      },
+      "code": {
+        "inserted": "#7cd6a7"
+      }
+    }
+  },
+  {
+    "id": "monokai",
+    "label": "Monokai",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#1b1c18",
+      "--color-sunken": "#22231e",
+      "--color-surface": "#272822",
+      "--color-raised": "#2f302a",
+      "--color-overlay": "#3a3b34",
+      "--color-hover": "#49483e",
+      "--color-line": "#3b3c35",
+      "--color-line-soft": "#2f302a",
+      "--color-line-strong": "#54554c",
+      "--color-ink": "#f8f8f2",
+      "--color-ink-mid": "#c8c8bd",
+      "--color-ink-dim": "#9a9a8d",
+      "--color-ink-faint": "#75715e",
+      "--color-signal": "#a6e22e",
+      "--color-signal-dim": "#6f9720",
+      "--color-signal-wash": "#222a12",
+      "--color-copper": "#fd971f",
+      "--color-copper-dim": "#ac6715",
+      "--color-copper-wash": "#2e2011",
+      "--color-rose": "#f92672",
+      "--color-rose-dim": "#a81b4e",
+      "--color-rose-wash": "#2c1220",
+      "--color-iris": "#ae81ff",
+      "--color-iris-dim": "#7455ab",
+      "--color-iris-wash": "#241d33",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#75715e",
+      "string": "#e6db74",
+      "constant": "#ae81ff",
+      "function": "#a6e22e",
+      "type": "#66d9ef",
+      "property": "#fd971f"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#f96b9c",
+        "brightGreen": "#c1e96f",
+        "brightYellow": "#fbb765",
+        "brightBlue": "#96e3f0",
+        "brightMagenta": "#c6a8fb",
+        "brightCyan": "#96e3f0",
+        "blue": "#66d9ef"
+      }
+    }
+  },
+  {
+    "id": "solarized-dark",
+    "label": "Solarized Dark",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#00212b",
+      "--color-sunken": "#002028",
+      "--color-surface": "#002b36",
+      "--color-raised": "#01323d",
+      "--color-overlay": "#073642",
+      "--color-hover": "#0c4553",
+      "--color-line": "#0b3c49",
+      "--color-line-soft": "#04303b",
+      "--color-line-strong": "#14505f",
+      "--color-ink": "#eee8d5",
+      "--color-ink-mid": "#93a1a1",
+      "--color-ink-dim": "#839496",
+      "--color-ink-faint": "#586e75",
+      "--color-signal": "#2aa198",
+      "--color-signal-dim": "#1c6b65",
+      "--color-signal-wash": "#032b2e",
+      "--color-copper": "#cb4b16",
+      "--color-copper-dim": "#8a330f",
+      "--color-copper-wash": "#2a1a10",
+      "--color-rose": "#dc322f",
+      "--color-rose-dim": "#94211f",
+      "--color-rose-wash": "#2b1315",
+      "--color-iris": "#6c71c4",
+      "--color-iris-dim": "#484c85",
+      "--color-iris-wash": "#151d33",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#5d757c",
+      "string": "#b58900",
+      "constant": "#d33682",
+      "function": "#268bd2",
+      "type": "#2aa198",
+      "property": "#93a1a1"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#e26e66",
+        "brightGreen": "#6bb8ac",
+        "brightYellow": "#d77f55",
+        "brightBlue": "#68aad3",
+        "brightMagenta": "#9798ca",
+        "brightCyan": "#6bb8ac"
+      },
+      "code": {
+        "inserted": "#859900"
+      }
+    }
+  },
+  {
+    "id": "one-dark",
+    "label": "One Dark",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#1b1f27",
+      "--color-sunken": "#21252e",
+      "--color-surface": "#282c34",
+      "--color-raised": "#2f343e",
+      "--color-overlay": "#383e4a",
+      "--color-hover": "#404756",
+      "--color-line": "#363c46",
+      "--color-line-soft": "#2d323b",
+      "--color-line-strong": "#4b5263",
+      "--color-ink": "#dfe3ea",
+      "--color-ink-mid": "#abb2bf",
+      "--color-ink-dim": "#848e9c",
+      "--color-ink-faint": "#5f6773",
+      "--color-signal": "#98c379",
+      "--color-signal-dim": "#69845c",
+      "--color-signal-wash": "#1e2a1c",
+      "--color-copper": "#d19a66",
+      "--color-copper-dim": "#8a6c51",
+      "--color-copper-wash": "#2b2317",
+      "--color-rose": "#e06c75",
+      "--color-rose-dim": "#93515a",
+      "--color-rose-wash": "#2e1d20",
+      "--color-iris": "#c678dd",
+      "--color-iris-dim": "#845896",
+      "--color-iris-wash": "#2a1e31",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#7f848e",
+      "string": "#98c379",
+      "constant": "#d19a66",
+      "function": "#61afef",
+      "type": "#e5c07b",
+      "property": "#e06c75"
+    },
+    "overrides": {
+      "term": {
+        "cyan": "#56b6c2"
+      }
+    }
+  },
+  {
+    "id": "dracula",
+    "label": "Dracula",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#191a24",
+      "--color-sunken": "#20222c",
+      "--color-surface": "#282a36",
+      "--color-raised": "#2f3240",
+      "--color-overlay": "#383b4b",
+      "--color-hover": "#44475a",
+      "--color-line": "#3a3d4d",
+      "--color-line-soft": "#2e3140",
+      "--color-line-strong": "#535776",
+      "--color-ink": "#f8f8f2",
+      "--color-ink-mid": "#c0c4d8",
+      "--color-ink-dim": "#8e94b0",
+      "--color-ink-faint": "#636a8a",
+      "--color-signal": "#50fa7b",
+      "--color-signal-dim": "#3fa35e",
+      "--color-signal-wash": "#173222",
+      "--color-copper": "#ffb86c",
+      "--color-copper-dim": "#a57c55",
+      "--color-copper-wash": "#332818",
+      "--color-rose": "#ff5555",
+      "--color-rose-dim": "#a54348",
+      "--color-rose-wash": "#331b1d",
+      "--color-iris": "#bd93f9",
+      "--color-iris-dim": "#7e67a7",
+      "--color-iris-wash": "#2a2140",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#6272a4",
+      "string": "#f1fa8c",
+      "constant": "#bd93f9",
+      "function": "#50fa7b",
+      "type": "#8be9fd",
+      "property": "#ffb86c"
+    },
+    "overrides": {
+      "term": {
+        "yellow": "#f1fa8c",
+        "blue": "#bd93f9",
+        "magenta": "#ff79c6"
+      },
+      "code": {
+        "keyword": "#ff79c6"
+      }
+    }
+  },
+  {
+    "id": "nord",
+    "label": "Nord",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#232831",
+      "--color-sunken": "#292e39",
+      "--color-surface": "#2e3440",
+      "--color-raised": "#353c4a",
+      "--color-overlay": "#3b4252",
+      "--color-hover": "#434c5e",
+      "--color-line": "#3b4252",
+      "--color-line-soft": "#333a47",
+      "--color-line-strong": "#4c566a",
+      "--color-ink": "#eceff4",
+      "--color-ink-mid": "#c2cbdc",
+      "--color-ink-dim": "#94a0b8",
+      "--color-ink-faint": "#68758d",
+      "--color-signal": "#a3be8c",
+      "--color-signal-dim": "#72846c",
+      "--color-signal-wash": "#28321f",
+      "--color-copper": "#d08770",
+      "--color-copper-dim": "#8c645c",
+      "--color-copper-wash": "#32241c",
+      "--color-rose": "#bf616a",
+      "--color-rose-dim": "#824e58",
+      "--color-rose-wash": "#301c20",
+      "--color-iris": "#b48ead",
+      "--color-iris-dim": "#7c687f",
+      "--color-iris-wash": "#2d2331",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#7b88a1",
+      "string": "#a3be8c",
+      "constant": "#b48ead",
+      "function": "#88c0d0",
+      "type": "#8fbcbb",
+      "property": "#d8dee9"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#cc8c93",
+        "brightYellow": "#ebd6aa",
+        "yellow": "#ebcb8b",
+        "blue": "#81a1c1",
+        "cyan": "#88c0d0"
+      },
+      "code": {
+        "keyword": "#81a1c1"
+      }
+    }
+  },
+  {
+    "id": "gruvbox-dark",
+    "label": "Gruvbox Dark",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#1d2021",
+      "--color-sunken": "#232526",
+      "--color-surface": "#282828",
+      "--color-raised": "#32302f",
+      "--color-overlay": "#3c3836",
+      "--color-hover": "#504945",
+      "--color-line": "#3c3836",
+      "--color-line-soft": "#302e2d",
+      "--color-line-strong": "#5a524c",
+      "--color-ink": "#f2e5bc",
+      "--color-ink-mid": "#d5c4a1",
+      "--color-ink-dim": "#a89984",
+      "--color-ink-faint": "#7c6f64",
+      "--color-signal": "#b8bb26",
+      "--color-signal-dim": "#7c7d27",
+      "--color-signal-wash": "#2a2c10",
+      "--color-copper": "#fe8019",
+      "--color-copper-dim": "#a45b1f",
+      "--color-copper-wash": "#332312",
+      "--color-rose": "#fb4934",
+      "--color-rose-dim": "#a23b2f",
+      "--color-rose-wash": "#331a15",
+      "--color-iris": "#d3869b",
+      "--color-iris-dim": "#8b5f6b",
+      "--color-iris-wash": "#2f2126",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#9d8f7c",
+      "string": "#b8bb26",
+      "constant": "#d3869b",
+      "function": "#fabd2f",
+      "type": "#8ec07c",
+      "property": "#83a598"
+    },
+    "overrides": {
+      "term": {
+        "brightMagenta": "#dca2a5",
+        "yellow": "#fabd2f",
+        "blue": "#83a598"
+      },
+      "code": {
+        "keyword": "#fb4934"
+      }
+    }
+  },
+  {
+    "id": "tokyo-night",
+    "label": "Tokyo Night",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#121218",
+      "--color-sunken": "#16161e",
+      "--color-surface": "#1a1b26",
+      "--color-raised": "#20212e",
+      "--color-overlay": "#282a3a",
+      "--color-hover": "#33364a",
+      "--color-line": "#292b3d",
+      "--color-line-soft": "#20222f",
+      "--color-line-strong": "#3d405c",
+      "--color-ink": "#c8d3f5",
+      "--color-ink-mid": "#a9b4de",
+      "--color-ink-dim": "#828bb8",
+      "--color-ink-faint": "#5d6488",
+      "--color-signal": "#9ece6a",
+      "--color-signal-dim": "#67834d",
+      "--color-signal-wash": "#20291a",
+      "--color-copper": "#ff9e64",
+      "--color-copper-dim": "#9f674a",
+      "--color-copper-wash": "#302216",
+      "--color-rose": "#f7768e",
+      "--color-rose-dim": "#9a5062",
+      "--color-rose-wash": "#2e1a24",
+      "--color-iris": "#bb9af7",
+      "--color-iris-dim": "#77659f",
+      "--color-iris-wash": "#262038",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#6a739e",
+      "string": "#9ece6a",
+      "constant": "#ff9e64",
+      "function": "#7aa2f7",
+      "type": "#2ac3de",
+      "property": "#7dcfff"
+    },
+    "overrides": {
+      "term": {
+        "yellow": "#e0af68",
+        "cyan": "#7dcfff"
+      }
+    }
+  },
+  {
+    "id": "catppuccin-mocha",
+    "label": "Catppuccin Mocha",
+    "dark": true,
+    "tokens": {
+      "--color-void": "#11111b",
+      "--color-sunken": "#181825",
+      "--color-surface": "#1e1e2e",
+      "--color-raised": "#262637",
+      "--color-overlay": "#313244",
+      "--color-hover": "#3b3c52",
+      "--color-line": "#313244",
+      "--color-line-soft": "#27273a",
+      "--color-line-strong": "#45475a",
+      "--color-ink": "#cdd6f4",
+      "--color-ink-mid": "#a9b1d6",
+      "--color-ink-dim": "#8288ab",
+      "--color-ink-faint": "#5f6486",
+      "--color-signal": "#a6e3a1",
+      "--color-signal-dim": "#6d9071",
+      "--color-signal-wash": "#1e2f22",
+      "--color-copper": "#fab387",
+      "--color-copper-dim": "#9e7462",
+      "--color-copper-wash": "#31251c",
+      "--color-rose": "#f38ba8",
+      "--color-rose-dim": "#9a5d75",
+      "--color-rose-wash": "#2f1d2a",
+      "--color-iris": "#cba6f7",
+      "--color-iris-dim": "#826da3",
+      "--color-iris-wash": "#292140",
+      "--color-edge-hi": "rgb(255 255 255 / 0.05)",
+      "--color-edge-lo": "rgb(0 0 0 / 0.4)"
+    },
+    "syntax": {
+      "comment": "#7f849c",
+      "string": "#a6e3a1",
+      "constant": "#fab387",
+      "function": "#89b4fa",
+      "type": "#f9e2af",
+      "property": "#89dceb"
+    },
+    "overrides": {
+      "term": {
+        "yellow": "#f9e2af",
+        "cyan": "#94e2d5"
+      }
+    }
+  },
+  {
+    "id": "light",
+    "label": "Light",
+    "dark": false,
+    "tokens": {
+      "--color-void": "#e8ecf0",
+      "--color-sunken": "#f1f4f7",
+      "--color-surface": "#fafbfc",
+      "--color-raised": "#ffffff",
+      "--color-overlay": "#ffffff",
+      "--color-hover": "#e6ebf0",
+      "--color-line": "#d8dee5",
+      "--color-line-soft": "#e7ecf1",
+      "--color-line-strong": "#b9c2cc",
+      "--color-ink": "#12161b",
+      "--color-ink-mid": "#41505f",
+      "--color-ink-dim": "#5f6f7e",
+      "--color-ink-faint": "#8c9aa8",
+      "--color-signal": "#0f7d55",
+      "--color-signal-dim": "#14a06d",
+      "--color-signal-wash": "#d7f0e4",
+      "--color-copper": "#a3560c",
+      "--color-copper-dim": "#c97a2a",
+      "--color-copper-wash": "#f8e8d5",
+      "--color-rose": "#b31d3a",
+      "--color-rose-dim": "#d24a63",
+      "--color-rose-wash": "#fbe5ea",
+      "--color-iris": "#4a34b8",
+      "--color-iris-dim": "#6f5ad0",
+      "--color-iris-wash": "#eae5fb",
+      "--color-edge-hi": "rgb(255 255 255 / 0.9)",
+      "--color-edge-lo": "rgb(15 23 32 / 0.10)"
+    },
+    "syntax": {
+      "comment": "#6a7885",
+      "string": "#984b1a",
+      "constant": "#a11a6b",
+      "function": "#1c5fb0",
+      "type": "#0b7078",
+      "property": "#2a5a8a"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#7e1b30",
+        "brightGreen": "#105b42",
+        "brightYellow": "#734111",
+        "brightBlue": "#19477f",
+        "brightMagenta": "#382a84",
+        "brightCyan": "#0d5259"
+      }
+    }
+  },
+  {
+    "id": "solarized-light",
+    "label": "Solarized Light",
+    "dark": false,
+    "tokens": {
+      "--color-void": "#e6e0cd",
+      "--color-sunken": "#eee8d5",
+      "--color-surface": "#f7f1de",
+      "--color-raised": "#fdf6e3",
+      "--color-overlay": "#fffaec",
+      "--color-hover": "#e9e2cf",
+      "--color-line": "#ded8c4",
+      "--color-line-soft": "#eee8d5",
+      "--color-line-strong": "#bfb99f",
+      "--color-ink": "#073642",
+      "--color-ink-mid": "#586e75",
+      "--color-ink-dim": "#657b83",
+      "--color-ink-faint": "#93a1a1",
+      "--color-signal": "#1a7d76",
+      "--color-signal-dim": "#2aa198",
+      "--color-signal-wash": "#cce8e2",
+      "--color-copper": "#a3480f",
+      "--color-copper-dim": "#cb4b16",
+      "--color-copper-wash": "#f5decc",
+      "--color-rose": "#b02724",
+      "--color-rose-dim": "#dc322f",
+      "--color-rose-wash": "#f7dcd9",
+      "--color-iris": "#4f53a3",
+      "--color-iris-dim": "#6c71c4",
+      "--color-iris-wash": "#e0e1f2",
+      "--color-edge-hi": "rgb(255 255 255 / 0.9)",
+      "--color-edge-lo": "rgb(15 23 32 / 0.10)"
+    },
+    "syntax": {
+      "comment": "#7c8d8d",
+      "string": "#8a6800",
+      "constant": "#a32468",
+      "function": "#1c6fa8",
+      "type": "#1a7d76",
+      "property": "#586e75"
+    },
+    "overrides": {
+      "term": {
+        "brightRed": "#782c2e",
+        "brightGreen": "#146665",
+        "brightYellow": "#704220",
+        "brightBlue": "#155c86",
+        "brightMagenta": "#374983",
+        "brightCyan": "#146665"
+      },
+      "code": {
+        "inserted": "#5f7000"
+      }
+    }
+  }
+]

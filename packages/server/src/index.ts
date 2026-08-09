@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
-import type { ChannelTable, RemoteBind } from "@omp-ui/core/types";
+import type { ChannelTable, RemoteBind } from "@omp-ui/core";
 import {
   encodeBinaryEvent,
   REMOTE_COOKIE,
@@ -221,10 +221,14 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       const args = Array.isArray(f.args) ? f.args : [];
       const table = host.handlers();
       if (f.t === "notify") {
-        const fn = table.notify[f.ch];
+        const notifyHandlers = table.notify as unknown as Record<
+          string,
+          (...args: unknown[]) => void
+        >;
+        const fn = notifyHandlers[f.ch];
         if (!fn) return; // unknown notify channel is ignored — there is no one to tell.
         try {
-          (fn as (...a: unknown[]) => unknown)(...args);
+          fn(...args);
         } catch {
           // A notify has no reply channel; a throwing handler must not kill the socket.
         }
@@ -232,14 +236,16 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       }
       if (f.t !== "req" || typeof f.id !== "number") return;
       const id = f.id;
-      const fn = table.request[f.ch];
+      const fn = (table.request as unknown as Record<string, (...args: unknown[]) => unknown>)[
+        f.ch
+      ];
       if (!fn) {
         reply(ws, { t: "res", id, ok: false, message: `unknown channel ${f.ch}` });
         return;
       }
       void (async () => {
         try {
-          const value = await (fn as (...a: unknown[]) => unknown)(...args);
+          const value = await fn(...args);
           // JSON.stringify turns an undefined return into null, which every Promise<void>
           // caller ignores.
           reply(ws, { t: "res", id, ok: true, value: value ?? null });

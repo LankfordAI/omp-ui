@@ -24,13 +24,20 @@ import type { ImageAttachment } from "./types";
  */
 export type { ImageAttachment };
 
-/** omp's four accepted input types; anything else it re-encodes to PNG. */
-export const SUPPORTED_IMAGE_MIME_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
+/** Canonical mime→extension pairs for omp's four accepted input types. */
+const IMAGE_TYPES = [
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/gif", "gif"],
+  ["image/webp", "webp"],
 ] as const;
+
+export type SupportedImageMime = (typeof IMAGE_TYPES)[number][0];
+
+/** omp's four accepted input types; anything else it re-encodes to PNG. */
+export const SUPPORTED_IMAGE_MIME_TYPES: readonly SupportedImageMime[] = IMAGE_TYPES.map(
+  ([mimeType]) => mimeType,
+);
 
 /**
  * omp's own `MAX_IMAGE_INPUT_BYTES`. omp does not enforce it on the rpc
@@ -39,13 +46,7 @@ export const SUPPORTED_IMAGE_MIME_TYPES = [
  */
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
-/** The extension omp's bracketed-paste detector requires, per mime type. */
-const EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-};
+const JPEG_EXTENSION_ALIAS = "jpeg";
 
 /**
  * omp's TUI only treats a pasted path as an image when it ends in a known
@@ -53,7 +54,14 @@ const EXTENSIONS: Record<string, string> = {
  * converts to, and the one its detector is most likely to accept.
  */
 export function imageExtension(mimeType: string): string {
-  return EXTENSIONS[mimeType] ?? "png";
+  return IMAGE_TYPES.find(([supportedMime]) => supportedMime === mimeType)?.[1] ?? "png";
+}
+
+/** Resolves a file extension to an image mime, accepting a leading dot and any case. */
+export function extensionToMime(extension: string): SupportedImageMime | undefined {
+  const normalized = extension.toLowerCase().replace(/^\./, "");
+  if (normalized === JPEG_EXTENSION_ALIAS) return "image/jpeg";
+  return IMAGE_TYPES.find(([, supportedExtension]) => supportedExtension === normalized)?.[0];
 }
 
 export function isSupportedImageMime(mimeType: string): boolean {

@@ -1,0 +1,30 @@
+/* Generated from lib/theme-sources.json by scripts/generate-theme-css.mjs. Do not edit. */
+@theme {
+  --color-void: #0a0b0d;
+  --color-sunken: #0e1013;
+  --color-surface: #14171b;
+  --color-raised: #1a1e23;
+  --color-overlay: #22272e;
+  --color-hover: #2a3037;
+  --color-line: #23282f;
+  --color-line-soft: #1b1f24;
+  --color-line-strong: #333a43;
+  --color-ink: #e8ecf1;
+  --color-ink-mid: #a8b2bf;
+  --color-ink-dim: #6f7b8a;
+  --color-ink-faint: #4a5361;
+  --color-signal: #4ade9f;
+  --color-signal-dim: #2a8f65;
+  --color-signal-wash: #0f2a20;
+  --color-copper: #f0a868;
+  --color-copper-dim: #a8703c;
+  --color-copper-wash: #2a1e12;
+  --color-rose: #f2748c;
+  --color-rose-dim: #a34355;
+  --color-rose-wash: #2b1419;
+  --color-iris: #9d8cf5;
+  --color-iris-dim: #6152a8;
+  --color-iris-wash: #1c1830;
+  --color-edge-hi: rgb(255 255 255 / 0.05);
+  --color-edge-lo: rgb(0 0 0 / 0.4);
+}

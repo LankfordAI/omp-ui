@@ -18,12 +18,35 @@ function renderPalette(compact: boolean): void {
     configurable: true,
     value: vi.fn(() => ({ matches: compact, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
   });
-  useStore.setState({ state: null, tabs: [], activeTabId: null });
+  useStore.setState({ state: null, tabs: [], activeTabId: null, projectPickerOpen: false });
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   act(() => root!.render(<CommandPalette />));
   act(() => openPalette());
+}
+
+function paletteInput(): HTMLInputElement {
+  const found = document.body.querySelector<HTMLInputElement>('[role="dialog"] input');
+  expect(found).not.toBeNull();
+  return found!;
+}
+
+function typeQuery(value: string): void {
+  const field = paletteInput();
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  act(() => {
+    setter.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function pressPalette(key: string, init: KeyboardEventInit = {}): void {
+  act(() => {
+    paletteInput().dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }),
+    );
+  });
 }
 
 afterEach(() => {
@@ -44,5 +67,29 @@ describe("CommandPalette close controls", () => {
     renderPalette(true);
     expect(document.body.textContent).not.toContain("Esc");
     expect(document.body.querySelector('button[aria-label="close dialog"]')).not.toBeNull();
+  });
+
+  it("keeps empty results safe and closes them through the shared engine", () => {
+    renderPalette(false);
+    typeQuery("zzzzzzzzzz");
+    expect(document.body.textContent).toContain("Nothing matches");
+
+    pressPalette("ArrowDown");
+    pressPalette("ArrowUp");
+    pressPalette("n", { ctrlKey: true });
+    pressPalette("p", { ctrlKey: true });
+    pressPalette("Enter");
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+
+    pressPalette("Escape");
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("picks a filtered action with Enter", () => {
+    renderPalette(false);
+    typeQuery("Add project");
+    pressPalette("Enter");
+    expect(useStore.getState().projectPickerOpen).toBe(true);
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 });

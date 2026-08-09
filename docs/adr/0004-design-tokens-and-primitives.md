@@ -1,8 +1,10 @@
 # Design tokens and UI primitives
 
-Every renderer surface draws from one token set in
-`packages/desktop/src/renderer/src/style.css` (a Tailwind v4 `@theme` block —
-there is no `tailwind.config`) and composes one primitive vocabulary in
+Every renderer surface draws from semantic tokens sourced in
+`packages/desktop/src/renderer/src/lib/theme-sources.json`. The committed
+`theme-default.css` projects the graphite tokens into Tailwind v4 `@theme`
+declarations for first paint (there is no `tailwind.config`), and surfaces
+compose one primitive vocabulary in
 `components/ui.tsx`. Feature components never name a raw colour, and never
 re-decide a radius, a duration, or what "the agent is working" looks like.
 
@@ -42,12 +44,13 @@ holds, which is why `signal` is called out above.
 ## Consequences
 
 - **Tokens only.** `neutral-*`, `zinc-*`, `gray-*`, `green-*`, `amber-*`,
-  `red-*`, and raw hex are prohibited in renderer components. Literal hex now
-  lives in exactly one place, `renderer/src/lib/themes.ts`, which holds every
-  theme's tokens, xterm ITheme, and shiki colours together; `TerminalTab.tsx`
-  and `lib/highlight.ts` read from it rather than carrying their own copies,
-  and `style.css`'s `@theme` block declares the token names plus the default
-  (graphite) values.
+  `red-*`, and raw hex are prohibited in renderer components. Literal colours
+  live in exactly one place, `renderer/src/lib/theme-sources.json`: each theme
+  supplies complete semantic tokens, compact syntax seeds, and only the
+  exceptional terminal or code overrides needed to preserve its identity.
+  `lib/themes.ts` derives the renderer chrome, xterm palette, and Shiki palette
+  from that source. The generated `theme-default.css` projects the same
+  graphite tokens into the build-time first-paint fallback.
 - **Motion is CSS-only** — five named animations (`rise`, `slide-in`, `breathe`,
   `sweep`, `caret`) and one easing curve (`ease-out-quint`). No animation
   library. `breathe` means "work is happening now"; `sweep` means "indeterminate

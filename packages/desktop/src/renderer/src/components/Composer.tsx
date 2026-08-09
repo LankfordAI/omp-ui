@@ -30,7 +30,7 @@ import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
-import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, Label, ProgressSweep, Sheet } from "./ui";
+import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, ProgressSweep, Sheet } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -66,7 +66,6 @@ function IconSend() {
 export function Composer({ tabId }: { tabId: string }) {
   const status = useStore((s) => s.rpc[tabId]?.status);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
-  const storeError = useStore((s) => s.rpc[tabId]?.error);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
   // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
@@ -118,8 +117,6 @@ export function Composer({ tabId }: { tabId: string }) {
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [effortMenu, setEffortMenu] = useState(false);
-  /** Errors are store-owned, so dismissal remembers the message it hid. */
-  const [dismissed, setDismissed] = useState<string | null>(null);
   /**
    * Image Attachments in this draft, in the order they were pasted or picked.
    * They ride the same frame as the text and are cleared with it.
@@ -146,7 +143,6 @@ export function Composer({ tabId }: { tabId: string }) {
   const recall = useRef<number | null>(null);
 
   const running = status === "running";
-  const error = storeError !== undefined && storeError !== dismissed ? storeError : null;
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
   const commandWord = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : null;
@@ -338,7 +334,6 @@ export function Composer({ tabId }: { tabId: string }) {
       setPasteError(null);
       setDismissedFor(null);
       setMentionDismissedFor(null);
-      setDismissed(storeError ?? null);
 
       // A leading "/" is a command, never a prompt — even mid-run. Commands take
       // no images, so any attached here would be silently dropped by omp;
@@ -375,7 +370,6 @@ export function Composer({ tabId }: { tabId: string }) {
       text,
       images,
       dead,
-      storeError,
       tabId,
       projectCwd,
       runSlashCommand,
@@ -567,9 +561,7 @@ export function Composer({ tabId }: { tabId: string }) {
                       onClick={() => dropImage(i)}
                       className="size-4 rounded-full border border-line-strong bg-overlay"
                     >
-                      <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className="size-2.5">
-                        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-                      </svg>
+                      <IconClose />
                     </IconButton>
                   </span>
                 </span>
@@ -859,24 +851,6 @@ export function Composer({ tabId }: { tabId: string }) {
         </div>
       </Sheet>
 
-      {error !== null && (
-        <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-rose">
-          <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
-            <circle cx="8" cy="8" r="6" stroke="currentColor" />
-            <path d="M8 5v4" stroke="currentColor" strokeLinecap="round" />
-            <path d="M8 11h0" stroke="currentColor" strokeLinecap="round" />
-          </svg>
-          <span className="min-w-0 flex-1 break-words" data-selectable>
-            {error}
-          </span>
-          <IconButton label="dismiss error" tone="rose" onClick={() => setDismissed(error)}>
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-            </svg>
-          </IconButton>
-        </div>
-      )}
-
       {pasteError !== null && (
         <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
           <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
@@ -887,9 +861,7 @@ export function Composer({ tabId }: { tabId: string }) {
             {pasteError}
           </span>
           <IconButton label="dismiss paste warning" onClick={() => setPasteError(null)}>
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-            </svg>
+            <IconClose className="size-3" />
           </IconButton>
         </div>
       )}

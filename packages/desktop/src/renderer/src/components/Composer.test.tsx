@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState } from "@omp-ui/core/types";
+import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime } from "../lib/rpc-types";
 
 const clipboardImageMock = vi.hoisted(() => ({
@@ -17,15 +17,24 @@ vi.mock("../lib/clipboard-image", () => clipboardImageMock);
 // jsdom has no layout, hence no scrollIntoView; the slash palette calls it on
 // the active row exactly like CommandPalette and ModelSelector do.
 HTMLElement.prototype.scrollIntoView = vi.fn();
+class ResizeObserverStub {
+  observe() {}
+  disconnect() {}
+}
+(globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
+
 const backendMock = {
   listProjectFiles: vi.fn(async () => ({ files: [], truncated: false })),
   resolveFileMentions: vi.fn(async () => ({ contextText: "", images: [] })),
   listBranches: vi.fn(async () => ({ repoRoot: null, current: null, branches: [], defaultBranch: null })),
+  getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setSessionAdvisor: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
 const { Composer } = await import("./Composer");
+const { RpcTab } = await import("./RpcTab");
 
 
 const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" };
@@ -36,26 +45,25 @@ const abortAndPrompt = vi.fn(async () => {});
 const abortAgent = vi.fn(async () => {});
 let root: Root | null = null;
 
-const state = {
-  defaultMode: "rpc-ui", defaultAgentMode: "plan", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
-  planFormat: "html",
-  advisorAutoReply: true,
-  appUpdateCheckOnLaunch: true, ompUpdateCheckOnLaunch: true, dismissedAppUpdateVersion: null, dismissedOmpUpdateVersion: null,
+const state = backendState({
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastAdvisorModel: null }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
     advisor: false, advisorModel: null, cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live",
   }] }],
-} as BackendState;
+});
 
 function seed(status: "ready" | "running", dead = false): void {
   useStore.setState({
+    advisorDefaults: {},
     state,
     exited: dead ? { [TAB]: 0 } : {},
     branches: { "/p": { repoRoot: null, current: null, branches: [], defaultBranch: null } },
-    rpc: { [TAB]: { status, items: [], todos: [], model: { id: "model-x", name: "Model X", provider: "test", input: ["text"], contextWindow: 1000 }, availableModels: [], commands: [],
-      session: { ...emptySessionRuntime(), thinkingLevel: "medium" }, stats: null, subagents: [], extensionStatus: {}, pendingCommands: new Map(), extensionQueue: [], busy: false,
-      initialPrompt: null, hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false, plans: [], advisorStats: null, advisorReply: true },
-    },
+    rpc: { [TAB]: rpcTabState({
+      status,
+      model: { id: "model-x", name: "Model X", provider: "test", input: ["text"], contextWindow: 1000 },
+      session: { ...emptySessionRuntime(), thinkingLevel: "medium" },
+      hasRenamed: true,
+    }) },
     compactSurface: null, sendPrompt, abortAndPrompt, abortAgent,
   });
 }
@@ -63,6 +71,11 @@ function seed(status: "ready" | "running", dead = false): void {
 function renderComposer(): void {
   const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   act(() => root!.render(<Composer tabId={TAB} />));
+}
+
+function renderRpcTab(): void {
+  const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  act(() => root!.render(<RpcTab tabId={TAB} active={false} />));
 }
 
 function typeDraft(value: string): HTMLTextAreaElement {
@@ -74,6 +87,17 @@ function typeDraft(value: string): HTMLTextAreaElement {
 
 function imagePicker(): HTMLInputElement {
   return document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
+}
+
+function modeSegments(): HTMLButtonElement[] {
+  const group = document.body.querySelector<HTMLElement>(
+    '[role="group"][aria-label="session mode"]',
+  )!;
+  return [...group.querySelectorAll<HTMLButtonElement>("button")];
+}
+
+function modeSegment(name: "build" | "plan"): HTMLButtonElement {
+  return modeSegments().find((button) => button.textContent?.trim() === name)!;
 }
 
 
@@ -137,10 +161,118 @@ describe("compact Composer", () => {
     expect(byText("medium").getAttribute("aria-pressed")).toBe("true");
     expect(byText("low").getAttribute("aria-pressed")).toBe("false");
     expect(byText("high").getAttribute("aria-pressed")).toBe("false");
-    expect(byText("plan").getAttribute("aria-checked")).toBe("false");
+    expect(modeSegment("plan").getAttribute("aria-pressed")).toBe("false");
     const sheet = document.body.querySelector<HTMLElement>('[aria-label="prompt options"]')!;
     expect(sheet.querySelector(".prompt-options")).not.toBeNull();
     expect(sheet.querySelector(".w-full")?.textContent).toContain("advisor");
+  });
+});
+
+describe("Composer advisor model palette", () => {
+  it("opens on the current provider and resets to the configured advisor through the restart path", async () => {
+    const ADVISOR = { id: "advisor-a", name: "Advisor A", provider: "p" };
+    const DEFAULT = { id: "default", name: "Default Advisor", provider: "q" };
+    seed("ready");
+    useStore.setState((s) => ({
+      state: {
+        ...s.state!,
+        projects: s.state!.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((session) =>
+            session.tabId === TAB
+              ? { ...session, advisor: true, advisorModel: "p/advisor-a" }
+              : session,
+          ),
+        })),
+      },
+      advisorDefaults: { "/p": { enabled: true, model: "q/default" } },
+      rpc: {
+        ...s.rpc,
+        [TAB]: { ...s.rpc[TAB]!, availableModels: [ADVISOR, DEFAULT] },
+      },
+    }));
+    renderComposer();
+    act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
+    const advisorButton = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Advisor A",
+    )!;
+    await act(async () => advisorButton.click());
+
+    const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const palette = overlays[overlays.length - 1]!;
+    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(palette.textContent).toContain("use omp's configured advisor");
+    expect(palette.textContent).toContain("picking one restarts this session and resumes it");
+
+    const configured = [...palette.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("use omp's configured advisor"),
+    )!;
+    await act(async () => configured.click());
+    expect(backendMock.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, null);
+  });
+});
+
+describe("RpcTab failure presentation", () => {
+  it("shows one canonical timeout banner and dismisses it locally", () => {
+    seed("ready");
+    const failure = {
+      message: 'RPC command "prompt" timed out after its 30.0s response budget',
+      kind: "command" as const,
+      fatal: false,
+      command: "prompt",
+      timeoutMs: 30_000,
+      sessionStatus: "ready" as const,
+      liveState: "live" as const,
+      recovery:
+        "Prompt-like commands may still complete in the live session. Refresh state before continuing; resending can duplicate work.",
+    };
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, failure } },
+    }));
+    renderRpcTab();
+
+    expect(document.body.textContent!.split(failure.message).length - 1).toBe(1);
+    expect(document.body.textContent).toContain("resending can duplicate work");
+    expect([...document.body.querySelectorAll("button")].map((button) => button.textContent?.trim())).toEqual(
+      expect.arrayContaining(["Copy", "Refresh state", "Dismiss"]),
+    );
+
+    const dismiss = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Dismiss",
+    )!;
+    act(() => dismiss.click());
+    expect(document.body.textContent).not.toContain(failure.message);
+    expect(useStore.getState().rpc[TAB]!.failure).toBe(failure);
+
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, failure: { ...failure } } },
+    })));
+    expect(document.body.textContent).toContain(failure.message);
+  });
+
+  it("offers retry boot rather than nonfatal recovery actions for a boot failure", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          status: "error",
+          failure: {
+            message: "RPC boot failed",
+            kind: "boot",
+            fatal: true,
+            recovery: "Retry boot to reconnect to the live session.",
+          },
+        },
+      },
+    }));
+    renderRpcTab();
+
+    const actions = [...document.body.querySelectorAll("button")].map((button) => button.textContent?.trim());
+    expect(actions).toEqual(expect.arrayContaining(["Copy", "Retry boot"]));
+    expect(actions).not.toContain("Refresh state");
+    expect(actions).not.toContain("Dismiss");
   });
 });
 
@@ -277,11 +409,6 @@ describe("Composer BuildPlanControl", () => {
   const setPlanMode = vi.fn(async () => {});
   const runSlashCommand = vi.fn(async () => {});
 
-  function modeSegment(name: "build" | "plan"): HTMLButtonElement {
-    return [...document.body.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
-      (button) => button.textContent?.trim() === name,
-    )!;
-  }
 
   beforeEach(() => {
     // The suite-wide beforeEach forces the compact shell; these exercise the
@@ -304,17 +431,15 @@ describe("Composer BuildPlanControl", () => {
       },
     });
     renderComposer();
-    expect(modeSegment("build").getAttribute("aria-checked")).toBe("true");
-    expect(modeSegment("plan").getAttribute("aria-checked")).toBe("false");
+    expect(modeSegment("build").getAttribute("aria-pressed")).toBe("true");
+    expect(modeSegment("plan").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("orders the safe default as Plan then Build (issue #141)", () => {
     seed("ready");
     renderComposer();
     expect(
-      [...document.body.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].map((button) =>
-        button.textContent?.trim(),
-      ),
+      modeSegments().map((button) => button.textContent?.trim()),
     ).toEqual(["plan", "build"]);
   });
 
@@ -333,9 +458,7 @@ describe("Composer BuildPlanControl", () => {
     renderComposer();
 
     expect(
-      [...document.body.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].map((button) =>
-        button.textContent?.trim(),
-      ),
+      modeSegments().map((button) => button.textContent?.trim()),
     ).toEqual(["build", "plan"]);
     expect(modeSegment("build").className).not.toContain("bg-iris-wash");
 
@@ -380,8 +503,8 @@ describe("Composer BuildPlanControl", () => {
       },
     });
     renderComposer();
-    expect(modeSegment("plan").getAttribute("aria-checked")).toBe("true");
-    expect(modeSegment("build").getAttribute("aria-checked")).toBe("false");
+    expect(modeSegment("plan").getAttribute("aria-pressed")).toBe("true");
+    expect(modeSegment("build").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("selects Build from Plan mode", () => {
@@ -429,9 +552,9 @@ describe("Composer BuildPlanControl", () => {
     renderComposer();
     const build = modeSegment("build");
     const plan = modeSegment("plan");
-    expect(build.getAttribute("aria-checked")).toBe("true");
+    expect(build.getAttribute("aria-pressed")).toBe("true");
     expect(build.disabled).toBe(false);
-    expect(plan.getAttribute("aria-checked")).toBe("false");
+    expect(plan.getAttribute("aria-pressed")).toBe("false");
     expect(plan.disabled).toBe(true);
     expect(plan.title).toBe("plan mode unavailable: no active omp session");
   });

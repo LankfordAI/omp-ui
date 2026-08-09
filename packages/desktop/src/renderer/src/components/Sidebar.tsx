@@ -6,7 +6,7 @@ import { useCompactShell } from "../lib/responsive";
 import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, Panel, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, Panel, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -24,23 +24,6 @@ function IconSearch() {
     >
       <circle cx="7" cy="7" r="4" />
       <path d="M10.2 10.2 13 13" />
-    </svg>
-  );
-}
-
-function IconClose() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
     </svg>
   );
 }
@@ -328,7 +311,7 @@ function ProjectSection({
               </Button>
             )}
             <IconButton label="remove project" tone="rose" onClick={() => void removeProject(project.path)}>
-              <IconClose />
+              <IconClose className="size-3.5" />
             </IconButton>
           </div>
         </div>
@@ -585,7 +568,7 @@ export function Sidebar() {
                       {matchCount}
                     </span>
                     <IconButton label="clear filter" onClick={() => setQuery("")} className="size-5">
-                      <IconClose />
+                      <IconClose className="size-3.5" />
                     </IconButton>
                   </>
                 )}

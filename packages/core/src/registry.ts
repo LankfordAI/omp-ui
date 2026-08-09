@@ -9,64 +9,154 @@ import type {
   SessionMode,
 } from "./types";
 
+export interface RegistrySettings {
+  defaultMode: SessionMode;
+  /** Initial Plan/Build posture for newly created native sessions. */
+  defaultAgentMode: AgentMode;
+  /** How the agent authors plans for review (see core/plan-extension.ts). */
+  planFormat: PlanFormat;
+  /** Auto-answer a late advisor review (issue #111); app-level, default on. */
+  advisorAutoReply: boolean;
+  modelFavorites: string[];
+  skipDeleteConfirmation: boolean;
+  /** Release version whose update card the user dismissed ("Later"). */
+  dismissedAppUpdateVersion: string | null;
+  /** omp version whose update/install card the user dismissed ("Later"). */
+  dismissedOmpUpdateVersion: string | null;
+  /** Active theme id (see renderer lib/themes.ts). */
+  themeId: string;
+  /** Check for a newer omp-ui release at launch. */
+  appUpdateCheckOnLaunch: boolean;
+  /** Check for a newer omp binary at launch. */
+  ompUpdateCheckOnLaunch: boolean;
+  /** Embedded remote-access server: off by default (issue #37). */
+  remoteEnabled: boolean;
+  /** "localhost" binds 127.0.0.1; "lan" binds 0.0.0.0 and is an explicit, warned choice. */
+  remoteBind: RemoteBind;
+  remotePort: number;
+  /** Bearer token; "" until first minted. */
+  remoteToken: string;
+}
+
 interface RegistryData {
   schemaVersion: 1;
-  settings: {
-    defaultMode: SessionMode;
-    /** Initial Plan/Build posture for newly created native sessions. */
-    defaultAgentMode: AgentMode;
-    /** How the agent authors plans for review (see core/plan-extension.ts). */
-    planFormat: PlanFormat;
-    /** Auto-answer a late advisor review (issue #111); app-level, default on. */
-    advisorAutoReply: boolean;
-    modelFavorites: string[];
-    skipDeleteConfirmation: boolean;
-    /** Release version whose update card the user dismissed ("Later"). */
-    dismissedAppUpdateVersion: string | null;
-    /** omp version whose update/install card the user dismissed ("Later"). */
-    dismissedOmpUpdateVersion: string | null;
-    /** Active theme id (see renderer lib/themes.ts). Unknown ids fall back to "graphite". */
-    themeId: string;
-    /** Check for a newer omp-ui release at launch. */
-    appUpdateCheckOnLaunch: boolean;
-    /** Check for a newer omp binary at launch. */
-    ompUpdateCheckOnLaunch: boolean;
-    /** Embedded remote-access server: off by default (issue #37). */
-    remoteEnabled: boolean;
-    /** "localhost" binds 127.0.0.1; "lan" binds 0.0.0.0 and is an explicit, warned choice. */
-    remoteBind: RemoteBind;
-    remotePort: number;
-    /** Bearer token; "" until first minted. */
-    remoteToken: string;
-  };
+  settings: RegistrySettings;
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
+}
+
+interface SettingDescriptor<T> {
+  fallback: () => T;
+  parse: (value: unknown) => T;
+}
+
+type SettingDescriptors = {
+  [K in keyof RegistrySettings]: SettingDescriptor<RegistrySettings[K]>;
+};
+
+export type SettingKey = keyof RegistrySettings;
+
+function validatedSetting<T>(
+  fallback: () => T,
+  valid: (value: unknown) => value is T,
+): SettingDescriptor<T> {
+  return { fallback, parse: (value) => (valid(value) ? value : fallback()) };
+}
+
+export const SETTINGS: SettingDescriptors = {
+  // The native transcript is the primary mode (the sidebar's mode toggle
+  // went away with #10); pty stays an explicit per-spawn menu choice.
+  defaultMode: validatedSetting<SessionMode>(() => "rpc-ui", isSessionMode),
+  defaultAgentMode: validatedSetting<AgentMode>(
+    () => "plan",
+    (value): value is AgentMode => value === "build",
+  ),
+  // HTML is the default review rendition (issue #109); the canonical
+  // markdown plan is written either way.
+  planFormat: validatedSetting<PlanFormat>(
+    () => "html",
+    (value): value is PlanFormat => value === "md",
+  ),
+  advisorAutoReply: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  modelFavorites: (() => {
+    const fallback = (): string[] => [];
+    return {
+      fallback,
+      parse: (value: unknown) =>
+        Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === "string")
+          : fallback(),
+    };
+  })(),
+  skipDeleteConfirmation: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  dismissedAppUpdateVersion: validatedSetting<string | null>(
+    () => null,
+    (value): value is string => typeof value === "string",
+  ),
+  dismissedOmpUpdateVersion: validatedSetting<string | null>(
+    () => null,
+    (value): value is string => typeof value === "string",
+  ),
+  // Any non-empty string is kept as-is: theme ids are validated by the
+  // renderer's own table, so registries written by newer builds remain intact.
+  themeId: validatedSetting(
+    () => "graphite",
+    (value): value is string => typeof value === "string" && value !== "",
+  ),
+  appUpdateCheckOnLaunch: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  ompUpdateCheckOnLaunch: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  remoteEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  remoteBind: validatedSetting<RemoteBind>(
+    () => "localhost",
+    (value): value is RemoteBind => value === "lan",
+  ),
+  remotePort: validatedSetting(
+    () => 4677,
+    (value): value is number =>
+      typeof value === "number" && Number.isInteger(value) && value >= 1024 && value <= 65535,
+  ),
+  remoteToken: validatedSetting(
+    () => "",
+    (value): value is string => typeof value === "string",
+  ),
+};
+
+const SETTING_KEYS = Object.keys(SETTINGS) as SettingKey[];
+
+function buildSettings(
+  valueFor: <K extends SettingKey>(key: K) => RegistrySettings[K],
+): RegistrySettings {
+  // Object.fromEntries loses the mapped key/value correlation even though the
+  // exhaustive descriptor type and generic callback preserve it above.
+  return Object.fromEntries(
+    SETTING_KEYS.map((key) => [key, valueFor(key)]),
+  ) as unknown as RegistrySettings;
+}
+
+function parseSettings(raw: object | undefined): RegistrySettings {
+  const values = raw as Record<string, unknown> | undefined;
+  return buildSettings((key) => SETTINGS[key].parse(values?.[key]));
 }
 
 function emptyRegistry(): RegistryData {
   return {
     schemaVersion: 1,
-    settings: {
-      // The native transcript is the primary mode (the sidebar's mode toggle
-      // went away with #10); pty stays an explicit per-spawn menu choice.
-      defaultMode: "rpc-ui",
-      defaultAgentMode: "plan",
-      // HTML is the default review rendition (issue #109); the canonical
-      // markdown plan is written either way.
-      planFormat: "html",
-      advisorAutoReply: true,
-      modelFavorites: [],
-      skipDeleteConfirmation: false,
-      dismissedAppUpdateVersion: null,
-      dismissedOmpUpdateVersion: null,
-      themeId: "graphite",
-      appUpdateCheckOnLaunch: true,
-      ompUpdateCheckOnLaunch: true,
-      remoteEnabled: false,
-      remoteBind: "localhost",
-      remotePort: 4677,
-      remoteToken: "",
-    },
+    settings: buildSettings((key) => SETTINGS[key].fallback()),
     projects: [],
     sessions: [],
   };
@@ -165,116 +255,11 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
     }));
-  const settingsObj =
+  const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"
       ? raw.settings
       : undefined;
-  const rawDefaultMode: SessionMode | undefined =
-    settingsObj !== undefined && "defaultMode" in settingsObj && isSessionMode(settingsObj.defaultMode)
-      ? settingsObj.defaultMode
-      : undefined;
-  const rawDefaultAgentMode: AgentMode =
-    settingsObj !== undefined &&
-    "defaultAgentMode" in settingsObj &&
-    settingsObj.defaultAgentMode === "build"
-      ? "build"
-      : "plan";
-  const rawPlanFormat: PlanFormat =
-    settingsObj !== undefined && "planFormat" in settingsObj && settingsObj.planFormat === "md"
-      ? "md"
-      : "html";
-  const rawAdvisorAutoReply =
-    settingsObj !== undefined &&
-    "advisorAutoReply" in settingsObj &&
-    typeof settingsObj.advisorAutoReply === "boolean"
-      ? settingsObj.advisorAutoReply
-      : true;
-  const favRaw =
-    settingsObj !== undefined && "modelFavorites" in settingsObj
-      ? settingsObj.modelFavorites
-      : undefined;
-  const rawSkipDeleteConfirmation =
-    settingsObj !== undefined &&
-    "skipDeleteConfirmation" in settingsObj &&
-    typeof settingsObj.skipDeleteConfirmation === "boolean"
-      ? settingsObj.skipDeleteConfirmation
-      : false;
-  const rawDismissedAppUpdateVersion =
-    settingsObj !== undefined &&
-    "dismissedAppUpdateVersion" in settingsObj &&
-    typeof settingsObj.dismissedAppUpdateVersion === "string"
-      ? settingsObj.dismissedAppUpdateVersion
-      : null;
-  const rawDismissedOmpUpdateVersion =
-    settingsObj !== undefined &&
-    "dismissedOmpUpdateVersion" in settingsObj &&
-    typeof settingsObj.dismissedOmpUpdateVersion === "string"
-      ? settingsObj.dismissedOmpUpdateVersion
-      : null;
-  // Any non-empty string is kept as-is: theme ids are validated by the
-  // renderer's own table, so a registry written by a newer build naming a
-  // theme this build lacks degrades to graphite instead of being erased.
-  const rawThemeId =
-    settingsObj !== undefined &&
-    "themeId" in settingsObj &&
-    typeof settingsObj.themeId === "string" &&
-    settingsObj.themeId !== ""
-      ? settingsObj.themeId
-      : "graphite";
-  const rawAppUpdateCheckOnLaunch =
-    settingsObj !== undefined &&
-    "appUpdateCheckOnLaunch" in settingsObj &&
-    typeof settingsObj.appUpdateCheckOnLaunch === "boolean"
-      ? settingsObj.appUpdateCheckOnLaunch
-      : true;
-  const rawOmpUpdateCheckOnLaunch =
-    settingsObj !== undefined &&
-    "ompUpdateCheckOnLaunch" in settingsObj &&
-    typeof settingsObj.ompUpdateCheckOnLaunch === "boolean"
-      ? settingsObj.ompUpdateCheckOnLaunch
-      : true;
-  const rawRemoteEnabled =
-    settingsObj !== undefined &&
-    "remoteEnabled" in settingsObj &&
-    typeof settingsObj.remoteEnabled === "boolean"
-      ? settingsObj.remoteEnabled
-      : false;
-  const rawRemoteBind: RemoteBind =
-    settingsObj !== undefined && "remoteBind" in settingsObj && settingsObj.remoteBind === "lan"
-      ? "lan"
-      : "localhost";
-  const rawRemotePort =
-    settingsObj !== undefined &&
-    "remotePort" in settingsObj &&
-    Number.isInteger(settingsObj.remotePort) &&
-    (settingsObj.remotePort as number) >= 1024 &&
-    (settingsObj.remotePort as number) <= 65535
-      ? (settingsObj.remotePort as number)
-      : 4677;
-  const rawRemoteToken =
-    settingsObj !== undefined &&
-    "remoteToken" in settingsObj &&
-    typeof settingsObj.remoteToken === "string"
-      ? settingsObj.remoteToken
-      : "";
-  const settings: RegistryData["settings"] = {
-    defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
-    defaultAgentMode: rawDefaultAgentMode,
-    planFormat: rawPlanFormat,
-    advisorAutoReply: rawAdvisorAutoReply,
-    modelFavorites:
-      Array.isArray(favRaw) ? favRaw.filter((v): v is string => typeof v === "string") : [],
-    skipDeleteConfirmation: rawSkipDeleteConfirmation,
-    dismissedAppUpdateVersion: rawDismissedAppUpdateVersion,
-    dismissedOmpUpdateVersion: rawDismissedOmpUpdateVersion,
-    themeId: rawThemeId,
-    appUpdateCheckOnLaunch: rawAppUpdateCheckOnLaunch,
-    ompUpdateCheckOnLaunch: rawOmpUpdateCheckOnLaunch,
-    remoteEnabled: rawRemoteEnabled,
-    remoteBind: rawRemoteBind,
-    remotePort: rawRemotePort,
-    remoteToken: rawRemoteToken,
-  };
+  const settings = parseSettings(settingsValue);
   return { schemaVersion: 1, settings, projects, sessions };
 }
 
@@ -331,6 +316,16 @@ export class Registry {
     fs.renameSync(tmp, this.#file);
   }
 
+  #getSetting<K extends SettingKey>(key: K): RegistrySettings[K] {
+    return this.#data.settings[key];
+  }
+
+  #setSetting<K extends SettingKey>(key: K, value: RegistrySettings[K]): void {
+    if (Object.is(this.#data.settings[key], value)) return;
+    this.#data.settings[key] = value;
+    this.#save();
+  }
+
   get projects(): readonly ProjectRecord[] {
     return deepFreeze(structuredClone(this.#data.projects));
   }
@@ -340,15 +335,15 @@ export class Registry {
   }
 
   get defaultMode(): SessionMode {
-    return this.#data.settings.defaultMode;
+    return this.#getSetting("defaultMode");
   }
 
   get defaultAgentMode(): AgentMode {
-    return this.#data.settings.defaultAgentMode;
+    return this.#getSetting("defaultAgentMode");
   }
 
   get skipDeleteConfirmation(): boolean {
-    return this.#data.settings.skipDeleteConfirmation;
+    return this.#getSetting("skipDeleteConfirmation");
   }
 
   addProject(projectPath: string): ProjectRecord {
@@ -468,134 +463,107 @@ export class Registry {
   }
 
   setDefaultMode(mode: SessionMode): void {
-    this.#data.settings.defaultMode = mode;
-    this.#save();
+    this.#setSetting("defaultMode", mode);
   }
 
   setDefaultAgentMode(mode: AgentMode): void {
-    if (this.#data.settings.defaultAgentMode === mode) return;
-    this.#data.settings.defaultAgentMode = mode;
-    this.#save();
+    this.#setSetting("defaultAgentMode", mode);
   }
 
   get planFormat(): PlanFormat {
-    return this.#data.settings.planFormat;
+    return this.#getSetting("planFormat");
   }
 
   setPlanFormat(format: PlanFormat): void {
-    if (this.#data.settings.planFormat === format) return;
-    this.#data.settings.planFormat = format;
-    this.#save();
+    this.#setSetting("planFormat", format);
   }
 
   get advisorAutoReply(): boolean {
-    return this.#data.settings.advisorAutoReply;
+    return this.#getSetting("advisorAutoReply");
   }
 
   setAdvisorAutoReply(on: boolean): void {
-    if (this.#data.settings.advisorAutoReply === on) return;
-    this.#data.settings.advisorAutoReply = on;
-    this.#save();
+    this.#setSetting("advisorAutoReply", on);
   }
 
   setSkipDeleteConfirmation(skip: boolean): void {
-    if (this.#data.settings.skipDeleteConfirmation === skip) return;
-    this.#data.settings.skipDeleteConfirmation = skip;
-    this.#save();
+    this.#setSetting("skipDeleteConfirmation", skip);
   }
 
   get themeId(): string {
-    return this.#data.settings.themeId;
+    return this.#getSetting("themeId");
   }
 
   setThemeId(id: string): void {
-    if (this.#data.settings.themeId === id) return;
-    this.#data.settings.themeId = id;
-    this.#save();
+    this.#setSetting("themeId", id);
   }
 
   get appUpdateCheckOnLaunch(): boolean {
-    return this.#data.settings.appUpdateCheckOnLaunch;
+    return this.#getSetting("appUpdateCheckOnLaunch");
   }
 
   setAppUpdateCheckOnLaunch(on: boolean): void {
-    if (this.#data.settings.appUpdateCheckOnLaunch === on) return;
-    this.#data.settings.appUpdateCheckOnLaunch = on;
-    this.#save();
+    this.#setSetting("appUpdateCheckOnLaunch", on);
   }
 
   get ompUpdateCheckOnLaunch(): boolean {
-    return this.#data.settings.ompUpdateCheckOnLaunch;
+    return this.#getSetting("ompUpdateCheckOnLaunch");
   }
 
   setOmpUpdateCheckOnLaunch(on: boolean): void {
-    if (this.#data.settings.ompUpdateCheckOnLaunch === on) return;
-    this.#data.settings.ompUpdateCheckOnLaunch = on;
-    this.#save();
+    this.#setSetting("ompUpdateCheckOnLaunch", on);
   }
 
   get remoteEnabled(): boolean {
-    return this.#data.settings.remoteEnabled;
+    return this.#getSetting("remoteEnabled");
   }
 
   setRemoteEnabled(on: boolean): void {
-    if (this.#data.settings.remoteEnabled === on) return;
-    this.#data.settings.remoteEnabled = on;
-    this.#save();
+    this.#setSetting("remoteEnabled", on);
   }
 
   get remoteBind(): RemoteBind {
-    return this.#data.settings.remoteBind;
+    return this.#getSetting("remoteBind");
   }
 
   setRemoteBind(bind: RemoteBind): void {
-    if (this.#data.settings.remoteBind === bind) return;
-    this.#data.settings.remoteBind = bind;
-    this.#save();
+    this.#setSetting("remoteBind", bind);
   }
 
   get remotePort(): number {
-    return this.#data.settings.remotePort;
+    return this.#getSetting("remotePort");
   }
 
   setRemotePort(port: number): void {
-    if (this.#data.settings.remotePort === port) return;
-    this.#data.settings.remotePort = port;
-    this.#save();
+    this.#setSetting("remotePort", port);
   }
 
   get remoteToken(): string {
-    return this.#data.settings.remoteToken;
+    return this.#getSetting("remoteToken");
   }
 
   setRemoteToken(token: string): void {
-    if (this.#data.settings.remoteToken === token) return;
-    this.#data.settings.remoteToken = token;
-    this.#save();
+    this.#setSetting("remoteToken", token);
   }
 
   get dismissedAppUpdateVersion(): string | null {
-    return this.#data.settings.dismissedAppUpdateVersion;
+    return this.#getSetting("dismissedAppUpdateVersion");
   }
 
   setDismissedAppUpdateVersion(version: string | null): void {
-    if (this.#data.settings.dismissedAppUpdateVersion === version) return;
-    this.#data.settings.dismissedAppUpdateVersion = version;
-    this.#save();
+    this.#setSetting("dismissedAppUpdateVersion", version);
   }
 
   get dismissedOmpUpdateVersion(): string | null {
-    return this.#data.settings.dismissedOmpUpdateVersion;
+    return this.#getSetting("dismissedOmpUpdateVersion");
   }
 
   setDismissedOmpUpdateVersion(version: string | null): void {
-    if (this.#data.settings.dismissedOmpUpdateVersion === version) return;
-    this.#data.settings.dismissedOmpUpdateVersion = version;
-    this.#save();
+    this.#setSetting("dismissedOmpUpdateVersion", version);
   }
 
   getFavorites(): string[] {
-    return [...this.#data.settings.modelFavorites];
+    return [...this.#getSetting("modelFavorites")];
   }
 
   toggleFavorite(key: string): void {

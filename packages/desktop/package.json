@@ -12,9 +12,9 @@
   },
   "main": "./out/main/index.js",
   "scripts": {
-    "predev": "install-electron --no",
+    "predev": "npm run themes:generate && install-electron --no",
     "dev": "electron-vite dev --watch",
-    "build": "electron-vite build && npm run build:web",
+    "build": "npm run themes:generate && electron-vite build && npm run build:web",
     "build:web": "vite build --config vite.web.config.ts",
     "package": "npm run package:linux",
     "package:linux": "npm run build && electron-builder --linux",
@@ -22,7 +22,9 @@
     "package:win": "npm run build && electron-builder --win --x64",
     "rebuild:native": "electron-rebuild -f -w node-pty",
     "icon": "node scripts/render-icon.mjs",
-    "test": "vitest run --passWithNoTests",
+    "themes:generate": "node scripts/generate-theme-css.mjs",
+    "themes:check": "node scripts/generate-theme-css.mjs --check",
+    "test": "npm run themes:check && vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {

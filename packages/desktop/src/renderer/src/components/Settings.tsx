@@ -1,7 +1,6 @@
 import { AppUpdateRestartAction } from "./AppUpdateCard";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
-  AgentMode,
   AppUpdateState,
   OmpSettingEntry,
   OmpSettingLayer,
@@ -24,8 +23,7 @@ import { resolveTheme, THEMES } from "../lib/themes";
 import { useStore, type SettingsPage } from "../store";
 import {
   Button,
-  Capsule,
-  CAPSULE_SEGMENT,
+  ChoiceCapsule,
   Chip,
   CopyButton,
   Dot,
@@ -171,6 +169,19 @@ function CommitField({
 
 /* ----------------------------------------------------------------- general */
 
+const DEFAULT_SESSION_MODE_OPTIONS = [
+  { value: "pty", label: "terminal" },
+  { value: "rpc-ui", label: "native" },
+] as const;
+const DEFAULT_AGENT_MODE_OPTIONS = [
+  { value: "plan", label: "plan" },
+  { value: "build", label: "build" },
+] as const;
+const PLAN_FORMAT_OPTIONS = [
+  { value: "html", label: "html" },
+  { value: "md", label: "markdown" },
+] as const;
+
 function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
@@ -189,77 +200,37 @@ function GeneralPage() {
         title="Default session mode"
         hint="How a new session opens — an embedded terminal, or the native transcript."
       >
-        <Capsule>
-          {(
-            [
-              ["pty", "terminal"],
-              ["rpc-ui", "native"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={mode === value}
-              onClick={() => void setDefaultMode(value)}
-              className={cn(
-                CAPSULE_SEGMENT,
-                "px-2 text-[11px]",
-                mode === value ? "bg-hover text-ink" : "text-ink-mid",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </Capsule>
+        <ChoiceCapsule
+          label="default session mode"
+          value={mode}
+          options={DEFAULT_SESSION_MODE_OPTIONS}
+          onChange={(value) => void setDefaultMode(value)}
+          optionClassName="px-2 text-[11px]"
+        />
       </Row>
       <Row
         title="Default agent mode"
         hint="How a new native session starts — read-only Plan, or write-enabled Build."
       >
-        <Capsule>
-          {(["plan", "build"] as const).map((value: AgentMode) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={agentMode === value}
-              onClick={() => void setDefaultAgentMode(value)}
-              className={cn(
-                CAPSULE_SEGMENT,
-                "px-2 text-[11px]",
-                agentMode === value ? "bg-hover text-ink" : "text-ink-mid",
-              )}
-            >
-              {value}
-            </button>
-          ))}
-        </Capsule>
+        <ChoiceCapsule
+          label="default agent mode"
+          value={agentMode}
+          options={DEFAULT_AGENT_MODE_OPTIONS}
+          onChange={(value) => void setDefaultAgentMode(value)}
+          optionClassName="px-2 text-[11px]"
+        />
       </Row>
       <Row
         title="Plan format"
         hint="How the agent authors a plan for review — one self-contained HTML document rendered in the review modal, or markdown."
       >
-        <Capsule>
-          {(
-            [
-              ["html", "html"],
-              ["md", "markdown"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={planFormat === value}
-              onClick={() => void setPlanFormat(value)}
-              className={cn(
-                CAPSULE_SEGMENT,
-                "px-2 text-[11px]",
-                planFormat === value ? "bg-hover text-ink" : "text-ink-mid",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </Capsule>
+        <ChoiceCapsule
+          label="plan format"
+          value={planFormat}
+          options={PLAN_FORMAT_OPTIONS}
+          onChange={(value) => void setPlanFormat(value)}
+          optionClassName="px-2 text-[11px]"
+        />
       </Row>
       <Row
         title="Advisor auto-reply"
@@ -619,6 +590,11 @@ function PairingQr({ url }: { url: string }) {
   );
 }
 
+const REMOTE_BIND_OPTIONS = [
+  { value: "localhost", label: "localhost" },
+  { value: "lan", label: "local network" },
+] as const;
+
 function RemotePage() {
   const remote = useStore((s) => s.remote);
   const setRemoteEnabled = useStore((s) => s.setRemoteEnabled);
@@ -656,28 +632,13 @@ function RemotePage() {
         </Row>
         <div>
           <Row title="Bind address" hint="Which interface the server listens on.">
-            <Capsule>
-              {(
-                [
-                  ["localhost", "localhost"],
-                  ["lan", "local network"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={remote.bind === value}
-                  onClick={() => void setRemoteBind(value)}
-                  className={cn(
-                    CAPSULE_SEGMENT,
-                    "px-2 text-[11px]",
-                    remote.bind === value ? "bg-hover text-ink" : "text-ink-mid",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </Capsule>
+            <ChoiceCapsule
+              label="bind address"
+              value={remote.bind}
+              options={REMOTE_BIND_OPTIONS}
+              onChange={(value) => void setRemoteBind(value)}
+              optionClassName="px-2 text-[11px]"
+            />
           </Row>
           {remote.bind === "lan" && (
             <p className="pb-2.5 text-[11px] leading-relaxed text-rose">

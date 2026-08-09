@@ -1,16 +1,9 @@
-import {
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type Ref,
-} from "react";
+import { useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
 import { cn } from "../lib/cn";
 import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
 import { deriveDirs } from "../lib/mentions";
 import { Chip, Label } from "./ui";
+import { PaletteList, usePaletteNav } from "./palette";
 
 /**
  * Inline file picker above the composer, opened by an `@`-word at the caret —
@@ -54,8 +47,6 @@ export function MentionPalette({
   onClose(): void;
   ref?: Ref<MentionPaletteHandle>;
 }) {
-  const [cursor, setCursor] = useState(0);
-  const activeRow = useRef<HTMLButtonElement | null>(null);
 
   const rows = useMemo(() => {
     const all: Row[] = [
@@ -78,49 +69,15 @@ export function MentionPalette({
     return scored.slice(0, MAX_ROWS).map((s) => s.row);
   }, [files, query]);
 
-  // A changed query invalidates the cursor rather than shifting it.
-  useEffect(() => {
-    setCursor(0);
-  }, [query]);
+  const { active, setActive, activeRef, handleKey } = usePaletteNav({
+    items: rows,
+    resetKey: query,
+    acceptTab: true,
+    onPick: (row) => onPick(pickPath(row)),
+    onClose,
+  });
 
-  const active = rows.length === 0 ? 0 : Math.min(cursor, rows.length - 1);
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      handleKey(e) {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          onClose();
-          return true;
-        }
-        const picked = rows[active];
-        if (picked === undefined) return false;
-
-        if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
-          e.preventDefault();
-          setCursor((active + 1) % rows.length);
-          return true;
-        }
-        if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
-          e.preventDefault();
-          setCursor((active - 1 + rows.length) % rows.length);
-          return true;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          onPick(pickPath(picked));
-          return true;
-        }
-        return false;
-      },
-    }),
-    [rows, active, onPick, onClose],
-  );
-
-  useEffect(() => {
-    activeRow.current?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  useImperativeHandle(ref, () => ({ handleKey }), [handleKey]);
 
   const shell =
     "animate-rise edge-lit absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg border border-line-strong bg-overlay";
@@ -136,15 +93,15 @@ export function MentionPalette({
   }
 
   return (
-    <div className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] overflow-y-auto py-1")}>
+    <PaletteList className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] py-1")}>
       {rows.map((row, i) => (
         <button
           key={row.path}
           type="button"
-          ref={i === active ? activeRow : null}
+          ref={i === active ? activeRef : null}
           // Keep the caret in the textarea: a blur would tear the palette down.
           onMouseDown={(e) => e.preventDefault()}
-          onMouseEnter={() => setCursor(i)}
+          onMouseEnter={() => setActive(i)}
           onClick={() => onPick(pickPath(row))}
           className={cn(
             "flex w-full items-baseline gap-2 px-3 py-1 text-left",
@@ -166,7 +123,7 @@ export function MentionPalette({
           <Label>listing capped at 10 000 files — keep typing to narrow</Label>
         </div>
       )}
-    </div>
+    </PaletteList>
   );
 }
 

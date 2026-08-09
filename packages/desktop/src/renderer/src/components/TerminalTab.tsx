@@ -12,7 +12,7 @@ import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/c
 import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { registerTermWriter, useStore } from "../store";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, IconClose } from "./ui";
 
 /**
  * xterm renders into a canvas, so it cannot read Tailwind classes — the
@@ -251,9 +251,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
             tone={note.bad ? "rose" : "signal"}
             onClick={() => setNote(null)}
           >
-            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
-            </svg>
+            <IconClose />
           </IconButton>
         </div>
       )}

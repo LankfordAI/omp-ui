@@ -5,6 +5,7 @@
  * Relative to THIS stylesheet (src/renderer/src/style.css), "../.." is src.
  */
 @import "tailwindcss" source("../..");
+@import "./theme-default.css";
 
 @import "@fontsource-variable/bricolage-grotesque/index.css";
 @import "@fontsource-variable/instrument-sans/index.css";
@@ -18,56 +19,11 @@
  * glance at the window answers "is it working?". Copper = attention,
  * rose = failure, iris = user voice. Nothing else earns colour.
  *
- * Every value a component needs lives here as a token. Components reference
- * tokens (bg-surface, text-ink-dim, border-line) — never raw neutral-N.
+ * Semantic colours come from theme-sources.json; components reference their
+ * generated tokens (bg-surface, text-ink-dim, border-line) — never raw neutral-N.
  */
 @theme {
-  /* ---- Depth: five graphite planes, coolest at the back ---- */
-  --color-void: #0a0b0d;
-  --color-sunken: #0e1013;
-  --color-surface: #14171b;
-  --color-raised: #1a1e23;
-  --color-overlay: #22272e;
-  --color-hover: #2a3037;
-
-  /* ---- Hairlines ---- */
-  --color-line: #23282f;
-  --color-line-soft: #1b1f24;
-  --color-line-strong: #333a43;
-
-  /* ---- Ink ---- */
-  --color-ink: #e8ecf1;
-  --color-ink-mid: #a8b2bf;
-  --color-ink-dim: #6f7b8a;
-  --color-ink-faint: #4a5361;
-
-  /* ---- Signal (agent alive / success) ---- */
-  --color-signal: #4ade9f;
-  --color-signal-dim: #2a8f65;
-  --color-signal-wash: #0f2a20;
-
-  /* ---- Copper (running / attention / concern) ---- */
-  --color-copper: #f0a868;
-  --color-copper-dim: #a8703c;
-  --color-copper-wash: #2a1e12;
-
-  /* ---- Rose (error / blocker / destructive) ---- */
-  --color-rose: #f2748c;
-  --color-rose-dim: #a34355;
-  --color-rose-wash: #2b1419;
-
-  /* ---- Iris (the user's own voice) ---- */
-  --color-iris: #9d8cf5;
-  --color-iris-dim: #6152a8;
-  --color-iris-wash: #1c1830;
-
-  /* ---- Chrome the utilities below need as tokens, not literals ----
-   * `edge-lit`'s highlight/shadow are palette, not decoration: a
-   * white-on-black inset inverts its meaning on a light plane, so a runtime
-   * theme has to be able to move them (lib/themes.ts).
-   */
-  --color-edge-hi: rgb(255 255 255 / 0.05);
-  --color-edge-lo: rgb(0 0 0 / 0.4);
+  /* Colour tokens are generated in theme-default.css from theme-sources.json. */
 
   /* ---- Typography ---- */
   --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;

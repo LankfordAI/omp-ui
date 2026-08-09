@@ -1,51 +1,18 @@
 import { create } from "zustand";
-import type {
-  AgentMode,
-  AdvisorDefaults,
-  AppUpdateRestartResult,
-  AppUpdateState,
-  BackendState,
-  BranchList,
-  ImageAttachment,
-  LiveState,
-  OmpSettingsSnapshot,
-  OmpSettingValue,
-  OmpUpdateState,
-  PlanFormat,
-  ProviderKeysSnapshot,
-  RemoteBind,
-  RemoteState,
-  SessionMode,
-  SessionSummary,
-} from "@omp-ui/core/types";
+import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 import {
   isHtmlPlanPath,
   parsePlanReviewTitle,
   parsePlanStatus,
-  PLAN_COMMAND,
+  planMessage,
   PLAN_EXECUTE,
   PLAN_REFINE,
   PLAN_STATUS_KEY,
-  type PlanReviewRequest,
-  type PlanStatus,
 } from "@omp-ui/core/plan";
-import {
-  parseAdvisorStats,
-  ADVISOR_STATS_COMMAND,
-  ADVISOR_STATS_KEY,
-  type AdvisorStatsView,
-} from "@omp-ui/core/advisor-stats";
+import { parseAdvisorStats, ADVISOR_STATS_COMMAND, ADVISOR_STATS_KEY } from "@omp-ui/core/advisor-stats";
 import { backend } from "./backend";
 import { AdvisorReplyWatcher } from "./lib/advisor-reply";
 import { formatDuration } from "./lib/duration";
-import {
-  desktopViewStorage,
-  loadDesktopView,
-  projectDesktopView,
-  saveDesktopView,
-  shouldRestoreDesktopView,
-  type DesktopViewStateV1,
-} from "./lib/desktop-view-state";
 import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
 import { arrField, field, numField, strField } from "./lib/fields";
 import {
@@ -66,17 +33,42 @@ import {
   parseSessionStats,
   parseSubagents,
   parseTodoPhases,
-  type ModelInfo,
-  type PromptRoute,
   type SessionRuntime,
-  type SessionStats,
-  type SlashCommandInfo,
-  type SubagentInfo,
-  type TodoPhase,
 } from "./lib/rpc-types";
 import { generateTitleFromPrompt, isLowSignalTitleInput, isUntitled } from "./lib/session-title";
 import { reduceSubagentFrame, subagentKey } from "./lib/subagent-events";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
+import { createSettingsSlice } from "./store/slices/settings";
+import { createUpdatesSlice } from "./store/slices/updates";
+import {
+  createViewSlice,
+  findRecord,
+  focusOn,
+  forgetFocus,
+  installDesktopViewPersistence,
+  pruneFocus,
+  restoreDesktopView,
+} from "./store/slices/view";
+import type {
+  PlanRecord,
+  RpcTabState,
+  SidebarSessionState,
+  UiStore,
+} from "./store/types";
+export type {
+  CompactSurface,
+  DeleteConfirmation,
+  PendingCommand,
+  PlanRecord,
+  PlanRevisionNotes,
+  RpcFailure,
+  RpcTabState,
+  SettingsPage,
+  SidebarSessionState,
+  TabInfo,
+  UiStore,
+} from "./store/types";
+export { findRecord } from "./store/slices/view";
 import {
   historyToItems,
   markerItem,
@@ -88,136 +80,22 @@ import {
   type RenderItem,
 } from "./lib/transcript";
 
-export interface TabInfo {
-  tabId: string;
-  mode: SessionMode;
-  projectCwd: string;
-  /** Hidden tabs stay mounted (display:none) — the xterm instance survives. */
-  hidden: boolean;
+
+const RPC_COMMAND_TIMEOUT_MS = 30_000;
+
+/** A renderer-side RPC wait expired; the process may still finish the command. */
+export class RpcCommandTimeoutError extends Error {
+  readonly command: string;
+  readonly timeoutMs: number;
+
+  constructor(command: string, timeoutMs: number) {
+    super(`RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`);
+    this.name = "RpcCommandTimeoutError";
+    this.command = command;
+    this.timeoutMs = timeoutMs;
+  }
 }
 
-export interface PendingCommand {
-  resolve: (value: unknown) => void;
-  reject: (err: Error) => void;
-  timer: number;
-  /** Background sync — must never drive the busy sweep. */
-  quiet: boolean;
-}
-
-/** Optional revision instructions sent back to the planner on refine. */
-export interface PlanRevisionNotes {
-  text: string;
-  images?: ImageAttachment[];
-}
-
-/** One proposed plan this session has surfaced, newest first. */
-export interface PlanRecord {
-  /** The plan artifact path (the slug) — uniquely identifies the plan. */
-  key: string;
-  title: string;
-  /** `pending` while the agent waits on a verdict; settles on the others. */
-  status: "pending" | "executed" | "refined";
-}
-
-/** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
-export interface RpcTabState {
-  status: "starting" | "ready" | "running" | "error";
-  items: RenderItem[];
-  todos: TodoPhase[];
-  model: ModelInfo | null;
-  availableModels: ModelInfo[];
-  commands: SlashCommandInfo[];
-  session: SessionRuntime;
-  stats: SessionStats | null;
-  subagents: SubagentInfo[];
-  /**
-   * Per-agent render-item buffers for the Agents pane drill-down (issue #63),
-   * keyed by the frame's agent key. Buffers persist after the agent settles —
-   * they are the retained roster — and clear on session reset.
-   */
-  subagentItems?: Record<string, RenderItem[]>;
-  /**
-   * The agent key open in the Agents pane detail view (issue #63), if any.
-   * While set, the tab's subagent subscription escalates to "events".
-   */
-  selectedSubagent?: string | null;
-  /**
-   * Not rendered — mutated in place. Agent key → last marker label stamped in
-   * the transcript, so heartbeat repeats coalesce per agent (issue #62).
-   */
-  subagentMarkers?: Map<string, string>;
-  /**
-   * Not rendered — mutated in place. The tab's current subagent subscription
-   * level, so open/close never re-sends a redundant set_subagent_subscription.
-   */
-  subagentLevel?: "progress" | "events";
-  /** Extension setStatus/setWidget/setTitle text, keyed by widget/status key. */
-  extensionStatus: Record<string, string>;
-  /** Not rendered — mutated in place. */
-  pendingCommands: Map<string, PendingCommand>;
-  /**
-   * Not rendered — mutated in place. Last provider-stream activity observed on
-   * this tab (issue #100): when, and what the stream was doing, so a stall
-   * notice can report the silence and the stage it struck at.
-   */
-  streamActivity?: { at: number; label: string };
-  /** Not rendered — mutated in place. Provider stream stalls diagnosed on this tab (issue #100). */
-  stallCount?: number;
-  extensionQueue: unknown[];
-  /** True while any rpc command is in flight. */
-  busy: boolean;
-  error?: string;
-  /**
-   * The first user message worth titling from. Set on the first substantive
-   * prompt, cleared once the rename lands.
-   */
-  initialPrompt: string | null;
-  /** Whether this tab's session has been auto-titled (or was already named). */
-  hasRenamed: boolean;
-  /**
-   * Plan-mode state, published by the generated plan extension over `setStatus`
-   * (see core/plan-extension.ts). Null until the extension first reports — a
-   * session whose omp cannot drive plan mode reports `unavailable` instead.
-   */
-  plan: PlanStatus | null;
-  /**
-   * The plan awaiting the user's verdict. omp's agent is *blocked* on this:
-   * the extension's `select` does not resolve until `executePlan`/`refinePlan`
-   * replies, so it must be answered on every path out of the review pane.
-   */
-  planReview: { request: PlanReviewRequest; frame: unknown } | null;
-  /** The pending plan's body for the review pane, read off disk. */
-  planText: string | null;
-  /**
-   * The pending plan's body when it was authored as HTML — the same text as
-   * `planText`, flagged for iframe rendering. Null for a markdown plan and for
-   * any plan that could not be read.
-   */
-  planHtml: string | null;
-  /**
-   * The review pane was dismissed without answering the gate ("not now"): the
-   * plan stays pending and the agent stays paused; the rail's plans pane is
-   * where it is re-opened. Cleared when a verdict lands or a new plan is read.
-   */
-  planDeferred: boolean;
-  /** This session's proposed-plan history, newest first. */
-  plans: PlanRecord[];
-  /**
-   * Advisor spend and context, published by the generated advisor-stats
-   * extension over `setStatus` (see core/advisor-stats-extension.ts). Null until
-   * the extension first reports; `available: false` means it could not drive
-   * omp's surface (or has not run a turn yet) and the HUD omits the element.
-   */
-  advisorStats: AdvisorStatsView | null;
-  /**
-   * Auto-answer an advisor review that lands while this session is idle
-   * (issue #104). Seeded from the persisted app-level advisorAutoReply
-   * setting (issue #111) at boot and re-seeded on relaunch; the module-level
-   * subscription at the bottom of this file sweeps every open tab when a
-   * state write flips the setting. No longer a per-session toggle.
-   */
-  advisorReply: boolean;
-}
 
 function freshRpcTabState(advisorReply: boolean): RpcTabState {
   return {
@@ -240,6 +118,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     stallCount: 0,
     extensionQueue: [],
     busy: false,
+    failure: undefined,
     initialPrompt: null,
     hasRenamed: false,
     plan: null,
@@ -252,13 +131,6 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     advisorReply,
   };
 }
-export type SidebarSessionState =
-  | "working"
-  | "awaiting-answer"
-  | "ready"
-  | "starting"
-  | "error"
-  | LiveState;
 
 export function deriveSidebarSessionState(
   summary: SessionSummary,
@@ -283,311 +155,6 @@ export function deriveSidebarSessionState(
 }
 
 
-export interface DeleteConfirmation {
-  tabId: string;
-  title: string;
-  running: boolean;
-  hasFiles: boolean;
-}
-
-/**
- * The settings modal's pages. Declared here rather than in the component: the
- * store imports nothing from any component, and reversing that would make a
- * type-only cycle.
- */
-export type SettingsPage =
-  | "general"
-  | "appearance"
-  | "updates"
-  | "remote"
-  | "providers"
-  | "omp"
-  | "about";
-export type CompactSurface =
-  | "sessions"
-  | "inspector"
-  | "session-actions"
-  | "composer-options";
-
-
-interface UiStore {
-  state: BackendState | null;
-  tabs: TabInfo[];
-  activeTabId: string | null;
-  /**
-   * Per-project last-focused tab, keyed by project path (issue #99 tier 3).
-   * The sidebar's per-project pagination and the app-update restore both read
-   * it; every active-tab mutation routes through `focusOn` so it never drifts
-   * from activeTabId. Tabs that a project no longer owns (or sessions gone)
-   * are pruned by the onStateChanged handler.
-   */
-  focusedTabByProject: Record<string, string>;
-  /** True while init's tier-3 restore resumes the previous run's tabs. */
-  restoringTabs: boolean;
-  exited: Record<string, number>;
-  /** Console-drawer shell exit codes, keyed by tabId (issue #42). */
-  shellExited: Record<string, number>;
-  rpc: Record<string, RpcTabState>;
-  /**
-   * Console drawer open/closed, keyed by tabId (issue #33). View preference,
-   * not session state: in-memory only, remembered per tab for the app's
-   * lifetime.
-   */
-  consoleOpen: Record<string, boolean>;
-  /**
-   * Branch listings keyed by project cwd (issue #35). Shared across every tab
-   * on the project, so a checkout in one tab updates all of their chips.
-   */
-  branches: Record<string, BranchList>;
-  /** omp's advisor defaults, keyed by project cwd — see loadAdvisorDefaults. */
-  advisorDefaults: Record<string, AdvisorDefaults>;
-  deleteConfirmation: DeleteConfirmation | null;
-  /** True while the in-app project picker modal is open. */
-  projectPickerOpen: boolean;
-  /**
-   * The MCP manager modal, pinned at open time to the tab it was opened from
-   * (focus changes must not retarget it). Null while closed.
-   */
-  mcpManager: { tabId: string; projectCwd: string } | null;
-  /** The settings modal's open page, or null while closed. */
-  settingsPage: SettingsPage | null;
-  /** The one temporary compact-shell surface currently visible. Renderer-only. */
-  compactSurface: CompactSurface | null;
-  /** Desktop sidebar rail state. Renderer-only; the compact sheet ignores it. */
-  sidebarCollapsed: boolean;
-  /**
-   * Latest pushed omp-ui app update state (issue #18; main/app-update.ts owns
-   * the machine). The card renders from this; actions are thin pass-throughs —
-   * every visible change arrives as a push, never an optimistic set.
-   */
-  appUpdate: AppUpdateState;
-  /**
-   * Latest pushed omp binary install/update state (issue #19;
-   * main/omp-update.ts owns the machine). The card renders from this; actions
-   * are thin pass-throughs — every visible change arrives as a push, never an
-   * optimistic set.
-   */
-  ompUpdate: OmpUpdateState;
-  /**
-   * Latest pushed remote-access server settings + status (issue #37;
-   * main/remote-server.ts owns the machine). Kept out of BackendState on
-   * purpose: the token has no business riding a broadcast every rpc tab
-   * re-renders on. Actions are thin pass-throughs — every visible change
-   * arrives as a push, never an optimistic set.
-   */
-  remote: RemoteState;
-  init(): Promise<void>;
-  checkOmpUpdate(): Promise<void>;
-  downloadOmpUpdate(): Promise<void>;
-  dismissOmpUpdate(version: string, remember: boolean): Promise<void>;
-  checkAppUpdate(): Promise<void>;
-  downloadAppUpdate(): Promise<void>;
-  openAppUpdateReleaseNotes(): Promise<void>;
-  showAppUpdateDownload(): Promise<void>;
-  restartForAppUpdate(confirmed?: boolean): Promise<AppUpdateRestartResult>;
-  setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
-  dismissAppUpdate(version: string, remember: boolean): Promise<void>;
-  openProjectPicker(): void;
-  closeProjectPicker(): void;
-  openMcpManager(tabId: string, projectCwd: string): void;
-  closeMcpManager(): void;
-  openSettings(page?: SettingsPage): void;
-  closeSettings(): void;
-  showCompactSurface(surface: CompactSurface): void;
-  closeCompactSurface(): void;
-  toggleSidebarCollapsed(): void;
-  setDefaultMode(mode: SessionMode): Promise<void>;
-  setDefaultAgentMode(mode: AgentMode): Promise<void>;
-  setPlanFormat(format: PlanFormat): Promise<void>;
-  setAdvisorAutoReply(on: boolean): Promise<void>;
-  setSkipDeleteConfirmation(skip: boolean): Promise<void>;
-  /**
-   * The one action that sets before it persists: a theme switch must feel
-   * instant, so the paint leads and the write follows. See the implementation.
-   */
-  setThemeId(id: string): Promise<void>;
-  setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
-  setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
-  clearDismissedAppUpdate(): Promise<void>;
-  clearDismissedOmpUpdate(): Promise<void>;
-  setRemoteEnabled(on: boolean): Promise<void>;
-  setRemoteBind(bind: RemoteBind): Promise<void>;
-  setRemotePort(port: number): Promise<void>;
-  regenerateRemoteToken(): Promise<void>;
-  /**
-   * Request/response, not push: these two return their value (or reject) and
-   * touch no store field, so the settings omp page owns the result. They
-   * deliberately skip `alertError` and RETHROW — that page surfaces failures
-   * inline instead of through `window.alert`.
-   */
-  readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
-  writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
-  /**
-   * Same request/response contract as the two above (rethrow, no store field):
-   * the providers page renders failures inline. Every call answers with the
-   * refreshed snapshot, so writes need no separate re-read.
-   */
-  readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
-  setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
-  clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;
-  /**
-   * Restarts a live session in place so it picks up changed MCP config
-   * (kill + `--resume` relaunch). Errors surface via the alert path; resolves
-   * true only when the relaunch was actually requested.
-   */
-  restartSession(tabId: string): Promise<boolean>;
-  /** Registers `path` via the backend; rejects with the backend's message. */
-  addProject(path: string): Promise<void>;
-  removeProject(path: string): Promise<void>;
-  /** Reorders a project in the sidebar; null `beforePath` appends to the end. */
-  moveProject(projectPath: string, beforePath: string | null): Promise<void>;
-  toggleFavorite(key: string): Promise<void>;
-  newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
-  openSession(tabId: string): Promise<void>;
-  focusTab(tabId: string): void;
-  hideTab(tabId: string): void;
-  terminate(tabId: string): Promise<void>;
-  switchMode(tabId: string, mode: SessionMode): Promise<void>;
-  resumeDead(tabId: string): Promise<void>;
-  /** Opens the warning, or immediately deletes when warnings were disabled. */
-  deleteSession(tabId: string): Promise<void>;
-  confirmDeleteSession(skipFuture: boolean): Promise<void>;
-  cancelDeleteSession(): void;
-  bootRpcTab(tabId: string): Promise<void>;
-  rpcCommand(
-    tabId: string,
-    cmd: Record<string, unknown>,
-    opts?: { quiet?: boolean },
-  ): Promise<unknown>;
-  handleRpcFrame(tabId: string, frame: object): void;
-  answerExtension(tabId: string, request: unknown, response: Record<string, unknown>): void;
-  /** Offer a user message as the auto-title source; low-signal text defers. */
-  setInitialPrompt(tabId: string, prompt: string): void;
-  /** Auto-title the session from the stored prompt. */
-  renameSession(tabId: string): void;
-
-  /** Always the `prompt` frame; `route` picks omp's `streamingBehavior` for a busy agent. */
-  sendPrompt(
-    tabId: string,
-    message: string,
-    route?: PromptRoute,
-    images?: ImageAttachment[],
-  ): Promise<void>;
-  abortAgent(tabId: string): Promise<void>;
-  abortAndPrompt(tabId: string, message: string, images?: ImageAttachment[]): Promise<void>;
-
-  /**
-   * omp's own advisor defaults for a project, cached per cwd. Read from omp's
-   * config because the rpc protocol reports no advisor state at all.
-   */
-  loadAdvisorDefaults(projectCwd: string): Promise<void>;
-  /**
-   * Re-pins this session's advisor. Relaunches a live session — omp binds both
-   * `advisor.enabled` and the `advisor` role at process start.
-   */
-  setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): Promise<void>;
-  /**
-   * Explicitly pins a session's advisor model (or null to return to omp's
-   * configured advisor). A deliberate choice, so it is also remembered per
-   * project for future new sessions — null clears that memory.
-   */
-  setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
-  setModel(tabId: string, model: ModelInfo): Promise<void>;
-  setThinkingLevel(tabId: string, level: string): Promise<void>;
-
-  setSteeringMode(tabId: string, mode: string): Promise<void>;
-  setFollowUpMode(tabId: string, mode: string): Promise<void>;
-  setInterruptMode(tabId: string, mode: string): Promise<void>;
-
-  setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
-  setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
-  abortRetry(tabId: string): Promise<void>;
-  compactSession(tabId: string): Promise<void>;
-
-  exportHtml(tabId: string): Promise<void>;
-  branchSession(tabId: string): Promise<void>;
-  renameSessionTo(tabId: string, name: string): Promise<void>;
-
-  /**
-   * Turns plan mode on or off for this tab. Drives the generated extension's
-   * slash command rather than an rpc command — omp's rpc protocol has no plan
-   * surface at all (see core/plan-extension.ts).
-   */
-  setPlanMode(tabId: string, enabled: boolean): Promise<void>;
-  /**
-   * Accepts a pending plan review and executes it. The agent is blocked until
-   * this replies, so it must be answered on every exit from the review pane.
-   * `context` picks where implementation runs: the same session (`existing`),
-   * the same session after compacting its context (`compacted`), or a freshly
-   * spawned session seeded with the plan (`fresh`). `options` stages the
-   * implementation dispatch: `addressAdvisor` (default true) holds dispatch
-   * for the drafting turn's advisor review (which lands only after the
-   * execute verdict lets the turn end) and folds any concerns into the
-   * implementation prompt; `orchestrate` prepends omp's orchestrate magic
-   * keyword; `model`/`thinkingLevel`/`advisor`/`advisorModel` are applied to
-   * whichever session receives the implementation, with undefined fields
-   * keeping current values.
-   */
-  executePlan(tabId: string, context: PlanExecutionContext, options?: PlanExecutionOptions): void;
-  /**
-   * Refuses a plan review, sending the agent back to revise the draft.
-   * `notes` (optional text + images) are delivered to the planner as revision
-   * instructions; with none this is a plain, no-notes refinement. The revision
-   * stays immediate — the planner revises in this same session, where the
-   * advisor's injected notes are already visible.
-   */
-  refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
-  /**
-   * Loads the pending plan's body for the review pane, and flags it as HTML
-   * when the file is one, so the pane picks its renderer. When `itemId` names
-   * an inline plan transcript item, the loaded text is copied onto it too.
-   */
-  loadPlanText(tabId: string, absPath: string | null, itemId?: string): Promise<void>;
-  /**
-   * Dismisses the plan review WITHOUT answering the gate: the agent stays
-   * paused on its proposal and the plan stays pending in the rail's plans tab,
-   * re-opened later via showPlanReview. Unlike refine, this never revises.
-   */
-  deferPlanReview(tabId: string): void;
-  /** Re-opens the review pane for tabId's pending plan (clears deferral). */
-  showPlanReview(tabId: string): void;
-
-  /**
-   * `line` may include args, e.g. "/advisor on". Leading "/" optional.
-   * A bare "/new" is omp-ui's own new-session shortcut: it spawns a new live
-   * session tab in the tab's project and never reaches omp.
-   */
-  runSlashCommand(tabId: string, line: string): Promise<void>;
-  setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
-  refreshState(tabId: string): Promise<void>;
-  refreshStats(tabId: string): Promise<void>;
-  refreshAdvisorStats(tabId: string): Promise<void>;
-  refreshSubagents(tabId: string): Promise<void>;
-  /**
-   * Opens the Agents pane detail view for one subagent (issue #63) and
-   * escalates the tab's subscription to its per-agent event stream.
-   */
-  openSubagent(tabId: string, key: string): void;
-  /** Leaves the detail view; the subscription drops back to "progress". */
-  closeSubagent(tabId: string): void;
-  /** Clears the drawer's dead-shell overlay while a replacement spawns. */
-  clearShellExited(tabId: string): void;
-  /** Toggles the composer's console drawer for a tab (issue #33). */
-  toggleConsole(tabId: string): void;
-  /** (Re)reads the project's branch listing; on failure keeps the last known. */
-  refreshBranches(projectCwd: string): Promise<void>;
-  /**
-   * Switches the project's git branch (issue #35). Returns null on success, or
-   * git's error message to show in the menu.
-   */
-  checkoutGitBranch(
-    projectCwd: string,
-    name: string,
-    opts?: { create?: boolean },
-  ): Promise<string | null>;
-  /** Best-effort model suggestion for the execute modal's new-branch prefill. */
-  suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
-}
 
 // One IPC data listener total; each TerminalTab registers its writer here.
 const termWriters = new Map<string, (data: Uint8Array) => void>();
@@ -607,16 +174,6 @@ export function registerShellWriter(tabId: string, cb: (data: Uint8Array) => voi
   };
 }
 
-export function findRecord(
-  state: BackendState | null,
-  tabId: string,
-): SessionSummary | undefined {
-  for (const group of state?.projects ?? []) {
-    const hit = group.sessions.find((s) => s.tabId === tabId);
-    if (hit) return hit;
-  }
-  return undefined;
-}
 
 /** pi-ai's StreamTimeoutError classifier bit (Flag.Timeout, pi-ai error/flags.ts). */
 const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
@@ -686,58 +243,6 @@ function stallNotice(tab: RpcTabState, frame: object): NoticeItem | null {
   );
 }
 
-/** Global + per-project focus bookkeeping for one tab activation: every
- * active-tab mutation routes through here so focusedTabByProject never
- * drifts from activeTabId (issue #99 tier 3). */
-function focusOn(
-  s: { activeTabId: string | null; focusedTabByProject: Record<string, string> },
-  tabId: string,
-  projectCwd: string | undefined,
-): { activeTabId: string | null; focusedTabByProject: Record<string, string> } {
-  return {
-    activeTabId: tabId,
-    focusedTabByProject:
-      projectCwd === undefined
-        ? s.focusedTabByProject
-        : { ...s.focusedTabByProject, [projectCwd]: tabId },
-  };
-}
-
-/** A tab leaving visibility (hide/delete) that a project remembered as its
- * focus: move the memory to the project's last remaining non-hidden tab, or
- * forget it. `tabs` is the post-removal array. */
-function forgetFocus(
-  focusedTabByProject: Record<string, string>,
-  tabId: string,
-  tabs: TabInfo[],
-): Record<string, string> {
-  const entry = Object.entries(focusedTabByProject).find(([, t]) => t === tabId);
-  if (entry === undefined) return focusedTabByProject;
-  const [projectCwd] = entry;
-  const remaining = tabs.filter((t) => !t.hidden && t.projectCwd === projectCwd);
-  const next = { ...focusedTabByProject };
-  if (remaining.length > 0) next[projectCwd] = remaining[remaining.length - 1]!.tabId;
-  else delete next[projectCwd];
-  return next;
-}
-
-/** Drops focus entries whose tab or project record no longer exists in the
- * authoritative BackendState (session deleted, project removed), so stale
- * persistence cannot survive. */
-function pruneFocus(
-  focusedTabByProject: Record<string, string>,
-  state: BackendState,
-): Record<string, string> {
-  const projects = new Set(state.projects.map((g) => g.project.path));
-  const tabIds = new Set(state.projects.flatMap((g) => g.sessions.map((s) => s.tabId)));
-  const next: Record<string, string> = {};
-  let changed = false;
-  for (const [projectCwd, tabId] of Object.entries(focusedTabByProject)) {
-    if (projects.has(projectCwd) && tabIds.has(tabId)) next[projectCwd] = tabId;
-    else changed = true;
-  }
-  return changed ? next : focusedTabByProject;
-}
 
 function dropExited(exited: Record<string, number>, tabId: string): Record<string, number> {
   const next = { ...exited };
@@ -749,18 +254,6 @@ function alertError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err));
 }
 
-/**
- * Remote-settings writes restart the server, which drops the socket a REMOTE client is asking
- * over — so that client's own call never gets its reply. That is the requested outcome, not a
- * failure: swallow it and let the reconnect banner take over (it reloads once the server answers
- * on the new address). Every other rejection still alerts, and the desktop client — which is not
- * on the socket — never takes this branch.
- */
-function alertRemoteError(err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
-  if (message === "remote connection lost") return;
-  window.alert(message);
-}
 
 // StrictMode double-invokes effects in dev, and the preload listener API has
 // no unsubscribe — init must be idempotent or every listener registers twice.
@@ -872,7 +365,7 @@ function extensionStatusEntry(frame: object): { key: string; text: string | unde
   return null;
 }
 
-export const useStore = create<UiStore>()((set, get) => {
+export const useStore = create<UiStore>()((set, get, api) => {
   const patchRpc = (tabId: string, patch: Partial<RpcTabState>): void => {
     set((s) => {
       const tab = s.rpc[tabId];
@@ -892,7 +385,7 @@ export const useStore = create<UiStore>()((set, get) => {
       planText: null,
       planHtml: null,
       planDeferred: false,
-      error: undefined,
+      failure: undefined,
     });
   };
 
@@ -909,23 +402,46 @@ export const useStore = create<UiStore>()((set, get) => {
   /**
    * Every store method routes failures here: the tab keeps its status (a
    * rejected `set_model` must not wedge a live session into "error") but the
-   * message surfaces instead of vanishing into a swallowed catch. Resolves to
-   * the response frame, or `null` — which a real response never is — on failure.
+   * structured failure surfaces instead of vanishing into a swallowed catch.
+   * Resolves to the response frame, or `null` — which a real response never is
+   * — on failure.
    */
   const runCommand = async (
     tabId: string,
     cmd: Record<string, unknown>,
     opts?: { quiet?: boolean },
   ): Promise<unknown> => {
+    const command = typeof cmd.type === "string" ? cmd.type : "unknown";
     try {
       const resp = await get().rpcCommand(tabId, cmd, opts);
-      // A later success retires a transient failure banner, but never a fatal
-      // one — `status: "error"` means the process itself is gone.
+      // Only an explicit, user-visible success retires a transient failure.
+      // Background refreshes must not make a diagnostic disappear, and no
+      // command response may hide a fatal boot/process failure.
       const tab = get().rpc[tabId];
-      if (tab?.error !== undefined && tab.status !== "error") patchRpc(tabId, { error: undefined });
+      if (opts?.quiet !== true && tab?.failure !== undefined && !tab.failure.fatal) {
+        patchRpc(tabId, { failure: undefined });
+      }
       return resp;
     } catch (err) {
-      patchRpc(tabId, { error: err instanceof Error ? err.message : String(err) });
+      const tab = get().rpc[tabId];
+      if (tab?.failure?.fatal) return null;
+      const timedOut = err instanceof RpcCommandTimeoutError;
+      const message = err instanceof Error ? err.message : String(err);
+      const liveState = findRecord(get().state, tabId)?.live;
+      patchRpc(tabId, {
+        failure: {
+          message: timedOut ? message : `RPC command "${command}" failed: ${message}`,
+          kind: "command",
+          fatal: false,
+          command,
+          ...(timedOut ? { timeoutMs: err.timeoutMs } : {}),
+          ...(tab ? { sessionStatus: tab.status } : {}),
+          ...(liveState !== undefined ? { liveState } : {}),
+          recovery: timedOut
+            ? "Prompt-like commands may still complete in the live session. Refresh state before continuing; resending can duplicate work."
+            : "Refresh state to confirm the live session before retrying.",
+        },
+      });
       return null;
     }
   };
@@ -1316,11 +832,10 @@ export const useStore = create<UiStore>()((set, get) => {
   };
 
   return {
+    ...createViewSlice(set, get, api),
+    ...createSettingsSlice(set, get, api),
+    ...createUpdatesSlice(set, get, api),
     state: null,
-    tabs: [],
-    activeTabId: null,
-    focusedTabByProject: {},
-    restoringTabs: false,
     exited: {},
     shellExited: {},
     rpc: {},
@@ -1328,41 +843,6 @@ export const useStore = create<UiStore>()((set, get) => {
     branches: {},
     advisorDefaults: {},
     deleteConfirmation: null,
-    projectPickerOpen: false,
-    mcpManager: null,
-    settingsPage: null,
-    compactSurface: null,
-    sidebarCollapsed: false,
-    appUpdate: {
-      status: "idle",
-      currentVersion: null,
-      latestVersion: null,
-      releaseUrl: null,
-      releaseName: null,
-      format: "unknown",
-      progress: null,
-      downloadedPath: null,
-      installOnQuit: false,
-      error: null,
-    },
-    ompUpdate: {
-      status: "idle",
-      installPath: null,
-      installedVersion: null,
-      latestVersion: null,
-      progress: null,
-      error: null,
-    },
-    remote: {
-      status: "stopped",
-      enabled: false,
-      bind: "localhost",
-      port: 4677,
-      token: "",
-      urls: [],
-      webBundleMissing: false,
-      error: null,
-    },
 
     async init() {
       if (initialized) return;
@@ -1397,233 +877,22 @@ export const useStore = create<UiStore>()((set, get) => {
         set((s) => ({ shellExited: { ...s.shellExited, [tabId]: code } }));
       });
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
-      backend.onAppUpdateState((appUpdate) => set({ appUpdate }));
-      backend.onOmpUpdateState((ompUpdate) => set({ ompUpdate }));
-      backend.onRemoteState((remote) => set({ remote }));
-      set({
-        state: await backend.getState(),
-        appUpdate: await backend.getAppUpdateState(),
-        ompUpdate: await backend.getOmpUpdateState(),
-        remote: await backend.getRemoteState(),
-      });
-      const booted = get().state;
-      if (booted) syncTheme(booted);
-
-      // Tier-3 update restore (issue #99): after a changed app-version relaunch,
-      // resume the tabs the previous run had open and re-focus the user's spot.
-      const viewStorage = desktopViewStorage();
-      if (viewStorage) {
-        const saved = loadDesktopView(viewStorage);
-        const currentVersion = get().appUpdate.currentVersion;
-        if (shouldRestoreDesktopView(saved, currentVersion)) {
-          set({ restoringTabs: true });
-          try {
-            await restoreSavedTabs(saved!);
-          } finally {
-            set({ restoringTabs: false });
-          }
-        }
-        // Mandatory first persist: the restored view, or the current open view
-        // replacing a stale snapshot so a later version change cannot resurrect
-        // it. A null current version leaves the snapshot untouched.
-        if (currentVersion !== null) {
-          saveDesktopView(viewStorage, projectDesktopView(get(), currentVersion));
-        }
-      }
-      // One ordinary subscriber — no middleware — keeps rpc-frame traffic out of
-      // localStorage and the restore from overwriting the pre-update snapshot.
-      useStore.subscribe((state, previous) => {
-        if (state.restoringTabs) return;
-        if (
-          state.tabs === previous.tabs &&
-          state.activeTabId === previous.activeTabId &&
-          state.focusedTabByProject === previous.focusedTabByProject &&
-          state.appUpdate.currentVersion === previous.appUpdate.currentVersion
-        ) {
-          return;
-        }
-        const version = state.appUpdate.currentVersion;
-        const storage = desktopViewStorage();
-        if (storage === null || version === null) return;
-        saveDesktopView(storage, projectDesktopView(state, version));
-      });
+      backend.onAppUpdateState((appUpdate) => get().replaceAppUpdate(appUpdate));
+      backend.onOmpUpdateState((ompUpdate) => get().replaceOmpUpdate(ompUpdate));
+      backend.onRemoteState((remote) => get().replaceRemote(remote));
+      const [state, appUpdate, ompUpdate, remote] = await Promise.all([
+        backend.getState(),
+        backend.getAppUpdateState(),
+        backend.getOmpUpdateState(),
+        backend.getRemoteState(),
+      ]);
+      set({ state, appUpdate, ompUpdate, remote });
+      syncTheme(state);
+      await restoreDesktopView(api);
+      installDesktopViewPersistence(api);
     },
 
-    openProjectPicker() {
-      set({ projectPickerOpen: true });
-    },
 
-    closeProjectPicker() {
-      set({ projectPickerOpen: false });
-    },
-
-    openMcpManager(tabId, projectCwd) {
-      set({ mcpManager: { tabId, projectCwd } });
-    },
-
-    closeMcpManager() {
-      set({ mcpManager: null });
-    },
-
-    openSettings(page) {
-      set({ settingsPage: page ?? "general" });
-    },
-
-    closeSettings() {
-      set({ settingsPage: null });
-    },
-
-    showCompactSurface(surface) {
-      set({ compactSurface: surface });
-    },
-
-    closeCompactSurface() {
-      set({ compactSurface: null });
-    },
-
-    toggleSidebarCollapsed() {
-      set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }));
-    },
-
-    async setDefaultMode(mode) {
-      try {
-        await backend.setDefaultMode(mode);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setDefaultAgentMode(mode) {
-      try {
-        await backend.setDefaultAgentMode(mode);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setPlanFormat(format) {
-      try {
-        await backend.setPlanFormat(format);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setAdvisorAutoReply(on) {
-      try {
-        await backend.setAdvisorAutoReply(on);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setSkipDeleteConfirmation(skip) {
-      try {
-        await backend.setSkipDeleteConfirmation(skip);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setThemeId(id) {
-      // Apply-then-persist is the one exception to the store's push-only rule:
-      // a theme switch must feel instant. The broadcast that follows carries
-      // the same id, so syncTheme becomes a no-op; if the write fails the user
-      // sees the alert and the next launch reverts to the persisted theme.
-      applyTheme(resolveTheme(id));
-      try {
-        await backend.setThemeId(id);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setAppUpdateCheckOnLaunch(on) {
-      try {
-        await backend.setAppUpdateCheckOnLaunch(on);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setOmpUpdateCheckOnLaunch(on) {
-      try {
-        await backend.setOmpUpdateCheckOnLaunch(on);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async clearDismissedAppUpdate() {
-      try {
-        await backend.clearDismissedAppUpdate();
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async clearDismissedOmpUpdate() {
-      try {
-        await backend.clearDismissedOmpUpdate();
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async setRemoteEnabled(on) {
-      try {
-        await backend.setRemoteEnabled(on);
-      } catch (err) {
-        alertRemoteError(err);
-      }
-    },
-
-    async setRemoteBind(bind) {
-      try {
-        await backend.setRemoteBind(bind);
-      } catch (err) {
-        alertRemoteError(err);
-      }
-    },
-
-    async setRemotePort(port) {
-      try {
-        await backend.setRemotePort(port);
-      } catch (err) {
-        alertRemoteError(err);
-      }
-    },
-
-    async regenerateRemoteToken() {
-      try {
-        await backend.regenerateRemoteToken();
-      } catch (err) {
-        alertRemoteError(err);
-      }
-    },
-
-    // No try/catch on purpose: the settings omp page renders its own inline
-    // error, so these two rethrow instead of routing through alertError.
-    readOmpSettings(projectCwd) {
-      return backend.readOmpSettings(projectCwd);
-    },
-
-    writeOmpSetting(key, value) {
-      return backend.writeOmpSetting(key, value);
-    },
-
-    // Same deal: the providers page renders its own inline error.
-    readProviderKeys(projectCwd) {
-      return backend.readProviderKeys(projectCwd);
-    },
-
-    setProviderKey(envName, value) {
-      return backend.setProviderKey(envName, value);
-    },
-
-    clearProviderKey(envName) {
-      return backend.clearProviderKey(envName);
-    },
 
     async restartSession(tabId) {
       const rec = findRecord(get().state, tabId);
@@ -1668,45 +937,6 @@ export const useStore = create<UiStore>()((set, get) => {
       await backend.toggleFavorite(key);
     },
 
-    async checkOmpUpdate() {
-      await backend.checkOmpUpdate();
-    },
-
-    async downloadOmpUpdate() {
-      await backend.downloadOmpUpdate();
-    },
-
-    async dismissOmpUpdate(version, remember) {
-      await backend.dismissOmpUpdate(version, remember);
-    },
-
-    async checkAppUpdate() {
-      await backend.checkAppUpdate();
-    },
-
-    async downloadAppUpdate() {
-      await backend.downloadAppUpdate();
-    },
-
-    async openAppUpdateReleaseNotes() {
-      await backend.openAppUpdateReleaseNotes();
-    },
-
-    async showAppUpdateDownload() {
-      await backend.showAppUpdateDownload();
-    },
-
-    async restartForAppUpdate(confirmed = false) {
-      return backend.restartForAppUpdate(confirmed);
-    },
-
-    async setAppUpdateInstallOnQuit(on) {
-      await backend.setAppUpdateInstallOnQuit(on);
-    },
-
-    async dismissAppUpdate(version, remember) {
-      await backend.dismissAppUpdate(version, remember);
-    },
 
     async newSession(projectCwd, modeOverride) {
       const mode = modeOverride ?? get().state?.defaultMode ?? "pty";
@@ -1953,14 +1183,39 @@ export const useStore = create<UiStore>()((set, get) => {
         // advisor-toggle relaunch) skip the arm and starve the readout forever.
         void get().refreshAdvisorStats(tabId);
         if (stateFailure) {
-          patchRpc(tabId, { status: "error", error: `get_state failed: ${stateFailure.message}` });
+          patchRpc(tabId, {
+            status: "error",
+            failure: {
+              message: `RPC boot failed while running "get_state": ${stateFailure.message}`,
+              kind: "boot",
+              fatal: true,
+              command: "get_state",
+              ...(stateFailure instanceof RpcCommandTimeoutError
+                ? { timeoutMs: stateFailure.timeoutMs }
+                : {}),
+              sessionStatus: "error",
+              ...(rec?.live !== undefined ? { liveState: rec.live } : {}),
+              recovery: "Retry boot to reconnect to the live session.",
+            },
+          });
         } else {
           patchRpc(tabId, { status: "ready" });
         }
       } catch (err) {
+        const liveState = findRecord(get().state, tabId)?.live;
         patchRpc(tabId, {
           status: "error",
-          error: err instanceof Error ? err.message : String(err),
+          failure: {
+            message: `RPC boot failed: ${err instanceof Error ? err.message : String(err)}`,
+            kind: "boot",
+            fatal: true,
+            ...(err instanceof RpcCommandTimeoutError
+              ? { command: err.command, timeoutMs: err.timeoutMs }
+              : {}),
+            sessionStatus: "error",
+            ...(liveState !== undefined ? { liveState } : {}),
+            recovery: "Retry boot to reconnect to the live session.",
+          },
         });
       } finally {
         rpcBooting.delete(tabId);
@@ -1971,6 +1226,9 @@ export const useStore = create<UiStore>()((set, get) => {
       const tab = get().rpc[tabId];
       if (!tab) return Promise.reject(new Error("rpc tab not initialized"));
       const id = randomId();
+      const command = typeof cmd.type === "string" ? cmd.type : "unknown";
+      const startedAt = Date.now();
+      const timeoutMs = RPC_COMMAND_TIMEOUT_MS;
       // Quiet commands are background sync (usage ticks, subagent roster
       // heartbeats). They never touch `busy`: each round-trip would otherwise
       // strobe the progress sweeps for a few ms, jittering the transcript.
@@ -1978,10 +1236,34 @@ export const useStore = create<UiStore>()((set, get) => {
       // Executor form required: the pending entry must exist before send.
       const promise = new Promise<unknown>((resolve, reject) => {
         const timer = window.setTimeout(() => {
-          get().rpc[tabId]?.pendingCommands.delete(id);
-          reject(new Error("rpc command timed out"));
-        }, 30_000);
-        tab.pendingCommands.set(id, { resolve, reject, timer, quiet });
+          // Remove before settling so the map remains the authoritative ref
+          // count when `finally` recomputes busy.
+          tab.pendingCommands.delete(id);
+          const runtime = get().rpc[tabId];
+          const liveState = findRecord(get().state, tabId)?.live;
+          const details = {
+            tabId,
+            commandId: id,
+            command,
+            timeoutMs,
+            elapsedMs: Date.now() - startedAt,
+            pendingCommandCount: tab.pendingCommands.size,
+            sessionStatus: runtime?.status ?? null,
+            isStreaming: runtime?.session.isStreaming ?? null,
+            liveState: liveState ?? null,
+          };
+          console.warn("[rpc] command timeout", details);
+          reject(new RpcCommandTimeoutError(command, timeoutMs));
+        }, timeoutMs);
+        tab.pendingCommands.set(id, {
+          resolve,
+          reject,
+          timer,
+          quiet,
+          command,
+          startedAt,
+          timeoutMs,
+        });
       });
       if (!quiet) patchRpc(tabId, { busy: true });
       backend.rpcSend(tabId, { ...cmd, id });
@@ -2145,8 +1427,20 @@ export const useStore = create<UiStore>()((set, get) => {
           return;
         case "omp_ui_error": {
           const message = strField(frame, "message") ?? "omp rpc error";
+          const liveState = findRecord(get().state, tabId)?.live;
           // The process died mid-tool, so no agent_end will settle running cards.
-          patchRpc(tabId, { status: "error", error: message, items: settleRunningTools(tab.items) });
+          patchRpc(tabId, {
+            status: "error",
+            failure: {
+              message,
+              kind: "process",
+              fatal: true,
+              sessionStatus: "error",
+              ...(liveState !== undefined ? { liveState } : {}),
+              recovery: "The live session process stopped. Resume the session to continue.",
+            },
+            items: settleRunningTools(tab.items),
+          });
           return;
         }
         case "host_tool_call":
@@ -2485,7 +1779,7 @@ export const useStore = create<UiStore>()((set, get) => {
       const format = get().state?.planFormat ?? "html";
       await runCommand(tabId, {
         type: "prompt",
-        message: `/${PLAN_COMMAND} ${enabled ? `on ${format}` : "off"}`,
+        message: planMessage(enabled, format),
       });
     },
 
@@ -2704,35 +1998,3 @@ useStore.subscribe((curr, prev) => {
   if (changed) useStore.setState({ rpc });
 });
 
-/** Resumes the tabs saved before an update relaunch, in saved renderer
- * order. Deleted records and missing-on-disk sessions stay dormant; every
- * other record resumes through openSession, whose spawn dedupes a tab already
- * live and whose per-tab catch reports without aborting the sequence. Settles
- * focus to the successfully restored tabs after the loop. */
-async function restoreSavedTabs(saved: DesktopViewStateV1): Promise<void> {
-  const restored: string[] = [];
-  for (const tabId of saved.tabIds) {
-    const rec = findRecord(useStore.getState().state, tabId);
-    if (rec === undefined || rec.live === "missing") continue;
-    await useStore.getState().openSession(tabId);
-    if (useStore.getState().tabs.some((t) => t.tabId === tabId)) restored.push(tabId);
-  }
-  const restoredSet = new Set(restored);
-  const focusedTabByProject: Record<string, string> = {};
-  const lastRestoredByProject = new Map<string, string>();
-  for (const tabId of restored) {
-    const rec = findRecord(useStore.getState().state, tabId);
-    if (rec) lastRestoredByProject.set(rec.projectCwd, tabId);
-  }
-  for (const [projectCwd, tabId] of Object.entries(saved.focusedTabByProject)) {
-    if (restoredSet.has(tabId)) focusedTabByProject[projectCwd] = tabId;
-  }
-  for (const [projectCwd, tabId] of lastRestoredByProject) {
-    if (!(projectCwd in focusedTabByProject)) focusedTabByProject[projectCwd] = tabId;
-  }
-  let activeTabId = saved.activeTabId;
-  if (activeTabId === null || !restoredSet.has(activeTabId)) {
-    activeTabId = restored.length > 0 ? restored[restored.length - 1]! : null;
-  }
-  useStore.setState({ focusedTabByProject, activeTabId });
-}

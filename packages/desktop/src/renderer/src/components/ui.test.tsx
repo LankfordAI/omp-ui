@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Button, Modal, Sheet, UpdateCard } from "./ui";
+import type { ModelInfo } from "../lib/rpc-types";
+import { backendState } from "../test/fixtures";
+import { Button, ChoiceCapsule, ConfirmDialog, Modal, Sheet, UpdateCard } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+HTMLElement.prototype.scrollIntoView = vi.fn();
+Object.assign(window, { ompBackend: {} });
+// store.ts captures window.ompBackend at evaluation; ModelSelector imports it, so both load after the stub.
+const { useStore } = await import("../store");
+const { ModelPalette } = await import("./ModelSelector");
 let root: Root | null = null;
 
 async function render(node: React.ReactNode): Promise<void> {
@@ -69,6 +76,168 @@ describe("Modal", () => {
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(top).toHaveBeenCalledOnce();
     expect(bottom).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConfirmDialog", () => {
+  it("owns the only alertdialog role and keeps its generated title relationship stable", async () => {
+    const close = vi.fn();
+    await render(
+      <ConfirmDialog
+        kicker="Irreversible action"
+        title="Delete session?"
+        tone="rose"
+        onClose={close}
+        actions={<Button onClick={close}>Cancel</Button>}
+      >
+        This cannot be undone.
+      </ConfirmDialog>,
+    );
+    const alertDialogs = document.body.querySelectorAll<HTMLElement>('[role="alertdialog"]');
+    expect(alertDialogs).toHaveLength(1);
+    const labelledBy = alertDialogs[0].getAttribute("aria-labelledby");
+    expect(labelledBy).not.toBeNull();
+    expect(document.getElementById(labelledBy!)?.textContent).toBe("Delete session?");
+    expect(alertDialogs[0].querySelectorAll(":scope > header")).toHaveLength(1);
+    expect(alertDialogs[0].querySelectorAll(":scope > div")).toHaveLength(1);
+    expect(alertDialogs[0].querySelectorAll(":scope > footer")).toHaveLength(1);
+
+    act(() =>
+      root!.render(
+        <ConfirmDialog
+          kicker="Irreversible action"
+          title="Delete this session?"
+          tone="rose"
+          onClose={close}
+          actions={<Button onClick={close}>Cancel</Button>}
+        >
+          This cannot be undone.
+        </ConfirmDialog>,
+      ),
+    );
+    const rerendered = document.body.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(rerendered.getAttribute("aria-labelledby")).toBe(labelledBy);
+    expect(document.getElementById(labelledBy!)?.textContent).toBe("Delete this session?");
+  });
+});
+
+const CHOICE_OPTIONS = [
+  { value: "alpha", label: "alpha" },
+  { value: "beta", label: "beta", disabled: true },
+  { value: "gamma", label: "gamma" },
+  { value: "delta", label: "delta" },
+] as const;
+
+type Choice = (typeof CHOICE_OPTIONS)[number]["value"];
+
+function ChoiceHarness({ initial = "alpha" }: { initial?: Choice }) {
+  const [value, setValue] = useState<Choice>(initial);
+  return (
+    <ChoiceCapsule
+      label="Greek choice"
+      value={value}
+      options={CHOICE_OPTIONS}
+      onChange={setValue}
+    />
+  );
+}
+
+function pressChoice(button: HTMLButtonElement, key: string): void {
+  act(() =>
+    button.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
+  );
+}
+
+describe("ChoiceCapsule", () => {
+  it("keeps one pressed Tab stop and selects a clicked choice", async () => {
+    await render(<ChoiceHarness />);
+    const group = document.body.querySelector<HTMLElement>('[role="group"][aria-label="Greek choice"]')!;
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>("button")];
+
+    expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual([
+      "true",
+      "false",
+      "false",
+      "false",
+    ]);
+    expect(buttons.map((button) => button.tabIndex)).toEqual([0, -1, -1, -1]);
+    expect(buttons[1]!.disabled).toBe(true);
+
+    act(() => buttons[2]!.click());
+    expect(group.querySelectorAll('[aria-pressed="true"]')).toHaveLength(1);
+    expect(buttons[2]!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttons.map((button) => button.tabIndex)).toEqual([-1, -1, 0, -1]);
+  });
+
+  it("skips disabled choices and wraps while focusing and selecting", async () => {
+    await render(<ChoiceHarness />);
+    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Greek choice"] button')];
+    buttons[0]!.focus();
+
+    pressChoice(buttons[0]!, "ArrowRight");
+    expect(document.activeElement).toBe(buttons[2]);
+    expect(buttons[2]!.getAttribute("aria-pressed")).toBe("true");
+
+    pressChoice(buttons[2]!, "ArrowLeft");
+    expect(document.activeElement).toBe(buttons[0]);
+    expect(buttons[0]!.getAttribute("aria-pressed")).toBe("true");
+
+    pressChoice(buttons[0]!, "ArrowLeft");
+    expect(document.activeElement).toBe(buttons[3]);
+    expect(buttons[3]!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("moves to the first and last enabled choices with Home and End", async () => {
+    await render(<ChoiceHarness initial="gamma" />);
+    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Greek choice"] button')];
+    buttons[2]!.focus();
+
+    pressChoice(buttons[2]!, "End");
+    expect(document.activeElement).toBe(buttons[3]);
+    expect(buttons[3]!.getAttribute("aria-pressed")).toBe("true");
+
+    pressChoice(buttons[3]!, "Home");
+    expect(document.activeElement).toBe(buttons[0]);
+    expect(buttons[0]!.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("ModelPalette favorite", () => {
+  it("exposes a sibling native button that accepts keyboard-generated activation", async () => {
+    const model: ModelInfo = { id: "sonnet", name: "Sonnet", provider: "anthropic" };
+    const modelKey = `${model.provider}/${model.id}`;
+    const toggleFavorite = vi.fn(async () => {});
+    const pick = vi.fn();
+    useStore.setState({
+      state: backendState({ modelFavorites: [modelKey] }),
+      toggleFavorite,
+    });
+
+    await render(
+      <ModelPalette
+        variant="main"
+        models={[model]}
+        current={model}
+        onPick={pick}
+        onClose={vi.fn()}
+      />,
+    );
+    const favorite = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="remove from favorites"]',
+    )!;
+    const row = favorite.parentElement!;
+    expect(row.querySelectorAll(":scope > button")).toHaveLength(2);
+    expect(favorite.tabIndex).toBe(0);
+
+    favorite.focus();
+    expect(document.activeElement).toBe(favorite);
+    act(() =>
+      favorite.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }),
+      ),
+    );
+    expect(toggleFavorite).toHaveBeenCalledWith(modelKey);
+    expect(pick).not.toHaveBeenCalled();
   });
 });
 

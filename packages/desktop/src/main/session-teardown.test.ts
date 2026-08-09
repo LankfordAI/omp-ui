@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { LineageEvent, PtyHandle } from "@omp-ui/core";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the three surfaces it touches.
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
@@ -30,7 +31,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => ({
 }));
 
 const { MainBackend } = await import("./backend");
-const { CH } = await import("./channels");
+const { CH } = await import("@omp-ui/core");
 const { spawnOmp, watchLineageDir, RpcClient } = await import("@omp-ui/core");
 const spawnOmpMock = vi.mocked(spawnOmp);
 const watchLineageDirMock = vi.mocked(watchLineageDir);
@@ -53,6 +54,7 @@ interface FakePty {
   id: string;
   dataCb: ((data: Buffer) => void) | null;
   exitCb: ((e: { exitCode: number; signal?: number }) => void) | null;
+  exit: (exitCode: number) => void;
   detachData: Mock;
   kill: Mock;
 }
@@ -83,30 +85,29 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
   fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
 
   const registryFile = path.join(base, "registry.json");
-  fs.writeFileSync(
-    registryFile,
-    JSON.stringify({
-      schemaVersion: 1,
-      settings: { defaultMode: "pty" },
-      projects: [{ path: "/proj", name: "proj", addedAt: "2026-07-29T00:00:00.000Z" }],
-      sessions: [
-        {
-          tabId: TAB,
-          sessionId: null,
-          lineageDir: LINEAGE,
-          projectCwd: "/proj",
-          launchedAt: "2026-07-29T16:18:42.427Z",
-          mode: "pty",
-          model: null,
-          thinkingLevel: null,
-          advisor: false,
-          advisorModel: null,
-          cachedTitle: null,
-          cachedModified: null,
-        },
-      ],
-    }),
-  );
+  seedRegistry(registryFile, {
+    settings: { defaultMode: "pty" },
+    projects: [
+      {
+        path: "/proj",
+        name: "proj",
+        addedAt: "2026-07-29T00:00:00.000Z",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+    ],
+    sessions: [
+      ownedSessionRecord({
+        tabId: TAB,
+        sessionId: null,
+        lineageDir: LINEAGE,
+        projectCwd: "/proj",
+        launchedAt: "2026-07-29T16:18:42.427Z",
+        mode: "pty",
+        advisor: false,
+      }),
+    ],
+  });
 
   handlers.clear();
   sent.length = 0;
@@ -131,6 +132,9 @@ beforeEach(() => {
       id: opts.id,
       dataCb: null,
       exitCb: null,
+      exit(exitCode) {
+        this.exitCb?.({ exitCode });
+      },
       detachData: vi.fn(),
       kill: vi.fn(),
     };
@@ -204,7 +208,7 @@ describe("lineage watcher teardown (issue #64)", () => {
     await backend.hydrateAll();
     expect(watcherDisposes.length).toBeGreaterThan(0);
 
-    await invoke(CH.sessionDelete, TAB);
+    await invoke(CH.deleteSession, TAB);
 
     expect(watcherDisposes[0]).toHaveBeenCalled();
   });
@@ -212,7 +216,7 @@ describe("lineage watcher teardown (issue #64)", () => {
 
 describe("live session teardown (issue #64)", () => {
   const spawnPtySession = async (): Promise<string> => {
-    const res = (await invoke(CH.sessionSpawn, {
+    const res = (await invoke(CH.spawnSession, {
       projectCwd: "/proj",
       mode: "pty",
       cols: 80,
@@ -221,36 +225,99 @@ describe("live session teardown (issue #64)", () => {
     return res.tabId;
   };
 
+  const relaunchCases: {
+    name: string;
+    begin: (tabId: string) => Promise<void>;
+    rpcSuccessor: boolean;
+  }[] = [
+    {
+      name: "mode switch",
+      begin: (tabId) => invoke(CH.switchMode, tabId, "rpc-ui") as Promise<void>,
+      rpcSuccessor: true,
+    },
+    {
+      name: "restart",
+      begin: (tabId) => invoke(CH.restartSession, tabId) as Promise<void>,
+      rpcSuccessor: false,
+    },
+    {
+      name: "advisor relaunch",
+      begin: (tabId) => invoke(CH.setSessionAdvisor, tabId, true, null) as Promise<void>,
+      rpcSuccessor: false,
+    },
+  ];
+
+  const processStarts = (): number =>
+    spawnOmpMock.mock.calls.length + RpcClientMock.mock.calls.length;
+
   it("terminate detaches the pty data listener and kills the process", async () => {
     setup();
     const tabId = await spawnPtySession();
     const fake = fakePtys[0]!;
 
-    invoke(CH.sessionTerminate, tabId);
+    invoke(CH.terminateSession, tabId);
 
     expect(fake.detachData).toHaveBeenCalled();
     expect(fake.dataCb).toBeNull();
     expect(fake.kill).toHaveBeenCalled();
   });
 
-  it("mode switch kills and detaches the old pty before its rpc-ui successor spawns", async () => {
-    setup();
-    const tabId = await spawnPtySession();
-    const fake = fakePtys[0]!;
+  it.each(relaunchCases)(
+    "$name reaps the predecessor before starting exactly one successor",
+    async ({ begin, rpcSuccessor }) => {
+      setup();
+      const tabId = await spawnPtySession();
+      const predecessor = fakePtys[0]!;
 
-    await invoke(CH.sessionSwitchMode, tabId, "rpc-ui");
+      const done = begin(tabId);
 
-    expect(RpcClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ initialCommands: undefined }),
-    );
-    expect(fake.detachData).toHaveBeenCalled();
-    expect(fake.kill).toHaveBeenCalled();
-    expect(RpcClientMock).toHaveBeenCalledTimes(1);
-  });
+      expect(predecessor.detachData).toHaveBeenCalled();
+      expect(predecessor.kill).toHaveBeenCalled();
+      expect(processStarts()).toBe(1);
+
+      predecessor.exit(0);
+      await done;
+
+      expect(processStarts()).toBe(2);
+      if (rpcSuccessor) {
+        expect(RpcClientMock).toHaveBeenCalledWith(
+          expect.objectContaining({ initialCommands: undefined }),
+        );
+      }
+    },
+  );
+
+  it(
+    "rejects a relaunch without starting a successor when the predecessor cannot be reaped",
+    async () => {
+      vi.useFakeTimers();
+      try {
+        setup();
+        const tabId = await spawnPtySession();
+        const predecessor = fakePtys[0]!;
+
+        const done = invoke(CH.restartSession, tabId) as Promise<void>;
+        const rejected = expect(done).rejects.toThrow(/did not exit/);
+        expect(processStarts()).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        await rejected;
+
+        expect(predecessor.kill).toHaveBeenCalledWith("SIGKILL");
+        expect(processStarts()).toBe(1);
+
+        predecessor.exit(23);
+        expect(sent).toContainEqual({ channel: CH.onPtyExit, args: [tabId, 23] });
+        expect(sent).not.toContainEqual({ channel: CH.onPtyExit, args: [tabId, -1] });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("queues Plan mode during the handshake only for a genuinely new rpc-ui session (issue #140)", async () => {
     setup();
-    await invoke(CH.sessionSpawn, {
+    await invoke(CH.spawnSession, {
       projectCwd: "/proj",
       mode: "rpc-ui",
       advisor: false,
@@ -269,8 +336,8 @@ describe("live session teardown (issue #64)", () => {
 
   it("does not queue Plan when Build is the configured default agent mode (issue #143)", async () => {
     setup();
-    await invoke(CH.settingsSetDefaultAgentMode, "build");
-    await invoke(CH.sessionSpawn, {
+    await invoke(CH.setDefaultAgentMode, "build");
+    await invoke(CH.spawnSession, {
       projectCwd: "/proj",
       mode: "rpc-ui",
       advisor: false,
@@ -283,24 +350,30 @@ describe("live session teardown (issue #64)", () => {
     );
   });
 
-  it("mode switch away from rpc-ui kills the rpc child", async () => {
+  it("mode switch away from rpc-ui waits for the rpc child to exit before spawning PTY", async () => {
     setup();
-    const res = (await invoke(CH.sessionSpawn, {
+    const res = (await invoke(CH.spawnSession, {
       projectCwd: "/proj",
       mode: "rpc-ui",
       cols: 80,
       rows: 24,
     })) as { tabId: string };
-    expect(rpcInstances).toHaveLength(1);
+    const predecessor = rpcInstances[0]!;
 
-    await invoke(CH.sessionSwitchMode, res.tabId, "pty");
+    const done = invoke(CH.switchMode, res.tabId, "pty") as Promise<void>;
 
-    expect(rpcInstances[0]!.kill).toHaveBeenCalled();
+    expect(predecessor.kill).toHaveBeenCalled();
+    expect(fakePtys).toHaveLength(0);
+
+    predecessor.exit(0);
+    await done;
+
+    expect(fakePtys).toHaveLength(1);
   });
 
   it("sessionDelete kills the rpc child and reaps it before removing files", async () => {
     setup();
-    const res = (await invoke(CH.sessionSpawn, {
+    const res = (await invoke(CH.spawnSession, {
       projectCwd: "/proj",
       mode: "rpc-ui",
       cols: 80,
@@ -310,7 +383,7 @@ describe("live session teardown (issue #64)", () => {
     // The child honours the kill: killAndReap must not need the SIGKILL escalation.
     rpc.kill.mockImplementation(() => rpc.exit(0));
 
-    await invoke(CH.sessionDelete, res.tabId);
+    await invoke(CH.deleteSession, res.tabId);
 
     expect(rpc.kill).toHaveBeenCalled();
     expect(rpc.kill).not.toHaveBeenCalledWith("SIGKILL");
@@ -320,8 +393,10 @@ describe("live session teardown (issue #64)", () => {
     const { backend } = setup();
     await spawnPtySession();
     const fake = fakePtys[0]!;
+    expect(backend.liveCount).toBe(1);
 
     backend.killAll();
+    expect(backend.liveCount).toBe(0);
 
     expect(fake.detachData).toHaveBeenCalled();
     expect(fake.kill).toHaveBeenCalled();

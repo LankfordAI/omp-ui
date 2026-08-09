@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the three surfaces it touches.
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
@@ -21,7 +22,7 @@ vi.mock("electron", () => ({
 }));
 
 const { MainBackend } = await import("./backend");
-const { CH } = await import("./channels");
+const { CH } = await import("@omp-ui/core");
 
 const SESSION_ID = "019faeab-cc7b-7000-8bfc-67242a2869d8";
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
@@ -71,28 +72,32 @@ function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRo
     fs.writeFileSync(path.join(archivedDir, `${FILE_NAME}.gz`), "gz");
   }
 
-  fs.writeFileSync(
-    path.join(base, "registry.json"),
-    JSON.stringify({
-      schemaVersion: 1,
-      settings: { defaultMode: "pty" },
-      projects: [{ path: "/proj", name: "proj", addedAt: "2026-07-29T00:00:00.000Z" }],
-      sessions: [
-        {
-          tabId: "tab-1",
-          sessionId: file === "missing" ? null : SESSION_ID,
-          lineageDir: LINEAGE,
-          projectCwd: "/proj",
-          launchedAt: "2026-07-29T16:18:42.427Z",
-          mode: "rpc-ui",
-          advisor: true,
-          advisorModel: "openrouter/a/b:high",
-          cachedTitle: "Old session",
-          cachedModified: "2026-07-29T16:18:42.427Z",
-        },
-      ],
-    }),
-  );
+  seedRegistry(path.join(base, "registry.json"), {
+    settings: { defaultMode: "pty" },
+    projects: [
+      {
+        path: "/proj",
+        name: "proj",
+        addedAt: "2026-07-29T00:00:00.000Z",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+    ],
+    sessions: [
+      ownedSessionRecord({
+        tabId: "tab-1",
+        sessionId: file === "missing" ? null : SESSION_ID,
+        lineageDir: LINEAGE,
+        projectCwd: "/proj",
+        launchedAt: "2026-07-29T16:18:42.427Z",
+        mode: "rpc-ui",
+        advisor: true,
+        advisorModel: "openrouter/a/b:high",
+        cachedTitle: "Old session",
+        cachedModified: "2026-07-29T16:18:42.427Z",
+      }),
+    ],
+  });
 
   handlers.clear();
   sent.length = 0;
@@ -110,7 +115,7 @@ describe("sessionFork", () => {
     const sourceFile = path.join(sessionsRoot, LINEAGE, FILE_NAME);
     const before = fs.readFileSync(sourceFile, "utf8");
 
-    const res = (await invoke(CH.sessionFork, "tab-1")) as { tabId: string };
+    const res = (await invoke(CH.forkSession, "tab-1")) as { tabId: string };
 
     // New lineage dir holding exactly one fork file, re-headed but complete.
     const forkLineage = fs.readdirSync(sessionsRoot).find((d) => d !== LINEAGE)!;
@@ -142,24 +147,24 @@ describe("sessionFork", () => {
     expect(fs.readFileSync(sourceFile, "utf8")).toBe(before);
     expect(readRegistry().sessions).toHaveLength(2);
     // The renderer opens the fork on resolve, so state must already be out.
-    expect(sent.some((m) => m.channel === CH.stateChanged)).toBe(true);
+    expect(sent.some((m) => m.channel === CH.onStateChanged)).toBe(true);
   });
 
   it("rejects for an unknown tab", async () => {
     setup();
-    await expect(invoke(CH.sessionFork, "nope")).rejects.toThrow(/unknown session tab/);
+    await expect(invoke(CH.forkSession, "nope")).rejects.toThrow(/unknown session tab/);
     expect(readRegistry().sessions).toHaveLength(1);
   });
 
   it("rejects an archived source rather than forking a stale gz", async () => {
     setup("archived");
-    await expect(invoke(CH.sessionFork, "tab-1")).rejects.toThrow(/unarchive/);
+    await expect(invoke(CH.forkSession, "tab-1")).rejects.toThrow(/unarchive/);
     expect(readRegistry().sessions).toHaveLength(1);
   });
 
   it("rejects a session with no transcript yet", async () => {
     setup("missing");
-    await expect(invoke(CH.sessionFork, "tab-1")).rejects.toThrow(/no transcript/);
+    await expect(invoke(CH.forkSession, "tab-1")).rejects.toThrow(/no transcript/);
     expect(readRegistry().sessions).toHaveLength(1);
   });
 });

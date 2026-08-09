@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the surfaces it touches. The
 // safeStorage stub is reversible rather than absent so the provider-key store is
@@ -22,11 +23,19 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { MainBackend } = await import("./backend");
-const { CH } = await import("./channels");
+vi.mock("@omp-ui/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@omp-ui/core")>()),
+  RpcClient: vi.fn(),
+}));
 
+const { MainBackend } = await import("./backend");
+const { CH } = await import("@omp-ui/core");
+const { RpcClient } = await import("@omp-ui/core");
+const RpcClientMock = vi.mocked(RpcClient);
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
 const sent: { channel: string; args: unknown[] }[] = [];
+const TAB = "tab-1";
+const rpcOptions: { configOverlays?: string[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
@@ -43,16 +52,16 @@ let base: string;
  * transcript lazily, on the first turn, so this is the state of every session
  * between "new session" and the first prompt.
  */
-function setup(opts: { materialized: boolean }): {
-  backend: InstanceType<typeof MainBackend>;
-  sessionsRoot: string;
-} {
+function setup(opts: { materialized: boolean }): { sessionsRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-adv-"));
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
   delete process.env.XDG_DATA_HOME;
   delete process.env.OMP_PROFILE;
   delete process.env.PI_PROFILE;
+  const ompBin = path.join(base, "omp");
+  fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+  process.env.OMP_UI_OMP_PATH = ompBin;
 
   const sessionsRoot = path.join(agentDir, "sessions");
   const activeDir = path.join(sessionsRoot, LINEAGE);
@@ -68,36 +77,37 @@ function setup(opts: { materialized: boolean }): {
   }
 
   const registryFile = path.join(base, "registry.json");
-  fs.writeFileSync(
-    registryFile,
-    JSON.stringify({
-      schemaVersion: 1,
-      settings: { defaultMode: "rpc-ui" },
-      projects: [{ path: "/proj", name: "proj", addedAt: "2026-07-29T00:00:00.000Z" }],
-      sessions: [
-        {
-          tabId: "tab-1",
-          sessionId,
-          lineageDir: LINEAGE,
-          projectCwd: "/proj",
-          launchedAt: "2026-07-29T16:18:42.427Z",
-          mode: "rpc-ui",
-          model: "openrouter/openai/gpt-5.6",
-          thinkingLevel: "high",
-          advisor: true,
-          advisorModel: null,
-          cachedTitle: null,
-          cachedModified: null,
-        },
-      ],
-    }),
-  );
+  seedRegistry(registryFile, {
+    settings: { defaultMode: "rpc-ui" },
+    projects: [
+      {
+        path: "/proj",
+        name: "proj",
+        addedAt: "2026-07-29T00:00:00.000Z",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+    ],
+    sessions: [
+      ownedSessionRecord({
+        tabId: TAB,
+        sessionId,
+        lineageDir: LINEAGE,
+        projectCwd: "/proj",
+        launchedAt: "2026-07-29T16:18:42.427Z",
+        mode: "rpc-ui",
+        model: "openrouter/openai/gpt-5.6",
+        thinkingLevel: "high",
+        advisor: true,
+        advisorModel: null,
+      }),
+    ],
+  });
 
   handlers.clear();
   sent.length = 0;
-  const backend = new MainBackend(win as never, registryFile);
-  backend.registerIpc();
-  return { backend, sessionsRoot };
+  new MainBackend(win as never, registryFile).registerIpc();
+  return { sessionsRoot };
 }
 
 const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
@@ -110,47 +120,31 @@ const readRegistry = (): {
   }[];
 } => JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));
 
-/**
- * `live` and the launch seam are private. These tests reach in deliberately:
- * there is no public way to stand up a running session, and a relaunch is
- * exactly what this feature does.
- *
- * The stub replaces `spawnRpc` — the last step, which actually forks omp — and
- * NOT `spawn`, so the real resume path (`prepareResume`, session-file
- * resolution, the advisor overlay write) still executes. Stubbing `spawn`
- * instead would skip the very code these tests exist to cover.
- */
-interface BackendInternals {
-  live: Map<string, unknown>;
-  ompPath: string | null;
-  spawnRpc(record: { tabId: string }): { tabId: string };
-  configOverlays(
-    record: {
-      model?: string | null;
-      thinkingLevel?: string | null;
-      advisor: boolean;
-      advisorModel: string | null;
-    },
-    lineageDir: string,
-  ): string[];
-}
-const internals = (backend: InstanceType<typeof MainBackend>): BackendInternals =>
-  backend as unknown as BackendInternals;
+const resume = async (): Promise<void> => {
+  await invoke(CH.spawnSession, {
+    projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: true,
+    cols: 80,
+    rows: 24,
+    resumeTabId: TAB,
+  });
+};
 
-/** Replaces the process fork so no omp is launched; records the record spawned. */
-function captureSpawn(backend: InstanceType<typeof MainBackend>): { tabId: string }[] {
-  const calls: { tabId: string }[] = [];
-  // A resolved binary is required before spawn even looks at the session.
-  internals(backend).ompPath = "/usr/bin/true";
-  internals(backend).spawnRpc = (record) => {
-    calls.push(record);
-    return { tabId: record.tabId };
-  };
-  return calls;
-}
+const relaunches = (): number => RpcClientMock.mock.calls.length - 1;
 
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
+  delete process.env.OMP_UI_OMP_PATH;
+  rpcOptions.length = 0;
+  RpcClientMock.mockReset();
+  RpcClientMock.mockImplementation(function (
+    this: unknown,
+    opts: { onExit: (code: number | null) => void; configOverlays?: string[] },
+  ) {
+    rpcOptions.push(opts);
+    return { kill: vi.fn(() => opts.onExit(0)), send: vi.fn() };
+  } as unknown as typeof RpcClient);
 });
 
 describe("session:setAdvisor", () => {
@@ -158,11 +152,10 @@ describe("session:setAdvisor", () => {
     // The bug: omp materializes the .jsonl lazily, so a session toggled before
     // its first prompt has `sessionId: null` and an empty lineage dir.
     // Resolving it as a resume reported "session files are gone".
-    const { backend } = setup({ materialized: false });
-    const calls = captureSpawn(backend);
-    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+    setup({ materialized: false });
+    await resume();
 
-    await expect(invoke(CH.sessionSetAdvisor, "tab-1", false, null)).resolves.toBeUndefined();
+    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null)).resolves.toBeUndefined();
 
     expect(readRegistry().sessions[0]).toMatchObject({
       model: "openrouter/openai/gpt-5.6",
@@ -170,31 +163,28 @@ describe("session:setAdvisor", () => {
       advisor: false,
       advisorModel: null,
     });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ tabId: "tab-1", advisor: false });
+    expect(relaunches()).toBe(1);
+    expect(RpcClientMock.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ advisor: false }));
   });
 
   it("still refuses when a materialized session's files really are gone", async () => {
-    const { backend, sessionsRoot } = setup({ materialized: true });
-    const calls = captureSpawn(backend);
-    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+    const { sessionsRoot } = setup({ materialized: true });
+    await resume();
     fs.rmSync(path.join(sessionsRoot, LINEAGE), { recursive: true, force: true });
 
-    await expect(invoke(CH.sessionSetAdvisor, "tab-1", false, null)).rejects.toThrow(
+    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null)).rejects.toThrow(
       /session files are gone/,
     );
-    expect(calls).toEqual([]);
+    expect(relaunches()).toBe(0);
   });
 
   it("reapplies the session's main model and thinking level after an advisor toggle", async () => {
-    const { backend, sessionsRoot } = setup({ materialized: false });
-    captureSpawn(backend);
-    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+    setup({ materialized: false });
+    await resume();
 
-    await invoke(CH.sessionSetAdvisor, "tab-1", false, null);
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
 
-    const record = readRegistry().sessions[0]!;
-    const overlays = internals(backend).configOverlays(record, path.join(sessionsRoot, LINEAGE));
+    const overlays = rpcOptions.at(-1)?.configOverlays ?? [];
     const modelOverlay = overlays.find((file) => path.basename(file) === "omp-ui-model.yml");
     expect(modelOverlay).toBeDefined();
     expect(fs.readFileSync(modelOverlay!, "utf8")).toBe(
@@ -207,54 +197,49 @@ describe("session:setAdvisor", () => {
     // deliberately swallows its exit. If the relaunch then fails, nothing else
     // will ever report it — the tab would sit there looking live over a dead
     // process, with no way back short of restarting the app.
-    const { backend, sessionsRoot } = setup({ materialized: true });
-    captureSpawn(backend);
-    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+    const { sessionsRoot } = setup({ materialized: true });
+    await resume();
     fs.rmSync(path.join(sessionsRoot, LINEAGE), { recursive: true, force: true });
 
-    await expect(invoke(CH.sessionSetAdvisor, "tab-1", false, null)).rejects.toThrow();
-    const exit = sent.filter((m) => m.channel === CH.ptyExit).at(-1);
+    await expect(invoke(CH.setSessionAdvisor, TAB, false, null)).rejects.toThrow();
+    const exit = sent.filter((m) => m.channel === CH.onPtyExit).at(-1);
     expect(exit?.args[0]).toBe("tab-1");
   });
 
   it("relaunches a materialized session the same way", async () => {
-    const { backend } = setup({ materialized: true });
-    const calls = captureSpawn(backend);
-    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+    setup({ materialized: true });
+    await resume();
 
-    await invoke(CH.sessionSetAdvisor, "tab-1", true, "openrouter/x-ai/grok-4-fast");
+    await invoke(CH.setSessionAdvisor, TAB, true, "openrouter/x-ai/grok-4-fast");
 
     expect(readRegistry().sessions[0]).toMatchObject({
       advisor: true,
       advisorModel: "openrouter/x-ai/grok-4-fast",
     });
-    expect(calls).toHaveLength(1);
+    expect(relaunches()).toBe(1);
   });
 
   it("records the choice without relaunching a dormant session", async () => {
-    const { backend } = setup({ materialized: true });
-    const calls = captureSpawn(backend);
-    // No `live` entry: nothing to restart, the next launch reads the record.
-    await invoke(CH.sessionSetAdvisor, "tab-1", false, null);
+    setup({ materialized: true });
+    // No live process: nothing to restart, the next launch reads the record.
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
 
     expect(readRegistry().sessions[0]).toMatchObject({ advisor: false });
-    expect(calls).toEqual([]);
+    expect(RpcClientMock).not.toHaveBeenCalled();
   });
 
   it("is a no-op when nothing actually changed", async () => {
-    const { backend } = setup({ materialized: true });
-    const calls = captureSpawn(backend);
-    internals(backend).live.set("tab-1", { kind: "rpc-ui" });
+    setup({ materialized: true });
+    await resume();
     // Already advisor: true / model: null — restarting would cost a relaunch
     // for no change at all.
-    await invoke(CH.sessionSetAdvisor, "tab-1", true, null);
-    expect(calls).toEqual([]);
+    await invoke(CH.setSessionAdvisor, TAB, true, null);
+    expect(relaunches()).toBe(0);
   });
 
   it("is a no-op for an unknown tab", async () => {
-    const { backend } = setup({ materialized: true });
-    const calls = captureSpawn(backend);
-    await expect(invoke(CH.sessionSetAdvisor, "nope", false, null)).resolves.toBeUndefined();
-    expect(calls).toEqual([]);
+    setup({ materialized: true });
+    await expect(invoke(CH.setSessionAdvisor, "nope", false, null)).resolves.toBeUndefined();
+    expect(RpcClientMock).not.toHaveBeenCalled();
   });
 });

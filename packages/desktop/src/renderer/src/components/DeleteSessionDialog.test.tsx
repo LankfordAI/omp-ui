@@ -111,10 +111,16 @@ describe("DeleteSessionDialog", () => {
       ),
     );
 
-    const dialog = document.body.querySelector('[role="alertdialog"]');
-    expect(dialog?.textContent).toContain("Production repair");
-    expect(dialog?.textContent).toContain("running agent will be stopped");
-    expect(dialog?.textContent).toContain("transcript and artifacts will be erased");
+    const dialogs = document.body.querySelectorAll<HTMLElement>('[role="alertdialog"]');
+    expect(dialogs).toHaveLength(1);
+    const dialog = dialogs[0];
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    const labelledBy = dialog.getAttribute("aria-labelledby");
+    expect(labelledBy).not.toBeNull();
+    expect(document.getElementById(labelledBy!)?.textContent).toContain("Production repair");
+    expect(dialog.textContent).toContain("Production repair");
+    expect(dialog.textContent).toContain("running agent will be stopped");
+    expect(dialog.textContent).toContain("transcript and artifacts will be erased");
 
     const checkbox = document.body.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(checkbox).not.toBeNull();
