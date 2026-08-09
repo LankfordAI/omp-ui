@@ -73,6 +73,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
   delete process.env.XDG_DATA_HOME;
   delete process.env.OMP_PROFILE;
   delete process.env.PI_PROFILE;
+  process.env.OPENROUTER_API_KEY = "test-provider-key";
 
   const ompBin = path.join(base, "omp");
   fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
