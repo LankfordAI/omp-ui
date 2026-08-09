@@ -48,7 +48,7 @@ export interface AutoUpdaterLike {
    * completed download otherwise cannot install on quit (6.8.9).
    */
   addQuitHandler(): void;
-  quitAndInstall(): void;
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
 }
 
 export interface AppUpdaterDeps {
@@ -355,7 +355,8 @@ export class AppUpdater {
     if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) return;
     if (this.autoUpdater === null) return;
     if (!(await this.deps.confirmQuit())) return;
-    this.autoUpdater.quitAndInstall();
+    if (this.state.format === "nsis") this.autoUpdater.quitAndInstall(true, true);
+    else this.autoUpdater.quitAndInstall();
   }
 
   /**

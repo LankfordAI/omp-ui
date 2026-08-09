@@ -475,8 +475,10 @@ describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
     confirmQuit.mockResolvedValueOnce(false);
     await updater.restart();
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
-
     await updater.restart();
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(
+      ...(format === "nsis" ? [true, true] : []),
+    );
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
