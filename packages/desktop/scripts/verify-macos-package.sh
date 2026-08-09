@@ -62,9 +62,22 @@ for binary in "$executable" "$pty"; do
   fi
 done
 
-# Diagnostic only. identity: null may yield an ad-hoc signature, which is not
-# publisher signing and is not required for this unsupported preview.
-codesign -dv --verbose=4 "$app" || true
+: "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required for signature verification}"
+
+codesign --verify --deep --strict --verbose=2 "$app"
+signature="$(codesign -dv --verbose=4 "$app" 2>&1)"
+printf '%s\n' "$signature"
+grep -Fq "Authority=Developer ID Application:" <<<"$signature" || {
+  printf 'App is not signed with a Developer ID Application identity\n' >&2
+  exit 1
+}
+grep -Fq "TeamIdentifier=$APPLE_TEAM_ID" <<<"$signature" || {
+  printf 'Expected signing team %s\n' "$APPLE_TEAM_ID" >&2
+  exit 1
+}
+codesign --verify --strict --verbose=2 "$pty"
+spctl --assess --type execute --verbose=4 "$app"
+xcrun stapler validate "$app"
 
 dmg="${dmgs[0]##*/}"
 zip="${zips[0]##*/}"

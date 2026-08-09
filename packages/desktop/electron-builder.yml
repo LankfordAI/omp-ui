@@ -19,8 +19,10 @@ linux:
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.png
-  identity: null
-  notarize: false
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
   artifactName: ${productName}-${version}-mac-preview-${arch}.${ext}
   target:
     - dmg
