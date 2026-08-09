@@ -56,7 +56,7 @@ export function splitRole(selector: string): { model: string; level?: string } {
   return { model: selector };
 }
 
-export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: boolean }) {
+export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: string; disabled?: boolean; layout?: "inline" | "sheet" }) {
   const record = useStore((s) => findRecord(s.state, tabId));
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const setSessionAdvisor = useStore((s) => s.setSessionAdvisor);
@@ -132,14 +132,14 @@ export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: 
 
   return (
     <>
-      <Capsule tone={on ? "signal" : "neutral"} className="font-mono">
+      <Capsule tone={on ? "signal" : "neutral"} className={cn("font-mono", layout === "sheet" && "h-11 w-full")}>
         <button
           type="button"
           disabled={disabled}
           aria-pressed={on}
           title={title}
           onClick={toggle}
-          className={cn(CAPSULE_SEGMENT, "text-[10px]", on ? "text-signal" : "text-ink-mid")}
+          className={cn(CAPSULE_SEGMENT, "text-[10px]", layout === "sheet" && (on ? "shrink-0 px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
         >
           {on ? (
             <>
@@ -166,7 +166,7 @@ export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: 
             onClick={() => setPicking(true)}
             className={cn(
               CAPSULE_SEGMENT,
-              "max-w-40 text-[11px]",
+              layout === "sheet" ? "min-w-0 flex-1 justify-center px-3 text-[11px]" : "max-w-40 text-[11px]",
               inherited ? "text-ink-faint" : "text-ink-mid",
             )}
           >
@@ -192,6 +192,7 @@ export function AdvisorControl({ tabId, disabled }: { tabId: string; disabled?: 
               className={cn(
                 CAPSULE_SEGMENT,
                 "rounded-r-[5px] text-[11px] tabular-nums text-iris",
+                layout === "sheet" && "shrink-0 px-3",
               )}
             >
               {effectiveLevel ?? "think —"}

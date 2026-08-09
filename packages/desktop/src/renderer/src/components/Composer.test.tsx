@@ -138,6 +138,9 @@ describe("compact Composer", () => {
     expect(byText("low").getAttribute("aria-pressed")).toBe("false");
     expect(byText("high").getAttribute("aria-pressed")).toBe("false");
     expect(byText("plan").getAttribute("aria-checked")).toBe("false");
+    const sheet = document.body.querySelector<HTMLElement>('[aria-label="prompt options"]')!;
+    expect(sheet.querySelector(".prompt-options")).not.toBeNull();
+    expect(sheet.querySelector(".w-full")?.textContent).toContain("advisor");
   });
 });
 

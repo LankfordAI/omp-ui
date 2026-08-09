@@ -824,32 +824,37 @@ export function Composer({ tabId }: { tabId: string }) {
         </div>
       </div>
       <Sheet open={compactSurface === "composer-options"} placement="bottom" label="prompt options" onClose={closeCompactSurface}>
-        <div className="space-y-4 p-4">
-          <div>
-            <Label>model</Label>
-            <div className="mt-2 flex min-h-11 items-center rounded-md border border-line px-2"><ModelSelector tabId={tabId} disabled={dead} /></div>
+        <div className="prompt-options space-y-5 px-[max(1rem,var(--safe-left))] py-4 pr-[max(1rem,var(--safe-right))]">
+          <section className="rounded-xl border border-line bg-raised/60 p-3">
+            <Label>model &amp; effort</Label>
+            <div className="mt-2 flex min-h-11 items-center rounded-lg border border-line bg-void/35 px-2">
+              <ModelSelector tabId={tabId} disabled={dead} />
+            </div>
             {efforts.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {efforts.map((effort) => <Button key={effort} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 font-mono">{effort}</Button>)}
+              <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(5rem,1fr))] gap-2">
+                {efforts.map((effort) => <Button key={effort} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
               </div>
             )}
-          </div>
-          <div>
+          </section>
+          <section className="rounded-xl border border-line bg-raised/60 p-3">
             <Label>session</Label>
             <div className="mt-2 space-y-2">
-              <div className="flex min-h-11 items-center gap-2"><AdvisorControl tabId={tabId} disabled={dead} /></div>
-              <div className="flex min-h-11 items-center gap-2"><BuildPlanControl tabId={tabId} layout="sheet" disabled={dead} className="min-h-11 flex-1" /></div>
-              <div className="flex min-h-11 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</div>
-            </div>
-          </div>
-          {running && (
-            <div>
-              <Label>while running</Label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button disabled={!canSend} onClick={() => submit("follow_up")} className="min-h-11">Queue</Button>
-                <Button disabled={!canSend} onClick={() => submit("interrupt")} className="min-h-11">Interrupt-and-send</Button>
+              <AdvisorControl tabId={tabId} disabled={dead} layout="sheet" />
+              <BuildPlanControl tabId={tabId} layout="sheet" disabled={dead} className="min-h-11" />
+              <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">branch</span>
+                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</span>
               </div>
             </div>
+          </section>
+          {running && (
+            <section className="rounded-xl border border-line bg-raised/60 p-3">
+              <Label>while running</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Button disabled={!canSend} onClick={() => submit("follow_up")} className="min-h-11 justify-center">Queue</Button>
+                <Button disabled={!canSend} onClick={() => submit("interrupt")} className="min-h-11 min-w-0 justify-center px-2">Interrupt-and-send</Button>
+              </div>
+            </section>
           )}
         </div>
       </Sheet>
