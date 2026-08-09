@@ -17,6 +17,7 @@ export function OmpUpdateCard() {
 
   const { status, installedVersion, latestVersion, progress, error } = ompUpdate;
   const version = latestVersion ?? "";
+  const dismissOfferedVersion = () => void dismissOmpUpdate(version, true);
 
   // Transient answers to a manual check clear themselves (the TerminalTab
   // note-pill idiom); sticky states wait for an explicit click.
@@ -49,7 +50,7 @@ export function OmpUpdateCard() {
           <Button variant="solid" onClick={() => void downloadOmpUpdate()}>
             Update now
           </Button>
-          <Button variant="ghost" onClick={() => void dismissOmpUpdate(version, true)}>
+          <Button variant="ghost" onClick={dismissOfferedVersion}>
             Later
           </Button>
         </div>
@@ -67,7 +68,7 @@ export function OmpUpdateCard() {
           <Button variant="solid" onClick={() => void downloadOmpUpdate()}>
             Install
           </Button>
-          <Button variant="ghost" onClick={() => void dismissOmpUpdate(version, true)}>
+          <Button variant="ghost" onClick={dismissOfferedVersion}>
             Later
           </Button>
         </div>
@@ -125,9 +126,19 @@ export function OmpUpdateCard() {
     );
   }
 
+  const offered = status === "available" || status === "missing";
   return (
-    <div className="edge-lit animate-rise rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
-      {body}
+    <div className="edge-lit animate-rise relative rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
+      {offered && (
+        <div className="absolute right-2 top-2">
+          <IconButton label={`dismiss omp ${version} offer`} onClick={dismissOfferedVersion}>
+            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+            </svg>
+          </IconButton>
+        </div>
+      )}
+      <div className={offered ? "pr-6" : undefined}>{body}</div>
     </div>
   );
 }

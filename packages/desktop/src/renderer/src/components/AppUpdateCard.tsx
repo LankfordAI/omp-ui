@@ -197,8 +197,20 @@ export function AppUpdateCard() {
   }
 
   return (
-    <div className="edge-lit animate-rise rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
-      {body}
+    <div className="edge-lit animate-rise relative rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
+      {status === "available" && (
+        <div className="absolute right-2 top-2">
+          <IconButton
+            label={`dismiss omp-ui ${version} update`}
+            onClick={() => void dismissAppUpdate(version, true)}
+          >
+            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} className="size-2.5">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+            </svg>
+          </IconButton>
+        </div>
+      )}
+      <div className={status === "available" ? "pr-6" : undefined}>{body}</div>
     </div>
   );
 }

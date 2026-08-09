@@ -134,6 +134,9 @@ describe("AppUpdateCard", () => {
     buttonWithText("Release notes");
     click(buttonWithText("Later"));
     expect(backendMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", true);
+
+    click(document.body.querySelector<HTMLButtonElement>('[aria-label="dismiss omp-ui 1.2.0 update"]')!);
+    expect(backendMock.dismissAppUpdate).toHaveBeenLastCalledWith("1.2.0", true);
   });
 
   it.each(["appimage", "nsis"] as const)("labels %s available action Update", (format) => {

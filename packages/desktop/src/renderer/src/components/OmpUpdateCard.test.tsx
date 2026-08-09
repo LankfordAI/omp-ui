@@ -128,6 +128,9 @@ describe("OmpUpdateCard", () => {
     expect(backendMock.downloadOmpUpdate).toHaveBeenCalled();
     click(buttonWithText("Later"));
     expect(backendMock.dismissOmpUpdate).toHaveBeenCalledWith("1.2.0", true);
+
+    click(document.body.querySelector<HTMLButtonElement>('[aria-label="dismiss omp 1.2.0 offer"]')!);
+    expect(backendMock.dismissOmpUpdate).toHaveBeenLastCalledWith("1.2.0", true);
   });
 
   it("offers an install when omp is missing — never an update", () => {
@@ -146,6 +149,9 @@ describe("OmpUpdateCard", () => {
     expect(backendMock.downloadOmpUpdate).toHaveBeenCalled();
     click(buttonWithText("Later"));
     expect(backendMock.dismissOmpUpdate).toHaveBeenCalledWith("1.2.0", true);
+
+    click(document.body.querySelector<HTMLButtonElement>('[aria-label="dismiss omp 1.2.0 offer"]')!);
+    expect(backendMock.dismissOmpUpdate).toHaveBeenLastCalledWith("1.2.0", true);
   });
 
   it("shows the install percentage while downloading", () => {
