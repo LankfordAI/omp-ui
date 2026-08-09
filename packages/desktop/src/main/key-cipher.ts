@@ -16,7 +16,7 @@ import type { KeyCipher } from "@omp-ui/core";
  * Must not be constructed before `app.whenReady()` — safeStorage has no backend
  * until then.
  */
-export function electronKeyCipher(): KeyCipher {
+export function electronKeyCipher(platform: NodeJS.Platform = process.platform): KeyCipher {
   // safeStorage is absent under a stubbed electron (unit tests) and backendless
   // before app.whenReady(); either way an unavailable cipher is the truthful
   // answer, and it keeps the key store constructible without a live keyring.
@@ -32,14 +32,17 @@ export function electronKeyCipher(): KeyCipher {
       },
     };
   }
+  const encryptionAvailable = safeStorage.isEncryptionAvailable();
   const backend = (() => {
     try {
-      return process.platform === "linux" ? safeStorage.getSelectedStorageBackend() : process.platform;
+      if (platform === "linux") return safeStorage.getSelectedStorageBackend();
+      if (platform === "win32") return encryptionAvailable ? "windows-dpapi" : "unavailable";
+      return platform;
     } catch {
       return "unknown";
     }
   })();
-  const available = safeStorage.isEncryptionAvailable() && backend !== "basic_text";
+  const available = encryptionAvailable && backend !== "basic_text";
   return {
     available,
     backend,

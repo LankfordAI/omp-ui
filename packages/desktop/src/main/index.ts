@@ -198,8 +198,8 @@ if (!app.requestSingleInstanceLock()) {
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     const be = new MainBackend(win, registryFile, {
       confirmQuit: confirmLiveQuit,
-      // omp-ui updates are packaged-Linux-only by default; the env override
-      // lets a dev run exercise the real flow against a real release.
+      // omp-ui updates are enabled for packaged Linux and Windows builds; the
+      // env override lets a dev run exercise the real flow against a release.
       appUpdateEnabled: appUpdateEnabledForBuild({
         packaged: app.isPackaged,
         platform: process.platform,

@@ -1,19 +1,22 @@
-// Regenerates packages/desktop/build/icon.png — the omp-ui wordmark app icon
-// (issue #11). Renders the wordmark tile with the app's real Bricolage
-// Grotesque variable font and the exact token colors from
-// src/renderer/src/style.css, via headless Chromium.
+// Regenerates packages/desktop/build/icon.png and icon.ico — the omp-ui
+// wordmark app icons (issue #11). Renders the wordmark tile with the app's
+// real Bricolage Grotesque variable font and the exact token colors from
+// src/renderer/src/style.css, via headless Chromium, then converts the PNG to
+// a multi-size Windows icon.
 //
-//   Run from repo root:  node packages/desktop/scripts/render-icon.mjs
-//   Requires: a chromium binary on PATH and `npm ci` at the repo root (the
-//   fontsource woff2 lives in root node_modules).
-import { readFileSync, writeFileSync } from "node:fs";
+//   Run from repo root: node packages/desktop/scripts/render-icon.mjs
+//   Requires a Chromium binary on PATH and `npm ci` at the repo root.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import pngToIco from "png-to-ico";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..", "..");
 const outPng = fileURLToPath(new URL("../build/icon.png", import.meta.url));
+const outIco = fileURLToPath(new URL("../build/icon.ico", import.meta.url));
 
 const WOFF = join(
   repoRoot,
@@ -37,20 +40,34 @@ html,body{margin:0;width:512px;height:512px;background:transparent;overflow:hidd
 .ui{color:${UI}}</style></head><body><div class="tile"><span class="mark">omp<span class="ui">-ui</span></span></div></body></html>`;
 
 function chromium() {
-  for (const bin of ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable"]) {
-    const r = spawnSync("which", [bin], { encoding: "utf8" });
-    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+  const localAppData = process.env.LOCALAPPDATA;
+  const programFiles = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"]].filter(Boolean);
+  const candidates = [
+    "chromium-browser",
+    "chromium",
+    "google-chrome",
+    "google-chrome-stable",
+    "chrome",
+    ...(localAppData ? [join(localAppData, "Google", "Chrome", "Application", "chrome.exe")] : []),
+    ...programFiles.map((root) => join(root, "Google", "Chrome", "Application", "chrome.exe")),
+  ];
+  for (const bin of candidates) {
+    if (bin.includes("/") || bin.includes("\\")) {
+      if (!existsSync(bin)) continue;
+    }
+    const probe = spawnSync(bin, ["--version"], { encoding: "utf8" });
+    if (probe.status === 0) return bin;
   }
   return null;
 }
 
 const bin = chromium();
 if (!bin) {
-  console.error("render-icon: no chromium binary on PATH (looked for chromium-browser/chromium/google-chrome)");
+  console.error("render-icon: no Chromium executable found");
   process.exit(1);
 }
 
-const htmlPath = "/tmp/omp-ui-icon.html";
+const htmlPath = join(tmpdir(), "omp-ui-icon.html");
 writeFileSync(htmlPath, HTML);
 
 const r = spawnSync(
@@ -78,3 +95,11 @@ if (buf.length < 24 + 8 || buf.readUInt32BE(16) !== 512 || buf.readUInt32BE(20) 
   process.exit(1);
 }
 console.log(`wrote ${outPng} (${buf.length} bytes)`);
+
+const ico = await pngToIco(outPng);
+writeFileSync(outIco, ico);
+if (ico.length === 0) {
+  console.error("render-icon: ICO output is empty");
+  process.exit(1);
+}
+console.log(`wrote ${outIco} (${ico.length} bytes)`);

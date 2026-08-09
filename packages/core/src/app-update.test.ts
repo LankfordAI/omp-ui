@@ -139,24 +139,32 @@ describe("detectPackageFormat", () => {
   const none = (): boolean => false;
 
   it("detects each format from env/existence evidence", () => {
-    expect(detectPackageFormat({ APPIMAGE: "/run/omp-ui.AppImage" }, none)).toBe("appimage");
-    expect(detectPackageFormat({}, (p) => p === "/.flatpak-info")).toBe("flatpak");
-    expect(detectPackageFormat({}, (p) => p === "/usr/bin/dpkg")).toBe("deb");
-    expect(detectPackageFormat({}, (p) => p === "/usr/bin/rpm")).toBe("rpm");
+    expect(detectPackageFormat({ APPIMAGE: "/run/omp-ui.AppImage" }, none, "linux")).toBe("appimage");
+    expect(detectPackageFormat({}, (p) => p === "/.flatpak-info", "linux")).toBe("flatpak");
+    expect(detectPackageFormat({}, (p) => p === "/usr/bin/dpkg", "linux")).toBe("deb");
+    expect(detectPackageFormat({}, (p) => p === "/usr/bin/rpm", "linux")).toBe("rpm");
   });
 
   it("applies appimage > flatpak > deb > rpm precedence", () => {
     const all = (): boolean => true;
-    expect(detectPackageFormat({ APPIMAGE: "/x" }, all)).toBe("appimage");
-    expect(detectPackageFormat({}, all)).toBe("flatpak");
-    expect(detectPackageFormat({}, (p) => p !== "/.flatpak-info")).toBe("deb");
-    expect(detectPackageFormat({}, (p) => p === "/usr/bin/rpm")).toBe("rpm");
+    expect(detectPackageFormat({ APPIMAGE: "/x" }, all, "linux")).toBe("appimage");
+    expect(detectPackageFormat({}, all, "linux")).toBe("flatpak");
+    expect(detectPackageFormat({}, (p) => p !== "/.flatpak-info", "linux")).toBe("deb");
+    expect(detectPackageFormat({}, (p) => p === "/usr/bin/rpm", "linux")).toBe("rpm");
   });
 
   it("falls back to unknown with no evidence", () => {
-    expect(detectPackageFormat({}, none)).toBe("unknown");
+    expect(detectPackageFormat({}, none, "linux")).toBe("unknown");
   });
 });
+
+  it("detects NSIS on Windows before filesystem evidence", () => {
+    expect(detectPackageFormat({ APPIMAGE: "/ignored" }, () => true, "win32")).toBe("nsis");
+  });
+
+  it("returns unknown on non-Linux, non-Windows platforms", () => {
+    expect(detectPackageFormat({ APPIMAGE: "/ignored" }, () => true, "darwin")).toBe("unknown");
+  });
 
 describe("expectedAssetName", () => {
   it("names the exact release.yml artifacts for 1.2.3", () => {

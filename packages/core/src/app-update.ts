@@ -6,8 +6,8 @@ import type { AppPackageFormat } from "./types";
 
 // Pure, transport- and UI-agnostic omp-ui release update logic. The Electron
 // main process drives this over IPC; nothing here touches Electron (ADR-0002).
-// The AppImage in-place path (electron-updater) lives in the main process —
-// this module owns the shared parts: release lookup, package-format
+// The auto-updatable AppImage/NSIS path (electron-updater) lives in the main
+// process — this module owns the shared parts: release lookup, package-format
 // detection, and the checksum-verified download the deb/rpm/Flatpak paths use.
 
 export const APP_GITHUB_REPO = "LankfordAI/omp-ui";
@@ -80,15 +80,16 @@ export async function fetchLatestAppRelease(
 }
 
 /**
- * How this omp-ui install was packaged, best-effort: APPIMAGE env → appimage;
- * /.flatpak-info exists → flatpak; /usr/bin/dpkg exists → deb; /usr/bin/rpm
- * exists → rpm; else unknown. Precedence is in that order (a dual dpkg+rpm
- * system reads as deb — the common Debian-derived case).
+ * How this install updates. Windows packages are NSIS. Linux preserves the
+ * APPIMAGE → Flatpak → deb → rpm precedence; other platforms are unknown.
  */
 export function detectPackageFormat(
   env: NodeJS.ProcessEnv = process.env,
   exists: (p: string) => boolean = fs.existsSync,
+  platform: NodeJS.Platform = process.platform,
 ): AppPackageFormat {
+  if (platform === "win32") return "nsis";
+  if (platform !== "linux") return "unknown";
   if (env.APPIMAGE) return "appimage";
   if (exists("/.flatpak-info")) return "flatpak";
   if (exists("/usr/bin/dpkg")) return "deb";
@@ -99,8 +100,8 @@ export function detectPackageFormat(
 /**
  * The exact asset name electron-builder/release.yml publishes for a
  * format+version (from packages/desktop/electron-builder.yml artifactName
- * rules and the Flatpak assemble step in release.yml). AppImage/unknown never
- * go through asset download, so they are not representable here.
+ * rules and the Flatpak assemble step in release.yml). Auto-update/unknown
+ * formats never go through asset download, so they are not representable here.
  */
 export function expectedAssetName(
   format: "deb" | "rpm" | "flatpak",

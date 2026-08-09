@@ -136,47 +136,72 @@ describe("AppUpdateCard", () => {
     expect(backendMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", true);
   });
 
-  it("shows the download percentage while downloading", () => {
+  it.each(["appimage", "nsis"] as const)("labels %s available action Update", (format) => {
     useStore.setState({
-      appUpdate: appUpdateState({ status: "downloading", latestVersion: "1.2.0", progress: 42 }),
+      appUpdate: appUpdateState({ status: "available", latestVersion: "1.2.0", format }),
     });
     renderCard();
-    expect(document.body.textContent).toContain("Downloading omp-ui 1.2.0");
-    expect(document.body.textContent).toContain("42%");
+    buttonWithText("Update");
   });
 
-  it("restarts now or arms install-on-quit for a staged AppImage", () => {
-    useStore.setState({
-      appUpdate: appUpdateState({
-        status: "downloaded",
-        latestVersion: "1.2.0",
-        format: "appimage",
-      }),
-    });
-    renderCard();
-    expect(document.body.textContent).toContain("omp-ui 1.2.0 ready");
+  it.each(["appimage", "nsis"] as const)(
+    "shows %s staging progress",
+    (format) => {
+      useStore.setState({
+        appUpdate: appUpdateState({
+          status: "downloading",
+          latestVersion: "1.2.0",
+          format,
+          progress: 42,
+        }),
+      });
+      renderCard();
+      expect(document.body.textContent).toContain("Downloading omp-ui 1.2.0");
+      expect(document.body.textContent).toContain("42%");
+    },
+  );
 
-    click(buttonWithText("Restart now"));
-    expect(backendMock.restartForAppUpdate).toHaveBeenCalled();
+  it.each(["appimage", "nsis"] as const)(
+    "restarts, arms install-on-quit, and dismisses a staged %s update",
+    (format) => {
+      useStore.setState({
+        appUpdate: appUpdateState({
+          status: "downloaded",
+          latestVersion: "1.2.0",
+          format,
+        }),
+      });
+      renderCard();
+      expect(document.body.textContent).toContain("omp-ui 1.2.0 ready");
 
-    click(buttonWithText("Install when I quit"));
-    expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(true);
-  });
+      click(buttonWithText("Restart now"));
+      expect(backendMock.restartForAppUpdate).toHaveBeenCalled();
 
-  it("shows and disarms an install-on-quit choice", () => {
-    useStore.setState({
-      appUpdate: appUpdateState({
-        status: "downloaded",
-        latestVersion: "1.2.0",
-        format: "appimage",
-        installOnQuit: true,
-      }),
-    });
-    renderCard();
-    expect(document.body.textContent).toContain("will install when you quit");
-    click(buttonWithText("Undo"));
-    expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(false);
-  });
+      click(buttonWithText("Install when I quit"));
+      expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(true);
+
+      click(buttonWithText("Later"));
+      expect(backendMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", false);
+    },
+  );
+
+  it.each(["appimage", "nsis"] as const)(
+    "shows and disarms a %s install-on-quit choice",
+    (format) => {
+      useStore.setState({
+        appUpdate: appUpdateState({
+          status: "downloaded",
+          latestVersion: "1.2.0",
+          format,
+          installOnQuit: true,
+        }),
+      });
+      renderCard();
+      expect(document.body.textContent).toContain("will install when you quit");
+      click(buttonWithText("Undo"));
+      expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(false);
+    },
+  );
 
   it("reveals a downloaded deb in its folder", () => {
     useStore.setState({

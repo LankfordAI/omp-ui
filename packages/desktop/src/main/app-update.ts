@@ -10,6 +10,7 @@ import {
   parseSemver,
   selectAsset,
   type AppReleaseInfo,
+  type AppPackageFormat,
   type AppUpdateState,
   type DownloadFetchLike,
   type FetchLike,
@@ -18,14 +19,20 @@ import {
 // Main-process orchestration for omp-ui's own release updates (issue #18).
 // All the machine work — release lookup, package-format detection, the
 // checksum-verified download — lives in @omp-ui/core; this file owns the
-// state machine the renderer's update card renders, plus the AppImage
+// state machine the renderer's update card renders, plus the AppImage/NSIS
 // in-place path through electron-updater.
 //
 // Quiet by default: background checks never surface errors or up-to-date
-// states. AppImage updates stage immediately and quietly; only the verified,
+// states. Auto-updates stage immediately and quietly; only the verified,
 // downloaded update earns the card. Manual checks expose staging progress and
 // failures. Other package formats still wait for an explicit Download click.
 
+
+export function isAutoUpdateFormat(
+  format: AppPackageFormat,
+): format is "appimage" | "nsis" {
+  return format === "appimage" || format === "nsis";
+}
 /** The slice of electron-updater's AppUpdater this flow uses (6.8.9 API). */
 export interface AutoUpdaterLike {
   autoDownload: boolean;
@@ -60,6 +67,7 @@ export interface AppUpdaterDeps {
   autoUpdaterFactory?: () => Promise<AutoUpdaterLike>; // tests; default below
   env?: NodeJS.ProcessEnv;
   exists?: (p: string) => boolean;
+  platform?: NodeJS.Platform;
 }
 
 /**
@@ -91,8 +99,8 @@ export function resolveAutoUpdater(mod: unknown): AutoUpdaterLike | null {
 const defaultAutoUpdaterFactory = async (): Promise<AutoUpdaterLike> => {
   // Lazy on purpose (dynamic-import exception): electron-updater hooks the
   // real Electron app when imported, which breaks under vitest's mocked
-  // electron and is dead weight on deb/rpm/flatpak installs — only the
-  // AppImage download path ever needs it.
+  // electron and is dead weight on manual installer formats — only the
+  // AppImage/NSIS download path needs it.
   const autoUpdater = resolveAutoUpdater(await import("electron-updater"));
   if (autoUpdater === null) throw new Error("electron-updater export unavailable");
   return autoUpdater;
@@ -106,8 +114,8 @@ export class AppUpdater {
   private release: AppReleaseInfo | null = null;
   private autoUpdater: AutoUpdaterLike | null = null;
   private autoUpdaterHooked = false;
-  private appImageStaging = false;
-  private appImageStageVisible = false;
+  private autoUpdateStaging = false;
+  private autoUpdateStageVisible = false;
   private installOnQuitArmed = false;
 
   constructor(private readonly deps: AppUpdaterDeps) {
@@ -121,7 +129,7 @@ export class AppUpdater {
       latestVersion: null,
       releaseUrl: null,
       releaseName: null,
-      format: detectPackageFormat(deps.env, deps.exists),
+      format: detectPackageFormat(deps.env, deps.exists, deps.platform),
       progress: null,
       downloadedPath: null,
       installOnQuit: false,
@@ -176,9 +184,9 @@ export class AppUpdater {
       return this.state;
     }
     this.release = release;
-    const format = detectPackageFormat(this.deps.env, this.deps.exists);
-    if (format === "appimage") {
-      await this.stageAppImage(release, manual);
+    const format = detectPackageFormat(this.deps.env, this.deps.exists, this.deps.platform);
+    if (isAutoUpdateFormat(format)) {
+      await this.stageAutoUpdate(release, format, manual);
       return this.state;
     }
     this.set({
@@ -192,28 +200,32 @@ export class AppUpdater {
   }
 
   /**
-   * Stages an AppImage through electron-updater's sha512/blockmap-verified
-   * path. Background checks expose only the completed state; a manual check
-   * makes the same in-flight stage and its failures visible.
+   * Stages an AppImage or NSIS update through electron-updater's
+   * sha512/blockmap-verified path. Background checks expose only the completed
+   * state; a manual check makes the same in-flight stage and failures visible.
    */
-  private async stageAppImage(release: AppReleaseInfo, visible: boolean): Promise<void> {
+  private async stageAutoUpdate(
+    release: AppReleaseInfo,
+    format: "appimage" | "nsis",
+    visible: boolean,
+  ): Promise<void> {
     const releaseState = {
       latestVersion: release.version,
       releaseUrl: release.url,
       releaseName: release.name,
-      format: "appimage" as const,
+      format,
     };
 
-    if (this.appImageStaging) {
-      if (visible && !this.appImageStageVisible) {
-        this.appImageStageVisible = true;
+    if (this.autoUpdateStaging) {
+      if (visible && !this.autoUpdateStageVisible) {
+        this.autoUpdateStageVisible = true;
         this.set({ status: "downloading", ...releaseState });
       }
       return;
     }
 
-    this.appImageStaging = true;
-    this.appImageStageVisible = visible;
+    this.autoUpdateStaging = true;
+    this.autoUpdateStageVisible = visible;
     try {
       this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
       const autoUpdater = this.autoUpdater;
@@ -225,13 +237,13 @@ export class AppUpdater {
       if (!this.autoUpdaterHooked) {
         this.autoUpdaterHooked = true;
         autoUpdater.on("download-progress", (p) => {
-          if (this.appImageStageVisible) {
+          if (this.autoUpdateStageVisible) {
             this.set({ status: "downloading", progress: Math.floor(p.percent) });
           }
         });
         autoUpdater.on("update-downloaded", (info) => {
-          this.appImageStaging = false;
-          this.appImageStageVisible = false;
+          this.autoUpdateStaging = false;
+          this.autoUpdateStageVisible = false;
           this.set({
             status: "downloaded",
             latestVersion: info.version,
@@ -240,10 +252,10 @@ export class AppUpdater {
           });
         });
         autoUpdater.on("error", (err) => {
-          if (!this.appImageStaging) return;
-          const wasVisible = this.appImageStageVisible;
-          this.appImageStaging = false;
-          this.appImageStageVisible = false;
+          if (!this.autoUpdateStaging) return;
+          const wasVisible = this.autoUpdateStageVisible;
+          this.autoUpdateStaging = false;
+          this.autoUpdateStageVisible = false;
           this.set(wasVisible ? { status: "error", error: err.message } : { status: "idle" });
         });
       }
@@ -257,17 +269,17 @@ export class AppUpdater {
       if (result?.isUpdateAvailable) {
         await autoUpdater.downloadUpdate();
       } else {
-        this.appImageStaging = false;
-        this.appImageStageVisible = false;
+        this.autoUpdateStaging = false;
+        this.autoUpdateStageVisible = false;
         this.set(visible ? { status: "up-to-date" } : { status: "idle" });
       }
     } catch (error) {
       // electron-updater normally emits "error" before rejecting. Only own
       // the fallback when that event did not already settle this stage.
-      if (!this.appImageStaging) return;
-      const wasVisible = this.appImageStageVisible;
-      this.appImageStaging = false;
-      this.appImageStageVisible = false;
+      if (!this.autoUpdateStaging) return;
+      const wasVisible = this.autoUpdateStageVisible;
+      this.autoUpdateStaging = false;
+      this.autoUpdateStageVisible = false;
       this.set(
         wasVisible
           ? { status: "error", error: error instanceof Error ? error.message : String(error) }
@@ -277,9 +289,9 @@ export class AppUpdater {
   }
 
   /**
-   * The card's primary action for non-AppImage formats: download the exact
-   * expected asset, verify it against SHA256SUMS.txt, and open it with the
-   * system installer. AppImage staging begins in checkNow().
+   * The card's primary action for manual formats: download the exact expected
+   * asset, verify it against SHA256SUMS.txt, and open it with the system
+   * installer. Auto-update staging begins in checkNow().
    */
   async download(): Promise<void> {
     if (this.state.status !== "available" || this.release === null) return;
@@ -289,8 +301,8 @@ export class AppUpdater {
       await this.openReleaseNotes(); // nothing downloadable — show the release page
       return;
     }
-    // AppImage never reaches "available": checkNow() stages it immediately.
-    if (format === "appimage") return;
+    // Auto-update formats never reach "available": checkNow() stages them immediately.
+    if (isAutoUpdateFormat(format)) return;
     // deb / rpm / flatpak: verified download + system-installer handoff.
     const name = selectAsset(release, format);
     if (name === null) {
@@ -330,31 +342,31 @@ export class AppUpdater {
     if (this.state.releaseUrl !== null) await shell.openExternal(this.state.releaseUrl);
   }
 
-  /** Reveals the downloaded artifact in its folder (non-AppImage). */
+  /** Reveals a downloaded manual installer in its folder. */
   async showDownload(): Promise<void> {
     if (this.state.downloadedPath !== null) shell.showItemInFolder(this.state.downloadedPath);
   }
 
   /**
-   * Restarts into the downloaded AppImage update. Live sessions still get
+   * Restarts into the downloaded AppImage/NSIS update. Live sessions still get
    * their say first — the same quit guard as the window close button.
    */
   async restart(): Promise<void> {
-    if (this.state.status !== "downloaded" || this.state.format !== "appimage") return;
+    if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) return;
     if (this.autoUpdater === null) return;
     if (!(await this.deps.confirmQuit())) return;
     this.autoUpdater.quitAndInstall();
   }
 
   /**
-   * Applies the staged AppImage on the next natural quit only after an
-   * explicit user choice. BaseUpdater skips quit-hook registration when the
+   * Applies a staged AppImage/NSIS update on the next natural quit only after
+   * an explicit user choice. BaseUpdater skips quit-hook registration when the
    * download completed with autoInstallOnAppQuit=false, so arming later must
    * register that idempotent hook; it re-checks the flag at quit, making
    * disarming reliable.
    */
   setInstallOnQuit(on: boolean): void {
-    if (on && (this.state.status !== "downloaded" || this.state.format !== "appimage")) return;
+    if (on && (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format))) return;
     this.installOnQuitArmed = on;
     if (this.autoUpdater !== null) {
       this.autoUpdater.autoInstallOnAppQuit = on;

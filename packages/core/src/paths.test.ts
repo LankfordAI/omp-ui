@@ -6,8 +6,10 @@ import {
   getArchiveRoot,
   getSessionsRoot,
   isLineageDirName,
+  managedOmpDir,
   managedOmpPath,
   mintLineageDirName,
+  ompBinaryName,
   resolveOmpBinary,
   resolveProfile,
 } from "./paths";
@@ -57,7 +59,7 @@ describe("getSessionsRoot", () => {
     ).toBe(path.join(home, ".omp", "profiles", "work", "agent", "sessions"));
   });
 
-  it("takes the XDG branch only when the candidate dir exists", () => {
+  it.runIf(process.platform !== "win32")("takes the XDG branch only when the candidate dir exists", () => {
     const xdg = mkTmp();
     const env = { XDG_DATA_HOME: xdg };
     // Candidate missing → default branch.
@@ -67,7 +69,7 @@ describe("getSessionsRoot", () => {
     expect(getSessionsRoot(env)).toBe(path.join(xdg, "omp", "sessions"));
   });
 
-  it("uses the profiled XDG candidate under a named profile", () => {
+  it.runIf(process.platform !== "win32")("uses the profiled XDG candidate under a named profile", () => {
     const xdg = mkTmp();
     const env = { XDG_DATA_HOME: xdg, OMP_PROFILE: "work" };
     expect(getSessionsRoot(env)).toBe(
@@ -77,7 +79,7 @@ describe("getSessionsRoot", () => {
     expect(getSessionsRoot(env)).toBe(path.join(xdg, "omp", "profiles", "work", "sessions"));
   });
 
-  it("skips the XDG branch when PI_CODING_AGENT_DIR overrode the agent dir", () => {
+  it.runIf(process.platform !== "win32")("skips the XDG branch when PI_CODING_AGENT_DIR overrode the agent dir", () => {
     const xdg = mkTmp();
     fs.mkdirSync(path.join(xdg, "omp"), { recursive: true });
     expect(getSessionsRoot({ XDG_DATA_HOME: xdg, PI_CODING_AGENT_DIR: "/elsewhere" })).toBe(
@@ -85,6 +87,12 @@ describe("getSessionsRoot", () => {
     );
   });
 });
+
+  it("keeps the Windows fallback under the omp-compatible profile root", () => {
+    expect(getSessionsRoot({}, "win32", "C:\\Users\\alice")).toBe(
+      "C:\\Users\\alice\\.omp\\agent\\sessions",
+    );
+  });
 
 describe("getArchiveRoot", () => {
   it("is the sibling archive/sessions dir", () => {
@@ -172,21 +180,21 @@ describe("resolveOmpBinary", () => {
     ).toBe(override);
   });
 
-  it("finds omp on PATH in order", () => {
+  it.runIf(process.platform !== "win32")("finds omp on PATH in order", () => {
     const first = fixtureOmp(path.join(mkTmp(), "a"));
     const second = fixtureOmp(path.join(mkTmp(), "b"));
     const env = noManaged({ PATH: [path.dirname(first), path.dirname(second)].join(path.delimiter) });
     expect(resolveOmpBinary(env)).toBe(first);
   });
 
-  it("skips a nonexistent override and falls through to PATH", () => {
+  it.runIf(process.platform !== "win32")("skips a nonexistent override and falls through to PATH", () => {
     const onPath = fixtureOmp(path.join(mkTmp(), "onpath"));
     expect(
       resolveOmpBinary(noManaged({ OMP_UI_OMP_PATH: "/nonexistent/omp", PATH: path.dirname(onPath) })),
     ).toBe(onPath);
   });
 
-  it("prefers the app-managed copy over PATH", () => {
+  it.runIf(process.platform !== "win32")("prefers the app-managed copy over PATH", () => {
     const managed = fixtureOmp(path.join(mkTmp(), "managed"));
     const onPath = fixtureOmp(path.join(mkTmp(), "onpath"));
     // The managed candidate is whatever the env's OMP_UI_INSTALL_DIR says.
@@ -208,7 +216,7 @@ describe("resolveOmpBinary", () => {
     expect(resolveOmpBinary(env)).toBe(override);
   });
 
-  it("falls back to known install locations when PATH misses", () => {
+  it.runIf(process.platform !== "win32")("falls back to known install locations when PATH misses", () => {
     const result = resolveOmpBinary(noManaged({ PATH: "" }));
     const fallbacks = [
       path.join(home, ".bun", "bin", "omp"),
@@ -220,8 +228,42 @@ describe("resolveOmpBinary", () => {
   });
 });
 
+  it("uses Windows search precedence and semicolon-separated PATH", () => {
+    const home = "C:\\Users\\alice";
+    const override = "D:\\tools\\override.exe";
+    const managed = "C:\\Users\\alice\\AppData\\Local\\omp-ui\\bin\\omp.exe";
+    const pathHit = "E:\\first\\omp.exe";
+    const existing = new Set([override, managed, pathHit]);
+    const exists = (candidate: string): boolean => existing.has(candidate);
+
+    expect(
+      resolveOmpBinary(
+        { OMP_UI_OMP_PATH: override, PATH: "E:\\first;F:\\second" },
+        "win32",
+        home,
+        exists,
+      ),
+    ).toBe(override);
+
+    existing.delete(override);
+    existing.delete(managed);
+    expect(resolveOmpBinary({ PATH: "E:\\first;F:\\second" }, "win32", home, exists)).toBe(
+      pathHit,
+    );
+  });
+
+  it("does not search Unix fallback locations on Windows", () => {
+    const seen: string[] = [];
+    resolveOmpBinary({}, "win32", "C:\\Users\\alice", (candidate) => {
+      seen.push(candidate);
+      return false;
+    });
+    expect(seen).not.toContain("/usr/local/bin/omp.exe");
+    expect(seen.every((candidate) => !candidate.includes(".local\\bin"))).toBe(true);
+  });
+
 describe("managedOmpPath", () => {
-  it("defaults under the user data home, overridable via OMP_UI_INSTALL_DIR", () => {
+  it.runIf(process.platform !== "win32")("defaults under the user data home, overridable via OMP_UI_INSTALL_DIR", () => {
     expect(managedOmpPath({})).toBe(
       path.join(home, ".local", "share", "omp-ui", "bin", "omp"),
     );
@@ -230,3 +272,31 @@ describe("managedOmpPath", () => {
     );
   });
 });
+
+  it("uses omp.exe and LOCALAPPDATA on Windows", () => {
+    expect(ompBinaryName("win32")).toBe("omp.exe");
+    expect(ompBinaryName("linux")).toBe("omp");
+    expect(
+      managedOmpPath(
+        { LOCALAPPDATA: "D:\\Profiles\\alice\\Local" },
+        "win32",
+        "C:\\Users\\alice",
+      ),
+    ).toBe("D:\\Profiles\\alice\\Local\\omp-ui\\bin\\omp.exe");
+  });
+
+  it("falls back to the Windows home when LOCALAPPDATA is absent", () => {
+    expect(managedOmpDir({}, "win32", "C:\\Users\\alice")).toBe(
+      "C:\\Users\\alice\\AppData\\Local\\omp-ui\\bin",
+    );
+  });
+
+  it("keeps OMP_UI_INSTALL_DIR as the managed-directory override", () => {
+    expect(
+      managedOmpPath(
+        { OMP_UI_INSTALL_DIR: "D:\\omp-bin", LOCALAPPDATA: "C:\\ignored" },
+        "win32",
+        "C:\\Users\\alice",
+      ),
+    ).toBe("D:\\omp-bin\\omp.exe");
+  });

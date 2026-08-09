@@ -3,6 +3,7 @@ import {
   OMP_MODEL_ROLES_KEY,
   parseEnumOptions,
   readOmpSettings,
+  pristineEnvironment,
   writeOmpSetting,
   type OmpConfigRunner,
 } from "./omp-settings";
@@ -165,6 +166,50 @@ describe("readOmpSettings", () => {
     expect(snapshot.entries.map((e) => e.key)).toEqual(["advisor.enabled"]);
   });
 });
+
+  it("isolates both Windows home variables from the real profile", () => {
+    expect(
+      pristineEnvironment(
+        "C:\\Temp\\pristine",
+        {
+          HOME: "C:\\Users\\real",
+          USERPROFILE: "C:\\Users\\real",
+          HOMEDRIVE: "C:",
+          HOMEPATH: "\\Users\\real",
+          PATH: "C:\\Windows",
+        },
+        "win32",
+      ),
+    ).toEqual({
+      HOME: "C:\\Temp\\pristine",
+      USERPROFILE: "C:\\Temp\\pristine",
+      PATH: "C:\\Windows",
+    });
+  });
+
+  it("preserves Unix HOME-only isolation", () => {
+    expect(
+      pristineEnvironment("/tmp/pristine", { HOME: "/home/real", USERPROFILE: "kept" }, "linux"),
+    ).toEqual({ HOME: "/tmp/pristine", USERPROFILE: "kept" });
+  });
+
+  it.runIf(process.platform === "win32")(
+    "runs the pristine config read under a temporary Windows profile",
+    async () => {
+      let pristineEnv: NodeJS.ProcessEnv | null = null;
+      const run: OmpConfigRunner = async (args, opts) => {
+        if (args.includes("--json") && opts.env.USERPROFILE !== process.env.USERPROFILE) {
+          pristineEnv = opts.env;
+        }
+        return args.includes("--json") ? JSON.stringify({}) : "";
+      };
+      await readOmpSettings({ ompPath: OMP, projectCwd: null }, run);
+      expect(pristineEnv).not.toBeNull();
+      expect(pristineEnv!.USERPROFILE).toBe(pristineEnv!.HOME);
+      expect(pristineEnv).not.toHaveProperty("HOMEDRIVE");
+      expect(pristineEnv).not.toHaveProperty("HOMEPATH");
+    },
+  );
 
 describe("parseEnumOptions", () => {
   it("reads enum members and ignores type placeholders", () => {

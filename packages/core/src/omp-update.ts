@@ -168,7 +168,11 @@ export async function downloadOmp(opts: {
     buf = Buffer.from(await res.arrayBuffer());
   }
   await fs.promises.mkdir(path.dirname(opts.targetPath), { recursive: true });
-  const tmp = `${opts.targetPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const executableSuffix = path.extname(opts.targetPath).toLowerCase() === ".exe" ? ".exe" : "";
+  const targetWithoutSuffix = executableSuffix
+    ? opts.targetPath.slice(0, -executableSuffix.length)
+    : opts.targetPath;
+  const tmp = `${targetWithoutSuffix}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}${executableSuffix}`;
   await fs.promises.writeFile(tmp, buf);
   if (process.platform !== "win32") await fs.promises.chmod(tmp, 0o755);
   if (opts.verifyRunner !== null) {

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   captureLoginShellKeys,
+  credentialStoreUnavailableMessage,
   maskKey,
   ProviderKeys,
   readDotenvKeys,
@@ -42,12 +43,14 @@ function fakeCipher(overrides: Partial<KeyCipher> = {}): KeyCipher {
 const KEY = "OPENROUTER_API_KEY";
 const LONG = "sk-or-v1-0123456789abcdef";
 
-function make(opts: { env?: NodeJS.ProcessEnv; cipher?: KeyCipher; file?: string } = {}): {
-  keys: ProviderKeys;
-  file: string;
-} {
+function make(
+  opts: { env?: NodeJS.ProcessEnv; cipher?: KeyCipher; file?: string; platform?: NodeJS.Platform } = {},
+): { keys: ProviderKeys; file: string } {
   const file = opts.file ?? path.join(tmpDir(), "provider-keys.json");
-  return { keys: new ProviderKeys(file, opts.cipher ?? fakeCipher(), opts.env ?? {}), file };
+  return {
+    keys: new ProviderKeys(file, opts.cipher ?? fakeCipher(), opts.env ?? {}, opts.platform),
+    file,
+  };
 }
 
 function row(keys: ProviderKeys, id: string, projectCwd: string | null = null) {
@@ -81,7 +84,7 @@ describe("ProviderKeys storage", () => {
     expect(fs.readFileSync(file, "utf8")).not.toContain(LONG);
   });
 
-  it("writes the key file 0600 — it holds credentials", () => {
+  it.runIf(process.platform !== "win32")("writes the key file 0600 — it holds credentials", () => {
     const { keys, file } = make();
     keys.setKey(KEY, LONG);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
@@ -144,6 +147,25 @@ describe("ProviderKeys storage", () => {
     expect(() => keys.setKey(KEY, LONG)).toThrow(/no OS credential store/);
   });
 });
+
+  it("gives Windows-specific secure-storage guidance", () => {
+    expect(credentialStoreUnavailableMessage("win32")).toContain(
+      "Settings → Providers or as a Windows user environment variable",
+    );
+    expect(credentialStoreUnavailableMessage("linux")).toContain("export the variable from your shell");
+  });
+
+  it("reconstructs and injects a stored Windows credential", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    const cipher = fakeCipher({ backend: "windows-dpapi" });
+    new ProviderKeys(file, cipher, {}, "win32").setKey(KEY, LONG);
+    const env: NodeJS.ProcessEnv = {};
+    const reconstructed = new ProviderKeys(file, cipher, env, "win32");
+    reconstructed.applyToProcessEnv();
+    expect(env[KEY]).toBe(LONG);
+    expect(reconstructed.backend).toBe("windows-dpapi");
+    expect(row(reconstructed, "openrouter").source).toBe("stored");
+  });
 
 describe("ProviderKeys precedence", () => {
   it("prefers a stored key over an inherited one, and says it is shadowing", () => {
@@ -211,7 +233,7 @@ describe("ProviderKeys precedence", () => {
 describe("ProviderKeys login-shell capture", () => {
   it("adopts a key the shell profile exports but the GUI never inherited", async () => {
     const env: NodeJS.ProcessEnv = {};
-    const { keys } = make({ env });
+    const { keys } = make({ env, platform: "linux" });
     await keys.captureLoginShell({ capture: async () => `${KEY}=${LONG}\n` });
     expect(env[KEY]).toBe(LONG);
     expect(row(keys, "openrouter").source).toBe("login-shell");
@@ -219,7 +241,7 @@ describe("ProviderKeys login-shell capture", () => {
 
   it("runs the shell once, so repeated refreshes cannot pile up processes", async () => {
     let calls = 0;
-    const { keys } = make();
+    const { keys } = make({ platform: "linux" });
     const capture = async (): Promise<string> => {
       calls += 1;
       return "";
@@ -230,7 +252,7 @@ describe("ProviderKeys login-shell capture", () => {
   });
 
   it("survives a shell that prints nothing usable", async () => {
-    const { keys } = make();
+    const { keys } = make({ platform: "linux" });
     await keys.captureLoginShell({ capture: async () => "zsh: command not found: printf\n" });
     expect(row(keys, "openrouter").source).toBe("none");
   });

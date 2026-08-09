@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { git } from "./git";
 import type { BranchDiff } from "./types";
 
@@ -35,7 +36,7 @@ export async function readBranchDiff(projectCwd: string): Promise<BranchDiff> {
   const empty: BranchDiff = { branch: null, repoRoot: null, diff: "", untracked: [] };
   let root: string;
   try {
-    root = (await git(projectCwd, ["rev-parse", "--show-toplevel"])).trim();
+    root = path.resolve((await git(projectCwd, ["rev-parse", "--show-toplevel"])).trim());
   } catch {
     return empty;
   }

@@ -158,6 +158,22 @@ describe("downloadOmp", () => {
     expect(fs.existsSync(target)).toBe(true);
   });
 
+  it("keeps an .exe suffix while validating a Windows managed binary", async () => {
+    const target = path.join(mkTmp(), "omp.exe");
+    let validated = "";
+    await downloadOmp({
+      version: "1.0.0",
+      targetPath: target,
+      fetchImpl: okFetch({}),
+      verifyRunner: async (candidate) => {
+        validated = candidate;
+        return "omp/1.0.0";
+      },
+    });
+    expect(validated).toMatch(/\.tmp-[^.]+-[^.]+\.exe$/);
+    expect(fs.existsSync(target)).toBe(true);
+  });
+
   it("unlinks a download that fails validation and leaves no target", async () => {
     const dir = mkTmp();
     const target = path.join(dir, "omp");

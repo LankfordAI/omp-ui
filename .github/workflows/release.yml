@@ -106,8 +106,70 @@ jobs:
             "${zips[0]}" \
             "$dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
 
+  release-windows:
+    needs: release-linux
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run Windows core and desktop tests
+        run: npm test --workspace @omp-ui/core --workspace @omp-ui/desktop
+      - name: Stamp version from tag
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $current = node -p 'require("./packages/desktop/package.json").version'
+          if ($current -eq $tag) {
+            Write-Host "package.json already at $current — nothing to stamp"
+          } else {
+            npm version $tag --no-git-tag-version --workspace @omp-ui/desktop
+          }
+      - name: Ensure Spectre-mitigated MSVC libraries
+        shell: pwsh
+        run: |
+          $component = "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre"
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -property installationPath
+          $withSpectre = & $vswhere -latest -products * -requires $component -property installationPath
+          if (-not $withSpectre) {
+            $setup = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\setup.exe"
+            $args = "modify --installPath `"$installPath`" --add $component --quiet --norestart"
+            $process = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Visual Studio setup exited $($process.ExitCode)" }
+          }
+          if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) {
+            throw "Required Spectre-mitigated MSVC libraries are unavailable"
+          }
+      - name: Rebuild node-pty for Electron x64
+        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch=x64
+      - name: Build and publish unsigned Windows preview
+        run: npm run package:win --workspace @omp-ui/desktop -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Verify Windows package
+        shell: pwsh
+        run: ./packages/desktop/scripts/verify-windows-package.ps1
+      - name: Assert Windows artifacts and update metadata exist
+        shell: pwsh
+        run: |
+          $dist = "packages/desktop/dist"
+          $installers = @(Get-ChildItem $dist -File -Filter "*-windows-preview-x64-setup.exe")
+          if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer, found $($installers.Count)" }
+          $blockmaps = @(Get-ChildItem $dist -File -Filter "*-windows-preview-x64-setup.exe.blockmap")
+          if ($blockmaps.Count -ne 1) { throw "Expected exactly one matching blockmap, found $($blockmaps.Count)" }
+          if ($blockmaps[0].Name -ne "$($installers[0].Name).blockmap") { throw "Blockmap does not match installer" }
+          $latest = Join-Path $dist "latest.yml"
+          if (-not (Test-Path $latest)) { throw "latest.yml is missing" }
+          if (-not (Select-String -Path $latest -Pattern "sha512" -Quiet)) { throw "latest.yml has no sha512" }
+          if (-not (Select-String -Path $latest -Pattern $installers[0].Name -SimpleMatch -Quiet)) { throw "latest.yml does not name the installer" }
+
   release-manifest:
-    needs: [release-linux, release-macos]
+    needs: [release-linux, release-macos, release-windows]
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
@@ -123,6 +185,7 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*.AppImage'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
       - name: Generate and upload canonical checksums
         shell: bash
         env:
@@ -134,13 +197,15 @@ jobs:
           appimages=(*.AppImage)
           dmgs=(*-mac-preview-*.dmg)
           zips=(*-mac-preview-*.zip)
+          installers=(*-windows-preview-x64-setup.exe)
           (( ${#appimages[@]} == 1 ))
           (( ${#dmgs[@]} == 2 ))
           (( ${#zips[@]} == 2 ))
-          files=("${appimages[@]}" "${dmgs[@]}" "${zips[@]}")
-          test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq 5
+          (( ${#installers[@]} == 1 ))
+          files=("${appimages[@]}" "${dmgs[@]}" "${zips[@]}" "${installers[@]}")
+          test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq 6
           sha256sum "${files[@]}" | sort -k2 > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq 5
+          test "$(wc -l < SHA256SUMS.txt)" -eq 6
           gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt
       - name: Assert release metadata and asset boundary
         shell: bash
@@ -150,9 +215,13 @@ jobs:
           set -euo pipefail
           mkdir release-metadata
           gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-linux.yml'
+          gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest.yml'
           appimage="$(basename release-assets/*.AppImage)"
           grep -q "sha512" release-metadata/latest-linux.yml
           grep -Fq "$appimage" release-metadata/latest-linux.yml
+          installer="$(basename release-assets/*-windows-preview-x64-setup.exe)"
+          grep -q "sha512" release-metadata/latest.yml
+          grep -Fq "$installer" release-metadata/latest.yml
           gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' > release-assets.txt
           if grep -Fxq 'latest-mac.yml' release-assets.txt; then
             echo 'latest-mac.yml must not be published for unsigned previews' >&2

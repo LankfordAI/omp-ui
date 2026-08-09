@@ -133,6 +133,7 @@ function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
     confirmQuit,
     send: (channel, state) => sent.push({ channel, state: { ...state } }),
     channel: "app:updateState",
+    platform: "linux",
     ...overrides,
   });
   return { updater, downloadsDir, dismissed, confirmQuit };
@@ -384,25 +385,26 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
   } as FakeAutoUpdater;
 }
 
-describe("AppUpdater AppImage path", () => {
-  async function stageAppImage(
+describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
+  async function stageAutoUpdate(
     autoUpdater: AutoUpdaterLike,
     manual = false,
   ): Promise<MadeUpdater> {
     const made = makeUpdater({
       fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
       autoUpdaterFactory: async () => autoUpdater,
-      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      env: format === "appimage" ? { APPIMAGE: "/run/omp-ui.AppImage" } : {},
+      platform: format === "nsis" ? "win32" : "linux",
       exists: () => false,
     });
     await made.updater.checkNow(manual);
-    expect(made.updater.state.format).toBe("appimage");
+    expect(made.updater.state.format).toBe(format);
     return made;
   }
 
   it("stages on a background check and surfaces only the verified download", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAppImage(autoUpdater);
+    const { updater } = await stageAutoUpdate(autoUpdater);
 
     expect(autoUpdater.autoDownload).toBe(false);
     expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
@@ -422,7 +424,7 @@ describe("AppUpdater AppImage path", () => {
 
   it("shows staging progress for a manual check", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAppImage(autoUpdater, true);
+    const { updater } = await stageAutoUpdate(autoUpdater, true);
 
     expect(updater.state.status).toBe("downloading");
     autoUpdater.emitProgress(42);
@@ -434,21 +436,21 @@ describe("AppUpdater AppImage path", () => {
   it("keeps background staging failures quiet but reports manual failures", async () => {
     const backgroundUpdater = makeFakeAutoUpdater();
     backgroundUpdater.downloadUpdate.mockRejectedValueOnce(new Error("offline"));
-    const { updater: background } = await stageAppImage(backgroundUpdater);
+    const { updater: background } = await stageAutoUpdate(backgroundUpdater);
     expect(background.state.status).toBe("idle");
     expect(statuses()).not.toContain("error");
 
     sent.length = 0;
     const manualUpdater = makeFakeAutoUpdater();
     manualUpdater.downloadUpdate.mockRejectedValueOnce(new Error("offline"));
-    const { updater: manual } = await stageAppImage(manualUpdater, true);
+    const { updater: manual } = await stageAutoUpdate(manualUpdater, true);
     expect(manual.state.status).toBe("error");
     expect(manual.state.error).toBe("offline");
   });
 
-  it("arms and disarms install-on-quit only for a staged AppImage", async () => {
+  it("arms and disarms install-on-quit only after staging", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAppImage(autoUpdater);
+    const { updater } = await stageAutoUpdate(autoUpdater);
 
     updater.setInstallOnQuit(true);
     expect(updater.state.installOnQuit).toBe(false);
@@ -467,7 +469,7 @@ describe("AppUpdater AppImage path", () => {
 
   it("restarts only after the live-session quit guard agrees", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater, confirmQuit } = await stageAppImage(autoUpdater);
+    const { updater, confirmQuit } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
 
     confirmQuit.mockResolvedValueOnce(false);
@@ -478,21 +480,22 @@ describe("AppUpdater AppImage path", () => {
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores restart until the AppImage update is downloaded", async () => {
+  it("ignores restart until the update is downloaded", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAppImage(autoUpdater);
+    const { updater } = await stageAutoUpdate(autoUpdater);
     await updater.restart();
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
   });
 
-  it("keeps a background factory failure quiet and surfaces it manually (issue #87)", async () => {
+  it("keeps a background factory failure quiet and surfaces it manually", async () => {
     const make = () =>
       makeUpdater({
         fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
         autoUpdaterFactory: async () => {
           throw new Error("electron-updater export unavailable");
         },
-        env: { APPIMAGE: "/run/omp-ui.AppImage" },
+        env: format === "appimage" ? { APPIMAGE: "/run/omp-ui.AppImage" } : {},
+        platform: format === "nsis" ? "win32" : "linux",
         exists: () => false,
       });
 
@@ -506,11 +509,12 @@ describe("AppUpdater AppImage path", () => {
     expect(manual.updater.state.error).toBe("electron-updater export unavailable");
   });
 
-  it("surfaces a factory that resolves without an updater (the #87 import shape)", async () => {
+  it("surfaces a factory that resolves without an updater", async () => {
     const made = makeUpdater({
       fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
       autoUpdaterFactory: (async () => undefined) as never,
-      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      env: format === "appimage" ? { APPIMAGE: "/run/omp-ui.AppImage" } : {},
+      platform: format === "nsis" ? "win32" : "linux",
       exists: () => false,
     });
 

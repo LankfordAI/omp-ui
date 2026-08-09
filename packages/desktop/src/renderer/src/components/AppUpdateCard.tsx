@@ -49,7 +49,7 @@ export function AppUpdateCard() {
       format === "unknown"
         ? { label: "View release", run: () => void openAppUpdateReleaseNotes() }
         : {
-            label: format === "appimage" ? "Update" : "Download",
+            label: format === "appimage" || format === "nsis" ? "Update" : "Download",
             run: () => void downloadAppUpdate(),
           };
     body = (
@@ -85,7 +85,7 @@ export function AppUpdateCard() {
         )}
       </>
     );
-  } else if (status === "downloaded" && format === "appimage") {
+  } else if (status === "downloaded" && (format === "appimage" || format === "nsis")) {
     body = (
       <>
         <p className="text-sm font-medium text-ink">omp-ui {version} ready</p>

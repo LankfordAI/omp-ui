@@ -84,7 +84,7 @@ describe("browseDirectories", () => {
     expect(r.entries).toEqual([]);
   });
 
-  it.runIf(process.getuid?.() !== 0)("returns 'denied' for an unreadable directory", async () => {
+  it.runIf(process.platform !== "win32" && process.getuid?.() !== 0)("returns 'denied' for an unreadable directory", async () => {
     const dir = tmpDir();
     fs.chmodSync(dir, 0o000);
 
@@ -122,6 +122,28 @@ describe("resolveProjectPath", () => {
   });
 
   it("throws on relative input", async () => {
-    await expect(resolveProjectPath("rel")).rejects.toThrow(/must start with/);
+    await expect(resolveProjectPath("rel")).rejects.toThrow(/absolute or start with ~/);
+  });
+});
+
+describe.runIf(process.platform === "win32")("Windows project paths", () => {
+  it("browses and resolves the drive root as a project", async () => {
+    const browsed = await browseDirectories("C:\\");
+    expect(browsed.error).toBeNull();
+    expect(browsed.parentPath).toBe("C:\\");
+    await expect(resolveProjectPath("C:\\")).resolves.toBe("C:\\");
+  });
+
+  it("expands a backslash home path", () => {
+    expect(expandHomePath("~\\project", "C:\\Users\\alice")).toBe(
+      "C:\\Users\\alice\\project",
+    );
+  });
+
+  it("accepts a UNC project path when the share is a directory", async () => {
+    const stat = async (): Promise<{ isDirectory(): boolean }> => ({ isDirectory: () => true });
+    await expect(resolveProjectPath("\\\\server\\share\\project", { stat })).resolves.toBe(
+      "\\\\server\\share\\project",
+    );
   });
 });

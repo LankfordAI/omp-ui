@@ -9,6 +9,11 @@ describe("appUpdateEnabledForBuild", () => {
       expected: true,
     },
     {
+      name: "enables packaged Windows builds",
+      opts: { packaged: true, platform: "win32" as const, forceEnabled: false },
+      expected: true,
+    },
+    {
       name: "disables packaged Darwin builds",
       opts: { packaged: true, platform: "darwin" as const, forceEnabled: false },
       expected: false,

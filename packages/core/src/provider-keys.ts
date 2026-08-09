@@ -196,6 +196,16 @@ export async function captureLoginShellKeys(
   return found;
 }
 
+export function credentialStoreUnavailableMessage(
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const alternative =
+    platform === "win32"
+      ? "set it in Settings → Providers or as a Windows user environment variable"
+      : "export the variable from your shell instead";
+  return `no OS credential store is available, so a key cannot be saved securely — ${alternative}`;
+}
+
 /**
  * The credential set omp-ui hands to omp, plus the reporting the providers page
  * renders. One instance per app, owned by MainBackend.
@@ -217,6 +227,7 @@ export class ProviderKeys {
      * other than where the baseline came from.
      */
     private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly platform: NodeJS.Platform = process.platform,
   ) {
     const snapshot: Record<string, string> = {};
     for (const name of PROVIDER_ENV_NAMES) {
@@ -294,7 +305,7 @@ export class ProviderKeys {
   async captureLoginShell(opts?: { capture?: ShellCaptureFn }): Promise<void> {
     if (this.shellCaptured) return;
     this.shellCaptured = true;
-    this.shellKeys = await captureLoginShellKeys(opts);
+    this.shellKeys = await captureLoginShellKeys({ ...opts, platform: this.platform });
     this.applyToProcessEnv();
   }
 
@@ -302,10 +313,7 @@ export class ProviderKeys {
   setKey(envName: string, value: string): void {
     if (!knownEnvName(envName)) throw new Error(`unknown provider variable: ${envName}`);
     if (!this.cipher.available) {
-      throw new Error(
-        "no OS credential store is available, so a key cannot be saved securely — " +
-          "export the variable from your shell instead",
-      );
+      throw new Error(credentialStoreUnavailableMessage(this.platform));
     }
     this.stored.set(envName, validateKey(value));
     this.save();

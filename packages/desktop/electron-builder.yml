@@ -25,6 +25,15 @@ mac:
   target:
     - dmg
     - zip
+win:
+  target:
+    - nsis
+  icon: build/icon.ico
+  artifactName: ${productName}-${version}-windows-preview-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
 publish:
   provider: github
   owner: LankfordAI

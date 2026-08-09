@@ -64,9 +64,11 @@ curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/in
 It verifies the download against `SHA256SUMS.txt`, installs the AppImage to
 `~/.local/bin`, and registers a desktop entry; `install.sh --uninstall`
 removes it. Or grab the AppImage straight from
-[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). Unsupported,
-unsigned Mac builds are documented under [Unsigned macOS preview](#unsigned-macos-preview).
-The supported Linux path remains AppImage-only
+[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). Windows x64
+and macOS builds are unsigned previews documented under
+[Unsigned Windows x64 preview](#unsigned-windows-x64-preview) and
+[Unsigned macOS preview](#unsigned-macos-preview). The supported Linux path
+remains AppImage-only
 ([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)).
 
 ## How it works
@@ -214,12 +216,13 @@ Rationale and threat model:
 ## Distribution
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`. Every release includes
-the supported Linux **AppImage** and unsigned `arm64`/`x64` macOS preview DMGs
-and ZIPs. Only Linux application-update metadata (`latest-linux.yml`, with its
-sha512 and blockmap) is published; unsigned previews never publish
-`latest-mac.yml`. One combined `SHA256SUMS.txt` covers the AppImage and all four
-macOS files and remains compatible with `packaging/install.sh`, which selects
-only the AppImage's matching line.
+the supported Linux **AppImage**, one unsigned Windows x64 preview installer,
+and unsigned `arm64`/`x64` macOS preview DMGs and ZIPs: six distributables in
+total. Linux publishes `latest-linux.yml`; Windows publishes `latest.yml` and
+the installer blockmap for background staging. Unsigned macOS previews never
+publish `latest-mac.yml`. One combined `SHA256SUMS.txt` covers the AppImage,
+Windows installer, and all four macOS files and remains compatible with
+`packaging/install.sh`, which selects only the AppImage's matching line.
 
 The AppImage remains the sole first-party supported Linux artifact
 ([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)); the earlier
@@ -234,15 +237,17 @@ corner: installed/available versions, the update action, release notes, and
 "Later" — which is remembered per release version. Offline, rate-limited, and
 no-update checks stay silent, and dev/unversioned builds never check. The
 launch check is optional: the settings surface's Updates page turns it off for
-omp-ui independently of the omp binary, and "Check for updates" from the
-command palette still runs either way. Nothing downloads without an explicit
-click, and nothing restarts the app for you.
+omp-ui independently of the omp binary, and the command-palette check still
+runs on demand. Background checks quietly stage auto-updatable packages; the
+update card appears only after verification. A restart or install-on-quit
+choice is always explicit, and both pass through the live-session quit guard.
 
 What the update action does depends on how the app was installed:
 
-- **AppImage** — in-place update via electron-updater (sha512/blockmap
-  verified against `latest-linux.yml`). When the download finishes the card
-  offers "Restart now"; restarting still passes the live-session quit guard.
+- **AppImage and Windows NSIS** — in-place update via `electron-updater`
+  (sha512/blockmap verified against platform update metadata). When the
+  download finishes the card offers "Restart now" and "Install when I quit";
+  restarting still passes the live-session quit guard.
 - **Legacy deb / rpm / Flatpak installs** (v0.4.0 and earlier) — no
   same-format assets are published anymore, so the card's download path fails
   closed (`expected asset missing from release`). Migrate once with
@@ -259,6 +264,29 @@ nothing downloads without a click, and live sessions keep their running
 binary — only new sessions pick up the install. Its launch check has its own
 switch on the Updates page, separate from the omp-ui one; "Check for omp
 updates" from the command palette runs whether or not the launch check is on.
+
+### Unsigned Windows x64 preview
+
+Each [GitHub release](https://github.com/LankfordAI/omp-ui/releases/latest)
+includes an unsigned per-user NSIS preview named
+`omp-ui-<version>-windows-preview-x64-setup.exe`. GitHub Releases from
+`LankfordAI/omp-ui` is the sole trusted download and update source; installers
+are not published to npm.
+
+Windows reports **Unknown publisher** because this preview has no trusted
+Authenticode certificate. To continue, use Windows' supported **More info →
+Run anyway** flow after checking the download against `SHA256SUMS.txt`. Never
+disable SmartScreen or Defender globally. The SHA-256 manifest and
+`latest.yml`/blockmap protect downloaded bytes against corruption or
+substitution, but they do not establish publisher identity.
+
+The assisted installer is x64-only, installs for the current user without
+elevation, and allows choosing its installation directory. Application updates
+stage in the background and retain the same explicit restart/install-on-quit
+choices and live-session quit guard as AppImage. Managed omp installs
+`omp-windows-x64.exe` under the user's LOCALAPPDATA tree.
+
+See [ADR-0015](docs/adr/0015-unsigned-windows-nsis-preview.md).
 
 ### Unsigned macOS preview
 

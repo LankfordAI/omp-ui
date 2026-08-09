@@ -68,17 +68,17 @@ export async function browseDirectories(
  */
 export async function resolveProjectPath(
   input: string,
-  opts?: { home?: string },
+  opts?: { home?: string; stat?: (path: string) => Promise<{ isDirectory(): boolean }> },
 ): Promise<string> {
   const home = opts?.home ?? os.homedir();
   const trimmed = input.trim();
   if (!isBrowsablePath(trimmed, home)) {
-    throw new Error("path must start with ~/ or /");
+    throw new Error("path must be absolute or start with ~");
   }
   const resolved = path.resolve(expandHomePath(trimmed, home));
   let st;
   try {
-    st = await fs.stat(resolved);
+    st = await (opts?.stat ?? fs.stat)(resolved);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") {

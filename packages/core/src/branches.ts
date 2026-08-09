@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { git } from "./git";
 import type { BranchList } from "./types";
 
@@ -15,7 +16,7 @@ export async function listBranches(projectCwd: string): Promise<BranchList> {
   const empty: BranchList = { repoRoot: null, current: null, branches: [], defaultBranch: null };
   let root: string;
   try {
-    root = (await git(projectCwd, ["rev-parse", "--show-toplevel"])).trim();
+    root = path.resolve((await git(projectCwd, ["rev-parse", "--show-toplevel"])).trim());
   } catch {
     return empty;
   }

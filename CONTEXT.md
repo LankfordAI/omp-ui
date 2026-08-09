@@ -209,14 +209,15 @@ _Avoid_: per-session diff log, file edit history
 
 **Update card**:
 The small non-modal card in the lower-right corner announcing an available
-update. There are two: the omp-ui release card (on AppImage it appears only
-after the verified update is staged, offering Restart now / Install when I
-quit / Later) and the omp binary install/update card (Update now / Later, or
-Install / Later when omp is not installed at all). Dismissal is remembered
-per offered version and dropped once the running/installed version catches up
-to it — a dismissal only ever suppresses that exact offer, so a caught-up
-entry is dead state. Background failures stay silent. When both show they
-share one corner stack, the omp-ui card on top.
+update. There are two: the omp-ui release card (AppImage and NSIS stage through
+`electron-updater` before it appears, offering Restart now / Install when I quit
+/ Later; unsigned NSIS is the Windows preview path) and the omp binary
+install/update card (Update now / Later, or Install / Later when omp is not
+installed at all). Dismissal is remembered per offered version and dropped once
+the running/installed version catches up to it — a dismissal only ever
+suppresses that exact offer, so a caught-up entry is dead state. Background
+failures stay silent. When both show they share one corner stack, the omp-ui
+card on top.
 _Avoid_: toast, notification, popup, updater dialog
 
 **Settings surface**:

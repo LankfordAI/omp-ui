@@ -1014,9 +1014,11 @@ export class MainBackend {
   }
 
   /**
-   * Stops a live session and waits for the child to be reaped, escalating to
-   * SIGKILL if omp does not honour the default signal. Throws when even that
-   * fails — the caller must not unlink files out from under a live writer.
+   * Stops a live session and waits for the child to be reaped, escalating an
+   * RPC child to SIGKILL if omp does not honour the default signal. ConPTY is
+   * terminate-only, so the PTY adapter repeats the same termination request.
+   * Throws when the timeout still expires — the caller must not unlink files
+   * out from under a live writer.
    *
    * The exit is suppressed: the tab is about to disappear, so a "session
    * exited" notice would be noise about a session the user just deleted.

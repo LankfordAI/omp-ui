@@ -68,7 +68,7 @@ describe("getOmpAgentDir", () => {
   });
 
   it("honours PI_CODING_AGENT_DIR for the default profile", () => {
-    expect(getOmpAgentDir({ PI_CODING_AGENT_DIR: "/custom/agent" })).toBe("/custom/agent");
+    expect(getOmpAgentDir({ PI_CODING_AGENT_DIR: "/custom/agent" })).toBe(path.resolve("/custom/agent"));
   });
 });
 

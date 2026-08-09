@@ -174,6 +174,21 @@ function removeTempDirs(...dirs: (string | null)[]): void {
   }
 }
 
+/** Child environment for reading omp's compiled-in defaults without user config. */
+export function pristineEnvironment(
+  pristineHome: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const child: NodeJS.ProcessEnv = { ...env, HOME: pristineHome };
+  if (platform === "win32") {
+    child.USERPROFILE = pristineHome;
+    delete child.HOMEDRIVE;
+    delete child.HOMEPATH;
+  }
+  return child;
+}
+
 /**
  * The allowlisted omp settings as they apply to `projectCwd`, each value
  * attributed to the layer that supplies it.
@@ -216,7 +231,7 @@ export async function readOmpSettings(
         ? Promise.resolve(null)
         : run(listJson, { cwd: projectCwd, env: process.env }),
       run(listJson, { cwd: neutralCwd, env: process.env }),
-      run(listJson, { cwd: neutralCwd, env: { ...process.env, HOME: pristineHome } }),
+      run(listJson, { cwd: neutralCwd, env: pristineEnvironment(pristineHome) }),
       run(["config", "list"], { cwd: neutralCwd, env: process.env }),
     ]);
 

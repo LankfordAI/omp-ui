@@ -209,17 +209,17 @@ export interface OmpUpdateInfo {
 }
 
 /** How this omp-ui install was packaged (see core/app-update.ts). */
-export type AppPackageFormat = "appimage" | "deb" | "rpm" | "flatpak" | "unknown";
+export type AppPackageFormat = "appimage" | "nsis" | "deb" | "rpm" | "flatpak" | "unknown";
 
 /** Snapshot of the omp-ui app update situation (see main/app-update.ts). */
 export type AppUpdateStatus =
   | "disabled" // dev/unversioned build — updater off
-  | "idle" // nothing to show; a silent AppImage stage may be in flight
+  | "idle" // nothing to show; a silent auto-update stage may be in flight
   | "checking"
   | "up-to-date" // manual check only; transient
-  | "available" // non-AppImage formats only; AppImage stages during the check
+  | "available" // manual formats only; auto-updatable packages stage during the check
   | "downloading"
-  | "downloaded" // AppImage: staged + verified; others: installer opened/in folder
+  | "downloaded" // AppImage/NSIS: staged + verified; others: installer opened/in folder
   | "error";
 
 export interface AppUpdateState {
@@ -233,7 +233,7 @@ export interface AppUpdateState {
   /** 0–100 while downloading; null = indeterminate or not downloading. */
   progress: number | null;
   downloadedPath: string | null;
-  /** Explicit user opt-in to apply the staged AppImage on the next natural quit. */
+  /** Explicit user opt-in to apply the staged auto-update on the next natural quit. */
   installOnQuit: boolean;
   error: string | null;
 }
@@ -605,18 +605,18 @@ export interface OmpBackend {
   /** Manual check — surfaces up-to-date/error/disabled transiently. */
   checkAppUpdate(): Promise<AppUpdateState>;
   /**
-   * Starts the package-appropriate manual action for non-AppImage formats:
-   * verified download + system-installer handoff. AppImage staging begins as
-   * soon as a check finds an update (issue #99).
+   * Starts the package-appropriate manual action for non-auto-update formats:
+   * verified download + system-installer handoff. AppImage/NSIS staging begins
+   * as soon as a check finds an update (issue #99, issue #125).
    */
   downloadAppUpdate(): Promise<void>;
   /** Opens the pending release's GitHub page. */
   openAppUpdateReleaseNotes(): Promise<void>;
-  /** Reveals the downloaded artifact in its folder (non-AppImage). */
+  /** Reveals the downloaded artifact in its folder (manual installer formats). */
   showAppUpdateDownload(): Promise<void>;
-  /** Restarts into the downloaded AppImage update; asks first when sessions are live. */
+  /** Restarts into a downloaded AppImage/NSIS update; asks first when sessions are live. */
   restartForAppUpdate(): Promise<void>;
-  /** Arms or disarms applying the staged AppImage on the next natural quit. */
+  /** Arms or disarms applying the staged AppImage/NSIS update on the next natural quit. */
   setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   /**
    * Hides the card. `remember: true` also persists the version so background

@@ -27,6 +27,7 @@ vi.mock("electron", () => ({
 
 const { MainBackend } = await import("./backend");
 const { CH } = await import("./channels");
+const { electronKeyCipher } = await import("./key-cipher");
 
 const win = {
   isDestroyed: () => false,
@@ -77,7 +78,7 @@ describe("provider-keys IPC", () => {
     expect(snap.providers.length).toBeGreaterThan(10);
     expect(row(snap, "openrouter")).toMatchObject({ source: "none", masked: null });
     expect(snap.encryptionAvailable).toBe(true);
-    expect(snap.backend).toBe("test_stub");
+    expect(snap.backend).toBe(process.platform === "win32" ? "windows-dpapi" : "test_stub");
   });
 
   it("a saved key reaches the environment omp inherits — the whole point", () => {
@@ -125,5 +126,18 @@ describe("provider-keys IPC", () => {
     const snap = snapshot(invoke(CH.providerKeysRead, project));
     expect(row(snap, "openrouter").source).toBe("dotenv");
     expect(KEY in process.env).toBe(false);
+  });
+});
+
+describe("Windows credential backend", () => {
+  it("reports DPAPI and round-trips stored provider credentials", () => {
+    expect(electronKeyCipher("win32").backend).toBe("windows-dpapi");
+    invoke(CH.providerKeysSet, KEY, VALUE);
+    delete process.env[KEY];
+    new MainBackend(win as never, path.join(base, "registry.json"), {
+      providerKeysFile: keysFile,
+    });
+    expect(process.env[KEY]).toBe(VALUE);
+    expect(row(snapshot(invoke(CH.providerKeysRead, null)), "openrouter").source).toBe("stored");
   });
 });
