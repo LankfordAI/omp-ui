@@ -185,6 +185,10 @@ describe("wide Session HUD", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
     expect(host.querySelector("[title^=\"Build mode\"]")).toBeNull();
+    // #167: the wide HUD's only mode surface is the exceptional chip — the
+    // inline selector is gone. Capsule titles start lowercase; chip titles capital.
+    expect(host.querySelector("[title^=\"build mode\"]")).toBeNull();
+    expect(host.querySelector("[title^=\"plan mode:\"]")).toBeNull();
 
     act(() => useStore.setState({
       rpc: {

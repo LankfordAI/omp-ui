@@ -643,8 +643,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       <div className="flex shrink-0 items-center gap-1 border-l border-line-soft pl-2.5 [app-region:no-drag]">
-        <BuildPlanControl tabId={tabId} />
-        <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <Button
           size="xs"
           variant="ghost"
