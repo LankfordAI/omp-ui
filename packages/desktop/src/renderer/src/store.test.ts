@@ -18,6 +18,7 @@ const sent: Array<{ tabId: string; cmd: Record<string, unknown> }> = [];
 let backendState: BackendState = {
   projects: [],
   defaultMode: "rpc-ui",
+  defaultAgentMode: "plan",
   planFormat: "html",
   advisorAutoReply: true,
   modelFavorites: [],
@@ -215,6 +216,7 @@ function tabState(patch: Partial<RpcTabState> = {}): RpcTabState {
 function stateWithRecord(sessionId: string | null, live: LiveState = "live"): BackendState {
   return {
     defaultMode: "rpc-ui",
+    defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
     modelFavorites: [],
@@ -271,7 +273,7 @@ async function driveBoot(
   for (let wave = 0; wave < 3; wave++) {
     await flushMicrotasks();
     for (const { cmd } of sent.splice(0)) {
-      answered.push(String(cmd.type));
+      answered.push(cmd.type === "prompt" ? String(cmd.message) : String(cmd.type));
       const r = responses[String(cmd.type)] ?? {};
       respond(tabId, cmd, r.data ?? {}, r.success ?? true);
     }
@@ -292,6 +294,7 @@ beforeEach(() => {
   backendState = {
     projects: [],
     defaultMode: "rpc-ui",
+    defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
     modelFavorites: [],
@@ -760,6 +763,18 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
     useStore.getState().handleRpcFrame(TAB, { type: "ready", maxFrameBytes: 1048576 });
     await flushMicrotasks();
     expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+  });
+
+  it("boots an early ready frame before its renderer runtime exists", async () => {
+    const earlyTab = "early-ready-tab";
+    backendState = stateWithRecord(null);
+    useStore.setState({ state: backendState, rpc: {} });
+
+    useStore.getState().handleRpcFrame(earlyTab, { type: "ready", maxFrameBytes: 1048576 });
+    await flushMicrotasks();
+
+    expect(useStore.getState().rpc[earlyTab]).toBeDefined();
+    expect(sent.some((entry) => entry.tabId === earlyTab && entry.cmd.type === "get_state")).toBe(true);
   });
 });
 
@@ -2710,6 +2725,7 @@ describe("deleteSession", () => {
 describe("focusedTabByProject tracks every tab-activation path (issue #99)", () => {
   const projectState = (sessions: BackendState["projects"][0]["sessions"]) => ({
     defaultMode: "rpc-ui",
+    defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
     modelFavorites: [],
@@ -2840,6 +2856,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
   const twoSessionState = () =>
     ({
       defaultMode: "rpc-ui",
+      defaultAgentMode: "plan",
       planFormat: "html",
       advisorAutoReply: true,
       modelFavorites: [],

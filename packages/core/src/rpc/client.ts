@@ -29,6 +29,8 @@ export interface RpcClientOpts {
   configOverlays?: string[];
   /** Extra `-e` extensions — the plan-mode driver (see plan-extension.ts). */
   extensions?: string[];
+  /** Commands sent once, immediately after protocol negotiation and before ready is forwarded. */
+  initialCommands?: object[];
   onFrame: (frame: unknown) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
@@ -137,6 +139,7 @@ export class RpcClient {
       if (typeof max === "number" && Number.isInteger(max) && max > 0) this.#maxFrameBytes = max;
       // Transport concern — the renderer never sees this.
       this.send({ type: "negotiate_protocol", protocolVersion: 2 });
+      for (const command of this.#opts.initialCommands ?? []) this.send(command);
     }
     // ready itself is forwarded too; the renderer ignores it.
     this.#opts.onFrame(frame);

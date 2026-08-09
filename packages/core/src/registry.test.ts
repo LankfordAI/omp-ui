@@ -38,6 +38,7 @@ describe("Registry.load", () => {
     expect(reg.projects).toEqual([]);
     expect(reg.sessions).toEqual([]);
     expect(reg.defaultMode).toBe("rpc-ui");
+    expect(reg.defaultAgentMode).toBe("plan");
     expect(reg.skipDeleteConfirmation).toBe(false);
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.planFormat).toBe("html");
@@ -97,6 +98,21 @@ describe("Registry.load", () => {
     expect(reg.remoteToken).toBe("");
     expect(fs.existsSync(file)).toBe(true); // absent remote* keys are legal, not corrupt
   });
+
+  it("migrates a registry without defaultAgentMode to Plan", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { defaultMode: "rpc-ui" },
+        projects: [],
+        sessions: [],
+      }),
+    );
+
+    expect(Registry.load(file).defaultAgentMode).toBe("plan");
+  });
 });
 
 describe("Registry persistence", () => {
@@ -106,6 +122,7 @@ describe("Registry persistence", () => {
     reg.addProject("/abs/proj");
     reg.addSession(sessionRecord());
     reg.setDefaultMode("rpc-ui");
+    reg.setDefaultAgentMode("build");
     reg.setSkipDeleteConfirmation(true);
 
     const reloaded = Registry.load(file);
@@ -114,6 +131,7 @@ describe("Registry persistence", () => {
     expect(reloaded.sessions).toHaveLength(1);
     expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-1", sessionId: null });
     expect(reloaded.defaultMode).toBe("rpc-ui");
+    expect(reloaded.defaultAgentMode).toBe("build");
     expect(reloaded.skipDeleteConfirmation).toBe(true);
   });
 

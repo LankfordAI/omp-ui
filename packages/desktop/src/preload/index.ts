@@ -11,6 +11,7 @@ const api: OmpBackend = {
   removeProject: (path) => ipcRenderer.invoke(CH.projectRemove, path),
   moveProject: (projectPath, beforePath) => ipcRenderer.invoke(CH.projectMove, projectPath, beforePath),
   setDefaultMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultMode, mode),
+  setDefaultAgentMode: (mode) => ipcRenderer.invoke(CH.settingsSetDefaultAgentMode, mode),
   setPlanFormat: (format) => ipcRenderer.invoke(CH.settingsSetPlanFormat, format),
   setAdvisorAutoReply: (on) => ipcRenderer.invoke(CH.settingsSetAdvisorAutoReply, on),
   setSkipDeleteConfirmation: (skip) =>

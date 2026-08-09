@@ -21,6 +21,7 @@ const models: ModelInfo[] = [
 ];
 const state = {
   defaultMode: "rpc-ui",
+  defaultAgentMode: "plan",
   planFormat: "html",
   advisorAutoReply: true,
   modelFavorites: [],

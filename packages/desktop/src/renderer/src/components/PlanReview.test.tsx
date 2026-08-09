@@ -101,6 +101,7 @@ function sessionRecord(tabId: string, title: string) {
 function backendState(titles: Record<string, string>): BackendState {
   return {
     defaultMode: "rpc-ui",
+    defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
     modelFavorites: [],

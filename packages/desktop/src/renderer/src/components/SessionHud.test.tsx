@@ -20,7 +20,7 @@ const toggleConsole = vi.fn();
 let root: Root | null = null;
 
 const state = {
-  defaultMode: "rpc-ui", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
+  defaultMode: "rpc-ui", defaultAgentMode: "plan", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
   planFormat: "html",
   advisorAutoReply: true,
   appUpdateCheckOnLaunch: true, ompUpdateCheckOnLaunch: true,
@@ -144,6 +144,39 @@ describe("wide Session HUD", () => {
     expect(text.slice(0, adv)).toContain("1.1M tok");
   });
 
+  it("shows a Build exception chip only outside the default Plan mode (#142)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.querySelector('[title="/plan.md"]')).toBeNull();
+    expect(host.querySelector('[title^="Build mode"]')).toBeNull();
+
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    }));
+    expect(host.querySelector('[title^="Build mode"]')?.textContent).toContain("build");
+  });
+
+  it("shows Plan as the exception when Build is configured as default (#143)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState((s) => ({ state: { ...s.state!, defaultAgentMode: "build" } }));
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+
+    expect(host.querySelector('[title^="Plan mode"]')?.textContent).toContain("plan");
+  });
+
   it("keeps the title bar's whitespace draggable without swallowing a control (#108)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -208,6 +241,23 @@ describe("compact Session HUD", () => {
     expect(useStore.getState().compactSurface).toBeNull();
     act(() => consoleToggle.click());
     expect(toggleConsole).toHaveBeenCalledWith(TAB);
+  });
+
+  it("omits the default Plan chip and shows Build only when selected (#142)", () => {
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.querySelector("header")?.textContent).not.toContain("plan");
+    expect(host.querySelector("header")?.textContent).not.toContain("build");
+
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    }));
+    expect(host.querySelector("header")?.textContent).toContain("build");
   });
 
   it("keeps displaced actions reachable and passes the same tab id", () => {

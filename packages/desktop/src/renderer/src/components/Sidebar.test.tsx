@@ -71,6 +71,7 @@ const newSession = vi.fn(async () => {});
 const projectPath = "/projects/one";
 const state: BackendState = {
   defaultMode: "rpc-ui",
+  defaultAgentMode: "plan",
   planFormat: "html",
   advisorAutoReply: true,
   modelFavorites: [],
@@ -340,6 +341,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
   });
   const manySessionState: BackendState = {
     defaultMode: "rpc-ui",
+    defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
     modelFavorites: [],

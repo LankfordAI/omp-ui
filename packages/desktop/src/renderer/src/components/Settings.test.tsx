@@ -37,6 +37,7 @@ const backendMock = {
   removeProject: vi.fn(),
   moveProject: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
+  setDefaultAgentMode: vi.fn(async () => {}),
   setPlanFormat: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
@@ -251,6 +252,7 @@ describe("Settings General page plan format (issue #109)", () => {
   const generalState = (planFormat: PlanFormat): BackendState => ({
     projects: [],
     defaultMode: "rpc-ui",
+    defaultAgentMode: "plan",
     planFormat,
     advisorAutoReply: true,
     modelFavorites: [],
@@ -292,6 +294,37 @@ describe("Settings General page plan format (issue #109)", () => {
   });
 });
 
+describe("Settings General page default agent mode (issue #143)", () => {
+  it("shows Plan by default and persists Build", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: {
+        projects: [],
+        defaultMode: "rpc-ui",
+        defaultAgentMode: "plan",
+        planFormat: "html",
+        advisorAutoReply: true,
+        modelFavorites: [],
+        skipDeleteConfirmation: false,
+        themeId: "graphite",
+        appUpdateCheckOnLaunch: true,
+        ompUpdateCheckOnLaunch: true,
+        dismissedAppUpdateVersion: null,
+        dismissedOmpUpdateVersion: null,
+      },
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+
+    expect(buttonWithText("plan")!.getAttribute("aria-pressed")).toBe("true");
+    click(buttonWithText("build")!);
+    expect(backendMock.setDefaultAgentMode).toHaveBeenCalledWith("build");
+  });
+});
+
 describe("Settings General page advisor auto-reply (issue #111)", () => {
   const seedAutoReply = (advisorAutoReply: boolean): void => {
     useStore.setState({
@@ -299,6 +332,7 @@ describe("Settings General page advisor auto-reply (issue #111)", () => {
       state: {
         projects: [],
         defaultMode: "rpc-ui",
+        defaultAgentMode: "plan",
         planFormat: "html",
         advisorAutoReply,
         modelFavorites: [],

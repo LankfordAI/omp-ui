@@ -29,6 +29,7 @@ import {
   setMcpServerEnabled,
   ProviderKeys,
   Registry,
+  PLAN_COMMAND,
   resolveOmpBinary,
   resolveSessionLocation,
   RpcClient,
@@ -43,6 +44,7 @@ import {
   writeImageToScratch,
   writeOmpSetting,
   MAX_IMAGE_BYTES,
+  type AgentMode,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
   type BackendState,
@@ -265,6 +267,10 @@ export class MainBackend {
         },
         [CH.settingsSetDefaultMode]: async (mode: SessionMode) => {
           this.registry.setDefaultMode(mode);
+          await this.broadcast();
+        },
+        [CH.settingsSetDefaultAgentMode]: async (mode: AgentMode) => {
+          this.registry.setDefaultAgentMode(mode);
           await this.broadcast();
         },
         [CH.settingsSetPlanFormat]: async (format: PlanFormat) => {
@@ -582,7 +588,9 @@ export class MainBackend {
         record = this.registry.updateSession(record.tabId, patch) ?? record;
       }
 
-      return req.mode === "rpc-ui" ? this.spawnRpc(record) : await this.spawnPty(record, req);
+      return req.mode === "rpc-ui"
+        ? this.spawnRpc(record, req.resumeTabId === undefined)
+        : await this.spawnPty(record, req);
     } finally {
       if (req.resumeTabId) {
         this.spawning.delete(req.resumeTabId);
@@ -623,7 +631,7 @@ export class MainBackend {
     return { tabId: record.tabId };
   }
 
-  private spawnRpc(record: OwnedSessionRecord): { tabId: string } {
+  private spawnRpc(record: OwnedSessionRecord, startInPlanMode: boolean): { tabId: string } {
     const absLineageDir = path.join(this.sessionsRoot, record.lineageDir);
     // Exactly like PTY (ADR-0003) — and the dir must exist for the watcher.
     fs.mkdirSync(absLineageDir, { recursive: true });
@@ -636,6 +644,16 @@ export class MainBackend {
       advisor: record.advisor,
       configOverlays: this.configOverlays(record, absLineageDir),
       extensions: this.planExtensions(absLineageDir),
+      initialCommands:
+        startInPlanMode && this.registry.defaultAgentMode === "plan"
+          ? [
+              {
+                type: "prompt",
+                id: `omp-ui-initial-plan-${randomUUID()}`,
+                message: `/${PLAN_COMMAND} on ${this.registry.planFormat}`,
+              },
+            ]
+          : undefined,
       onFrame: (frame) => this.send(CH.rpcFrame, record.tabId, frame),
       onExit: (code) => {
         entry.markExited();
@@ -1159,6 +1177,7 @@ export class MainBackend {
       projects: groups,
       defaultMode: this.registry.defaultMode,
       planFormat: this.registry.planFormat,
+      defaultAgentMode: this.registry.defaultAgentMode,
       advisorAutoReply: this.registry.advisorAutoReply,
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.skipDeleteConfirmation,

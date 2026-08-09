@@ -137,6 +137,14 @@ the lineage dir and passed as `-e` at spawn (ADR-0007, ADR-0013). Switching
 between Build and Plan happens in-process; it never respawns the session.
 _Avoid_: planning mode, plan-first
 
+**Default agent mode**:
+The app preference that chooses whether a new native session starts in Plan or
+Build. It does not change live or resumed sessions and does not apply to terminal
+tabs. The default appears first in every mode selector and stays visually quiet;
+the alternate receives the stronger selection accent and is the only mode named
+in the Session HUD when active.
+_Avoid_: default session mode, startup plan mode
+
 **Plan review**:
 The gate between drafting and implementing. The agent submits by writing its
 plan's slug to `xd://propose`, which blocks it until the user answers execute

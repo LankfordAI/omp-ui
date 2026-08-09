@@ -138,6 +138,7 @@ const session = (
 
 const backendState: BackendState = {
   defaultMode: "rpc-ui",
+  defaultAgentMode: "plan",
   planFormat: "html",
   advisorAutoReply: true,
   modelFavorites: [],

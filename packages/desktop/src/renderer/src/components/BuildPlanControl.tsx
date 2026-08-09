@@ -21,6 +21,7 @@ export function BuildPlanControl({
 }) {
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const setPlanMode = useStore((s) => s.setPlanMode);
+  const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const planEnabled = plan?.enabled ?? false;
   const unavailable = plan?.unavailable;
   const sheet = layout === "sheet";
@@ -37,36 +38,41 @@ export function BuildPlanControl({
       className={cn(sheet ? "flex h-11 w-full" : "inline-flex", className)}
     >
       <Capsule className={sheet ? "h-full w-full" : undefined}>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={!planEnabled}
-          disabled={disabled}
-          title={BUILD_TITLE}
-          onClick={() => select(false)}
-          className={cn(
-            CAPSULE_SEGMENT,
-            sheet ? "flex-1 justify-center" : "text-[11px]",
-            !planEnabled ? "bg-hover text-ink" : "text-ink-mid",
-          )}
-        >
-          build
-        </button>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={planEnabled}
-          disabled={disabled || unavailable !== undefined}
-          title={unavailable === undefined ? PLAN_TITLE : `plan mode unavailable: ${unavailable}`}
-          onClick={() => select(true)}
-          className={cn(
-            CAPSULE_SEGMENT,
-            sheet ? "flex-1 justify-center" : "text-[11px]",
-            planEnabled ? "bg-iris-wash text-iris" : "text-ink-mid",
-          )}
-        >
-          plan
-        </button>
+        {([defaultAgentMode, defaultAgentMode === "plan" ? "build" : "plan"] as const).map(
+          (mode) => {
+            const target = mode === "plan";
+            const selected = target === planEnabled;
+            const alternate = mode !== defaultAgentMode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={disabled || (target && unavailable !== undefined)}
+                title={
+                  target
+                    ? unavailable === undefined
+                      ? PLAN_TITLE
+                      : `plan mode unavailable: ${unavailable}`
+                    : BUILD_TITLE
+                }
+                onClick={() => select(target)}
+                className={cn(
+                  CAPSULE_SEGMENT,
+                  sheet ? "flex-1 justify-center" : "text-[11px]",
+                  selected
+                    ? alternate
+                      ? "bg-iris-wash text-iris"
+                      : "bg-hover text-ink"
+                    : "text-ink-mid",
+                )}
+              >
+                {mode}
+              </button>
+            );
+          },
+        )}
       </Capsule>
     </span>
   );

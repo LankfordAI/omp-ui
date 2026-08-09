@@ -95,6 +95,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     removeProject: (path) => req(CH.projectRemove, path),
     moveProject: (projectPath, beforePath) => req(CH.projectMove, projectPath, beforePath),
     setDefaultMode: (mode) => req(CH.settingsSetDefaultMode, mode),
+    setDefaultAgentMode: (mode) => req(CH.settingsSetDefaultAgentMode, mode),
     setPlanFormat: (format) => req(CH.settingsSetPlanFormat, format),
     setAdvisorAutoReply: (on) => req(CH.settingsSetAdvisorAutoReply, on),
     setSkipDeleteConfirmation: (skip) => req(CH.settingsSetSkipDeleteConfirmation, skip),

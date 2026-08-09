@@ -7,6 +7,7 @@ export const CH = {
   projectMove: "project:move",
   sessionSetModel: "session:setModel",
   settingsSetDefaultMode: "settings:setDefaultMode",
+  settingsSetDefaultAgentMode: "settings:setDefaultAgentMode",
   settingsSetPlanFormat: "settings:setPlanFormat",
   settingsSetAdvisorAutoReply: "settings:setAdvisorAutoReply",
   settingsSetSkipDeleteConfirmation: "settings:setSkipDeleteConfirmation",

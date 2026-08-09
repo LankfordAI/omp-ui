@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
+  AgentMode,
   OwnedSessionRecord,
   PlanFormat,
   ProjectRecord,
@@ -12,6 +13,8 @@ interface RegistryData {
   schemaVersion: 1;
   settings: {
     defaultMode: SessionMode;
+    /** Initial Plan/Build posture for newly created native sessions. */
+    defaultAgentMode: AgentMode;
     /** How the agent authors plans for review (see core/plan-extension.ts). */
     planFormat: PlanFormat;
     /** Auto-answer a late advisor review (issue #111); app-level, default on. */
@@ -47,6 +50,7 @@ function emptyRegistry(): RegistryData {
       // The native transcript is the primary mode (the sidebar's mode toggle
       // went away with #10); pty stays an explicit per-spawn menu choice.
       defaultMode: "rpc-ui",
+      defaultAgentMode: "plan",
       // HTML is the default review rendition (issue #109); the canonical
       // markdown plan is written either way.
       planFormat: "html",
@@ -169,6 +173,12 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     settingsObj !== undefined && "defaultMode" in settingsObj && isSessionMode(settingsObj.defaultMode)
       ? settingsObj.defaultMode
       : undefined;
+  const rawDefaultAgentMode: AgentMode =
+    settingsObj !== undefined &&
+    "defaultAgentMode" in settingsObj &&
+    settingsObj.defaultAgentMode === "build"
+      ? "build"
+      : "plan";
   const rawPlanFormat: PlanFormat =
     settingsObj !== undefined && "planFormat" in settingsObj && settingsObj.planFormat === "md"
       ? "md"
@@ -249,6 +259,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       : "";
   const settings: RegistryData["settings"] = {
     defaultMode: rawDefaultMode ?? ("rpc-ui" as SessionMode),
+    defaultAgentMode: rawDefaultAgentMode,
     planFormat: rawPlanFormat,
     advisorAutoReply: rawAdvisorAutoReply,
     modelFavorites:
@@ -330,6 +341,10 @@ export class Registry {
 
   get defaultMode(): SessionMode {
     return this.#data.settings.defaultMode;
+  }
+
+  get defaultAgentMode(): AgentMode {
+    return this.#data.settings.defaultAgentMode;
   }
 
   get skipDeleteConfirmation(): boolean {
@@ -454,6 +469,12 @@ export class Registry {
 
   setDefaultMode(mode: SessionMode): void {
     this.#data.settings.defaultMode = mode;
+    this.#save();
+  }
+
+  setDefaultAgentMode(mode: AgentMode): void {
+    if (this.#data.settings.defaultAgentMode === mode) return;
+    this.#data.settings.defaultAgentMode = mode;
     this.#save();
   }
 

@@ -497,6 +497,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
+  const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const openMcpManager = useStore((s) => s.openMcpManager);
   const compact = useCompactShell();
@@ -507,6 +508,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
   const face = STATUS[status] ?? STATUS.starting;
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
+  const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
+  const exceptionalAgentMode =
+    activeAgentMode !== null && activeAgentMode !== defaultAgentMode ? activeAgentMode : null;
 
 
   const refresh = () => {
@@ -521,7 +525,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
-          {plan?.enabled && <Chip tone="iris">plan</Chip>}
+          {exceptionalAgentMode && <Chip tone="iris">{exceptionalAgentMode}</Chip>}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -580,9 +584,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </span>
       )}
 
-      {plan?.enabled && (
-        <Chip tone="iris" className="shrink-0 [app-region:no-drag]" title={plan.planFilePath ?? "read-only exploration — no plan drafted"}>
-          plan
+      {exceptionalAgentMode && (
+        <Chip
+          tone="iris"
+          className="shrink-0 [app-region:no-drag]"
+          title={`${exceptionalAgentMode === "build" ? "Build" : "Plan"} mode — ${exceptionalAgentMode === "build" ? "working-tree writes and state-changing commands are allowed" : "read-only exploration"}`}
+        >
+          {exceptionalAgentMode}
         </Chip>
       )}
 

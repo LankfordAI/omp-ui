@@ -37,7 +37,7 @@ const abortAgent = vi.fn(async () => {});
 let root: Root | null = null;
 
 const state = {
-  defaultMode: "rpc-ui", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
+  defaultMode: "rpc-ui", defaultAgentMode: "plan", modelFavorites: [], skipDeleteConfirmation: false, themeId: "graphite",
   planFormat: "html",
   advisorAutoReply: true,
   appUpdateCheckOnLaunch: true, ompUpdateCheckOnLaunch: true, dismissedAppUpdateVersion: null, dismissedOmpUpdateVersion: null,
@@ -306,6 +306,56 @@ describe("Composer BuildPlanControl", () => {
     renderComposer();
     expect(modeSegment("build").getAttribute("aria-checked")).toBe("true");
     expect(modeSegment("plan").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("orders the safe default as Plan then Build (issue #141)", () => {
+    seed("ready");
+    renderComposer();
+    expect(
+      [...document.body.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["plan", "build"]);
+  });
+
+  it("puts a Build default first and accents alternate Plan when selected (issue #143)", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      state: { ...s.state!, defaultAgentMode: "build" },
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    }));
+    renderComposer();
+
+    expect(
+      [...document.body.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["build", "plan"]);
+    expect(modeSegment("build").className).not.toContain("bg-iris-wash");
+
+    act(() => useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    })));
+    expect(modeSegment("plan").className).toContain("bg-iris-wash");
+  });
+
+  it("gives Build, not Plan, the stronger active emphasis (issue #141)", () => {
+    seed("ready");
+    renderComposer();
+    expect(modeSegment("build").className).toContain("bg-iris-wash");
+    expect(modeSegment("plan").className).not.toContain("bg-iris-wash");
   });
 
   it("selects Plan and reclaims the textarea caret", () => {

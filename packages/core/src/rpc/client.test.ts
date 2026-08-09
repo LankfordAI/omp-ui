@@ -50,7 +50,7 @@ interface Harness {
   spawnEnv: NodeJS.ProcessEnv;
 }
 
-function harness(opts: { resumeSessionId?: string; ompPath?: string } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[] } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -62,6 +62,7 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string } = {}): Har
     lineageDir: "/sessions/omp-ui--x--11111111-2222-3333-4444-555555555555",
     ompPath: opts.ompPath ?? "/opt/bun/bin/omp",
     resumeSessionId: opts.resumeSessionId,
+    initialCommands: opts.initialCommands,
     onFrame: (f) => frames.push(f),
     onExit: (c) => exits.push(c),
     onError: (m) => errors.push(m),
@@ -119,6 +120,19 @@ describe("RpcClient handshake", () => {
     expect(h.frames).toEqual([
       expect.objectContaining({ type: "ready", protocolVersion: 1 }),
     ]);
+  });
+
+  it("sends initial commands after negotiation and before forwarding ready", async () => {
+    const command = { type: "prompt", id: "initial-plan", message: "/omp-ui-plan on html" };
+    const h = harness({ initialCommands: [command] });
+
+    h.fake.stdout.write(readyFrame());
+    await tick();
+
+    expect(h.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n' + JSON.stringify(command) + "\n",
+    );
+    expect(h.frames).toHaveLength(1);
   });
 
   it("adopts maxFrameBytes from the ready frame", async () => {

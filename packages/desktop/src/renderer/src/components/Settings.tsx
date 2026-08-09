@@ -1,6 +1,7 @@
 import { AppUpdateRestartAction } from "./AppUpdateCard";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
+  AgentMode,
   AppUpdateState,
   OmpSettingEntry,
   OmpSettingLayer,
@@ -173,11 +174,13 @@ function CommitField({
 function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
+  const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const setSkipDeleteConfirmation = useStore((s) => s.setSkipDeleteConfirmation);
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
+  const agentMode = state?.defaultAgentMode ?? "plan";
   const planFormat = state?.planFormat ?? "html";
 
   return (
@@ -205,6 +208,28 @@ function GeneralPage() {
               )}
             >
               {label}
+            </button>
+          ))}
+        </Capsule>
+      </Row>
+      <Row
+        title="Default agent mode"
+        hint="How a new native session starts — read-only Plan, or write-enabled Build."
+      >
+        <Capsule>
+          {(["plan", "build"] as const).map((value: AgentMode) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={agentMode === value}
+              onClick={() => void setDefaultAgentMode(value)}
+              className={cn(
+                CAPSULE_SEGMENT,
+                "px-2 text-[11px]",
+                agentMode === value ? "bg-hover text-ink" : "text-ink-mid",
+              )}
+            >
+              {value}
             </button>
           ))}
         </Capsule>
@@ -1286,7 +1311,7 @@ export function Settings() {
 
   let footer: ReactNode = null;
   if (page === "general") {
-    footer = <p>The default mode applies to new sessions; everything else applies immediately.</p>;
+    footer = <p>Default session and agent modes apply to new sessions; everything else applies immediately.</p>;
   } else if (page === "updates") {
     // Auto-download is deliberately absent: both download paths end in an
     // installer launch or an app restart.

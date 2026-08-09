@@ -10,6 +10,7 @@ export type SessionStatus =
   | "unknown";
 
 export type SessionMode = "pty" | "rpc-ui";
+export type AgentMode = "plan" | "build";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
 /**
@@ -83,6 +84,8 @@ export interface ProjectGroup {
 export interface BackendState {
   projects: ProjectGroup[];
   defaultMode: SessionMode;
+  /** Initial Plan/Build posture for newly created native sessions. */
+  defaultAgentMode: AgentMode;
   /** Plan authoring format the next plan-mode toggle asks the agent for. */
   planFormat: PlanFormat;
   /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
@@ -428,6 +431,7 @@ export interface OmpBackend {
    */
   moveProject(projectPath: string, beforePath: string | null): Promise<void>;
   setDefaultMode(mode: SessionMode): Promise<void>;
+  setDefaultAgentMode(mode: AgentMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;

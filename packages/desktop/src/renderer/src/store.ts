@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  AgentMode,
   AdvisorDefaults,
   AppUpdateRestartResult,
   AppUpdateState,
@@ -396,6 +397,7 @@ interface UiStore {
   closeCompactSurface(): void;
   toggleSidebarCollapsed(): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
+  setDefaultAgentMode(mode: AgentMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
@@ -1491,6 +1493,14 @@ export const useStore = create<UiStore>()((set, get) => {
       }
     },
 
+    async setDefaultAgentMode(mode) {
+      try {
+        await backend.setDefaultAgentMode(mode);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
     async setPlanFormat(format) {
       try {
         await backend.setPlanFormat(format);
@@ -1990,9 +2000,17 @@ export const useStore = create<UiStore>()((set, get) => {
     },
 
     handleRpcFrame(tabId, frame) {
-      const tab = get().rpc[tabId];
-      if (!tab || frame === null || typeof frame !== "object") return;
+      if (frame === null || typeof frame !== "object") return;
       const type = "type" in frame ? frame.type : undefined;
+      // ready can beat the spawn IPC response that inserts the renderer tab.
+      // bootRpcTab creates its own runtime slot, so it bypasses the ordinary
+      // unknown-tab guard.
+      if (type === "ready") {
+        void get().bootRpcTab(tabId);
+        return;
+      }
+      const tab = get().rpc[tabId];
+      if (!tab) return;
       switch (type) {
         case "response": {
           const id = "id" in frame && typeof frame.id === "string" ? frame.id : null;
@@ -2009,10 +2027,6 @@ export const useStore = create<UiStore>()((set, get) => {
           }
           return;
         }
-        case "ready":
-          // A fresh process — (re)boot this tab's state.
-          void get().bootRpcTab(tabId);
-          return;
         case "rpc_chunk":
           return; // reassembled in main — never expected here
         case "session_info_update":

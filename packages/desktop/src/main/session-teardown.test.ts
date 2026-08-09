@@ -60,7 +60,7 @@ interface FakePty {
 const fakePtys: FakePty[] = [];
 const watcherEvents: ((e: LineageEvent) => void)[] = [];
 const watcherDisposes: Mock[] = [];
-const rpcInstances: { kill: Mock; send: Mock; exit: (code: number) => void }[] = [];
+const rpcInstances: { kill: Mock; send: Mock; exit: (code: number) => void; frame: (frame: unknown) => void }[] = [];
 
 /**
  * A registry holding one dormant session with an existing lineage dir, plus a
@@ -163,11 +163,15 @@ beforeEach(() => {
   });
 
   RpcClientMock.mockReset();
-  RpcClientMock.mockImplementation(function (this: unknown, opts: { onExit: (code: number | null) => void }) {
+  RpcClientMock.mockImplementation(function (
+    this: unknown,
+    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void },
+  ) {
     const instance = {
       kill: vi.fn(),
       send: vi.fn(),
       exit: (code: number) => opts.onExit(code),
+      frame: (frame: unknown) => opts.onFrame(frame),
     };
     rpcInstances.push(instance);
     return instance;
@@ -236,9 +240,47 @@ describe("live session teardown (issue #64)", () => {
 
     await invoke(CH.sessionSwitchMode, tabId, "rpc-ui");
 
+    expect(RpcClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ initialCommands: undefined }),
+    );
     expect(fake.detachData).toHaveBeenCalled();
     expect(fake.kill).toHaveBeenCalled();
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("queues Plan mode during the handshake only for a genuinely new rpc-ui session (issue #140)", async () => {
+    setup();
+    await invoke(CH.sessionSpawn, {
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(RpcClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCommands: [
+          expect.objectContaining({ type: "prompt", message: "/omp-ui-plan on html" }),
+        ],
+      }),
+    );
+  });
+
+  it("does not queue Plan when Build is the configured default agent mode (issue #143)", async () => {
+    setup();
+    await invoke(CH.settingsSetDefaultAgentMode, "build");
+    await invoke(CH.sessionSpawn, {
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(RpcClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ initialCommands: undefined }),
+    );
   });
 
   it("mode switch away from rpc-ui kills the rpc child", async () => {
