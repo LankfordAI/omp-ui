@@ -334,3 +334,37 @@ describe("readDotenvKeys", () => {
     expect(row(keys, "openrouter", dir)).toMatchObject({ source: "dotenv", masked: "••••cdef" });
   });
 });
+
+describe("hasModelProvider", () => {
+  it("is false with no credential anywhere", () => {
+    expect(make().keys.hasModelProvider(null)).toBe(false);
+  });
+
+  it("is true with a stored model key", () => {
+    const { keys } = make();
+    keys.setKey(KEY, LONG);
+    expect(keys.hasModelProvider(null)).toBe(true);
+  });
+
+  it("is true with an inherited model key", () => {
+    const { keys } = make({ env: { [KEY]: LONG } });
+    expect(keys.hasModelProvider(null)).toBe(true);
+  });
+
+  it("is true with a project .env model key, which omp loads itself", () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, ".env"), `${KEY}=${LONG}\n`);
+    expect(make().keys.hasModelProvider(dir)).toBe(true);
+  });
+
+  it("is false with only a search-group key", () => {
+    const { keys } = make({ env: { BRAVE_API_KEY: LONG } });
+    expect(keys.hasModelProvider(null)).toBe(false);
+  });
+
+  it("is false with no project when the key lives only in a project .env", () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, ".env"), `${KEY}=${LONG}\n`);
+    expect(make().keys.hasModelProvider(null)).toBe(false);
+  });
+});

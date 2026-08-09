@@ -535,6 +535,15 @@ export class MainBackend {
         );
       }
 
+      // A new session cannot run without a model credential — omp would crash
+      // moments after spawn with no explanation. Resuming an existing session
+      // is allowed through (its process may already be keyless but viewable).
+      if (!req.resumeTabId && !this.providerKeys.hasModelProvider(req.projectCwd)) {
+        throw new Error(
+          "No model provider is configured. Add an API key under Settings → Providers before starting a session.",
+        );
+      }
+
       let record: OwnedSessionRecord;
       if (req.resumeTabId) {
         const existing = this.registry.sessions.find((s) => s.tabId === req.resumeTabId);

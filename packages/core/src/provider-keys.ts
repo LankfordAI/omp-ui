@@ -353,6 +353,16 @@ export class ProviderKeys {
   }
 
   /**
+   * Whether any model-group provider has an effective credential. A session is
+   * doomed without one — search-only keys (Exa, Brave, …) cannot run a model —
+   * so this gates session spawn. `dotenv` counts, because omp loads project
+   * `.env` files itself and would see the key at spawn.
+   */
+  hasModelProvider(projectCwd: string | null): boolean {
+    return this.statuses(projectCwd).some((s) => s.group === "models" && s.source !== "none");
+  }
+
+  /**
    * One row per catalogued provider for the settings page. Key material is
    * masked here, at the process boundary — the renderer never sees a full
    * credential, only its tail.
