@@ -35,7 +35,7 @@ describe("listBranches", () => {
     await gitIn(dir, ["checkout", "-q", "-b", "feature/x"]);
 
     const list = await listBranches(dir);
-    expect(list.repoRoot).toBe(dir);
+    expect(list.repoRoot).toBe(fs.realpathSync.native(dir));
     expect(list.current).toBe("feature/x");
     expect(list.branches).toEqual(["main", "feature/x"]);
     expect(list.defaultBranch).toBe("main");

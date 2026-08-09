@@ -38,7 +38,7 @@ describe("readBranchDiff", () => {
     fs.writeFileSync(path.join(dir, "notes.md"), "# new\n");
 
     const diff = await readBranchDiff(dir);
-    expect(diff.repoRoot).toBe(dir);
+    expect(diff.repoRoot).toBe(fs.realpathSync.native(dir));
     expect(diff.branch).toBe("main");
     expect(diff.diff).toContain("diff --git a/app.ts b/app.ts");
     expect(diff.diff).toContain("-export const a = 1;");
