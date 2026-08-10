@@ -91,7 +91,9 @@ function main() {
 
   const generated = render(loadGraphiteTokens());
   if (args[0] === "--check") {
-    const current = existsSync(outputPath) ? readFileSync(outputPath, "utf8") : null;
+    const current = existsSync(outputPath)
+      ? readFileSync(outputPath, "utf8").replaceAll("\r\n", "\n")
+      : null;
     if (current !== generated) {
       throw new Error(
         "theme-default.css is stale; run `npm run themes:generate --workspace @omp-ui/desktop`",

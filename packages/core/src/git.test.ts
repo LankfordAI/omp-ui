@@ -6,7 +6,9 @@ import { git } from "./git";
 
 const cleanups: string[] = [];
 afterEach(() => {
-  for (const dir of cleanups.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of cleanups.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });
 
 function fixtureCommand(name: string, source: string): { cwd: string; env: NodeJS.ProcessEnv } {
@@ -46,7 +48,7 @@ describe("git", () => {
     // This integration exercises child_process's real timeout; fake timers cannot drive the OS process.
     const fixture = fixtureCommand(
       "fixture-hang",
-      "setTimeout(() => process.exit(0), 10_000);",
+      "setTimeout(() => process.exit(0), 100);",
     );
 
     await expect(

@@ -409,7 +409,9 @@ describe("pullBranch", () => {
 
     expect(await revParse(fixture.local)).toBe(remoteHead);
     expect(await revParse(fixture.local)).not.toBe(before);
-    expect(fs.readFileSync(path.join(fixture.local, ".seed"), "utf8")).toBe("fast-forwarded\n");
+    expect(fs.readFileSync(path.join(fixture.local, ".seed"), "utf8").replaceAll("\r\n", "\n")).toBe(
+      "fast-forwarded\n",
+    );
   });
 
   it("rejects a diverged branch without changing HEAD", async () => {
