@@ -48,11 +48,11 @@ describe("git", () => {
     // This integration exercises child_process's real timeout; fake timers cannot drive the OS process.
     const fixture = fixtureCommand(
       "fixture-hang",
-      'process.chdir(require("node:os").tmpdir()); setTimeout(() => process.exit(0), 100);',
+      "setTimeout(() => process.exit(0), 100);",
     );
 
     await expect(
-      git(fixture.cwd, ["fixture-hang"], { timeoutMs: 20, env: fixture.env }),
+      git(os.tmpdir(), ["fixture-hang"], { timeoutMs: 20, env: fixture.env }),
     ).rejects.toThrow("git fixture-hang timed out after 20 ms");
   });
 });
