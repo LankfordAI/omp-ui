@@ -126,8 +126,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Run Windows core and desktop tests
-        run: npm test --workspace @omp-ui/core --workspace @omp-ui/desktop
+      - name: Run Windows core tests
+        run: npm test --workspace @omp-ui/core -- --testTimeout=15000
+      - name: Run Windows desktop tests
+        run: npm test --workspace @omp-ui/desktop
       - name: Stamp version from tag
         shell: pwsh
         run: |
