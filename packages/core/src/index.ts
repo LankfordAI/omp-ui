@@ -1,7 +1,17 @@
 export * from "./paths";
 export { browseDirectories, expandHomePath, resolveProjectPath } from "./dir-browse";
 export { readBranchDiff } from "./branch-diff";
-export { checkoutBranch, listBranches } from "./branches";
+export {
+  checkoutBranch,
+  createBranchService,
+  listBranches,
+  parseBranchStatus,
+  pullBranch,
+  type BranchClock,
+  type BranchService,
+  type GitRunner,
+  type ParsedBranchStatus,
+} from "./branches";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
 export * from "./fetch";

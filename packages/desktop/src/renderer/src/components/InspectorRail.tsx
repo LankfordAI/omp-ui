@@ -635,16 +635,22 @@ function DiffsPane({ tabId }: { tabId: string }) {
   const currentBranch = useStore((s) =>
     projectCwd ? s.branches[projectCwd]?.current : undefined,
   );
+  const branchDiffRevision = useStore((s) =>
+    projectCwd ? (s.branchDiffRevision[projectCwd] ?? 0) : 0,
+  );
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
+  const requestIdRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     if (!projectCwd) {
       setLoad({ status: "loaded", repoRoot: null, branch: null, files: [] });
       return;
     }
-    setLoad({ status: "loading" });
+    if (requestId === requestIdRef.current) setLoad({ status: "loading" });
     try {
       const branch = await backend.getBranchDiff(projectCwd);
+      if (requestId !== requestIdRef.current) return;
       setLoad({
         status: "loaded",
         branch: branch.branch,
@@ -652,13 +658,14 @@ function DiffsPane({ tabId }: { tabId: string }) {
         files: parseBranchDiff(branch.diff, branch.untracked),
       });
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
   }, [projectCwd]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh, currentBranch]);
+  }, [refresh, currentBranch, branchDiffRevision]);
 
   if (load.status === "idle" || load.status === "loading") {
     return <Empty title="Reading branch…" hint="Gathering the working-tree diff." />;

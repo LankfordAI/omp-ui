@@ -87,6 +87,7 @@ const mockBackend = {
   ),
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
+  pullBranch: vi.fn(),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   setPlanFormat: vi.fn(async () => {}),
@@ -2766,6 +2767,13 @@ describe("branch switching (issue #35)", () => {
       current: "feature/x",
       branches: ["main", "feature/x"],
       defaultBranch: "main",
+      upstreamRef: null,
+      upstreamRemote: null,
+      hasUpstream: false,
+      ahead: 0,
+      behind: 0,
+      upstreamFetchedAt: null,
+      upstreamRefreshError: null,
     };
     mockBackend.checkoutBranch.mockResolvedValueOnce(undefined);
     mockBackend.listBranches.mockResolvedValueOnce(fixture);
@@ -2783,6 +2791,13 @@ describe("branch switching (issue #35)", () => {
       current: "main",
       branches: ["main"],
       defaultBranch: "main",
+      upstreamRef: null,
+      upstreamRemote: null,
+      hasUpstream: false,
+      ahead: 0,
+      behind: 0,
+      upstreamFetchedAt: null,
+      upstreamRefreshError: null,
     };
     mockBackend.checkoutBranch.mockRejectedValueOnce(new Error("error: would be overwritten"));
     useStore.setState({ branches: { "/p": existing } });
@@ -2790,6 +2805,225 @@ describe("branch switching (issue #35)", () => {
     const err = await useStore.getState().checkoutGitBranch("/p", "other");
     expect(err).toBe("error: would be overwritten");
     expect(useStore.getState().branches["/p"]).toEqual(existing);
+  });
+
+  it("refreshBranches keeps the previous snapshot until the deferred listing completes", async () => {
+    const previous: BranchList = {
+      repoRoot: "/p",
+      current: "main",
+      branches: ["main"],
+      defaultBranch: "main",
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 1,
+      upstreamFetchedAt: 10,
+      upstreamRefreshError: null,
+    };
+    const refreshed: BranchList = {
+      ...previous,
+      branches: ["main", "feature/x"],
+      behind: 0,
+      upstreamFetchedAt: 20,
+    };
+    const listing = deferred<BranchList>();
+    mockBackend.listBranches.mockReturnValueOnce(listing.promise);
+    useStore.setState({
+      branches: { "/p": previous },
+      branchActivity: {},
+      branchDiffRevision: {},
+    });
+
+    const refresh = useStore.getState().refreshBranches("/p", { fetchUpstream: false });
+    await flushMicrotasks();
+
+    expect(mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: false });
+    expect(useStore.getState().branches["/p"]).toEqual(previous);
+    expect(useStore.getState().branchActivity["/p"]).toEqual({
+      refreshing: true,
+      pulling: false,
+    });
+
+    listing.resolve(refreshed);
+    await refresh;
+
+    expect(useStore.getState().branches["/p"]).toEqual(refreshed);
+    expect(useStore.getState().branchActivity["/p"]).toEqual({
+      refreshing: false,
+      pulling: false,
+    });
+  });
+
+  it("queues one network refresh behind an in-flight local-only refresh", async () => {
+    const previous: BranchList = {
+      repoRoot: "/p",
+      current: "main",
+      branches: ["main"],
+      defaultBranch: "main",
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 1,
+      upstreamFetchedAt: 10,
+      upstreamRefreshError: null,
+    };
+    const localSnapshot = { ...previous, branches: ["main", "local"] };
+    const networkSnapshot = {
+      ...localSnapshot,
+      behind: 0,
+      upstreamFetchedAt: 20,
+    };
+    const localListing = deferred<BranchList>();
+    mockBackend.listBranches
+      .mockReturnValueOnce(localListing.promise)
+      .mockResolvedValueOnce(networkSnapshot);
+    useStore.setState({
+      branches: { "/p": previous },
+      branchActivity: {},
+      branchDiffRevision: {},
+    });
+
+    const localRefresh = useStore
+      .getState()
+      .refreshBranches("/p", { fetchUpstream: false });
+    const networkRefresh = useStore
+      .getState()
+      .refreshBranches("/p", { fetchUpstream: true });
+    await flushMicrotasks();
+
+    expect(mockBackend.listBranches.mock.calls).toEqual([
+      ["/p", { fetchUpstream: false }],
+    ]);
+    expect(useStore.getState().branches["/p"]).toEqual(previous);
+
+    localListing.resolve(localSnapshot);
+    await Promise.all([localRefresh, networkRefresh]);
+
+    expect(mockBackend.listBranches.mock.calls).toEqual([
+      ["/p", { fetchUpstream: false }],
+      ["/p", { fetchUpstream: true }],
+    ]);
+    expect(useStore.getState().branches["/p"]).toEqual(networkSnapshot);
+    expect(useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
+  });
+
+  it("coalesces duplicate in-flight network refreshes", async () => {
+    const snapshot: BranchList = {
+      repoRoot: "/p",
+      current: "main",
+      branches: ["main"],
+      defaultBranch: "main",
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 0,
+      upstreamFetchedAt: 20,
+      upstreamRefreshError: null,
+    };
+    const listing = deferred<BranchList>();
+    mockBackend.listBranches.mockReturnValueOnce(listing.promise);
+    useStore.setState({ branches: {}, branchActivity: {}, branchDiffRevision: {} });
+
+    const first = useStore.getState().refreshBranches("/p", { fetchUpstream: true });
+    const duplicate = useStore.getState().refreshBranches("/p", { fetchUpstream: true });
+    await flushMicrotasks();
+
+    expect(mockBackend.listBranches.mock.calls).toEqual([
+      ["/p", { fetchUpstream: true }],
+    ]);
+
+    listing.resolve(snapshot);
+    await Promise.all([first, duplicate]);
+
+    expect(mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().branches["/p"]).toEqual(snapshot);
+    expect(useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
+  });
+
+  it("pullGitBranch failure preserves the snapshot and diff revision and clears activity", async () => {
+    const previous: BranchList = {
+      repoRoot: "/p",
+      current: "main",
+      branches: ["main"],
+      defaultBranch: "main",
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 1,
+      upstreamFetchedAt: 10,
+      upstreamRefreshError: null,
+    };
+    mockBackend.pullBranch.mockRejectedValueOnce(new Error("network unavailable"));
+    useStore.setState({
+      branches: { "/p": previous },
+      branchActivity: {},
+      branchDiffRevision: { "/p": 4, "/other": 9 },
+    });
+
+    const pull = useStore.getState().pullGitBranch("/p");
+    expect(useStore.getState().branchActivity["/p"]).toEqual({
+      refreshing: false,
+      pulling: true,
+    });
+
+    await expect(pull).resolves.toBe("network unavailable");
+
+    expect(mockBackend.pullBranch).toHaveBeenCalledWith("/p");
+    expect(mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(useStore.getState().branches["/p"]).toEqual(previous);
+    expect(useStore.getState().branchDiffRevision).toEqual({ "/p": 4, "/other": 9 });
+    expect(useStore.getState().branchActivity["/p"]).toEqual({
+      refreshing: false,
+      pulling: false,
+    });
+  });
+
+  it("pullGitBranch coalesces pulls, locally refreshes, and increments only its revision once", async () => {
+    const previous: BranchList = {
+      repoRoot: "/p",
+      current: "main",
+      branches: ["main"],
+      defaultBranch: "main",
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      ahead: 0,
+      behind: 1,
+      upstreamFetchedAt: 10,
+      upstreamRefreshError: null,
+    };
+    const pulling = deferred<void>();
+    mockBackend.pullBranch.mockReturnValueOnce(pulling.promise);
+    mockBackend.listBranches.mockRejectedValueOnce(new Error("refresh failed"));
+    useStore.setState({
+      branches: { "/p": previous },
+      branchActivity: {},
+      branchDiffRevision: { "/p": 4, "/other": 9 },
+    });
+
+    const first = useStore.getState().pullGitBranch("/p");
+    const duplicate = useStore.getState().pullGitBranch("/p");
+
+    expect(mockBackend.pullBranch.mock.calls).toEqual([["/p"]]);
+    await expect(duplicate).resolves.toBeNull();
+
+    pulling.resolve(undefined);
+    await expect(first).resolves.toBeNull();
+
+    expect(mockBackend.pullBranch).toHaveBeenCalledTimes(1);
+    expect(mockBackend.listBranches.mock.calls).toEqual([
+      ["/p", { fetchUpstream: false }],
+    ]);
+    expect(useStore.getState().branches["/p"]).toEqual(previous);
+    expect(useStore.getState().branchDiffRevision).toEqual({ "/p": 5, "/other": 9 });
+    expect(useStore.getState().branchActivity["/p"]).toEqual({
+      refreshing: false,
+      pulling: false,
+    });
   });
 });
 

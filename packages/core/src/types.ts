@@ -137,8 +137,17 @@ export interface BranchDiff {
 }
 
 /**
- * Local-branch listing of a project's git repo (see listBranches). Null
- * repoRoot means the project is not inside a git repository.
+ * Controls whether listBranches may refresh the current branch's configured
+ * remote before reading its divergence.
+ */
+export interface BranchListOptions {
+  fetchUpstream?: boolean;
+}
+
+/**
+ * Local-branch listing and upstream state of a project's git repo (see
+ * listBranches). Null repoRoot means the project is not inside a git
+ * repository.
  */
 export interface BranchList {
   /** Null when projectCwd is not inside a git repository. */
@@ -149,6 +158,20 @@ export interface BranchList {
   branches: string[];
   /** The repo's default branch when one can be determined. */
   defaultBranch: string | null;
+  /** Configured upstream's short ref; null when no upstream is configured. */
+  upstreamRef: string | null;
+  /** Configured upstream's remote name, including `.` for a local upstream. */
+  upstreamRemote: string | null;
+  /** Whether the configured upstream currently resolves to a local tracking ref. */
+  hasUpstream: boolean;
+  /** Commits on the current branch but not its upstream. */
+  ahead: number;
+  /** Commits on the upstream but not the current branch. */
+  behind: number;
+  /** Unix timestamp in milliseconds of the last successful network refresh. */
+  upstreamFetchedAt: number | null;
+  /** Most recent network refresh error, retained until a refresh succeeds. */
+  upstreamRefreshError: string | null;
 }
 
 export interface SpawnRequest {

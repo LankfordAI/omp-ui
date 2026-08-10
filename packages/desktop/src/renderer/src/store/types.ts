@@ -5,6 +5,7 @@ import type {
   AppUpdateState,
   BackendState,
   BranchList,
+  BranchListOptions,
   ImageAttachment,
   LiveState,
   OmpSettingsSnapshot,
@@ -187,6 +188,11 @@ export interface UpdatesSlice {
   dismissAppUpdate(version: string, remember: boolean): Promise<void>;
 }
 
+export interface BranchActivity {
+  refreshing: boolean;
+  pulling: boolean;
+}
+
 export interface UiStore extends SettingsSlice, UpdatesSlice {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -198,6 +204,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
   branches: Record<string, BranchList>;
+  branchActivity: Record<string, BranchActivity>;
+  branchDiffRevision: Record<string, number>;
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
   projectPickerOpen: boolean;
@@ -276,11 +284,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   closeSubagent(tabId: string): void;
   clearShellExited(tabId: string): void;
   toggleConsole(tabId: string): void;
-  refreshBranches(projectCwd: string): Promise<void>;
+  refreshBranches(projectCwd: string, opts?: BranchListOptions): Promise<void>;
   checkoutGitBranch(
     projectCwd: string,
     name: string,
     opts?: { create?: boolean },
   ): Promise<string | null>;
+  pullGitBranch(projectCwd: string): Promise<string | null>;
   suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
 }

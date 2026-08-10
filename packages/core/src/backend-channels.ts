@@ -6,6 +6,7 @@ import type {
   BackendState,
   BranchDiff,
   BranchList,
+  BranchListOptions,
   DirBrowseResult,
   ImageAttachment,
   McpServersResult,
@@ -299,7 +300,7 @@ export const BACKEND_CHANNELS = {
    */
   listBranches: {
     channel: "branch:list",
-    ...request<[projectCwd: string], BranchList>(),
+    ...request<[projectCwd: string, opts?: BranchListOptions], BranchList>(),
   },
   /**
    * Switches the project's repo to `name` (`checkout -b` when opts.create).
@@ -312,6 +313,11 @@ export const BACKEND_CHANNELS = {
       [projectCwd: string, name: string, opts?: { create?: boolean }],
       void
     >(),
+  },
+  /** Pulls the checked-out branch from its configured upstream. */
+  pullBranch: {
+    channel: "branch:pull",
+    ...request<[projectCwd: string], void>(),
   },
   /** Lists resolved, redacted MCP servers and per-file errors. */
   getMcpServers: {

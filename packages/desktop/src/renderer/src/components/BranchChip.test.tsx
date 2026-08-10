@@ -12,11 +12,19 @@ const fixture: BranchList = {
   current: "main",
   branches: ["main", "feature/x"],
   defaultBranch: "main",
+  upstreamRef: null,
+  upstreamRemote: null,
+  hasUpstream: false,
+  ahead: 0,
+  behind: 0,
+  upstreamFetchedAt: null,
+  upstreamRefreshError: null,
 };
 
 const backendMock = {
   listBranches: vi.fn(async () => fixture),
   checkoutBranch: vi.fn(async () => {}),
+  pullBranch: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
@@ -56,6 +64,19 @@ const buttonByText = (text: string): HTMLButtonElement => {
   expect(found).toBeDefined();
   return found!;
 };
+const branchInfo = (patch: Partial<BranchList> = {}): BranchList => ({ ...fixture, ...patch });
+
+function seedBranch(patch: Partial<BranchList>): BranchList {
+  const info = branchInfo(patch);
+  backendMock.listBranches.mockResolvedValue(info);
+  useStore.setState({ branches: { "/p": info }, branchActivity: {} });
+  return info;
+}
+
+const pullButton = (): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+    candidate.textContent?.toLowerCase().startsWith("pull"),
+  );
 
 async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -68,7 +89,15 @@ async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.listBranches.mockResolvedValue(fixture);
-  useStore.setState({ branches: { "/p": fixture }, tabs: [], rpc: {}, state: null });
+  backendMock.pullBranch.mockResolvedValue(undefined);
+  useStore.setState({
+    branches: { "/p": fixture },
+    branchActivity: {},
+    branchDiffRevision: {},
+    tabs: [],
+    rpc: {},
+    state: null,
+  });
 });
 
 afterEach(() => {
@@ -89,7 +118,21 @@ describe("BranchChip", () => {
     root = null;
     document.body.replaceChildren();
     useStore.setState({
-      branches: { "/p": { repoRoot: null, current: null, branches: [], defaultBranch: null } },
+      branches: {
+        "/p": {
+          repoRoot: null,
+          current: null,
+          branches: [],
+          defaultBranch: null,
+          upstreamRef: null,
+          upstreamRemote: null,
+          hasUpstream: false,
+          ahead: 0,
+          behind: 0,
+          upstreamFetchedAt: null,
+          upstreamRefreshError: null,
+        },
+      },
     });
     render();
     expect(document.body.querySelector("button")).toBeNull();
@@ -160,5 +203,233 @@ describe("BranchChip", () => {
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
     expect(document.activeElement).toBe(chip());
+  });
+
+  it("shows a neutral behind indicator and singular or plural Pull action", async () => {
+    seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 1,
+    });
+    render();
+
+    const indicator = chip().querySelector<HTMLElement>("[aria-hidden].tabular-nums");
+    expect(indicator?.textContent).toContain("↓ 1");
+    expect(indicator?.classList.contains("text-ink-dim")).toBe(true);
+    expect(indicator?.classList.contains("text-copper")).toBe(false);
+    expect(chip().textContent).toContain("1 commit behind origin/main");
+
+    await act(async () => chip().click());
+    expect(buttonByText("pull 1 commit").disabled).toBe(false);
+
+    act(() => {
+      const info = seedBranch({
+        upstreamRef: "origin/main",
+        upstreamRemote: "origin",
+        hasUpstream: true,
+        behind: 3,
+      });
+      useStore.setState({ branches: { "/p": info } });
+    });
+    expect(chip().querySelector<HTMLElement>("[aria-hidden].tabular-nums")?.textContent).toContain(
+      "↓ 3",
+    );
+    expect(chip().textContent).toContain("3 commits behind origin/main");
+    expect(buttonByText("pull 3 commits").disabled).toBe(false);
+  });
+
+  it("retains the last indicator and reports loading accessibly during an upstream refresh", async () => {
+    const info = seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 2,
+    });
+    let resolveRefresh!: (value: BranchList) => void;
+    backendMock.listBranches.mockReturnValueOnce(
+      new Promise<BranchList>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+    render();
+
+    await act(async () => chip().click());
+
+    const popover = document.body.querySelector<HTMLElement>("[aria-busy]");
+    expect(popover?.getAttribute("aria-busy")).toBe("true");
+    expect(popover?.textContent).toContain("refreshing upstream…");
+    expect(chip().querySelector<HTMLElement>("[aria-hidden].tabular-nums")?.textContent).toContain(
+      "↓ 2",
+    );
+
+    await act(async () => resolveRefresh(info));
+    expect(popover?.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("shows an upstream fetch error inline without discarding the branch snapshot", async () => {
+    seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 2,
+      upstreamRefreshError: "could not fetch origin: offline",
+    });
+    render();
+
+    await act(async () => chip().click());
+
+    expect(document.body.textContent).toContain("could not fetch origin: offline");
+    expect(chip().textContent).toContain("main");
+    expect(chip().textContent).toContain("↓ 2");
+  });
+
+  it.each([
+    [
+      "detached HEAD",
+      { current: null, upstreamRef: null, hasUpstream: false },
+      "detached HEAD — check out a branch to track an upstream",
+    ],
+    [
+      "no configured upstream",
+      { current: "main", upstreamRef: null, hasUpstream: false },
+      "no upstream configured for this branch",
+    ],
+    [
+      "configured but missing upstream",
+      { current: "main", upstreamRef: "origin/main", hasUpstream: false },
+      "upstream origin/main is unavailable",
+    ],
+    [
+      "diverged upstream",
+      { current: "main", upstreamRef: "origin/main", hasUpstream: true, ahead: 2, behind: 3 },
+      "2 ahead, 3 behind origin/main — merge or rebase manually",
+    ],
+  ] as const)("guides a branch with %s", async (_label, patch, guidance) => {
+    seedBranch(patch);
+    render();
+
+    await act(async () => chip().click());
+
+    expect(document.body.textContent).toContain(guidance);
+    expect(pullButton()?.disabled ?? true).toBe(true);
+  });
+
+  it("explains an ahead-only branch without offering Pull", async () => {
+    seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      ahead: 2,
+      behind: 0,
+    });
+    render();
+
+    await act(async () => chip().click());
+
+    expect(document.body.textContent).toContain("2 commits ahead of origin/main");
+    expect(pullButton()).toBeUndefined();
+  });
+
+  it("debounces paired focus and visibility refreshes for 250ms", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render();
+      backendMock.listBranches.mockClear();
+
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        vi.advanceTimersByTime(249);
+      });
+      expect(backendMock.listBranches).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+      });
+      expect(backendMock.listBranches).toHaveBeenCalledTimes(1);
+      expect(backendMock.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks for Pull anyway before changing a running rpc-ui session's tree", async () => {
+    const info = branchInfo({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 1,
+    });
+    seedBusy();
+    backendMock.listBranches.mockResolvedValue(info);
+    useStore.setState({ branches: { "/p": info } });
+    render();
+
+    await act(async () => chip().click());
+    await act(async () => buttonByText("pull 1 commit").click());
+
+    expect(document.body.textContent).toContain(
+      "is mid-turn — pulling changes the project working tree",
+    );
+    expect(backendMock.pullBranch).not.toHaveBeenCalled();
+
+    await act(async () => buttonByText("pull anyway").click());
+    expect(backendMock.pullBranch).toHaveBeenCalledWith("/p");
+  });
+
+  it("keeps one disabled Pulling… action and the popover busy while a pull is in flight", async () => {
+    const info = seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 2,
+    });
+    let resolvePull!: () => void;
+    backendMock.pullBranch.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolvePull = resolve;
+      }),
+    );
+    render();
+
+    await act(async () => chip().click());
+    await act(async () => buttonByText("pull 2 commits").click());
+
+    const inFlight = buttonByText("Pulling…");
+    expect(inFlight.disabled).toBe(true);
+    expect(document.body.querySelector("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
+    expect(backendMock.pullBranch).toHaveBeenCalledTimes(1);
+    inFlight.click();
+    expect(backendMock.pullBranch).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useStore.setState({ branches: { "/p": { ...info, behind: 0 } } });
+    });
+    expect(buttonByText("Pulling…")).toBe(inFlight);
+
+    await act(async () => resolvePull());
+  });
+
+  it("shows a pull failure and retains the open popover for retry", async () => {
+    seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 1,
+    });
+    backendMock.pullBranch.mockRejectedValueOnce(new Error("fast-forward pull failed"));
+    render();
+
+    await act(async () => chip().click());
+    await act(async () => buttonByText("pull 1 commit").click());
+
+    expect(backendMock.pullBranch).toHaveBeenCalledWith("/p");
+    expect(document.body.textContent).toContain("fast-forward pull failed");
+    expect(chip().getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
   });
 });

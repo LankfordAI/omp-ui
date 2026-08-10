@@ -50,12 +50,14 @@ import {
   restoreDesktopView,
 } from "./store/slices/view";
 import type {
+  BranchActivity,
   PlanRecord,
   RpcTabState,
   SidebarSessionState,
   UiStore,
 } from "./store/types";
 export type {
+  BranchActivity,
   CompactSurface,
   DeleteConfirmation,
   PendingCommand,
@@ -288,6 +290,16 @@ interface SubagentRefresh {
 }
 const subagentRefresh = new Map<string, SubagentRefresh>();
 
+interface BranchRefreshRuntime {
+  state: {
+    fetchUpstream: boolean;
+    pendingNetwork: boolean;
+  };
+  promise: Promise<void>;
+}
+
+const branchRefreshes = new Map<string, BranchRefreshRuntime>();
+
 /** Shared empty buffer so identity comparison detects "no items yet". */
 const EMPTY_BUFFER: RenderItem[] = [];
 
@@ -371,6 +383,24 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const tab = s.rpc[tabId];
       if (!tab) return s;
       return { rpc: { ...s.rpc, [tabId]: { ...tab, ...patch } } };
+    });
+  };
+
+  const patchBranchActivity = (
+    projectCwd: string,
+    patch: Partial<BranchActivity>,
+  ): void => {
+    set((s) => {
+      const current = s.branchActivity[projectCwd];
+      return {
+        branchActivity: {
+          ...s.branchActivity,
+          [projectCwd]: {
+            refreshing: patch.refreshing ?? current?.refreshing ?? false,
+            pulling: patch.pulling ?? current?.pulling ?? false,
+          },
+        },
+      };
     });
   };
 
@@ -872,6 +902,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     rpc: {},
     consoleOpen: {},
     branches: {},
+    branchActivity: {},
+    branchDiffRevision: {},
     advisorDefaults: {},
     deleteConfirmation: null,
 
@@ -1985,10 +2017,39 @@ export const useStore = create<UiStore>()((set, get, api) => {
       set((s) => ({ consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] } }));
     },
 
-    async refreshBranches(projectCwd) {
-      const list = await backend.listBranches(projectCwd).catch(() => null);
-      // On failure keep the last known list — the chip/menu stay usable.
-      if (list) set((s) => ({ branches: { ...s.branches, [projectCwd]: list } }));
+    async refreshBranches(projectCwd, opts) {
+      const fetchUpstream = opts?.fetchUpstream === true;
+      const active = branchRefreshes.get(projectCwd);
+      if (active !== undefined) {
+        if (fetchUpstream && !active.state.fetchUpstream) active.state.pendingNetwork = true;
+        return active.promise;
+      }
+
+      patchBranchActivity(projectCwd, { refreshing: true });
+      const state = { fetchUpstream, pendingNetwork: false };
+      let nextOptions = opts;
+      const promise = Promise.resolve().then(async () => {
+        try {
+          while (true) {
+            try {
+              const list = await backend.listBranches(projectCwd, nextOptions);
+              set((s) => ({ branches: { ...s.branches, [projectCwd]: list } }));
+            } catch {
+              // Keep the last known snapshot when listing fails.
+            }
+
+            if (!state.pendingNetwork) return;
+            state.pendingNetwork = false;
+            state.fetchUpstream = true;
+            nextOptions = { fetchUpstream: true };
+          }
+        } finally {
+          branchRefreshes.delete(projectCwd);
+          patchBranchActivity(projectCwd, { refreshing: false });
+        }
+      });
+      branchRefreshes.set(projectCwd, { state, promise });
+      return promise;
     },
 
     async checkoutGitBranch(projectCwd, name, opts) {
@@ -1997,8 +2058,33 @@ export const useStore = create<UiStore>()((set, get, api) => {
       } catch (err) {
         return err instanceof Error ? err.message : String(err);
       }
-      await get().refreshBranches(projectCwd);
+      await get().refreshBranches(projectCwd, { fetchUpstream: false });
       return null;
+    },
+
+    async pullGitBranch(projectCwd) {
+      if (get().branchActivity[projectCwd]?.pulling === true) return null;
+
+      patchBranchActivity(projectCwd, { pulling: true });
+      let pulled = false;
+      try {
+        await backend.pullBranch(projectCwd);
+        pulled = true;
+        await get().refreshBranches(projectCwd, { fetchUpstream: false });
+        return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      } finally {
+        if (pulled) {
+          set((s) => ({
+            branchDiffRevision: {
+              ...s.branchDiffRevision,
+              [projectCwd]: (s.branchDiffRevision[projectCwd] ?? 0) + 1,
+            },
+          }));
+        }
+        patchBranchActivity(projectCwd, { pulling: false });
+      }
     },
 
     async suggestBranchName(projectCwd, planContext) {

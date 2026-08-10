@@ -16,6 +16,7 @@ import {
   readOmpSettings,
   readBranchDiff,
   listBranches,
+  pullBranch,
   listProjectFiles,
   resolveFileMentions,
   resolveMcpServers,
@@ -31,6 +32,7 @@ import {
   type AdvisorDefaults,
   type BackendState,
   type ChannelTable,
+  type BranchListOptions,
   type ImageAttachment,
   type McpSetEnabledRequest,
   type LiveState,
@@ -290,11 +292,13 @@ export class MainBackend {
           shell.showItemInFolder(absPath);
         },
         [CH.getBranchDiff]: (projectCwd: string) => readBranchDiff(projectCwd),
-        // Stateless core calls: a checkout touches no registry/BackendState field,
+        // Stateless core calls: branch operations touch no registry/BackendState field,
         // so these handlers never broadcast().
-        [CH.listBranches]: (projectCwd: string) => listBranches(projectCwd),
+        [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) =>
+          listBranches(projectCwd, opts),
         [CH.checkoutBranch]: (projectCwd: string, name: string, opts?: { create?: boolean }) =>
           checkoutBranch(projectCwd, name, opts),
+        [CH.pullBranch]: (projectCwd: string) => pullBranch(projectCwd),
         [CH.suggestBranchName]: (projectCwd: string, planContext: string) =>
           this.suggestBranchName(projectCwd, planContext),
         [CH.readOmpSettings]: (projectCwd: string | null) =>

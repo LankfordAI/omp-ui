@@ -26,7 +26,19 @@ class ResizeObserverStub {
 const backendMock = {
   listProjectFiles: vi.fn(async () => ({ files: [], truncated: false })),
   resolveFileMentions: vi.fn(async () => ({ contextText: "", images: [] })),
-  listBranches: vi.fn(async () => ({ repoRoot: null, current: null, branches: [], defaultBranch: null })),
+  listBranches: vi.fn(async () => ({
+    repoRoot: null,
+    current: null,
+    branches: [],
+    defaultBranch: null,
+    upstreamRef: null,
+    upstreamRemote: null,
+    hasUpstream: false,
+    ahead: 0,
+    behind: 0,
+    upstreamFetchedAt: null,
+    upstreamRefreshError: null,
+  })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setSessionAdvisor: vi.fn(async () => {}),
 };
@@ -57,7 +69,21 @@ function seed(status: "ready" | "running", dead = false): void {
     advisorDefaults: {},
     state,
     exited: dead ? { [TAB]: 0 } : {},
-    branches: { "/p": { repoRoot: null, current: null, branches: [], defaultBranch: null } },
+    branches: {
+      "/p": {
+        repoRoot: null,
+        current: null,
+        branches: [],
+        defaultBranch: null,
+        upstreamRef: null,
+        upstreamRemote: null,
+        hasUpstream: false,
+        ahead: 0,
+        behind: 0,
+        upstreamFetchedAt: null,
+        upstreamRefreshError: null,
+      },
+    },
     rpc: { [TAB]: rpcTabState({
       status,
       model: { id: "model-x", name: "Model X", provider: "test", input: ["text"], contextWindow: 1000 },

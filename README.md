@@ -28,8 +28,10 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 - **Composer.** Model and thinking-level pickers, a session-scoped advisor
   with its own model picker
   ([ADR-0005](docs/adr/0005-session-scoped-advisor-via-config-overlay.md)),
-  pasted image attachments, and `@`-mentions of project files. The five
-  composer parameters are remembered per project and seed the next session.
+  pasted image attachments, and `@`-mentions of project files. The branch
+  control reports configured-upstream divergence for the project and offers
+  guarded fast-forward pulls. The five composer parameters are remembered per
+  project and seed the next session.
 - **Plan mode and plan review.** Read-only planning driven by a generated
   extension ([ADR-0007](docs/adr/0007-plan-mode-via-generated-extension.md)),
   gated on your verdict: execute into the same session, a compacted session,

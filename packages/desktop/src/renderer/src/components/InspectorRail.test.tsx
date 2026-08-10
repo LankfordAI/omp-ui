@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
+import type { BranchDiff } from "@omp-ui/core/types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import type { RpcTabState } from "../store";
+import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-// rpcSend is the one bridge call the drill-down's subscription escalation makes.
-Object.assign(window, { ompBackend: { rpcSend: vi.fn() } });
+const backendMock = { rpcSend: vi.fn(), getBranchDiff: vi.fn() };
+Object.assign(window, { ompBackend: backendMock });
 
 // Dynamic imports are required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
@@ -15,6 +17,60 @@ const { InspectorRail } = await import("./InspectorRail");
 
 const TAB = "tab-inspector";
 let root: Root | null = null;
+const PROJECT = "/projects/alpha";
+const OTHER_PROJECT = "/projects/beta";
+const state = backendState({
+  projects: [
+    {
+      project: {
+        path: PROJECT,
+        name: "Alpha",
+        addedAt: "t",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+      sessions: [
+        {
+          tabId: TAB,
+          sessionId: "session-inspector",
+          lineageDir: "omp-ui--alpha--session-inspector",
+          projectCwd: PROJECT,
+          launchedAt: "t",
+          mode: "rpc-ui",
+          advisor: false,
+          advisorModel: null,
+          cachedTitle: "Inspect",
+          cachedModified: "t",
+          title: "Inspect",
+          status: "complete",
+          live: "live",
+        },
+      ],
+    },
+  ],
+});
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((onResolve) => {
+    resolve = onResolve;
+  });
+  return { promise, resolve };
+}
+
+function diffResult(branch: string, path: string, text: string): BranchDiff {
+  return {
+    branch,
+    repoRoot: PROJECT,
+    diff: "",
+    untracked: [{ path, text, binary: false }],
+  };
+}
 
 function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
@@ -73,7 +129,14 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
   });
-  useStore.setState({ rpc: { [TAB]: runtime() }, compactSurface: null });
+  backendMock.getBranchDiff.mockReset();
+  useStore.setState({
+    state: null,
+    branches: {},
+    branchDiffRevision: {},
+    rpc: { [TAB]: runtime() },
+    compactSurface: null,
+  });
 });
 
 afterEach(() => {
@@ -160,5 +223,73 @@ describe("desktop InspectorRail", () => {
     act(() => button("open agent agent-2")!.click());
     expect(document.body.textContent).toContain("mapping done");
     expect(document.body.textContent).toContain("settled");
+  });
+  it("re-reads an open project diff only when that project's revision changes", async () => {
+    const initial = deferred<BranchDiff>();
+    const refreshed = deferred<BranchDiff>();
+    backendMock.getBranchDiff
+      .mockReturnValueOnce(initial.promise)
+      .mockReturnValueOnce(refreshed.promise);
+    useStore.setState({ state });
+    renderRail();
+
+    act(() => railTab("diffs")!.click());
+    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT);
+
+    await act(async () => {
+      initial.resolve(diffResult("feature/alpha", "initial.txt", "initial change"));
+    });
+    expect(document.body.textContent).toContain("initial.txt");
+
+    await act(async () => {
+      useStore.setState({ branchDiffRevision: { [PROJECT]: 0, [OTHER_PROJECT]: 1 } });
+    });
+    expect(backendMock.getBranchDiff).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useStore.setState({ branchDiffRevision: { [PROJECT]: 1, [OTHER_PROJECT]: 1 } });
+    });
+    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(2, PROJECT);
+    expect(backendMock.getBranchDiff).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      refreshed.resolve(diffResult("feature/alpha", "refreshed.txt", "refreshed change"));
+    });
+    expect(document.body.textContent).toContain("refreshed.txt");
+    expect(document.body.textContent).not.toContain("initial.txt");
+
+    act(() => railTab("diffs")!.click());
+    expect(button("collapse inspector")).toBeNull();
+    expect(document.body.textContent).not.toContain("refreshed.txt");
+  });
+
+  it("keeps a newer project diff when an older request resolves last", async () => {
+    const older = deferred<BranchDiff>();
+    const newer = deferred<BranchDiff>();
+    backendMock.getBranchDiff.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    useStore.setState({ state });
+    useStore.setState({ branchDiffRevision: { [PROJECT]: 0 } });
+    renderRail();
+
+    if (railTab("diffs")?.getAttribute("aria-pressed") !== "true") {
+      act(() => railTab("diffs")!.click());
+    }
+    await act(async () => {});
+    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT);
+    await act(async () => {
+      useStore.setState({ branchDiffRevision: { [PROJECT]: 1 } });
+    });
+    expect(backendMock.getBranchDiff).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      newer.resolve(diffResult("feature/newer", "newer.txt", "newer change"));
+    });
+    expect(document.body.textContent).toContain("newer.txt");
+
+    await act(async () => {
+      older.resolve(diffResult("feature/older", "older.txt", "older change"));
+    });
+    expect(document.body.textContent).toContain("newer.txt");
+    expect(document.body.textContent).not.toContain("older.txt");
   });
 });

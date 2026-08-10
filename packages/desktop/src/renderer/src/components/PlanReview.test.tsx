@@ -20,6 +20,13 @@ const branches: BranchList = {
   current: "main",
   branches: ["main", "feature/y"],
   defaultBranch: "main",
+  upstreamRef: null,
+  upstreamRemote: null,
+  hasUpstream: false,
+  ahead: 0,
+  behind: 0,
+  upstreamFetchedAt: null,
+  upstreamRefreshError: null,
 };
 
 const backendMock = {
@@ -223,7 +230,21 @@ afterEach(() => {
 describe("PlanReview git branch section (issue #25)", () => {
   it("renders no git branch section off-git", () => {
     useStore.setState({
-      branches: { "/p": { repoRoot: null, current: null, branches: [], defaultBranch: null } },
+      branches: {
+        "/p": {
+          repoRoot: null,
+          current: null,
+          branches: [],
+          defaultBranch: null,
+          upstreamRef: null,
+          upstreamRemote: null,
+          hasUpstream: false,
+          ahead: 0,
+          behind: 0,
+          upstreamFetchedAt: null,
+          upstreamRefreshError: null,
+        },
+      },
     });
     render();
     expect(document.body.textContent).not.toContain("git branch");
