@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
@@ -47,6 +48,46 @@ describe("Sheet", () => {
     act(() => root!.unmount());
     root = null;
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("defers a portalled menu Escape while still closing outside the menu", async () => {
+    const close = vi.fn();
+    const menuEscape = vi.fn();
+    await render(
+      <Sheet open placement="left" label="sessions" onClose={close}>
+        <button data-modal-initial-focus>sheet action</button>
+        {createPortal(
+          <div
+            role="menu"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              event.stopPropagation();
+              menuEscape();
+            }}
+          >
+            <button role="menuitem">portalled action</button>
+          </div>,
+          document.body,
+        )}
+      </Sheet>,
+    );
+
+    const menuItem = document.body.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+    menuItem.focus();
+    expect(document.activeElement).toBe(menuItem);
+    const menuEvent = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => menuItem.dispatchEvent(menuEvent));
+    expect(menuEscape).toHaveBeenCalledOnce();
+    expect(menuEvent.defaultPrevented).toBe(true);
+    expect(close).not.toHaveBeenCalled();
+
+    const sheetAction = document.body.querySelector<HTMLButtonElement>("[data-modal-initial-focus]")!;
+    sheetAction.focus();
+    const sheetEvent = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => sheetAction.dispatchEvent(sheetEvent));
+    expect(sheetEvent.defaultPrevented).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("dismisses from the scrim and explicit close", async () => {

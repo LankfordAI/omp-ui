@@ -21,6 +21,8 @@ const idleOmpUpdate: OmpUpdateState = {
 const backendMock = {
   getState: vi.fn(),
   addProject: vi.fn(),
+  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean }>>(),
+  openProject: vi.fn<(path: string, target: "vscode" | "files") => Promise<void>>(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   moveProject: vi.fn(async () => {}),
@@ -134,6 +136,7 @@ const threeProjectState = backendState({
 
 let root: Root | null = null;
 const originalMatchMedia = window.matchMedia;
+const originalVisualViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
 
 function renderSidebar(): void {
   const host = document.createElement("div");
@@ -173,8 +176,44 @@ function terminalMenuItem(): HTMLButtonElement {
   expect(items[0]!.textContent).toBe("New terminal session");
   return items[0]!;
 }
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function resolveAvailability(
+  request: Deferred<{ vsCode: boolean }>,
+  vsCode: boolean,
+): Promise<void> {
+  await act(async () => {
+    request.resolve({ vsCode });
+    await request.promise;
+  });
+}
+
+function chooseOpen(name: string): HTMLButtonElement {
+  return button(`Choose how to open ${name}`);
+}
+
+function openMenuItems(): HTMLButtonElement[] {
+  return [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+}
 
 beforeEach(() => {
+  backendMock.getProjectOpenAvailability.mockReset();
+  backendMock.getProjectOpenAvailability.mockReturnValue(new Promise(() => {}));
+  backendMock.openProject.mockReset();
   newSession.mockClear();
   openSession.mockClear();
   useStore.setState({
@@ -194,12 +233,18 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (root !== null) {
     act(() => root!.unmount());
     root = null;
   }
   document.body.replaceChildren();
   Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
+  if (originalVisualViewport === undefined) {
+    Reflect.deleteProperty(window, "visualViewport");
+  } else {
+    Object.defineProperty(window, "visualViewport", originalVisualViewport);
+  }
   useStore.setState({
     state: null,
     tabs: [],
@@ -300,6 +345,393 @@ describe("Sidebar session creation", () => {
     act(() => terminal.click());
     expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
     expect(useStore.getState().compactSurface).toBeNull();
+  });
+});
+
+describe("Sidebar project open control (issue #169)", () => {
+  function projectSection(name: string): HTMLElement {
+    const found = [...document.body.querySelectorAll<HTMLElement>("section")].find((section) =>
+      section.textContent?.includes(name),
+    );
+    if (found === undefined) throw new Error(`project section not found: ${name}`);
+    return found;
+  }
+
+  function press(target: HTMLElement, key: string): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    act(() => target.dispatchEvent(event));
+    return event;
+  }
+
+  async function activateNativeButtonWithKey(
+    target: HTMLButtonElement,
+    key: "Enter" | " ",
+  ): Promise<void> {
+    const down = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    const up = new KeyboardEvent("keyup", { key, bubbles: true, cancelable: true });
+    await act(async () => {
+      target.dispatchEvent(down);
+      target.dispatchEvent(up);
+      // jsdom does not synthesize the browser's native keyboard click for a
+      // button. Reproduce that final native step only when the key was not
+      // canceled, preserving the contract the component relies on.
+      if (!down.defaultPrevented && !up.defaultPrevented) target.click();
+    });
+    expect(down.defaultPrevented).toBe(false);
+    expect(up.defaultPrevented).toBe(false);
+  }
+
+  function isolatedDragStart(target: HTMLElement): {
+    event: Event;
+    setData: (...args: unknown[]) => void;
+  } {
+    const event = new Event("dragstart", { bubbles: true, cancelable: true });
+    const setData = vi.fn();
+    Object.defineProperty(event, "dataTransfer", {
+      configurable: true,
+      value: { setData, effectAllowed: "" },
+    });
+    act(() => target.dispatchEvent(event));
+    return { event, setData };
+  }
+
+  it("keeps both split segments neutral and disabled while availability is unresolved", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    renderSidebar();
+
+    const primary = button("Open Project One");
+    const trigger = chooseOpen("Project One");
+    expect(primary).not.toBe(trigger);
+    expect(primary.type).toBe("button");
+    expect(trigger.type).toBe("button");
+    expect(primary.tabIndex).toBe(0);
+    expect(trigger.tabIndex).toBe(0);
+    expect(primary.textContent?.trim()).toBe("Open");
+    expect(primary.textContent).not.toContain("VS Code");
+    expect(primary.textContent).not.toContain("Files");
+    expect(primary.disabled).toBe(true);
+    expect(trigger.disabled).toBe(true);
+    await resolveAvailability(availability, false);
+    expect(primary.disabled).toBe(false);
+    expect(trigger.disabled).toBe(false);
+    primary.focus();
+    expect(document.activeElement).toBe(primary);
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("reports a local unwrapped failure, refreshes VS Code, clears pending for retry, and dismisses", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    const failedOpen = deferred<void>();
+    backendMock.getProjectOpenAvailability
+      .mockReturnValueOnce(availability.promise)
+      .mockResolvedValueOnce({ vsCode: true });
+    backendMock.openProject
+      .mockReturnValueOnce(failedOpen.promise)
+      .mockResolvedValueOnce(undefined);
+    useStore.setState({ state: threeProjectState });
+    renderSidebar();
+    await resolveAvailability(availability, true);
+
+    const betaPrimary = button("Open Beta in VS Code");
+    const betaTrigger = chooseOpen("Beta");
+    act(() => betaPrimary.click());
+    expect(betaPrimary.disabled).toBe(true);
+    expect(betaTrigger.disabled).toBe(true);
+    expect(button("Open Alpha in VS Code").disabled).toBe(false);
+
+    await act(async () => {
+      failedOpen.reject(
+        new Error("Error invoking remote method 'open-project': Error: VS Code executable vanished"),
+      );
+      await failedOpen.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const betaAlert = projectSection("Beta").querySelector<HTMLElement>('[role="alert"]');
+    expect(betaAlert?.textContent).toContain("VS Code executable vanished");
+    expect(betaAlert?.textContent).not.toContain("Error invoking remote method");
+    expect(projectSection("Alpha").querySelector('[role="alert"]')).toBeNull();
+    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(2);
+    expect(betaPrimary.disabled).toBe(false);
+    expect(betaTrigger.disabled).toBe(false);
+
+    act(() => button("dismiss open error for Beta").click());
+    expect(projectSection("Beta").querySelector('[role="alert"]')).toBeNull();
+
+    await act(async () => betaPrimary.click());
+    expect(backendMock.openProject.mock.calls).toEqual([
+      [dragBeta, "vscode"],
+      [dragBeta, "vscode"],
+    ]);
+    expect(betaPrimary.disabled).toBe(false);
+    expect(betaTrigger.disabled).toBe(false);
+  });
+
+  it("supports wrapped arrow navigation, native Enter and Space activation, and focus restoration", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    renderSidebar();
+    await resolveAvailability(availability, true);
+
+    const trigger = chooseOpen("Project One");
+    trigger.focus();
+    act(() => trigger.click());
+    let items = openMenuItems();
+    expect(document.activeElement).toBe(items[0]);
+
+    expect(press(items[0]!, "ArrowUp").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(items[1]);
+    expect(press(items[1]!, "ArrowDown").defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(items[0]);
+
+    press(items[0]!, "Escape");
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    act(() => trigger.click());
+    items = openMenuItems();
+    expect(document.activeElement).toBe(items[0]);
+    await activateNativeButtonWithKey(items[0]!, "Enter");
+    expect(backendMock.openProject).toHaveBeenLastCalledWith(projectPath, "vscode");
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    act(() => trigger.click());
+    items = openMenuItems();
+    press(items[0]!, "ArrowDown");
+    expect(document.activeElement).toBe(items[1]);
+    await activateNativeButtonWithKey(items[1]!, " ");
+    expect(backendMock.openProject).toHaveBeenLastCalledWith(projectPath, "files");
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("dismisses an outside pointerdown without launching", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    renderSidebar();
+    await resolveAvailability(availability, true);
+
+    act(() => chooseOpen("Project One").click());
+    expect(openMenuItems()).toHaveLength(2);
+    act(() =>
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })),
+    );
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(backendMock.openProject).not.toHaveBeenCalled();
+  });
+
+  it("clamps the compact menu, isolates Escape from the sheet, and keeps it open on activation", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: { width: 212, height: 120 },
+    });
+    useStore.setState({ compactSurface: "sessions" });
+    const dismissSheetOnEscape = vi.fn((event: KeyboardEvent) => {
+      if (event.key === "Escape") useStore.setState({ compactSurface: null });
+    });
+    window.addEventListener("keydown", dismissSheetOnEscape);
+    renderSidebar();
+    await resolveAvailability(availability, true);
+
+    const trigger = chooseOpen("Project One");
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      top: 98,
+      bottom: 116,
+      height: 18,
+      left: 196,
+      right: 220,
+      width: 24,
+      x: 196,
+      y: 98,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(120);
+    act(() => trigger.click());
+
+    const menu = document.body.querySelector<HTMLElement>('[role="menu"]');
+    expect(menu).not.toBeNull();
+    const left = Number.parseFloat(menu!.style.left);
+    const top = Number.parseFloat(menu!.style.top);
+    const maxHeight = Number.parseFloat(menu!.style.maxHeight);
+    expect(left).toBeGreaterThanOrEqual(8);
+    expect(left + 176).toBeLessThanOrEqual(212 - 8);
+    expect(top).toBeGreaterThanOrEqual(8);
+    expect(maxHeight).toBeGreaterThan(0);
+    expect(maxHeight).toBeLessThanOrEqual(120 - 16);
+    expect(top + Math.min(120, maxHeight)).toBeLessThanOrEqual(120 - 8);
+    expect(openMenuItems().map((item) => item.textContent?.trim())).toEqual(["VS Code", "Files"]);
+    const focusedMenuItem = openMenuItems()[0]!;
+    expect(document.activeElement).toBe(focusedMenuItem);
+
+    const sheet = document.body.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="projects and sessions"]',
+    );
+    expect(sheet).not.toBeNull();
+    const escape = press(focusedMenuItem, "Escape");
+    window.removeEventListener("keydown", dismissSheetOnEscape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(dismissSheetOnEscape).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"][aria-label="projects and sessions"]')).toBe(
+      sheet,
+    );
+    expect(useStore.getState().compactSurface).toBe("sessions");
+    expect(document.activeElement).toBe(trigger);
+
+    act(() => trigger.click());
+    expect(openMenuItems()).toHaveLength(2);
+
+    await act(async () => openMenuItems()[0]!.click());
+    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "vscode");
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(useStore.getState().compactSurface).toBe("sessions");
+    expect(projectSection("Project One")).toBeTruthy();
+  });
+
+  it("isolates pointer, click, and dragstart from both segments and a portaled menu item", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    backendMock.moveProject.mockClear();
+    backendMock.removeProject.mockClear();
+    useStore.setState({ state: threeProjectState });
+    renderSidebar();
+    await resolveAvailability(availability, true);
+
+    const section = projectSection("Alpha");
+    const disclosure = section.querySelector<HTMLButtonElement>(`button[title="${dragAlpha}"]`);
+    if (disclosure === null) throw new Error("Alpha disclosure not found");
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    const primary = button("Open Alpha in VS Code");
+    const trigger = chooseOpen("Alpha");
+
+    act(() => primary.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+    const primaryDrag = isolatedDragStart(primary);
+    expect(primaryDrag.event.defaultPrevented).toBe(true);
+    expect(primaryDrag.setData).not.toHaveBeenCalled();
+    await act(async () => primary.click());
+
+    act(() => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+    const triggerDrag = isolatedDragStart(trigger);
+    expect(triggerDrag.event.defaultPrevented).toBe(true);
+    expect(triggerDrag.setData).not.toHaveBeenCalled();
+    act(() => trigger.click());
+
+    const item = openMenuItems()[0]!;
+    act(() => item.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+    const itemDrag = isolatedDragStart(item);
+    expect(itemDrag.event.defaultPrevented).toBe(true);
+    expect(itemDrag.setData).not.toHaveBeenCalled();
+    await act(async () => item.click());
+
+    expect(backendMock.openProject.mock.calls).toEqual([
+      [dragAlpha, "vscode"],
+      [dragAlpha, "vscode"],
+    ]);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+    expect(newSession).not.toHaveBeenCalled();
+    expect(backendMock.removeProject).not.toHaveBeenCalled();
+  });
+
+  it("discovers once, prefers VS Code, targets the registered path, and orders the menu", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    renderSidebar();
+    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
+    await resolveAvailability(availability, true);
+
+    const primary = button("Open Project One in VS Code");
+    expect(primary.textContent?.trim()).toBe("Open");
+    await act(async () => primary.click());
+    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "vscode");
+    await act(async () => chooseOpen("Project One").click());
+    expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Open Project One in VS Code",
+      "Open Project One in Files",
+    ]);
+    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to Files and remains available for a project with zero sessions", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    useStore.setState({
+      state: { ...state, projects: [{ ...state.projects[0]!, sessions: [] }] },
+    });
+    renderSidebar();
+    await resolveAvailability(availability, false);
+    expect(document.body.textContent).toContain("no sessions yet");
+    await act(async () => button("Open Project One in Files").click());
+    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "files");
+    await act(async () => chooseOpen("Project One").click());
+    expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Open Project One in Files",
+    ]);
+  });
+
+  it("keeps every project control bound to its header rather than the focused tab", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockResolvedValue(undefined);
+    useStore.setState({
+      state: threeProjectState,
+      activeTabId: "tab-1",
+      focusedTabByProject: { [dragAlpha]: "tab-1" },
+    });
+    renderSidebar();
+    await resolveAvailability(availability, true);
+    await act(async () => button("Open Gamma in VS Code").click());
+    expect(backendMock.openProject).toHaveBeenCalledWith(dragGamma, "vscode");
+    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
+  });
+
+  it("prevents duplicates per project without blocking another project's request", async () => {
+    const availability = deferred<{ vsCode: boolean }>();
+    const alphaOpen = deferred<void>();
+    const betaOpen = deferred<void>();
+    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    backendMock.openProject.mockReturnValueOnce(alphaOpen.promise).mockReturnValueOnce(betaOpen.promise);
+    useStore.setState({ state: threeProjectState });
+    renderSidebar();
+    await resolveAvailability(availability, true);
+    const alpha = button("Open Alpha in VS Code");
+    const beta = button("Open Beta in VS Code");
+    act(() => alpha.click());
+    expect(alpha.disabled).toBe(true);
+    act(() => alpha.click());
+    act(() => beta.click());
+    expect(beta.disabled).toBe(true);
+    expect(backendMock.openProject.mock.calls).toEqual([
+      [dragAlpha, "vscode"],
+      [dragBeta, "vscode"],
+    ]);
+    await act(async () => {
+      alphaOpen.resolve();
+      betaOpen.resolve();
+      await Promise.all([alphaOpen.promise, betaOpen.promise]);
+    });
+    expect(alpha.disabled).toBe(false);
+    expect(beta.disabled).toBe(false);
   });
 });
 

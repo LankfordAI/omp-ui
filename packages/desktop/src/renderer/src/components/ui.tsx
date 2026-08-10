@@ -600,6 +600,13 @@ function useOverlay(open: boolean, onClose?: () => void) {
     });
     const onKey = (event: KeyboardEvent) => {
       if (overlayStack.at(-1) !== id) return;
+      if (
+        event.key === "Escape" &&
+        event.target instanceof Node &&
+        (event.target instanceof Element ? event.target : event.target.parentElement)?.closest('[role="menu"]')
+      ) {
+        return;
+      }
       if (event.key === "Escape" && close.current) {
         event.preventDefault();
         event.stopImmediatePropagation();

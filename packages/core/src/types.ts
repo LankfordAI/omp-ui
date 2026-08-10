@@ -32,6 +32,12 @@ export interface ImageAttachment {
   mimeType: string;
 }
 
+export type ProjectOpenTarget = "vscode" | "files";
+
+export interface ProjectOpenAvailability {
+  vsCode: boolean;
+}
+
 export interface ProjectRecord {
   path: string;
   name: string;

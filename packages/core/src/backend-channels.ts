@@ -15,6 +15,8 @@ import type {
   OmpUpdateState,
   PlanFormat,
   ProjectRecord,
+  ProjectOpenAvailability,
+  ProjectOpenTarget,
   ProviderKeysSnapshot,
   RemoteBind,
   RemoteState,
@@ -74,6 +76,22 @@ export const BACKEND_CHANNELS = {
    * resolves to its existing record.
    */
   addProject: { channel: "project:add", ...request<[path: string], ProjectRecord>() },
+  /**
+   * Reports which external project-open targets are available. The host
+   * resolves this once and caches the result for the application lifetime.
+   */
+  getProjectOpenAvailability: {
+    channel: "project:openAvailability",
+    ...request<[], ProjectOpenAvailability>(),
+  },
+  /**
+   * Opens a project in the selected external target. Rejects with an
+   * actionable, user-facing message when the target cannot be opened.
+   */
+  openProject: {
+    channel: "project:open",
+    ...request<[projectPath: string, target: ProjectOpenTarget], void>(),
+  },
   /** Directory listing for the in-app project picker (read-only, never mutates). */
   browseDirectories: {
     channel: "dir:browse",

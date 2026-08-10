@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
+import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
+import { ProjectOpenControl } from "./ProjectOpenControl";
 import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, Panel, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
@@ -171,6 +173,8 @@ interface ProjectSectionProps extends FilteredGroup {
   openTerminalMenu: OpenTerminalMenu;
   compact: boolean;
   onActivate: () => void;
+  vsCodeAvailable: boolean | null;
+  refreshAvailability: () => Promise<boolean>;
   // issue #115 pointer reorder, issue #120 keyboard reorder — one gate for both
   canReorder?: boolean;
   registerGrip?: (path: string, el: HTMLButtonElement | null) => void;
@@ -191,6 +195,8 @@ function ProjectSection({
   query,
   openTerminalMenu,
   compact,
+  vsCodeAvailable,
+  refreshAvailability,
   onActivate,
   canReorder = false,
   registerGrip,
@@ -300,6 +306,11 @@ function ProjectSection({
           </button>
 
           <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100 compact-lifecycle-visible">
+            <ProjectOpenControl
+              project={project}
+              vsCodeAvailable={vsCodeAvailable}
+              refreshAvailability={refreshAvailability}
+            />
             <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
               <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
                 <IconPlus />
@@ -412,6 +423,32 @@ export function Sidebar() {
   const collapsed = useStore((st) => st.sidebarCollapsed);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
+  const [vsCodeAvailable, setVsCodeAvailable] = useState<boolean | null>(null);
+  const availabilityMounted = useRef(false);
+  const availabilityGeneration = useRef(0);
+  const refreshAvailability = useCallback(async (): Promise<boolean> => {
+    const generation = ++availabilityGeneration.current;
+    let available = false;
+    try {
+      available = (await backend.getProjectOpenAvailability()).vsCode;
+    } catch {
+      // A failed discovery channel is equivalent to an unavailable optional
+      // integration; Files remains a usable project-open destination.
+    }
+    if (availabilityMounted.current && generation === availabilityGeneration.current) {
+      setVsCodeAvailable(available);
+    }
+    return available;
+  }, []);
+
+  useEffect(() => {
+    availabilityMounted.current = true;
+    void refreshAvailability();
+    return () => {
+      availabilityMounted.current = false;
+      availabilityGeneration.current += 1;
+    };
+  }, [refreshAvailability]);
   const terminalMenuRef = useRef<HTMLDivElement>(null);
   const terminalMenuItemRef = useRef<HTMLButtonElement>(null);
   // issue #115 drag-and-drop reorder. `dragPath` is the project being dragged;
@@ -657,6 +694,8 @@ export function Sidebar() {
                   query={query}
                   openTerminalMenu={openTerminalMenu}
                   compact={compact}
+                  vsCodeAvailable={vsCodeAvailable}
+                  refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
                   canReorder={canReorder}
                   registerGrip={registerGrip}

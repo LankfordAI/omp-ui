@@ -63,6 +63,9 @@ describe("BACKEND_CHANNELS", () => {
     expectTypeOf<ChannelTable["request"]["project:move"]>().toEqualTypeOf<
       (projectPath: string, beforePath: string | null) => void | Promise<void>
     >();
+    expectTypeOf<ChannelTable["request"]["project:open"]>().toEqualTypeOf<
+      (projectPath: string, target: "vscode" | "files") => void | Promise<void>
+    >();
     expectTypeOf<ChannelTable["notify"]["pty:resize"]>().toEqualTypeOf<
       (tabId: string, cols: number, rows: number) => void
     >();
@@ -138,12 +141,17 @@ describe("makeBackendClient", () => {
     };
 
     await client.moveProject("/project/a", null);
+    await client.openProject("/project/a", "files");
     client.ptyResize("tab-1", 120, 40);
     client.onPtyData(onData);
 
-    expect(recorded.requests.at(-1)).toEqual({
+    expect(recorded.requests.at(-2)).toEqual({
       channel: "project:move",
       args: ["/project/a", null],
+    });
+    expect(recorded.requests.at(-1)).toEqual({
+      channel: "project:open",
+      args: ["/project/a", "files"],
     });
     expect(recorded.notifications.at(-1)).toEqual({
       channel: "pty:resize",

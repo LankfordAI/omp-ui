@@ -38,6 +38,7 @@ import {
   type OwnedSessionRecord,
   type PlanFormat,
   type ProjectGroup,
+  type ProjectOpenTarget,
   type ProviderKeysSnapshot,
   type RemoteBind,
   type SessionMode,
@@ -50,6 +51,7 @@ import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
 import { SessionManager } from "./session-manager";
 import { electronKeyCipher } from "./key-cipher";
+import { ProjectOpener } from "./project-open";
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
   /** Serializes each complete state build and delivery so an older snapshot can never overtake a newer one. */
@@ -60,6 +62,7 @@ export class MainBackend {
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
+  private readonly projectOpener = new ProjectOpener();
   /**
    * Provider credentials for every omp launch. Constructed before any spawn
    * path can run and applied immediately, so even the first session sees the
@@ -273,6 +276,9 @@ export class MainBackend {
         [CH.generateTitle]: (projectCwd: string, prompt: string) =>
           this.generateTitle(projectCwd, prompt),
         [CH.readPlanFile]: (tabId: string, absPath: string) => this.readPlanFile(tabId, absPath),
+        [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
+        [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
+          this.projectOpener.open(projectPath, target),
         // shell.openPath resolves with an error string on failure ("" on
         // success); rejecting lets the renderer surface it instead of the
         // click dying silently.
