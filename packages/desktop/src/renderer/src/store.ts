@@ -9,11 +9,18 @@ import {
   PLAN_REFINE,
   PLAN_STATUS_KEY,
 } from "@omp-ui/core/plan";
-import { parseAdvisorStats, ADVISOR_STATS_COMMAND, ADVISOR_STATS_KEY } from "@omp-ui/core/advisor-stats";
+import {
+  parseAdvisorStats,
+  ADVISOR_STATS_COMMAND,
+  ADVISOR_STATS_KEY,
+} from "@omp-ui/core/advisor-stats";
 import { backend } from "./backend";
 import { AdvisorReplyWatcher } from "./lib/advisor-reply";
 import { formatDuration } from "./lib/duration";
-import { extensionCancelResponse, routeExtensionRequest } from "./lib/extension-router";
+import {
+  extensionCancelResponse,
+  routeExtensionRequest,
+} from "./lib/extension-router";
 import { arrField, field, numField, strField } from "./lib/fields";
 import {
   PlanConcernWatcher,
@@ -35,7 +42,11 @@ import {
   parseTodoPhases,
   type SessionRuntime,
 } from "./lib/rpc-types";
-import { generateTitleFromPrompt, isLowSignalTitleInput, isUntitled } from "./lib/session-title";
+import {
+  generateTitleFromPrompt,
+  isLowSignalTitleInput,
+  isUntitled,
+} from "./lib/session-title";
 import { reduceSubagentFrame, subagentKey } from "./lib/subagent-events";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { createSettingsSlice } from "./store/slices/settings";
@@ -82,7 +93,6 @@ import {
   type RenderItem,
 } from "./lib/transcript";
 
-
 const RPC_COMMAND_TIMEOUT_MS = 30_000;
 
 /** A renderer-side RPC wait expired; the process may still finish the command. */
@@ -91,13 +101,14 @@ export class RpcCommandTimeoutError extends Error {
   readonly timeoutMs: number;
 
   constructor(command: string, timeoutMs: number) {
-    super(`RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`);
+    super(
+      `RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`,
+    );
     this.name = "RpcCommandTimeoutError";
     this.command = command;
     this.timeoutMs = timeoutMs;
   }
 }
-
 
 function freshRpcTabState(advisorReply: boolean): RpcTabState {
   return {
@@ -116,7 +127,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     subagentLevel: "progress",
     extensionStatus: {},
     pendingCommands: new Map(),
-    streamActivity: undefined,
+    streamCheckpoint: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,
@@ -143,7 +154,8 @@ export function deriveSidebarSessionState(
   if (exitCode !== undefined) return "dormant";
   if (summary.mode === "pty" || !rpc) return "live";
   if (rpc.status === "error") return "error";
-  if (rpc.planReview !== null || rpc.extensionQueue.length > 0) return "awaiting-answer";
+  if (rpc.planReview !== null || rpc.extensionQueue.length > 0)
+    return "awaiting-answer";
   switch (rpc.status) {
     case "running":
       return "working";
@@ -156,11 +168,12 @@ export function deriveSidebarSessionState(
   }
 }
 
-
-
 // One IPC data listener total; each TerminalTab registers its writer here.
 const termWriters = new Map<string, (data: Uint8Array) => void>();
-export function registerTermWriter(tabId: string, cb: (data: Uint8Array) => void): () => void {
+export function registerTermWriter(
+  tabId: string,
+  cb: (data: Uint8Array) => void,
+): () => void {
   termWriters.set(tabId, cb);
   return () => {
     termWriters.delete(tabId);
@@ -169,32 +182,35 @@ export function registerTermWriter(tabId: string, cb: (data: Uint8Array) => void
 
 // One IPC data listener total; each ShellDrawer registers its writer here.
 const shellWriters = new Map<string, (data: Uint8Array) => void>();
-export function registerShellWriter(tabId: string, cb: (data: Uint8Array) => void): () => void {
+export function registerShellWriter(
+  tabId: string,
+  cb: (data: Uint8Array) => void,
+): () => void {
   shellWriters.set(tabId, cb);
   return () => {
     shellWriters.delete(tabId);
   };
 }
 
-
 /** pi-ai's StreamTimeoutError classifier bit (Flag.Timeout, pi-ai error/flags.ts). */
 const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
 /** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
-const STALL_MESSAGE_RE = /stream (stalled|timed out) while waiting for the (next|first) event/i;
+const STALL_MESSAGE_RE =
+  /stream (stalled|timed out) while waiting for the (next|first) event/i;
 
 /**
- * What the provider stream was last observed doing, for the stall notice's
- * stage report. Returns null for frames that are not provider activity —
- * crucially the error-settlement burst (message_end, tool_execution_end,
- * retry lifecycle), which arrives with the stall itself.
+ * The latest renderer-observed request/model progress checkpoint. Local tool
+ * execution is deliberately excluded: it cannot reset a provider-stream clock.
  */
-function streamActivityLabel(frame: object): string | null {
+function streamCheckpointLabel(frame: object): string | null {
   const type = "type" in frame ? frame.type : undefined;
   switch (type) {
     case "turn_start":
       return "turn started";
     case "message_start":
-      return strField(field(frame, "message"), "role") === "assistant" ? "response opened" : null;
+      return strField(field(frame, "message"), "role") === "assistant"
+        ? "response opened"
+        : null;
     case "message_update": {
       switch (strField(field(frame, "assistantMessageEvent"), "type")) {
         case "text_delta":
@@ -210,9 +226,6 @@ function streamActivityLabel(frame: object): string | null {
           return null;
       }
     }
-    case "tool_execution_start":
-    case "tool_execution_update":
-      return "running tools";
     default:
       return null;
   }
@@ -226,27 +239,38 @@ function streamActivityLabel(frame: object): string | null {
 function stallNotice(tab: RpcTabState, frame: object): NoticeItem | null {
   const errorMessage = strField(frame, "errorMessage") ?? "";
   const errorId = numField(frame, "errorId") ?? 0;
-  if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && !STALL_MESSAGE_RE.test(errorMessage)) {
+  const watchdogMatch = STALL_MESSAGE_RE.exec(errorMessage);
+  if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && watchdogMatch === null)
     return null;
-  }
+
   tab.stallCount = (tab.stallCount ?? 0) + 1;
-  const activity = tab.streamActivity;
+  const checkpoint = tab.streamCheckpoint;
+  const stage =
+    watchdogMatch?.[2]?.toLowerCase() === "first"
+      ? "first-event"
+      : watchdogMatch
+        ? "idle"
+        : null;
   const upstream = errorMessage ? ` Upstream error: ${errorMessage}` : "";
-  if (!activity) {
-    return noticeItem(
-      `provider stream stall #${tab.stallCount} — no provider stream activity observed this process before the error.${upstream}`,
-      "warn",
-    );
+  let detail: string;
+  if (stage === null) {
+    detail =
+      "OMP classified the retry as a stream timeout but supplied no watchdog stage. Review Settings → omp → Providers.";
+  } else if (checkpoint === undefined) {
+    detail = `the ${stage} watchdog fired, but no model-stream checkpoint was observed in this tab before it fired. Review Settings → omp → Providers.`;
+  } else {
+    detail = `${stage} watchdog fired after ${formatDuration(Date.now() - checkpoint.at)} since ${checkpoint.label}. Review Settings → omp → Providers.`;
   }
   return noticeItem(
-    `provider stream stall #${tab.stallCount} — silent ${formatDuration(Date.now() - activity.at)} after ${activity.label}. ` +
-      `omp's idle watchdog defaults to 2m (Settings → omp → Providers); silence near that budget points at the provider leg (proxy or upstream model), not omp-ui.${upstream}`,
+    `provider stream stall #${tab.stallCount} — ${detail}${upstream}`,
     "warn",
   );
 }
 
-
-function dropExited(exited: Record<string, number>, tabId: string): Record<string, number> {
+function dropExited(
+  exited: Record<string, number>,
+  tabId: string,
+): Record<string, number> {
   const next = { ...exited };
   delete next[tabId];
   return next;
@@ -255,7 +279,6 @@ function dropExited(exited: Record<string, number>, tabId: string): Record<strin
 function alertError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err));
 }
-
 
 // StrictMode double-invokes effects in dev, and the preload listener API has
 // no unsubscribe — init must be idempotent or every listener registers twice.
@@ -339,7 +362,11 @@ function pollUntil(
  * artifact path: a refined-and-reproposed plan updates its one pending entry
  * instead of stacking lookalike rows.
  */
-function upsertPlan(records: PlanRecord[], title: string, key: string): PlanRecord[] {
+function upsertPlan(
+  records: PlanRecord[],
+  title: string,
+  key: string,
+): PlanRecord[] {
   const idx = records.findIndex((r) => r.key === key);
   if (idx === -1) return [{ key, title, status: "pending" }, ...records];
   const current = records[idx]!;
@@ -352,27 +379,44 @@ function upsertPlan(records: PlanRecord[], title: string, key: string): PlanReco
 }
 
 /** Settles a proposed plan's record (keeps its position in the history). */
-function settlePlan(records: PlanRecord[], key: string, status: PlanRecord["status"]): PlanRecord[] {
+function settlePlan(
+  records: PlanRecord[],
+  key: string,
+  status: PlanRecord["status"],
+): PlanRecord[] {
   return records.map((r) => (r.key === key ? { ...r, status } : r));
 }
 
 /** setStatus/setWidget/setTitle carry their text under different keys. */
-function extensionStatusEntry(frame: object): { key: string; text: string | undefined } | null {
+function extensionStatusEntry(
+  frame: object,
+): { key: string; text: string | undefined } | null {
   const method = strField(frame, "method");
   const id = strField(frame, "id") ?? "";
   if (method === "setWidget") {
-    const lines = arrField(frame, "widgetLines").filter((l): l is string => typeof l === "string");
+    const lines = arrField(frame, "widgetLines").filter(
+      (l): l is string => typeof l === "string",
+    );
     return {
       key: strField(frame, "widgetKey") ?? id,
       // `widgetLines: undefined` is the protocol's "clear this widget".
-      text: field(frame, "widgetLines") === undefined ? undefined : lines.join("\n"),
+      text:
+        field(frame, "widgetLines") === undefined
+          ? undefined
+          : lines.join("\n"),
     };
   }
   if (method === "setStatus") {
-    return { key: strField(frame, "statusKey") ?? id, text: strField(frame, "statusText") };
+    return {
+      key: strField(frame, "statusKey") ?? id,
+      text: strField(frame, "statusText"),
+    };
   }
   if (method === "setTitle") {
-    return { key: strField(frame, "widgetKey") ?? id, text: strField(frame, "title") };
+    return {
+      key: strField(frame, "widgetKey") ?? id,
+      text: strField(frame, "title"),
+    };
   }
   return null;
 }
@@ -448,7 +492,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // Background refreshes must not make a diagnostic disappear, and no
       // command response may hide a fatal boot/process failure.
       const tab = get().rpc[tabId];
-      if (opts?.quiet !== true && tab?.failure !== undefined && !tab.failure.fatal) {
+      if (
+        opts?.quiet !== true &&
+        tab?.failure !== undefined &&
+        !tab.failure.fatal
+      ) {
         patchRpc(tabId, { failure: undefined });
       }
       return resp;
@@ -460,7 +508,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const liveState = findRecord(get().state, tabId)?.live;
       patchRpc(tabId, {
         failure: {
-          message: timedOut ? message : `RPC command "${command}" failed: ${message}`,
+          message: timedOut
+            ? message
+            : `RPC command "${command}" failed: ${message}`,
           kind: "command",
           fatal: false,
           command,
@@ -483,11 +533,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
   };
 
   /** Maps every item; patches only when at least one item actually changed. */
-  const patchItems = (tabId: string, map: (item: RenderItem) => RenderItem): void => {
+  const patchItems = (
+    tabId: string,
+    map: (item: RenderItem) => RenderItem,
+  ): void => {
     const tab = get().rpc[tabId];
     if (!tab) return;
     const items = tab.items.map(map);
-    if (items.some((item, i) => item !== tab.items[i])) patchRpc(tabId, { items });
+    if (items.some((item, i) => item !== tab.items[i]))
+      patchRpc(tabId, { items });
   };
 
   /**
@@ -501,7 +555,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const level = tab.selectedSubagent ? "events" : "progress";
     if (tab.subagentLevel === level) return;
     tab.subagentLevel = level;
-    void runCommand(tabId, { type: "set_subagent_subscription", level }, { quiet: true });
+    void runCommand(
+      tabId,
+      { type: "set_subagent_subscription", level },
+      { quiet: true },
+    );
   };
 
   /** Trailing-throttled roster refresh for the subagent_* heartbeat path. */
@@ -541,7 +599,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }, wait);
   };
 
-  const patchSession = (tabId: string, patch: Partial<SessionRuntime>): void => {
+  const patchSession = (
+    tabId: string,
+    patch: Partial<SessionRuntime>,
+  ): void => {
     const tab = get().rpc[tabId];
     if (!tab) return;
     patchRpc(tabId, { session: { ...tab.session, ...patch } });
@@ -565,7 +626,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
       id,
       value,
     });
-    patchRpc(tabId, { planReview: null, planText: null, planHtml: null, planDeferred: false });
+    patchRpc(tabId, {
+      planReview: null,
+      planText: null,
+      planHtml: null,
+      planDeferred: false,
+    });
     return true;
   };
 
@@ -589,7 +655,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // The verdict's in-process exit never surfaced — force it. Fire-and-forget:
     // the extension's status frame releases the wait, and a failed command must
     // not delay or abort dispatch (issue #165).
-    void get().setPlanMode(tabId, false).catch(() => {});
+    void get()
+      .setPlanMode(tabId, false)
+      .catch(() => {});
     await pollUntil(tabId, build, 5_000);
   };
 
@@ -634,12 +702,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
       void (async () => {
         await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
         if (modelChanged) await get().setModel(tabId, stagedModel!);
-        if (thinkingChanged) await get().setThinkingLevel(tabId, options!.thinkingLevel!);
-        await get().setSessionAdvisor(tabId, options!.advisor!, options!.advisorModel ?? null);
+        if (thinkingChanged)
+          await get().setThinkingLevel(tabId, options!.thinkingLevel!);
+        await get().setSessionAdvisor(
+          tabId,
+          options!.advisor!,
+          options!.advisorModel ?? null,
+        );
         // A failed relaunch alerts and leaves the tab dead — never prompt it.
         await pollUntil(
           tabId,
-          (t) => t?.status === "ready" || t?.status === "error" || get().exited[tabId] !== undefined,
+          (t) =>
+            t?.status === "ready" ||
+            t?.status === "error" ||
+            get().exited[tabId] !== undefined,
         );
         if (get().rpc[tabId]?.status !== "ready") return;
         if (context === "compacted") await get().compactSession(tabId);
@@ -651,7 +727,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     void (async () => {
       if (modelChanged) await get().setModel(tabId, stagedModel!);
-      if (thinkingChanged) await get().setThinkingLevel(tabId, options!.thinkingLevel!);
+      if (thinkingChanged)
+        await get().setThinkingLevel(tabId, options!.thinkingLevel!);
       if (context === "compacted") {
         // `compact` runs between turns, so the just-accepted plan turn must end
         // before compacting, then prompt the implementer.
@@ -666,7 +743,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // The gate only yields for a genuinely armed session: an unarmed one is
       // already Build and must dispatch in the same synchronous frame the
       // verdict lands in (issue #165).
-      if (get().rpc[tabId]?.plan?.enabled === true) await ensureBuildMode(tabId);
+      if (get().rpc[tabId]?.plan?.enabled === true)
+        await ensureBuildMode(tabId);
       await get().sendPrompt(tabId, message, "follow_up");
     })();
   };
@@ -688,7 +766,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // reads false — this reset is what stops the reply watcher from
       // separately answering the very review this dispatch just folded in.
       advisorReplyWatcher.reset(tabId);
-      dispatchExecutePlan(tabId, intent.context, intent.planText, concerns, intent.options);
+      dispatchExecutePlan(
+        tabId,
+        intent.context,
+        intent.planText,
+        concerns,
+        intent.options,
+      );
     },
   });
 
@@ -715,7 +799,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (concernWatcher.isActive(tabId)) return false;
       return true;
     },
-    onNotice: (tabId, text, level) => appendItem(tabId, noticeItem(text, level)),
+    onNotice: (tabId, text, level) =>
+      appendItem(tabId, noticeItem(text, level)),
     onReply: (tabId, message) => {
       void get().sendPrompt(tabId, message, "advisor_reply");
     },
@@ -773,9 +858,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // last-used defaults; legacy callers keep the fallback chain.
     await get().loadAdvisorDefaults(projectCwd);
     const defaults = get().advisorDefaults[projectCwd];
-    const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
+    const project = get().state?.projects.find(
+      (g) => g.project.path === projectCwd,
+    )?.project;
     const advisor =
-      options?.advisor ?? project?.lastAdvisor ?? get().state?.defaultAdvisor ?? defaults?.enabled ?? false;
+      options?.advisor ??
+      project?.lastAdvisor ??
+      get().state?.defaultAdvisor ??
+      defaults?.enabled ??
+      false;
     const advisorModel =
       options?.advisor !== undefined
         ? (options.advisorModel ?? null)
@@ -796,13 +887,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
       return;
     }
     set((s) => ({
-      tabs: [...s.tabs, { tabId: freshId, mode: "rpc-ui", projectCwd, hidden: false }],
+      tabs: [
+        ...s.tabs,
+        { tabId: freshId, mode: "rpc-ui", projectCwd, hidden: false },
+      ],
       ...focusOn(s, freshId, projectCwd),
       exited: dropExited(s.exited, freshId),
     }));
     appendItem(
       srcTabId,
-      noticeItem("plan approved — implementation dispatched to a fresh session", "info"),
+      noticeItem(
+        "plan approved — implementation dispatched to a fresh session",
+        "info",
+      ),
     );
     await pollUntil(freshId, (t) => t?.status === "ready");
     // Staged main-model parameters ride the composer's own actions, so they
@@ -819,14 +916,24 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }
     if (
       options?.thinkingLevel != null &&
-      options.thinkingLevel !== (get().rpc[freshId]?.session.thinkingLevel ?? null)
+      options.thinkingLevel !==
+        (get().rpc[freshId]?.session.thinkingLevel ?? null)
     ) {
       await get().setThinkingLevel(freshId, options.thinkingLevel);
     }
     const lead = "A plan was approved for this project. Implement it now.";
     const body = planSeedText(planText);
-    const seed = body ? `${lead}\n\n${body}\n\nProceed with the implementation.` : lead;
-    await get().sendPrompt(freshId, withOrchestrate(withConcerns(seed, concerns), options?.orchestrate === true), "prompt");
+    const seed = body
+      ? `${lead}\n\n${body}\n\nProceed with the implementation.`
+      : lead;
+    await get().sendPrompt(
+      freshId,
+      withOrchestrate(
+        withConcerns(seed, concerns),
+        options?.orchestrate === true,
+      ),
+      "prompt",
+    );
   };
 
   const applyRpcState = (tabId: string, resp: unknown): void => {
@@ -836,13 +943,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const model = parseModelInfo(field(payload, "model")) ?? tab.model;
     const session = parseSessionRuntime(payload, tab.session);
     patchRpc(tabId, {
-      todos: "todoPhases" in payload ? parseTodoPhases(field(payload, "todoPhases")) : tab.todos,
+      todos:
+        "todoPhases" in payload
+          ? parseTodoPhases(field(payload, "todoPhases"))
+          : tab.todos,
       model,
       session,
     });
     if (model) {
       void backend
-        .setSessionModel(tabId, `${model.provider}/${model.id}`, session.thinkingLevel)
+        .setSessionModel(
+          tabId,
+          `${model.provider}/${model.id}`,
+          session.thinkingLevel,
+        )
         .catch(() => {});
     }
   };
@@ -858,7 +972,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
    */
   const refreshLiveUsage = (tabId: string): void => {
     const now = Date.now();
-    if (now - (lastUsageRefresh.get(tabId) ?? -Infinity) < USAGE_REFRESH_MS) return;
+    if (now - (lastUsageRefresh.get(tabId) ?? -Infinity) < USAGE_REFRESH_MS)
+      return;
     lastUsageRefresh.set(tabId, now);
     void get()
       .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
@@ -866,7 +981,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       .catch(() => {});
     void get()
       .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
-      .then((resp) => patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }))
+      .then((resp) =>
+        patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
+      )
       .catch(() => {});
   };
 
@@ -875,7 +992,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // History replaces the transcript wholesale; per-agent marker memory
     // must not outlive the render items it was deduping against.
     get().rpc[tabId]?.subagentMarkers?.clear();
-    patchRpc(tabId, { items: historyToItems(arrField(respData(resp), "messages")) });
+    patchRpc(tabId, {
+      items: historyToItems(arrField(respData(resp), "messages")),
+    });
     // A resumed transcript's advisories are history, not a live review: the
     // baseline moves past them so nothing here is ever answered.
     advisorReplyWatcher.reset(tabId);
@@ -932,7 +1051,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           const tab = s.rpc[tabId];
           const items = tab ? settleRunningTools(tab.items) : undefined;
           const rpc =
-            tab && items !== tab.items ? { ...s.rpc, [tabId]: { ...tab, items: items! } } : s.rpc;
+            tab && items !== tab.items
+              ? { ...s.rpc, [tabId]: { ...tab, items: items! } }
+              : s.rpc;
           return { exited: { ...s.exited, [tabId]: code }, rpc };
         });
       });
@@ -941,8 +1062,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
         set((s) => ({ shellExited: { ...s.shellExited, [tabId]: code } }));
       });
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
-      backend.onAppUpdateState((appUpdate) => get().replaceAppUpdate(appUpdate));
-      backend.onOmpUpdateState((ompUpdate) => get().replaceOmpUpdate(ompUpdate));
+      backend.onAppUpdateState((appUpdate) =>
+        get().replaceAppUpdate(appUpdate),
+      );
+      backend.onOmpUpdateState((ompUpdate) =>
+        get().replaceOmpUpdate(ompUpdate),
+      );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       const [state, appUpdate, ompUpdate, remote] = await Promise.all([
         backend.getState(),
@@ -956,12 +1081,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       installDesktopViewPersistence(api);
     },
 
-
-
     async restartSession(tabId) {
       const rec = findRecord(get().state, tabId);
       try {
-        if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
+        if (rec?.live === "live" && rec.mode === "rpc-ui")
+          prepareRpcRelaunch(tabId);
         await backend.restartSession(tabId);
         return true;
       } catch (err) {
@@ -977,7 +1101,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     async removeProject(path) {
       if (
-        !window.confirm(`Remove project ${path} and its session records? Files on disk are kept.`)
+        !window.confirm(
+          `Remove project ${path} and its session records? Files on disk are kept.`,
+        )
       )
         return;
       try {
@@ -1001,7 +1127,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
       await backend.toggleFavorite(key);
     },
 
-
     async newSession(projectCwd, modeOverride) {
       const mode = modeOverride ?? get().state?.defaultMode ?? "pty";
       // Carry the project's complete last-used advisor tuple into the new
@@ -1009,10 +1134,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // omp's configured default only seeds while the app is not booted.
       await get().loadAdvisorDefaults(projectCwd);
       const defaults = get().advisorDefaults[projectCwd];
-      const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
-      const lastAdvisorModel = project?.lastAdvisorModel ?? defaults?.model ?? null;
+      const project = get().state?.projects.find(
+        (g) => g.project.path === projectCwd,
+      )?.project;
+      const lastAdvisorModel =
+        project?.lastAdvisorModel ?? defaults?.model ?? null;
       const advisor =
-        project?.lastAdvisor ?? get().state?.defaultAdvisor ?? defaults?.enabled ?? false;
+        project?.lastAdvisor ??
+        get().state?.defaultAdvisor ??
+        defaults?.enabled ??
+        false;
       try {
         const { tabId } = await backend.spawnSession({
           projectCwd,
@@ -1038,8 +1169,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // Live session → resurface its tab, never respawn (omp has no
         // cross-process session lock; two writers would corrupt the .jsonl).
         set((s) => ({
-          tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: false } : t)),
-          ...focusOn(s, tabId, s.tabs.find((t) => t.tabId === tabId)?.projectCwd),
+          tabs: s.tabs.map((t) =>
+            t.tabId === tabId ? { ...t, hidden: false } : t,
+          ),
+          ...focusOn(
+            s,
+            tabId,
+            s.tabs.find((t) => t.tabId === tabId)?.projectCwd,
+          ),
         }));
         return;
       }
@@ -1055,7 +1192,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
           resumeTabId: tabId,
         });
         set((s) => ({
-          tabs: [...s.tabs, { tabId, mode: rec.mode, projectCwd: rec.projectCwd, hidden: false }],
+          tabs: [
+            ...s.tabs,
+            {
+              tabId,
+              mode: rec.mode,
+              projectCwd: rec.projectCwd,
+              hidden: false,
+            },
+          ],
           ...focusOn(s, tabId, rec.projectCwd),
           exited: dropExited(s.exited, tabId),
         }));
@@ -1066,18 +1211,23 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     focusTab(tabId) {
       set((s) => ({
-        tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: false } : t)),
+        tabs: s.tabs.map((t) =>
+          t.tabId === tabId ? { ...t, hidden: false } : t,
+        ),
         ...focusOn(s, tabId, s.tabs.find((t) => t.tabId === tabId)?.projectCwd),
       }));
     },
 
     hideTab(tabId) {
       set((s) => {
-        const tabs = s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: true } : t));
+        const tabs = s.tabs.map((t) =>
+          t.tabId === tabId ? { ...t, hidden: true } : t,
+        );
         let activeTabId = s.activeTabId;
         if (activeTabId === tabId) {
           const visible = tabs.filter((t) => !t.hidden);
-          activeTabId = visible.length > 0 ? visible[visible.length - 1]!.tabId : null;
+          activeTabId =
+            visible.length > 0 ? visible[visible.length - 1]!.tabId : null;
         }
         return {
           tabs,
@@ -1088,7 +1238,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async terminate(tabId) {
-      if (!window.confirm("Terminate the running agent? The session stays resumable.")) return;
+      if (
+        !window.confirm(
+          "Terminate the running agent? The session stays resumable.",
+        )
+      )
+        return;
       await backend.terminateSession(tabId);
     },
 
@@ -1131,7 +1286,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           resumeTabId: tabId,
         });
         set((s) => ({
-          tabs: s.tabs.map((t) => (t.tabId === tabId ? { ...t, hidden: false } : t)),
+          tabs: s.tabs.map((t) =>
+            t.tabId === tabId ? { ...t, hidden: false } : t,
+          ),
           ...focusOn(s, tabId, rec.projectCwd),
           exited: dropExited(s.exited, tabId),
         }));
@@ -1193,7 +1350,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
         });
         // The tab may not exist in state yet — ensure the slot exists.
         if (!get().rpc[tabId]) {
-          set((s) => ({ rpc: { ...s.rpc, [tabId]: freshRpcTabState(get().state?.advisorAutoReply ?? true) } }));
+          set((s) => ({
+            rpc: {
+              ...s.rpc,
+              [tabId]: freshRpcTabState(get().state?.advisorAutoReply ?? true),
+            },
+          }));
         }
         // Boot can outrun init()'s first getState — the record decides whether
         // history (get_messages) is fetched, so don't read it from thin air.
@@ -1207,7 +1369,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
               applyRpcState(tabId, resp);
               return null;
             },
-            (err: unknown) => (err instanceof Error ? err : new Error(String(err))),
+            (err: unknown) =>
+              err instanceof Error ? err : new Error(String(err)),
           );
         // allSettled, not all: a missing subagent bus or a slow stats read must
         // never leave the tab stuck in "starting".
@@ -1215,7 +1378,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           get()
             .rpcCommand(tabId, { type: "get_available_models" })
             .then((resp) => {
-              patchRpc(tabId, { availableModels: parseModelList(respData(resp)) });
+              patchRpc(tabId, {
+                availableModels: parseModelList(respData(resp)),
+              });
             }),
           get()
             .rpcCommand(tabId, { type: "get_available_commands" })
@@ -1229,7 +1394,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
             }),
           // "progress" | "events" are the only legal levels; progress is the
           // cheap one — per-agent status, not every subagent token.
-          get().rpcCommand(tabId, { type: "set_subagent_subscription", level: "progress" }),
+          get().rpcCommand(tabId, {
+            type: "set_subagent_subscription",
+            level: "progress",
+          }),
         ];
         if (rec?.sessionId) boots.push(loadHistory(tabId));
         await Promise.allSettled(boots);
@@ -1361,14 +1529,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (!tab) return;
       switch (type) {
         case "response": {
-          const id = "id" in frame && typeof frame.id === "string" ? frame.id : null;
+          const id =
+            "id" in frame && typeof frame.id === "string" ? frame.id : null;
           const pending = id ? tab.pendingCommands.get(id) : undefined;
           if (!pending) return;
           clearTimeout(pending.timer);
           tab.pendingCommands.delete(id!);
           if ("success" in frame && frame.success === false) {
             const message =
-              "error" in frame && typeof frame.error === "string" ? frame.error : "command failed";
+              "error" in frame && typeof frame.error === "string"
+                ? frame.error
+                : "command failed";
             pending.reject(new Error(message));
           } else {
             pending.resolve(frame);
@@ -1386,7 +1557,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
           patchRpc(tabId, { model, session });
           if (model) {
             void backend
-              .setSessionModel(tabId, `${model.provider}/${model.id}`, session.thinkingLevel)
+              .setSessionModel(
+                tabId,
+                `${model.provider}/${model.id}`,
+                session.thinkingLevel,
+              )
               .catch(() => {});
           }
           return;
@@ -1408,8 +1583,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
             strField(progress, "agent") ??
             strField(payload, "id") ??
             "subagent";
-          const status = strField(payload, "status") ?? strField(progress, "status");
-          const label = status ? `subagent ${name}: ${status}` : `subagent ${name}`;
+          const status =
+            strField(payload, "status") ?? strField(progress, "status");
+          const label = status
+            ? `subagent ${name}: ${status}`
+            : `subagent ${name}`;
           // Per-agent marker coalescing: a heartbeat repeats its label
           // forever, so only a genuine transition stamps a marker — no
           // matter how several agents' frames interleave.
@@ -1453,7 +1631,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
               planDeferred: false,
               plans: upsertPlan(tab.plans, review.title, review.planFilePath),
             });
-            const planItem = planProposalItem(review.title, review.planFilePath, review.planAbsPath);
+            const planItem = planProposalItem(
+              review.title,
+              review.planFilePath,
+              review.planAbsPath,
+            );
             appendItem(tabId, planItem);
             void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
             return;
@@ -1477,11 +1659,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // is the extension's actual output, not an interaction to decline.
           if (entry) {
             const extensionStatus = { ...tab.extensionStatus };
-            if (entry.text === undefined || entry.text === "") delete extensionStatus[entry.key];
+            if (entry.text === undefined || entry.text === "")
+              delete extensionStatus[entry.key];
             else extensionStatus[entry.key] = entry.text;
             patchRpc(tabId, { extensionStatus });
           }
-          backend.rpcSend(tabId, extensionCancelResponse("id" in frame ? frame.id : undefined));
+          backend.rpcSend(
+            tabId,
+            extensionCancelResponse("id" in frame ? frame.id : undefined),
+          );
           if (!entry) {
             const method = strField(frame, "method") ?? "?";
             appendItem(tabId, markerItem(`extension ${method} auto-cancelled`));
@@ -1503,7 +1689,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
               fatal: true,
               sessionStatus: "error",
               ...(liveState !== undefined ? { liveState } : {}),
-              recovery: "The live session process stopped. Resume the session to continue.",
+              recovery:
+                "The live session process stopped. Resume the session to continue.",
             },
             items: settleRunningTools(tab.items),
           });
@@ -1526,13 +1713,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
           });
           return;
         default: {
-          // Last-sign-of-life tracking for stall diagnosis (issue #100) — before the
-          // reducer consumes the frame, and never for the settlement burst.
-          const activityLabel = streamActivityLabel(frame);
-          if (activityLabel !== null) tab.streamActivity = { at: Date.now(), label: activityLabel };
+          // Renderer-observed request/model progress for stall diagnosis. Local
+          // tool execution and settlement frames deliberately do not reset it.
+          const checkpointLabel = streamCheckpointLabel(frame);
+          if (checkpointLabel !== null) {
+            tab.streamCheckpoint = { at: Date.now(), label: checkpointLabel };
+          }
           // The AgentSessionEvent stream — the actual transcript.
           const nextItems = reduceEvent(tab.items, frame);
-          const stall = type === "auto_retry_start" ? stallNotice(tab, frame) : null;
+          const stall =
+            type === "auto_retry_start" ? stallNotice(tab, frame) : null;
           patchRpc(tabId, { items: stall ? [...nextItems, stall] : nextItems });
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
@@ -1554,7 +1744,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
               const model = get().rpc[tabId]?.model;
               if (model) {
                 void backend
-                  .setSessionModel(tabId, `${model.provider}/${model.id}`, level)
+                  .setSessionModel(
+                    tabId,
+                    `${model.provider}/${model.id}`,
+                    level,
+                  )
                   .catch(() => {});
               }
             }
@@ -1573,7 +1767,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
             // Retry net: a rename that failed at prompt time (hasRenamed was
             // released) gets another shot at the next turn boundary.
-            if (tab.initialPrompt && !tab.hasRenamed) get().renameSession(tabId);
+            if (tab.initialPrompt && !tab.hasRenamed)
+              get().renameSession(tabId);
 
             // Refresh todoPhases/contextUsage/isStreaming after each agent run.
             void get()
@@ -1595,9 +1790,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const tab = get().rpc[tabId];
       if (!tab) return;
       const id =
-        request !== null && typeof request === "object" && "id" in request ? request.id : undefined;
-      backend.rpcSend(tabId, { type: "extension_ui_response", id, ...response });
-      patchRpc(tabId, { extensionQueue: tab.extensionQueue.filter((q) => q !== request) });
+        request !== null && typeof request === "object" && "id" in request
+          ? request.id
+          : undefined;
+      backend.rpcSend(tabId, {
+        type: "extension_ui_response",
+        id,
+        ...response,
+      });
+      patchRpc(tabId, {
+        extensionQueue: tab.extensionQueue.filter((q) => q !== request),
+      });
     },
 
     setInitialPrompt(tabId, prompt) {
@@ -1632,17 +1835,23 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // for a model that declines, errors, or isn't reachable. Never both —
         // `set_session_name` is a one-shot latch (source "user").
         const modelTitle = projectCwd
-          ? await backend.generateTitle(projectCwd, prompt).catch((err: unknown) => {
-              console.warn("[session-rename] model titling failed:", err);
-              return null;
-            })
+          ? await backend
+              .generateTitle(projectCwd, prompt)
+              .catch((err: unknown) => {
+                console.warn("[session-rename] model titling failed:", err);
+                return null;
+              })
           : null;
         // The tab can die or be renamed by hand while the model thinks.
         const current = get().rpc[tabId];
         if (!current || current.initialPrompt !== prompt) return;
         const name = modelTitle ?? generateTitleFromPrompt(prompt);
         try {
-          await get().rpcCommand(tabId, { type: "set_session_name", name }, { quiet: true });
+          await get().rpcCommand(
+            tabId,
+            { type: "set_session_name", name },
+            { quiet: true },
+          );
           patchRpc(tabId, { initialPrompt: null });
         } catch (err) {
           // Release the latch so the next agent_end retries.
@@ -1671,7 +1880,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // An advisor reply rides followUp, not steer: if a turn started between the
       // settle and this send, the reply queues behind it instead of interrupting.
       const streamingBehavior =
-        route === "follow_up" || route === "advisor_reply" ? "followUp" : "steer";
+        route === "follow_up" || route === "advisor_reply"
+          ? "followUp"
+          : "steer";
       const cmd = { type: "prompt", message, streamingBehavior };
       // `images` is omitted entirely when empty: omp's own client sends no key
       // rather than an empty array, and every byte here is on one JSON line.
@@ -1686,14 +1897,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
       get().setInitialPrompt(tabId, message);
       advisorReplyWatcher.reset(tabId);
       const type = "abort_and_prompt";
-      await runCommand(tabId, images?.length ? { type, message, images } : { type, message });
+      await runCommand(
+        tabId,
+        images?.length ? { type, message, images } : { type, message },
+      );
     },
 
     async loadAdvisorDefaults(projectCwd) {
       if (get().advisorDefaults[projectCwd]) return;
       try {
         const defaults = await backend.getAdvisorDefaults(projectCwd);
-        set((s) => ({ advisorDefaults: { ...s.advisorDefaults, [projectCwd]: defaults } }));
+        set((s) => ({
+          advisorDefaults: { ...s.advisorDefaults, [projectCwd]: defaults },
+        }));
       } catch {
         // A missing or unreadable omp config is not an error worth a dialog —
         // the toggle just shows no inherited default.
@@ -1747,7 +1963,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async setThinkingLevel(tabId, level) {
-      const resp = await runCommand(tabId, { type: "set_thinking_level", level });
+      const resp = await runCommand(tabId, {
+        type: "set_thinking_level",
+        level,
+      });
       if (resp === null) return;
       patchSession(tabId, { thinkingLevel: level });
       const model = get().rpc[tabId]?.model;
@@ -1765,19 +1984,28 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async setFollowUpMode(tabId, mode) {
-      const resp = await runCommand(tabId, { type: "set_follow_up_mode", mode });
+      const resp = await runCommand(tabId, {
+        type: "set_follow_up_mode",
+        mode,
+      });
       if (resp === null) return;
       patchSession(tabId, { followUpMode: mode });
     },
 
     async setInterruptMode(tabId, mode) {
-      const resp = await runCommand(tabId, { type: "set_interrupt_mode", mode });
+      const resp = await runCommand(tabId, {
+        type: "set_interrupt_mode",
+        mode,
+      });
       if (resp === null) return;
       patchSession(tabId, { interruptMode: mode });
     },
 
     async setAutoCompaction(tabId, enabled) {
-      const resp = await runCommand(tabId, { type: "set_auto_compaction", enabled });
+      const resp = await runCommand(tabId, {
+        type: "set_auto_compaction",
+        enabled,
+      });
       if (resp === null) return;
       patchSession(tabId, { autoCompactionEnabled: enabled });
     },
@@ -1863,7 +2091,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "executed"),
         });
         patchItems(tabId, (i) =>
-          i.kind === "plan" && i.planFilePath === planKey && i.status === "pending"
+          i.kind === "plan" &&
+          i.planFilePath === planKey &&
+          i.status === "pending"
             ? { ...i, status: "executed" }
             : i,
         );
@@ -1890,7 +2120,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "refined"),
         });
         patchItems(tabId, (i) =>
-          i.kind === "plan" && i.planFilePath === planKey && i.status === "pending"
+          i.kind === "plan" &&
+          i.planFilePath === planKey &&
+          i.status === "pending"
             ? { ...i, status: "refined" }
             : i,
         );
@@ -1923,7 +2155,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
         const text = await backend.readPlanFile(tabId, absPath);
         // One file, one read: the html plan IS the plan, so `planHtml` is the
         // render-mode flag rather than a second document (ADR-0014).
-        patchRpc(tabId, { planText: text, planHtml: isHtmlPlanPath(absPath) ? text : null });
+        patchRpc(tabId, {
+          planText: text,
+          planHtml: isHtmlPlanPath(absPath) ? text : null,
+        });
         if (itemId !== undefined) {
           patchItems(tabId, (i) =>
             i.kind === "plan" && i.id === itemId ? { ...i, text } : i,
@@ -1943,7 +2178,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // lineage switch (that stays on the HUD's new-session button and in terminal
       // tabs' TUI). Bare command only — "/new …" still reaches omp verbatim.
       if (message.trim() === "/new") {
-        const projectCwd = get().tabs.find((t) => t.tabId === tabId)?.projectCwd;
+        const projectCwd = get().tabs.find(
+          (t) => t.tabId === tabId,
+        )?.projectCwd;
         // A composer only exists for a mounted tab; without one, keep the old path.
         if (projectCwd !== undefined) {
           await get().newSession(projectCwd);
@@ -1972,17 +2209,27 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async setTodos(tabId, phases) {
       const resp = await runCommand(tabId, { type: "set_todos", phases });
       if (resp === null) return;
-      patchRpc(tabId, { todos: parseTodoPhases(field(respData(resp), "todoPhases")) });
+      patchRpc(tabId, {
+        todos: parseTodoPhases(field(respData(resp), "todoPhases")),
+      });
     },
 
     async refreshState(tabId) {
-      const resp = await runCommand(tabId, { type: "get_state" }, { quiet: true });
+      const resp = await runCommand(
+        tabId,
+        { type: "get_state" },
+        { quiet: true },
+      );
       if (resp === null) return;
       applyRpcState(tabId, resp);
     },
 
     async refreshStats(tabId) {
-      const resp = await runCommand(tabId, { type: "get_session_stats" }, { quiet: true });
+      const resp = await runCommand(
+        tabId,
+        { type: "get_session_stats" },
+        { quiet: true },
+      );
       if (resp === null) return;
       patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
     },
@@ -1991,13 +2238,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // The extension answers by publishing over setStatus. Until omp has run a
       // turn the session is uncaptured, so it reports a live-session wait which
       // the HUD treats as "not yet" rather than an error.
-      await runCommand(tabId, { type: "prompt", message: `/${ADVISOR_STATS_COMMAND}` });
+      await runCommand(tabId, {
+        type: "prompt",
+        message: `/${ADVISOR_STATS_COMMAND}`,
+      });
     },
 
     async refreshSubagents(tabId) {
       // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
       // strobe for the lifetime of every spawned subagent.
-      const resp = await runCommand(tabId, { type: "get_subagents" }, { quiet: true });
+      const resp = await runCommand(
+        tabId,
+        { type: "get_subagents" },
+        { quiet: true },
+      );
       if (resp === null) return;
       patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
     },
@@ -2017,14 +2271,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     toggleConsole(tabId) {
-      set((s) => ({ consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] } }));
+      set((s) => ({
+        consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] },
+      }));
     },
 
     async refreshBranches(projectCwd, opts) {
       const fetchUpstream = opts?.fetchUpstream === true;
       const active = branchRefreshes.get(projectCwd);
       if (active !== undefined) {
-        if (fetchUpstream && !active.state.fetchUpstream) active.state.pendingNetwork = true;
+        if (fetchUpstream && !active.state.fetchUpstream)
+          active.state.pendingNetwork = true;
         return active.promise;
       }
 
@@ -2092,7 +2349,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     async suggestBranchName(projectCwd, planContext) {
       // Best-effort like titling: never throw into the review modal.
-      return backend.suggestBranchName(projectCwd, planContext).catch(() => null);
+      return backend
+        .suggestBranchName(projectCwd, planContext)
+        .catch(() => null);
     },
   };
 });
@@ -2117,4 +2376,3 @@ useStore.subscribe((curr, prev) => {
   }
   if (changed) useStore.setState({ rpc });
 });
-

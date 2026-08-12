@@ -18,7 +18,11 @@ import {
 } from "@omp-ui/core/omp-settings-keys";
 import QRCode from "qrcode";
 import { cn } from "../lib/cn";
-import { SCALE_STEPS, setTranscriptScale, useTranscriptScale } from "../lib/text-scale";
+import {
+  SCALE_STEPS,
+  setTranscriptScale,
+  useTranscriptScale,
+} from "../lib/text-scale";
 import { resolveTheme, THEMES } from "../lib/themes";
 import { useStore, type SettingsPage } from "../store";
 import {
@@ -97,7 +101,9 @@ function Row({
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{hint}</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+            {hint}
+          </p>
         )}
       </div>
       <div className="flex shrink-0 items-center">{children}</div>
@@ -187,7 +193,9 @@ function GeneralPage() {
   const setDefaultMode = useStore((s) => s.setDefaultMode);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
-  const setSkipDeleteConfirmation = useStore((s) => s.setSkipDeleteConfirmation);
+  const setSkipDeleteConfirmation = useStore(
+    (s) => s.setSkipDeleteConfirmation,
+  );
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const scale = useTranscriptScale();
@@ -329,7 +337,11 @@ function AppearancePage() {
                   live CSS tokens cannot express them. */}
               <span className="mt-2 flex h-4 overflow-hidden rounded border border-line">
                 {SWATCH_TOKENS.map((token) => (
-                  <span key={token} className="flex-1" style={{ background: t.tokens[token] }} />
+                  <span
+                    key={token}
+                    className="flex-1"
+                    style={{ background: t.tokens[token] }}
+                  />
                 ))}
               </span>
             </button>
@@ -391,18 +403,26 @@ function UpdatesPage() {
   const state = useStore((s) => s.state);
   const appUpdate = useStore((s) => s.appUpdate);
   const ompUpdate = useStore((s) => s.ompUpdate);
-  const setAppUpdateCheckOnLaunch = useStore((s) => s.setAppUpdateCheckOnLaunch);
-  const setOmpUpdateCheckOnLaunch = useStore((s) => s.setOmpUpdateCheckOnLaunch);
+  const setAppUpdateCheckOnLaunch = useStore(
+    (s) => s.setAppUpdateCheckOnLaunch,
+  );
+  const setOmpUpdateCheckOnLaunch = useStore(
+    (s) => s.setOmpUpdateCheckOnLaunch,
+  );
   const clearDismissedAppUpdate = useStore((s) => s.clearDismissedAppUpdate);
   const clearDismissedOmpUpdate = useStore((s) => s.clearDismissedOmpUpdate);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const downloadOmpUpdate = useStore((s) => s.downloadOmpUpdate);
   const downloadAppUpdate = useStore((s) => s.downloadAppUpdate);
-  
-  const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
+
+  const setAppUpdateInstallOnQuit = useStore(
+    (s) => s.setAppUpdateInstallOnQuit,
+  );
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
-  const openAppUpdateReleaseNotes = useStore((s) => s.openAppUpdateReleaseNotes);
+  const openAppUpdateReleaseNotes = useStore(
+    (s) => s.openAppUpdateReleaseNotes,
+  );
 
   // Clear THEN check, so the card reappears immediately if an offer stands.
   const reofferApp = (): void => {
@@ -421,7 +441,9 @@ function UpdatesPage() {
             <p className="mt-0.5 font-mono text-[11px] text-ink-mid tabular-nums">
               {appUpdate.currentVersion ?? "unversioned build"}
             </p>
-            <p className="mt-0.5 text-[11px] text-ink-dim">{appStatusLine(appUpdate)}</p>
+            <p className="mt-0.5 text-[11px] text-ink-dim">
+              {appStatusLine(appUpdate)}
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {/* The update card's primary action mirrored (issue #89): a check
@@ -430,28 +452,45 @@ function UpdatesPage() {
                 follow-through finishes the install without leaving either. */}
             {appUpdate.status === "available" &&
               (appUpdate.format === "unknown" ? (
-                <Button size="xs" variant="solid" onClick={() => void openAppUpdateReleaseNotes()}>
+                <Button
+                  size="xs"
+                  variant="solid"
+                  onClick={() => void openAppUpdateReleaseNotes()}
+                >
                   View release
                 </Button>
               ) : (
-                <Button size="xs" variant="solid" onClick={() => void downloadAppUpdate()}>
+                <Button
+                  size="xs"
+                  variant="solid"
+                  onClick={() => void downloadAppUpdate()}
+                >
                   {appUpdate.format === "appimage" ? "Update" : "Download"}
                 </Button>
               ))}
             {appUpdate.status === "downloaded" &&
-              (appUpdate.format === "appimage" || appUpdate.format === "nsis" ? (
+              (appUpdate.format === "appimage" ||
+              appUpdate.format === "nsis" ? (
                 <>
                   <AppUpdateRestartAction size="xs" />
                   <Button
                     size="xs"
                     variant="ghost"
-                    onClick={() => void setAppUpdateInstallOnQuit(!appUpdate.installOnQuit)}
+                    onClick={() =>
+                      void setAppUpdateInstallOnQuit(!appUpdate.installOnQuit)
+                    }
                   >
-                    {appUpdate.installOnQuit ? "Undo install on quit" : "Install when I quit"}
+                    {appUpdate.installOnQuit
+                      ? "Undo install on quit"
+                      : "Install when I quit"}
                   </Button>
                 </>
               ) : (
-                <Button size="xs" variant="solid" onClick={() => void showAppUpdateDownload()}>
+                <Button
+                  size="xs"
+                  variant="solid"
+                  onClick={() => void showAppUpdateDownload()}
+                >
                   Show in folder
                 </Button>
               ))}
@@ -487,7 +526,9 @@ function UpdatesPage() {
             <p className="mt-0.5 font-mono text-[11px] text-ink-mid tabular-nums">
               {ompUpdate.installedVersion ?? "not installed"}
             </p>
-            <p className="mt-0.5 text-[11px] text-ink-dim">{ompStatusLine(ompUpdate)}</p>
+            <p className="mt-0.5 text-[11px] text-ink-dim">
+              {ompStatusLine(ompUpdate)}
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {/* The same install OmpUpdateCard.tsx offers — reachable here
@@ -495,12 +536,20 @@ function UpdatesPage() {
                 they dismiss it. The available-update action joins it for the
                 same reason (issue #89). */}
             {ompUpdate.status === "available" && (
-              <Button size="xs" variant="solid" onClick={() => void downloadOmpUpdate()}>
+              <Button
+                size="xs"
+                variant="solid"
+                onClick={() => void downloadOmpUpdate()}
+              >
                 Update now
               </Button>
             )}
             {ompUpdate.status === "missing" && (
-              <Button size="xs" variant="solid" onClick={() => void downloadOmpUpdate()}>
+              <Button
+                size="xs"
+                variant="solid"
+                onClick={() => void downloadOmpUpdate()}
+              >
                 Install
               </Button>
             )}
@@ -547,7 +596,9 @@ function remoteStatusLine(r: RemoteState): string {
   }
 }
 
-function remoteStatusTone(status: RemoteState["status"]): "signal" | "copper" | "rose" | "neutral" {
+function remoteStatusTone(
+  status: RemoteState["status"],
+): "signal" | "copper" | "rose" | "neutral" {
   if (status === "listening") return "signal";
   if (status === "starting") return "copper";
   if (status === "error") return "rose";
@@ -594,7 +645,8 @@ function PairingQr({ url }: { url: string }) {
       <div className="min-w-0">
         <Label>Scan to pair</Label>
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-          Opens omp-ui in the phone&apos;s browser with the token already attached.
+          Opens omp-ui in the phone&apos;s browser with the token already
+          attached.
         </p>
       </div>
     </Panel>
@@ -620,12 +672,18 @@ function RemotePage() {
     <div className="space-y-3 px-4 py-3">
       <Panel className="px-4 py-3">
         <div className="flex items-center gap-2">
-          <Dot tone={remoteStatusTone(remote.status)} pulse={remote.status === "starting"} />
-          <p className="text-xs font-medium text-ink">{remoteStatusLine(remote)}</p>
+          <Dot
+            tone={remoteStatusTone(remote.status)}
+            pulse={remote.status === "starting"}
+          />
+          <p className="text-xs font-medium text-ink">
+            {remoteStatusLine(remote)}
+          </p>
         </div>
         {remote.webBundleMissing && (
           <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
-            the browser bundle is missing — run <span className="font-mono">npm run build:web</span>
+            the browser bundle is missing — run{" "}
+            <span className="font-mono">npm run build:web</span>
           </p>
         )}
       </Panel>
@@ -642,7 +700,10 @@ function RemotePage() {
           />
         </Row>
         <div>
-          <Row title="Bind address" hint="Which interface the server listens on.">
+          <Row
+            title="Bind address"
+            hint="Which interface the server listens on."
+          >
             <ChoiceCapsule
               label="bind address"
               value={remote.bind}
@@ -653,8 +714,8 @@ function RemotePage() {
           </Row>
           {remote.bind === "lan" && (
             <p className="pb-2.5 text-[11px] leading-relaxed text-rose">
-              Anyone on this network who has the token can drive your agent. Plain HTTP, so the
-              connection is not encrypted.
+              Anyone on this network who has the token can drive your agent.
+              Plain HTTP, so the connection is not encrypted.
             </p>
           )}
         </div>
@@ -680,7 +741,11 @@ function RemotePage() {
             >
               {revealed ? remote.token : "••••••••••••"}
             </span>
-            <Button size="xs" variant="ghost" onClick={() => setRevealed((v) => !v)}>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => setRevealed((v) => !v)}
+            >
               {revealed ? "hide" : "reveal"}
             </Button>
             <CopyButton text={remote.token} />
@@ -689,7 +754,10 @@ function RemotePage() {
             </Button>
           </div>
         </Row>
-        <Row title="Connection URL" hint="Open this on the other device — the token rides along.">
+        <Row
+          title="Connection URL"
+          hint="Open this on the other device — the token rides along."
+        >
           <div className="flex items-center gap-1.5">
             <span
               data-selectable
@@ -707,14 +775,20 @@ function RemotePage() {
         <div className="space-y-0.5">
           <Label>Also reachable at</Label>
           {remote.urls.slice(1).map((url) => (
-            <p key={url} data-selectable className="truncate font-mono text-[11px] text-ink-faint">
+            <p
+              key={url}
+              data-selectable
+              className="truncate font-mono text-[11px] text-ink-faint"
+            >
               {url}
             </p>
           ))}
         </div>
       )}
 
-      {remote.status === "listening" && primaryUrl !== null && <PairingQr url={primaryUrl} />}
+      {remote.status === "listening" && primaryUrl !== null && (
+        <PairingQr url={primaryUrl} />
+      )}
     </div>
   );
 }
@@ -730,7 +804,8 @@ type ProviderLoad =
 function sourceChip(row: ProviderKeyStatus): ReactNode {
   if (row.source === "stored") return <Chip tone="signal">saved here</Chip>;
   if (row.source === "environment") return <Chip>environment</Chip>;
-  if (row.source === "login-shell") return <Chip tone="iris">shell profile</Chip>;
+  if (row.source === "login-shell")
+    return <Chip tone="iris">shell profile</Chip>;
   // Report-only: omp loads project .env files itself, so nothing was injected.
   if (row.source === "dotenv") return <Chip tone="copper">project .env</Chip>;
   return null;
@@ -783,7 +858,9 @@ function ProviderRow({
           </div>
           <p className="mt-0.5 font-mono text-[10px] text-ink-faint">
             {row.activeEnv}
-            {row.masked !== null && <span className="ml-2 text-ink-dim">{row.masked}</span>}
+            {row.masked !== null && (
+              <span className="ml-2 text-ink-dim">{row.masked}</span>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -827,7 +904,11 @@ function ProviderRow({
             }}
             className={cn(FIELD, "flex-1")}
           />
-          <Button size="xs" disabled={busy || draft.trim() === ""} onClick={save}>
+          <Button
+            size="xs"
+            disabled={busy || draft.trim() === ""}
+            onClick={save}
+          >
             Save
           </Button>
           <Button size="xs" variant="ghost" disabled={busy} onClick={cancel}>
@@ -838,8 +919,8 @@ function ProviderRow({
 
       {row.shadowsEnvironment && !editing && (
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-          Overrides the <span className="font-mono">{row.activeEnv}</span> your environment already
-          provides.
+          Overrides the <span className="font-mono">{row.activeEnv}</span> your
+          environment already provides.
         </p>
       )}
     </div>
@@ -865,7 +946,8 @@ function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
         if (g === gen.current) setLoad({ status: "loaded", snapshot });
       },
       (err: unknown) => {
-        if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
+        if (g === gen.current)
+          setLoad({ status: "error", message: displayMessage(err) });
       },
     );
   }, [readProviderKeys, projectCwd]);
@@ -891,7 +973,10 @@ function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
 
   const { providers, encryptionAvailable, backend } = load.snapshot;
   const configured = providers.filter((p) => p.source !== "none");
-  const groups: ReadonlyArray<{ id: ProviderKeyStatus["group"]; label: string }> = [
+  const groups: ReadonlyArray<{
+    id: ProviderKeyStatus["group"];
+    label: string;
+  }> = [
     { id: "models", label: "Model providers" },
     { id: "search", label: "Web search" },
   ];
@@ -914,8 +999,9 @@ function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
           </p>
         ) : (
           <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
-            No OS credential store is available here, so keys cannot be saved securely and adding
-            one is refused. Export the variable from your shell profile instead.
+            No OS credential store is available here, so keys cannot be saved
+            securely and adding one is refused. Export the variable from your
+            shell profile instead.
           </p>
         )}
       </Panel>
@@ -936,7 +1022,9 @@ function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
                   key={row.id}
                   row={row}
                   busy={pendingEnv !== null}
-                  onSave={(value) => run(row.env, setProviderKey(row.env, value))}
+                  onSave={(value) =>
+                    run(row.env, setProviderKey(row.env, value))
+                  }
                   onClear={() => run(row.env, clearProviderKey(row.activeEnv))}
                 />
               ))}
@@ -983,7 +1071,11 @@ function OmpPage({
   // readOmpSettings itself never rejects — snapshot.error carries omp's own
   // failure — but the IPC hop still can, so both land in the same treatment.
   const failure =
-    load.status === "error" ? load.message : load.snapshot.error !== null ? load.snapshot.error : null;
+    load.status === "error"
+      ? load.message
+      : load.snapshot.error !== null
+        ? load.snapshot.error
+        : null;
   // The `status` check rides along so the destructure below narrows: an error
   // load carries no snapshot, and a loaded one can still report `error`.
   if (failure !== null || load.status !== "loaded") {
@@ -1002,7 +1094,11 @@ function OmpPage({
               retry
             </Button>
             {missing && (
-              <Button size="xs" variant="ghost" onClick={() => openSettings("updates")}>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => openSettings("updates")}
+              >
                 install omp from the Updates page
               </Button>
             )}
@@ -1013,7 +1109,9 @@ function OmpPage({
   }
 
   const { snapshot } = load;
-  const byKey = new Map<string, OmpSettingEntry>(snapshot.entries.map((e) => [e.key, e]));
+  const byKey = new Map<string, OmpSettingEntry>(
+    snapshot.entries.map((e) => [e.key, e]),
+  );
   const rolesEntry = byKey.get(OMP_MODEL_ROLES_KEY);
   const rolesRecord: Record<string, unknown> =
     rolesEntry !== undefined &&
@@ -1084,7 +1182,11 @@ function OmpPage({
         </select>
       );
     }
-    if (entry.type === "number" || entry.type === "string" || entry.type === "enum") {
+    if (
+      entry.type === "number" ||
+      entry.type === "string" ||
+      entry.type === "enum"
+    ) {
       return (
         <CommitField
           current={entry.value === undefined ? "" : String(entry.value)}
@@ -1099,13 +1201,19 @@ function OmpPage({
     // array/record scalars are not in the allowlist; if a future omp surfaces
     // one, show it read-only rather than guessing a control.
     return (
-      <span className="max-w-56 truncate font-mono text-[11px] text-ink-mid" title={entry.key}>
+      <span
+        className="max-w-56 truncate font-mono text-[11px] text-ink-mid"
+        title={entry.key}
+      >
         {entry.value === undefined ? "—" : JSON.stringify(entry.value)}
       </span>
     );
   };
 
-  const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
+  const tab =
+    activeTabId === null
+      ? undefined
+      : tabs.find((t) => t.tabId === activeTabId);
   const mcpReady = tab !== undefined && tab.projectCwd !== "";
 
   return (
@@ -1135,9 +1243,15 @@ function OmpPage({
           <div className="mt-1.5 divide-y divide-line-soft">
             {OMP_MODEL_ROLE_IDS.map((role) => (
               <div key={role} className="flex items-center gap-3 py-1.5">
-                <span className="w-20 shrink-0 font-mono text-[11px] text-ink-mid">{role}</span>
+                <span className="w-20 shrink-0 font-mono text-[11px] text-ink-mid">
+                  {role}
+                </span>
                 <CommitField
-                  current={typeof rolesRecord[role] === "string" ? (rolesRecord[role] as string) : ""}
+                  current={
+                    typeof rolesRecord[role] === "string"
+                      ? (rolesRecord[role] as string)
+                      : ""
+                  }
                   kind="text"
                   label={`model role ${role}`}
                   placeholder="model[:level] — blank = unset"
@@ -1160,6 +1274,11 @@ function OmpPage({
         return (
           <section key={group.title} className="px-4 pt-3">
             <Label>{group.title}</Label>
+            {group.description !== undefined && (
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                {group.description}
+              </p>
+            )}
             <div className="mt-1 divide-y divide-line-soft">
               {entries.map((entry) => (
                 <Row
@@ -1183,7 +1302,11 @@ function OmpPage({
         <Button
           size="xs"
           disabled={!mcpReady}
-          title={mcpReady ? undefined : "focus a session tab first — the manager pins to it"}
+          title={
+            mcpReady
+              ? undefined
+              : "focus a session tab first — the manager pins to it"
+          }
           onClick={() => {
             if (tab === undefined) return;
             // One modal at a time: stacked Escape listeners would close both.
@@ -1209,16 +1332,25 @@ function AboutPage({ load }: { load: Load }) {
     ["omp-ui version", appUpdate.currentVersion ?? "—"],
     ["omp version", ompUpdate.installedVersion ?? "—"],
     ["omp path", ompUpdate.installPath ?? "—"],
-    ["omp config dir", load.status === "loaded" ? (load.snapshot.agentDir ?? "—") : "—"],
+    [
+      "omp config dir",
+      load.status === "loaded" ? (load.snapshot.agentDir ?? "—") : "—",
+    ],
   ];
 
   return (
     <div className="px-4 py-3">
       <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1.5">
         {rows.map(([label, value]) => (
-          <div key={label} className="col-span-2 grid grid-cols-subgrid items-baseline">
+          <div
+            key={label}
+            className="col-span-2 grid grid-cols-subgrid items-baseline"
+          >
             <dt className="text-[11px] text-ink-faint">{label}</dt>
-            <dd className="min-w-0 truncate font-mono text-[11px] text-ink-mid" title={value}>
+            <dd
+              className="min-w-0 truncate font-mono text-[11px] text-ink-mid"
+              title={value}
+            >
               {value}
             </dd>
           </div>
@@ -1239,10 +1371,14 @@ export function Settings() {
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const anyLive = useStore(
-    (s) => s.state?.projects.some((g) => g.sessions.some((x) => x.live === "live")) ?? false,
+    (s) =>
+      s.state?.projects.some((g) =>
+        g.sessions.some((x) => x.live === "live"),
+      ) ?? false,
   );
 
-  const projectCwd = tabs.find((t) => t.tabId === activeTabId)?.projectCwd ?? null;
+  const projectCwd =
+    tabs.find((t) => t.tabId === activeTabId)?.projectCwd ?? null;
 
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
@@ -1259,7 +1395,8 @@ export function Settings() {
         if (g === gen.current) setLoad({ status: "loaded", snapshot });
       },
       (err: unknown) => {
-        if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
+        if (g === gen.current)
+          setLoad({ status: "error", message: displayMessage(err) });
       },
     );
   }, [readOmpSettings, projectCwd, reloadKey]);
@@ -1283,7 +1420,12 @@ export function Settings() {
 
   let footer: ReactNode = null;
   if (page === "general") {
-    footer = <p>Default session and agent modes apply to new sessions; everything else applies immediately.</p>;
+    footer = (
+      <p>
+        Default session and agent modes apply to new sessions; everything else
+        applies immediately.
+      </p>
+    );
   } else if (page === "updates") {
     // Auto-download is deliberately absent: both download paths end in an
     // installer launch or an app restart.
@@ -1293,11 +1435,13 @@ export function Settings() {
     // http://<lan-ip> origin cannot have them no matter what the manifest says.
     footer = (
       <p>
-        Over localhost the app is a full browser app. Over your local network it works as a
-        responsive web app, but browsers reserve installability and offline support for secure
-        origins — plain <span className="font-mono">http://&lt;lan-ip&gt;</span> is not one, so
-        there is no install prompt until you front this with your own HTTPS (a TLS terminator, or
-        Tailscale serve). Changing anything here restarts only the server; sessions keep running.
+        Over localhost the app is a full browser app. Over your local network it
+        works as a responsive web app, but browsers reserve installability and
+        offline support for secure origins — plain{" "}
+        <span className="font-mono">http://&lt;lan-ip&gt;</span> is not one, so
+        there is no install prompt until you front this with your own HTTPS (a
+        TLS terminator, or Tailscale serve). Changing anything here restarts
+        only the server; sessions keep running.
       </p>
     );
   } else if (page === "providers") {
@@ -1305,12 +1449,13 @@ export function Settings() {
     // of the user's shell exports — the two facts that make this page exist.
     footer = (
       <p>
-        omp reads credentials from the environment, so omp-ui supplies these to every session it
-        launches — a key added here takes effect on the next session spawn.
-        {anyLive && " Restart a session from its MCP panel to apply now."} Keys already exported by
-        your shell profile are picked up automatically, and a project&apos;s{" "}
-        <span className="font-mono">.env</span> is loaded by omp itself, so both are shown here but
-        neither needs re-entering.
+        omp reads credentials from the environment, so omp-ui supplies these to
+        every session it launches — a key added here takes effect on the next
+        session spawn.
+        {anyLive && " Restart a session from its MCP panel to apply now."} Keys
+        already exported by your shell profile are picked up automatically, and
+        a project&apos;s <span className="font-mono">.env</span> is loaded by
+        omp itself, so both are shown here but neither needs re-entering.
       </p>
     );
   } else if (page === "omp") {
@@ -1320,24 +1465,33 @@ export function Settings() {
     footer = (
       <p>
         Writes go to omp&apos;s global config (
-        <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a project&apos;s{" "}
-        <span className="font-mono">.omp/config.yml</span> still wins and is shown as{" "}
-        <span className="font-mono">project</span>. omp binds model roles and the advisor at
-        process start — changes take effect on the next session spawn.
-        {anyLive && " Restart a session from its MCP panel to apply now."} omp regenerates its
-        YAML on write, so comments in config.yml are dropped.
+        <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
+        project&apos;s <span className="font-mono">.omp/config.yml</span> still
+        wins and is shown as <span className="font-mono">project</span>. omp
+        binds model roles and the advisor at process start — changes take effect
+        on the next session spawn.
+        {anyLive && " Restart a session from its MCP panel to apply now."} omp
+        regenerates its YAML on write, so comments in config.yml are dropped.
       </p>
     );
   }
 
   return (
     <Modal onClose={closeSettings} width="w-[46rem]">
-      <section className="settings-surface" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section
+        className="settings-surface"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
         <header className="settings-header border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
             Application
           </p>
-          <h2 id="settings-title" className="font-display text-base font-semibold text-ink">
+          <h2
+            id="settings-title"
+            className="font-display text-base font-semibold text-ink"
+          >
             Settings
           </h2>
         </header>

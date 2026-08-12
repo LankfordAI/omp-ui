@@ -143,7 +143,9 @@ function buttonWithText(text: string): HTMLButtonElement | null {
 
 function click(el: HTMLElement): void {
   act(() => {
-    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
   });
 }
 
@@ -170,7 +172,11 @@ describe("Settings Updates page (issue #89)", () => {
 
   it("starts a deb/rpm/flatpak update download from the omp-ui panel", async () => {
     seed({
-      appUpdate: appUpdateState({ status: "available", latestVersion: "1.2.0", format: "deb" }),
+      appUpdate: appUpdateState({
+        status: "available",
+        latestVersion: "1.2.0",
+        format: "deb",
+      }),
     });
     await renderSettings();
     click(buttonWithText("Download")!);
@@ -250,7 +256,6 @@ describe("Settings Updates page (issue #89)", () => {
 });
 
 describe("Settings General page plan format (issue #109)", () => {
-
   const seedGeneral = (planFormat: PlanFormat): void => {
     useStore.setState({
       settingsPage: "general",
@@ -267,7 +272,9 @@ describe("Settings General page plan format (issue #109)", () => {
     await renderSettings();
     expect(document.body.textContent).toContain("Plan format");
     expect(buttonWithText("html")!.getAttribute("aria-pressed")).toBe("true");
-    expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe("false");
+    expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
 
     click(buttonWithText("markdown")!);
     expect(backendMock.setPlanFormat).toHaveBeenCalledWith("md");
@@ -276,7 +283,9 @@ describe("Settings General page plan format (issue #109)", () => {
   it("reflects a persisted markdown setting", async () => {
     seedGeneral("md");
     await renderSettings();
-    expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("markdown")!.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
     expect(buttonWithText("html")!.getAttribute("aria-pressed")).toBe("false");
   });
 });
@@ -312,7 +321,9 @@ describe("Settings General page advisor auto-reply (issue #111)", () => {
   };
 
   const autoReplySwitch = (): HTMLElement =>
-    document.querySelector('[role="switch"][aria-label="Advisor auto-reply"]') as HTMLElement;
+    document.querySelector(
+      '[role="switch"][aria-label="Advisor auto-reply"]',
+    ) as HTMLElement;
 
   it("shows the setting on and persists switching it off", async () => {
     seedAutoReply(true);
@@ -342,7 +353,9 @@ describe("Settings General page default advisor (issue #174)", () => {
   };
 
   const defaultAdvisorSwitch = (): HTMLElement =>
-    document.querySelector('[role="switch"][aria-label="Default advisor"]') as HTMLElement;
+    document.querySelector(
+      '[role="switch"][aria-label="Default advisor"]',
+    ) as HTMLElement;
 
   it("shows the setting off and persists switching it on", async () => {
     seedDefaultAdvisor(false);
@@ -356,5 +369,89 @@ describe("Settings General page default advisor (issue #174)", () => {
     seedDefaultAdvisor(true);
     await renderSettings();
     expect(defaultAdvisorSwitch().getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+describe("Settings omp Providers group (issues #178 and #179)", () => {
+  const timeouts = [
+    {
+      key: "providers.streamFirstEventTimeoutSeconds",
+      type: "number" as const,
+      description: "First event timeout",
+      value: -1,
+      options: null,
+      layer: "default" as const,
+    },
+    {
+      key: "providers.streamIdleTimeoutSeconds",
+      type: "number" as const,
+      description: "Idle timeout",
+      value: -1,
+      options: null,
+      layer: "default" as const,
+    },
+  ];
+
+  function seedOmp(snapshot: OmpSettingsSnapshot): void {
+    backendMock.readOmpSettings.mockResolvedValue(snapshot);
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  it("renders guidance and omp's options, then writes nitro", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "providers.openrouterVariant",
+          type: "enum",
+          description: "OpenRouter routing variant",
+          value: "auto",
+          options: ["auto", "nitro", "floor"],
+          layer: "global",
+        },
+        ...timeouts,
+      ],
+    });
+    await renderSettings();
+
+    expect(document.body.textContent).toContain(
+      "nitro variant prioritizes throughput",
+    );
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="providers.openrouterVariant"]',
+    )!;
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "auto",
+      "nitro",
+      "floor",
+    ]);
+    await act(async () => {
+      select.value = "nitro";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "providers.openrouterVariant",
+      "nitro",
+    );
+  });
+
+  it("omits the routing row when omp does not publish the key", async () => {
+    seedOmp({ ...emptyOmpSettings, entries: timeouts });
+    await renderSettings();
+    expect(
+      document.querySelector(
+        'select[aria-label="providers.openrouterVariant"]',
+      ),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "providers.openrouterVariant",
+    );
   });
 });

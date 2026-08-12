@@ -19,7 +19,10 @@ import type {
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
-import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
+import type {
+  PlanExecutionContext,
+  PlanExecutionOptions,
+} from "../lib/plan-concerns";
 import type {
   ModelInfo,
   PromptRoute,
@@ -95,7 +98,8 @@ export interface RpcTabState {
   subagentLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
   pendingCommands: Map<string, PendingCommand>;
-  streamActivity?: { at: number; label: string };
+  /** Renderer-observed request/model progress; never local tool execution. */
+  streamCheckpoint?: { at: number; label: string };
   stallCount?: number;
   extensionQueue: unknown[];
   /** True while any rpc command is in flight. */
@@ -114,12 +118,7 @@ export interface RpcTabState {
 }
 
 export type SidebarSessionState =
-  | "working"
-  | "awaiting-answer"
-  | "ready"
-  | "starting"
-  | "error"
-  | LiveState;
+  "working" | "awaiting-answer" | "ready" | "starting" | "error" | LiveState;
 
 export interface DeleteConfirmation {
   tabId: string;
@@ -138,10 +137,7 @@ export type SettingsPage =
   | "about";
 
 export type CompactSurface =
-  | "sessions"
-  | "inspector"
-  | "session-actions"
-  | "composer-options";
+  "sessions" | "inspector" | "session-actions" | "composer-options";
 
 export interface SettingsSlice {
   /** The settings modal's open page, or null while closed. */
@@ -243,7 +239,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     opts?: { quiet?: boolean },
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
-  answerExtension(tabId: string, request: unknown, response: Record<string, unknown>): void;
+  answerExtension(
+    tabId: string,
+    request: unknown,
+    response: Record<string, unknown>,
+  ): void;
   setInitialPrompt(tabId: string, prompt: string): void;
   renameSession(tabId: string): void;
   sendPrompt(
@@ -253,9 +253,17 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     images?: ImageAttachment[],
   ): Promise<void>;
   abortAgent(tabId: string): Promise<void>;
-  abortAndPrompt(tabId: string, message: string, images?: ImageAttachment[]): Promise<void>;
+  abortAndPrompt(
+    tabId: string,
+    message: string,
+    images?: ImageAttachment[],
+  ): Promise<void>;
   loadAdvisorDefaults(projectCwd: string): Promise<void>;
-  setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): Promise<void>;
+  setSessionAdvisor(
+    tabId: string,
+    advisor: boolean,
+    advisorModel: string | null,
+  ): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
   setModel(tabId: string, model: ModelInfo): Promise<void>;
   setThinkingLevel(tabId: string, level: string): Promise<void>;
@@ -270,9 +278,17 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   branchSession(tabId: string): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;
   setPlanMode(tabId: string, enabled: boolean): Promise<void>;
-  executePlan(tabId: string, context: PlanExecutionContext, options?: PlanExecutionOptions): void;
+  executePlan(
+    tabId: string,
+    context: PlanExecutionContext,
+    options?: PlanExecutionOptions,
+  ): void;
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
-  loadPlanText(tabId: string, absPath: string | null, itemId?: string): Promise<void>;
+  loadPlanText(
+    tabId: string,
+    absPath: string | null,
+    itemId?: string,
+  ): Promise<void>;
   deferPlanReview(tabId: string): void;
   showPlanReview(tabId: string): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
@@ -292,5 +308,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     opts?: { create?: boolean },
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string): Promise<string | null>;
-  suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
+  suggestBranchName(
+    projectCwd: string,
+    planContext: string,
+  ): Promise<string | null>;
 }

@@ -11,7 +11,11 @@ import {
 const OMP = "/x/omp";
 
 /** A `config list --json` entry, with omp's own field names. */
-function entry(value: unknown, type = "boolean", description = "Advisor on"): unknown {
+function entry(
+  value: unknown,
+  type = "boolean",
+  description = "Advisor on",
+): unknown {
   return { value, type, description };
 }
 
@@ -23,7 +27,9 @@ interface Reads {
   /** Human `config list` text supplying enum members. */
   human?: string;
   /** Keys naming a read that must reject instead of resolving. */
-  reject?: Partial<Record<"effective" | "global" | "pristine" | "human", string>>;
+  reject?: Partial<
+    Record<"effective" | "global" | "pristine" | "human", string>
+  >;
 }
 
 /**
@@ -31,8 +37,14 @@ interface Reads {
  * differ only by cwd, so the effective read is identified by its cwd; the
  * pristine read is the one whose HOME was replaced.
  */
-function fakeRunner(reads: Reads, projectCwd: string | null): OmpConfigRunner & { calls: number } {
-  const run = async (args: readonly string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => {
+function fakeRunner(
+  reads: Reads,
+  projectCwd: string | null,
+): OmpConfigRunner & { calls: number } {
+  const run = async (
+    args: readonly string[],
+    opts: { cwd: string; env: NodeJS.ProcessEnv },
+  ) => {
     run.calls += 1;
     const which =
       args.includes("--json") === false
@@ -46,7 +58,8 @@ function fakeRunner(reads: Reads, projectCwd: string | null): OmpConfigRunner & 
     if (failure !== undefined) throw new Error(failure);
     if (which === "human") return reads.human ?? "";
     if (which === "pristine") return JSON.stringify(reads.pristine);
-    if (which === "effective") return JSON.stringify(reads.effective ?? reads.global);
+    if (which === "effective")
+      return JSON.stringify(reads.effective ?? reads.global);
     return JSON.stringify(reads.global);
   };
   run.calls = 0;
@@ -68,7 +81,11 @@ describe("readOmpSettings", () => {
     );
     expect(snapshot.error).toBeNull();
     const found = snapshot.entries.find((e) => e.key === "advisor.enabled");
-    expect(found).toMatchObject({ value: false, layer: "project", type: "boolean" });
+    expect(found).toMatchObject({
+      value: false,
+      layer: "project",
+      type: "boolean",
+    });
   });
 
   it("marks a value only the global config changes as global", async () => {
@@ -83,7 +100,9 @@ describe("readOmpSettings", () => {
         "/repo",
       ),
     );
-    expect(snapshot.entries.find((e) => e.key === "advisor.enabled")).toMatchObject({
+    expect(
+      snapshot.entries.find((e) => e.key === "advisor.enabled"),
+    ).toMatchObject({
       value: false,
       layer: "global",
     });
@@ -100,7 +119,9 @@ describe("readOmpSettings", () => {
         null,
       ),
     );
-    expect(snapshot.entries.find((e) => e.key === "advisor.enabled")).toMatchObject({
+    expect(
+      snapshot.entries.find((e) => e.key === "advisor.enabled"),
+    ).toMatchObject({
       value: true,
       layer: "default",
     });
@@ -127,8 +148,12 @@ describe("readOmpSettings", () => {
       { ompPath: OMP, projectCwd: null },
       fakeRunner(
         {
-          global: { "advisor.syncBacklog": entry("off", "enum", "Backlog sync") },
-          pristine: { "advisor.syncBacklog": entry("off", "enum", "Backlog sync") },
+          global: {
+            "advisor.syncBacklog": entry("off", "enum", "Backlog sync"),
+          },
+          pristine: {
+            "advisor.syncBacklog": entry("off", "enum", "Backlog sync"),
+          },
           reject: { human: "boom" },
         },
         null,
@@ -156,7 +181,12 @@ describe("readOmpSettings", () => {
         {
           global: {
             "advisor.enabled": entry(true),
-            autoResume: { value: "x", type: "string", description: "", redacted: true },
+            autoResume: {
+              value: "x",
+              type: "string",
+              description: "",
+              redacted: true,
+            },
           },
           pristine: { "advisor.enabled": entry(true) },
         },
@@ -167,49 +197,92 @@ describe("readOmpSettings", () => {
   });
 });
 
-  it("isolates both Windows home variables from the real profile", () => {
-    expect(
-      pristineEnvironment(
-        "C:\\Temp\\pristine",
+describe("OpenRouter variant", () => {
+  it("preserves omp's enum order and layer when the setting is published", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
         {
-          HOME: "C:\\Users\\real",
-          USERPROFILE: "C:\\Users\\real",
-          HOMEDRIVE: "C:",
-          HOMEPATH: "\\Users\\real",
-          PATH: "C:\\Windows",
+          global: {
+            "providers.openrouterVariant": entry(
+              "nitro",
+              "enum",
+              "OpenRouter route",
+            ),
+          },
+          pristine: {
+            "providers.openrouterVariant": entry(
+              "auto",
+              "enum",
+              "OpenRouter route",
+            ),
+          },
+          human: "providers.openrouterVariant = nitro (auto|nitro|floor)",
         },
-        "win32",
+        null,
       ),
-    ).toEqual({
-      HOME: "C:\\Temp\\pristine",
-      USERPROFILE: "C:\\Temp\\pristine",
-      PATH: "C:\\Windows",
+    );
+
+    expect(
+      snapshot.entries.find((e) => e.key === "providers.openrouterVariant"),
+    ).toMatchObject({
+      value: "nitro",
+      options: ["auto", "nitro", "floor"],
+      layer: "global",
     });
   });
+});
 
-  it("preserves Unix HOME-only isolation", () => {
-    expect(
-      pristineEnvironment("/tmp/pristine", { HOME: "/home/real", USERPROFILE: "kept" }, "linux"),
-    ).toEqual({ HOME: "/tmp/pristine", USERPROFILE: "kept" });
+it("isolates both Windows home variables from the real profile", () => {
+  expect(
+    pristineEnvironment(
+      "C:\\Temp\\pristine",
+      {
+        HOME: "C:\\Users\\real",
+        USERPROFILE: "C:\\Users\\real",
+        HOMEDRIVE: "C:",
+        HOMEPATH: "\\Users\\real",
+        PATH: "C:\\Windows",
+      },
+      "win32",
+    ),
+  ).toEqual({
+    HOME: "C:\\Temp\\pristine",
+    USERPROFILE: "C:\\Temp\\pristine",
+    PATH: "C:\\Windows",
   });
+});
 
-  it.runIf(process.platform === "win32")(
-    "runs the pristine config read under a temporary Windows profile",
-    async () => {
-      let pristineEnv: NodeJS.ProcessEnv | null = null;
-      const run: OmpConfigRunner = async (args, opts) => {
-        if (args.includes("--json") && opts.env.USERPROFILE !== process.env.USERPROFILE) {
-          pristineEnv = opts.env;
-        }
-        return args.includes("--json") ? JSON.stringify({}) : "";
-      };
-      await readOmpSettings({ ompPath: OMP, projectCwd: null }, run);
-      expect(pristineEnv).not.toBeNull();
-      expect(pristineEnv!.USERPROFILE).toBe(pristineEnv!.HOME);
-      expect(pristineEnv).not.toHaveProperty("HOMEDRIVE");
-      expect(pristineEnv).not.toHaveProperty("HOMEPATH");
-    },
-  );
+it("preserves Unix HOME-only isolation", () => {
+  expect(
+    pristineEnvironment(
+      "/tmp/pristine",
+      { HOME: "/home/real", USERPROFILE: "kept" },
+      "linux",
+    ),
+  ).toEqual({ HOME: "/tmp/pristine", USERPROFILE: "kept" });
+});
+
+it.runIf(process.platform === "win32")(
+  "runs the pristine config read under a temporary Windows profile",
+  async () => {
+    let pristineEnv: NodeJS.ProcessEnv | null = null;
+    const run: OmpConfigRunner = async (args, opts) => {
+      if (
+        args.includes("--json") &&
+        opts.env.USERPROFILE !== process.env.USERPROFILE
+      ) {
+        pristineEnv = opts.env;
+      }
+      return args.includes("--json") ? JSON.stringify({}) : "";
+    };
+    await readOmpSettings({ ompPath: OMP, projectCwd: null }, run);
+    expect(pristineEnv).not.toBeNull();
+    expect(pristineEnv!.USERPROFILE).toBe(pristineEnv!.HOME);
+    expect(pristineEnv).not.toHaveProperty("HOMEDRIVE");
+    expect(pristineEnv).not.toHaveProperty("HOMEPATH");
+  },
+);
 
 describe("parseEnumOptions", () => {
   it("reads enum members and ignores type placeholders", () => {
@@ -237,15 +310,23 @@ describe("writeOmpSetting", () => {
   it("refuses an unlisted key without invoking the runner", async () => {
     const run = fakeRunner({ global: {}, pristine: {} }, null);
     await expect(
-      writeOmpSetting({ ompPath: OMP, key: "apiKeys.openai", value: "secret" }, run),
-    ).rejects.toThrow(/refusing to write unlisted omp setting: apiKeys\.openai/);
+      writeOmpSetting(
+        { ompPath: OMP, key: "apiKeys.openai", value: "secret" },
+        run,
+      ),
+    ).rejects.toThrow(
+      /refusing to write unlisted omp setting: apiKeys\.openai/,
+    );
     expect(run.calls).toBe(0);
   });
 
   it("refuses a missing binary without invoking the runner", async () => {
     const run = fakeRunner({ global: {}, pristine: {} }, null);
     await expect(
-      writeOmpSetting({ ompPath: null, key: "advisor.enabled", value: true }, run),
+      writeOmpSetting(
+        { ompPath: null, key: "advisor.enabled", value: true },
+        run,
+      ),
     ).rejects.toThrow("omp binary not found");
     expect(run.calls).toBe(0);
   });
@@ -253,7 +334,11 @@ describe("writeOmpSetting", () => {
   it("sends modelRoles to omp as a JSON string", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
-      { ompPath: OMP, key: OMP_MODEL_ROLES_KEY, value: { advisor: "x/adv", tiny: "y/tiny" } },
+      {
+        ompPath: OMP,
+        key: OMP_MODEL_ROLES_KEY,
+        value: { advisor: "x/adv", tiny: "y/tiny" },
+      },
       async (args) => {
         seen = args;
         return "";
@@ -270,11 +355,32 @@ describe("writeOmpSetting", () => {
 
   it("serializes booleans as omp's own literals", async () => {
     let seen: readonly string[] = [];
-    await writeOmpSetting({ ompPath: OMP, key: "advisor.enabled", value: false }, async (args) => {
-      seen = args;
-      return "";
-    });
+    await writeOmpSetting(
+      { ompPath: OMP, key: "advisor.enabled", value: false },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
     expect(seen[3]).toBe("false");
+  });
+
+  it("allowlists and serializes the OpenRouter variant", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "providers.openrouterVariant", value: "nitro" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "providers.openrouterVariant",
+      "nitro",
+      "--json",
+    ]);
   });
 
   it("puts a negative number after `--` so omp's CLI does not read it as a flag (issue #105)", async () => {
@@ -286,14 +392,24 @@ describe("writeOmpSetting", () => {
         return "";
       },
     );
-    expect(seen).toEqual(["config", "set", "providers.streamIdleTimeoutSeconds", "--json", "--", "-1"]);
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "providers.streamIdleTimeoutSeconds",
+      "--json",
+      "--",
+      "-1",
+    ]);
   });
 
   it("propagates omp's stderr message unchanged", async () => {
     await expect(
-      writeOmpSetting({ ompPath: OMP, key: "advisor.syncBacklog", value: "nope" }, async () => {
-        throw new Error("Invalid value: nope. Valid values: off, 1, 3, 5");
-      }),
+      writeOmpSetting(
+        { ompPath: OMP, key: "advisor.syncBacklog", value: "nope" },
+        async () => {
+          throw new Error("Invalid value: nope. Valid values: off, 1, 3, 5");
+        },
+      ),
     ).rejects.toThrow("Invalid value: nope. Valid values: off, 1, 3, 5");
   });
 });

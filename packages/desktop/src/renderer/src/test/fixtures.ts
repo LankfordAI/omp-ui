@@ -48,7 +48,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     subagentLevel: "progress",
     extensionStatus: {},
     pendingCommands: new Map(),
-    streamActivity: undefined,
+    streamCheckpoint: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,
