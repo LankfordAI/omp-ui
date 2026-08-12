@@ -774,7 +774,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     await get().loadAdvisorDefaults(projectCwd);
     const defaults = get().advisorDefaults[projectCwd];
     const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
-    const advisor = options?.advisor ?? project?.lastAdvisor ?? defaults?.enabled ?? false;
+    const advisor =
+      options?.advisor ?? project?.lastAdvisor ?? get().state?.defaultAdvisor ?? defaults?.enabled ?? false;
     const advisorModel =
       options?.advisor !== undefined
         ? (options.advisorModel ?? null)
@@ -1004,12 +1005,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async newSession(projectCwd, modeOverride) {
       const mode = modeOverride ?? get().state?.defaultMode ?? "pty";
       // Carry the project's complete last-used advisor tuple into the new
-      // session. Before any explicit choice, omp's configured default wins.
+      // session. Before any explicit choice, the app's own default decides;
+      // omp's configured default only seeds while the app is not booted.
       await get().loadAdvisorDefaults(projectCwd);
       const defaults = get().advisorDefaults[projectCwd];
       const project = get().state?.projects.find((g) => g.project.path === projectCwd)?.project;
       const lastAdvisorModel = project?.lastAdvisorModel ?? defaults?.model ?? null;
-      const advisor = project?.lastAdvisor ?? defaults?.enabled ?? false;
+      const advisor =
+        project?.lastAdvisor ?? get().state?.defaultAdvisor ?? defaults?.enabled ?? false;
       try {
         const { tabId } = await backend.spawnSession({
           projectCwd,

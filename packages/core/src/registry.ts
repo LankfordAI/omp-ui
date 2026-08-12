@@ -17,6 +17,8 @@ export interface RegistrySettings {
   planFormat: PlanFormat;
   /** Auto-answer a late advisor review (issue #111); app-level, default on. */
   advisorAutoReply: boolean;
+  /** Seeds the advisor on/off for new sessions (issue #174); default off. */
+  defaultAdvisor: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
   /** Release version whose update card the user dismissed ("Later"). */
@@ -79,6 +81,12 @@ export const SETTINGS: SettingDescriptors = {
   ),
   advisorAutoReply: validatedSetting(
     () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  // The app default is off (issue #174): omp config may say on, but a booted
+  // app's preference wins for new sessions with no per-project memory.
+  defaultAdvisor: validatedSetting(
+    () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
   modelFavorites: (() => {
@@ -484,6 +492,14 @@ export class Registry {
 
   setAdvisorAutoReply(on: boolean): void {
     this.#setSetting("advisorAutoReply", on);
+  }
+
+  get defaultAdvisor(): boolean {
+    return this.#getSetting("defaultAdvisor");
+  }
+
+  setDefaultAdvisor(on: boolean): void {
+    this.#setSetting("defaultAdvisor", on);
   }
 
   setSkipDeleteConfirmation(skip: boolean): void {

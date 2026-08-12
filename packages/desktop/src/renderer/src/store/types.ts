@@ -154,6 +154,7 @@ export interface SettingsSlice {
   setDefaultAgentMode(mode: AgentMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
+  setDefaultAdvisor(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;

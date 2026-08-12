@@ -14,6 +14,7 @@ interface RegistrySettings {
   defaultAgentMode: AgentMode;
   planFormat: PlanFormat;
   advisorAutoReply: boolean;
+  defaultAdvisor: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
   dismissedAppUpdateVersion: string | null;
@@ -66,6 +67,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
+    defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     dismissedAppUpdateVersion: null,

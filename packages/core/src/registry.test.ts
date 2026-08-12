@@ -48,6 +48,7 @@ describe("SETTINGS", () => {
       "defaultAgentMode",
       "planFormat",
       "advisorAutoReply",
+      "defaultAdvisor",
       "modelFavorites",
       "skipDeleteConfirmation",
       "dismissedAppUpdateVersion",
@@ -79,6 +80,8 @@ describe("Registry.load", () => {
     expect(reg.planFormat).toBe("html");
     // Issue #111: auto-reply defaults on.
     expect(reg.advisorAutoReply).toBe(true);
+    // Issue #174: the advisor does not default on.
+    expect(reg.defaultAdvisor).toBe(false);
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -160,6 +163,7 @@ describe("Registry.load", () => {
           defaultAgentMode: "PLAN",
           planFormat: "markdown",
           advisorAutoReply: "true",
+          defaultAdvisor: "yes",
           modelFavorites: [42, "kept", null, "also-kept"],
           skipDeleteConfirmation: 1,
           dismissedAppUpdateVersion: false,
@@ -182,6 +186,7 @@ describe("Registry.load", () => {
     expect(reg.defaultAgentMode).toBe("plan");
     expect(reg.planFormat).toBe("html");
     expect(reg.advisorAutoReply).toBe(true);
+    expect(reg.defaultAdvisor).toBe(false);
     expect(reg.getFavorites()).toEqual(["kept", "also-kept"]);
     expect(reg.skipDeleteConfirmation).toBe(false);
     expect(reg.dismissedAppUpdateVersion).toBeNull();
@@ -306,6 +311,22 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).advisorAutoReply).toBe(true);
   });
 
+  it("round-trips default advisor and falls back to off for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setDefaultAdvisor(true);
+    expect(Registry.load(file).defaultAdvisor).toBe(true);
+    reg.setDefaultAdvisor(false);
+    expect(Registry.load(file).defaultAdvisor).toBe(false);
+
+    const junk = tmpFile();
+    fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { defaultAdvisor: "no" } }));
+    expect(Registry.load(junk).defaultAdvisor).toBe(false);
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).defaultAdvisor).toBe(false);
+  });
+
   it("defaults theme and launch update checks when the settings fields are absent", () => {
     const file = tmpFile();
     fs.writeFileSync(
@@ -337,6 +358,7 @@ describe("Registry persistence", () => {
       ["defaultAgentMode", (registry) => registry.setDefaultAgentMode("plan")],
       ["planFormat", (registry) => registry.setPlanFormat("html")],
       ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
+      ["defaultAdvisor", (registry) => registry.setDefaultAdvisor(false)],
       ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],
       ["themeId", (registry) => registry.setThemeId("graphite")],
       ["appUpdateCheckOnLaunch", (registry) => registry.setAppUpdateCheckOnLaunch(true)],

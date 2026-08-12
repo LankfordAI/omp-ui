@@ -126,6 +126,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setAdvisorAutoReply",
     ...request<[on: boolean], void>(),
   },
+  setDefaultAdvisor: {
+    channel: "settings:setDefaultAdvisor",
+    ...request<[on: boolean], void>(),
+  },
   setSkipDeleteConfirmation: {
     channel: "settings:setSkipDeleteConfirmation",
     ...request<[skip: boolean], void>(),

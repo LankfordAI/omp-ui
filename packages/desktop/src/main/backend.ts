@@ -231,6 +231,10 @@ export class MainBackend {
           this.registry.setAdvisorAutoReply(on);
           await this.broadcast();
         },
+        [CH.setDefaultAdvisor]: async (on: boolean) => {
+          this.registry.setDefaultAdvisor(on);
+          await this.broadcast();
+        },
         [CH.setSkipDeleteConfirmation]: async (skip: boolean) => {
           this.registry.setSkipDeleteConfirmation(skip);
           await this.broadcast();
@@ -555,6 +559,7 @@ export class MainBackend {
       planFormat: this.registry.planFormat,
       defaultAgentMode: this.registry.defaultAgentMode,
       advisorAutoReply: this.registry.advisorAutoReply,
+      defaultAdvisor: this.registry.defaultAdvisor,
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
       themeId: this.registry.themeId,

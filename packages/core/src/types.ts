@@ -96,6 +96,8 @@ export interface BackendState {
   planFormat: PlanFormat;
   /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
   advisorAutoReply: boolean;
+  /** Seeds the advisor on/off for new sessions, default off (issue #174). */
+  defaultAdvisor: boolean;
   modelFavorites: string[];
   /** Whether destructive session deletion proceeds without a renderer warning. */
   skipDeleteConfirmation: boolean;

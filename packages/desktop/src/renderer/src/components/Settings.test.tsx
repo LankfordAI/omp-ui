@@ -40,6 +40,7 @@ const backendMock = {
   setDefaultAgentMode: vi.fn(async () => {}),
   setPlanFormat: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
+  setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -325,5 +326,35 @@ describe("Settings General page advisor auto-reply (issue #111)", () => {
     seedAutoReply(false);
     await renderSettings();
     expect(autoReplySwitch().getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("Settings General page default advisor (issue #174)", () => {
+  const seedDefaultAdvisor = (defaultAdvisor: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ defaultAdvisor }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const defaultAdvisorSwitch = (): HTMLElement =>
+    document.querySelector('[role="switch"][aria-label="Default advisor"]') as HTMLElement;
+
+  it("shows the setting off and persists switching it on", async () => {
+    seedDefaultAdvisor(false);
+    await renderSettings();
+    expect(defaultAdvisorSwitch().getAttribute("aria-checked")).toBe("false");
+    click(defaultAdvisorSwitch());
+    expect(backendMock.setDefaultAdvisor).toHaveBeenCalledWith(true);
+  });
+
+  it("reflects a persisted on setting", async () => {
+    seedDefaultAdvisor(true);
+    await renderSettings();
+    expect(defaultAdvisorSwitch().getAttribute("aria-checked")).toBe("true");
   });
 });

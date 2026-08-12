@@ -189,6 +189,7 @@ function GeneralPage() {
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const setSkipDeleteConfirmation = useStore((s) => s.setSkipDeleteConfirmation);
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
+  const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
   const agentMode = state?.defaultAgentMode ?? "plan";
@@ -240,6 +241,16 @@ function GeneralPage() {
           on={state?.advisorAutoReply ?? true}
           onChange={(next) => void setAdvisorAutoReply(next)}
           label="Advisor auto-reply"
+        />
+      </Row>
+      <Row
+        title="Default advisor"
+        hint="Start new sessions with the advisor running. Projects with a remembered advisor keep their own last-used state."
+      >
+        <Switch
+          on={state?.defaultAdvisor === true}
+          onChange={(next) => void setDefaultAdvisor(next)}
+          label="Default advisor"
         />
       </Row>
       <Row

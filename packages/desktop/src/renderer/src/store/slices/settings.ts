@@ -76,6 +76,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     }
   },
 
+  async setDefaultAdvisor(on) {
+    try {
+      await backend.setDefaultAdvisor(on);
+    } catch (err) {
+      alertError(err);
+    }
+  },
+
   async setSkipDeleteConfirmation(skip) {
     try {
       await backend.setSkipDeleteConfirmation(skip);

@@ -31,7 +31,8 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
   pasted image attachments, and `@`-mentions of project files. The branch
   control reports configured-upstream divergence for the project and offers
   guarded fast-forward pulls. The five composer parameters are remembered per
-  project and seed the next session.
+  project and seed the next session; where a project has none, a Settings
+  default decides whether the advisor is on.
 - **Plan mode and plan review.** Read-only planning driven by a generated
   extension ([ADR-0007](docs/adr/0007-plan-mode-via-generated-extension.md)),
   gated on your verdict: execute into the same session, a compacted session,

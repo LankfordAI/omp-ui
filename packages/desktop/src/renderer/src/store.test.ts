@@ -92,6 +92,7 @@ const mockBackend = {
   setDefaultMode: vi.fn(),
   setPlanFormat: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
+  setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -1697,6 +1698,60 @@ describe("handleRpcFrame routing", () => {
     await flushMicrotasks();
   });
 
+  it("fresh implementation spawns with the app default advisor when none is staged (issue #174)", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-default-on" });
+    useStore.setState({
+      state: { ...stateWithRecord(null), defaultAdvisor: true },
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    openReview("d1");
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    await flushMicrotasks();
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectCwd: "/p",
+        mode: "rpc-ui",
+        advisor: true,
+        startInPlanMode: false,
+      }),
+    );
+    useStore.setState({
+      rpc: {
+        ...useStore.getState().rpc,
+        "fresh-default-on": rpcTabState({ status: "ready", planText: null }),
+      },
+    });
+    await flushMicrotasks();
+  });
+
+  it("fresh implementation defaults the advisor off against omp config when none is staged (issue #174)", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-default-off" });
+    useStore.setState({
+      state: stateWithRecord(null),
+      advisorDefaults: { "/p": { enabled: true, model: null } },
+    });
+    openReview("d2");
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    await flushMicrotasks();
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectCwd: "/p",
+        mode: "rpc-ui",
+        advisor: false,
+        startInPlanMode: false,
+      }),
+    );
+    useStore.setState({
+      rpc: {
+        ...useStore.getState().rpc,
+        "fresh-default-off": rpcTabState({ status: "ready", planText: null }),
+      },
+    });
+    await flushMicrotasks();
+  });
+
   /** Staged model with efforts, distinct from anything seeded on the tab. */
   const MODEL_X = { id: "mx", name: "MX", provider: "p2", thinking: { efforts: ["low", "high"] } };
 
@@ -2616,6 +2671,44 @@ describe("prompting, slash commands, and session ops", () => {
       mode: "pty",
       advisor: true,
       advisorModel: "openrouter/a/b:high",
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  it("newSession uses the app default advisor when the project has none (issue #174)", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "default-on-tab" });
+    useStore.setState({
+      state: { ...stateWithRecord(null), defaultAdvisor: true },
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  it("the app default of false overrides omp config for new sessions (issue #174)", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "default-off-tab" });
+    useStore.setState({
+      state: stateWithRecord(null),
+      advisorDefaults: { "/p": { enabled: true, model: null } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
       cols: 80,
       rows: 24,
     });

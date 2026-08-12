@@ -9,6 +9,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     defaultAgentMode: "plan",
     planFormat: "html",
     advisorAutoReply: true,
+    defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",

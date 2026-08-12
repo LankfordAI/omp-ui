@@ -99,8 +99,12 @@ thinking level, so the advisor's required relaunch reapplies them instead of
 falling back to a different model. Advisor model + level remain one omp
 `model[:level]` selector; a null selector defers to `modelRoles.advisor` and is
 never the empty string. The advisor state itself remains session-scoped; the
-project fields are only last-used defaults for a new session.
-_Avoid_: global advisor setting, resetting model on advisor toggle
+project fields are only last-used defaults for a new session. A separate app
+preference, **Default advisor** (Settings → General, off by default), decides
+whether a new session with no per-project memory starts with the advisor on;
+it supersedes omp's own config for that one decision, while the advisor model
+still falls back to omp config.
+_Avoid_: resetting model on advisor toggle
 
 **Attachment**:
 An image on an outgoing prompt. In rpc-ui it rides the prompt frame's `images`
