@@ -176,8 +176,8 @@ function CommitField({
 /* ----------------------------------------------------------------- general */
 
 const DEFAULT_SESSION_MODE_OPTIONS = [
-  { value: "pty", label: "terminal" },
   { value: "rpc-ui", label: "native" },
+  { value: "pty", label: "terminal" },
 ] as const;
 const DEFAULT_AGENT_MODE_OPTIONS = [
   { value: "plan", label: "plan" },
