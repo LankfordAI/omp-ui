@@ -8,7 +8,7 @@ import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, Panel, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, MiddleTruncate, Panel, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -285,9 +285,13 @@ function ProjectSection({
           >
             <Chevron open={open} className="mt-1 text-ink-dim" />
             <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
-                <span className="truncate font-display text-xs font-semibold text-ink">
-                  {project.name}
+              <MiddleTruncate
+                text={project.name}
+                className="font-display text-xs font-semibold text-ink"
+              />
+              <span className="mt-0.5 flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">
+                  {project.path}
                 </span>
                 <Chip mono title={`${sessions.length} sessions`}>
                   {sessions.length}
@@ -298,9 +302,6 @@ function ProjectSection({
                     {live}
                   </Chip>
                 )}
-              </span>
-              <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-faint">
-                {project.path}
               </span>
             </span>
           </button>

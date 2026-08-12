@@ -735,6 +735,114 @@ describe("Sidebar project open control (issue #169)", () => {
   });
 });
 
+describe("project name display", () => {
+  function projectSection(name: string): HTMLElement {
+    const found = [...document.body.querySelectorAll<HTMLElement>("section")].find((section) =>
+      section.textContent?.includes(name),
+    );
+    if (found === undefined) throw new Error(`project section not found: ${name}`);
+    return found;
+  }
+
+  const nameState = (path: string, name: string, lives: Array<"live" | "dormant">) =>
+    backendState({
+      projects: [
+        {
+          project: {
+            path,
+            name,
+            addedAt: "2026-08-03T00:00:00.000Z",
+            lastModel: null,
+            lastAdvisorModel: null,
+          },
+          sessions: lives.map((live, i) => ({
+            tabId: `tab-${i + 1}`,
+            sessionId: `session-${i + 1}`,
+            lineageDir: `omp-ui--name--session-${i + 1}`,
+            projectCwd: path,
+            launchedAt: "2026-08-03T00:00:00.000Z",
+            mode: "rpc-ui" as const,
+            advisor: false,
+            advisorModel: null,
+            cachedTitle: `Session ${i + 1}`,
+            cachedModified: "2026-08-03T00:00:00.000Z",
+            title: `Session ${i + 1}`,
+            status: "complete" as const,
+            live,
+          })),
+        },
+      ],
+    });
+
+  it("splits long project names for middle ellipsis with an sr-only full copy", () => {
+    const name = "terraform-aws-vpc-module";
+    useStore.setState({ state: nameState("/projects/terraform-aws-vpc-module", name, ["live"]) });
+    renderSidebar();
+
+    const section = projectSection(name);
+    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].filter(
+      (span) => span.textContent === name,
+    );
+    expect(srOnly).toHaveLength(1);
+
+    const wrapper = srOnly[0]!.parentElement;
+    if (wrapper === null) throw new Error("sr-only copy has no parent");
+    const hidden = wrapper.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
+    expect(hidden).toHaveLength(2);
+    expect(hidden[0]!.textContent! + hidden[1]!.textContent!).toBe(name);
+    expect(hidden[0]!.classList.contains("truncate")).toBe(true);
+    expect(hidden[0]!.textContent).toBe("terraform-aw");
+    expect(hidden[1]!.classList.contains("shrink-0")).toBe(true);
+    expect(hidden[1]!.textContent).toBe("s-vpc-module");
+    expect(section.textContent).not.toContain("…");
+  });
+
+  it("splits on code-point boundaries when the name contains astral characters", () => {
+    const name = "proj-🚀-x";
+    useStore.setState({ state: nameState("/projects/proj-rocket-x", name, ["live"]) });
+    renderSidebar();
+
+    const section = projectSection(name);
+    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].find(
+      (span) => span.textContent === name,
+    );
+    if (srOnly === undefined) throw new Error("sr-only name copy not found");
+    const wrapper = srOnly.parentElement;
+    if (wrapper === null) throw new Error("sr-only copy has no parent");
+    const hidden = wrapper.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
+    expect(hidden).toHaveLength(2);
+    expect(hidden[0]!.textContent! + hidden[1]!.textContent!).toBe(name);
+    expect(hidden[0]!.textContent).toBe("proj");
+    expect(hidden[1]!.textContent).toBe("-🚀-x");
+  });
+
+  it("renders the count and live chips on the path row, not the name row", () => {
+    const path = "/projects/chips";
+    const name = "Chips";
+    useStore.setState({ state: nameState(path, name, ["live", "dormant"]) });
+    renderSidebar();
+
+    const section = projectSection(name);
+    const countChip = section.querySelector<HTMLElement>('[title="2 sessions"]');
+    if (countChip === null) throw new Error("count chip not found");
+    const liveChip = section.querySelector<HTMLElement>('[title="1 live"]');
+    if (liveChip === null) throw new Error("live chip not found");
+
+    const chipRow = countChip.parentElement;
+    if (chipRow === null) throw new Error("count chip has no parent row");
+    expect(chipRow.textContent).toContain(path);
+    expect(liveChip.parentElement).toBe(chipRow);
+
+    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].find(
+      (span) => span.textContent === name,
+    );
+    if (srOnly === undefined) throw new Error("sr-only name copy not found");
+    const nameRow = srOnly.parentElement;
+    if (nameRow === null) throw new Error("sr-only name copy has no parent");
+    expect(nameRow.querySelector('[title$="sessions"]')).toBeNull();
+  });
+});
+
 describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
   /** `projA`/`projB` each have PAGE+1=9 sessions, one per tab id `aN` / `bN`. */
   const projA = "/p/a";

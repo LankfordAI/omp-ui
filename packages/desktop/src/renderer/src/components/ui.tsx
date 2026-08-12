@@ -332,6 +332,33 @@ export function Dot({
   );
 }
 
+/**
+ * Middle-ellipsis text: the head truncates, the tail always survives —
+ * Finder-style, for names whose differentiator is at the end (directory
+ * basenames). The full string stays in the accessibility tree via an
+ * sr-only copy; the visible halves are aria-hidden so the mid-word seam
+ * never reaches screen readers.
+ *
+ * The wrapper's overflow-hidden guards the pathological case where the
+ * tail alone exceeds the row width: it clips instead of scrolling the
+ * sidebar (the project list scroll container, Sidebar.tsx "overflow-y-auto",
+ * does not clip horizontally).
+ */
+export function MiddleTruncate({ text, className }: { text: string; className?: string }) {
+  // Split on code points, never inside a surrogate pair: a naive UTF-16
+  // slice can leave a lone surrogate at the seam and render U+FFFD even
+  // when nothing is truncated (e.g. emoji in directory names).
+  const chars = Array.from(text);
+  const split = Math.ceil(chars.length / 2);
+  return (
+    <span className={cn("flex overflow-hidden", className)}>
+      <span className="sr-only">{text}</span>
+      <span aria-hidden className="truncate">{chars.slice(0, split).join("")}</span>
+      <span aria-hidden className="shrink-0">{chars.slice(split).join("")}</span>
+    </span>
+  );
+}
+
 const TONE_CAPSULE: Record<Tone, string> = {
   neutral: "border-line bg-raised divide-line",
   signal: "border-signal-dim/50 bg-signal-wash divide-signal-dim/40",
