@@ -70,7 +70,7 @@ describe("writePlanExtension", () => {
     expect(source).not.toContain("sendPlanModeContext");
   });
 
-  it("carries the direct-html plan contract into the generated source", () => {
+  it("carries the direct-html plan contract into the generated source", async () => {
     const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
     // The renderer sends the plan format as the command's second token, the
     // hidden instruction names the single file the agent writes, and the
@@ -81,6 +81,21 @@ describe("writePlanExtension", () => {
     expect(source).toContain("local://<slug>-plan.html");
     expect(source).toContain("resolveHtmlPlan");
     expect(source).not.toContain("planHtmlAbsPath");
+
+    const h = harness(await loadExtension());
+    await h.run("on html");
+    const instruction = entries(h.sent)[0]?.content ?? "";
+    expect(instruction).toContain("explicit light canvas and dark foreground");
+    expect(instruction).toContain("WCAG AA contrast of at least 4.5:1");
+    expect(instruction).toContain("readable text in every colored callout");
+    expect(instruction).toContain("do not use omp-ui CSS variables");
+    expect(instruction).toContain("inherit host or theme colors");
+    expect(instruction).toContain("fit any iframe with no horizontal page scrolling");
+    expect(instruction).toContain("viewport meta tag");
+    expect(instruction).toContain("border-box sizing");
+    expect(instruction).toContain("fluid widths capped by max-width");
+    expect(instruction).toContain("wrap long code and paths");
+    expect(instruction).toContain("fit tables within the viewport without overflow");
   });
 
   it("never quietly reverts to asking the agent for both plan files", () => {

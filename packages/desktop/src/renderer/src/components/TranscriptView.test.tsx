@@ -308,4 +308,26 @@ describe("PlanCard (issue #93)", () => {
     expect(el.textContent).toContain("local://auth-plan.md");
     act(() => root.unmount());
   });
+
+  it("renders a loaded html plan through the guarded empty-sandbox iframe", () => {
+    const html = "<h1>Auth refresh</h1><p>html-plan-body</p>";
+    const item = {
+      ...planProposalItem("Auth refresh", "local://auth-plan.html", null),
+      text: html,
+    };
+    const { el, root } = render([item]);
+
+    const disclosure = [...el.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("show plan"),
+    );
+    expect(disclosure).toBeDefined();
+    act(() => disclosure!.click());
+
+    const frame = el.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
+    expect(frame).not.toBeNull();
+    expect(frame!.getAttribute("sandbox")).toBe("");
+    expect(frame!.getAttribute("srcdoc")).toContain(html);
+    expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
+    act(() => root.unmount());
+  });
 });

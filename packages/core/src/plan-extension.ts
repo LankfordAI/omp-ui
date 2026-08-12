@@ -104,9 +104,16 @@ const HTML_PLAN_BODY =
   "the implementer executes. Ignore any omp tooling text that names " +
   "local://<slug>-plan.md. The HTML must be a complete, self-contained document: " +
   "inline CSS only, no external resources, no JavaScript (scripts will not run). " +
-  "Use the expressiveness HTML gives you — layout, tables, callouts, inline SVG " +
-  "diagrams — to make the plan easier to review, and keep the styling modest so " +
-  "the document stays mostly content. ";
+  "Give the document an explicit light canvas and dark foreground; do not use " +
+  "omp-ui CSS variables or inherit host or theme colors. Every normal-text " +
+  "foreground/background pair must meet WCAG AA contrast of at least 4.5:1, " +
+  "including readable text in every colored callout. Make the document " +
+  "responsively fit any iframe with no horizontal page scrolling: include a " +
+  "viewport meta tag, apply border-box sizing, use fluid widths capped by " +
+  "max-width, wrap long code and paths, and fit tables within the viewport " +
+  "without overflow. Use the expressiveness HTML gives you — layout, tables, " +
+  "callouts, inline SVG diagrams — to make the plan easier to review, and keep " +
+  "the styling modest so the document stays mostly content. ";
 
 const PLAN_SPEC_SUFFIX =
   "The plan is an execution spec — a competent implementer who never saw this " +

@@ -650,7 +650,8 @@ describe("PlanReview plan rendering (issue #109)", () => {
     // The empty token list is the whole security story: no scripts, no
     // same-origin access, no forms, no popups, no navigation.
     expect(frame!.getAttribute("sandbox")).toBe("");
-    expect(frame!.getAttribute("srcdoc")).toBe("<h1>Fix</h1><p>html-body</p>");
+    expect(frame!.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
+    expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
     expect(document.body.textContent).not.toContain("markdown-only-body");
     // Only the plan area changes — every control still answers the gate.
     expect(executeButton()).toBeDefined();

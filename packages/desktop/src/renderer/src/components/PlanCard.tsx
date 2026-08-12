@@ -1,4 +1,5 @@
 import { isHtmlPlanPath } from "@omp-ui/core/plan";
+import { preparePlanDocument } from "../lib/plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
 import { Chip, Disclosure, Label, Panel } from "./ui";
@@ -30,7 +31,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
                 <iframe
                   title="proposed plan"
                   sandbox=""
-                  srcDoc={item.text}
+                  srcDoc={preparePlanDocument(item.text)}
                   className="h-[28rem] w-full rounded-md border border-line bg-white"
                 />
               ) : (

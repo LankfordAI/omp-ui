@@ -4,6 +4,7 @@ import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
+import { preparePlanDocument } from "../lib/plan-document";
 import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
@@ -328,7 +329,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
               <iframe
                 title="proposed plan"
                 sandbox=""
-                srcDoc={planHtml}
+                srcDoc={preparePlanDocument(planHtml)}
                 className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
               />
             ) : planText ? (
