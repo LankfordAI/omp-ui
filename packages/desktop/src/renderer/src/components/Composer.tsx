@@ -227,7 +227,7 @@ export function Composer({ tabId }: { tabId: string }) {
 
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
-  useLayoutEffect(() => {
+  const fit = useCallback(() => {
     const el = box.current;
     if (el === null) return;
     el.style.height = "auto";
@@ -244,7 +244,29 @@ export function Composer({ tabId }: { tabId: string }) {
     el.style.overflowY = wanted > max ? "auto" : "hidden";
     // Resizing fires no scroll event, so the mirror has to be told.
     if (mirror.current !== null) mirror.current.scrollTop = el.scrollTop;
-  }, [text, compact]);
+  }, [compact]);
+
+  useLayoutEffect(() => fit(), [text, fit]);
+
+  // A width change re-wraps the draft without touching `text` — window
+  // resize, zoom, the inspector rail's pane — and a fit measured for the old
+  // wrap clips the new one with overflow locked hidden: no scrollbar, no
+  // wheel. Observe the box directly (the TerminalTab/ShellDrawer pattern);
+  // the width check skips the height-only echo of our own fit, and a hidden
+  // (display:none) tab reports 0 until it resurfaces — which is itself a
+  // refit trigger, so a composer mounted hidden fits itself on first reveal.
+  useEffect(() => {
+    const el = box.current;
+    if (el === null) return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === 0 || el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fit]);
 
   // A freshly spawned session should land with the caret ready to type — the point of
   // the composer is that the next keystroke is a message. Tabs stay mounted (switching

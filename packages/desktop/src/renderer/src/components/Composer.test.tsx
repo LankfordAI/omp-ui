@@ -148,6 +148,7 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
 });
 
 describe("compact Composer", () => {
@@ -609,5 +610,37 @@ describe("Composer BuildPlanControl", () => {
     expect(document.body.textContent).not.toContain("omp-ui-plan");
     act(() => rows[0]!.click());
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/plan");
+  });
+});
+
+describe("Composer width refit", () => {
+  it("re-fits when the box width changes without a text change", () => {
+    let ro: (() => void) | null = null;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: ResizeObserverCallback) {
+        ro = () => cb([], this as unknown as ResizeObserver);
+      }
+      observe() {}
+      disconnect() {}
+    });
+    seed("ready"); renderComposer();
+    const el = document.body.querySelector("textarea")!;
+    // jsdom has no layout; supply the metrics fit() reads.
+    el.style.lineHeight = "20px";
+    el.style.paddingTop = "8px";
+    el.style.paddingBottom = "8px";
+    let width = 200;
+    let scroll = 3 * 20 + 16; // three rows of content
+    Object.defineProperty(el, "clientWidth", { configurable: true, get: () => width });
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => scroll });
+    act(() => ro!());
+    expect(el.style.height).toBe("76px");      // grows to fit
+    expect(el.style.overflowY).toBe("hidden");
+    // The same draft re-wraps far past the 12-row cap after a width change.
+    width = 100;
+    scroll = 30 * 20 + 16;
+    act(() => ro!());
+    expect(el.style.height).toBe("256px");     // 12 * 20 + 16: capped
+    expect(el.style.overflowY).toBe("auto");   // now scrollable
   });
 });
