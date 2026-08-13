@@ -84,7 +84,10 @@ describe("startFdWatchdog (issue #184)", () => {
         intervalMs: 1_000,
         limits: { maxTotal: 2 },
         listFds: () => current.map((_, i) => String(i)),
-        readFdTarget: (p) => current[Number(p.slice(p.lastIndexOf("/") + 1))]!,
+        readFdTarget: (p) => {
+          const sep = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+          return current[Number(p.slice(sep + 1))]!;
+        },
         listChildren: () => [],
         log,
       });
