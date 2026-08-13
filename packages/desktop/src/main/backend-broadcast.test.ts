@@ -39,6 +39,7 @@ const win = {
   isDestroyed: () => false,
   webContents: {
     isDestroyed: () => false,
+    isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
   },
 };
@@ -144,5 +145,62 @@ describe("ordered backend broadcasts (issue #146)", () => {
     await expect(invoke(CH.setThemeId, "nord")).resolves.toBeUndefined();
     expect(broadcastStates()).toHaveLength(1);
     expect(broadcastStates()[0]?.themeId).toBe("nord");
+  });
+});
+
+describe("window sink resilience (issue #183)", () => {
+  const freshBackend = (): MainBackend =>
+    new MainBackend(win as never, path.join(base, "registry.json"));
+
+  it("skips the window sink while the renderer is crashed", async () => {
+    const original = win.webContents.isCrashed;
+    win.webContents.isCrashed = () => true;
+    try {
+      freshBackend().registerIpc();
+      await invoke(CH.setThemeId, "nord");
+      expect(sent).toEqual([]);
+    } finally {
+      win.webContents.isCrashed = original;
+    }
+  });
+
+  it("tolerates a disposed-frame throw and rate-limits the warn", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const original = win.webContents.send;
+    win.webContents.send = () => {
+      throw new Error("Render frame was disposed before WebFrameMain could be accessed");
+    };
+    try {
+      freshBackend().registerIpc();
+      await invoke(CH.setThemeId, "nord");
+      await invoke(CH.setThemeId, "nord");
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(61_000);
+      await invoke(CH.setThemeId, "nord");
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      win.webContents.send = original;
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("remote sinks still receive events when the window sink fails", async () => {
+    const original = win.webContents.send;
+    win.webContents.send = () => {
+      throw new Error("Render frame was disposed before WebFrameMain could be accessed");
+    };
+    const remote: { channel: string; args: unknown[] }[] = [];
+    try {
+      const backend = freshBackend();
+      backend.registerIpc();
+      backend.addSink((channel, args) => remote.push({ channel, args }));
+      await invoke(CH.setThemeId, "nord");
+      expect(remote.map((e) => e.channel)).toContain(CH.onStateChanged);
+    } finally {
+      win.webContents.send = original;
+    }
   });
 });

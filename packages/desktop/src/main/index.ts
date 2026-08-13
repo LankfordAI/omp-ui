@@ -12,6 +12,9 @@ import {
   windowStatePath,
 } from "./window-state";
 import { installApplicationMenu } from "./application-menu";
+import { startFdWatchdog } from "./fd-watchdog";
+import { appendMainLog } from "./main-log";
+import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 
 // Packaged, standalone unpackaged, and electron-vite runs need independent
 // userData dirs because requestSingleInstanceLock is scoped to userData. A
@@ -44,6 +47,7 @@ if (!app.requestSingleInstanceLock()) {
   // The `before-quit` flush reads window geometry from the renderer process;
   // the closure is set once whenReady has a window (see whenReady below).
   let flushWindowState: (() => void) | null = null;
+  let stopFdWatchdog: (() => void) | null = null;
 
   /** Awaitable quit guard used by window and application quit paths. */
   const confirmLiveQuit = async (): Promise<boolean> => {
@@ -189,6 +193,42 @@ if (!app.requestSingleInstanceLock()) {
       openExternalSafe(details.url);
     });
 
+    const logDir = join(app.getPath("userData"), "logs");
+
+    // Process-death telemetry + bounded renderer recovery (issues #183, #184):
+    // a dead renderer must never leave a blank window for the user to kill.
+    const rendererDeaths: ProcessDeath[] = [];
+    win.webContents.on("render-process-gone", (_event, details) => {
+      rendererDeaths.push({ at: Date.now(), reason: details.reason });
+      appendMainLog(
+        logDir,
+        "main.log",
+        `[renderer] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`,
+      );
+      if (win.isDestroyed()) return;
+      if (shouldReloadRenderer(details.reason, rendererDeaths, Date.now())) {
+        appendMainLog(logDir, "main.log", "[renderer] reloading webContents after death");
+        win.webContents.reload();
+      } else {
+        appendMainLog(
+          logDir,
+          "main.log",
+          "[renderer] crash loop — leaving window dead; restart the app",
+        );
+      }
+    });
+    win.webContents.on("unresponsive", () => {
+      appendMainLog(logDir, "main.log", "[renderer] unresponsive");
+    });
+    app.on("child-process-gone", (_event, details) => {
+      // GPU/utility deaths blank or freeze the UI without killing the renderer.
+      appendMainLog(
+        logDir,
+        "main.log",
+        `[process] child-process-gone type=${details.type} reason=${details.reason}`,
+      );
+    });
+
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     const be = new MainBackend(win, registryFile, {
@@ -214,6 +254,7 @@ if (!app.requestSingleInstanceLock()) {
       webRoot: join(__dirname, "../web"),
     });
     backend = be;
+    stopFdWatchdog = startFdWatchdog({ logDir });
     be.registerIpc();
     void be.hydrateAll();
     void be.startRemote();
@@ -260,6 +301,7 @@ if (!app.requestSingleInstanceLock()) {
     // inside the debounce window is read fresh here (see whenReady).
     flushWindowState?.();
     appQuitting = true;
+    stopFdWatchdog?.();
     backend?.killAll();
     // Pasted-image scratch files are only ever needed by a live omp process.
     clearImageScratch();

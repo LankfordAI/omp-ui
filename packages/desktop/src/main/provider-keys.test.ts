@@ -32,7 +32,7 @@ const { electronKeyCipher } = await import("./key-cipher");
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, send: () => {} },
+  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 
 const KEY = "OPENROUTER_API_KEY";

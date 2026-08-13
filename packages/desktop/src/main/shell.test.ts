@@ -41,6 +41,7 @@ const win = {
   isDestroyed: () => false,
   webContents: {
     isDestroyed: () => false,
+    isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
   },
 };

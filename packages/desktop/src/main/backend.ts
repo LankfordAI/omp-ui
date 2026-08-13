@@ -111,8 +111,17 @@ export class MainBackend {
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
     this.addSink((channel, args) => {
-      if (this.win.isDestroyed() || this.win.webContents.isDestroyed()) return;
-      this.win.webContents.send(channel, ...args);
+      if (this.win.isDestroyed()) return;
+      const wc = this.win.webContents;
+      // A crashed renderer is not "destroyed" — sending into it throws
+      // "Render frame was disposed …" once per frame until the app is killed
+      // (issue #183).
+      if (wc.isDestroyed() || wc.isCrashed()) return;
+      try {
+        wc.send(channel, ...args);
+      } catch (err) {
+        this.noteSinkFailure(err);
+      }
     });
     this.appUpdater = new AppUpdater({
       win,
@@ -184,6 +193,18 @@ export class MainBackend {
 
   private send(channel: string, ...args: unknown[]): void {
     for (const sink of this.sinks) sink(channel, args);
+  }
+
+  private sinkFailureLastLog = 0;
+
+  /** Rate-limited warn for window-sink failures — a dead renderer must not spam. */
+  private noteSinkFailure(err: unknown): void {
+    const now = Date.now();
+    if (now - this.sinkFailureLastLog < 60_000) return;
+    this.sinkFailureLastLog = now;
+    console.warn(
+      `[backend] window sink send failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   /**
