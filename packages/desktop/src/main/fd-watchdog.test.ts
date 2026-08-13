@@ -80,6 +80,7 @@ describe("startFdWatchdog (issue #184)", () => {
       let current = ["socket:[1]"];
       const stop = startFdWatchdog({
         logDir: "/tmp",
+        platform: "linux",
         intervalMs: 1_000,
         limits: { maxTotal: 2 },
         listFds: () => current.map((_, i) => String(i)),
