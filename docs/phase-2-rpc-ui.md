@@ -238,6 +238,11 @@ the prose (and in two cases omp's own `.d.ts`) implies:
   follow-up) and `immediate` | `queue` (interrupt) — omp's bundled `.d.ts`
   claims `all`/`immediate`/`wait`, which is wrong. Read the current value
   rather than hardcoding a pair.
+- `get_state.data.queuedMessageCount` counts all displayable queued work
+  (advisor cards and agent-authored custom entries included), not just
+  user-typed messages, and queued follow-ups park after a user interrupt until
+  an explicit new prompt. A nonzero count on an idle session is parked work,
+  not a stuck refresh (issue #181).
 - Slash commands run as `{ type: "prompt", message: "/stats" }`, reply
   `{ data: { agentInvoked: false } }`, and emit their output as separate
   `command_output` frames.

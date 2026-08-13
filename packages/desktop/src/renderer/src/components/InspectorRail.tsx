@@ -3,6 +3,7 @@ import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
+import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import type { RenderItem } from "../lib/transcript";
 import { findRecord, useStore, type PlanRecord, type RpcTabState } from "../store";
@@ -427,6 +428,8 @@ function SessionPane({ tabId }: { tabId: string }) {
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats);
   const model = useStore((s) => s.rpc[tabId]?.model);
+  const status = useStore((s) => s.rpc[tabId]?.status);
+  const queueChip = queueChipView(status === "running", session?.queuedMessageCount ?? 0);
   const refreshState = useStore((s) => s.refreshState);
   const refreshStats = useStore((s) => s.refreshStats);
 
@@ -463,7 +466,13 @@ function SessionPane({ tabId }: { tabId: string }) {
             <Mono>{session ? exactNum(session.messageCount) : "—"}</Mono>
           </Row>
           <Row label="queued">
-            <Mono>{session ? exactNum(session.queuedMessageCount) : "—"}</Mono>
+            <Mono title={queueChip?.title}>
+              {session
+                ? `${exactNum(session.queuedMessageCount)}${
+                    queueChip && status !== "running" ? " (parked)" : ""
+                  }`
+                : "—"}
+            </Mono>
           </Row>
         </dl>
       </Section>

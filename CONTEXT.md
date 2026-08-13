@@ -200,6 +200,16 @@ switch in the composer's advisor control, default on. Terminal tabs are
 excluded — a PTY carries no prompt channel to inject into.
 _Avoid_: advisor loop, auto-prompt, advisor echo
 
+**Parked message**:
+A queued item omp still holds while the live session is idle. omp's
+`queuedMessageCount` counts all displayable queued work — user follow-ups and
+steers, but also advisor cards, agent-authored custom entries, and deferred
+messages — and queued follow-ups only drain at a clean turn end: after a user
+interrupt they park until an explicit new prompt. The composer therefore labels
+the count `parked: N` whenever the agent is not running, since nothing drains
+while idle (issue #181).
+_Avoid_: stuck queue, ghost message
+
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists the focus session's plan
 history — the pending plan first, with review / request changes / not now

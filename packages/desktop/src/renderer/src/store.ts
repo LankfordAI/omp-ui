@@ -297,6 +297,17 @@ const USAGE_REFRESH_MS = 500;
 const lastUsageRefresh = new Map<string, number>();
 
 /**
+ * One-shot delayed get_state after a turn ends with a nonzero queue count.
+ * omp reclaims parked advice and flushes deferred messages on settle, which
+ * can land just after agent_end; and every get_state path swallows failure,
+ * so a lost end-of-turn refresh otherwise freezes the last count forever
+ * (issue #181). One shot only: a count that survives the re-fetch is genuinely
+ * parked, and the composer now says so — polling forever would just churn.
+ */
+export const QUEUE_SETTLE_REFRESH_MS = 1500;
+const queueSettleTimers = new Map<string, number>();
+
+/**
  * Heartbeat-driven roster refresh (issue #62): every subagent_* frame wants a
  * roster read, but heartbeats arrive many times a second. Trailing throttle
  * to one quiet get_subagents round-trip per window, with in-flight
@@ -985,6 +996,27 @@ export const useStore = create<UiStore>()((set, get, api) => {
         patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
       )
       .catch(() => {});
+  };
+
+  const scheduleQueueSettleRefresh = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab || tab.status === "running") return;
+    if (tab.session.queuedMessageCount <= 0) return;
+    const prev = queueSettleTimers.get(tabId);
+    if (prev !== undefined) window.clearTimeout(prev);
+    queueSettleTimers.set(
+      tabId,
+      window.setTimeout(() => {
+        queueSettleTimers.delete(tabId);
+        const current = get().rpc[tabId];
+        // A new turn's own agent_end re-arms this; never fire mid-turn.
+        if (!current || current.status === "running") return;
+        void get()
+          .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
+          .then((resp) => applyRpcState(tabId, resp))
+          .catch(() => {});
+      }, QUEUE_SETTLE_REFRESH_MS),
+    );
   };
 
   const loadHistory = async (tabId: string): Promise<void> => {
@@ -1755,6 +1787,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
           }
           if (type === "agent_start") {
             patchRpc(tabId, { status: "running" });
+            const pending = queueSettleTimers.get(tabId);
+            if (pending !== undefined) {
+              window.clearTimeout(pending);
+              queueSettleTimers.delete(tabId);
+            }
           }
           // Context and spend grow at turn boundaries — tick the HUD meter and
           // cost counter live while the agent is still mid-run, not just once
@@ -1773,8 +1810,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
             // Refresh todoPhases/contextUsage/isStreaming after each agent run.
             void get()
               .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-              .then((resp) => applyRpcState(tabId, resp))
-              .catch(() => {});
+              .then((resp) => {
+                applyRpcState(tabId, resp);
+                scheduleQueueSettleRefresh(tabId);
+              })
+              // The refresh itself was lost — if the last-known count is
+              // nonzero it may be frozen; the settle timer is the one retry.
+              .catch(() => scheduleQueueSettleRefresh(tabId));
 
             // Session cost/token totals live on get_session_stats, which is
             // fetched once at boot — a fresh session reads $0 there. Refresh

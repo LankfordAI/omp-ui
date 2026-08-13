@@ -163,6 +163,7 @@ Object.assign(globalThis, { window: windowStub });
 // load, so the stub above must land before the store module evaluates.
 const {
   deriveSidebarSessionState,
+  QUEUE_SETTLE_REFRESH_MS,
   registerShellWriter,
   RpcCommandTimeoutError,
   useStore,
@@ -1037,6 +1038,108 @@ describe("handleRpcFrame routing", () => {
       message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
     });
     expect(sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+  });
+
+  describe("queue settle re-fetch (issue #181)", () => {
+    const getStateCalls = () =>
+      sent.filter((s) => s.cmd.type === "get_state");
+
+    /** Fires agent_end mid-run and answers the immediate get_state refresh. */
+    const endTurnWithCount = async (key: string, count: number) => {
+      useStore.getState().handleRpcFrame(key, { type: "agent_end" });
+      respond(key, getStateCalls().at(-1)!.cmd, {
+        queuedMessageCount: count,
+      });
+      await flushMicrotasks();
+    };
+
+    it("re-fetches once when a turn ends with a nonzero queue count", async () => {
+      vi.useFakeTimers();
+      try {
+        const key = `${TAB}-settle-once`;
+        useStore.setState({
+          rpc: { [key]: rpcTabState({ status: "running" }) },
+        });
+        await endTurnWithCount(key, 1);
+        expect(getStateCalls()).toHaveLength(1);
+        expect(useStore.getState().rpc[key]!.session.queuedMessageCount).toBe(
+          1,
+        );
+        // omp-side settle work (advice reclaim, deferred flush) can land just
+        // after agent_end — one delayed re-fetch catches it.
+        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS);
+        await flushMicrotasks();
+        expect(getStateCalls()).toHaveLength(2);
+        // The re-fetch settles the count; no further polling once it clears.
+        respond(key, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 0 });
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS * 4);
+        await flushMicrotasks();
+        expect(getStateCalls()).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not re-fetch when the turn ends with an empty queue", async () => {
+      vi.useFakeTimers();
+      try {
+        const key = `${TAB}-settle-empty`;
+        useStore.setState({
+          rpc: { [key]: rpcTabState({ status: "running" }) },
+        });
+        await endTurnWithCount(key, 0);
+        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS * 2);
+        await flushMicrotasks();
+        expect(getStateCalls()).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("cancels the settle timer when a new turn starts", async () => {
+      vi.useFakeTimers();
+      try {
+        const key = `${TAB}-settle-cancel`;
+        useStore.setState({
+          rpc: { [key]: rpcTabState({ status: "running" }) },
+        });
+        await endTurnWithCount(key, 1);
+        useStore.getState().handleRpcFrame(key, { type: "agent_start" });
+        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS * 2);
+        await flushMicrotasks();
+        expect(getStateCalls()).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("re-fetches when the agent_end get_state itself fails", async () => {
+      vi.useFakeTimers();
+      try {
+        const key = `${TAB}-settle-fail`;
+        useStore.setState({
+          rpc: { [key]: rpcTabState({ status: "running" }) },
+        });
+        // Seed a nonzero last-known count through one clean cycle.
+        await endTurnWithCount(key, 1);
+        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS);
+        await flushMicrotasks();
+        respond(key, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 1 });
+        await flushMicrotasks();
+        // The next turn's closing refresh is lost: the settle timer is the
+        // one retry, or the stale count would freeze in the composer.
+        useStore.getState().handleRpcFrame(key, { type: "agent_start" });
+        useStore.getState().handleRpcFrame(key, { type: "agent_end" });
+        respond(key, getStateCalls().at(-1)!.cmd, "unavailable", false);
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS);
+        await flushMicrotasks();
+        expect(getStateCalls()).toHaveLength(4);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("folds session events into render items", () => {

@@ -22,6 +22,7 @@ import {
   SHIMMER_PERIOD_MS,
 } from "../lib/magic-keywords";
 import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
+import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
@@ -143,6 +144,7 @@ export function Composer({ tabId }: { tabId: string }) {
   const recall = useRef<number | null>(null);
 
   const running = status === "running";
+  const queueChip = queueChipView(running, queued);
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
   const commandWord = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : null;
@@ -700,9 +702,9 @@ export function Composer({ tabId }: { tabId: string }) {
             <AttachmentButton disabled={dead} onClick={() => imagePicker.current?.click()} />
 
 
-            {queued > 0 && (
-              <Chip mono tone="copper" title="messages waiting for the current turn to finish">
-                queued: {queued}
+            {queueChip && (
+              <Chip mono tone="copper" title={queueChip.title}>
+                {queueChip.label}
               </Chip>
             )}
 
@@ -788,7 +790,7 @@ export function Composer({ tabId }: { tabId: string }) {
                 <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || "no model"}</span>
                 <span className="sr-only">prompt options</span>
               </Button>
-              {queued > 0 && <Chip mono tone="copper" title="messages waiting for the current turn to finish">{queued}</Chip>}
+              {queueChip && <Chip mono tone="copper" title={queueChip.title}>{queued}</Chip>}
               {running ? (
                 <>
                   <Button tone="copper" variant="solid" disabled={!canSend} onClick={() => submit("steer")} className="h-11 rounded-lg px-4">{isSlash ? "Run" : "Steer"}</Button>
@@ -835,7 +837,7 @@ export function Composer({ tabId }: { tabId: string }) {
               <BuildPlanControl tabId={tabId} layout="sheet" disabled={dead} className="min-h-11" />
               <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">branch</span>
-                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queued > 0 && <Chip mono tone="copper">queued: {queued}</Chip>}</span>
+                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queueChip && <Chip mono tone="copper" title={queueChip.title}>{queueChip.label}</Chip>}</span>
               </div>
             </div>
           </section>
