@@ -1,10 +1,10 @@
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
@@ -374,6 +374,45 @@ function opensExchange(runs: Run[], index: number): boolean {
   return true;
 }
 
+/**
+ * One transcript row. Memoized on the item's identity: `reduceEvent` copies
+ * only the items it changes, so a tail-only stream update leaves every
+ * historical row's props shallow-equal and skips its render entirely
+ * (issue #187).
+ */
+const TranscriptRow = memo(function TranscriptRow({
+  item,
+  count,
+  first,
+}: {
+  item: RenderItem;
+  count: number;
+  first: boolean;
+}) {
+  switch (item.kind) {
+    case "user":
+      return <UserBubble item={item} first={first} />;
+    case "assistant":
+      return <AssistantBlock item={item} />;
+    case "tool":
+      return <ToolCard item={item} />;
+    case "advisory":
+      return (
+        <div className="animate-rise">
+          <AdvisoryNotes notes={item.notes} />
+        </div>
+      );
+    case "notice":
+      return <NoticeLine item={item} />;
+    case "irc":
+      return <IrcLine item={item} />;
+    case "marker":
+      return <MarkerRule item={item} count={count} />;
+    case "plan":
+      return <PlanCard item={item} />;
+  }
+});
+
 /* ------------------------------------------------------------------ view */
 
 export function TranscriptView({ items }: { items: RenderItem[] }) {
@@ -518,30 +557,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
               )}
               {run.rows.map(({ item, count }, i) => (
                 <ErrorBoundary key={item.id} fallback={(error) => <BrokenRow error={error} />}>
-                  {((): ReactNode => {
-                    switch (item.kind) {
-                      case "user":
-                        return <UserBubble item={item} first={i === 0} />;
-                      case "assistant":
-                        return <AssistantBlock item={item} />;
-                      case "tool":
-                        return <ToolCard item={item} />;
-                      case "advisory":
-                        return (
-                          <div className="animate-rise">
-                            <AdvisoryNotes notes={item.notes} />
-                          </div>
-                        );
-                      case "notice":
-                        return <NoticeLine item={item} />;
-                      case "irc":
-                        return <IrcLine item={item} />;
-                      case "marker":
-                        return <MarkerRule item={item} count={count} />;
-                      case "plan":
-                        return <PlanCard item={item} />;
-                    }
-                  })()}
+                  <TranscriptRow item={item} count={count} first={i === 0} />
                 </ErrorBoundary>
               ))}
             </div>

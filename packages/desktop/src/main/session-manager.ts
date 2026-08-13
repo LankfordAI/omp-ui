@@ -69,6 +69,13 @@ function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
 /** How long omp gets to exit on its own before the delete escalates. */
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
+/**
+ * Min interval between sidebar broadcasts caused purely by session-file mtime
+ * churn (issue #187). A mid-turn transcript rewrites its .jsonl constantly;
+ * each rewrite used to trigger a full buildState + broadcast, so the renderer
+ * re-rendered the whole shell at turn rate on top of the transcript stream.
+ */
+const WATCHER_BROADCAST_MS = 1_000;
 
 export interface SessionManagerDependencies {
   registry: Registry;
@@ -92,6 +99,9 @@ export class SessionManager {
    * arriving mid-spawn can wait for the process to exist and then kill it.
    */
   private readonly spawning = new Map<string, Promise<void>>();
+  /** Throttle state for mtime-only watcher broadcasts (issue #187). */
+  private watcherBroadcastAt = 0;
+  private watcherBroadcastTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly deps: SessionManagerDependencies) {}
 
@@ -130,6 +140,10 @@ export class SessionManager {
     // leave them to the OS — a cancelled quit keeps the app alive without them.
     for (const dispose of this.watchers.values()) dispose();
     this.watchers.clear();
+    if (this.watcherBroadcastTimer !== undefined) {
+      clearTimeout(this.watcherBroadcastTimer);
+      this.watcherBroadcastTimer = undefined;
+    }
   }
 
   /**
@@ -661,6 +675,30 @@ export class SessionManager {
     this.watchers.delete(tabId);
   }
 
+  /**
+   * Identity changes (first materialization, /new, /branch, a fresh title)
+   * broadcast immediately; mtime-only churn is sidebar noise at turn rate and
+   * gets a trailing throttle (issue #187).
+   */
+  private broadcastWatcherPatch(immediate: boolean): void {
+    if (this.watcherBroadcastTimer !== undefined) {
+      clearTimeout(this.watcherBroadcastTimer);
+      this.watcherBroadcastTimer = undefined;
+    }
+    const wait = this.watcherBroadcastAt + WATCHER_BROADCAST_MS - Date.now();
+    if (immediate || wait <= 0) {
+      this.watcherBroadcastAt = Date.now();
+      void this.deps.broadcast();
+      return;
+    }
+    this.watcherBroadcastTimer = setTimeout(() => {
+      this.watcherBroadcastTimer = undefined;
+      this.watcherBroadcastAt = Date.now();
+      void this.deps.broadcast();
+    }, wait);
+    this.watcherBroadcastTimer.unref?.();
+  }
+
   /** First materialization, /new, /branch, title-slot rewrites → adopt + broadcast. */
   private async onSessionFile(tabId: string, filePath: string): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -675,7 +713,9 @@ export class SessionManager {
       if (modified !== record.cachedModified) patch.cachedModified = modified;
       if (Object.keys(patch).length > 0) {
         this.deps.registry.updateSession(tabId, patch);
-        await this.deps.broadcast();
+        this.broadcastWatcherPatch(
+          patch.sessionId !== undefined || patch.cachedTitle !== undefined,
+        );
       }
     } catch {
       // Mid-write or vanished — the next event (or state rebuild) retries.

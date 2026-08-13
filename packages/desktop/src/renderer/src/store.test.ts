@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
   BackendState,
@@ -100,6 +100,7 @@ const mockBackend = {
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
+  restartSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
   forkSession: vi.fn(),
@@ -156,6 +157,14 @@ const windowStub = {
   get clearTimeout() {
     return globalThis.clearTimeout;
   },
+  // The transcript scheduler (issue #187) coalesces onto rAF in production.
+  // Tests commit synchronously by default; batching tests replace this with a
+  // capturing stub and run the frame themselves.
+  requestAnimationFrame: (cb: FrameRequestCallback): number => {
+    cb(0);
+    return 0;
+  },
+  cancelAnimationFrame: (): void => {},
 };
 Object.assign(globalThis, { window: windowStub });
 
@@ -4508,5 +4517,190 @@ describe("initialization snapshot ordering", () => {
       ompUpdate: initialOmp,
       remote: initialRemote,
     });
+  });
+});
+
+describe("transcript commit batching (issue #187)", () => {
+  // The file-level window stub executes rAF synchronously so every other
+  // suite sees committed items immediately. These tests capture the frame
+  // instead and run it by hand, which is what proves the coalescing.
+  let rafQueue: FrameRequestCallback[];
+  let syncRaf: typeof window.requestAnimationFrame;
+  let syncCancel: typeof window.cancelAnimationFrame;
+
+  const runFrame = (): void => {
+    const callbacks = rafQueue.splice(0);
+    for (const cb of callbacks) cb(0);
+  };
+
+  const advisorFrame = (note: string) => ({
+    type: "message_end",
+    message: {
+      role: "custom",
+      customType: "advisor",
+      content: "<advisory/>",
+      details: { notes: [{ note, severity: "concern", advisor: "ops" }] },
+    },
+  });
+
+  beforeEach(() => {
+    rafQueue = [];
+    syncRaf = window.requestAnimationFrame;
+    syncCancel = window.cancelAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback): number =>
+      rafQueue.push(cb);
+    window.cancelAnimationFrame = (): void => {};
+    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+  });
+
+  afterEach(() => {
+    window.requestAnimationFrame = syncRaf;
+    window.cancelAnimationFrame = syncCancel;
+    // Never leak a pending batch into the next test's state.
+    runFrame();
+  });
+
+  it("coalesces a burst of transcript frames into one render commit", () => {
+    const commits: number[] = [];
+    const unsub = useStore.subscribe((state, prev) => {
+      if (state.rpc[TAB]?.items !== prev.rpc[TAB]?.items)
+        commits.push(state.rpc[TAB]!.items.length);
+    });
+    try {
+      const store = useStore.getState();
+      store.handleRpcFrame(TAB, {
+        type: "message_start",
+        message: { role: "user", content: [{ type: "text", text: "go" }] },
+      });
+      store.handleRpcFrame(TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "a" },
+      });
+      store.handleRpcFrame(TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "b" },
+      });
+      // Nothing committed yet — the renderer stays free for input mid-burst.
+      expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+      expect(rafQueue).toHaveLength(1);
+      runFrame();
+      expect(commits).toEqual([2]);
+      const items = useStore.getState().rpc[TAB]!.items;
+      expect(items[0]).toMatchObject({ kind: "user", text: "go" });
+      expect(items[1]).toMatchObject({
+        kind: "assistant",
+        text: "ab",
+        streaming: true,
+      });
+    } finally {
+      unsub();
+    }
+  });
+
+  it("commits each later burst separately with frame order preserved", () => {
+    const store = useStore.getState();
+    store.handleRpcFrame(TAB, {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "q1" }] },
+    });
+    runFrame();
+    store.handleRpcFrame(TAB, {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "q2" }] },
+    });
+    expect(
+      useStore.getState().rpc[TAB]!.items.map((i) => i.kind),
+    ).toEqual(["user"]);
+    runFrame();
+    const items = useStore.getState().rpc[TAB]!.items;
+    expect(items.map((i) => (i.kind === "user" ? i.text : ""))).toEqual([
+      "q1",
+      "q2",
+    ]);
+  });
+
+  it("keeps control frames immediate while a transcript commit is pending", async () => {
+    const store = useStore.getState();
+    store.handleRpcFrame(TAB, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "x" },
+    });
+    expect(rafQueue).toHaveLength(1);
+    // A dialog request must not wait for the flush — omp blocks on its reply.
+    store.handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "e1",
+      method: "confirm",
+      title: "sure?",
+    });
+    expect(useStore.getState().rpc[TAB]!.extensionQueue).toHaveLength(1);
+    // A command response also resolves without waiting for the flush.
+    const cmd = store.rpcCommand(TAB, { type: "get_state" });
+    respond(TAB, sent.pop()!.cmd, {});
+    await expect(cmd).resolves.toBeDefined();
+    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+    runFrame();
+    expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
+  });
+
+  it("settles running tools from the pending batch on process death", () => {
+    const store = useStore.getState();
+    store.handleRpcFrame(TAB, {
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+      args: { command: "make" },
+    });
+    // The card exists only in the pending batch.
+    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+    store.handleRpcFrame(TAB, { type: "omp_ui_error", message: "process gone" });
+    const items = useStore.getState().rpc[TAB]!.items;
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        toolCallId: "t1",
+        status: "cancelled",
+      }),
+    ]);
+    // The cancelled commit landed immediately; the dead batch is gone.
+    runFrame();
+    expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
+  });
+
+  it("drops a pending batch on relaunch so stale frames cannot land", async () => {
+    useStore.setState({ state: stateWithRecord(null) });
+    const store = useStore.getState();
+    store.handleRpcFrame(TAB, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "old" },
+    });
+    expect(rafQueue).toHaveLength(1);
+    mockBackend.restartSession.mockResolvedValueOnce(undefined);
+    await store.restartSession(TAB);
+    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+    runFrame();
+    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+  });
+
+  it("feeds the advisor reply watcher from the pending batch, not the commit", async () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
+      const store = useStore.getState();
+      store.handleRpcFrame(TAB, { type: "agent_end" });
+      runFrame(); // commits only the "agent finished" marker
+      store.handleRpcFrame(TAB, advisorFrame("Do it now"));
+      // The advisory lives only in the pending batch — never flushed here.
+      expect(
+        useStore.getState().rpc[TAB]!.items.some((i) => i.kind === "advisory"),
+      ).toBe(false);
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+      await flushMicrotasks();
+      const replies = sent.filter((s) => s.cmd.type === "prompt");
+      expect(replies).toHaveLength(1);
+      expect(String(replies[0]!.cmd.message)).toContain("Do it now");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

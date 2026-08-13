@@ -441,6 +441,76 @@ export const useStore = create<UiStore>()((set, get, api) => {
     });
   };
 
+  /**
+   * Per-tab pending transcript commit (issue #187). AgentSessionEvent frames
+   * are reduced eagerly onto the batch's `items` — the reduce is cheap and the
+   * watchers (plan concerns, advisor reply) read through {@link effectiveItems},
+   * so semantics stay frame-exact — but the Zustand commit that re-renders the
+   * transcript is coalesced to one per animation frame, with a timer fallback
+   * so a hidden window (rAF paused) still converges. One commit per burst
+   * instead of one per frame is what keeps the renderer able to service input.
+   */
+  const TRANSCRIPT_FLUSH_MS = 50;
+  interface TranscriptBatch {
+    items: RenderItem[];
+    raf?: number;
+    timer?: number;
+  }
+  const transcriptBatches = new Map<string, TranscriptBatch>();
+
+  /** Committed items plus anything reduced but not yet flushed. */
+  const effectiveItems = (tabId: string): RenderItem[] =>
+    transcriptBatches.get(tabId)?.items ?? get().rpc[tabId]?.items ?? [];
+
+  const cancelTranscriptBatch = (tabId: string): void => {
+    const batch = transcriptBatches.get(tabId);
+    if (!batch) return;
+    transcriptBatches.delete(tabId);
+    if (
+      batch.raf !== undefined &&
+      typeof window.cancelAnimationFrame === "function"
+    ) {
+      window.cancelAnimationFrame(batch.raf);
+    }
+    if (batch.timer !== undefined) window.clearTimeout(batch.timer);
+  };
+
+  const flushTranscriptBatch = (tabId: string): void => {
+    const batch = transcriptBatches.get(tabId);
+    if (!batch) return;
+    cancelTranscriptBatch(tabId);
+    const tab = get().rpc[tabId];
+    if (!tab || tab.items === batch.items) return;
+    patchRpc(tabId, { items: batch.items });
+  };
+
+  const queueTranscriptFrame = (
+    tabId: string,
+    frame: unknown,
+    stall: NoticeItem | null,
+  ): void => {
+    if (!get().rpc[tabId]) return;
+    const reduced = reduceEvent(effectiveItems(tabId), frame);
+    const items = stall ? [...reduced, stall] : reduced;
+    let batch = transcriptBatches.get(tabId);
+    if (batch) {
+      batch.items = items;
+      return;
+    }
+    batch = { items };
+    transcriptBatches.set(tabId, batch);
+    if (typeof window.requestAnimationFrame === "function") {
+      batch.raf = window.requestAnimationFrame(() =>
+        flushTranscriptBatch(tabId),
+      );
+    } else {
+      batch.timer = window.setTimeout(
+        () => flushTranscriptBatch(tabId),
+        TRANSCRIPT_FLUSH_MS,
+      );
+    }
+  };
+
   const patchBranchActivity = (
     projectCwd: string,
     patch: Partial<BranchActivity>,
@@ -462,6 +532,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const prepareRpcRelaunch = (tabId: string): void => {
     const tab = get().rpc[tabId];
     if (!tab) return;
+    // A flush queued by the dying process must not land in the fresh state.
+    cancelTranscriptBatch(tabId);
     patchRpc(tabId, {
       status: "starting",
       session: { ...tab.session, isStreaming: false },
@@ -540,6 +612,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const appendItem = (tabId: string, item: RenderItem): void => {
     const tab = get().rpc[tabId];
     if (!tab) return;
+    // A pending transcript batch owns the next commit — append onto it so the
+    // item keeps its arrival position instead of being overwritten by the flush.
+    const batch = transcriptBatches.get(tabId);
+    if (batch) {
+      batch.items = [...batch.items, item];
+      return;
+    }
     patchRpc(tabId, { items: [...tab.items, item] });
   };
 
@@ -550,9 +629,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
   ): void => {
     const tab = get().rpc[tabId];
     if (!tab) return;
-    const items = tab.items.map(map);
-    if (items.some((item, i) => item !== tab.items[i]))
-      patchRpc(tabId, { items });
+    const base = transcriptBatches.get(tabId)?.items ?? tab.items;
+    const items = base.map(map);
+    if (!items.some((item, i) => item !== base[i])) return;
+    const batch = transcriptBatches.get(tabId);
+    if (batch) {
+      batch.items = items;
+      return;
+    }
+    patchRpc(tabId, { items });
   };
 
   /**
@@ -768,7 +853,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
    * for the timing and the card/tool-note dedup.
    */
   const concernWatcher = new PlanConcernWatcher({
-    getItems: (tabId) => get().rpc[tabId]?.items ?? [],
+    getItems: effectiveItems,
     onNotice: (tabId, text) => appendItem(tabId, noticeItem(text, "info")),
     onDispatch: (tabId, intent, concerns) => {
       // The no-double-dispatch guarantee. concernWatcher.feed settles
@@ -794,7 +879,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
    * transcript baseline, and the consecutive-reply guard.
    */
   const advisorReplyWatcher = new AdvisorReplyWatcher({
-    getItems: (tabId) => get().rpc[tabId]?.items ?? [],
+    getItems: effectiveItems,
     canReply: (tabId) => {
       const tab = get().rpc[tabId];
       if (!tab) return false;
@@ -828,6 +913,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // A dangling concern-wait timer must not fire into the dead tab's slot.
     concernWatcher.cancel(tabId);
     advisorReplyWatcher.cancel(tabId);
+    cancelTranscriptBatch(tabId);
     if (tab) {
       for (const pending of tab.pendingCommands.values()) {
         clearTimeout(pending.timer);
@@ -1021,8 +1107,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
   const loadHistory = async (tabId: string): Promise<void> => {
     const resp = await get().rpcCommand(tabId, { type: "get_messages" });
-    // History replaces the transcript wholesale; per-agent marker memory
-    // must not outlive the render items it was deduping against.
+    // History replaces the transcript wholesale — a batch reduced from the
+    // pre-history items would clobber it on the next flush. Per-agent marker
+    // memory must not outlive the render items it was deduping against.
+    cancelTranscriptBatch(tabId);
     get().rpc[tabId]?.subagentMarkers?.clear();
     patchRpc(tabId, {
       items: historyToItems(arrField(respData(resp), "messages")),
@@ -1076,15 +1164,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) => {
+        // An rpc-mode omp that dies mid-tool sends no agent_end or
+        // omp_ui_error frame — this exit is the only signal, so running
+        // tool cards are settled here (issue #93). Settle from the effective
+        // items: a batched stream commit may still be pending, and the dead
+        // process's final frames must not be lost (issue #187).
+        const before = get().rpc[tabId];
+        const settled = before
+          ? settleRunningTools(effectiveItems(tabId))
+          : undefined;
+        cancelTranscriptBatch(tabId);
         set((s) => {
-          // An rpc-mode omp that dies mid-tool sends no agent_end or
-          // omp_ui_error frame — this exit is the only signal, so running
-          // tool cards are settled here (issue #93).
-          const tab = s.rpc[tabId];
-          const items = tab ? settleRunningTools(tab.items) : undefined;
           const rpc =
-            tab && items !== tab.items
-              ? { ...s.rpc, [tabId]: { ...tab, items: items! } }
+            before && settled !== undefined && settled !== before.items
+              ? { ...s.rpc, [tabId]: { ...before, items: settled } }
               : s.rpc;
           return { exited: { ...s.exited, [tabId]: code }, rpc };
         });
@@ -1371,6 +1464,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // A pending concern handoff belongs to the session that just went away.
         concernWatcher.cancel(tabId);
         advisorReplyWatcher.cancel(tabId);
+        cancelTranscriptBatch(tabId);
         // A re-boot must not slam the Agents pane's drill-down shut: the open
         // detail view and the retained buffers behind it survive the process
         // restart, and the subscription re-escalates after boot (issue #63).
@@ -1712,7 +1806,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
         case "omp_ui_error": {
           const message = strField(frame, "message") ?? "omp rpc error";
           const liveState = findRecord(get().state, tabId)?.live;
-          // The process died mid-tool, so no agent_end will settle running cards.
+          // The process died mid-tool, so no agent_end will settle running
+          // cards. Settle the effective items — frames still pending in the
+          // batch are part of the transcript up to the failure (issue #187).
+          const settledItems = settleRunningTools(effectiveItems(tabId));
+          cancelTranscriptBatch(tabId);
           patchRpc(tabId, {
             status: "error",
             failure: {
@@ -1724,7 +1822,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
               recovery:
                 "The live session process stopped. Resume the session to continue.",
             },
-            items: settleRunningTools(tab.items),
+            items: settledItems,
           });
           return;
         }
@@ -1751,11 +1849,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
           if (checkpointLabel !== null) {
             tab.streamCheckpoint = { at: Date.now(), label: checkpointLabel };
           }
-          // The AgentSessionEvent stream — the actual transcript.
-          const nextItems = reduceEvent(tab.items, frame);
+          // The AgentSessionEvent stream — the actual transcript. Reduction is
+          // eager (frame-exact for the watchers below) but the render commit is
+          // coalesced — one Zustand set per burst instead of per frame, so the
+          // renderer keeps servicing input mid-stream (issue #187).
           const stall =
             type === "auto_retry_start" ? stallNotice(tab, frame) : null;
-          patchRpc(tabId, { items: stall ? [...nextItems, stall] : nextItems });
+          queueTranscriptFrame(tabId, frame, stall);
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
           concernWatcher.feed(tabId);

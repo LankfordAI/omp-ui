@@ -298,3 +298,81 @@ describe("SessionManager live ownership", () => {
     expect(manager.liveCount).toBe(0);
   });
 });
+
+describe("lineage watcher broadcast throttle (issue #187)", () => {
+  const SESSION_ID = "019ffc67-522c-7000-95a3-01eca0266c03";
+  const FILE = `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`;
+
+  // setImmediate stays real so the fs.promises inside hydrateSessionFile can
+  // drain; only the throttle window and clock are fake. Poll the observable
+  // effect rather than guessing a yield count — parallel workers stretch I/O.
+  const flushUntil = async (cond: () => boolean): Promise<void> => {
+    for (let i = 0; i < 500 && !cond(); i++)
+      await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  it("throttles mtime-only churn and keeps identity changes immediate", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { manager, registry, broadcast, sessionsRoot } = setup();
+      const watcherEvents: Parameters<typeof Core.watchLineageDir>[1][] = [];
+      watchLineageDirMock.mockImplementation((_dir, onEvent) => {
+        watcherEvents.push(onEvent);
+        return vi.fn();
+      });
+      const filePath = path.join(sessionsRoot, LINEAGE, FILE);
+      const write = (title: string, mtimeMs: number): void => {
+        fs.writeFileSync(
+          filePath,
+          `${JSON.stringify({ type: "title", title })}\n` +
+            `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
+        );
+        fs.utimesSync(filePath, new Date(mtimeMs), new Date(mtimeMs));
+      };
+      write("Alpha", 1_000);
+      await manager.hydrateAll();
+      broadcast.mockClear();
+      const fire = (): void =>
+        watcherEvents[0]!({ kind: "session-file", filePath });
+
+      // First adoption (session id + title) is immediate.
+      fire();
+      await flushUntil(() => broadcast.mock.calls.length === 1);
+      expect(broadcast).toHaveBeenCalledTimes(1);
+
+      // Pure mtime bumps arrive at turn rate but coalesce into one trailing call.
+      write("Alpha", 2_000);
+      fire();
+      await flushUntil(
+        () =>
+          registry.sessions[0]!.cachedModified === new Date(2_000).toISOString(),
+      );
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      write("Alpha", 3_000);
+      fire();
+      await flushUntil(
+        () =>
+          registry.sessions[0]!.cachedModified === new Date(3_000).toISOString(),
+      );
+      expect(broadcast).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(broadcast).toHaveBeenCalledTimes(2);
+      // The registry converged even while broadcasts were throttled.
+      expect(registry.sessions[0]!.cachedModified).toBe(
+        new Date(3_000).toISOString(),
+      );
+
+      // A title rewrite is identity, not churn — it jumps the throttle.
+      write("Beta", 4_000);
+      fire();
+      await flushUntil(() => broadcast.mock.calls.length === 3);
+      expect(broadcast).toHaveBeenCalledTimes(3);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(broadcast).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

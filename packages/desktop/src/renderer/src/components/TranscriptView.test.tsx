@@ -1,14 +1,27 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { planProposalItem, type RenderItem } from "../lib/transcript";
+import { planProposalItem, type RenderItem, type ToolItem } from "../lib/transcript";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
 import { TranscriptView } from "./TranscriptView";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** Parent-driven ToolCard renders, for the row-memoization contract (issue #187). */
+const toolCardRenders = vi.hoisted((): string[] => []);
+vi.mock("./ToolCard", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ToolCard")>();
+  return {
+    ...actual,
+    ToolCard: function ToolCardProbe({ item }: { item: ToolItem }) {
+      toolCardRenders.push(item.id);
+      return <actual.ToolCard item={item} />;
+    },
+  };
+});
 
 // jsdom has no ResizeObserver, and TranscriptView's mount effect constructs
 // one unconditionally. The stub records the callback so tests can fire it the
@@ -328,6 +341,43 @@ describe("PlanCard (issue #93)", () => {
     expect(frame!.getAttribute("sandbox")).toBe("");
     expect(frame!.getAttribute("srcdoc")).toContain(html);
     expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
+    act(() => root.unmount());
+  });
+});
+
+describe("row memoization (issue #187)", () => {
+  beforeEach(() => {
+    toolCardRenders.length = 0;
+  });
+
+  it("re-renders only the changed tail row on a stream update", () => {
+    const settled: RenderItem = {
+      kind: "tool",
+      id: "t1",
+      toolCallId: "t1",
+      name: "bash",
+      args: { command: "make" },
+      status: "done",
+      resultText: "built",
+    };
+    const running: RenderItem = {
+      kind: "tool",
+      id: "t2",
+      toolCallId: "t2",
+      name: "bash",
+      args: { command: "npm test" },
+      status: "running",
+    };
+    const { el, root } = render([settled, running]);
+    expect(toolCardRenders).toEqual(["t1", "t2"]);
+
+    // Tail-only update: `reduceEvent` copies the changed item, so t1's row
+    // props stay shallow-equal and memo skips it entirely.
+    const finished = { ...running, status: "done" as const, resultText: "ok" };
+    act(() => root.render(<TranscriptView items={[settled, finished]} />));
+
+    expect(toolCardRenders).toEqual(["t1", "t2", "t2"]);
+    expect(el.textContent).toContain("ok");
     act(() => root.unmount());
   });
 });
