@@ -44,6 +44,7 @@ const win = {
   isDestroyed: () => false,
   webContents: {
     isDestroyed: () => false,
+    isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
   },
 };
@@ -416,5 +417,72 @@ describe("live session teardown (issue #64)", () => {
 
     expect(fake.detachData).toHaveBeenCalled();
     expect(fake.kill).toHaveBeenCalled();
+  });
+});
+
+describe("terminate escalation (issue #182)", () => {
+  const spawnRpcSession = async (): Promise<string> => {
+    const res = (await invoke(CH.spawnSession, {
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      cols: 80,
+      rows: 24,
+    })) as { tabId: string };
+    return res.tabId;
+  };
+
+  it("escalates to SIGKILL when the child ignores SIGTERM", async () => {
+    vi.useFakeTimers();
+    try {
+      setup();
+      const tabId = await spawnRpcSession();
+      const rpc = rpcInstances[0]!;
+
+      invoke(CH.terminateSession, tabId);
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(rpc.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not escalate when the child exits inside the grace window", async () => {
+    vi.useFakeTimers();
+    try {
+      setup();
+      const tabId = await spawnRpcSession();
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      invoke(CH.terminateSession, tabId);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(rpc.kill).not.toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still reports the exit after an escalated reap (no suppressExit)", async () => {
+    vi.useFakeTimers();
+    try {
+      setup();
+      const tabId = await spawnRpcSession();
+      const rpc = rpcInstances[0]!;
+
+      invoke(CH.terminateSession, tabId);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(rpc.kill).toHaveBeenCalledWith("SIGKILL");
+
+      rpc.exit(137);
+
+      expect(sent).toContainEqual({ channel: CH.onPtyExit, args: [tabId, 137] });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

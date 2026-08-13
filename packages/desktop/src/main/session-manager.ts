@@ -143,6 +143,25 @@ export class SessionManager {
     entry.rpc?.kill();
   }
 
+  /**
+   * Terminate's child gets the same SIGTERM→grace→SIGKILL treatment delete and
+   * relaunch get through killAndReap — a wedged omp that ignores SIGTERM must
+   * not hold its pipes/pty (and its MCP grandchildren) forever (issue #182,
+   * the #64 residual). Unlike killAndReap this never suppresses the exit and
+   * never throws: the renderer still learns the session ended via the normal
+   * onExit → broadcast.
+   */
+  private async escalateOnTerminate(tabId: string, entry: LiveEntry): Promise<void> {
+    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return;
+    entry.pty?.kill("SIGKILL");
+    entry.rpc?.kill("SIGKILL");
+    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) return;
+    console.warn(
+      `[sessions] ${tabId}: child survived SIGKILL (uninterruptible sleep?) — ` +
+        `its fds stay open until it dies`,
+    );
+  }
+
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
     // Dedupe guard — the renderer should never send this, but a second
     // process for the same session would corrupt the .jsonl. The in-flight
@@ -503,6 +522,7 @@ export class SessionManager {
     const entry = this.live.get(tabId);
     if (!entry) return;
     this.killLive(entry);
+    void this.escalateOnTerminate(tabId, entry);
     // The record stays; the broadcast fires on process exit.
   }
 
