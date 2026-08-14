@@ -1,6 +1,6 @@
 {
   "name": "@omp-ui/desktop",
-  "version": "0.7.16",
+  "version": "0.7.17",
   "private": true,
   "description": "Desktop GUI for the omp coding agent",
   "author": "Austin Lankford <austin@austinlankford.com>",
