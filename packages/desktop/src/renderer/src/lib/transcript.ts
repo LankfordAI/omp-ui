@@ -132,6 +132,17 @@ export function noticeItem(text: string, level?: NoticeItem["level"]): NoticeIte
   return { kind: "notice", id: `notice-${++counter}`, text, level };
 }
 
+/**
+ * True while the transcript carries no exchange — only ambient notices and
+ * markers (a fresh session already holds the xd:// notice and the
+ * thinking-level marker). Any other kind — user, assistant, tool, plan,
+ * advisory, irc — means a conversation exists and the fresh-session hero
+ * must yield to the full transcript.
+ */
+export function preExchange(items: readonly RenderItem[]): boolean {
+  return items.every((i) => i.kind === "notice" || i.kind === "marker");
+}
+
 export function planProposalItem(
   title: string,
   planFilePath: string,

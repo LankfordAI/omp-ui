@@ -64,7 +64,14 @@ function IconSend() {
   );
 }
 
-export function Composer({ tabId }: { tabId: string }) {
+export function Composer({
+  tabId,
+  onPrompt,
+}: {
+  tabId: string;
+  /** Fires when a non-slash draft is submitted on any route — the first one docks the hero. */
+  onPrompt?: () => void;
+}) {
   const status = useStore((s) => s.rpc[tabId]?.status);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
@@ -348,6 +355,7 @@ export function Composer({ tabId }: { tabId: string }) {
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
       if ((message === "" && payload.length === 0) || dead) return;
+      if (!message.startsWith("/")) onPrompt?.();
       // Consecutive duplicates make ↑ recall useless.
       if (message !== "" && history.current[history.current.length - 1] !== message) {
         history.current.push(message);
@@ -399,6 +407,7 @@ export function Composer({ tabId }: { tabId: string }) {
       runSlashCommand,
       abortAndPrompt,
       sendPrompt,
+      onPrompt,
     ],
   );
 

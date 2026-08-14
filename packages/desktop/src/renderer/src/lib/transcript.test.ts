@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   historyToItems,
   isAdvisorMessage,
+  markerItem,
+  noticeItem,
+  preExchange,
   reduceEvent,
   settleRunningTools,
   type AssistantItem,
@@ -725,5 +728,28 @@ describe("historyToItems", () => {
   it("skips malformed entries without throwing", () => {
     const items = historyToItems(["junk", null, { role: "user", content: "hi" }]);
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("preExchange", () => {
+  it("is true for an empty transcript", () => {
+    expect(preExchange([])).toBe(true);
+  });
+
+  it("is true for ambient notices and markers only", () => {
+    expect(preExchange([noticeItem("xd:// mounted"), markerItem("THINKING LEVEL")])).toBe(true);
+  });
+
+  const exchangeItems: [string, RenderItem][] = [
+    ["user", { kind: "user", id: "u1", text: "hello" }],
+    ["assistant", { kind: "assistant", id: "a1", text: "hi", thinking: "", streaming: false }],
+    ["tool", { kind: "tool", id: "t1", toolCallId: "c1", name: "read", args: {}, status: "done" }],
+    ["plan", { kind: "plan", id: "p1", title: "Ship it", planFilePath: "PLAN.md", planAbsPath: null, text: null, status: "pending" }],
+    ["advisory", { kind: "advisory", id: "ad1", notes: [] }],
+    ["irc", { kind: "irc", id: "i1", from: "Main", text: "ping" }],
+  ];
+
+  it.each(exchangeItems)("is false once a %s item is present", (_kind, item) => {
+    expect(preExchange([noticeItem("n"), item])).toBe(false);
   });
 });
