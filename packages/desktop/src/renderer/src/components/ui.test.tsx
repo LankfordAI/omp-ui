@@ -5,11 +5,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, ChoiceCapsule, ConfirmDialog, Modal, Sheet, UpdateCard } from "./ui";
+import { Button, ChoiceCapsule, ConfirmDialog, Modal, PerimeterSweep, Sheet, UpdateCard } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
 Object.assign(window, { ompBackend: {} });
+let roCallback: ResizeObserverCallback | null = null;
+(globalThis as Record<string, unknown>).ResizeObserver = class {
+  constructor(cb: ResizeObserverCallback) { roCallback = cb; }
+  observe() {}
+  disconnect() {}
+};
 // store.ts captures window.ompBackend at evaluation; ModelSelector imports it, so both load after the stub.
 const { useStore } = await import("../store");
 const { ModelPalette } = await import("./ModelSelector");
@@ -370,5 +376,53 @@ describe("UpdateCard", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("PerimeterSweep", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("traces the host border from the live size and computed radius", async () => {
+    const rectSpy = vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
+    await render(
+      <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
+        <PerimeterSweep tone="copper" />
+      </div>,
+    );
+    const path = document.querySelector("svg path")!;
+    expect(path.getAttribute("d")).toBe(
+      "M 12 0.75 H 188 A 11.25 11.25 0 0 1 199.25 12 V 78 A 11.25 11.25 0 0 1 188 89.25 H 12 A 11.25 11.25 0 0 1 0.75 78 V 12 A 11.25 11.25 0 0 1 12 0.75 Z",
+    );
+    expect(path.getAttribute("pathLength")).toBe("1");
+    expect(path.getAttribute("stroke-dasharray")).toBe("0.2 0.8");
+  });
+
+  it("follows resizes", async () => {
+    const rectSpy = vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
+    await render(
+      <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
+        <PerimeterSweep tone="copper" />
+      </div>,
+    );
+    rectSpy.mockReturnValue({ width: 300, height: 120 } as DOMRect);
+    act(() => { roCallback!([] as ResizeObserverEntry[], {} as ResizeObserver); });
+    const path = document.querySelector("svg path")!;
+    expect(path.getAttribute("d")).toBe(
+      "M 12 0.75 H 288 A 11.25 11.25 0 0 1 299.25 12 V 108 A 11.25 11.25 0 0 1 288 119.25 H 12 A 11.25 11.25 0 0 1 0.75 108 V 12 A 11.25 11.25 0 0 1 12 0.75 Z",
+    );
+  });
+
+  it("paints nothing for a zero-size host", async () => {
+    const rectSpy = vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 0, height: 0 } as DOMRect);
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
+    await render(
+      <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
+        <PerimeterSweep tone="copper" />
+      </div>,
+    );
+    const path = document.querySelector("svg path")!;
+    expect(path.getAttribute("d")).toBe(null);
   });
 });

@@ -31,7 +31,7 @@ import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
-import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, ProgressSweep, Sheet } from "./ui";
+import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, PerimeterSweep, Sheet } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -537,11 +537,6 @@ export function Composer({
           : "px-4 pb-3 pt-1.5",
       )}
     >
-      {compact && busy && (
-        <div className="absolute inset-x-0 -top-px">
-          <ProgressSweep tone={running ? "copper" : "signal"} />
-        </div>
-      )}
 
       <div className={cn("relative", !compact && "mx-auto w-full max-w-3xl")}>
         {mentionOpen && atQuery !== null && (
@@ -589,10 +584,11 @@ export function Composer({
             dead && "opacity-50",
           )}
         >
+          {compact && busy && (
+            <PerimeterSweep tone={running ? "copper" : "signal"} />
+          )}
           {!compact && (busy || running) && (
-            <div className="absolute inset-x-3 top-0">
-              <ProgressSweep tone={running ? "copper" : "signal"} />
-            </div>
+            <PerimeterSweep tone={running ? "copper" : "signal"} />
           )}
           {images.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">

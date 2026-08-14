@@ -53,6 +53,7 @@
   --animate-slide-in: slide-in 0.2s var(--ease-out-quint) both;
   --animate-breathe: breathe 2.4s ease-in-out infinite;
   --animate-sweep: sweep 1.6s linear infinite;
+  --animate-sweep-loop: sweep-loop 2.8s linear infinite;
   --animate-caret: caret 1.05s step-end infinite;
   --animate-sheet-left: sheet-in-left 0.3s var(--ease-out-quint) both;
   --animate-sheet-right: sheet-in-right 0.3s var(--ease-out-quint) both;
@@ -105,6 +106,12 @@
   }
   to {
     transform: translateX(400%);
+  }
+}
+
+@keyframes sweep-loop {
+  to {
+    stroke-dashoffset: -1;
   }
 }
 

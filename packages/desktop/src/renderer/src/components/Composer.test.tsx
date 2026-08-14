@@ -195,6 +195,16 @@ describe("compact Composer", () => {
     expect(sheet.querySelector(".prompt-options")).not.toBeNull();
     expect(sheet.querySelector(".w-full")?.textContent).toContain("advisor");
   });
+
+  it("loops the copper ring around the compact input box while busy", () => {
+    seed("running");
+    useStore.setState((s) => ({ rpc: { [TAB]: { ...s.rpc[TAB]!, busy: true } } }));
+    renderComposer();
+    const box = document.body.querySelector("textarea")!.parentElement!.parentElement!;
+    const ring = box.querySelector("svg.text-copper")!;
+    expect(ring).not.toBeNull();
+    expect(ring.querySelector("path[stroke-dasharray]")).not.toBeNull();
+  });
 });
 
 describe("Composer advisor model palette", () => {
@@ -754,6 +764,8 @@ describe("desktop Composer running sweep", () => {
     seed("running");
     renderComposer();
     const card = document.body.querySelector(".shadow-float")!;
-    expect(card.querySelector(".bg-copper")).not.toBeNull();
+    const ring = card.querySelector("svg.text-copper")!;
+    expect(ring).not.toBeNull();
+    expect(ring.querySelector("path[stroke-dasharray]")).not.toBeNull();
   });
 });
