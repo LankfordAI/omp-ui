@@ -29,7 +29,7 @@ function runSweptProbe(shell: string): string {
     "inner",
     "a b",
   ];
-  const stdio: (string | number)[] = ["ignore", "pipe", "pipe", low];
+  const stdio: ("ignore" | "pipe" | number)[] = ["ignore", "pipe", "pipe", low];
   while (stdio.length < 12) stdio.push("ignore");
   stdio.push(high); // fd 12
   try {
