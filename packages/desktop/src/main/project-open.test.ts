@@ -69,8 +69,8 @@ describe("ProjectOpener availability", () => {
     await opener.open("/work/two", "vscode");
 
     expect(getApplicationNameForProtocol).toHaveBeenCalledOnce();
-    expect(openExternal).toHaveBeenNthCalledWith(1, "vscode://file/work/one");
-    expect(openExternal).toHaveBeenNthCalledWith(2, "vscode://file/work/two");
+    expect(openExternal).toHaveBeenNthCalledWith(1, "vscode://file/work/one?windowId=_blank");
+    expect(openExternal).toHaveBeenNthCalledWith(2, "vscode://file/work/two?windowId=_blank");
   });
 
   it("uses only the stable vscode scheme for discovery and launch", async () => {
@@ -80,27 +80,31 @@ describe("ProjectOpener availability", () => {
     await opener.open("/work/project", "vscode");
 
     expect(getApplicationNameForProtocol.mock.calls).toEqual([["vscode://file/"]]);
-    expect(openExternal.mock.calls).toEqual([["vscode://file/work/project"]]);
+    expect(openExternal.mock.calls).toEqual([["vscode://file/work/project?windowId=_blank"]]);
   });
 });
 
 describe("vscodeProjectUrl", () => {
   it("encodes every special POSIX path segment while preserving the root", () => {
     expect(vscodeProjectUrl('/tmp/My Project/#draft?/"quoted"/雪/%done/-leading')).toBe(
-      "vscode://file/tmp/My%20Project/%23draft%3F/%22quoted%22/%E9%9B%AA/%25done/-leading",
+      "vscode://file/tmp/My%20Project/%23draft%3F/%22quoted%22/%E9%9B%AA/%25done/-leading?windowId=_blank",
     );
   });
 
   it("normalizes a Windows drive path and preserves its drive colon", () => {
     expect(vscodeProjectUrl("C:\\Users\\Ada Lovelace\\project#1")).toBe(
-      "vscode://file/c:/Users/Ada%20Lovelace/project%231",
+      "vscode://file/c:/Users/Ada%20Lovelace/project%231?windowId=_blank",
     );
   });
 
   it("normalizes UNC separators without collapsing the double-slash root", () => {
     expect(vscodeProjectUrl("\\\\server\\Shared Folder\\雪")).toBe(
-      "vscode://file//server/Shared%20Folder/%E9%9B%AA",
+      "vscode://file//server/Shared%20Folder/%E9%9B%AA?windowId=_blank",
     );
+  });
+
+  it("asks VS Code to open the project in a new window", () => {
+    expect(vscodeProjectUrl("/work/one")).toBe("vscode://file/work/one?windowId=_blank");
   });
 });
 
@@ -152,8 +156,8 @@ describe("ProjectOpener VS Code launch", () => {
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(2);
     expect(openExternal).toHaveBeenCalledTimes(2);
     expect(openExternal.mock.calls).toEqual([
-      ["vscode://file/work/retry%20project"],
-      ["vscode://file/work/retry%20project"],
+      ["vscode://file/work/retry%20project?windowId=_blank"],
+      ["vscode://file/work/retry%20project?windowId=_blank"],
     ]);
     expect(opener.availability()).toEqual({ vsCode: true });
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(2);

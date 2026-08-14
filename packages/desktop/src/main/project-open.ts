@@ -27,7 +27,9 @@ export function vscodeProjectUrl(projectPath: string): string {
     return encodeURIComponent(segment);
   });
 
-  return `vscode://file${segments.join("/")}`;
+  // windowId=_blank opens the folder in a NEW window (VS Code >= 1.70);
+  // older builds ignore the unknown param and reuse the active window.
+  return `vscode://file${segments.join("/")}?windowId=_blank`;
 }
 
 
