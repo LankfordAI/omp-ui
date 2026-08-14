@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime } from "../lib/rpc-types";
+import { markerItem, noticeItem } from "../lib/transcript";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -55,6 +56,7 @@ const TAB = "tab-compose";
 const sendPrompt = vi.fn(async () => {});
 const abortAndPrompt = vi.fn(async () => {});
 const abortAgent = vi.fn(async () => {});
+const runSlashCommand = vi.fn(async () => {});
 let root: Root | null = null;
 
 const state = backendState({
@@ -642,5 +644,116 @@ describe("Composer width refit", () => {
     act(() => ro!());
     expect(el.style.height).toBe("256px");     // 12 * 20 + 16: capped
     expect(el.style.overflowY).toBe("auto");   // now scrollable
+  });
+});
+
+describe("Composer onPrompt", () => {
+  beforeEach(() => {
+    useStore.setState({ runSlashCommand });
+  });
+
+  function renderWithPrompt(spy: () => void): void {
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<Composer tabId={TAB} onPrompt={spy} />));
+  }
+
+  it("fires once for a plain draft", async () => {
+    const spy = vi.fn();
+    seed("ready"); renderWithPrompt(spy);
+    typeDraft("do the thing");
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+    await act(async () => send.click());
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire for a slash command", async () => {
+    const spy = vi.fn();
+    seed("ready"); renderWithPrompt(spy);
+    typeDraft("/compact");
+    const run = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Run")!;
+    await act(async () => run.click());
+    expect(spy).not.toHaveBeenCalled();
+    expect(runSlashCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire for an empty draft", async () => {
+    const spy = vi.fn();
+    seed("ready"); renderWithPrompt(spy);
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+    await act(async () => send.click());
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("RpcTab hero", () => {
+  function desktop(): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  }
+
+  it("shows the greeting for a fresh ready session", () => {
+    seed("ready");
+    desktop(); renderRpcTab();
+    expect(document.body.textContent).toContain("What's next");
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Nothing yet");
+  });
+
+  it("keeps the hero for ambient-only items and renders them in the footer", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, items: [noticeItem("xd:// mounted"), markerItem("THINKING LEVEL")] } },
+    }));
+    desktop(); renderRpcTab();
+    expect(document.body.textContent).toContain("What's next");
+    expect(document.body.textContent).toContain("xd:// mounted");
+    expect(document.body.textContent).toContain("THINKING LEVEL");
+  });
+
+  it("docks from first render when an exchange exists", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, items: [{ kind: "user" as const, id: "u1", text: "hello" }] } },
+    }));
+    desktop(); renderRpcTab();
+    expect(document.body.textContent).not.toContain("What's next");
+    expect(document.body.textContent).toContain("hello");
+  });
+
+  it("latches on the first local prompt with no items arriving", async () => {
+    seed("ready");
+    desktop(); renderRpcTab();
+    typeDraft("ship it");
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "send")!;
+    await act(async () => send.click());
+    expect(document.body.textContent).not.toContain("What's next");
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("never shows the hero in the compact shell", () => {
+    seed("ready"); renderRpcTab();
+    expect(document.body.textContent).not.toContain("What's next");
+  });
+
+  it("does not show the hero for an exited session", () => {
+    seed("ready", true);
+    desktop(); renderRpcTab();
+    expect(document.body.textContent).not.toContain("What's next");
+  });
+});
+
+describe("desktop Composer running sweep", () => {
+  it("keeps the copper sweep on the card after prompt RPC busy clears", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seed("running");
+    renderComposer();
+    const card = document.body.querySelector(".shadow-float")!;
+    expect(card.querySelector(".bg-copper")).not.toBeNull();
   });
 });

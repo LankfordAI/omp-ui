@@ -64,7 +64,14 @@ function IconSend() {
   );
 }
 
-export function Composer({ tabId }: { tabId: string }) {
+export function Composer({
+  tabId,
+  onPrompt,
+}: {
+  tabId: string;
+  /** Fires when a non-slash draft is submitted on any route — the first one docks the hero. */
+  onPrompt?: () => void;
+}) {
   const status = useStore((s) => s.rpc[tabId]?.status);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
@@ -348,6 +355,7 @@ export function Composer({ tabId }: { tabId: string }) {
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
       if ((message === "" && payload.length === 0) || dead) return;
+      if (!message.startsWith("/")) onPrompt?.();
       // Consecutive duplicates make ↑ recall useless.
       if (message !== "" && history.current[history.current.length - 1] !== message) {
         history.current.push(message);
@@ -399,6 +407,7 @@ export function Composer({ tabId }: { tabId: string }) {
       runSlashCommand,
       abortAndPrompt,
       sendPrompt,
+      onPrompt,
     ],
   );
 
@@ -519,14 +528,22 @@ export function Composer({ tabId }: { tabId: string }) {
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
-    <div ref={composer} className="ambient relative shrink-0 border-t border-line bg-sunken px-4 py-3 compact-composer">
-      {busy && (
+    <div
+      ref={composer}
+      className={cn(
+        "relative shrink-0",
+        compact
+          ? "ambient border-t border-line bg-sunken px-4 py-3 compact-composer"
+          : "px-4 pb-3 pt-1.5",
+      )}
+    >
+      {compact && busy && (
         <div className="absolute inset-x-0 -top-px">
           <ProgressSweep tone={running ? "copper" : "signal"} />
         </div>
       )}
 
-      <div className="relative">
+      <div className={cn("relative", !compact && "mx-auto w-full max-w-3xl")}>
         {mentionOpen && atQuery !== null && (
           <MentionPalette
             ref={mentionPalette}
@@ -562,12 +579,21 @@ export function Composer({ tabId }: { tabId: string }) {
 
         <div
           className={cn(
-            "rounded-lg border border-line bg-raised transition-colors",
+            "relative rounded-lg border border-line transition-colors",
             "focus-within:border-line-strong",
+            compact
+              ? "bg-raised"
+              : "ambient plane-lit rounded-xl shadow-float " +
+                "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
             dead && "opacity-50",
           )}
         >
+          {!compact && (busy || running) && (
+            <div className="absolute inset-x-3 top-0">
+              <ProgressSweep tone={running ? "copper" : "signal"} />
+            </div>
+          )}
           {images.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
               {images.map((image, i) => (
@@ -838,6 +864,21 @@ export function Composer({ tabId }: { tabId: string }) {
             onChange={(event) => void pickImages(event)}
           />
         </div>
+
+        {pasteError !== null && (
+          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
+              <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
+              <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
+            </svg>
+            <span className="min-w-0 flex-1 break-words" data-selectable>
+              {pasteError}
+            </span>
+            <IconButton label="dismiss paste warning" onClick={() => setPasteError(null)}>
+              <IconClose className="size-3" />
+            </IconButton>
+          </div>
+        )}
       </div>
       <Sheet open={compactSurface === "composer-options"} placement="bottom" label="prompt options" onClose={closeCompactSurface}>
         <div className="prompt-options space-y-5 px-[max(1rem,var(--safe-left))] py-4 pr-[max(1rem,var(--safe-right))]">
@@ -874,21 +915,6 @@ export function Composer({ tabId }: { tabId: string }) {
           )}
         </div>
       </Sheet>
-
-      {pasteError !== null && (
-        <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
-          <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
-            <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
-            <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
-          </svg>
-          <span className="min-w-0 flex-1 break-words" data-selectable>
-            {pasteError}
-          </span>
-          <IconButton label="dismiss paste warning" onClick={() => setPasteError(null)}>
-            <IconClose className="size-3" />
-          </IconButton>
-        </div>
-      )}
     </div>
   );
 }
