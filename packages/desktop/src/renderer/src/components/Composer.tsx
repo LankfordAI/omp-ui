@@ -589,7 +589,7 @@ export function Composer({
             dead && "opacity-50",
           )}
         >
-          {!compact && busy && (
+          {!compact && (busy || running) && (
             <div className="absolute inset-x-3 top-0">
               <ProgressSweep tone={running ? "copper" : "signal"} />
             </div>

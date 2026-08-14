@@ -744,3 +744,16 @@ describe("RpcTab hero", () => {
     expect(document.body.textContent).not.toContain("What's next");
   });
 });
+
+describe("desktop Composer running sweep", () => {
+  it("keeps the copper sweep on the card after prompt RPC busy clears", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seed("running");
+    renderComposer();
+    const card = document.body.querySelector(".shadow-float")!;
+    expect(card.querySelector(".bg-copper")).not.toBeNull();
+  });
+});
