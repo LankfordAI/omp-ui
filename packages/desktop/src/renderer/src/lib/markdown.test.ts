@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "./markdown";
 
-/** Text of one span, recursing into nested spans (issue #40 nests emphasis). */
+/** Text of one span, recursing into nested spans (issue #40 nests emphasis;
+    math spans carry their TeX payload as `text`, issue #191). */
 const spanText = (s: MdSpan): string => ("spans" in s ? s.spans.map(spanText).join("") : s.text);
 
 /** Text of a single non-list, non-table block. */
 const blockText = (block: MdBlock): string =>
-  "spans" in block ? block.spans.map(spanText).join("") : block.kind === "code" ? block.text : "";
+  "spans" in block
+    ? block.spans.map(spanText).join("")
+    : block.kind === "code" || block.kind === "math"
+      ? block.text
+      : "";
 
 /**
  * Flattens a block tree back to the characters a reader would see. Each list
@@ -417,6 +422,161 @@ describe("parseMarkdown inline", () => {
   });
 });
 
+describe("LaTeX math (issue #191)", () => {
+  it("parses inline math in prose", () => {
+    expect(parseMarkdown("value is $y_0 + y_1$ now")).toEqual([
+      {
+        kind: "p",
+        spans: [
+          { kind: "text", text: "value is " },
+          { kind: "math", text: "y_0 + y_1" },
+          { kind: "text", text: " now" },
+        ],
+      },
+    ]);
+  });
+
+  it("parses inline math inside nested spans", () => {
+    expect(parseMarkdown("**$a$** and *$b$*")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "strong", spans: [{ kind: "math", text: "a" }] },
+        { kind: "text", text: " and " },
+        { kind: "em", spans: [{ kind: "math", text: "b" }] },
+      ],
+    });
+  });
+
+  it("parses inline math in headings, table cells and list items", () => {
+    expect(parseMarkdown("# Cost of $O(n \\log n)$")[0]).toEqual({
+      kind: "heading",
+      level: 1,
+      spans: [
+        { kind: "text", text: "Cost of " },
+        { kind: "math", text: "O(n \\log n)" },
+      ],
+    });
+    expect(parseMarkdown("| $a$ | b |\n|---|---|\n| c | d |")[0]).toEqual({
+      kind: "table",
+      headers: [
+        [{ kind: "math", text: "a" }],
+        [{ kind: "text", text: "b" }],
+      ],
+      rows: [[[{ kind: "text", text: "c" }], [{ kind: "text", text: "d" }]]],
+    });
+    expect(parseMarkdown("- $a$")[0]).toMatchObject({
+      kind: "list",
+      items: [{ blocks: [{ kind: "p", spans: [{ kind: "math", text: "a" }] }] }],
+    });
+  });
+
+  it("parses inline math in link labels and quote bodies", () => {
+    expect(parseMarkdown("[$a$](https://a.dev)")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "link", spans: [{ kind: "math", text: "a" }], href: "https://a.dev" },
+      ],
+    });
+    expect(parseMarkdown("> $q$")).toEqual([
+      { kind: "quote", spans: [{ kind: "math", text: "q" }] },
+    ]);
+  });
+
+  it("parses a one-line display math block", () => {
+    expect(parseMarkdown("$$y = y_0 + y_1$$")).toEqual([
+      { kind: "math", text: "y = y_0 + y_1" },
+    ]);
+    // Up to three leading spaces and trailing whitespace are structural.
+    expect(parseMarkdown("   $$x$$ ")).toEqual([{ kind: "math", text: "x" }]);
+    // Four spaces is past the {0,3} cutoff: a literal paragraph.
+    expect(parseMarkdown("    $$x$$")[0]).toMatchObject({
+      kind: "p",
+      spans: [{ kind: "text", text: "    $$x$$" }],
+    });
+  });
+
+  it("parses a paired display block and retains blank body lines", () => {
+    expect(parseMarkdown("$$\ny = y_0 + y_1\n$$")).toEqual([
+      { kind: "math", text: "y = y_0 + y_1" },
+    ]);
+    expect(parseMarkdown("$$\na\n\nb\n$$")).toEqual([{ kind: "math", text: "a\n\nb" }]);
+  });
+
+  it("lets a display line interrupt an open paragraph", () => {
+    expect(parseMarkdown("text\n$$\nx\n$$").map((b) => b.kind)).toEqual(["p", "math"]);
+    expect(parseMarkdown("text\n$$x$$\nmore").map((b) => b.kind)).toEqual(["p", "math", "p"]);
+  });
+
+  it("keeps an unclosed display opener literal without dropping characters", () => {
+    expect(parseMarkdown("$$\nbody")).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "$$\nbody" }] },
+    ]);
+    expect(parseMarkdown("$$")).toEqual([{ kind: "p", spans: [{ kind: "text", text: "$$" }] }]);
+    // A paired run with an empty body is noise, not math.
+    expect(parseMarkdown("$$\n$$").map((b) => b.kind)).toEqual(["p", "p"]);
+  });
+
+  it("keeps dollar runs and display delimiters in prose literal", () => {
+    for (const src of ["$$$$", "price is $$x$$ today"]) {
+      expect(literalText(parseMarkdown(src))).toBe(src);
+    }
+  });
+
+  it("keeps escaped dollars literal and sheds the escape backslash", () => {
+    expect(parseMarkdown("\\$5")).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "$5" }] },
+    ]);
+  });
+
+  it("keeps whitespace-padded and unclosed inline delimiters literal", () => {
+    for (const src of ["a $ b $ c", "$ x $", "a $b", "$"]) {
+      expect(literalText(parseMarkdown(src))).toBe(src);
+    }
+  });
+
+  it("keeps dollar delimiters inside code spans and fences as code", () => {
+    expect(parseMarkdown("`$not_math$`")[0]).toEqual({
+      kind: "p",
+      spans: [{ kind: "code", text: "$not_math$" }],
+    });
+    expect(parseMarkdown("```\n$a$\n$$b$$\n```")).toEqual([
+      { kind: "code", lang: null, text: "$a$\n$$b$$" },
+    ]);
+  });
+
+  it("holds a paired display block in a list item without splitting the list", () => {
+    const blocks = parseMarkdown("1. First\n   $$\n   y\n   $$\n2. Second");
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected a list");
+    expect(block.ordered).toBe(true);
+    expect(block.items).toHaveLength(2);
+    expect(block.items[0]?.blocks).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "First" }] },
+      { kind: "math", text: "y" },
+    ]);
+    expect(block.items[1]?.blocks).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "Second" }] },
+    ]);
+  });
+
+  it("holds a one-line display block in a list item", () => {
+    expect(parseMarkdown("- $$x$$")).toEqual([
+      {
+        kind: "list",
+        ordered: false,
+        items: [{ blocks: [{ kind: "math", text: "x" }], children: [] }],
+      },
+    ]);
+  });
+
+  it("keeps an over-indented display line literal inside an item", () => {
+    // contentIndent is 2; an 8-space line dedents to 6, past the {0,3} cutoff.
+    const out = literalText(parseMarkdown("- a\n        $$x$$"));
+    expect(out).toContain("$$x$$");
+  });
+});
+
 describe("nested inline spans and item blocks (issues #40, #41)", () => {
   it("parses inline code inside strong, em and links", () => {
     expect(parseMarkdown("**After each `rs.add()`**")[0]).toEqual({
@@ -587,7 +747,7 @@ describe("isSafeHref", () => {
 
 describe("parseMarkdown robustness", () => {
   it("never throws on adversarial or random input", () => {
-    const alphabet = "`*_-#[]()>~\\ \n\t{}\"'0123456789abz|+.!";
+    const alphabet = "`*_-#[]()>~\\ \n\t{}\"'$0123456789abz|+.!";
     const cases: string[] = [
       "```".repeat(50),
       "*".repeat(200),
@@ -619,6 +779,7 @@ describe("parseMarkdown robustness", () => {
       p: true,
       heading: true,
       code: true,
+      math: true,
       list: true,
       quote: true,
       rule: true,
@@ -626,12 +787,13 @@ describe("parseMarkdown robustness", () => {
     const SPAN_KINDS: Record<string, true> = {
       text: true,
       code: true,
+      math: true,
       strong: true,
       em: true,
       link: true,
     };
     const blocks = parseMarkdown(
-      "# h\n\ntext **b** `c` [l](https://a.dev)\n\n> q\n\n- i\n\n1. o\n\n---\n\n```js\nx\n```",
+      "# h\n\ntext **b** `c` [l](https://a.dev) $x^2$\n\n$$y = 1$$\n\n> q\n\n- i\n\n1. o\n\n---\n\n```js\nx\n```",
     );
     expect(blocks.length).toBeGreaterThan(6);
     const collectList = (list: MdList): MdSpan[][] =>

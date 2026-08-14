@@ -25,6 +25,8 @@ export type MdBlock =
   | { kind: "p"; spans: MdSpan[] }
   | { kind: "heading"; level: number; spans: MdSpan[] }
   | { kind: "code"; lang: string | null; text: string }
+  /** Display math: `$$body$$` on one line, or a paired run of `$$`-only lines. */
+  | { kind: "math"; text: string }
   | { kind: "list"; ordered: boolean; items: MdListItem[] }
   | { kind: "quote"; spans: MdSpan[] }
   | { kind: "table"; headers: MdSpan[][]; rows: MdSpan[][][] }
@@ -33,6 +35,8 @@ export type MdBlock =
 export type MdSpan =
   | { kind: "text"; text: string }
   | { kind: "code"; text: string }
+  /** Inline math: `$body$` on one line. The extracted TeX payload only. */
+  | { kind: "math"; text: string }
   | { kind: "strong"; spans: MdSpan[] }
   | { kind: "em"; spans: MdSpan[] }
   | { kind: "link"; spans: MdSpan[]; href: string };
@@ -87,6 +91,36 @@ function findCodeClose(src: string, from: number, len: number): number {
     j += n - 1;
   }
   return -1;
+}
+
+/** An odd run of backslashes before position `i` escapes the character there. */
+function isEscaped(src: string, i: number): boolean {
+  let bs = 0;
+  for (let j = i - 1; j >= 0 && src[j] === "\\"; j--) bs++;
+  return bs % 2 === 1;
+}
+
+/**
+ * Inline math, line-bounded like every other inline delimiter: an unescaped
+ * single-dollar opener and closer, with the body starting and ending on a
+ * non-whitespace character. Null otherwise, so a stray `$` stays literal and
+ * a later streaming frame can reflow it once the closer arrives. A `$$` run
+ * is a display delimiter and never an inline opener — display syntax in
+ * prose stays literal.
+ */
+function readMathInline(src: string, i: number): { span: MdSpan; next: number } | null {
+  if (src[i] !== "$" || src[i + 1] === "$" || src[i - 1] === "$") return null;
+  for (let j = i + 1; j < src.length; j++) {
+    const c = src[j] ?? "";
+    if (c === "\n" || c !== "$") continue;
+    if (src[j + 1] === "$" || src[j - 1] === "$" || isEscaped(src, j)) continue;
+    const body = src.slice(i + 1, j);
+    if (body === "" || SPACE.test(body[0] ?? "") || SPACE.test(body[body.length - 1] ?? "")) {
+      return null;
+    }
+    return { span: { kind: "math", text: body }, next: j + 1 };
+  }
+  return null;
 }
 
 function readLink(src: string, i: number): { span: MdSpan; next: number } | null {
@@ -162,6 +196,28 @@ function parseInline(src: string, links = true): MdSpan[] {
       }
       buf += "`".repeat(n);
       i += n;
+      continue;
+    }
+
+    // Inline math (issue #191): code spans were consumed above, so `$…$` in
+    // backticks never reaches this branch. An escaped `\$` is a literal
+    // dollar — the escape backslash is shed rather than exposed.
+    if (c === "$") {
+      if (isEscaped(src, i)) {
+        if (buf.endsWith("\\")) buf = buf.slice(0, -1);
+        buf += "$";
+        i++;
+        continue;
+      }
+      const math = readMathInline(src, i);
+      if (math) {
+        flush();
+        out.push(math.span);
+        i = math.next;
+        continue;
+      }
+      buf += "$";
+      i++;
       continue;
     }
 
@@ -263,6 +319,52 @@ function readFence(lines: string[], i: number): { lang: string | null; text: str
   };
 }
 
+/**
+ * Display math line forms, after at most three leading spaces: a one-line
+ * `$$body$$` (trailing whitespace allowed) or a `$$`-only line that opens or
+ * closes a paired block. Both need a non-empty body; a bare `$$$$` is noise,
+ * not math, and stays literal.
+ */
+function isDisplayMathLine(line: string): boolean {
+  const m = /^ {0,3}\$\$/.exec(line);
+  if (!m) return false;
+  const rest = line.slice(m[0].length);
+  if (rest === "" || /^\s+$/.test(rest)) return true; // paired opener/closer
+  const trimmed = rest.replace(/\s+$/, "");
+  return trimmed.length >= 3 && trimmed.endsWith("$$"); // one-line form
+}
+
+/**
+ * Read a display math block starting at `lines[i]`, or null. Two source
+ * forms: one-line `$$body$$`, and a paired run whose opener and closer are
+ * each a `$$`-only line, with the body lines joined by `\n` (blank lines
+ * retained). The paired reader returns null when no closer exists — or the
+ * body is empty — so streaming or malformed source degrades to literal text
+ * instead of being swallowed (issue #191).
+ */
+function readDisplayMath(
+  lines: string[],
+  i: number,
+): { text: string; next: number } | null {
+  const line = lines[i] ?? "";
+  const m = /^ {0,3}\$\$/.exec(line);
+  if (!m) return null;
+  const rest = line.slice(m[0].length);
+  if (rest === "" || /^\s+$/.test(rest)) {
+    for (let k = i + 1; k < lines.length; k++) {
+      const closer = /^ {0,3}\$\$\s*$/.exec(lines[k] ?? "");
+      if (!closer) continue;
+      const body = lines.slice(i + 1, k).join("\n");
+      return body.trim() === "" ? null : { text: body, next: k + 1 };
+    }
+    return null;
+  }
+  const trimmed = rest.replace(/\s+$/, "");
+  if (!trimmed.endsWith("$$")) return null;
+  const body = trimmed.slice(0, -2);
+  return body === "" ? null : { text: body, next: i + 1 };
+}
+
 function listMarker(
   line: string,
   maxIndent = 3,
@@ -343,6 +445,7 @@ function isDelimiterRow(line: string): boolean {
 function startsBlock(line: string): boolean {
   return (
     FENCE_RE.test(line) ||
+    isDisplayMathLine(line) ||
     HEADING_RE.test(line) ||
     QUOTE_RE.test(line) ||
     isRule(line) ||
@@ -358,6 +461,15 @@ function fenceLead(line: string): number | null {
   const m = /^[ \t]*/.exec(line) ?? ["", ""];
   const rest = line.slice(m[0].length);
   return FENCE_RE.test(rest) ? m[0].length : null;
+}
+
+/** Leading-space count when `line` is a display math line, else null.
+    Mirrors fenceLead: unbounded lead, and the `{0,3}` cutoff is judged on the
+    dedented remainder — over-indented math degrades to literal item text. */
+function mathLead(line: string): number | null {
+  const m = /^[ \t]*/.exec(line) ?? ["", ""];
+  const rest = line.slice(m[0].length);
+  return isDisplayMathLine(rest) ? m[0].length : null;
 }
 
 /**
@@ -387,10 +499,11 @@ function dedentTo(line: string, n: number): string {
 
 /**
  * A list item's content, parsed after its content indent is stripped.
- * Paragraphs fold exactly like top-level ones; fences become code blocks.
- * Any line that still looks like a marker (only depth-cap leftovers reach
- * here — real markers were peeled into children by parseList) falls through
- * to the paragraph: list structure is never re-detected here.
+ * Paragraphs fold exactly like top-level ones; fences become code blocks,
+ * display math blocks (issue #191). Any line that still looks like a marker
+ * (only depth-cap leftovers reach here — real markers were peeled into
+ * children by parseList) falls through to the paragraph: list structure is
+ * never re-detected here.
  */
 function parseItemBlocks(lines: string[]): MdBlock[] {
   const blocks: MdBlock[] = [];
@@ -403,9 +516,19 @@ function parseItemBlocks(lines: string[]): MdBlock[] {
       i = next;
       continue;
     }
+    const math = readDisplayMath(lines, i);
+    if (math) {
+      blocks.push({ kind: "math", text: math.text });
+      i = math.next;
+      continue;
+    }
     const para: string[] = [lines[i] ?? ""];
     let j = i + 1;
-    while (j < lines.length && !FENCE_RE.test(lines[j] ?? "")) {
+    while (
+      j < lines.length &&
+      !FENCE_RE.test(lines[j] ?? "") &&
+      !isDisplayMathLine(lines[j] ?? "")
+    ) {
       para.push(lines[j] ?? "");
       j++;
     }
@@ -502,6 +625,16 @@ function parseList(lines: string[], start: number): { list: MdList; next: number
       j++;
       continue;
     }
+    // Display math indented at least as far as the open item's content
+    // belongs to that item — the math mirror of the fence rule above
+    // (issue #191): after dedent it either matches a math line or degrades
+    // to literal text, and the item's numbering is untouched.
+    const ml = mathLead(current);
+    if (ml !== null && ml >= stack.at(-1)!.list.items.at(-1)!.contentIndent) {
+      stack.at(-1)!.list.items.at(-1)!.content.push(current);
+      j++;
+      continue;
+    }
     if (startsBlock(current)) break;
 
     // Wrapped or deeper-indented lines stay with the deepest open item,
@@ -533,6 +666,15 @@ export function parseMarkdown(src: string): MdBlock[] {
       const f = readFence(lines, i);
       blocks.push({ kind: "code", lang: f.lang, text: f.text });
       i = f.next;
+      continue;
+    }
+
+    // Display math (issue #191): a block boundary before headings, tables
+    // and rules; code keeps precedence over math via the fence check above.
+    const math = readDisplayMath(lines, i);
+    if (math) {
+      blocks.push({ kind: "math", text: math.text });
+      i = math.next;
       continue;
     }
 

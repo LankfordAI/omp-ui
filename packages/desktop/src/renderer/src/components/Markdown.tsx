@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import katex from "katex";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
 import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
@@ -26,6 +27,56 @@ const HEADING_CLASS: Record<number, string> = {
 };
 
 const HEADING_TAG = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
+
+/**
+ * KaTeX options (issue #191). `throwOnError: false` renders malformed TeX
+ * visibly instead of failing the render item; `trust: false` blocks commands
+ * that load resources or inject attributes (`\href`, `\url`,
+ * `\includegraphics` …); `maxSize` and `maxExpand` bound size and
+ * macro-expansion abuse; `htmlAndMathml` keeps the accessible MathML.
+ */
+const KATEX_OPTIONS = {
+  output: "htmlAndMathml",
+  throwOnError: false,
+  strict: "ignore",
+  trust: false,
+  maxSize: 20,
+  maxExpand: 1000,
+} as const;
+
+/**
+ * Rendered-string cache keyed by (display, text): streaming re-renders the
+ * same expression without re-running KaTeX, and identical formulas in
+ * different render items share one result.
+ */
+const mathHtmlCache = new Map<string, string>();
+
+function renderMathHtml(text: string, display: boolean): string {
+  const key = `${display ? 1 : 0}\u0000${text}`;
+  let html = mathHtmlCache.get(key);
+  if (html === undefined) {
+    html = katex.renderToString(text, { ...KATEX_OPTIONS, displayMode: display });
+    mathHtmlCache.set(key, html);
+  }
+  return html;
+}
+
+/**
+ * One KaTeX expression. The sole HTML insertion in this file: the markup
+ * comes from `katex.renderToString` on the TeX payload the parser extracted
+ * — never on source text or arbitrary Markdown — and KaTeX's `trust: false`
+ * keeps that markup free of resource loads and injected attributes.
+ * Display output is a full-width div; its scroll container (and the streaming
+ * caret, which rides after the formula, outside KaTeX-owned markup) is
+ * composed by `Block` so this interface stays exactly `{ text, display }`.
+ */
+function MathExpression({ text, display }: { text: string; display: boolean }): ReactNode {
+  const html = useMemo(() => renderMathHtml(text, display), [text, display]);
+  if (display) {
+    return <div className="w-full" dangerouslySetInnerHTML={{ __html: html }} />;
+  }
+  return <span className="md-math-inline" dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 /**
  * One external link anchor: no `href` attribute (renderer never navigates; the
@@ -62,6 +113,10 @@ function Spans({ spans }: { spans: MdSpan[] }) {
               <code key={i} className="rounded bg-overlay px-1 font-mono text-[0.9em] text-ink">
                 {span.text}
               </code>
+            );
+          case "math":
+            return (
+              <MathExpression key={i} text={span.text} display={false} />
             );
           case "strong":
             return (
@@ -230,6 +285,18 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
   switch (block.kind) {
     case "code":
       return <CodeBlock text={block.text} lang={block.lang} trailing={trailing} />;
+
+    case "math":
+      // Display math earns its column width (like tables): the wrapper is the
+      // local horizontal scroll region, so a wide formula scrolls inside the
+      // transcript width instead of widening it. The caret rides after the
+      // formula, never inside KaTeX-owned markup.
+      return (
+        <div className="md-math-display overflow-x-auto">
+          <MathExpression text={block.text} display />
+          {trailing}
+        </div>
+      );
 
     case "heading": {
       // Real heading tags: assistant answers are documents, and AT users

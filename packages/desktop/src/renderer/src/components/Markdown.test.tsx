@@ -199,3 +199,86 @@ describe("linkify (tool slabs, issue #101)", () => {
     host.remove();
   });
 });
+
+describe("LaTeX math (issue #191)", () => {
+  it("renders a valid inline expression as KaTeX with MathML and no source delimiters", () => {
+    const { el, root } = render("the energy is $E = mc^2$ today");
+    const math = el.querySelector(".katex");
+    expect(math).not.toBeNull();
+    // Display markup is reserved for display mode.
+    expect(el.querySelector(".katex-display")).toBeNull();
+    // Accessible MathML accompanies the visual HTML.
+    expect(el.querySelector("math")).not.toBeNull();
+    // The dollar delimiters are consumed by the parser, not echoed.
+    expect(el.textContent).toContain("the energy is");
+    expect(el.textContent).toContain("today");
+    expect(el.textContent).not.toContain("$");
+    act(() => root.unmount());
+  });
+
+  it("renders a valid display expression in its own scrollable block", () => {
+    const { el, root } = render("$$\ny = y_0 + y_1\n$$");
+    const display = el.querySelector(".katex-display");
+    expect(display).not.toBeNull();
+    expect(el.querySelector(".md-math-display")).not.toBeNull();
+    expect(el.querySelector("math")).not.toBeNull();
+    expect(el.textContent).not.toContain("$");
+    expect(el.textContent).toContain("y");
+    act(() => root.unmount());
+  });
+
+  it("keeps malformed TeX visible instead of throwing or unmounting", () => {
+    const { el, root } = render("Malformed: $\\notacommand{x}$ done");
+    // The render item survives with its neighbours intact.
+    expect(el.querySelector(".katex")).not.toBeNull();
+    expect(el.textContent).toContain("Malformed:");
+    expect(el.textContent).toContain("done");
+    // The offending source is shown (KaTeX's error styling), not dropped.
+    expect(el.textContent).toContain("\\notacommand");
+    act(() => root.unmount());
+  });
+
+  it("renders an untrusted command without images, links or smuggled attributes", () => {
+    const { el, root } = render(
+      "Unsafe: $\\includegraphics{https://example.com/x.png}$",
+    );
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("a")).toBeNull();
+    expect(el.querySelector("[src]")).toBeNull();
+    expect(el.querySelector("[href]")).toBeNull();
+    // The command name stays visible as KaTeX error text.
+    expect(el.textContent).toContain("\\includegraphics");
+    act(() => root.unmount());
+  });
+
+  it("rides the streaming caret after inline math, outside KaTeX markup", () => {
+    const { el, root } = render("E is $a^2$", <span data-testid="caret" />);
+    const caret = el.querySelector('[data-testid="caret"]');
+    expect(caret).not.toBeNull();
+    const math = el.querySelector(".katex");
+    expect(math).not.toBeNull();
+    expect(math!.contains(caret)).toBe(false);
+    expect(el.querySelector("p")!.contains(caret)).toBe(true);
+    act(() => root.unmount());
+  });
+
+  it("rides the streaming caret inside the display block, after the formula", () => {
+    const { el, root } = render("$$x^2$$", <span data-testid="caret" />);
+    const caret = el.querySelector('[data-testid="caret"]');
+    expect(caret).not.toBeNull();
+    const wrapper = el.querySelector(".md-math-display");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.contains(caret)).toBe(true);
+    // The caret never enters KaTeX-owned markup.
+    const katexHtml = el.querySelector(".katex-display")!.parentElement;
+    expect(katexHtml!.contains(caret)).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("keeps dollar math literal inside code spans", () => {
+    const { el, root } = render("`$not_math$`");
+    expect(el.querySelector(".katex")).toBeNull();
+    expect(el.querySelector("code")?.textContent).toBe("$not_math$");
+    act(() => root.unmount());
+  });
+});

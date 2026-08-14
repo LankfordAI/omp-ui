@@ -19,9 +19,10 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
 
 - **Two tab modes.** Every session runs as a **terminal tab** — omp's TUI
   unmodified under a PTY, every keybinding, theme, and skill intact — or a
-  **native transcript tab** rendering the rpc-ui event stream as markdown,
-  tool cards, diffs, and advisor cards. Switching modes restarts the session
-  in place; the default mode is a setting.
+  **native transcript tab** rendering the rpc-ui event stream as markdown
+  with inline and display LaTeX math, tool cards, diffs, and advisor cards.
+  Switching modes restarts the session in place; the default mode is a
+  setting.
 - **Session HUD.** Liveness, click-to-rename title, context meter, spend, and
   the session controls: compact, auto-compact, export, branch, new, refresh,
   steering / follow-up / interrupt queue modes.
@@ -120,10 +121,11 @@ no byte channel. Design doc: `docs/phase-1-pty-embed.md`.
 
 `--mode=rpc-ui` is OMP's headless JSON protocol over stdin/stdout. The main
 pane renders the `AgentSessionEvent` stream as native components: markdown
-assistant text with a usage receipt per turn, per-tool cards with live
-partial output, line-numbered diffs, and advisor cards by severity. New
-sessions auto-title from the first substantive prompt via omp's own small
-model. Design doc: `docs/phase-2-rpc-ui.md`.
+assistant text with inline and display LaTeX math (rendered locally by
+KaTeX), a usage receipt per turn, per-tool cards with live partial output,
+line-numbered diffs, and advisor cards by severity. New sessions auto-title
+from the first substantive prompt via omp's own small model. Design doc:
+`docs/phase-2-rpc-ui.md`.
 
 ### ACP
 

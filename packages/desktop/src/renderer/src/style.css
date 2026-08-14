@@ -10,7 +10,24 @@
 @import "@fontsource-variable/bricolage-grotesque/index.css";
 @import "@fontsource-variable/instrument-sans/index.css";
 @import "@fontsource-variable/jetbrains-mono/index.css";
+/* Locally bundled KaTeX (issue #191): the stylesheet and its relative font
+   assets are emitted into both renderer builds — no CDN, no runtime network. */
+@import "katex/dist/katex.min.css";
 
+
+/* KaTeX in the native transcript (issue #191). The display wrapper carries
+   the horizontal scroll (via its utility classes); this folds KaTeX's 1em
+   display margin into the transcript's block rhythm and keeps inline math on
+   the prose baseline in the surrounding colour. No theme token is added. */
+.md-math-display {
+  max-width: 100%;
+}
+.md-math-display .katex-display {
+  margin: 0;
+}
+.md-math-inline {
+  color: inherit;
+}
 /*
  * omp-ui design system — "precision instrument".
  *
