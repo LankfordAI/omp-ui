@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { ompChildEnv } from "../omp-process";
+import { withFdSweep } from "../fd-sweep";
 import { RpcChunkReassembler } from "./codec";
 
 export interface RpcChildProcess {
@@ -43,7 +44,8 @@ const READY_TIMEOUT_MS = 10_000;
 const STDERR_TAIL_BYTES = 8192;
 
 function defaultSpawn(ompPath: string, args: string[], env: NodeJS.ProcessEnv): RpcChildProcess {
-  const proc = spawn(ompPath, args, {
+  const cmd = withFdSweep(ompPath, args);
+  const proc = spawn(cmd.file, cmd.args, {
     stdio: ["pipe", "pipe", "pipe"] as ["pipe", "pipe", "pipe"],
     env,
   });

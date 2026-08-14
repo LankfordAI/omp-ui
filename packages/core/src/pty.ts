@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as pty from "node-pty";
 import { ompChildEnv } from "./omp-process";
+import { withFdSweep } from "./fd-sweep";
 import { batched } from "./pty-batch";
 
 export interface PtyHandle {
@@ -62,7 +63,8 @@ export function spawnOmp(opts: {
 
   fs.mkdirSync(opts.lineageDir, { recursive: true });
 
-  const proc = pty.spawn(opts.ompPath, args, {
+  const cmd = withFdSweep(opts.ompPath, args);
+  const proc = pty.spawn(cmd.file, cmd.args, {
     name: "xterm-256color",
     cols: opts.cols,
     rows: opts.rows,
@@ -92,7 +94,8 @@ export function spawnShell(opts: {
   rows: number;
 }): PtyHandle {
   const { file, args } = defaultShell();
-  const proc = pty.spawn(file, args, {
+  const cmd = withFdSweep(file, args);
+  const proc = pty.spawn(cmd.file, cmd.args, {
     name: "xterm-256color",
     cols: opts.cols,
     rows: opts.rows,
