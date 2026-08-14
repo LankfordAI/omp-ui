@@ -58,6 +58,11 @@
   --animate-sheet-right: sheet-in-right 0.3s var(--ease-out-quint) both;
   --animate-sheet-up: sheet-in-up 0.3s var(--ease-out-quint) both;
   --animate-scrim: scrim-in 0.24s ease-out both;
+/* ---- Elevation: floating card, machined edge included ---- */
+--shadow-float:
+  inset 0 1px 0 0 var(--color-edge-hi),
+  0 2px 8px -2px var(--color-edge-lo),
+  0 16px 40px -16px var(--color-edge-lo);
 }
 
 @keyframes rise {
@@ -239,6 +244,17 @@
   box-shadow:
     inset 0 1px 0 0 var(--color-edge-hi),
     0 1px 2px 0 var(--color-edge-lo);
+}
+
+/* One-step top-lit plane: overlay falls to raised across the card's top,
+ * so the fill reads as a lit surface instead of flat cardboard. */
+@utility plane-lit {
+  background-color: var(--color-raised);
+  background-image: linear-gradient(
+    to bottom,
+    var(--color-overlay),
+    var(--color-raised) 45%
+  );
 }
 
 @utility text-balance-tight {

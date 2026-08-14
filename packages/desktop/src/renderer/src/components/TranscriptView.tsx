@@ -565,6 +565,13 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
         </div>
       </div>
 
+      {/* Reading-depth cue: content falls away under the pane's top hairline.
+          Overlay, not background — the scroll container's own background would
+          scroll with the content. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-void/25 to-transparent"
+      />
       {!following && items.length > 0 && (
         <button
           type="button"
