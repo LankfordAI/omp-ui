@@ -338,6 +338,16 @@ export function keywordColors(keyword: MagicKeyword, phase: number): string[] {
 }
 
 /**
+ * The full 14-stop palette for `keyword` — the ring the composer runs around
+ * its border while the keyword is armed. These are the same stops
+ * keywordColors samples, exposed whole so the border and the characters can
+ * never disagree about a keyword's colours.
+ */
+export function keywordPalette(keyword: MagicKeyword): readonly string[] {
+  return SPECS.find((s) => s.keyword === keyword)!.palette;
+}
+
+/**
  * Splits `text` into alternating prose and keyword runs. Matching happens
  * against the masked copy so a keyword inside a code span, fence, or XML
  * section never lights up — omp would not fire its notice for one either — while

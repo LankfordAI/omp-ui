@@ -796,3 +796,22 @@ describe("desktop Composer running sweep", () => {
     expect(ring.querySelector("path[stroke-dasharray]")).not.toBeNull();
   });
 });
+
+describe("Composer keyword glow", () => {
+  it("runs the armed keyword's ring around the box, phase-locked palette", () => {
+    seed("ready"); renderComposer();
+    typeDraft("please orchestrate this");
+    const glow = document.body.querySelector<HTMLElement>("[data-perimeter-glow]");
+    expect(glow).not.toBeNull();
+    // orchestrate's hue origin — the ring is the keyword's own palette.
+    expect(glow!.style.getPropertyValue("--perimeter-glow")).toContain("hsl(150 90% 62%)");
+  });
+
+  it("shows no ring for plain prose or a masked keyword", () => {
+    seed("ready"); renderComposer();
+    typeDraft("plain text");
+    expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
+    typeDraft("fix `orchestrate` now");
+    expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
+  });
+});

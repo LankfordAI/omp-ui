@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keywordColors, magicKeywordSegments } from "./magic-keywords";
+import { keywordColors, keywordPalette, magicKeywordSegments } from "./magic-keywords";
 
 /**
  * These cases are the contract that keeps the composer's glow honest: omp only
@@ -94,5 +94,16 @@ describe("keywordColors", () => {
   it("wraps a phase outside [0,1)", () => {
     expect(keywordColors("orchestrate", -0.5)).toEqual(keywordColors("orchestrate", 0.5));
     expect(keywordColors("orchestrate", 1)).toEqual(keywordColors("orchestrate", 0));
+  });
+});
+
+describe("keywordPalette", () => {
+  it("returns the 14-stop ring each keyword's colours sample", () => {
+    for (const kw of ["ultrathink", "orchestrate", "workflowz"] as const) {
+      const palette = keywordPalette(kw);
+      expect(palette).toHaveLength(14);
+      expect(palette[0]).toBe(keywordColors(kw, 0)[0]);
+    }
+    expect(keywordPalette("orchestrate")[0]).toBe("hsl(150 90% 62%)");
   });
 });

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, ChoiceCapsule, ConfirmDialog, Modal, PerimeterSweep, Sheet, UpdateCard } from "./ui";
+import { Button, ChoiceCapsule, ConfirmDialog, Modal, PerimeterGlow, PerimeterSweep, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -424,5 +424,24 @@ describe("PerimeterSweep", () => {
     );
     const path = document.querySelector("svg path")!;
     expect(path.getAttribute("d")).toBe(null);
+  });
+});
+
+describe("PerimeterGlow", () => {
+  it("closes the conic ring back to the first stop", () => {
+    expect(conicRing(["red", "blue"], 90)).toBe(
+      "conic-gradient(from 90deg, red, blue, red)",
+    );
+  });
+
+  it("renders an inert ring rotated by the wrapped phase", async () => {
+    await render(<PerimeterGlow colors={["red", "blue"]} phase={-0.25} />);
+    const el = document.querySelector<HTMLElement>("[data-perimeter-glow]")!;
+    expect(el.getAttribute("aria-hidden")).toBe("true");
+    expect(el.classList.contains("perimeter-glow")).toBe(true);
+    expect(el.classList.contains("pointer-events-none")).toBe(true);
+    expect(el.style.getPropertyValue("--perimeter-glow")).toBe(
+      "conic-gradient(from 270deg, red, blue, red)",
+    );
   });
 });

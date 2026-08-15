@@ -17,6 +17,7 @@ import { useCompactShell } from "../lib/responsive";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import {
   keywordColors,
+  keywordPalette,
   magicKeywordSegments,
   SHIMMER_FRAME_MS,
   SHIMMER_PERIOD_MS,
@@ -31,7 +32,7 @@ import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
-import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, PerimeterSweep, Sheet } from "./ui";
+import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, PerimeterGlow, PerimeterSweep, Sheet } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -175,7 +176,12 @@ export function Composer({
    * anything — so the composer paints them exactly as omp's own editor does.
    */
   const segments = useMemo(() => magicKeywordSegments(text), [text]);
-  const glowing = segments.some((s) => s.keyword !== null);
+  /** First armed keyword in the draft; its palette runs the border ring. */
+  const glowKeyword = useMemo(
+    () => segments.find((s) => s.keyword !== null)?.keyword ?? null,
+    [segments],
+  );
+  const glowing = glowKeyword !== null;
   /** Resolved-as-of-now paths: the file listing plus every ancestor dir. */
   const known = useMemo(() => {
     const list = files?.list ?? [];
@@ -584,6 +590,13 @@ export function Composer({
             dead && "opacity-50",
           )}
         >
+          {/* The border-level echo of the keyword shimmer: the armed keyword's own
+              14-stop gradient circling the box, phase-locked to the character paint.
+              Static (phase 0) while unfocused or under reduced motion — the shimmer
+              clock already enforces both. */}
+          {glowKeyword !== null && (
+            <PerimeterGlow colors={keywordPalette(glowKeyword)} phase={phase} />
+          )}
           {compact && busy && (
             <PerimeterSweep tone={running ? "copper" : "signal"} />
           )}

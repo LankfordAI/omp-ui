@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 
@@ -665,6 +665,42 @@ export function PerimeterSweep({
         className="animate-sweep-loop motion-reduce:animate-none"
       />
     </svg>
+  );
+}
+
+/** The conic ring CSS for a PerimeterGlow: `colors` in order, closed back to the first. */
+export function conicRing(colors: readonly string[], angle: number): string {
+  return `conic-gradient(from ${angle}deg, ${colors.join(", ")}, ${colors[0]})`;
+}
+
+/**
+ * A full-perimeter gradient ring on the host's border — the border-level echo
+ * of a gradient painted on text inside. Render it as a direct child of the
+ * rounded, `relative` host it traces, like PerimeterSweep. It owns no clock:
+ * `phase` ∈ [0,1) rotates the ring one full turn, so the caller's existing
+ * shimmer clock drives it and reduced-motion falls out of the caller pinning
+ * phase to 0. Values outside [0,1) wrap, matching keywordColors.
+ */
+export function PerimeterGlow({
+  colors,
+  phase = 0,
+  className,
+}: {
+  colors: readonly string[];
+  phase?: number;
+  className?: string;
+}) {
+  const angle = Math.round((((phase % 1) + 1) % 1) * 360);
+  return (
+    <div
+      aria-hidden
+      data-perimeter-glow
+      className={cn(
+        "perimeter-glow pointer-events-none absolute inset-0 rounded-[inherit]",
+        className,
+      )}
+      style={{ "--perimeter-glow": conicRing(colors, angle) } as CSSProperties}
+    />
   );
 }
 

@@ -264,6 +264,25 @@
   );
 }
 
+/* A gradient ring occupying only the border zone: transparent border +
+ * border-box background, masked padding-box out of border-box. The gradient
+ * itself arrives per-instance via --perimeter-glow (colours + rotation are
+ * dynamic; a custom property also survives jsdom's CSSOM in tests). */
+@utility perimeter-glow {
+  border: 1.5px solid transparent;
+  background-image: var(--perimeter-glow);
+  background-origin: border-box;
+  background-clip: border-box;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  mask-composite: exclude;
+}
+
 @utility text-balance-tight {
   text-wrap: balance;
 }
