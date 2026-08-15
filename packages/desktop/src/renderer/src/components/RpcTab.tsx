@@ -155,7 +155,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   }, [hero]);
 
   return (
-    <div className="relative flex h-full flex-col bg-surface">
+    <div className="ambient relative flex h-full flex-col bg-surface">
       {compact && <SessionHud tabId={tabId} />}
 
       {/* Flush with the tab pane's top edge, never in flow: a 1px bar that
