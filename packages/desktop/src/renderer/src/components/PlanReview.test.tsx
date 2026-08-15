@@ -535,7 +535,7 @@ describe("PlanReview change notes (issue #113)", () => {
 });
 
 describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
-  it("shows the session's model and an off orchestrate switch by default", () => {
+  it("shows the session's model and all three keyword switches off by default", () => {
     useStore.setState({
       rpc: {
         [TAB]: tabState({
@@ -546,11 +546,17 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     render();
 
     expect(document.body.textContent).toContain("Kimi K3");
-    const orchestrateSwitch = document.body.querySelector<HTMLButtonElement>(
-      'button[role="switch"][aria-label="orchestrate the implementation"]',
-    );
-    expect(orchestrateSwitch).not.toBeNull();
-    expect(orchestrateSwitch!.getAttribute("aria-checked")).toBe("false");
+    for (const label of [
+      "ultrathink the implementation",
+      "orchestrate the implementation",
+      "workflowz the implementation",
+    ]) {
+      const keywordSwitch = document.body.querySelector<HTMLButtonElement>(
+        `button[role="switch"][aria-label="${label}"]`,
+      );
+      expect(keywordSwitch).not.toBeNull();
+      expect(keywordSwitch!.getAttribute("aria-checked")).toBe("false");
+    }
   });
 
   it("toggling orchestrate prepends the keyword to the implementation prompt", async () => {
@@ -567,6 +573,24 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
     expect(promptFrame()).toBeDefined();
     expect(String(promptFrame()!.message).startsWith("orchestrate\n\n")).toBe(true);
+  });
+
+  it("toggling ultrathink and workflowz prepends both keywords in notice order", async () => {
+    render();
+    for (const label of ["ultrathink the implementation", "workflowz the implementation"]) {
+      const keywordSwitch = document.body.querySelector<HTMLButtonElement>(
+        `button[role="switch"][aria-label="${label}"]`,
+      )!;
+      await act(async () => keywordSwitch.click());
+    }
+    await act(async () => {
+      executeButton().click();
+      await Promise.resolve();
+    });
+
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+    expect(promptFrame()).toBeDefined();
+    expect(String(promptFrame()!.message).startsWith("ultrathink\n\nworkflowz\n\n")).toBe(true);
   });
 
   it("a staged model pick flows to the set_model frame at execute", async () => {

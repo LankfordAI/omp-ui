@@ -2235,6 +2235,42 @@ describe("handleRpcFrame routing", () => {
     ).toBe(true);
   });
 
+  it("prepends the ultrathink keyword to the implementation prompt (existing context)", async () => {
+    openReview("o1u");
+    useStore.getState().executePlan(TAB, "existing", { ultrathink: true });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === TAB &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    expect(
+      String(prompt!.cmd.message).startsWith(
+        "ultrathink\n\nThe plan review is complete",
+      ),
+    ).toBe(true);
+  });
+
+  it("prepends armed keywords in notice order, not arming order", async () => {
+    openReview("o1w");
+    useStore.getState().executePlan(TAB, "existing", { workflowz: true, ultrathink: true });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) =>
+        s.tabId === TAB &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(prompt).toBeDefined();
+    expect(
+      String(prompt!.cmd.message).startsWith(
+        "ultrathink\n\nworkflowz\n\nThe plan review is complete",
+      ),
+    ).toBe(true);
+  });
+
   it("leaves the keyword off by default", async () => {
     openReview("o2");
     useStore.getState().executePlan(TAB, "existing");
@@ -2272,6 +2308,33 @@ describe("handleRpcFrame routing", () => {
     expect(
       String(prompt!.cmd.message).startsWith(
         "orchestrate\n\nA plan was approved",
+      ),
+    ).toBe(true);
+  });
+
+  it("prepends the workflowz keyword to a fresh session's seed", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    openReviewWithPlan("o3w");
+    // Let the plan file read resolve so executePlan captures the plan text.
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh", { workflowz: true });
+    await flushMicrotasks();
+    // Boot the fresh tab to ready — resolves the spawn's readiness wait.
+    useStore.setState({
+      rpc: {
+        ...useStore.getState().rpc,
+        "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+      },
+    });
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+    );
+    expect(prompt).toBeDefined();
+    expect(
+      String(prompt!.cmd.message).startsWith(
+        "workflowz\n\nA plan was approved",
       ),
     ).toBe(true);
   });

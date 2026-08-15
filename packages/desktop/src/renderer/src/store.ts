@@ -25,7 +25,7 @@ import { arrField, field, numField, strField } from "./lib/fields";
 import {
   PlanConcernWatcher,
   withConcerns,
-  withOrchestrate,
+  withKeywords,
   type PlanExecutionContext,
   type PlanExecutionOptions,
 } from "./lib/plan-concerns";
@@ -765,9 +765,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     concerns: string | null,
     options?: PlanExecutionOptions,
   ): void => {
-    const message = withOrchestrate(
+    const message = withKeywords(
       withConcerns(EXECUTION_PROMPT, concerns),
-      options?.orchestrate === true,
+      options ?? {},
     );
     if (context === "fresh") {
       void spawnFreshImplementation(tabId, planText, concerns, options);
@@ -1025,9 +1025,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       : lead;
     await get().sendPrompt(
       freshId,
-      withOrchestrate(
+      withKeywords(
         withConcerns(seed, concerns),
-        options?.orchestrate === true,
+        options ?? {},
       ),
       "prompt",
     );

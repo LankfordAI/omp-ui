@@ -3,6 +3,7 @@ import type { ImageAttachment } from "@omp-ui/core/types";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
+import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { preparePlanDocument } from "../lib/plan-document";
 import { planSeedText } from "../lib/plan-seed";
@@ -41,6 +42,35 @@ const CONTEXTS: Array<{
 
 /** Stable empty array so the selector doesn't resubscribe on every store tick. */
 const EMPTY_MODELS: ModelInfo[] = [];
+
+/** The aside's keyword rows, in omp's notice-push order. */
+const KEYWORD_ROWS: ReadonlyArray<{ keyword: MagicKeyword; hint: string }> = [
+  {
+    keyword: "ultrathink",
+    hint: "Careful multi-step reasoning — leads the prompt; under auto-thinking the turn also jumps to the model's highest level.",
+  },
+  {
+    keyword: "orchestrate",
+    hint: "Fan the implementation out to subagents — omp's orchestrate keyword leads the prompt.",
+  },
+  {
+    keyword: "workflowz",
+    hint: "Drive the implementation as a deterministic multi-subagent workflow — omp's workflowz keyword leads the prompt.",
+  },
+];
+
+/** A magic keyword painted with its own gradient, as the composer paints it (static phase). */
+function KeywordLabel({ keyword }: { keyword: MagicKeyword }) {
+  return (
+    <span className="font-mono text-[11px] font-medium" aria-label={keyword}>
+      {keywordColors(keyword, 0).map((color, i) => (
+        <span key={i} aria-hidden style={{ color }}>
+          {keyword[i]}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export function PlanReview({ tabId }: { tabId: string }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
@@ -109,14 +139,16 @@ export function PlanReview({ tabId }: { tabId: string }) {
     sessionRecord?.advisorModel ?? null,
   );
   const [orchestrate, setOrchestrate] = useState(false);
+  const [ultrathink, setUltrathink] = useState(false);
+  const [workflowz, setWorkflowz] = useState(false);
   const [pickingModel, setPickingModel] = useState(false);
   const [pickingAdvisorModel, setPickingAdvisorModel] = useState(false);
   const [levelMenu, setLevelMenu] = useState<"main" | "advisor" | null>(null);
 
   // A new proposal re-seeds the staged parameters from the session's current
   // values (React's adjust-state-during-render pattern). Defer/reopen keeps the
-  // user's staging because the review object is unchanged; orchestrate always
-  // resets to off (decided: never remembered).
+  // user's staging because the review object is unchanged; the keyword switches
+  // always reset to off (decided: never remembered).
   const [seededFor, setSeededFor] = useState<unknown>(null);
   if (review !== seededFor) {
     setSeededFor(review);
@@ -124,7 +156,9 @@ export function PlanReview({ tabId }: { tabId: string }) {
     setStagedThinking(currentThinking);
     setStagedAdvisor(sessionRecord?.advisor ?? false);
     setStagedAdvisorModel(sessionRecord?.advisorModel ?? null);
+    setUltrathink(false);
     setOrchestrate(false);
+    setWorkflowz(false);
   }
 
   // omp's config supplies the inherited advisor default, read in main.
@@ -224,7 +258,9 @@ export function PlanReview({ tabId }: { tabId: string }) {
     // whichever session receives the implementation.
     const options: PlanExecutionOptions = {
       addressAdvisor,
+      ultrathink,
       orchestrate,
+      workflowz,
       model: stagedModel,
       thinkingLevel: stagedThinking,
       advisor: stagedAdvisor,
@@ -734,15 +770,29 @@ export function PlanReview({ tabId }: { tabId: string }) {
               </fieldset>
             )}
 
-            <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
-              <div className="min-w-0">
-                <span className="block text-[11px] font-medium text-ink">Orchestrate</span>
-                <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
-                  Fan the implementation out to subagents — omp's orchestrate keyword leads the prompt.
-                </span>
+            <fieldset className="mt-5 border-t border-line pt-4">
+              <legend className="text-[11px] font-medium text-ink">Magic keywords</legend>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                Armed words lead the implementation prompt, in this order — omp appends each one's hidden notice.
+              </p>
+              <div className="mt-3 space-y-3">
+                {KEYWORD_ROWS.map(({ keyword, hint }) => {
+                  const armed =
+                    keyword === "ultrathink" ? ultrathink : keyword === "orchestrate" ? orchestrate : workflowz;
+                  const setArmed =
+                    keyword === "ultrathink" ? setUltrathink : keyword === "orchestrate" ? setOrchestrate : setWorkflowz;
+                  return (
+                    <div key={keyword} className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <KeywordLabel keyword={keyword} />
+                        <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{hint}</span>
+                      </div>
+                      <Switch on={armed} onChange={setArmed} label={`${keyword} the implementation`} />
+                    </div>
+                  );
+                })}
               </div>
-              <Switch on={orchestrate} onChange={setOrchestrate} label="orchestrate the implementation" />
-            </div>
+            </fieldset>
 
             {advisorConfigured && (
               <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
@@ -768,7 +818,9 @@ export function PlanReview({ tabId }: { tabId: string }) {
             <p className="mt-0.5 truncate text-[11px] text-ink-dim">
               {CONTEXTS.find((c) => c.id === context)?.label}
               {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
+              {ultrathink && " · ultrathink"}
               {orchestrate && " · orchestrate"}
+              {workflowz && " · workflowz"}
               {isRepo && (
                 <>
                   {" · "}

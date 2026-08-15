@@ -183,6 +183,17 @@ context; refine stays immediate because the planner revises in situ, where the
 advisor's notes already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
 
+**Magic keyword**:
+One of omp's three prose keywords — `ultrathink`, `orchestrate`, `workflowz` —
+which, submitted as standalone prose, make omp append a hidden system notice
+steering the turn (and, for `ultrathink` under auto-thinking, resolve the turn
+to the model's highest thinking level). The composer paints each with its own
+gradient exactly as omp's editor does; the plan review modal stages them as
+switches that lead the implementation prompt in omp's notice order. omp's own
+config (`magicKeywords.*`) can disable each one, which makes the word inert
+literal text — omp-ui mirrors typing, so it neither detects nor overrides that.
+_Avoid_: reserved word, hotword, slash command
+
 **Plan format**:
 How the agent is asked to author a plan for review, set once in Settings →
 General and carried when Plan mode is selected: `html` (default) or `md`. Under

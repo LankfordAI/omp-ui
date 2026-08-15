@@ -28,8 +28,12 @@ export function withConcerns(base: string, concerns: string | null): string {
 export interface PlanExecutionOptions {
   /** Fold the advisor's plan-turn review into the implementation prompt (default true). */
   addressAdvisor?: boolean;
+  /** Prepend omp's `ultrathink` magic keyword to the implementation prompt. */
+  ultrathink?: boolean;
   /** Prepend omp's `orchestrate` magic keyword to the implementation prompt. */
   orchestrate?: boolean;
+  /** Prepend omp's `workflowz` magic keyword to the implementation prompt. */
+  workflowz?: boolean;
   /** Staged main model; applied to the receiving session when it differs. */
   model?: ModelInfo | null;
   /** Staged main thinking level; applied when it differs. */
@@ -41,13 +45,26 @@ export interface PlanExecutionOptions {
 }
 
 /**
- * Prepends omp's `orchestrate` magic keyword. omp builds the hidden
- * orchestration notice from the keyword in the prompt text itself, so the
- * word must lead the message as standalone prose — the blank line keeps the
- * ported LEFT/RIGHT boundary rules (lib/magic-keywords.ts) matching.
+ * Prepends the armed magic keywords. omp builds each hidden notice from the
+ * keyword in the prompt text itself, so each word must lead as standalone
+ * prose — blank-line separation keeps the ported LEFT/RIGHT boundary rules
+ * (lib/magic-keywords.ts) matching. The order is fixed to omp's notice-push
+ * order (AgentSession.#createMagicKeywordNotices: ultrathink, orchestrate,
+ * workflow), never the order the switches were flipped, so the dispatched
+ * prompt is deterministic.
  */
-export function withOrchestrate(base: string, orchestrate: boolean): string {
-  return orchestrate ? `orchestrate\n\n${base}` : base;
+export function withKeywords(
+  base: string,
+  keywords: Pick<PlanExecutionOptions, "ultrathink" | "orchestrate" | "workflowz">,
+): string {
+  const lead = [
+    keywords.ultrathink === true ? "ultrathink" : null,
+    keywords.orchestrate === true ? "orchestrate" : null,
+    keywords.workflowz === true ? "workflowz" : null,
+  ]
+    .filter((k): k is string => k !== null)
+    .join("\n\n");
+  return lead === "" ? base : `${lead}\n\n${base}`;
 }
 
 export interface PlanConcernIntent {

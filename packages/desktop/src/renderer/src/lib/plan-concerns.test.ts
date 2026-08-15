@@ -5,6 +5,7 @@ import {
   PLAN_CONCERNS_WAIT_MS,
   PlanConcernWatcher,
   withConcerns,
+  withKeywords,
   type PlanConcernIntent,
 } from "./plan-concerns";
 
@@ -37,6 +38,25 @@ describe("withConcerns", () => {
 
   it("returns base unchanged when there are no concerns", () => {
     expect(withConcerns("base", null)).toBe("base");
+  });
+});
+
+describe("withKeywords", () => {
+  it("returns base unchanged when no keyword is armed", () => {
+    expect(withKeywords("base", {})).toBe("base");
+    expect(withKeywords("base", { orchestrate: false })).toBe("base");
+  });
+
+  it("prepends a single armed keyword as standalone prose", () => {
+    expect(withKeywords("base", { ultrathink: true })).toBe("ultrathink\n\nbase");
+    expect(withKeywords("base", { workflowz: true })).toBe("workflowz\n\nbase");
+  });
+
+  it("prepends armed keywords in omp's notice order, not arming order", () => {
+    expect(withKeywords("base", { workflowz: true, ultrathink: true, orchestrate: true }))
+      .toBe("ultrathink\n\norchestrate\n\nworkflowz\n\nbase");
+    expect(withKeywords("base", { workflowz: true, orchestrate: true }))
+      .toBe("orchestrate\n\nworkflowz\n\nbase");
   });
 });
 
