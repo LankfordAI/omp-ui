@@ -19,7 +19,6 @@ import {
   keywordColors,
   keywordPalette,
   magicKeywordSegments,
-  SHIMMER_FRAME_MS,
   SHIMMER_PERIOD_MS,
 } from "../lib/magic-keywords";
 import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
@@ -316,15 +315,21 @@ export function Composer({
       setPhase(0);
       return;
     }
-    // A 14fps colour cycle is exactly what reduced-motion asks us not to run.
+    // A continuous colour cycle is exactly what reduced-motion asks us not to run.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setPhase(0);
       return;
     }
-    const tick = () => setPhase((Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS);
+    // rAF, not setInterval: the sweep advances a uniform delta per displayed
+    // frame (the 70 ms interval stepped visibly — issue #204), and pauses for
+    // free while the window is hidden.
+    let raf = 0;
+    const tick = () => {
+      setPhase((Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS);
+      raf = requestAnimationFrame(tick);
+    };
     tick();
-    const timer = window.setInterval(tick, SHIMMER_FRAME_MS);
-    return () => window.clearInterval(timer);
+    return () => cancelAnimationFrame(raf);
   }, [focused, glowing]);
 
   // A dead tab has no agent to configure; and a menu left open behind a click

@@ -79,7 +79,7 @@ describe("keywordColors", () => {
     const colors = keywordColors("orchestrate", 0);
     expect(colors).toHaveLength(11);
     expect(colors[0]).toBe("hsl(150 90% 62%)");
-    expect(colors[10]).toBe("hsl(261 90% 62%)");
+    expect(colors[10]).toBe("hsl(268 90% 62%)");
   });
 
   it("gives each keyword its own hue origin", () => {
@@ -89,6 +89,15 @@ describe("keywordColors", () => {
 
   it("rotates the sample with the shimmer phase", () => {
     expect(keywordColors("orchestrate", 0.5)[0]).toBe("hsl(215 90% 62%)");
+  });
+
+  it("advances the colour on every small phase step instead of holding a stop", () => {
+    // 0.02 of ultrathink's 330-degree ramp is 6.6 degrees: a visible step, not
+    // a stall — the old 14-stop quantization returned hsl(0…) here (issue #204).
+    expect(keywordColors("ultrathink", 0.02)[0]).toBe("hsl(7 90% 62%)");
+    // Equal phase deltas move equal hue deltas: the sweep speed is uniform.
+    expect(keywordColors("ultrathink", 0.1)[0]).toBe("hsl(33 90% 62%)");
+    expect(keywordColors("ultrathink", 0.2)[0]).toBe("hsl(66 90% 62%)");
   });
 
   it("wraps a phase outside [0,1)", () => {

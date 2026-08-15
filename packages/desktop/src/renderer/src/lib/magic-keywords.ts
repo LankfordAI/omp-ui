@@ -26,8 +26,6 @@ export interface KeywordSegment {
 
 /** Time for the gradient to sweep one full cycle across each keyword. */
 export const SHIMMER_PERIOD_MS = 1800;
-/** Repaint cadence while shimmering (~14 fps), matching omp's editor. */
-export const SHIMMER_FRAME_MS = 70;
 
 // ---------------------------------------------------------------------------
 // Prose masking — port of omp's markdown-prose.ts
@@ -285,24 +283,26 @@ export function maskNonProse(text: string): string {
 const LEFT = String.raw`(?<![\p{L}\p{N}_./\\-])(?<!::)`;
 const RIGHT = String.raw`(?![\p{L}\p{N}_/\\-])(?!\.[\p{L}\p{N}_-])(?!\()`;
 
-/** Colour stops swept across each keyword. */
+/** Colour stops in a keyword's border ring (`keywordPalette`). */
 const STOPS = 14;
 
 interface Spec {
   keyword: MagicKeyword;
   /** Case-sensitive by design: omp fires on the lowercase word only. */
   match: RegExp;
-  /** One CSS colour per stop, `hsl(H 90% 62%)`, omp's gradient defaults. */
+  /** Hue in degrees at t ∈ [0, 1) along the keyword's ramp. */
+  hue: (t: number) => number;
+  /** The ramp as 14 stops, `hsl(H 90% 62%)`, for the conic border ring. */
   palette: readonly string[];
 }
 
-/** Builds a spec's 14-stop palette from omp's hue sweep for that keyword. */
+/** Builds a spec from omp's hue ramp for that keyword. */
 function spec(keyword: MagicKeyword, hue: (t: number) => number): Spec {
   const palette: string[] = [];
   for (let i = 0; i < STOPS; i++) {
     palette.push(`hsl(${Math.round(hue(i / STOPS))} 90% 62%)`);
   }
-  return { keyword, match: new RegExp(`${LEFT}${keyword}${RIGHT}`, "gu"), palette };
+  return { keyword, match: new RegExp(`${LEFT}${keyword}${RIGHT}`, "gu"), hue, palette };
 }
 
 const SPECS: readonly Spec[] = [
@@ -315,33 +315,33 @@ const SPECS: readonly Spec[] = [
 ];
 
 /**
- * One CSS colour per character of `keyword`, sampling the palette the way omp's
- * `paint` does — a stepped pick, not an interpolation. `phase` ∈ [0, 1) rotates
- * the sample cyclically to animate the shimmer; values outside the range wrap.
+ * One CSS colour per character of `keyword`, sampled continuously from the
+ * keyword's hue ramp. `phase` ∈ [0, 1) rotates the sample cyclically to
+ * animate the shimmer; values outside the range wrap.
  *
- * omp coalesces adjacent characters that land on the same stop into one escape;
- * that never happens here, because all three keywords are shorter than the 14
- * stops and so every character gets its own colour.
+ * omp's terminal editor quantizes this ramp to 14 ANSI stops; sampling the
+ * ramp directly keeps the same endpoints while letting the sweep advance a
+ * uniform hue delta per frame — the stepped pick made the GUI shimmer stall
+ * and lurch (issue #204).
  */
 export function keywordColors(keyword: MagicKeyword, phase: number): string[] {
-  const found = SPECS.find((s) => s.keyword === keyword);
-  const palette = found!.palette;
+  const { hue } = SPECS.find((s) => s.keyword === keyword)!;
   // Wrap into [0, 1) so negative inputs and values >= 1 stay well-defined.
   const wrapped = ((phase % 1) + 1) % 1;
   const n = keyword.length;
   const colors: string[] = [];
   for (let i = 0; i < n; i++) {
-    const t = (i / n + wrapped) % 1;
-    colors.push(palette[Math.floor(t * STOPS) % STOPS]!);
+    colors.push(`hsl(${Math.round(hue((i / n + wrapped) % 1))} 90% 62%)`);
   }
   return colors;
 }
 
 /**
- * The full 14-stop palette for `keyword` — the ring the composer runs around
- * its border while the keyword is armed. These are the same stops
- * keywordColors samples, exposed whole so the border and the characters can
- * never disagree about a keyword's colours.
+ * The 14-stop ring for `keyword` — the conic gradient the composer runs
+ * around its border while the keyword is armed. The stops sample the same
+ * hue ramp keywordColors draws from (the browser interpolates between them),
+ * so the border and the characters can never disagree about a keyword's
+ * colours.
  */
 export function keywordPalette(keyword: MagicKeyword): readonly string[] {
   return SPECS.find((s) => s.keyword === keyword)!.palette;
