@@ -383,7 +383,7 @@ describe("PerimeterSweep", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("traces the host border from the live size and computed radius", async () => {
-    const rectSpy = vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
+    vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
     vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
     await render(
       <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
@@ -415,7 +415,7 @@ describe("PerimeterSweep", () => {
   });
 
   it("paints nothing for a zero-size host", async () => {
-    const rectSpy = vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 0, height: 0 } as DOMRect);
+    vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 0, height: 0 } as DOMRect);
     vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
     await render(
       <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
