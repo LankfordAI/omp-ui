@@ -306,9 +306,18 @@ describe("lineage watcher broadcast throttle (issue #187)", () => {
   // setImmediate stays real so the fs.promises inside hydrateSessionFile can
   // drain; only the throttle window and clock are fake. Poll the observable
   // effect rather than guessing a yield count — parallel workers stretch I/O.
+  // Each iteration is one event-loop turn, so the turn budget doubles as an
+  // I/O-latency budget: a release cut lands CI and the release lane in the
+  // same window on the shared runner, and one backed-up fs round-trip has
+  // stretched past 500 turns (issue #203). 5000 covers ~500ms at observed
+  // turn rates; the hrtime deadline — untouched by the fake clock — bounds
+  // the wait in wall time if turns themselves are starved.
   const flushUntil = async (cond: () => boolean): Promise<void> => {
-    for (let i = 0; i < 500 && !cond(); i++)
+    const deadline = process.hrtime.bigint() + 3_000_000_000n; // 3s
+    for (let i = 0; i < 5000 && !cond(); i++) {
+      if (process.hrtime.bigint() > deadline) break;
       await new Promise<void>((resolve) => setImmediate(resolve));
+    }
   };
 
   it("throttles mtime-only churn and keeps identity changes immediate", async () => {
@@ -374,5 +383,5 @@ describe("lineage watcher broadcast throttle (issue #187)", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, 20_000);
 });
