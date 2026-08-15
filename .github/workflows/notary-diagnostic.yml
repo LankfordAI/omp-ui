@@ -1,0 +1,40 @@
+name: Notary Diagnostic
+
+# Temporary diagnostic for issue #124: isolates the notarytool HTTP 500 from
+# the omp-ui build. `history` exercises authentication with no artifact;
+# `submit` of a trivial zip exercises the submission pipeline with no
+# app/signing/entitlements involvement. Delete once #124 is resolved.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: macos-15
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Auth probe (notarytool history)
+        continue-on-error: true
+        run: |
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json
+      - name: Submission probe (trivial zip)
+        continue-on-error: true
+        run: |
+          printf 'notary diagnostic for omp-ui issue #124\n' > probe.txt
+          ditto -c -k probe.txt probe.zip
+          xcrun notarytool submit probe.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json \
+            --wait --timeout 10m
