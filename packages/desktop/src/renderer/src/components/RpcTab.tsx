@@ -14,19 +14,25 @@ import { Button, Chip, CopyButton, Panel, ProgressSweep } from "./ui";
 
 const NO_ITEMS: never[] = [];
 
-/** Boot placeholder — an empty pane reads as a hang, three bars read as work. */
-function TranscriptSkeleton() {
-  return (
-    <div className="animate-rise flex flex-1 flex-col gap-3 px-5 py-4">
-      {[0.62, 0.9, 0.44].map((width, i) => (
-        <div
-          key={i}
-          className="h-3 animate-pulse rounded bg-line-soft"
-          style={{ width: `${width * 100}%`, animationDelay: `${i * 140}ms` }}
-        />
-      ))}
-    </div>
-  );
+/** Boot placeholder — an empty pane reads as a hang, three bars read as work.
+ *  `centered` anchors the bars just above the mid-pane composer, aligned to
+ *  its card (same px-4 outer gutter + max-w-3xl column as Composer). */
+function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
+  const bars = [0.62, 0.9, 0.44].map((width, i) => (
+    <div
+      key={i}
+      className="h-3 animate-pulse rounded bg-line-soft"
+      style={{ width: `${width * 100}%`, animationDelay: `${i * 140}ms` }}
+    />
+  ));
+  if (centered) {
+    return (
+      <div className="animate-rise flex min-h-0 flex-1 flex-col justify-end px-4 pb-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">{bars}</div>
+      </div>
+    );
+  }
+  return <div className="animate-rise flex flex-1 flex-col gap-3 px-5 py-4">{bars}</div>;
 }
 
 /** The fresh-session greeting above the centered composer. */
@@ -106,28 +112,31 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
     if (status === "starting") setPrompted(false);
   }, [status]);
 
-  const hero =
+  // Boot shares the hero geometry: the composer is centered from the first
+  // skeleton frame, so nothing moves when the session turns ready.
+  const centered =
     !compact &&
     exitCode === undefined &&
-    status === "ready" &&
     !prompted &&
+    (status === "starting" || status === "ready") &&
     preExchange(items);
+  const hero = centered && status === "ready";
 
   const slotRef = useRef<HTMLDivElement | null>(null);
-  const heroRect = useRef<DOMRect | null>(null);
-  const wasHero = useRef(false);
+  const centeredRect = useRef<DOMRect | null>(null);
+  const wasCentered = useRef(false);
 
-  // FLIP: while the hero shows, remember where the composer sits (this commit's
+  // FLIP: while centered, remember where the composer sits (this commit's
   // layout is the "first" frame of a future flip). On the commit that docks it,
   // the DOM is already in the final layout — play the inverted delta back to
-  // zero. Runs every commit by design; hero commits are rare (boot patches).
+  // zero. Runs every commit by design; centered commits are rare (boot patches).
   useLayoutEffect(() => {
     const slot = slotRef.current;
-    if (hero && slot) heroRect.current = slot.getBoundingClientRect();
-    if (wasHero.current && !hero && slot && heroRect.current) {
+    if (centered && slot) centeredRect.current = slot.getBoundingClientRect();
+    if (wasCentered.current && !centered && slot && centeredRect.current) {
       const to = slot.getBoundingClientRect();
-      const dy = heroRect.current.top - to.top;
-      heroRect.current = null;
+      const dy = centeredRect.current.top - to.top;
+      centeredRect.current = null;
       if (
         dy !== 0 &&
         to.width > 0 && // hidden tab (display:none) measures 0 — skip
@@ -140,19 +149,19 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
         );
       }
     }
-    wasHero.current = hero;
+    wasCentered.current = centered;
   });
 
-  // A resize during the hero moves the composer without a re-render; keep the
+  // A resize while centered moves the composer without a re-render; keep the
   // remembered rect honest so a flip right after a resize starts in place.
   useEffect(() => {
-    if (!hero) return;
+    if (!centered) return;
     const capture = () => {
-      if (slotRef.current) heroRect.current = slotRef.current.getBoundingClientRect();
+      if (slotRef.current) centeredRect.current = slotRef.current.getBoundingClientRect();
     };
     window.addEventListener("resize", capture);
     return () => window.removeEventListener("resize", capture);
-  }, [hero]);
+  }, [centered]);
 
   return (
     <div className="ambient relative flex h-full flex-col bg-surface">
@@ -207,20 +216,24 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
-            {status === "starting" && items.length === 0 ? (
+            {centered ? (
+              hero ? (
+                <HeroGreeting projectCwd={projectCwd} />
+              ) : (
+                <TranscriptSkeleton centered />
+              )
+            ) : status === "starting" && items.length === 0 ? (
               <TranscriptSkeleton />
-            ) : hero ? (
-              <HeroGreeting projectCwd={projectCwd} />
             ) : (
               <TranscriptView items={items} />
             )}
             {/* Docked, not modal: the user may need to scroll the transcript to
                 answer, so the question must not cover it. */}
             <ExtensionDialogHost tabId={tabId} />
-            <div ref={slotRef} className={cn(hero && "pb-2")}>
+            <div ref={slotRef} className={cn(centered && "pb-2")}>
               <Composer tabId={tabId} onPrompt={() => setPrompted(true)} />
             </div>
-            {hero && <HeroFooter items={items} />}
+            {centered && <HeroFooter items={items} />}
           </div>
           <InspectorRail tabId={tabId} />
         </div>

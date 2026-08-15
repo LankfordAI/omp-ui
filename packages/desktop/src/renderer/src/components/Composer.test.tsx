@@ -66,7 +66,7 @@ const state = backendState({
   }] }],
 });
 
-function seed(status: "ready" | "running", dead = false): void {
+function seed(status: "starting" | "ready" | "running", dead = false): void {
   useStore.setState({
     advisorDefaults: {},
     state,
@@ -752,6 +752,33 @@ describe("RpcTab hero", () => {
     seed("ready", true);
     desktop(); renderRpcTab();
     expect(document.body.textContent).not.toContain("What's next");
+  });
+
+  it("centers the composer during boot with the skeleton above it", () => {
+    seed("starting");
+    desktop(); renderRpcTab();
+    expect(document.body.querySelectorAll(".animate-pulse").length).toBe(3);
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("What's next");
+    // hero spacer below the composer => centered geometry
+    expect(document.body.querySelector('[class*="flex-[0.85]"]')).not.toBeNull();
+  });
+
+  it("keeps the centered boot layout when ambient notices stream in", () => {
+    seed("starting");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, items: [noticeItem("xd:// mounted")] } },
+    }));
+    desktop(); renderRpcTab();
+    expect(document.body.querySelectorAll(".animate-pulse").length).toBe(3);
+    expect(document.body.textContent).toContain("xd:// mounted");
+    expect(document.body.querySelector('[class*="flex-[0.85]"]')).not.toBeNull();
+  });
+
+  it("keeps the boot skeleton docked in the compact shell", () => {
+    seed("starting"); renderRpcTab(); // no desktop() mock => compact shell
+    expect(document.body.querySelectorAll(".animate-pulse").length).toBe(3);
+    expect(document.body.querySelector('[class*="flex-[0.85]"]')).toBeNull();
   });
 });
 
