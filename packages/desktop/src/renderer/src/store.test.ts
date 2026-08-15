@@ -4445,6 +4445,88 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     expect(levels).toEqual(["progress", "events"]);
     expect(useStore.getState().rpc[REBOOT_TAB]!.selectedSubagent).toBe("a");
   });
+
+  it("openSubagent backfills the run's history from its transcript file", async () => {
+    useStore.getState().openSubagent(TAB, "s1");
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("s1");
+    await flushMicrotasks();
+    const cmds = sent.splice(0);
+    const levels = cmds.filter((c) => c.cmd.type === "set_subagent_subscription");
+    expect(levels.map((c) => c.cmd.level)).toEqual(["events"]);
+    const backfill = cmds.find((c) => c.cmd.type === "get_subagent_messages");
+    expect(backfill?.cmd.subagentId).toBe("s1");
+    respond(TAB, backfill!.cmd, {
+      sessionFile: "/x/s1.jsonl",
+      fromByte: 0,
+      nextByte: 100,
+      reset: false,
+      entries: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "map the store" }] },
+        { role: "assistant", content: [{ type: "text", text: "done" }] },
+      ],
+    });
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.subagentItems?.["s1"]).toEqual([
+      expect.objectContaining({ kind: "user", text: "map the store" }),
+      expect.objectContaining({ kind: "assistant", text: "done" }),
+    ]);
+  });
+
+  it("openSubagent keeps the live buffer and raises no panel when backfill fails", async () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "subagent_event",
+      payload: { id: "s1", text: "live line" },
+    });
+    const before = useStore.getState().rpc[TAB]!.subagentItems?.["s1"];
+    useStore.getState().openSubagent(TAB, "s1");
+    await flushMicrotasks();
+    const backfill = sent.splice(0).find((c) => c.cmd.type === "get_subagent_messages");
+    respond(TAB, backfill!.cmd, "Unknown subagent or session file unavailable: s1", false);
+    await flushMicrotasks();
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.subagentItems?.["s1"]).toEqual(before);
+    expect(tab.failure).toBeUndefined();
+  });
+
+  it("drops a late backfill response when the selection moved on", async () => {
+    useStore.getState().openSubagent(TAB, "s1");
+    await flushMicrotasks();
+    const stale = sent.splice(0).find((c) => c.cmd.type === "get_subagent_messages");
+    useStore.getState().openSubagent(TAB, "s2");
+    await flushMicrotasks();
+    respond(TAB, stale!.cmd, {
+      messages: [{ role: "user", content: [{ type: "text", text: "stale" }] }],
+    });
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.subagentItems?.["s1"]).toBeUndefined();
+  });
+
+  it("re-selecting the open agent is a no-op", async () => {
+    useStore.getState().openSubagent(TAB, "s1");
+    await flushMicrotasks();
+    sent.splice(0);
+    useStore.getState().openSubagent(TAB, "s1");
+    await flushMicrotasks();
+    expect(sent.splice(0)).toEqual([]);
+  });
+
+  it("live frames for the viewed agent grow past the retained-buffer cap; others stay capped", () => {
+    useStore.getState().openSubagent(TAB, "s1");
+    for (let i = 0; i < 510; i++) {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "subagent_event",
+        payload: { id: "s1", text: `live ${i}` },
+      });
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "subagent_event",
+        payload: { id: "s2", text: `bg ${i}` },
+      });
+    }
+    const buffers = useStore.getState().rpc[TAB]!.subagentItems!;
+    expect(buffers["s1"]).toHaveLength(510);
+    expect(buffers["s2"]).toHaveLength(500);
+  });
 });
 
 describe("initialization snapshot ordering", () => {

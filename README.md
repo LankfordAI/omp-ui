@@ -44,6 +44,9 @@ rejected alternatives: [ADR-0001](docs/adr/0001-electron-over-tauri.md).
   spec the implementer receives.
 - **Inspector rail.** Todos, Agents, Session, Plans, and branch Diffs panes
   behind an icon strip — one pane at a time, badge counts on the strip.
+  Clicking an agent opens its full read-only transcript — tool calls,
+  thinking, bash output — in the main pane, with a banner and a path back
+  to the main agent.
 - **Command palette.** `Ctrl/⌘+K` searches every session, project, tab
   action, and slash command.
 - **Themes.** Curated token sets that re-skin the UI, the terminal, and

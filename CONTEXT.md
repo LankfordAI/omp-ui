@@ -82,6 +82,17 @@ icon (or the pane's close control) dismisses it, and badge counts live on
 the strip icons. Remembers its selected pane per tab.
 _Avoid_: right sidebar, panel, drawer
 
+**Subagent view**:
+The rpc-ui tab's main pane while a subagent is selected in the Agents
+pane: the full transcript surface — tool cards, thinking, usage receipts —
+rendered read-only from that subagent's own event stream, backfilled from
+its transcript file (`get_subagent_messages`) so the whole run shows, not
+just what streamed since the click. A banner names the agent and its
+status and leads back to the main agent; the composer disappears because
+a subagent cannot be prompted or steered. It is a view onto the same live
+session, never a separate session or tab.
+_Avoid_: subagent tab, agent window, subagent chat
+
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,

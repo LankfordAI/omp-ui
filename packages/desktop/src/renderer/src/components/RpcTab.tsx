@@ -9,6 +9,7 @@ import { ExtensionDialogHost } from "./ExtensionDialogHost";
 import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
 import { SessionHud } from "./SessionHud";
+import { SubagentView } from "./SubagentView";
 import { TranscriptView } from "./TranscriptView";
 import { Button, Chip, CopyButton, Panel, ProgressSweep } from "./ui";
 
@@ -103,6 +104,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   // any blocking round-trip (compact, export, branch), not just boot.
   const working = status === "starting" || (rpc?.busy ?? false);
   const items = rpc?.items ?? NO_ITEMS;
+  const viewingSubagent = rpc?.selectedSubagent ?? null;
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   /** Latched on the first local prompt: the hero docks now, not a round-trip later. */
   const [prompted, setPrompted] = useState(false);
@@ -216,24 +218,37 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
-            {centered ? (
-              hero ? (
-                <HeroGreeting projectCwd={projectCwd} />
-              ) : (
-                <TranscriptSkeleton centered />
-              )
-            ) : status === "starting" && items.length === 0 ? (
-              <TranscriptSkeleton />
+            {viewingSubagent !== null ? (
+              <>
+                <SubagentView tabId={tabId} agentKey={viewingSubagent} />
+                {/* The main session keeps running behind the view — its
+                    extension dialogs must stay answerable. Remounts on
+                    switch; a half-typed editor draft resets, the pending
+                    request itself lives in the store. */}
+                <ExtensionDialogHost tabId={tabId} />
+              </>
             ) : (
-              <TranscriptView items={items} />
+              <>
+                {centered ? (
+                  hero ? (
+                    <HeroGreeting projectCwd={projectCwd} />
+                  ) : (
+                    <TranscriptSkeleton centered />
+                  )
+                ) : status === "starting" && items.length === 0 ? (
+                  <TranscriptSkeleton />
+                ) : (
+                  <TranscriptView items={items} />
+                )}
+                {/* Docked, not modal: the user may need to scroll the transcript to
+                    answer, so the question must not cover it. */}
+                <ExtensionDialogHost tabId={tabId} />
+                <div ref={slotRef} className={cn(centered && "pb-2")}>
+                  <Composer tabId={tabId} onPrompt={() => setPrompted(true)} />
+                </div>
+                {centered && <HeroFooter items={items} />}
+              </>
             )}
-            {/* Docked, not modal: the user may need to scroll the transcript to
-                answer, so the question must not cover it. */}
-            <ExtensionDialogHost tabId={tabId} />
-            <div ref={slotRef} className={cn(centered && "pb-2")}>
-              <Composer tabId={tabId} onPrompt={() => setPrompted(true)} />
-            </div>
-            {centered && <HeroFooter items={items} />}
           </div>
           <InspectorRail tabId={tabId} />
         </div>

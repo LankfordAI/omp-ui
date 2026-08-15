@@ -176,21 +176,12 @@ describe("desktop InspectorRail", () => {
     expect(button("agents")).not.toBeNull();
   });
 
-  it("unions the live roster with retained buffers and drills into a detail view (issue #63)", () => {
+  it("unions the live roster with retained buffers and toggles the subagent view (issue #63)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
           subagents: [{ id: "agent-1", name: "worker", status: "working" }],
           subagentItems: {
-            "agent-1": [
-              {
-                kind: "assistant",
-                id: "i1",
-                text: "hello from worker",
-                thinking: "",
-                streaming: false,
-              },
-            ],
             // agent-2 settled out of the live roster; its buffer is retained.
             "agent-2": [{ kind: "marker", id: "i2", label: "mapping done" }],
           },
@@ -198,31 +189,26 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    // Open the Agents pane from the strip.
     act(() => railTab("agents")!.click());
 
     // The roster is live agents UNION retained ones; retained render dimmed.
     expect(document.body.textContent).toContain("worker");
     expect(document.body.textContent).toContain("agent-2");
-    expect(document.body.textContent).toContain("settled");
     expect(button("open agent agent-2")?.className).toContain("opacity-50");
     expect(button("open agent worker")?.className).not.toContain("opacity-50");
 
-    // Drill into the live agent: detail view shows its buffered render items.
+    // Clicking a row selects it — the subagent view opens in the main pane.
     act(() => button("open agent worker")!.click());
-    expect(button("back to agents")).not.toBeNull();
-    expect(document.body.textContent).toContain("hello from worker");
-    expect(document.body.textContent).toContain("working");
-    expect(button("open agent worker")).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("agent-1");
+    expect(button("close agent worker")?.getAttribute("aria-pressed")).toBe("true");
 
-    // Back returns to the roster.
-    act(() => button("back to agents")!.click());
-    expect(button("open agent worker")).not.toBeNull();
+    // Re-clicking the selected row returns to the main agent.
+    act(() => button("close agent worker")!.click());
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBeNull();
 
-    // A settled agent keeps its retained buffer in the detail view.
+    // Settled agents open too — their retained buffer renders in the view.
     act(() => button("open agent agent-2")!.click());
-    expect(document.body.textContent).toContain("mapping done");
-    expect(document.body.textContent).toContain("settled");
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("agent-2");
   });
   it("re-reads an open project diff only when that project's revision changes", async () => {
     const initial = deferred<BranchDiff>();

@@ -1,15 +1,17 @@
 /**
  * Tolerant reduction of `subagent_*` rpc frames into per-agent render items
- * (issue #63): the Agents pane's drill-down renders one buffer per agent.
- * Same contract as the transcript reducer — unknown or empty shapes add
- * NOTHING, so new upstream shapes never break the pane.
+ * (issue #63): the subagent view renders one buffer per agent. Same
+ * contract as the transcript reducer — unknown or empty shapes add NOTHING,
+ * so new upstream shapes never break the pane.
  */
 import { field, strField } from "./fields";
 import { markerItem, reduceEvent, type RenderItem } from "./transcript";
 
 /**
- * Hard cap per agent buffer. A settled agent's buffer is retained for the
- * drill-down until the session resets, so unbounded growth is not an option.
+ * Hard cap per retained background buffer. A settled agent's buffer is
+ * retained for the subagent view until the session resets, so unbounded
+ * growth is not an option — the viewed agent is exempt (its on-screen
+ * transcript must be complete).
  */
 export const SUBAGENT_BUFFER_CAP = 500;
 
@@ -49,10 +51,18 @@ function sameEntry(a: RenderItem | undefined, b: RenderItem | undefined): boolea
  * `reduceEvent`; plain text/message content becomes an assistant render
  * item; a bare status becomes a marker; anything else adds nothing. The
  * buffer is deduped against consecutive identical entries (heartbeats must
- * not flood it either) and capped at SUBAGENT_BUFFER_CAP, oldest dropped.
- * Returns the input array unchanged when the frame added nothing.
+ * not flood it either). Returns the input array unchanged when the frame
+ * added nothing.
+ *
+ * `cap` bounds retained background buffers (default SUBAGENT_BUFFER_CAP,
+ * oldest dropped); the agent open in the subagent view passes `false` —
+ * the on-screen transcript must be complete.
  */
-export function reduceSubagentFrame(items: RenderItem[], frame: unknown): RenderItem[] {
+export function reduceSubagentFrame(
+  items: RenderItem[],
+  frame: unknown,
+  cap: number | false = SUBAGENT_BUFFER_CAP,
+): RenderItem[] {
   // Where the content can live, most nested first: payload.event /
   // progress.event carry the AgentSessionEvent when there is one; payload
   // and progress themselves may carry plain text or a bare status.
@@ -91,6 +101,6 @@ export function reduceSubagentFrame(items: RenderItem[], frame: unknown): Render
   }
   if (next === items) return items;
   if (next.length === items.length + 1 && sameEntry(next.at(-1), items.at(-1))) return items;
-  if (next.length > SUBAGENT_BUFFER_CAP) return next.slice(next.length - SUBAGENT_BUFFER_CAP);
+  if (cap !== false && next.length > cap) return next.slice(next.length - cap);
   return next;
 }

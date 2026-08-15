@@ -47,7 +47,7 @@ import {
   isLowSignalTitleInput,
   isUntitled,
 } from "./lib/session-title";
-import { reduceSubagentFrame, subagentKey } from "./lib/subagent-events";
+import { reduceSubagentFrame, SUBAGENT_BUFFER_CAP, subagentKey } from "./lib/subagent-events";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { createSettingsSlice } from "./store/slices/settings";
 import { createUpdatesSlice } from "./store/slices/updates";
@@ -1722,11 +1722,18 @@ export const useStore = create<UiStore>()((set, get, api) => {
             markers.set(key, label);
             appendItem(tabId, markerItem(label, "copper"));
           }
-          // Per-agent buffer for the Agents pane drill-down (issue #63).
-          // Identity return means the frame added nothing.
+          // Per-agent buffer for the subagent view and the Agents pane
+          // roster (issue #63). Identity return means the frame added
+          // nothing. The viewed agent's buffer renders in the subagent
+          // view's full transcript — it must not truncate; the cap bounds
+          // retained background buffers.
           const buffers = tab.subagentItems ?? {};
           const prev = buffers[key] ?? EMPTY_BUFFER;
-          const next = reduceSubagentFrame(prev, frame);
+          const next = reduceSubagentFrame(
+            prev,
+            frame,
+            tab.selectedSubagent === key ? false : SUBAGENT_BUFFER_CAP,
+          );
           if (next !== prev) {
             patchRpc(tabId, { subagentItems: { ...buffers, [key]: next } });
           }
@@ -2399,8 +2406,34 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     openSubagent(tabId, key) {
+      const tab = get().rpc[tabId];
+      if (!tab || tab.selectedSubagent === key) return;
       patchRpc(tabId, { selectedSubagent: key });
       syncSubagentSubscription(tabId);
+      // Backfill the run's full history from the subagent's own transcript
+      // file, so the view shows the whole run — not just what streamed
+      // since the click. Wholesale replace, the same contract as
+      // loadHistory; the live event stream keeps appending after.
+      // Direct rpcCommand, never runCommand: a failure (omp older than
+      // v17.1.8, or an id the process forgot across a respawn) degrades to
+      // the live buffer, not to a session-level failure panel.
+      void get()
+        .rpcCommand(
+          tabId,
+          { type: "get_subagent_messages", subagentId: key },
+          { quiet: true },
+        )
+        .then((resp) => {
+          // A switch or close while the read was in flight must not
+          // clobber the new selection's buffer.
+          if (get().rpc[tabId]?.selectedSubagent !== key) return;
+          const messages = arrField(respData(resp), "messages");
+          const buffers = get().rpc[tabId]?.subagentItems ?? {};
+          patchRpc(tabId, {
+            subagentItems: { ...buffers, [key]: historyToItems(messages) },
+          });
+        })
+        .catch(() => {});
     },
 
     closeSubagent(tabId) {

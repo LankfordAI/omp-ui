@@ -104,4 +104,28 @@ describe("reduceSubagentFrame", () => {
     expect(items[0]).toMatchObject({ text: "note 5" });
     expect(items.at(-1)).toMatchObject({ text: `note ${SUBAGENT_BUFFER_CAP + 4}` });
   });
+
+  it("caps retained buffers at SUBAGENT_BUFFER_CAP by default", () => {
+    let items: RenderItem[] = [];
+    for (let i = 0; i < SUBAGENT_BUFFER_CAP + 10; i++) {
+      items = reduceSubagentFrame(items, {
+        type: "subagent_event",
+        payload: { id: "s1", text: `line ${i}` },
+      });
+    }
+    expect(items).toHaveLength(SUBAGENT_BUFFER_CAP);
+    expect(items.at(-1)).toMatchObject({ text: `line ${SUBAGENT_BUFFER_CAP + 9}` });
+  });
+
+  it("does not truncate when the viewed agent's cap is lifted", () => {
+    let items: RenderItem[] = [];
+    for (let i = 0; i < SUBAGENT_BUFFER_CAP + 10; i++) {
+      items = reduceSubagentFrame(
+        items,
+        { type: "subagent_event", payload: { id: "s1", text: `line ${i}` } },
+        false,
+      );
+    }
+    expect(items).toHaveLength(SUBAGENT_BUFFER_CAP + 10);
+  });
 });
