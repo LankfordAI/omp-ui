@@ -353,10 +353,11 @@
     padding-bottom: max(0.5rem, var(--safe-bottom));
     padding-left: max(0.5rem, var(--safe-left));
   }
-  .compact-lifecycle-visible { opacity: 1 !important; }
   /* A compact window is scanned by touch or a cramped pointer either way:
    * session lifecycle controls (stop / resume / delete) stay visible instead
-   * of hover-revealed, and rows grow to comfortable tap height. */
+   * of hover-revealed, and rows grow to comfortable tap height. Project
+   * header actions live behind the ⋯ sheet below 900px (issue #205), so
+   * .compact-lifecycle-visible only matters in the hover:none rule below. */
   .group\/row { min-height: 44px; }
   .group\/row button { opacity: 1 !important; }
   .model-palette { flex-direction: column; height: 100%; max-height: none !important; }

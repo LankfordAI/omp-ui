@@ -340,10 +340,16 @@ describe("Sidebar session creation", () => {
     expect(openSession).toHaveBeenCalledWith("tab-2");
     expect(useStore.getState().compactSurface).toBeNull();
 
+    // Terminal creation moved behind the ⋯ project actions sheet (issue #205).
     act(() => useStore.getState().showCompactSurface("sessions"));
-    const terminal = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === "terminal")!;
+    act(() => button("actions for Project One").click());
+    const sheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Project One"]');
+    expect(sheet).not.toBeNull();
+    expect(sheet!.textContent).toContain(projectPath);
+    const terminal = [...sheet!.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === "New terminal session")!;
     act(() => terminal.click());
     expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
+    expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
     expect(useStore.getState().compactSurface).toBeNull();
   });
 });
@@ -526,10 +532,7 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(backendMock.openProject).not.toHaveBeenCalled();
   });
 
-  it("clamps the compact menu, isolates Escape from the sheet, and keeps it open on activation", async () => {
-    const availability = deferred<{ vsCode: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+  it("layers the actions sheet over the sessions sheet and isolates Escape (issue #205)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({
@@ -538,71 +541,38 @@ describe("Sidebar project open control (issue #169)", () => {
         removeEventListener: vi.fn(),
       })),
     });
-    Object.defineProperty(window, "visualViewport", {
-      configurable: true,
-      value: { width: 212, height: 120 },
-    });
     useStore.setState({ compactSurface: "sessions" });
-    const dismissSheetOnEscape = vi.fn((event: KeyboardEvent) => {
-      if (event.key === "Escape") useStore.setState({ compactSurface: null });
-    });
-    window.addEventListener("keydown", dismissSheetOnEscape);
     renderSidebar();
-    await resolveAvailability(availability, true);
 
-    const trigger = chooseOpen("Project One");
-    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
-      top: 98,
-      bottom: 116,
-      height: 18,
-      left: 196,
-      right: 220,
-      width: 24,
-      x: 196,
-      y: 98,
-      toJSON: () => ({}),
-    });
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(120);
+    // The compact header carries no ProjectOpenControl — one ⋯ trigger only.
+    expect(document.body.querySelector('button[aria-label="Choose how to open Project One"]')).toBeNull();
+    const trigger = button("actions for Project One");
+    trigger.focus();
     act(() => trigger.click());
 
-    const menu = document.body.querySelector<HTMLElement>('[role="menu"]');
-    expect(menu).not.toBeNull();
-    const left = Number.parseFloat(menu!.style.left);
-    const top = Number.parseFloat(menu!.style.top);
-    const maxHeight = Number.parseFloat(menu!.style.maxHeight);
-    expect(left).toBeGreaterThanOrEqual(8);
-    expect(left + 176).toBeLessThanOrEqual(212 - 8);
-    expect(top).toBeGreaterThanOrEqual(8);
-    expect(maxHeight).toBeGreaterThan(0);
-    expect(maxHeight).toBeLessThanOrEqual(120 - 16);
-    expect(top + Math.min(120, maxHeight)).toBeLessThanOrEqual(120 - 8);
-    expect(openMenuItems().map((item) => item.textContent?.trim())).toEqual(["VS Code", "Files"]);
-    const focusedMenuItem = openMenuItems()[0]!;
-    expect(document.activeElement).toBe(focusedMenuItem);
+    const actions = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Project One"]');
+    expect(actions).not.toBeNull();
+    expect(actions!.textContent).toContain(projectPath);
+    const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
+      .map((row) => row.textContent?.trim())
+      .filter((text): text is string => text !== undefined && text !== "");
+    expect(rows).toEqual(["New session", "New terminal session", "Remove project…"]);
 
-    const sheet = document.body.querySelector<HTMLElement>(
+    const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',
     );
-    expect(sheet).not.toBeNull();
-    const escape = press(focusedMenuItem, "Escape");
-    window.removeEventListener("keydown", dismissSheetOnEscape);
-    expect(escape.defaultPrevented).toBe(true);
-    expect(dismissSheetOnEscape).not.toHaveBeenCalled();
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(sessionsSheet).not.toBeNull();
+    // useOverlay acts on the top of the overlay stack only: Escape closes the
+    // actions sheet, never the sessions sheet beneath it.
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
+    );
+    expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
     expect(document.body.querySelector('[role="dialog"][aria-label="projects and sessions"]')).toBe(
-      sheet,
+      sessionsSheet,
     );
     expect(useStore.getState().compactSurface).toBe("sessions");
     expect(document.activeElement).toBe(trigger);
-
-    act(() => trigger.click());
-    expect(openMenuItems()).toHaveLength(2);
-
-    await act(async () => openMenuItems()[0]!.click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "vscode");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(useStore.getState().compactSurface).toBe("sessions");
-    expect(projectSection("Project One")).toBeTruthy();
   });
 
   it("isolates pointer, click, and dragstart from both segments and a portaled menu item", async () => {
@@ -732,6 +702,72 @@ describe("Sidebar project open control (issue #169)", () => {
     });
     expect(alpha.disabled).toBe(false);
     expect(beta.disabled).toBe(false);
+  });
+});
+
+describe("Compact project actions sheet (issue #205)", () => {
+  function enableCompact(): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+  }
+
+  function actionsSheet(): HTMLElement | null {
+    return document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Project One"]');
+  }
+
+  function sheetRow(label: string): HTMLButtonElement {
+    const sheet = actionsSheet();
+    if (sheet === null) throw new Error("actions sheet not open");
+    const row = [...sheet.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === label,
+    );
+    if (row === undefined) throw new Error(`sheet row not found: ${label}`);
+    return row;
+  }
+
+  it("defers remove to confirm and follows the state broadcast", async () => {
+    backendMock.removeProject.mockReset();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    enableCompact();
+    useStore.setState({ compactSurface: "sessions" });
+    renderSidebar();
+
+    act(() => button("actions for Project One").click());
+    await act(async () => sheetRow("Remove project…").click());
+    expect(backendMock.removeProject).not.toHaveBeenCalled();
+    expect(actionsSheet()).not.toBeNull();
+
+    confirmSpy.mockReturnValue(true);
+    await act(async () => sheetRow("Remove project…").click());
+    expect(backendMock.removeProject).toHaveBeenCalledWith(projectPath);
+    // The broadcast drops the project; the sheet's live lookup misses and it
+    // closes itself rather than describing a project that no longer exists.
+    act(() => useStore.setState({ state: { ...state, projects: [] } }));
+    expect(actionsSheet()).toBeNull();
+  });
+
+  it("shows chips beside the name and no path row in the compact header", () => {
+    enableCompact();
+    useStore.setState({ compactSurface: "sessions" });
+    renderSidebar();
+
+    const section = [...document.body.querySelectorAll<HTMLElement>("section")].find(
+      (candidate) => candidate.textContent?.includes("Project One"),
+    );
+    if (section === undefined) throw new Error("project section not found");
+    // The path sub-line disappears on compact; the full path lives one ⋯ tap
+    // away in the sheet instead.
+    expect(section.textContent).not.toContain(projectPath);
+    expect(section.querySelector('[title="2 sessions"]')).not.toBeNull();
+
+    act(() => button("actions for Project One").click());
+    expect(actionsSheet()!.textContent).toContain(projectPath);
   });
 });
 

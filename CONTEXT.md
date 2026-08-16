@@ -82,6 +82,15 @@ icon (or the pane's close control) dismisses it, and badge counts live on
 the strip icons. Remembers its selected pane per tab.
 _Avoid_: right sidebar, panel, drawer
 
+**Project actions sheet**:
+The bottom sheet a compact-shell project header's ⋯ button opens: the
+project's name and full path, then New session, New terminal session, and
+Remove project. It replaces the desktop header's hover-revealed control
+cluster below 900px. The desktop open targets (VS Code, Files) are
+deliberately absent: a compact shell is usually a phone talking to a
+remote omp-ui, where opening on the host answers a question nobody asked.
+_Avoid_: project context menu, overflow menu, kebab menu
+
 **Subagent view**:
 The rpc-ui tab's main pane while a subagent is selected in the Agents
 pane: the full transcript surface — tool cards, thinking, usage receipts —

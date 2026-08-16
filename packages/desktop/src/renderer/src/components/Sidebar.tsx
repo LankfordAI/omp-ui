@@ -8,6 +8,7 @@ import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
+import { ProjectActionsSheet } from "./ProjectActionsSheet";
 import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, MiddleTruncate, Panel, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
@@ -80,6 +81,17 @@ function IconGrip() {
       <circle cx="10.5" cy="8" r="0.9" />
       <circle cx="5.5" cy="12" r="0.9" />
       <circle cx="10.5" cy="12" r="0.9" />
+    </svg>
+  );
+}
+
+/** Trigger for the compact project actions sheet (issue #205). */
+function IconEllipsis() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="currentColor">
+      <circle cx="3.5" cy="8" r="1.1" />
+      <circle cx="8" cy="8" r="1.1" />
+      <circle cx="12.5" cy="8" r="1.1" />
     </svg>
   );
 }
@@ -175,6 +187,7 @@ interface ProjectSectionProps extends FilteredGroup {
   onActivate: () => void;
   vsCodeAvailable: boolean | null;
   refreshAvailability: () => Promise<boolean>;
+  onOpenActions?: () => void;
   // issue #115 pointer reorder, issue #120 keyboard reorder — one gate for both
   canReorder?: boolean;
   registerGrip?: (path: string, el: HTMLButtonElement | null) => void;
@@ -198,6 +211,7 @@ function ProjectSection({
   vsCodeAvailable,
   refreshAvailability,
   onActivate,
+  onOpenActions,
   canReorder = false,
   registerGrip,
   onReorder,
@@ -284,15 +298,15 @@ function ProjectSection({
             className="mt-px flex min-w-0 flex-1 items-start gap-1.5 text-left"
           >
             <Chevron open={open} className="mt-1 text-ink-dim" />
-            <span className="min-w-0 flex-1">
-              <MiddleTruncate
-                text={project.name}
-                className="font-display text-xs font-semibold text-ink"
-              />
-              <span className="mt-0.5 flex items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">
-                  {project.path}
-                </span>
+            {compact ? (
+              // Compact keeps one line: name + chips + the ⋯ trigger. The
+              // full path lives in the actions sheet (issue #205); the
+              // collapse button's title still carries it for long-press.
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <MiddleTruncate
+                  text={project.name}
+                  className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
+                />
                 <Chip mono title={`${sessions.length} sessions`}>
                   {sessions.length}
                 </Chip>
@@ -303,29 +317,57 @@ function ProjectSection({
                   </Chip>
                 )}
               </span>
-            </span>
+            ) : (
+              <span className="min-w-0 flex-1">
+                <MiddleTruncate
+                  text={project.name}
+                  className="font-display text-xs font-semibold text-ink"
+                />
+                <span className="mt-0.5 flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">
+                    {project.path}
+                  </span>
+                  <Chip mono title={`${sessions.length} sessions`}>
+                    {sessions.length}
+                  </Chip>
+                  {live > 0 && (
+                    <Chip mono tone="signal" title={`${live} live`}>
+                      <Dot tone="signal" />
+                      {live}
+                    </Chip>
+                  )}
+                </span>
+              </span>
+            )}
           </button>
 
-          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100 compact-lifecycle-visible">
-            <ProjectOpenControl
-              project={project}
-              vsCodeAvailable={vsCodeAvailable}
-              refreshAvailability={refreshAvailability}
-            />
-            <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
-              <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
-                <IconPlus />
-              </IconButton>
-            </span>
-            {compact && (
-              <Button size="xs" variant="ghost" onClick={() => { void newSession(project.path, "pty"); onActivate(); }}>
-                terminal
-              </Button>
-            )}
-            <IconButton label="remove project" tone="rose" onClick={() => void removeProject(project.path)}>
-              <IconClose className="size-3.5" />
+          {compact ? (
+            // One 44px trigger replaces the whole cluster below 900px
+            // (issue #205); every action moves into the bottom sheet.
+            <IconButton
+              label={`actions for ${project.name}`}
+              onClick={() => onOpenActions?.()}
+              className="shrink-0 self-center"
+            >
+              <IconEllipsis />
             </IconButton>
-          </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100 compact-lifecycle-visible">
+              <ProjectOpenControl
+                project={project}
+                vsCodeAvailable={vsCodeAvailable}
+                refreshAvailability={refreshAvailability}
+              />
+              <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
+                <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
+                  <IconPlus />
+                </IconButton>
+              </span>
+              <IconButton label="remove project" tone="rose" onClick={() => void removeProject(project.path)}>
+                <IconClose className="size-3.5" />
+              </IconButton>
+            </div>
+          )}
         </div>
       </div>
 
@@ -424,6 +466,9 @@ export function Sidebar() {
   const collapsed = useStore((st) => st.sidebarCollapsed);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
+  // The project whose compact actions sheet is open (issue #205), by path.
+  // Sidebar-local UI state, like `terminalMenu` — never in the store.
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [vsCodeAvailable, setVsCodeAvailable] = useState<boolean | null>(null);
   const availabilityMounted = useRef(false);
   const availabilityGeneration = useRef(0);
@@ -556,6 +601,13 @@ export function Sidebar() {
     pendingMove.current = { path, name, index: target };
     void moveProject(path, beforePath);
   };
+
+  // Derived from the live broadcast so a removed project can never leave a
+  // stale sheet: a lookup miss renders a closed Sheet (issue #205).
+  const actionsProject =
+    (compact && actionsFor !== null
+      ? groups?.find((g) => g.project.path === actionsFor)?.project
+      : undefined) ?? null;
 
   const matchCount = filtered.reduce((n, f) => n + f.sessions.length, 0);
   const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
@@ -698,6 +750,7 @@ export function Sidebar() {
                   vsCodeAvailable={vsCodeAvailable}
                   refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
+                  onOpenActions={() => setActionsFor(path)}
                   canReorder={canReorder}
                   registerGrip={registerGrip}
                   onReorder={(delta) => reorderProject(index, delta)}
@@ -746,6 +799,15 @@ export function Sidebar() {
           </div>,
           document.body,
         )}
+      {/* Unmounted the moment compact flips false mid-open: useOverlay's
+          cleanup releases the scroll lock and restores focus (issue #205). */}
+      {compact && (
+        <ProjectActionsSheet
+          project={actionsProject}
+          onClose={() => setActionsFor(null)}
+          onActivate={closeCompactSurface}
+        />
+      )}
 
       {/* -------- footer -------- */}
       <footer
