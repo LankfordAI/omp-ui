@@ -34,10 +34,8 @@ jobs:
           else
             npm version "$tag" --no-git-tag-version --workspace @omp-ui/desktop
           fi
-      - name: Build and publish Linux package
-        run: npm run package:linux --workspace @omp-ui/desktop -- --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Linux package
+        run: npm run package:linux --workspace @omp-ui/desktop -- --publish never
       - name: Assert Linux artifact and update metadata exist
         shell: bash
         run: |
@@ -52,6 +50,29 @@ jobs:
           test -f latest-linux.yml
           grep -q "sha512" latest-linux.yml
           grep -Fq "${appimages[0]}" latest-linux.yml
+      - name: Create GitHub release if missing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "${GITHUB_REF_NAME#v}" --notes "" \
+              || gh release view "$GITHUB_REF_NAME" >/dev/null
+          fi
+      - name: Upload Linux assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd packages/desktop/dist
+          appimages=(*.AppImage)
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "${appimages[0]}" \
+            latest-linux.yml
 
   release-macos:
     # Temporarily disabled: Apple notarytool returns HTTP 500 for this new
@@ -111,7 +132,7 @@ jobs:
           test ! -e "$dist/latest-mac.yml"
           dmgs=("$dist"/*-mac-preview-${{ matrix.arch }}.dmg)
           zips=("$dist"/*-mac-preview-${{ matrix.arch }}.zip)
-          gh release upload "$GITHUB_REF_NAME" \
+          gh release upload "$GITHUB_REF_NAME" --clobber \
             "${dmgs[0]}" \
             "${zips[0]}" \
             "$dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
@@ -158,10 +179,9 @@ jobs:
           }
       - name: Rebuild node-pty for Electron x64
         run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch=x64
-      - name: Build and publish unsigned Windows preview
-        run: npm run package:win --workspace @omp-ui/desktop -- --publish always
+      - name: Build unsigned Windows preview
+        run: npm run package:win --workspace @omp-ui/desktop -- --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Verify Windows package
         shell: pwsh
@@ -179,6 +199,19 @@ jobs:
           if (-not (Test-Path $latest)) { throw "latest.yml is missing" }
           if (-not (Select-String -Path $latest -Pattern "sha512" -Quiet)) { throw "latest.yml has no sha512" }
           if (-not (Select-String -Path $latest -Pattern $installers[0].Name -SimpleMatch -Quiet)) { throw "latest.yml does not name the installer" }
+      - name: Upload Windows assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd packages/desktop/dist
+          installers=(*-windows-preview-x64-setup.exe)
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "${installers[0]}" \
+            "${installers[0]}.blockmap" \
+            latest.yml
 
   release-manifest:
     needs: [release-linux, release-macos, release-windows]
@@ -226,7 +259,7 @@ jobs:
           test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq "$expected"
           sha256sum "${files[@]}" | sort -k2 > SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -eq "$expected"
-          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" --clobber SHA256SUMS.txt
       - name: Assert release metadata and asset boundary
         shell: bash
         env:
