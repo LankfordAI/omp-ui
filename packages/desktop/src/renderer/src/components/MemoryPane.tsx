@@ -379,6 +379,9 @@ export function MemoryPane({ tabId }: { tabId: string }) {
       // tools plus standing guidance — autoContinue stays off, so no extra
       // capture turns are silently opted into.
       await backend.writeOmpSetting("autolearn.enabled", true);
+      // Auto-retain stays off (issue #212): nothing is retained
+      // automatically — capture happens via auto-learn or the pane.
+      await backend.writeOmpSetting("mnemopi.autoRetain", false);
     } catch (err) {
       window.alert(errorMessage(err));
       return;
@@ -422,7 +425,7 @@ export function MemoryPane({ tabId }: { tabId: string }) {
     return (
       <Empty
         title={ov.backend === "off" ? "memory is off" : `memory backend: ${ov.backend}`}
-        hint="This pane browses and edits the mnemopi memory banks the agent retains across sessions. Enabling also turns on auto-learn, which lets the agent capture reusable lessons and skills. Applies to sessions started after this change."
+        hint="This pane browses and edits the mnemopi memory banks the agent retains across sessions. Enabling also turns on auto-learn, which lets the agent capture reusable lessons and skills, and keeps automatic retention off. Applies to sessions started after this change."
         action={
           <Button size="xs" variant="solid" onClick={() => void enableMnemopi()}>
             Enable Mnemopi memory

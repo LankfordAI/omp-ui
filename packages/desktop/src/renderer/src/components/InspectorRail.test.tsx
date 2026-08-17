@@ -336,8 +336,9 @@ describe("desktop InspectorRail", () => {
     );
     expect(enable).not.toBeUndefined();
 
-    // The CTA enables the whole loop: backend + scoping + auto-learn (issue #207),
-    // never autoContinue — that would silently spend tokens.
+    // The CTA enables the whole loop: backend + scoping + auto-learn
+    // (issue #207), auto-retain off (issue #212) — never autoContinue,
+    // that would silently spend tokens.
     await act(async () => {
       enable!.click();
     });
@@ -345,6 +346,7 @@ describe("desktop InspectorRail", () => {
       ["memory.backend", "mnemopi"],
       ["mnemopi.scoping", "per-project-tagged"],
       ["autolearn.enabled", true],
+      ["mnemopi.autoRetain", false],
     ]);
   });
 });
