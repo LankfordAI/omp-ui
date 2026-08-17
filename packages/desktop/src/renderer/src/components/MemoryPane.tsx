@@ -375,6 +375,10 @@ export function MemoryPane({ tabId }: { tabId: string }) {
     try {
       await backend.writeOmpSetting("memory.backend", "mnemopi");
       await backend.writeOmpSetting("mnemopi.scoping", "per-project-tagged");
+      // Auto-learn rides along (issue #207): it only adds the learn/manage_skill
+      // tools plus standing guidance — autoContinue stays off, so no extra
+      // capture turns are silently opted into.
+      await backend.writeOmpSetting("autolearn.enabled", true);
     } catch (err) {
       window.alert(errorMessage(err));
       return;
@@ -418,7 +422,7 @@ export function MemoryPane({ tabId }: { tabId: string }) {
     return (
       <Empty
         title={ov.backend === "off" ? "memory is off" : `memory backend: ${ov.backend}`}
-        hint="This pane browses and edits the mnemopi memory banks the agent retains across sessions. Enabling it applies to sessions started after this change."
+        hint="This pane browses and edits the mnemopi memory banks the agent retains across sessions. Enabling also turns on auto-learn, which lets the agent capture reusable lessons and skills. Applies to sessions started after this change."
         action={
           <Button size="xs" variant="solid" onClick={() => void enableMnemopi()}>
             Enable Mnemopi memory

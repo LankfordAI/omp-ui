@@ -17,6 +17,7 @@ const backendMock = {
   memoryAdd: vi.fn(),
   memoryUpdate: vi.fn(),
   memoryForget: vi.fn(),
+  writeOmpSetting: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -145,6 +146,8 @@ beforeEach(() => {
   backendMock.memoryAdd.mockReset();
   backendMock.memoryUpdate.mockReset();
   backendMock.memoryForget.mockReset();
+  backendMock.writeOmpSetting.mockReset();
+  backendMock.writeOmpSetting.mockResolvedValue(undefined);
   // Backend-off overview keeps the memory pane inert unless a test overrides it.
   backendMock.memoryOverview.mockResolvedValue({
     backend: "off",
@@ -332,5 +335,16 @@ describe("desktop InspectorRail", () => {
       (b.textContent ?? "").includes("Enable Mnemopi memory"),
     );
     expect(enable).not.toBeUndefined();
+
+    // The CTA enables the whole loop: backend + scoping + auto-learn (issue #207),
+    // never autoContinue — that would silently spend tokens.
+    await act(async () => {
+      enable!.click();
+    });
+    expect(backendMock.writeOmpSetting.mock.calls).toEqual([
+      ["memory.backend", "mnemopi"],
+      ["mnemopi.scoping", "per-project-tagged"],
+      ["autolearn.enabled", true],
+    ]);
   });
 });
