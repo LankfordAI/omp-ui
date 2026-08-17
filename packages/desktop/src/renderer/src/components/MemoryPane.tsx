@@ -7,7 +7,7 @@ import type {
 import { backend } from "../backend";
 import { findRecord, useStore } from "../store";
 import { compactNum, IconRefresh } from "./SessionHud";
-import { Button, Chip, ChoiceCapsule, ConfirmDialog, Disclosure, Empty, IconButton, Panel } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, CopyButton, Disclosure, Empty, IconButton, Panel } from "./ui";
 
 /**
  * The memory pane: a view of the project's mnemopi store, not of any live
@@ -444,16 +444,43 @@ export function MemoryPane({ tabId }: { tabId: string }) {
             label="scope"
             value={scope}
             onChange={setScope}
+            className="h-5 rounded-none border-0 bg-transparent divide-transparent"
+            optionClassName="rounded-none border-b border-transparent px-1 text-[11px]"
             options={[
               {
                 value: "project",
                 label: "project",
                 disabled: ov.project === null,
                 title: ov.project === null ? "no project memory yet" : undefined,
+                selectedClassName: "border-ink-mid bg-transparent text-ink",
+                unselectedClassName: "text-ink-faint",
               },
-              { value: "global", label: "global" },
+              {
+                value: "global",
+                label: "global",
+                selectedClassName: "border-ink-mid bg-transparent text-ink",
+                unselectedClassName: "text-ink-faint",
+              },
             ]}
           />
+          {bank !== null && (
+            <>
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[11px] tabular-nums text-ink-mid"
+                title={bank.dbPath}
+              >
+                {bank.bank}
+              </span>
+              <CopyButton text={bank.bank} label="bank" />
+            </>
+          )}
+        </div>
+        {bank !== null && (
+          <p className="mt-1 font-mono text-[10px] tabular-nums text-ink-faint">
+            {compactNum(bank.workingCount)} working · {compactNum(bank.episodicCount)} episodic · {formatDbSize(bank.sizeBytes)}
+          </p>
+        )}
+        <div className="mt-1.5 flex items-center gap-1.5">
           <input
             value={query}
             placeholder="search memories…"
@@ -466,14 +493,6 @@ export function MemoryPane({ tabId }: { tabId: string }) {
             <IconRefresh />
           </IconButton>
         </div>
-        {bank !== null && (
-          <span
-            className="mt-1.5 block truncate font-mono text-[10px] tabular-nums text-ink-faint"
-            title={bank.dbPath}
-          >
-            {bank.bank} · {compactNum(bank.workingCount)} working · {compactNum(bank.episodicCount)} episodic · {formatDbSize(bank.sizeBytes)}
-          </span>
-        )}
       </div>
 
       {showAddBox && (
