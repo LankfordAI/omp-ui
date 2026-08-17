@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
-import { useCompactShell } from "../lib/responsive";
+import { useCompactShell, useViewportWidth } from "../lib/responsive";
+import {
+  INSPECTOR_DEFAULT_WIDTH,
+  INSPECTOR_MIN_WIDTH,
+  resolveDesktopPanelWidths,
+} from "../lib/panel-layout";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
@@ -10,7 +15,7 @@ import { DiffViewer } from "./DiffViewer";
 import { MemoryPane } from "./MemoryPane";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
-import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, IconButton, Label, Sheet, type Tone } from "./ui";
+import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 interface BranchDiffLoad {
   status: "idle" | "loading" | "error" | "loaded";
@@ -36,9 +41,7 @@ export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs" | "memo
  * but it must also survive a tab switch and back, which component state cannot.
  */
 const selectedTab = new Map<string, RailTab>();
-// Open memory lasts only for this application launch. Every fresh launch starts with
-// just the desktop icon strip; compact rendering remains governed by useCompactShell.
-let railOpen = false;
+// Open posture is shared renderer view state; selected panes remain per-tab.
 
 /* ------------------------------------------------------------------- icons */
 
@@ -641,11 +644,19 @@ export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTa
 
 export function InspectorRail({ tabId }: { tabId: string }) {
   const [tab, setTab] = useState<RailTab>(() => selectedTab.get(tabId) ?? "todos");
-  const [open, setOpen] = useState(railOpen);
   const compact = useCompactShell();
+  const viewportWidth = useViewportWidth();
   const surface = useStore((s) => s.compactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const runtime = useStore((s) => s.rpc[tabId]);
+  const open = useStore((s) => s.inspectorOpen);
+  const setOpen = useStore((s) => s.setInspectorOpen);
+  const inspectorWidth = useStore((s) => s.inspectorWidth);
+  const setInspectorWidth = useStore((s) => s.setInspectorWidth);
+  const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+  const [resizing, setResizing] = useState(false);
 
   const lastTabId = useRef(tabId);
   if (lastTabId.current !== tabId) {
@@ -653,9 +664,21 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     setTab(selectedTab.get(tabId) ?? "todos");
   }
 
+
+  useEffect(() => {
+    setPreviewWidth(null);
+  }, [inspectorWidth]);
+
+  const resolvedWidths = resolveDesktopPanelWidths({
+    viewportWidth,
+    sidebarWidth,
+    inspectorWidth,
+    sidebarCollapsed,
+    inspectorOpen: open,
+  });
+  const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
   const badges = inspectorBadges(runtime);
   const close = (): void => {
-    railOpen = false;
     setOpen(false);
   };
   const select = (next: RailTab): void => {
@@ -667,7 +690,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     selectedTab.set(tabId, next);
     setTab(next);
     if (!compact && !open) {
-      railOpen = true;
       setOpen(true);
     }
   };
@@ -714,7 +736,27 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   return (
     <aside className="ambient flex shrink-0 bg-sunken">
       {open && (
-        <div className="flex w-[19rem] shrink-0 flex-col border-l border-line">
+        <div
+          className={cn(
+            "relative flex shrink-0 flex-col border-l border-line",
+            !resizing && "transition-[width] duration-200 ease-out-quint",
+          )}
+          style={{ width: displayedInspectorWidth }}
+        >
+          <ResizeHandle
+            label="resize inspector"
+            edge="left"
+            value={displayedInspectorWidth}
+            min={INSPECTOR_MIN_WIDTH}
+            max={resolvedWidths.inspectorAllowedMax}
+            defaultValue={INSPECTOR_DEFAULT_WIDTH}
+            onPreview={setPreviewWidth}
+            onCommit={(width) => {
+              setInspectorWidth(width);
+              setPreviewWidth(null);
+            }}
+            onDraggingChange={setResizing}
+          />
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2.5">
             <Label className="min-w-0 flex-1 truncate">{tab}</Label>
             <IconButton label="collapse inspector" onClick={close}>

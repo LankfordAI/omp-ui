@@ -8,6 +8,13 @@ import type { RpcTabState } from "../store";
 import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+HTMLElement.prototype.setPointerCapture = vi.fn();
+
+function resizePointer(type: string, x: number): Event {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x });
+  Object.defineProperty(event, "pointerId", { value: 1 });
+  return event;
+}
 const backendMock = {
   rpcSend: vi.fn(),
   getBranchDiff: vi.fn(),
@@ -173,6 +180,10 @@ beforeEach(() => {
     branchDiffRevision: {},
     rpc: { [TAB]: runtime() },
     compactSurface: null,
+    sidebarCollapsed: false,
+    sidebarWidth: 272,
+    inspectorWidth: 304,
+    inspectorOpen: false,
   });
 });
 
@@ -211,6 +222,34 @@ describe("desktop InspectorRail", () => {
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
     expect(button("agents")).not.toBeNull();
+  });
+
+  it("shares committed width across close, reopen, and tab instances", () => {
+    renderRail();
+    act(() => button("todos")!.click());
+    const pane = button("collapse inspector")!.parentElement!.parentElement as HTMLElement;
+    const handle = document.body.querySelector<HTMLElement>('[role="separator"][aria-label="resize inspector"]')!;
+    expect(pane.style.width).toBe("304px");
+
+    act(() => {
+      handle.dispatchEvent(resizePointer("pointerdown", 100));
+      handle.dispatchEvent(resizePointer("pointermove", 50));
+    });
+    expect(pane.style.width).toBe("354px");
+    expect(useStore.getState().inspectorWidth).toBe(304);
+    act(() => handle.dispatchEvent(resizePointer("pointerup", 50)));
+    expect(useStore.getState().inspectorWidth).toBe(354);
+
+    act(() => button("collapse inspector")!.click());
+    expect(useStore.getState().inspectorOpen).toBe(false);
+    act(() => button("todos")!.click());
+    expect((button("collapse inspector")!.parentElement!.parentElement as HTMLElement).style.width).toBe("354px");
+
+    act(() => root!.render(<InspectorRail tabId="another-tab" />));
+    expect((button("collapse inspector")!.parentElement!.parentElement as HTMLElement).style.width).toBe("354px");
+    const sharedHandle = document.body.querySelector<HTMLElement>('[role="separator"]')!;
+    act(() => sharedHandle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(useStore.getState().inspectorWidth).toBe(304);
   });
 
   it("unions the live roster with retained buffers and toggles the subagent view (issue #63)", () => {
@@ -350,5 +389,16 @@ describe("desktop InspectorRail", () => {
       ["autolearn.enabled", true],
       ["mnemopi.autoRetain", false],
     ]);
+  });
+
+  it("renders compact inspector sheets without a resize separator", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({ compactSurface: "inspector", inspectorOpen: true });
+    renderRail();
+    expect(document.body.querySelector('[role="dialog"][aria-label="inspector"]')).not.toBeNull();
+    expect(document.body.querySelector('[role="separator"]')).toBeNull();
   });
 });

@@ -162,6 +162,8 @@ const SEED_SNAPSHOT: DesktopViewStateV1 = {
   tabIds: ["pty-1", "rpc-1", "missing-1", "deleted-1"],
   activeTabId: "rpc-1",
   focusedTabByProject: { "/p/a": "pty-1", "/p/b": "rpc-1", "/p/x": "deleted-1", "/p/y": "gone-1" },
+  sidebarWidth: 416,
+  inspectorWidth: 256,
 };
 const SEED_JSON = JSON.stringify(SEED_SNAPSHOT);
 const seedSnapshot = (): void =>
@@ -232,6 +234,8 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     expect(st.tabs.map((t) => t.tabId)).toEqual(["pty-1", "rpc-1"]);
     expect(st.activeTabId).toBe("rpc-1");
     expect(st.focusedTabByProject).toEqual({ "/p/a": "pty-1", "/p/b": "rpc-1" });
+    expect(st.sidebarWidth).toBe(416);
+    expect(st.inspectorWidth).toBe(256);
     expect(st.restoringTabs).toBe(false);
     expect(snapshots).toHaveLength(2);
     for (const snapshot of snapshots) {
@@ -279,6 +283,8 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
 
     expect(mockBackend.spawnSession).not.toHaveBeenCalled();
     expect(first.useStore.getState().restoringTabs).toBe(false);
+    expect(first.useStore.getState().sidebarWidth).toBe(416);
+    expect(first.useStore.getState().inspectorWidth).toBe(256);
     expect(first.useStore.getState().tabs).toEqual([]);
     // The stale snapshot was replaced by the current (empty) view.
     expect(readSnapshot()).toMatchObject({ appVersion: "1.0.0", tabIds: [] });
@@ -302,6 +308,8 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     await store.useStore.getState().init();
 
     expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(store.useStore.getState().sidebarWidth).toBe(416);
+    expect(store.useStore.getState().inspectorWidth).toBe(256);
     // The seed string is byte-for-byte untouched.
     expect(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)).toBe(SEED_JSON);
   });
@@ -316,14 +324,19 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     store.useStore.setState({ rpc: { someTab: rpcTabState() } });
     expect(spy).toHaveBeenCalledTimes(1); // rpc traffic never persists
 
-    store.useStore.setState({ tabs: [tabInfo({ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false })], rpc: {} });
+    store.useStore.getState().setSidebarWidth(400);
     expect(spy).toHaveBeenCalledTimes(2);
-
-    store.useStore.getState().focusTab("t1");
+    store.useStore.getState().setInspectorWidth(260);
     expect(spy).toHaveBeenCalledTimes(3);
 
-    store.useStore.getState().hideTab("t1");
+    store.useStore.setState({ tabs: [tabInfo({ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false })], rpc: {} });
     expect(spy).toHaveBeenCalledTimes(4);
+
+    store.useStore.getState().focusTab("t1");
+    expect(spy).toHaveBeenCalledTimes(5);
+
+    store.useStore.getState().hideTab("t1");
+    expect(spy).toHaveBeenCalledTimes(6);
   });
 
   it("onStateChanged prunes focus entries whose tab or project is gone", async () => {

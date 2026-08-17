@@ -23,6 +23,12 @@
  * covers Restart now, Install when I quit, and a manually replaced AppImage —
  * there is no need to special-case any install path.
  */
+import {
+  clampPanelWidth,
+  INSPECTOR_DEFAULT_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+} from "./panel-layout";
+
 
 /** Storage key for the whole desktop view snapshot. */
 export const DESKTOP_VIEW_STORAGE_KEY = "omp-ui.desktopView.v1";
@@ -42,6 +48,10 @@ export interface DesktopViewStateV1 {
   activeTabId: string | null;
   /** Per-project focused tab, keyed by project working directory. */
   focusedTabByProject: Record<string, string>;
+  /** Expanded project sidebar width preference in CSS pixels. */
+  sidebarWidth: number;
+  /** Open inspector pane width preference in CSS pixels. */
+  inspectorWidth: number;
 }
 
 /** Minimal Storage-like surface the module reads and writes through. */
@@ -98,12 +108,23 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     if (typeof tabId === "string") focusedTabByProject[project] = tabId;
   }
 
+  const sidebarWidth =
+    typeof value.sidebarWidth === "number" && Number.isFinite(value.sidebarWidth)
+      ? clampPanelWidth("sidebar", value.sidebarWidth)
+      : SIDEBAR_DEFAULT_WIDTH;
+  const inspectorWidth =
+    typeof value.inspectorWidth === "number" && Number.isFinite(value.inspectorWidth)
+      ? clampPanelWidth("inspector", value.inspectorWidth)
+      : INSPECTOR_DEFAULT_WIDTH;
+
   return {
     schemaVersion: 1,
     appVersion: value.appVersion as string | null,
     tabIds,
     activeTabId: rawActive,
     focusedTabByProject,
+    sidebarWidth,
+    inspectorWidth,
   };
 }
 
@@ -159,6 +180,8 @@ export interface ProjectedView {
   tabs: Array<{ tabId: string; hidden: boolean }>;
   activeTabId: string | null;
   focusedTabByProject: Record<string, string>;
+  sidebarWidth: number;
+  inspectorWidth: number;
 }
 
 /**
@@ -184,6 +207,8 @@ export function projectDesktopView(
     tabIds,
     activeTabId: view.activeTabId,
     focusedTabByProject: { ...view.focusedTabByProject },
+    sidebarWidth: clampPanelWidth("sidebar", view.sidebarWidth),
+    inspectorWidth: clampPanelWidth("inspector", view.inspectorWidth),
   };
 }
 

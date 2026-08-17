@@ -6,6 +6,13 @@ import type { OmpUpdateState } from "@omp-ui/core/types";
 import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+HTMLElement.prototype.setPointerCapture = vi.fn();
+
+function resizePointer(type: string, x: number): Event {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x });
+  Object.defineProperty(event, "pointerId", { value: 1 });
+  return event;
+}
 
 const idleOmpUpdate: OmpUpdateState = {
   status: "idle",
@@ -231,6 +238,9 @@ beforeEach(() => {
     advisorDefaults: {},
     sidebarCollapsed: false,
     compactSurface: null,
+    sidebarWidth: 272,
+    inspectorWidth: 304,
+    inspectorOpen: false,
     newSession,
     openSession,
   });
@@ -260,6 +270,44 @@ afterEach(() => {
     advisorDefaults: {},
     newSession: originalNewSession,
     openSession: originalOpenSession,
+  });
+});
+
+describe("Sidebar resizing", () => {
+  it("previews, commits, resets, and preserves the expanded preference across collapse", () => {
+    renderSidebar();
+    const aside = document.body.querySelector<HTMLElement>("aside")!;
+    const handle = document.body.querySelector<HTMLElement>('[role="separator"][aria-label="resize project sidebar"]')!;
+    expect(aside.style.width).toBe("272px");
+
+    act(() => {
+      handle.dispatchEvent(resizePointer("pointerdown", 100));
+      handle.dispatchEvent(resizePointer("pointermove", 180));
+    });
+    expect(aside.style.width).toBe("352px");
+    expect(useStore.getState().sidebarWidth).toBe(272);
+    act(() => handle.dispatchEvent(resizePointer("pointerup", 180)));
+    expect(useStore.getState().sidebarWidth).toBe(352);
+
+    act(() => handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(useStore.getState().sidebarWidth).toBe(272);
+    act(() => useStore.getState().setSidebarWidth(400));
+    act(() => useStore.getState().toggleSidebarCollapsed());
+    expect(aside.className).toContain("w-14");
+    expect(useStore.getState().sidebarWidth).toBe(400);
+    act(() => useStore.getState().toggleSidebarCollapsed());
+    expect(aside.style.width).toBe("400px");
+  });
+
+  it("renders no separator in the compact project sheet", () => {
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) });
+    useStore.setState({ compactSurface: "sessions" });
+    renderSidebar();
+    expect(document.body.querySelector('[role="separator"]')).toBeNull();
   });
 });
 

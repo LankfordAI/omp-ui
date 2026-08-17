@@ -195,6 +195,120 @@ export function IconButton({
   );
 }
 
+export interface ResizeHandleProps {
+  label: string;
+  edge: "left" | "right";
+  value: number;
+  min: number;
+  max: number;
+  defaultValue: number;
+  onPreview(value: number): void;
+  onCommit(value: number): void;
+  onDraggingChange?(dragging: boolean): void;
+}
+
+export function ResizeHandle({
+  label,
+  edge,
+  value,
+  min,
+  max,
+  defaultValue,
+  onPreview,
+  onCommit,
+  onDraggingChange,
+}: ResizeHandleProps) {
+  const drag = useRef<{ pointerId: number; startX: number; startValue: number; value: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const clamp = (next: number) => Math.min(max, Math.max(min, next));
+  const finish = (commit: boolean) => {
+    const current = drag.current;
+    if (current === null) return;
+    drag.current = null;
+    setDragging(false);
+    onDraggingChange?.(false);
+    if (commit) onCommit(current.value);
+    else onPreview(current.startValue);
+  };
+
+  useEffect(() => {
+    if (!dragging) return;
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      finish(false);
+    };
+    window.addEventListener("keydown", cancel, true);
+    return () => window.removeEventListener("keydown", cancel, true);
+  }, [dragging]);
+
+  return (
+    <div
+      role="separator"
+      aria-label={label}
+      aria-orientation="vertical"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={Math.round(value)}
+      tabIndex={0}
+      className={cn(
+        "group absolute inset-y-0 z-20 w-3 touch-none cursor-col-resize focus-visible:outline-none",
+        edge === "right" ? "-right-1.5" : "-left-1.5",
+      )}
+      onPointerDown={(event) => {
+        const startValue = clamp(value);
+        drag.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startValue,
+          value: startValue,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setDragging(true);
+        onDraggingChange?.(true);
+      }}
+      onPointerMove={(event) => {
+        const current = drag.current;
+        if (current === null || current.pointerId !== event.pointerId) return;
+        const direction = edge === "right" ? 1 : -1;
+        current.value = clamp(current.startValue + direction * (event.clientX - current.startX));
+        onPreview(current.value);
+      }}
+      onPointerUp={(event) => {
+        if (drag.current?.pointerId === event.pointerId) finish(true);
+      }}
+      onPointerCancel={(event) => {
+        if (drag.current?.pointerId === event.pointerId) finish(false);
+      }}
+      onDoubleClick={() => {
+        const reset = clamp(defaultValue);
+        onPreview(reset);
+        onCommit(reset);
+      }}
+      onKeyDown={(event) => {
+        let next: number | null = null;
+        if (event.key === "Home") next = min;
+        else if (event.key === "End") next = max;
+        else if (event.key === "ArrowLeft") next = value - 16;
+        else if (event.key === "ArrowRight") next = value + 16;
+        if (next === null) return;
+        event.preventDefault();
+        const committed = clamp(next);
+        onPreview(committed);
+        onCommit(committed);
+      }}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-line-strong opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
+          dragging && "opacity-100",
+        )}
+      />
+    </div>
+  );
+}
+
 /** Shared surface, dismissal affordance, and transient timer for update cards. */
 export function UpdateCard({
   children,

@@ -210,6 +210,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   mcpManager: { tabId: string; projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
+  inspectorWidth: number;
+  inspectorOpen: boolean;
   init(): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
@@ -218,6 +221,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
   toggleSidebarCollapsed(): void;
+  setSidebarWidth(width: number): void;
+  setInspectorWidth(width: number): void;
+  setInspectorOpen(open: boolean): void;
   restartSession(tabId: string): Promise<boolean>;
   addProject(path: string): Promise<void>;
   removeProject(path: string): Promise<void>;

@@ -5,11 +5,18 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, ChoiceCapsule, ConfirmDialog, Modal, PerimeterGlow, PerimeterSweep, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, ChoiceCapsule, ConfirmDialog, Modal, PerimeterGlow, PerimeterSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
 Object.assign(window, { ompBackend: {} });
+HTMLElement.prototype.setPointerCapture = vi.fn();
+
+function pointer(type: string, x: number, pointerId = 1): Event {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x });
+  Object.defineProperty(event, "pointerId", { value: pointerId });
+  return event;
+}
 let roCallback: ResizeObserverCallback | null = null;
 (globalThis as Record<string, unknown>).ResizeObserver = class {
   constructor(cb: ResizeObserverCallback) { roCallback = cb; }
@@ -35,6 +42,57 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
+});
+
+describe("ResizeHandle", () => {
+  it("previews pointer movement and commits once on release with edge polarity", async () => {
+    const preview = vi.fn();
+    const commit = vi.fn();
+    await render(<ResizeHandle label="resize" edge="right" value={272} min={224} max={400} defaultValue={272} onPreview={preview} onCommit={commit} />);
+    const handle = document.body.querySelector<HTMLElement>('[role="separator"]')!;
+    act(() => {
+      handle.dispatchEvent(pointer("pointerdown", 100));
+      handle.dispatchEvent(pointer("pointermove", 132));
+    });
+    expect(preview).toHaveBeenLastCalledWith(304);
+    expect(commit).not.toHaveBeenCalled();
+    act(() => handle.dispatchEvent(pointer("pointerup", 132)));
+    expect(commit).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenLastCalledWith(304);
+
+    act(() => root!.render(<ResizeHandle label="resize" edge="left" value={304} min={224} max={400} defaultValue={304} onPreview={preview} onCommit={commit} />));
+    const left = document.body.querySelector<HTMLElement>('[role="separator"]')!;
+    act(() => {
+      left.dispatchEvent(pointer("pointerdown", 100, 2));
+      left.dispatchEvent(pointer("pointermove", 132, 2));
+    });
+    expect(preview).toHaveBeenLastCalledWith(272);
+  });
+
+  it("rolls back cancellation, resets on double click, and exposes keyboard bounds", async () => {
+    const preview = vi.fn();
+    const commit = vi.fn();
+    await render(<ResizeHandle label="resize sidebar" edge="right" value={272} min={224} max={400} defaultValue={300} onPreview={preview} onCommit={commit} />);
+    const handle = document.body.querySelector<HTMLElement>('[role="separator"]')!;
+    expect(handle.getAttribute("aria-valuemin")).toBe("224");
+    expect(handle.getAttribute("aria-valuemax")).toBe("400");
+    expect(handle.getAttribute("aria-valuenow")).toBe("272");
+
+    act(() => {
+      handle.dispatchEvent(pointer("pointerdown", 100));
+      handle.dispatchEvent(pointer("pointermove", 120));
+      handle.dispatchEvent(pointer("pointercancel", 120));
+    });
+    expect(preview).toHaveBeenLastCalledWith(272);
+    expect(commit).not.toHaveBeenCalled();
+
+    act(() => handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(commit).toHaveBeenLastCalledWith(300);
+    act(() => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true })));
+    expect(commit).toHaveBeenLastCalledWith(400);
+    act(() => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })));
+    expect(commit).toHaveBeenLastCalledWith(256);
+  });
 });
 
 describe("Sheet", () => {

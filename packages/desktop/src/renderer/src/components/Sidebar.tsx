@@ -3,13 +3,18 @@ import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
-import { useCompactShell } from "../lib/responsive";
+import { useCompactShell, useViewportWidth } from "../lib/responsive";
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  resolveDesktopPanelWidths,
+} from "../lib/panel-layout";
 import { PAGE, sessionWindow } from "../lib/session-window";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, MiddleTruncate, Panel, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -464,6 +469,13 @@ export function Sidebar() {
   // Desktop collapse memory lives in the store: the toggle moved to App's
   // title bar (issue #60), and the compact sheet ignores it as before.
   const collapsed = useStore((st) => st.sidebarCollapsed);
+  const sidebarWidth = useStore((st) => st.sidebarWidth);
+  const inspectorWidth = useStore((st) => st.inspectorWidth);
+  const inspectorOpen = useStore((st) => st.inspectorOpen);
+  const setSidebarWidth = useStore((st) => st.setSidebarWidth);
+  const viewportWidth = useViewportWidth();
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+  const [resizing, setResizing] = useState(false);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
   // The project whose compact actions sheet is open (issue #205), by path.
@@ -614,14 +626,23 @@ export function Sidebar() {
   const totalLive = (groups ?? []).reduce((n, g) => n + liveCount(g.sessions), 0);
   const filtering = query.trim().length > 0;
   const displayedCollapsed = compact ? false : collapsed;
+  const resolvedWidths = resolveDesktopPanelWidths({
+    viewportWidth,
+    sidebarWidth,
+    inspectorWidth,
+    sidebarCollapsed: displayedCollapsed,
+    inspectorOpen,
+  });
+  const displayedSidebarWidth = previewWidth ?? resolvedWidths.sidebarWidth;
 
   const sidebar = (
     <aside
       className={cn(
-        "ambient flex shrink-0 flex-col border-r border-line bg-sunken",
-        "transition-[width] duration-200 ease-out-quint",
-        displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : "w-[17rem]",
+        "ambient relative flex shrink-0 flex-col border-r border-line bg-sunken",
+        !resizing && "transition-[width] duration-200 ease-out-quint",
+        displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : undefined,
       )}
+      style={!compact && !displayedCollapsed ? { width: displayedSidebarWidth } : undefined}
     >
       {/* No compact header: the Sheet chrome already names the surface and
           carries the close control; add-project rides the filter row below.
@@ -837,6 +858,22 @@ export function Sidebar() {
       <p role="status" aria-live="polite" className="sr-only">
         {reorderNote}
       </p>
+      {!compact && !displayedCollapsed && (
+        <ResizeHandle
+          label="resize project sidebar"
+          edge="right"
+          value={displayedSidebarWidth}
+          min={SIDEBAR_MIN_WIDTH}
+          max={resolvedWidths.sidebarAllowedMax}
+          defaultValue={SIDEBAR_DEFAULT_WIDTH}
+          onPreview={setPreviewWidth}
+          onCommit={(width) => {
+            setSidebarWidth(width);
+            setPreviewWidth(null);
+          }}
+          onDraggingChange={setResizing}
+        />
+      )}
     </aside>
   );
   return compact ? (

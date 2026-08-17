@@ -8,6 +8,11 @@ import {
   shouldRestoreDesktopView,
   type DesktopViewStateV1,
 } from "../../lib/desktop-view-state";
+import {
+  clampPanelWidth,
+  INSPECTOR_DEFAULT_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+} from "../../lib/panel-layout";
 import type { CompactSurface, UiStore } from "../types";
 
 export type { CompactSurface } from "../types";
@@ -22,6 +27,9 @@ export interface ViewSlice {
   mcpManager: { tabId: string; projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
+  inspectorWidth: number;
+  inspectorOpen: boolean;
   openProjectPicker(): void;
   closeProjectPicker(): void;
   openMcpManager(tabId: string, projectCwd: string): void;
@@ -29,6 +37,9 @@ export interface ViewSlice {
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
   toggleSidebarCollapsed(): void;
+  setSidebarWidth(width: number): void;
+  setInspectorWidth(width: number): void;
+  setInspectorOpen(open: boolean): void;
 }
 
 /** Keeps global and per-project focus in lockstep for every tab activation. */
@@ -119,6 +130,12 @@ export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> 
   if (storage === null) return;
   const saved = loadDesktopView(storage);
   const currentVersion = api.getState().appUpdate.currentVersion;
+  if (saved !== null) {
+    api.setState({
+      sidebarWidth: saved.sidebarWidth,
+      inspectorWidth: saved.inspectorWidth,
+    });
+  }
   if (shouldRestoreDesktopView(saved, currentVersion)) {
     api.setState({ restoringTabs: true });
     try {
@@ -144,7 +161,9 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       state.tabs === previous.tabs &&
       state.activeTabId === previous.activeTabId &&
       state.focusedTabByProject === previous.focusedTabByProject &&
-      state.appUpdate.currentVersion === previous.appUpdate.currentVersion
+      state.appUpdate.currentVersion === previous.appUpdate.currentVersion &&
+      state.sidebarWidth === previous.sidebarWidth &&
+      state.inspectorWidth === previous.inspectorWidth
     ) {
       return;
     }
@@ -164,6 +183,9 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   mcpManager: null,
   compactSurface: null,
   sidebarCollapsed: false,
+  sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+  inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
+  inspectorOpen: false,
 
   openProjectPicker() {
     set({ projectPickerOpen: true });
@@ -185,6 +207,15 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   toggleSidebarCollapsed() {
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
+  },
+  setSidebarWidth(width) {
+    set({ sidebarWidth: clampPanelWidth("sidebar", width) });
+  },
+  setInspectorWidth(width) {
+    set({ inspectorWidth: clampPanelWidth("inspector", width) });
+  },
+  setInspectorOpen(open) {
+    set({ inspectorOpen: open });
   },
 });
 

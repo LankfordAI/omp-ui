@@ -31,6 +31,26 @@ export function useCompactShell(): boolean {
   return compact;
 }
 
+function viewportWidth(): number {
+  if (typeof window === "undefined") return 0;
+  return window.visualViewport?.width ?? window.innerWidth;
+}
+
+export function useViewportWidth(): number {
+  const [width, setWidth] = useState(viewportWidth);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const target: VisualViewport | Window = viewport ?? window;
+    const update = () => setWidth(viewportWidth());
+    update();
+    target.addEventListener("resize", update);
+    return () => target.removeEventListener("resize", update);
+  }, []);
+
+  return width;
+}
+
 export function useAppViewport(): void {
   useEffect(() => {
     const viewport = window.visualViewport;
