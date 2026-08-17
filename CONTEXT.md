@@ -291,12 +291,15 @@ card on top.
 _Avoid_: toast, notification, popup, updater dialog
 
 **Settings surface**:
-The modal with seven pages — General, Appearance, Updates, Remote access,
-Providers, omp, About — reached from the sidebar gear, the command palette, or
-`mod+,`. Deliberately not a tab: preferences are not sessions, so they stay out
-of the tab/lineage model entirely. omp-ui's own preferences persist in the
-registry; the omp page is a view onto omp's own config, written through
-`omp config set` to the global layer only, with each value's layer shown.
+The modal with eight pages — General, Appearance, Updates, Remote access,
+Providers, Memory, omp, About — reached from the sidebar gear, the command
+palette, or `mod+,`. Deliberately not a tab: preferences are not sessions, so
+they stay out of the tab/lineage model entirely. omp-ui's own preferences
+persist in the registry; the omp and Memory pages are views onto omp's own
+config, written through `omp config set` to the global layer only, with each
+value's layer shown. Memory configures omp's memory keys and can summarize the
+resolved bank locations for a focused project; the inspector rail's Memory
+pane remains the store view for browsing and editing retained rows.
 _Avoid_: preferences dialog, options window, config panel
 
 **Provider key**:

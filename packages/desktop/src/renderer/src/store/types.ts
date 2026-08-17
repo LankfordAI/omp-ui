@@ -133,6 +133,7 @@ export type SettingsPage =
   | "updates"
   | "remote"
   | "providers"
+  | "memory"
   | "omp"
   | "about";
 

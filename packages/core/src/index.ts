@@ -75,6 +75,7 @@ export {
 } from "./omp-config";
 export {
   execOmpConfigRunner,
+  MEMORY_SETTING_GROUP,
   OMP_MODEL_ROLE_IDS,
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,

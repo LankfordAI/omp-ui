@@ -2,6 +2,7 @@ import { AppUpdateRestartAction } from "./AppUpdateCard";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   AppUpdateState,
+  MemoryOverview,
   OmpSettingEntry,
   OmpSettingLayer,
   OmpSettingsSnapshot,
@@ -12,11 +13,13 @@ import type {
   RemoteState,
 } from "@omp-ui/core/types";
 import {
+  MEMORY_SETTING_GROUP,
   OMP_MODEL_ROLE_IDS,
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
 } from "@omp-ui/core/omp-settings-keys";
 import QRCode from "qrcode";
+import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import {
   SCALE_STEPS,
@@ -39,21 +42,27 @@ import {
 } from "./ui";
 
 /**
- * The settings modal (issue #36): six pages behind one store-driven nav
- * (`settingsPage`), so the palette can deep-link a page. The omp page is a
- * schema-driven GUI over a curated allowlist of omp's own settings, written
- * through `omp config set` and re-read after every write — the snapshot is the
- * single source of truth for values AND layer badges (a first write
- * legitimately flips a badge from `default` to `global`), so nothing is
+ * The settings modal (issue #36): eight pages behind one store-driven nav
+ * (`settingsPage`), so callers can deep-link a page. The omp and Memory pages
+ * are schema-driven GUIs over a curated allowlist of omp's own settings,
+ * written through `omp config set` and re-read after every write — the
+ * snapshot is the single source of truth for values AND layer badges (a first
+ * write legitimately flips a badge from `default` to `global`), so nothing is
  * patched optimistically.
  *
- * The snapshot is loaded once here rather than per page: both the omp page and
- * About need it, and it costs four omp invocations.
+ * The snapshot is loaded once here rather than per page: omp, Memory, and
+ * About consume it, and it costs four omp invocations.
  */
 
 type Load =
   | { status: "loading" }
   | { status: "loaded"; snapshot: OmpSettingsSnapshot }
+  | { status: "error"; message: string };
+
+type OverviewLoad =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "loaded"; overview: MemoryOverview }
   | { status: "error"; message: string };
 
 /** ipcRenderer.invoke wraps main-process errors — unwrap for display (#16 precedent). */
@@ -71,6 +80,7 @@ const PAGES: ReadonlyArray<{ id: SettingsPage; label: string }> = [
   { id: "updates", label: "Updates" },
   { id: "remote", label: "Remote access" },
   { id: "providers", label: "Providers" },
+  { id: "memory", label: "Memory" },
   { id: "omp", label: "omp" },
   { id: "about", label: "About" },
 ];
@@ -1036,6 +1046,91 @@ function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
   );
 }
 
+function SettingControl({
+  entry,
+  pendingKey,
+  commit,
+}: {
+  entry: OmpSettingEntry;
+  pendingKey: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+}) {
+  const pending = pendingKey === entry.key;
+
+  const commitScalar = (raw: string): void => {
+    if (entry.type === "number") {
+      const value = Number(raw);
+      // Empty or non-finite reverts: this surface does not expose config reset.
+      if (raw.trim() === "" || !Number.isFinite(value)) return;
+      commit(entry.key, value);
+    } else {
+      if (raw === "") return;
+      commit(entry.key, raw);
+    }
+  };
+
+  if (entry.type === "boolean") {
+    return (
+      <Switch
+        on={entry.value === true}
+        onChange={(next) => commit(entry.key, next)}
+        label={entry.key}
+        disabled={pending}
+      />
+    );
+  }
+  // A failed enum-member read (options null) is non-fatal upstream; the value
+  // remains editable as free text for omp to validate on write.
+  if (entry.type === "enum" && entry.options !== null) {
+    const value = typeof entry.value === "string" ? entry.value : "";
+    return (
+      <select
+        aria-label={entry.key}
+        value={value}
+        disabled={pending}
+        onChange={(event) => commit(entry.key, event.target.value)}
+        className={FIELD}
+      >
+        {value === "" && (
+          <option value="" disabled>
+            unset
+          </option>
+        )}
+        {entry.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (
+    entry.type === "number" ||
+    entry.type === "string" ||
+    entry.type === "enum"
+  ) {
+    return (
+      <CommitField
+        current={entry.value === undefined ? "" : String(entry.value)}
+        kind={entry.type === "number" ? "number" : "text"}
+        label={entry.key}
+        disabled={pending}
+        className={entry.type === "number" ? "w-24" : "w-44"}
+        onCommit={commitScalar}
+      />
+    );
+  }
+  // Future array/record entries stay visible without guessing an editor.
+  return (
+    <span
+      className="max-w-56 truncate font-mono text-[11px] text-ink-mid"
+      title={entry.key}
+    >
+      {entry.value === undefined ? "—" : JSON.stringify(entry.value)}
+    </span>
+  );
+}
+
 /* --------------------------------------------------------------------- omp */
 
 function OmpPage({
@@ -1132,83 +1227,6 @@ function OmpPage({
     commit(OMP_MODEL_ROLES_KEY, merged);
   };
 
-  const commitScalar = (entry: OmpSettingEntry, raw: string): void => {
-    if (entry.type === "number") {
-      const n = Number(raw);
-      // Empty or non-finite reverts: `omp config set` cannot express unsetting
-      // a key (only `omp config reset` can, which this page does not use).
-      if (raw.trim() === "" || !Number.isFinite(n)) return;
-      commit(entry.key, n);
-    } else {
-      if (raw === "") return;
-      commit(entry.key, raw);
-    }
-  };
-
-  const scalarControl = (entry: OmpSettingEntry): ReactNode => {
-    const pending = pendingKey === entry.key;
-    if (entry.type === "boolean") {
-      return (
-        <Switch
-          on={entry.value === true}
-          onChange={(next) => commit(entry.key, next)}
-          label={entry.key}
-          disabled={pending}
-        />
-      );
-    }
-    // A failed enum-member read (options null) is non-fatal upstream; the
-    // value still edits, just as free text omp will validate on write.
-    if (entry.type === "enum" && entry.options !== null) {
-      const value = typeof entry.value === "string" ? entry.value : "";
-      return (
-        <select
-          aria-label={entry.key}
-          value={value}
-          disabled={pending}
-          onChange={(e) => commit(entry.key, e.target.value)}
-          className={FIELD}
-        >
-          {value === "" && (
-            <option value="" disabled>
-              unset
-            </option>
-          )}
-          {entry.options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    if (
-      entry.type === "number" ||
-      entry.type === "string" ||
-      entry.type === "enum"
-    ) {
-      return (
-        <CommitField
-          current={entry.value === undefined ? "" : String(entry.value)}
-          kind={entry.type === "number" ? "number" : "text"}
-          label={entry.key}
-          disabled={pending}
-          className={entry.type === "number" ? "w-24" : "w-44"}
-          onCommit={(raw) => commitScalar(entry, raw)}
-        />
-      );
-    }
-    // array/record scalars are not in the allowlist; if a future omp surfaces
-    // one, show it read-only rather than guessing a control.
-    return (
-      <span
-        className="max-w-56 truncate font-mono text-[11px] text-ink-mid"
-        title={entry.key}
-      >
-        {entry.value === undefined ? "—" : JSON.stringify(entry.value)}
-      </span>
-    );
-  };
 
   const tab =
     activeTabId === null
@@ -1287,7 +1305,11 @@ function OmpPage({
                   hint={entry.description}
                   badge={layerBadge(entry.layer)}
                 >
-                  {scalarControl(entry)}
+                  <SettingControl
+                    entry={entry}
+                    pendingKey={pendingKey}
+                    commit={commit}
+                  />
                 </Row>
               ))}
             </div>
@@ -1317,6 +1339,252 @@ function OmpPage({
           MCP servers…
         </Button>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ memory */
+
+function MemoryBankPath({
+  label,
+  path,
+  exists,
+}: {
+  label: string;
+  path: string;
+  exists: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-baseline gap-2">
+      <span className="text-[10px] uppercase tracking-wide text-ink-faint">
+        {label}
+      </span>
+      <span className="truncate font-mono text-[10px] text-ink-mid" title={path}>
+        {path}
+      </span>
+      <Chip tone={exists ? undefined : "copper"}>
+        {exists ? "exists" : "not created"}
+      </Chip>
+    </div>
+  );
+}
+
+function MemoryOverviewPanel({
+  load,
+  projectCwd,
+  retry,
+}: {
+  load: OverviewLoad;
+  projectCwd: string | null;
+  retry: () => void;
+}) {
+  if (projectCwd === null) {
+    return (
+      <Panel className="px-3 py-2.5">
+        <Label>Resolved memory</Label>
+        <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+          Focus a session tab to inspect its resolved backend and bank locations.
+        </p>
+      </Panel>
+    );
+  }
+  if (load.status === "idle" || load.status === "loading") {
+    return (
+      <Panel className="px-3 py-2.5">
+        <Label>Resolved memory</Label>
+        <p className="mt-1 text-[11px] text-ink-faint">Discovering banks…</p>
+      </Panel>
+    );
+  }
+  if (load.status === "error") {
+    return (
+      <Panel className="px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-relaxed text-rose">{load.message}</p>
+          <Button size="xs" onClick={retry}>retry</Button>
+        </div>
+      </Panel>
+    );
+  }
+
+  const { overview } = load;
+  return (
+    <Panel className="space-y-2 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Label className="mr-auto">Resolved memory</Label>
+        <Chip mono>{overview.backend}</Chip>
+        <Chip mono>{overview.scoping}</Chip>
+      </div>
+      {overview.error !== null && (
+        <div className="flex items-center justify-between gap-3 rounded border border-rose-dim/50 bg-rose-wash px-2 py-1.5">
+          <p className="text-[11px] leading-relaxed text-rose">{overview.error}</p>
+          <Button size="xs" onClick={retry}>retry</Button>
+        </div>
+      )}
+      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-baseline gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-ink-faint">base</span>
+        <span className="truncate font-mono text-[10px] text-ink-mid" title={overview.baseDir}>
+          {overview.baseDir}
+        </span>
+      </div>
+      <MemoryBankPath
+        label="global"
+        path={overview.global.dbPath}
+        exists={overview.global.exists}
+      />
+      {overview.project !== null ? (
+        <MemoryBankPath
+          label="project"
+          path={overview.project.dbPath}
+          exists={overview.project.exists}
+        />
+      ) : (
+        <p className="text-[10px] leading-relaxed text-ink-faint">
+          {overview.scoping === "global"
+            ? "This project uses the global bank."
+            : "No project bank has been discovered yet."}
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+function MemoryPage({
+  load,
+  projectCwd,
+  pendingKey,
+  writeError,
+  commit,
+  retry,
+  overviewRevision,
+}: {
+  load: Load;
+  projectCwd: string | null;
+  pendingKey: string | null;
+  writeError: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+  retry: () => void;
+  overviewRevision: number;
+}) {
+  const openSettings = useStore((state) => state.openSettings);
+  const [overviewLoad, setOverviewLoad] = useState<OverviewLoad>({ status: "idle" });
+  const [overviewRetry, setOverviewRetry] = useState(0);
+  const overviewGeneration = useRef(0);
+
+  useEffect(() => {
+    const generation = ++overviewGeneration.current;
+    if (projectCwd === null) {
+      setOverviewLoad({ status: "idle" });
+      return;
+    }
+
+    let stale = false;
+    setOverviewLoad({ status: "loading" });
+    backend.memoryOverview(projectCwd).then(
+      (overview) => {
+        if (!stale && generation === overviewGeneration.current) {
+          setOverviewLoad({ status: "loaded", overview });
+        }
+      },
+      (error: unknown) => {
+        if (!stale && generation === overviewGeneration.current) {
+          setOverviewLoad({ status: "error", message: displayMessage(error) });
+        }
+      },
+    );
+    return () => {
+      stale = true;
+    };
+  }, [projectCwd, overviewRevision, overviewRetry]);
+
+  const overviewPanel = (
+    <MemoryOverviewPanel
+      load={overviewLoad}
+      projectCwd={projectCwd}
+      retry={() => setOverviewRetry((revision) => revision + 1)}
+    />
+  );
+
+  if (load.status === "loading") {
+    return (
+      <div className="space-y-3 px-4 py-3">
+        {overviewPanel}
+        <Empty title="Reading memory configuration…" />
+      </div>
+    );
+  }
+  const failure =
+    load.status === "error"
+      ? load.message
+      : load.snapshot.error !== null
+        ? load.snapshot.error
+        : null;
+  if (failure !== null || load.status !== "loaded") {
+    const missing = failure === OMP_MISSING;
+    return (
+      <div className="space-y-3 px-4 py-3">
+        {overviewPanel}
+        <Empty
+          title="Could not read memory configuration"
+          hint={missing ? "omp is not installed, so there is nothing to configure yet." : (failure ?? undefined)}
+          action={
+            <div className="flex items-center gap-2">
+              <Button size="xs" onClick={retry}>retry</Button>
+              {missing && (
+                <Button size="xs" variant="ghost" onClick={() => openSettings("updates")}>
+                  install omp from the Updates page
+                </Button>
+              )}
+            </div>
+          }
+        />
+      </div>
+    );
+  }
+
+  const byKey = new Map(load.snapshot.entries.map((entry) => [entry.key, entry]));
+  const entries = MEMORY_SETTING_GROUP.keys
+    .map((key) => byKey.get(key))
+    .filter((entry): entry is OmpSettingEntry => entry !== undefined);
+
+  return (
+    <div className="space-y-3 px-4 py-3">
+      <div>
+        <p className="text-xs font-medium text-ink">Durable recall configuration</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+          Configure what future sessions retain and recall here. Browse and edit retained rows in the inspector rail&apos;s Memory pane.
+        </p>
+      </div>
+      {overviewPanel}
+      {writeError !== null && (
+        <p className="rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 text-xs text-rose">
+          {writeError}
+        </p>
+      )}
+      {entries.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2">
+            <Label>{MEMORY_SETTING_GROUP.title}</Label>
+          </div>
+          {MEMORY_SETTING_GROUP.description !== undefined && (
+            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+              {MEMORY_SETTING_GROUP.description}
+            </p>
+          )}
+          <div className="mt-1 divide-y divide-line-soft">
+            {entries.map((entry) => (
+              <Row
+                key={entry.key}
+                title={entry.key}
+                hint={entry.description}
+                badge={layerBadge(entry.layer)}
+              >
+                <SettingControl entry={entry} pendingKey={pendingKey} commit={commit} />
+              </Row>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -1458,6 +1726,16 @@ export function Settings() {
         omp itself, so both are shown here but neither needs re-entering.
       </p>
     );
+  } else if (page === "memory") {
+    footer = (
+      <p>
+        Writes go to omp&apos;s global config (
+        <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
+        project&apos;s <span className="font-mono">.omp/config.yml</span> can win
+        and is shown as <span className="font-mono">project</span>. Memory
+        configuration applies to sessions started after the change.
+      </p>
+    );
   } else if (page === "omp") {
     // Load-bearing per ADR-0005: where writes land, which layer wins, and when
     // they take effect. omp regenerates its YAML on write, so hand-written
@@ -1521,6 +1799,17 @@ export function Settings() {
             {page === "updates" && <UpdatesPage />}
             {page === "remote" && <RemotePage />}
             {page === "providers" && <ProvidersPage projectCwd={projectCwd} />}
+            {page === "memory" && (
+              <MemoryPage
+                load={load}
+                projectCwd={projectCwd}
+                pendingKey={pendingKey}
+                writeError={writeError}
+                commit={commit}
+                retry={() => setReloadKey((revision) => revision + 1)}
+                overviewRevision={reloadKey}
+              />
+            )}
             {page === "omp" && (
               <OmpPage
                 load={load}

@@ -5,12 +5,30 @@
 // same constants, so the page's grouping and the write allowlist can never
 // drift.
 
-/** The omp settings the settings surface exposes, grouped for the omp page. */
-export const OMP_SETTING_GROUPS: ReadonlyArray<{
+export interface OmpSettingGroup {
   title: string;
   description?: string;
   keys: readonly string[];
-}> = [
+}
+
+/** Memory settings live on their own settings page but share the core allowlist. */
+export const MEMORY_SETTING_GROUP: OmpSettingGroup = {
+  title: "Memory",
+  description:
+    "Mnemopi gives sessions durable recall. per-project-tagged writes project-local " +
+    "and recalls project + global. Backend changes apply to sessions started afterwards.",
+  keys: [
+    "memory.backend",
+    "mnemopi.scoping",
+    "mnemopi.autoRecall",
+    "mnemopi.autoRetain",
+    "mnemopi.noEmbeddings",
+    "autolearn.enabled",
+  ],
+};
+
+/** The omp settings the settings surface exposes, grouped for the omp page. */
+export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
     title: "Advisor",
     keys: [
@@ -43,24 +61,11 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<{
       "colorBlindMode",
     ],
   },
-  {
-    title: "Memory",
-    description:
-      "Mnemopi gives sessions durable recall. per-project-tagged writes project-local " +
-      "and recalls project + global. Backend changes apply to sessions started afterwards.",
-    keys: [
-      "memory.backend",
-      "mnemopi.scoping",
-      "mnemopi.autoRecall",
-      "mnemopi.autoRetain",
-      "mnemopi.noEmbeddings",
-      "autolearn.enabled",
-    ],
-  },
 ];
-export const OMP_SETTING_KEYS: readonly string[] = OMP_SETTING_GROUPS.flatMap(
-  (g) => g.keys,
-);
+export const OMP_SETTING_KEYS: readonly string[] = [
+  ...OMP_SETTING_GROUPS.flatMap((group) => group.keys),
+  ...MEMORY_SETTING_GROUP.keys,
+];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";
 /** omp's built-in roles, in omp's own order (v17.2.7 config/model-roles.ts MODEL_ROLE_IDS). */

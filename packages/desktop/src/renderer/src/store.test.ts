@@ -4386,8 +4386,8 @@ describe("settings", () => {
     useStore.getState().openSettings();
     expect(useStore.getState().settingsPage).toBe("general");
 
-    useStore.getState().openSettings("omp");
-    expect(useStore.getState().settingsPage).toBe("omp");
+    useStore.getState().openSettings("memory");
+    expect(useStore.getState().settingsPage).toBe("memory");
 
     useStore.getState().closeSettings();
     expect(useStore.getState().settingsPage).toBeNull();

@@ -4,11 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
+  MemoryOverview,
   OmpSettingsSnapshot,
   OmpUpdateState,
   PlanFormat,
 } from "@omp-ui/core/types";
-import { backendState } from "../test/fixtures";
+import { backendState, tabInfo } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -83,6 +84,7 @@ const backendMock = {
   clearDismissedOmpUpdate: vi.fn(async () => {}),
   setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
+  memoryOverview: vi.fn(),
   writeOmpSetting: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
@@ -453,5 +455,162 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     expect(document.body.textContent).not.toContain(
       "providers.openrouterVariant",
     );
+  });
+});
+
+describe("Settings Memory page (issue #213)", () => {
+  const memoryEntries: OmpSettingsSnapshot["entries"] = [
+    {
+      key: "memory.backend",
+      type: "enum",
+      description: "Memory backend",
+      value: "mnemopi",
+      options: ["off", "mnemopi"],
+      layer: "global",
+    },
+    {
+      key: "mnemopi.scoping",
+      type: "enum",
+      description: "Bank scoping",
+      value: "per-project-tagged",
+      options: ["global", "per-project", "per-project-tagged"],
+      layer: "project",
+    },
+    {
+      key: "mnemopi.autoRecall",
+      type: "boolean",
+      description: "Recall automatically",
+      value: true,
+      options: null,
+      layer: "global",
+    },
+    {
+      key: "mnemopi.autoRetain",
+      type: "boolean",
+      description: "Retain automatically",
+      value: true,
+      options: null,
+      layer: "project",
+    },
+    {
+      key: "mnemopi.noEmbeddings",
+      type: "boolean",
+      description: "Disable embeddings",
+      value: false,
+      options: null,
+      layer: "global",
+    },
+    {
+      key: "autolearn.enabled",
+      type: "boolean",
+      description: "Auto-learn skills",
+      value: true,
+      options: null,
+      layer: "project",
+    },
+  ];
+
+  const overview: MemoryOverview = {
+    backend: "mnemopi",
+    scoping: "per-project-tagged",
+    baseDir: "/home/a/.omp/memory",
+    global: {
+      bank: "global",
+      dbPath: "/home/a/.omp/memory/global/db.sqlite",
+      exists: true,
+      sizeBytes: 1024,
+      workingCount: 2,
+      episodicCount: 3,
+      lastWrite: null,
+    },
+    project: {
+      bank: "project-abc",
+      dbPath: "/home/a/.omp/memory/project-abc/db.sqlite",
+      exists: false,
+      sizeBytes: 0,
+      workingCount: 0,
+      episodicCount: 0,
+      lastWrite: null,
+    },
+    error: null,
+  };
+
+  function seedMemory(focused = true): void {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      agentDir: "/home/a/.omp",
+      entries: memoryEntries,
+    });
+    backendMock.memoryOverview.mockResolvedValue(overview);
+    const tab = tabInfo();
+    useStore.setState({
+      settingsPage: "memory",
+      state: backendState(),
+      tabs: focused ? [tab] : [],
+      activeTabId: focused ? tab.tabId : null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  it("relocates all six controls from omp and preserves layer badges", async () => {
+    seedMemory();
+    await renderSettings();
+
+    expect(buttonWithText("Memory")?.getAttribute("aria-current")).toBe("page");
+    for (const entry of memoryEntries) {
+      expect(document.querySelector(`[aria-label="${entry.key}"]`)).not.toBeNull();
+    }
+    expect(document.body.textContent).toContain("global");
+    expect(document.body.textContent).toContain("project");
+
+    click(buttonWithText("omp")!);
+    for (const entry of memoryEntries) {
+      expect(document.querySelector(`[aria-label="${entry.key}"]`)).toBeNull();
+    }
+  });
+
+  it("shows the focused project's resolved bank paths and states", async () => {
+    seedMemory();
+    await renderSettings();
+
+    expect(backendMock.memoryOverview).toHaveBeenCalledWith("/project");
+    expect(document.body.textContent).toContain("mnemopi");
+    expect(document.body.textContent).toContain("per-project-tagged");
+    expect(document.body.textContent).toContain("/home/a/.omp/memory");
+    expect(document.body.textContent).toContain("/home/a/.omp/memory/global/db.sqlite");
+    expect(document.body.textContent).toContain("/home/a/.omp/memory/project-abc/db.sqlite");
+    expect(document.body.textContent).toContain("exists");
+    expect(document.body.textContent).toContain("not created");
+  });
+
+  it("writes through the existing path, then refreshes settings and overview", async () => {
+    seedMemory();
+    await renderSettings();
+    const toggle = document.querySelector<HTMLElement>(
+      '[role="switch"][aria-label="mnemopi.autoRecall"]',
+    )!;
+
+    await act(async () => click(toggle));
+
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "mnemopi.autoRecall",
+      false,
+    );
+    expect(backendMock.readOmpSettings).toHaveBeenCalledTimes(2);
+    expect(backendMock.memoryOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps controls usable without a focused tab and skips overview IPC", async () => {
+    seedMemory(false);
+    await renderSettings();
+
+    expect(backendMock.memoryOverview).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "Focus a session tab to inspect its resolved backend and bank locations.",
+    );
+    expect(
+      document.querySelector('[role="switch"][aria-label="mnemopi.autoRecall"]'),
+    ).not.toBeNull();
   });
 });

@@ -39,6 +39,7 @@ import type {
 // renderer bundles it (see that file); re-exported so main-side callers can
 // keep importing everything omp-settings from one place.
 export {
+  MEMORY_SETTING_GROUP,
   OMP_MODEL_ROLE_IDS,
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
