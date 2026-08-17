@@ -12,7 +12,6 @@ import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import { findRecord, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
-import { MemoryPane } from "./MemoryPane";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
 import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
@@ -33,7 +32,7 @@ interface BranchDiffLoad {
  * icons. (The console moved to the composer drawer — issue #33.)
  */
 
-export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs" | "memory";
+export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
 
 /**
  * Rail selection is per-session and deliberately module-level: it is view
@@ -89,12 +88,6 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M2.8 4.4h8.6v6.6a1.2 1.2 0 0 1-1.2 1.2H4A1.2 1.2 0 0 1 2.8 11z" {...S} />
           <path d="M12.4 3.4v4.6M10.1 5.7h4.6" {...S} />
           <path d="M6 2H4.4A1.4 1.4 0 0 0 3 3.4v1.8M10 14h1.6a1.4 1.4 0 0 0 1.4-1.4v-1.8" {...S} />
-        </>
-      )}
-      {tab === "memory" && (
-        <>
-          <path d="M8 2.6c-2.9 0-5 2.1-5 4.7 0 1.5.7 2.8 1.8 3.7v2.4h6.4v-1.6h1.2A1.3 1.3 0 0 0 13.7 10.5V9l-1-.5c.2-3.5-1.8-5.9-4.7-5.9z" {...S} />
-          <circle cx="7.4" cy="7" r="1.5" {...S} />
         </>
       )}
     </svg>
@@ -624,7 +617,6 @@ const TABS: { id: RailTab; label: string }[] = [
   { id: "session", label: "session" },
   { id: "plans", label: "plans" },
   { id: "diffs", label: "diffs" },
-  { id: "memory", label: "memory" },
 ];
 
 export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTab, number> {
@@ -638,7 +630,6 @@ export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTa
     session: 0,
     plans: runtime?.planReview ? 1 : 0,
     diffs: 0,
-    memory: 0,
   };
 }
 
@@ -700,14 +691,13 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       {tab === "session" && <SessionPane tabId={tabId} />}
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}
-      {tab === "memory" && <MemoryPane tabId={tabId} />}
     </>
   );
 
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label="inspector" onClose={closeCompactSurface}>
-        <div className="sticky top-0 z-10 grid grid-cols-6 border-b border-line bg-sunken">
+        <div className="sticky top-0 z-10 grid grid-cols-5 border-b border-line bg-sunken">
           {TABS.map(({ id, label }) => (
             <button
               key={id}

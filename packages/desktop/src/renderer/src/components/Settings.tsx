@@ -1552,7 +1552,7 @@ function MemoryPage({
       <div>
         <p className="text-xs font-medium text-ink">Durable recall configuration</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
-          Configure what future sessions retain and recall here. Browse and edit retained rows in the inspector rail&apos;s Memory pane.
+          Configure what future sessions retain and recall, and inspect the resolved memory banks for the focused project.
         </p>
       </div>
       {overviewPanel}

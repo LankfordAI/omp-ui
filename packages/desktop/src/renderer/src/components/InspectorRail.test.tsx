@@ -18,13 +18,6 @@ function resizePointer(type: string, x: number): Event {
 const backendMock = {
   rpcSend: vi.fn(),
   getBranchDiff: vi.fn(),
-  memoryOverview: vi.fn(),
-  memoryList: vi.fn(),
-  memoryGet: vi.fn(),
-  memoryAdd: vi.fn(),
-  memoryUpdate: vi.fn(),
-  memoryForget: vi.fn(),
-  writeOmpSetting: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -149,31 +142,6 @@ beforeEach(() => {
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
   });
   backendMock.getBranchDiff.mockReset();
-  backendMock.memoryOverview.mockReset();
-  backendMock.memoryList.mockReset();
-  backendMock.memoryGet.mockReset();
-  backendMock.memoryAdd.mockReset();
-  backendMock.memoryUpdate.mockReset();
-  backendMock.memoryForget.mockReset();
-  backendMock.writeOmpSetting.mockReset();
-  backendMock.writeOmpSetting.mockResolvedValue(undefined);
-  // Backend-off overview keeps the memory pane inert unless a test overrides it.
-  backendMock.memoryOverview.mockResolvedValue({
-    backend: "off",
-    scoping: "per-project",
-    baseDir: "",
-    global: {
-      bank: "default",
-      dbPath: "",
-      exists: false,
-      sizeBytes: 0,
-      workingCount: 0,
-      episodicCount: 0,
-      lastWrite: null,
-    },
-    project: null,
-    error: null,
-  });
   useStore.setState({
     state: null,
     branches: {},
@@ -199,9 +167,10 @@ describe("desktop InspectorRail", () => {
 
     // The strip is the whole rail: feature icons with badges, no expand control.
     expect(button("expand inspector")).toBeNull();
-    for (const label of ["todos", "agents", "session", "plans", "diffs", "memory"]) {
+    for (const label of ["todos", "agents", "session", "plans", "diffs"]) {
       expect(button(label)).not.toBeNull();
     }
+    expect(button("memory")).toBeNull();
     expect(button("todos")?.title).toBe("todos (1)");
     expect(button("todos")?.textContent).toBe("1");
     expect(button("agents")?.title).toBe("agents (1)");
@@ -355,41 +324,6 @@ describe("desktop InspectorRail", () => {
     expect(document.body.textContent).not.toContain("older.txt");
   });
 
-  it("renders the memory tab on the strip", () => {
-    renderRail();
-
-    // No badge count: memory has nothing to summarize on the strip.
-    expect(railTab("memory")).not.toBeNull();
-    expect(railTab("memory")?.title).toBe("memory");
-  });
-
-  it("shows the enable empty state when the memory backend is off", async () => {
-    useStore.setState({ state });
-    renderRail();
-
-    act(() => railTab("memory")!.click());
-    await act(async () => {});
-
-    expect(backendMock.memoryOverview).toHaveBeenCalledWith(PROJECT);
-    expect(document.body.textContent).toContain("memory is off");
-    const enable = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
-      (b.textContent ?? "").includes("Enable Mnemopi memory"),
-    );
-    expect(enable).not.toBeUndefined();
-
-    // The CTA enables the whole loop: backend + scoping + auto-learn
-    // (issue #207), auto-retain off (issue #212) — never autoContinue,
-    // that would silently spend tokens.
-    await act(async () => {
-      enable!.click();
-    });
-    expect(backendMock.writeOmpSetting.mock.calls).toEqual([
-      ["memory.backend", "mnemopi"],
-      ["mnemopi.scoping", "per-project-tagged"],
-      ["autolearn.enabled", true],
-      ["mnemopi.autoRetain", false],
-    ]);
-  });
 
   it("renders compact inspector sheets without a resize separator", () => {
     Object.defineProperty(window, "matchMedia", {
