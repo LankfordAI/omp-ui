@@ -7,7 +7,7 @@
     "dev": "npm run dev --workspace @omp-ui/desktop",
     "build": "npm run build --workspace @omp-ui/desktop",
     "package": "npm run package --workspace @omp-ui/desktop",
-    "stamp": "npm version --no-git-tag-version --workspace @omp-ui/desktop",
+    "stamp": "npm version patch --no-git-tag-version --workspace @omp-ui/desktop",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint ."
