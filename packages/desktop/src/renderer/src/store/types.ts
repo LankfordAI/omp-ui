@@ -207,7 +207,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
   projectPickerOpen: boolean;
-  mcpManager: { tabId: string; projectCwd: string } | null;
+  mcpManager: { projectCwd: string | null; tabId?: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -216,7 +216,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   init(): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
-  openMcpManager(tabId: string, projectCwd: string): void;
+  openMcpManager(projectCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;

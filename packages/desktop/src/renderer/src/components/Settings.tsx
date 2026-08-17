@@ -1317,27 +1317,29 @@ function OmpPage({
         );
       })}
 
-      <div className="mt-1 flex items-center justify-between gap-3 px-4 py-3">
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <p className="text-[11px] text-ink-faint">
-          MCP servers are managed per project, in their own modal (issue #36).
+          MCP servers resolve per project from native and translated tool configs (issue #36);
+          the global list applies to every project.
         </p>
-        <Button
-          size="xs"
-          disabled={!mcpReady}
-          title={
-            mcpReady
-              ? undefined
-              : "focus a session tab first — the manager pins to it"
-          }
-          onClick={() => {
-            if (tab === undefined) return;
-            // One modal at a time: stacked Escape listeners would close both.
-            closeSettings();
-            openMcpManager(tab.tabId, tab.projectCwd);
-          }}
-        >
-          MCP servers…
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="xs"
+            disabled={!mcpReady}
+            title={mcpReady ? undefined : "focus a session tab first — the manager pins to it"}
+            onClick={() => {
+              if (tab === undefined) return;
+              // One modal at a time: stacked Escape listeners would close both.
+              closeSettings();
+              openMcpManager(tab.projectCwd, tab.tabId);
+            }}
+          >
+            MCP servers…
+          </Button>
+          <Button size="xs" onClick={() => { closeSettings(); openMcpManager(null); }}>
+            Global MCP servers…
+          </Button>
+        </div>
       </div>
     </div>
   );

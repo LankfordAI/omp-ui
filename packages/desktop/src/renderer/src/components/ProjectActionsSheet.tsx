@@ -32,6 +32,7 @@ export function ProjectActionsSheet({
 }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
+  const openMcpManager = useStore((st) => st.openMcpManager);
 
   return (
     <Sheet open={project !== null} placement="bottom" label={project?.name ?? ""} onClose={onClose}>
@@ -62,6 +63,16 @@ export function ProjectActionsSheet({
               }}
             >
               New terminal session
+            </button>
+            <button
+              type="button"
+              className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+              onClick={() => {
+                openMcpManager(project.path);
+                onClose();
+              }}
+            >
+              MCP servers…
             </button>
             <button
               type="button"

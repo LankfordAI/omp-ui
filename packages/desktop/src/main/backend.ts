@@ -398,7 +398,7 @@ export class MainBackend {
             // No overlay on this platform — a theme change must not surface a platform error.
           }
         },
-        [CH.getMcpServers]: (projectCwd: string) => resolveMcpServers(projectCwd),
+        [CH.getMcpServers]: (projectCwd: string | null) => resolveMcpServers(projectCwd),
         [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => setMcpServerEnabled(req),
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
         [CH.listProjectFiles]: (projectCwd: string) => listProjectFiles(projectCwd),

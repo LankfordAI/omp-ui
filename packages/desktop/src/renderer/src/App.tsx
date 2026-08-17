@@ -432,7 +432,7 @@ export default function App() {
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
       {projectPickerOpen && <ProjectPicker />}
-      {mcpManager && <McpManager tabId={mcpManager.tabId} projectCwd={mcpManager.projectCwd} />}
+      {mcpManager && <McpManager projectCwd={mcpManager.projectCwd} tabId={mcpManager.tabId} />}
       {settingsPage && <Settings />}
     </div>
   );

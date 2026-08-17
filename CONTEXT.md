@@ -267,6 +267,15 @@ changes on the current branch" is what the user reads regardless of which
 session produced them.
 _Avoid_: per-session diff log, file edit history
 
+**MCP manager**:
+The modal listing every MCP server omp resolves for one scope — a project
+(the focused session's project, or the sidebar's project) or global
+(user-level sources only) — with toggles that run omp's own enable/disable
+write algorithm in core. Toggles take effect on the next session spawn; the
+modal offers an in-place restart only while opened from a live tab. The DTO
+is redacted at the core boundary (issue #17, #36, #220).
+_Avoid_: MCP settings page, integrations panel, server browser
+
 **Memory settings**:
 The Settings → Memory surface configures omp's memory backend and recall
 behavior and summarizes resolved bank locations for the focused project. The

@@ -53,6 +53,17 @@ function IconPlus() {
   );
 }
 
+function IconMcp() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="currentColor">
+      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1" />
+      <rect x="2.5" y="9" width="11" height="4.5" rx="1" />
+      <rect x="4.5" y="4.25" width="1" height="1" />
+      <rect x="4.5" y="10.75" width="1" height="1" />
+    </svg>
+  );
+}
+
 function IconGear() {
   return (
     <svg
@@ -230,6 +241,7 @@ function ProjectSection({
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const focusedTabId = useStore((st) => st.focusedTabByProject[group.project.path]);
+  const openMcpManager = useStore((st) => st.openMcpManager);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
 
@@ -363,6 +375,9 @@ function ProjectSection({
                 vsCodeAvailable={vsCodeAvailable}
                 refreshAvailability={refreshAvailability}
               />
+              <IconButton label={`MCP servers for ${project.name}`} onClick={() => openMcpManager(project.path)}>
+                <IconMcp />
+              </IconButton>
               <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
                 <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
                   <IconPlus />

@@ -6,16 +6,18 @@ import { findRecord, useStore } from "../store";
 import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
 
 /**
- * The MCP management modal (issue #17): every server omp resolves for the
- * focused tab's project, with its effective enabled state, and toggles that
- * go through omp's own enable/disable write algorithm. All resolution and
- * mutation lives in core — the renderer only ever sees the redacted DTO.
+ * The MCP management modal (issue #17): every server omp resolves for one
+ * scope — a project (`projectCwd`) or global (`null`, user-level sources
+ * only) — with its effective enabled state, and toggles that go through
+ * omp's own enable/disable write algorithm. All resolution and mutation
+ * lives in core — the renderer only ever sees the redacted DTO. The modal is
+ * pinned to a tab (`tabId`) only when opened from a session.
  *
  * omp has no MCP RPC verbs and no config watching, so a toggle takes effect
  * on the next session spawn; the footer says so and offers an in-place
- * restart while the pinned tab is live. The modal is pinned to the tab it was
- * opened from (the store captures tabId + projectCwd at open time), so a
- * focus change mid-edit cannot retarget a toggle at another project.
+ * restart while the pinned tab is live. The store captures projectCwd
+ * (+ tabId when session-opened) at open time, so a focus change mid-edit
+ * cannot retarget a toggle at another project.
  */
 
 type Load =
@@ -89,10 +91,10 @@ function Row({
   );
 }
 
-export function McpManager({ tabId, projectCwd }: { tabId: string; projectCwd: string }) {
+export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; tabId?: string }) {
   const closeMcpManager = useStore((s) => s.closeMcpManager);
   const restartSession = useStore((s) => s.restartSession);
-  const live = useStore((s) => findRecord(s.state, tabId)?.live === "live");
+  const live = useStore((s) => (tabId === undefined ? false : findRecord(s.state, tabId)?.live === "live"));
 
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -135,6 +137,7 @@ export function McpManager({ tabId, projectCwd }: { tabId: string; projectCwd: s
   };
 
   const restart = (): void => {
+    if (tabId === undefined) return;
     setRestarting(true);
     void restartSession(tabId).then((ok) => {
       setRestarting(false);
@@ -151,13 +154,16 @@ export function McpManager({ tabId, projectCwd }: { tabId: string; projectCwd: s
       <section role="dialog" aria-modal="true" aria-labelledby="mcp-manager-title">
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-            Session integrations
+            {projectCwd === null ? "Global integrations" : "Session integrations"}
           </p>
           <h2 id="mcp-manager-title" className="font-display text-base font-semibold text-ink">
             MCP servers
           </h2>
-          <p title={projectCwd} className="mt-1 truncate font-mono text-[11px] text-ink-dim">
-            {projectCwd}
+          <p
+            title={projectCwd ?? undefined}
+            className="mt-1 truncate font-mono text-[11px] text-ink-dim"
+          >
+            {projectCwd ?? "Global — user-level configuration"}
           </p>
         </header>
 
@@ -199,7 +205,7 @@ export function McpManager({ tabId, projectCwd }: { tabId: string; projectCwd: s
               )}
               {result.servers.length === 0 ? (
                 <Empty
-                  title="No MCP servers configured for this project."
+                  title={projectCwd === null ? "No global MCP servers configured." : "No MCP servers configured for this project."}
                   hint="omp resolves native .omp/mcp.json files plus translated cursor, claude, gemini, opencode, windsurf, and vscode configs."
                 />
               ) : (
@@ -219,7 +225,9 @@ export function McpManager({ tabId, projectCwd }: { tabId: string; projectCwd: s
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
-          <p className="text-[11px] text-ink-faint">Changes apply to new sessions.</p>
+          <p className="text-[11px] text-ink-faint">
+            {projectCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions."}
+          </p>
           {live && (
             <Button
               size="xs"

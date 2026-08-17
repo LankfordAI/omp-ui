@@ -191,6 +191,28 @@ describe("resolveMcpServers", () => {
     expect(names).toContain("global");
     expect(names).toContain("perProject");
   });
+
+  it("resolves user-scope sources only for null projectCwd", async () => {
+    const { env, home, agent, project } = fixture();
+    writeJson(path.join(project, ".omp", "mcp.json"), { mcpServers: { proj: { command: "p" } } });
+    writeJson(path.join(agent, "mcp.json"), { mcpServers: { user: { command: "u" } } });
+    writeJson(path.join(home, ".cursor", "mcp.json"), { mcpServers: { cur: { command: "c" } } });
+    const { servers } = await resolveMcpServers(null, env);
+    expect(servers.map((s) => s.name)).toEqual(["user", "cur"]);
+    for (const s of servers) expect(s.scope).toBe("user");
+  });
+
+  it("skips claude's per-project map in global scope", async () => {
+    const { env, home, project } = fixture();
+    writeJson(path.join(home, ".claude.json"), {
+      mcpServers: { global: { command: "g" } },
+      projects: { [project]: { mcpServers: { perProject: { command: "p" } } } },
+    });
+    const { servers } = await resolveMcpServers(null, env);
+    const names = servers.map((s) => s.name);
+    expect(names).toContain("global");
+    expect(names).not.toContain("perProject");
+  });
 });
 
 describe("setMcpServerEnabled", () => {
@@ -278,5 +300,38 @@ describe("setMcpServerEnabled", () => {
     const written = JSON.parse(fs.readFileSync(userFile, "utf8"));
     expect(written).not.toHaveProperty("enabledServers");
     expect(written.disabledServers).toEqual(["x"]);
+  });
+
+  it("global toggle routes a tool-owned server through the user denylist", async () => {
+    const { env, home, agent } = fixture();
+    const cursorFile = path.join(home, ".cursor", "mcp.json");
+    writeJson(cursorFile, { mcpServers: { x: { command: "x-bin" } } });
+    const before = fs.readFileSync(cursorFile, "utf8");
+
+    const off = await setMcpServerEnabled({ projectCwd: null, name: "x", enabled: false }, env);
+    const userFile = path.join(agent, "mcp.json");
+    expect(JSON.parse(fs.readFileSync(userFile, "utf8")).disabledServers).toEqual(["x"]);
+    expect(fs.readFileSync(cursorFile, "utf8")).toBe(before);
+    for (const s of off.servers) expect(s.scope).toBe("user");
+    expect(off.servers.find((s) => s.name === "x")).toMatchObject({
+      state: "disabled",
+      disabledBy: "denylist",
+    });
+  });
+
+  it("global toggle writes the user native file in place", async () => {
+    const { env, agent } = fixture();
+    const file = path.join(agent, "mcp.json");
+    writeJson(file, { mcpServers: { u: { command: "u-bin" } } });
+    const result = await setMcpServerEnabled(
+      { projectCwd: null, name: "u", sourcePath: file, enabled: false },
+      env,
+    );
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers.u.enabled).toBe(false);
+    for (const s of result.servers) expect(s.scope).toBe("user");
+    expect(result.servers.find((s) => s.name === "u")).toMatchObject({
+      state: "disabled",
+      disabledBy: "config",
+    });
   });
 });

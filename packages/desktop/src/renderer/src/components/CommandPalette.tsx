@@ -157,7 +157,7 @@ export function CommandPalette() {
           group: "Session",
           name: "MCP servers…",
           desc: "inspect and toggle MCP servers for this project",
-          run: () => openMcpManager(tab.tabId, tab.projectCwd),
+          run: () => openMcpManager(tab.projectCwd, tab.tabId),
         });
       }
     }

@@ -557,7 +557,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
-                {projectCwd !== undefined && <Button onClick={() => openMcpManager(tabId, projectCwd)} className={sheetAction}><IconMcp />MCP</Button>}
+                {projectCwd !== undefined && <Button onClick={() => openMcpManager(projectCwd, tabId)} className={sheetAction}><IconMcp />MCP</Button>}
                 <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />branch</Button>
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />new</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />refresh</Button>
@@ -668,7 +668,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         {projectCwd !== undefined && (
           <IconButton
             label="manage MCP servers"
-            onClick={() => openMcpManager(tabId, projectCwd)}
+            onClick={() => openMcpManager(projectCwd, tabId)}
           >
             <IconMcp />
           </IconButton>

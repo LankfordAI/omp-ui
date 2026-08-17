@@ -456,6 +456,20 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
       "providers.openrouterVariant",
     );
   });
+
+  it("offers the global MCP manager without a focused session", async () => {
+    seedOmp(emptyOmpSettings);
+    await renderSettings();
+    const globalBtn = buttonWithText("Global MCP servers…");
+    const projectBtn = buttonWithText("MCP servers…");
+    expect(globalBtn).not.toBeNull();
+    expect(globalBtn!.disabled).toBe(false);
+    expect(projectBtn!.disabled).toBe(true);
+
+    click(globalBtn!);
+    expect(useStore.getState().mcpManager).toEqual({ projectCwd: null });
+    expect(useStore.getState().settingsPage).toBeNull();
+  });
 });
 
 describe("Settings Memory page (issue #213)", () => {

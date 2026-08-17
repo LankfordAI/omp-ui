@@ -8,6 +8,7 @@ import type {
   OmpSettingsSnapshot,
   OmpUpdateState,
 } from "@omp-ui/core/types";
+import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -131,7 +132,9 @@ const shadowedRow: McpServerEntry = {
 /** Mirrors App.tsx's mounting: the modal exists only while the store says so. */
 function Gate() {
   const mcpManager = useStore((s) => s.mcpManager);
-  return mcpManager ? <McpManager tabId={mcpManager.tabId} projectCwd={mcpManager.projectCwd} /> : null;
+  return mcpManager ? (
+    <McpManager projectCwd={mcpManager.projectCwd} tabId={mcpManager.tabId} />
+  ) : null;
 }
 
 let root: Root | null = null;
@@ -154,7 +157,7 @@ function switchFor(label: string): HTMLButtonElement {
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
-  useStore.setState({ mcpManager: { tabId: TAB, projectCwd: PROJECT }, state: null });
+  useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null });
 });
 
 afterEach(() => {
@@ -247,5 +250,68 @@ describe("McpManager", () => {
     expect(
       document.body.querySelector('button[role="switch"][aria-label="disable dup"]'),
     ).toBeNull();
+  });
+
+  it("renders global scope for null projectCwd", async () => {
+    useStore.setState({ mcpManager: { projectCwd: null }, state: null });
+    backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow], errors: [] } satisfies McpServersResult);
+    await renderManager();
+    expect(backendMock.getMcpServers).toHaveBeenCalledWith(null);
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("Global integrations");
+    expect(body).toContain("Global — user-level configuration");
+    expect(body).toContain("Changes apply to new sessions in every project.");
+    expect(body).not.toContain("restart session to apply");
+    backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [], errors: [] } satisfies McpServersResult);
+    await act(async () => {
+      switchFor("disable cursor-one").click();
+    });
+    expect(backendMock.setMcpServerEnabled).toHaveBeenCalledWith({
+      projectCwd: null,
+      name: "cursor-one",
+      sourcePath: undefined,
+      enabled: false,
+    });
+  });
+
+  it("shows the restart button only when opened from a live tab", async () => {
+    const liveState = backendState({
+      projects: [
+        {
+          project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+          sessions: [
+            {
+              tabId: TAB,
+              sessionId: "s1",
+              lineageDir: "omp-ui--proj--s1",
+              projectCwd: PROJECT,
+              launchedAt: "t",
+              mode: "rpc-ui",
+              advisor: false,
+              advisorModel: null,
+              cachedTitle: "T",
+              cachedModified: "t",
+              title: "T",
+              status: "complete",
+              live: "live",
+              pendingPlan: null,
+              planSettle: null,
+            },
+          ],
+        },
+      ],
+    });
+    // Live tab → the footer offers the in-place restart.
+    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
+    await renderManager();
+    expect(document.body.textContent).toContain("restart session to apply");
+    act(() => root?.unmount());
+    root = null;
+    document.body.innerHTML = "";
+
+    // Same opener, no live state → passive footer only.
+    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null });
+    await renderManager();
+    expect(document.body.textContent).not.toContain("restart session to apply");
   });
 });

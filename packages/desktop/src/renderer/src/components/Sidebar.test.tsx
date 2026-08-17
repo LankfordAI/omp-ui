@@ -608,7 +608,7 @@ describe("Sidebar project open control (issue #169)", () => {
     const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
       .map((row) => row.textContent?.trim())
       .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual(["New session", "New terminal session", "Remove project…"]);
+    expect(rows).toEqual(["New session", "New terminal session", "MCP servers…", "Remove project…"]);
 
     const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',
@@ -820,6 +820,17 @@ describe("Compact project actions sheet (issue #205)", () => {
 
     act(() => button("actions for Project One").click());
     expect(actionsSheet()!.textContent).toContain(projectPath);
+  });
+
+  it("opens the project-scoped MCP manager from the sheet", async () => {
+    enableCompact();
+    useStore.setState({ compactSurface: "sessions" });
+    renderSidebar();
+
+    act(() => button("actions for Project One").click());
+    await act(async () => sheetRow("MCP servers…").click());
+    expect(actionsSheet()).toBeNull();
+    expect(useStore.getState().mcpManager).toEqual({ projectCwd: projectPath });
   });
 });
 

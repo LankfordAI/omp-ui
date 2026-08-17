@@ -65,7 +65,7 @@ interface ProviderFile {
    * every file has exactly one (`mcpServers`); `~/.claude.json` carries the
    * global map plus a per-project one, and opencode nests under `mcp`.
    */
-  maps: (root: RawServer, projectCwd: string) => unknown[];
+  maps: (root: RawServer, projectCwd: string | null) => unknown[];
 }
 
 function asRecord(value: unknown): RawServer | undefined {
@@ -78,25 +78,50 @@ function asRecord(value: unknown): RawServer | undefined {
 const mcpServersMap = (root: RawServer): unknown[] => [root.mcpServers];
 
 /** The provider table, in omp's enumeration order (first definition wins). */
-function providerFiles(projectCwd: string, env: NodeJS.ProcessEnv): ProviderFile[] {
+function providerFiles(projectCwd: string | null, env: NodeJS.ProcessEnv): ProviderFile[] {
   const home = env.HOME ?? os.homedir();
   const xdg = env.XDG_CONFIG_HOME ?? path.join(home, ".config");
   const agentDir = getOmpAgentDir(env);
+
+  const userNative = [
+    { provider: "native", scope: "user", path: path.join(agentDir, "mcp.json"), writable: true, maps: mcpServersMap },
+    { provider: "native", scope: "user", path: path.join(agentDir, ".mcp.json"), writable: true, maps: mcpServersMap },
+  ] as const;
+  // ~/.claude.json carries the global map plus a per-project one; global mode
+  // contributes only the global map.
+  const userClaudeJson: ProviderFile = {
+    provider: "claude",
+    scope: "user",
+    path: path.join(home, ".claude.json"),
+    writable: false,
+    maps: (root: RawServer, cwd: string | null): unknown[] =>
+      cwd === null
+        ? [root.mcpServers]
+        : [root.mcpServers, asRecord(asRecord(root.projects)?.[cwd])?.mcpServers],
+  };
+
+  if (projectCwd === null) {
+    return [
+      userNative[0],
+      userNative[1],
+      { provider: "claude", scope: "user", path: path.join(home, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
+      userClaudeJson,
+      { provider: "gemini", scope: "user", path: path.join(home, ".gemini", "settings.json"), writable: false, maps: mcpServersMap },
+      { provider: "opencode", scope: "user", path: path.join(xdg, "opencode", "opencode.json"), writable: false, maps: (root) => [root.mcp] },
+      { provider: "cursor", scope: "user", path: path.join(home, ".cursor", "mcp.json"), writable: false, maps: mcpServersMap },
+      { provider: "windsurf", scope: "user", path: path.join(home, ".codeium", "windsurf", "mcp_config.json"), writable: false, maps: mcpServersMap },
+    ];
+  }
+
   return [
     // native — omp's own files; project enumerates before user (project wins).
     { provider: "native", scope: "project", path: path.join(projectCwd, ".omp", "mcp.json"), writable: true, maps: mcpServersMap },
     { provider: "native", scope: "project", path: path.join(projectCwd, ".omp", ".mcp.json"), writable: true, maps: mcpServersMap },
-    { provider: "native", scope: "user", path: path.join(agentDir, "mcp.json"), writable: true, maps: mcpServersMap },
-    { provider: "native", scope: "user", path: path.join(agentDir, ".mcp.json"), writable: true, maps: mcpServersMap },
+    userNative[0],
+    userNative[1],
     // claude — translated providers enumerate user files before project files.
     { provider: "claude", scope: "user", path: path.join(home, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
-    {
-      provider: "claude",
-      scope: "user",
-      path: path.join(home, ".claude.json"),
-      writable: false,
-      maps: (root, cwd) => [root.mcpServers, asRecord(asRecord(root.projects)?.[cwd])?.mcpServers],
-    },
+    userClaudeJson,
     { provider: "claude", scope: "project", path: path.join(projectCwd, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
     { provider: "claude", scope: "project", path: path.join(projectCwd, ".claude", ".mcp.json"), writable: false, maps: mcpServersMap },
     // gemini — settings.json carries the mcpServers key.
@@ -214,13 +239,14 @@ async function readServerLists(
 }
 
 /**
- * Every MCP server omp resolves for `projectCwd`, in provider-priority order.
+ * Every MCP server omp resolves for `projectCwd`; `null` means global scope —
+ * user-scope sources only, in provider-priority order.
  * The first occurrence of a name is the effective row; later same-name rows
  * follow immediately with `effective: false` and a `shadowedBy` pointer. One
  * malformed file lands in `errors` and never blocks the rest.
  */
 export async function resolveMcpServers(
-  projectCwd: string,
+  projectCwd: string | null,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<McpServersResult> {
   const errors: McpServersResult["errors"] = [];
@@ -358,9 +384,10 @@ async function setServerListed(
  * Flips one server's enabled state, wherever it lives — a faithful port of
  * omp's `setMcpServerEnabled` (src/mcp/config-writer.ts):
  *
- * - First candidate file (writable `sourcePath`, then project, then user
- *   mcp.json) that actually defines `name` gets `{ ...entry, enabled }`
- *   written back; the search stops there.
+ * - First candidate file (writable `sourcePath`, then project `mcp.json`
+ *   when `projectCwd` is not null, then user mcp.json) that actually
+ *   defines `name` gets `{ ...entry, enabled }` written back; the search
+ *   stops there.
  * - Enable: clears any user denylist entry; adds a user allowlist entry only
  *   when no file was updated (a tool-owned source's `enabled: false` needs
  *   the override); drops the allowlist entry when a writable file now says
@@ -376,7 +403,8 @@ export async function setMcpServerEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<McpServersResult> {
   const userPath = path.join(getOmpAgentDir(env), "mcp.json");
-  const projectPath = path.join(req.projectCwd, ".omp", "mcp.json");
+  const projectPath =
+    req.projectCwd === null ? undefined : path.join(req.projectCwd, ".omp", "mcp.json");
   const candidatePaths = [
     ...new Set([req.sourcePath, projectPath, userPath].filter((p) => p !== undefined)),
   ];

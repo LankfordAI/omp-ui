@@ -369,7 +369,8 @@ export interface McpServersResult {
 }
 
 export interface McpSetEnabledRequest {
-  projectCwd: string;
+  /** null = global scope: user-level sources only, no project candidates. */
+  projectCwd: string | null;
   name: string;
   /** Pass only when the entry's source is writable (native | mcp-json). */
   sourcePath?: string;

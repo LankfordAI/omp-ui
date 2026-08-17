@@ -376,10 +376,13 @@ export const BACKEND_CHANNELS = {
     channel: "memory:forget",
     ...request<[projectCwd: string, scope: MemoryScope, id: string], MemoryEditResult>(),
   },
-  /** Lists resolved, redacted MCP servers and per-file errors. */
+  /**
+   * Lists resolved, redacted MCP servers and per-file errors; null projectCwd
+   * lists the global (user-level) scope only.
+   */
   getMcpServers: {
     channel: "mcp:list",
-    ...request<[projectCwd: string], McpServersResult>(),
+    ...request<[projectCwd: string | null], McpServersResult>(),
   },
   /** Toggles one writable MCP server and returns the refreshed list. */
   setMcpServerEnabled: {

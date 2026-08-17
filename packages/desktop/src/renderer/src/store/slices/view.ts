@@ -24,7 +24,7 @@ export interface ViewSlice {
   focusedTabByProject: Record<string, string>;
   restoringTabs: boolean;
   projectPickerOpen: boolean;
-  mcpManager: { tabId: string; projectCwd: string } | null;
+  mcpManager: { projectCwd: string | null; tabId?: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -32,7 +32,7 @@ export interface ViewSlice {
   inspectorOpen: boolean;
   openProjectPicker(): void;
   closeProjectPicker(): void;
-  openMcpManager(tabId: string, projectCwd: string): void;
+  openMcpManager(projectCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
@@ -193,8 +193,8 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   closeProjectPicker() {
     set({ projectPickerOpen: false });
   },
-  openMcpManager(tabId, projectCwd) {
-    set({ mcpManager: { tabId, projectCwd } });
+  openMcpManager(projectCwd, tabId) {
+    set({ mcpManager: tabId === undefined ? { projectCwd } : { projectCwd, tabId } });
   },
   closeMcpManager() {
     set({ mcpManager: null });
