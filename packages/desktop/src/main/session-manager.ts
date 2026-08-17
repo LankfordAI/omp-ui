@@ -247,8 +247,11 @@ export class SessionManager {
         record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
       }
 
+      const startInPlanMode =
+        req.startInPlanMode ??
+        (req.resumeTabId === undefined && this.deps.registry.defaultAgentMode === "plan");
       return req.mode === "rpc-ui"
-        ? this.spawnRpc(record, req.startInPlanMode ?? req.resumeTabId === undefined, ompPath)
+        ? this.spawnRpc(record, startInPlanMode, ompPath)
         : await this.spawnPty(record, req, ompPath);
     } finally {
       if (req.resumeTabId) {
@@ -310,16 +313,15 @@ export class SessionManager {
       advisor: record.advisor,
       configOverlays: this.configOverlays(record, absLineageDir),
       extensions: this.planExtensions(absLineageDir),
-      initialCommands:
-        startInPlanMode && this.deps.registry.defaultAgentMode === "plan"
-          ? [
-              {
-                type: "prompt",
-                id: `omp-ui-initial-plan-${randomUUID()}`,
-                message: planMessage(true, this.deps.registry.planFormat),
-              },
-            ]
-          : undefined,
+      initialCommands: startInPlanMode
+        ? [
+            {
+              type: "prompt",
+              id: `omp-ui-initial-plan-${randomUUID()}`,
+              message: planMessage(true, this.deps.registry.planFormat),
+            },
+          ]
+        : undefined,
       onFrame: (frame) => this.deps.send(CH.onRpcFrame, record.tabId, frame),
       onExit: (code) => {
         entry.markExited();
@@ -381,6 +383,7 @@ export class SessionManager {
     tabId: string,
     advisor: boolean,
     advisorModel: string | null,
+    startInPlanMode: boolean,
   ): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
@@ -404,6 +407,7 @@ export class SessionManager {
       cols: 80,
       rows: 24,
       resumeTabId: tabId,
+      startInPlanMode,
     });
   }
 

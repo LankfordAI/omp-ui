@@ -243,7 +243,7 @@ describe("live session teardown (issue #64)", () => {
     },
     {
       name: "advisor relaunch",
-      begin: (tabId) => invoke(CH.setSessionAdvisor, tabId, true, null) as Promise<void>,
+      begin: (tabId) => invoke(CH.setSessionAdvisor, tabId, true, null, false) as Promise<void>,
       rpcSuccessor: false,
     },
   ];

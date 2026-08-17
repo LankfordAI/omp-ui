@@ -46,6 +46,10 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   const openSettings = useStore((s) => s.openSettings);
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    if (disabled === true) setOpen(false);
+  }, [disabled]);
+
   // Either `get_available_models` failed, or omp has no authenticated provider
   // at all — the common cause of the latter is a GUI launch that inherited no
   // API keys, so this doubles as the entry point to the providers page.

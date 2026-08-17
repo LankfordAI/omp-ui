@@ -240,7 +240,15 @@ export const BACKEND_CHANNELS = {
    */
   setSessionAdvisor: {
     channel: "session:setAdvisor",
-    ...request<[tabId: string, advisor: boolean, advisorModel: string | null], void>(),
+    ...request<
+      [
+        tabId: string,
+        advisor: boolean,
+        advisorModel: string | null,
+        startInPlanMode: boolean,
+      ],
+      void
+    >(),
   },
   /** omp's advisor defaults for a project (global config plus project overlay). */
   getAdvisorDefaults: {

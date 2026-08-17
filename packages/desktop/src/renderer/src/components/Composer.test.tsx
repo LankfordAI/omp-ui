@@ -207,6 +207,42 @@ describe("compact Composer", () => {
   });
 });
 
+describe("Composer relaunch handoff", () => {
+  it("disables every process control while starting and restores them when ready", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    seed("ready");
+    renderComposer();
+    typeDraft("send after restart");
+
+    act(() => useStore.setState((state) => ({
+      rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "starting" } },
+    })));
+
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
+    const model = document.body.querySelector<HTMLButtonElement>('button[title="model-x"]')!;
+    const thinking = buttons.find((button) => button.title.startsWith("thinking level"))!;
+    const advisor = buttons.find((button) => button.title.startsWith("advisor off"))!;
+    const build = modeSegment("build");
+    const plan = modeSegment("plan");
+    const attach = document.body.querySelector<HTMLButtonElement>('button[title="attach images"]')!;
+    const send = buttons.find((button) => button.textContent?.trim() === "send")!;
+    expect([textarea, model, thinking, advisor, build, plan, attach, send].every((el) => el.disabled)).toBe(true);
+
+    act(() => useStore.setState((state) => ({
+      rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "ready" } },
+    })));
+    expect([textarea, model, thinking, advisor, build, plan, attach, send].every((el) => !el.disabled)).toBe(true);
+  });
+});
+
 describe("Composer advisor model palette", () => {
   it("opens on the current provider and resets to the configured advisor through the restart path", async () => {
     const ADVISOR = { id: "advisor-a", name: "Advisor A", provider: "p" };
@@ -247,7 +283,7 @@ describe("Composer advisor model palette", () => {
       (button) => button.textContent?.includes("use omp's configured advisor"),
     )!;
     await act(async () => configured.click());
-    expect(backendMock.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, null);
+    expect(backendMock.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, null, false);
   });
 });
 

@@ -35,7 +35,7 @@ const RpcClientMock = vi.mocked(RpcClient);
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
 const sent: { channel: string; args: unknown[] }[] = [];
 const TAB = "tab-1";
-const rpcOptions: { configOverlays?: string[] }[] = [];
+const rpcOptions: { configOverlays?: string[]; initialCommands?: unknown[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
@@ -53,11 +53,12 @@ let base: string;
  * transcript lazily, on the first turn, so this is the state of every session
  * between "new session" and the first prompt.
  */
-function setup(opts: { materialized: boolean }): { sessionsRoot: string } {
+function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build" }): { sessionsRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-adv-"));
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
   delete process.env.XDG_DATA_HOME;
+  process.env.OPENROUTER_API_KEY = "test-key";
   delete process.env.OMP_PROFILE;
   delete process.env.PI_PROFILE;
   const ompBin = path.join(base, "omp");
@@ -79,7 +80,7 @@ function setup(opts: { materialized: boolean }): { sessionsRoot: string } {
 
   const registryFile = path.join(base, "registry.json");
   seedRegistry(registryFile, {
-    settings: { defaultMode: "rpc-ui" },
+    settings: { defaultMode: "rpc-ui", defaultAgentMode: opts.defaultAgentMode ?? "build" },
     projects: [
       {
         path: "/proj",
@@ -132,6 +133,18 @@ const resume = async (): Promise<void> => {
   });
 };
 
+const fresh = async (startInPlanMode?: boolean): Promise<void> => {
+  const req: Record<string, unknown> = {
+    projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: true,
+    cols: 80,
+    rows: 24,
+  };
+  if (startInPlanMode !== undefined) req.startInPlanMode = startInPlanMode;
+  await invoke(CH.spawnSession, req);
+};
+
 const relaunches = (): number => RpcClientMock.mock.calls.length - 1;
 
 beforeEach(() => {
@@ -156,7 +169,7 @@ describe("session:setAdvisor", () => {
     setup({ materialized: false });
     await resume();
 
-    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null)).resolves.toBeUndefined();
+    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null, false)).resolves.toBeUndefined();
 
     expect(readRegistry().sessions[0]).toMatchObject({
       model: "openrouter/openai/gpt-5.6",
@@ -173,7 +186,7 @@ describe("session:setAdvisor", () => {
     await resume();
     fs.rmSync(path.join(sessionsRoot, LINEAGE), { recursive: true, force: true });
 
-    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null)).rejects.toThrow(
+    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null, false)).rejects.toThrow(
       /session files are gone/,
     );
     expect(relaunches()).toBe(0);
@@ -183,7 +196,7 @@ describe("session:setAdvisor", () => {
     setup({ materialized: false });
     await resume();
 
-    await invoke(CH.setSessionAdvisor, TAB, false, null);
+    await invoke(CH.setSessionAdvisor, TAB, false, null, false);
 
     const overlays = rpcOptions.at(-1)?.configOverlays ?? [];
     const modelOverlay = overlays.find((file) => path.basename(file) === "omp-ui-model.yml");
@@ -202,7 +215,7 @@ describe("session:setAdvisor", () => {
     await resume();
     fs.rmSync(path.join(sessionsRoot, LINEAGE), { recursive: true, force: true });
 
-    await expect(invoke(CH.setSessionAdvisor, TAB, false, null)).rejects.toThrow();
+    await expect(invoke(CH.setSessionAdvisor, TAB, false, null, false)).rejects.toThrow();
     const exit = sent.filter((m) => m.channel === CH.onPtyExit).at(-1);
     expect(exit?.args[0]).toBe("tab-1");
   });
@@ -211,7 +224,7 @@ describe("session:setAdvisor", () => {
     setup({ materialized: true });
     await resume();
 
-    await invoke(CH.setSessionAdvisor, TAB, true, "openrouter/x-ai/grok-4-fast");
+    await invoke(CH.setSessionAdvisor, TAB, true, "openrouter/x-ai/grok-4-fast", false);
 
     expect(readRegistry().sessions[0]).toMatchObject({
       advisor: true,
@@ -223,7 +236,7 @@ describe("session:setAdvisor", () => {
   it("records the choice without relaunching a dormant session", async () => {
     setup({ materialized: true });
     // No live process: nothing to restart, the next launch reads the record.
-    await invoke(CH.setSessionAdvisor, TAB, false, null);
+    await invoke(CH.setSessionAdvisor, TAB, false, null, false);
 
     expect(readRegistry().sessions[0]).toMatchObject({ advisor: false });
     expect(RpcClientMock).not.toHaveBeenCalled();
@@ -234,13 +247,42 @@ describe("session:setAdvisor", () => {
     await resume();
     // Already advisor: true / model: null — restarting would cost a relaunch
     // for no change at all.
-    await invoke(CH.setSessionAdvisor, TAB, true, null);
+    await invoke(CH.setSessionAdvisor, TAB, true, null, false);
     expect(relaunches()).toBe(0);
+  });
+
+  it("preserves explicit Plan and Build posture across a live advisor relaunch", async () => {
+    setup({ materialized: false, defaultAgentMode: "build" });
+    await resume();
+    await invoke(CH.setSessionAdvisor, TAB, false, null, true);
+    expect(rpcOptions.at(-1)?.initialCommands).toHaveLength(1);
+
+    setup({ materialized: false, defaultAgentMode: "plan" });
+    await resume();
+    await invoke(CH.setSessionAdvisor, TAB, false, null, false);
+    expect(rpcOptions.at(-1)?.initialCommands).toBeUndefined();
+  });
+
+  it.each([
+    ["explicit Plan with Build default", "build", true, true],
+    ["explicit Build with Plan default", "plan", false, false],
+    ["omitted fresh posture with Plan default", "plan", undefined, true],
+    ["omitted fresh posture with Build default", "build", undefined, false],
+  ] as const)("resolves %s", async (_label, defaultAgentMode, posture, expectedPlan) => {
+    setup({ materialized: true, defaultAgentMode });
+    await fresh(posture);
+    expect(rpcOptions.at(-1)?.initialCommands !== undefined).toBe(expectedPlan);
+  });
+
+  it("starts an omitted resume in Build even when the app default is Plan", async () => {
+    setup({ materialized: true, defaultAgentMode: "plan" });
+    await resume();
+    expect(rpcOptions.at(-1)?.initialCommands).toBeUndefined();
   });
 
   it("is a no-op for an unknown tab", async () => {
     setup({ materialized: true });
-    await expect(invoke(CH.setSessionAdvisor, "nope", false, null)).resolves.toBeUndefined();
+    await expect(invoke(CH.setSessionAdvisor, "nope", false, null, false)).resolves.toBeUndefined();
     expect(RpcClientMock).not.toHaveBeenCalled();
   });
 });

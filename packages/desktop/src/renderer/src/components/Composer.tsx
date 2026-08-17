@@ -151,17 +151,19 @@ export function Composer({
   const recall = useRef<number | null>(null);
 
   const running = status === "running";
+  const relaunching = status === "starting";
+  const unavailable = dead || relaunching;
   const queueChip = queueChipView(running, queued);
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
   const commandWord = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : null;
-  const paletteOpen = !dead && commandWord !== null && commandWord !== dismissedFor;
+  const paletteOpen = !unavailable && commandWord !== null && commandWord !== dismissedFor;
   // The mention palette is suppressed on slash-command lines: a leading `/`
   // means the draft is a command, never a prompt, and commands take no files.
   // The two palettes are mutually exclusive by that construction.
   const atQuery = isSlash ? null : detectAtQuery(text, caret);
   const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
-  const mentionOpen = !dead && mentionKey !== null && mentionKey !== mentionDismissedFor;
+  const mentionOpen = !unavailable && mentionKey !== null && mentionKey !== mentionDismissedFor;
   /**
    * omp reports vision support as `model.input` containing "image". A model
    * without it would silently drop the blocks, so the affordance says so
@@ -332,11 +334,13 @@ export function Composer({
     return () => cancelAnimationFrame(raf);
   }, [focused, glowing]);
 
-  // A dead tab has no agent to configure; and a menu left open behind a click
-  // elsewhere is a stuck menu.
+  // A dead or relaunching tab has no stable agent to configure.
   useEffect(() => {
-    if (dead) setEffortMenu(false);
-  }, [dead]);
+    if (unavailable) setEffortMenu(false);
+  }, [unavailable]);
+  useEffect(() => {
+    if (unavailable && compactSurface === "composer-options") closeCompactSurface();
+  }, [unavailable, compactSurface, closeCompactSurface]);
   useEffect(() => {
     if (!effortMenu) return;
     const dismiss = (e: PointerEvent) => {
@@ -365,7 +369,7 @@ export function Composer({
       let payload = images;
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
-      if ((message === "" && payload.length === 0) || dead) return;
+      if ((message === "" && payload.length === 0) || unavailable) return;
       if (!message.startsWith("/")) onPrompt?.();
       // Consecutive duplicates make ↑ recall useless.
       if (message !== "" && history.current[history.current.length - 1] !== message) {
@@ -412,7 +416,7 @@ export function Composer({
     [
       text,
       images,
-      dead,
+      unavailable,
       tabId,
       projectCwd,
       runSlashCommand,
@@ -530,12 +534,14 @@ export function Composer({
 
   const placeholder = dead
     ? "agent exited — resume to continue"
-    : running
-      ? "steer the agent…"
-      : "message the agent…   /  commands · @  files";
+    : relaunching
+      ? "restarting advisor…"
+      : running
+        ? "steer the agent…"
+        : "message the agent…   /  commands · @  files";
 
   // An image alone is sendable: "what is this?" is in the picture, not the text.
-  const canSend = (trimmed !== "" || images.length > 0) && !dead;
+  const canSend = (trimmed !== "" || images.length > 0) && !unavailable;
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
@@ -592,7 +598,7 @@ export function Composer({
               : "ambient plane-lit rounded-xl shadow-float " +
                 "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
-            dead && "opacity-50",
+            unavailable && "opacity-50",
           )}
         >
           {/* The border-level echo of the keyword shimmer: the armed keyword's own
@@ -621,6 +627,7 @@ export function Composer({
                   <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
                     <IconButton
                       label={`remove attachment ${i + 1}`}
+                      disabled={unavailable}
                       tone="rose"
                       onClick={() => dropImage(i)}
                       className="size-4 rounded-full border border-line-strong bg-overlay"
@@ -670,7 +677,7 @@ export function Composer({
               ref={box}
               rows={1}
               value={text}
-              disabled={dead}
+              disabled={unavailable}
               placeholder={placeholder}
               // The misspelling underline paints in the textarea layer even
               // over transparent glyphs; the mirror's identical metrics keep
@@ -704,12 +711,12 @@ export function Composer({
           {!compact && (
           <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
             <Capsule className="min-w-0 shrink">
-              <ModelSelector tabId={tabId} disabled={dead} />
+              <ModelSelector tabId={tabId} disabled={unavailable} />
 
               <span ref={effortAnchor} className="relative flex">
                 <button
                   type="button"
-                  disabled={dead}
+                  disabled={unavailable}
                   title={
                     efforts.length > 0
                       ? `thinking level — click to pick (${efforts.join(", ")})`
@@ -734,6 +741,7 @@ export function Composer({
                       <button
                         key={effort}
                         type="button"
+                        disabled={unavailable}
                         onClick={() => {
                           setEffortMenu(false);
                           void setThinkingLevel(tabId, effort);
@@ -751,17 +759,17 @@ export function Composer({
               </span>
             </Capsule>
 
-            <AdvisorControl tabId={tabId} disabled={dead} />
+            <AdvisorControl tabId={tabId} disabled={unavailable} />
 
             <BuildPlanControl
               tabId={tabId}
-              disabled={dead}
+              disabled={unavailable}
               onSelected={() => box.current?.focus({ preventScroll: true })}
             />
 
             <BranchChip projectCwd={projectCwd} />
 
-            <AttachmentButton disabled={dead} onClick={() => imagePicker.current?.click()} />
+            <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
 
 
             {queueChip && (
@@ -842,11 +850,12 @@ export function Composer({
           )}
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
-              <AttachmentButton compact disabled={dead} onClick={() => imagePicker.current?.click()} />
+              <AttachmentButton compact disabled={unavailable} onClick={() => imagePicker.current?.click()} />
               <Button
                 variant="ghost"
                 title="prompt options"
                 className="h-11 min-w-0 flex-1 justify-start gap-2 px-2 text-ink-mid"
+                disabled={unavailable}
                 onClick={() => showCompactSurface("composer-options")}
               >
                 <IconTune />
@@ -872,7 +881,7 @@ export function Composer({
             type="file"
             accept="image/*"
             multiple
-            disabled={dead}
+            disabled={unavailable}
             tabIndex={-1}
             aria-hidden
             className="sr-only"
@@ -900,19 +909,19 @@ export function Composer({
           <section className="rounded-xl border border-line bg-raised/60 p-3">
             <Label>model &amp; effort</Label>
             <div className="mt-2 flex min-h-11 items-center rounded-lg border border-line bg-void/35 px-2">
-              <ModelSelector tabId={tabId} disabled={dead} />
+              <ModelSelector tabId={tabId} disabled={unavailable} />
             </div>
             {efforts.length > 0 && (
               <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(5rem,1fr))] gap-2">
-                {efforts.map((effort) => <Button key={effort} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
+                {efforts.map((effort) => <Button key={effort} disabled={unavailable} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
               </div>
             )}
           </section>
           <section className="rounded-xl border border-line bg-raised/60 p-3">
             <Label>session</Label>
             <div className="mt-2 space-y-2">
-              <AdvisorControl tabId={tabId} disabled={dead} layout="sheet" />
-              <BuildPlanControl tabId={tabId} layout="sheet" disabled={dead} className="min-h-11" />
+              <AdvisorControl tabId={tabId} disabled={unavailable} layout="sheet" />
+              <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
               <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">branch</span>
                 <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queueChip && <Chip mono tone="copper" title={queueChip.title}>{queueChip.label}</Chip>}</span>

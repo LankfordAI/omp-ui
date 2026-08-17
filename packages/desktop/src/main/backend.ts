@@ -324,8 +324,12 @@ export class MainBackend {
           this.sessions.switchMode(tabId, mode),
         [CH.deleteSession]: (tabId: string) => this.sessions.deleteSession(tabId),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
-        [CH.setSessionAdvisor]: (tabId: string, advisor: boolean, advisorModel: string | null) =>
-          this.sessions.setSessionAdvisor(tabId, advisor, advisorModel),
+        [CH.setSessionAdvisor]: (
+          tabId: string,
+          advisor: boolean,
+          advisorModel: string | null,
+          startInPlanMode: boolean,
+        ) => this.sessions.setSessionAdvisor(tabId, advisor, advisorModel, startInPlanMode),
         [CH.getAdvisorDefaults]: (projectCwd: string): AdvisorDefaults =>
           this.advisorDefaults(projectCwd),
         [CH.generateTitle]: (projectCwd: string, prompt: string) =>

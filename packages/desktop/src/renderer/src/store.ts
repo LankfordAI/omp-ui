@@ -324,6 +324,9 @@ interface SubagentRefresh {
 }
 const subagentRefresh = new Map<string, SubagentRefresh>();
 
+/** Whole parameter actions, including their authoritative registry write. */
+const pendingSessionParameterActions = new Map<string, Set<Promise<void>>>();
+
 interface BranchRefreshRuntime {
   state: {
     fetchUpstream: boolean;
@@ -544,6 +547,18 @@ export const useStore = create<UiStore>()((set, get, api) => {
       planDeferred: false,
       failure: undefined,
     });
+  };
+
+  const trackSessionParameterAction = (tabId: string, action: Promise<void>): Promise<void> => {
+    const actions = pendingSessionParameterActions.get(tabId) ?? new Set<Promise<void>>();
+    actions.add(action);
+    pendingSessionParameterActions.set(tabId, actions);
+    const remove = (): void => {
+      actions.delete(action);
+      if (actions.size === 0) pendingSessionParameterActions.delete(tabId);
+    };
+    void action.then(remove, remove);
+    return action;
   };
 
   // Command responses nest their payload under `data`.
@@ -804,6 +819,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           tabId,
           options!.advisor!,
           options!.advisorModel ?? null,
+          false,
         );
         // A failed relaunch alerts and leaves the tab dead — never prompt it.
         await pollUntil(
@@ -2012,7 +2028,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     async sendPrompt(tabId, message, route = "steer", images) {
       const tab = get().rpc[tabId];
-      if (!tab) return;
+      if (!tab || tab.status === "starting") return;
       if (route === "advisor_reply") {
         // omp-ui's own answer to a late review: it must not title the session and
         // must not re-arm the loop guard it was dispatched by.
@@ -2043,6 +2059,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async abortAndPrompt(tabId, message, images) {
+      if (get().rpc[tabId]?.status === "starting") return;
       get().setInitialPrompt(tabId, message);
       advisorReplyWatcher.reset(tabId);
       const type = "abort_and_prompt";
@@ -2065,17 +2082,65 @@ export const useStore = create<UiStore>()((set, get, api) => {
       }
     },
 
-    async setSessionAdvisor(tabId, advisor, advisorModel) {
+    async setSessionAdvisor(tabId, advisor, advisorModel, preservedPlanMode) {
+      const tab = get().rpc[tabId];
+      if (tab?.status === "starting") return;
       const rec = findRecord(get().state, tabId);
-      try {
-        if (
-          rec?.live === "live" &&
-          rec.mode === "rpc-ui" &&
-          (rec.advisor !== advisor || rec.advisorModel !== advisorModel)
-        ) {
-          prepareRpcRelaunch(tabId);
+      const changedLive =
+        rec?.live === "live" &&
+        rec.mode === "rpc-ui" &&
+        (rec.advisor !== advisor || rec.advisorModel !== advisorModel);
+      if (changedLive && tab) {
+        const previousStatus = tab.status;
+        const previousStreaming = tab.session.isStreaming;
+        const commandIds = new Set(
+          [...tab.pendingCommands.entries()]
+            .filter(([, pending]) => !pending.quiet)
+            .map(([id]) => id),
+        );
+        const parameterActions = [
+          ...(pendingSessionParameterActions.get(tabId) ?? []),
+        ];
+        const deadline = Date.now() + RPC_COMMAND_TIMEOUT_MS + 1_000;
+        prepareRpcRelaunch(tabId);
+        await pollUntil(
+          tabId,
+          (current) =>
+            current !== undefined &&
+            [...commandIds].every((id) => !current.pendingCommands.has(id)),
+          RPC_COMMAND_TIMEOUT_MS + 1_000,
+        );
+        const remainingMs = Math.max(0, deadline - Date.now());
+        if (parameterActions.length > 0 && remainingMs > 0) {
+          await Promise.race([
+            Promise.allSettled(parameterActions),
+            new Promise<void>((resolve) => window.setTimeout(resolve, remainingMs)),
+          ]);
         }
-        await backend.setSessionAdvisor(tabId, advisor, advisorModel);
+        const current = get().rpc[tabId];
+        const commandsRemain =
+          current === undefined ||
+          [...commandIds].some((id) => current.pendingCommands.has(id));
+        const parametersRemain = parameterActions.some((action) =>
+          pendingSessionParameterActions.get(tabId)?.has(action),
+        );
+        if (commandsRemain || parametersRemain) {
+          if (current) {
+            patchRpc(tabId, {
+              status: previousStatus,
+              session: { ...current.session, isStreaming: previousStreaming },
+            });
+          }
+          window.alert(
+            "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
+          );
+          return;
+        }
+      }
+      const startInPlanMode =
+        preservedPlanMode ?? (changedLive && get().rpc[tabId]?.plan?.enabled === true);
+      try {
+        await backend.setSessionAdvisor(tabId, advisor, advisorModel, startInPlanMode);
       } catch (err) {
         // Changing the advisor relaunches the agent, so a failure here means
         // the session is down, not merely that a setting did not stick. Say
@@ -2095,35 +2160,43 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async setModel(tabId, model) {
-      const resp = await runCommand(tabId, {
-        type: "set_model",
-        provider: model.provider,
-        modelId: model.id,
-      });
-      if (resp === null) return;
-      const selected = parseModelInfo(respData(resp)) ?? model;
-      patchRpc(tabId, { model: selected });
-      const thinkingLevel = get().rpc[tabId]?.session.thinkingLevel ?? null;
-      await backend.setSessionModel(
-        tabId,
-        `${selected.provider}/${selected.id}`,
-        thinkingLevel,
-      );
+      if (get().rpc[tabId]?.status === "starting") return;
+      const action = (async (): Promise<void> => {
+        const resp = await runCommand(tabId, {
+          type: "set_model",
+          provider: model.provider,
+          modelId: model.id,
+        });
+        if (resp === null) return;
+        const selected = parseModelInfo(respData(resp)) ?? model;
+        patchRpc(tabId, { model: selected });
+        const thinkingLevel = get().rpc[tabId]?.session.thinkingLevel ?? null;
+        await backend.setSessionModel(
+          tabId,
+          `${selected.provider}/${selected.id}`,
+          thinkingLevel,
+        );
+      })();
+      await trackSessionParameterAction(tabId, action);
     },
 
     async setThinkingLevel(tabId, level) {
-      const resp = await runCommand(tabId, {
-        type: "set_thinking_level",
-        level,
-      });
-      if (resp === null) return;
-      patchSession(tabId, { thinkingLevel: level });
-      const model = get().rpc[tabId]?.model;
-      await backend.setSessionModel(
-        tabId,
-        model ? `${model.provider}/${model.id}` : null,
-        level,
-      );
+      if (get().rpc[tabId]?.status === "starting") return;
+      const action = (async (): Promise<void> => {
+        const resp = await runCommand(tabId, {
+          type: "set_thinking_level",
+          level,
+        });
+        if (resp === null) return;
+        patchSession(tabId, { thinkingLevel: level });
+        const model = get().rpc[tabId]?.model;
+        await backend.setSessionModel(
+          tabId,
+          model ? `${model.provider}/${model.id}` : null,
+          level,
+        );
+      })();
+      await trackSessionParameterAction(tabId, action);
     },
 
     async setSteeringMode(tabId, mode) {
@@ -2215,6 +2288,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async setPlanMode(tabId, enabled) {
+      if (get().rpc[tabId]?.status === "starting") return;
       // The extension owns the state; the UI never assumes the toggle took —
       // it re-renders when the extension publishes its status frame.
       // The format rides the `on` command, so the extension — not a later

@@ -64,10 +64,13 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
     if (projectCwd !== undefined) void loadAdvisorDefaults(projectCwd);
   }, [projectCwd, loadAdvisorDefaults]);
 
-  // A disabled session can't be reconfigured, and a menu left open behind a
-  // click elsewhere is a stuck menu — both close it.
+  // A disabled session can't be reconfigured, and menus left open behind a
+  // process handoff would target a successor with stale choices.
   useEffect(() => {
-    if (disabled === true) setLevelMenu(false);
+    if (disabled === true) {
+      setPicking(false);
+      setLevelMenu(false);
+    }
   }, [disabled]);
   useEffect(() => {
     if (!levelMenu) return;

@@ -634,6 +634,75 @@ describe("native RPC relaunch preparation", () => {
     await update;
   });
 
+  it("drains a pending thinking change through persistence before relaunch", async () => {
+    backendState = stateWithRecord("sess-1");
+    useStore.setState({
+      state: backendState,
+      rpc: {
+        [TAB]: rpcTabState({
+          model: { id: "qwen", name: "Qwen", provider: "openrouter" },
+          plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
+        }),
+      },
+    });
+
+    const level = useStore.getState().setThinkingLevel(TAB, "medium");
+    const command = sent.find((entry) => entry.cmd.type === "set_thinking_level")!;
+    const relaunch = useStore
+      .getState()
+      .setSessionAdvisor(TAB, true, "openrouter/openai/gpt-5.6-sol:low");
+    expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+    expect(useStore.getState().rpc[TAB]!.status).toBe("starting");
+
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        [TAB]: {
+          ...state.rpc[TAB]!,
+          plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false },
+        },
+      },
+    }));
+    respond(TAB, command.cmd, {});
+    await Promise.all([level, relaunch]);
+
+    expect(mockBackend.setSessionModel).toHaveBeenCalledWith(
+      TAB,
+      "openrouter/qwen",
+      "medium",
+    );
+    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      TAB,
+      true,
+      "openrouter/openai/gpt-5.6-sol:low",
+      true,
+    );
+    expect(mockBackend.setSessionModel.mock.invocationCallOrder[0]).toBeLessThan(
+      mockBackend.setSessionAdvisor.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("blocks user-facing process commands while a relaunch is starting", async () => {
+    backendState = stateWithRecord("sess-1");
+    useStore.setState({
+      state: backendState,
+      rpc: { [TAB]: rpcTabState({ status: "starting" }) },
+    });
+
+    await Promise.all([
+      useStore.getState().sendPrompt(TAB, "prompt"),
+      useStore.getState().abortAndPrompt(TAB, "replace"),
+      useStore.getState().setModel(TAB, { id: "m", name: "M", provider: "p" }),
+      useStore.getState().setThinkingLevel(TAB, "medium"),
+      useStore.getState().setPlanMode(TAB, true),
+      useStore.getState().setSessionAdvisor(TAB, true, "p/a:low"),
+    ]);
+
+    expect(sent).toEqual([]);
+    expect(mockBackend.setSessionModel).not.toHaveBeenCalled();
+    expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+  });
+
   it("leaves RPC state alone for an unchanged advisor tuple and a PTY resume", async () => {
     backendState = stateWithRecord("sess-1");
     useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
@@ -2438,6 +2507,7 @@ describe("handleRpcFrame routing", () => {
       TAB,
       true,
       "openrouter/a/b:high",
+      false,
     );
     const implementationPrompt = () =>
       sent.find(
@@ -2473,6 +2543,7 @@ describe("handleRpcFrame routing", () => {
       TAB,
       true,
       "openrouter/a/b:high",
+      false,
     );
     useStore.setState({
       rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, status: "error" } },
@@ -3333,6 +3404,7 @@ describe("prompting, slash commands, and session ops", () => {
       TAB,
       true,
       "openrouter/a/b:high",
+      false,
     );
   });
 

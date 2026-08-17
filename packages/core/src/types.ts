@@ -186,8 +186,9 @@ export interface SpawnRequest {
   rows: number;
   resumeTabId?: string;
   /**
-   * Initial Plan/Build posture for a brand-new rpc-ui session. Omitted means
-   * "follow the Default agent mode" (the current behavior). Plan execution
+   * Initial Plan/Build posture for any rpc-ui spawn. Explicit true/false always
+   * wins. Omitted new sessions follow Default agent mode; omitted resumes start
+   * in Build unless their caller explicitly preserves Plan. Plan execution
    * passes false so the implementation session is never born read-only
    * (issue #165).
    */
