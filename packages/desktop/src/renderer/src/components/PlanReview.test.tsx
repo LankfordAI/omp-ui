@@ -162,6 +162,23 @@ const newNameInput = (): HTMLInputElement => {
 };
 
 const executeButton = (): HTMLButtonElement => buttonByText("execute in this session");
+const originalMatchMedia = window.matchMedia;
+
+function setCompact(matches: boolean): void {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn(() => ({
+      matches,
+      media: "(max-width: 899px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    })),
+  });
+}
 
 async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -218,6 +235,7 @@ beforeEach(() => {
   clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
   clipboardImageMock.readClipboardImages.mockReset();
   clipboardImageMock.readImageFiles.mockReset().mockResolvedValue({ images: [], rejected: [] });
+  setCompact(false);
   seed();
 });
 
@@ -227,6 +245,7 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
 });
 
 describe("PlanReview git branch section (issue #25)", () => {
@@ -706,6 +725,124 @@ describe("PlanReview plan rendering (issue #109)", () => {
     expect(planFrame()).toBeNull();
     expect(document.body.textContent).toContain("The plan file could not be read");
   });
+});
+
+describe("PlanReview compact flow (issue #216)", () => {
+  const step = (): HTMLElement => document.body.querySelector<HTMLElement>("[data-plan-review-step]")!;
+  const planFrame = (): HTMLIFrameElement | null =>
+    document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
+
+  beforeEach(() => {
+    setCompact(true);
+    useStore.setState({ rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1><p>long plan</p>" }) } });
+  });
+
+  it("starts with only the plan surface mounted", () => {
+    render();
+    expect(step().dataset.planReviewStep).toBe("review");
+    expect(planFrame()).not.toBeNull();
+    expect(document.body.querySelector("textarea")).toBeNull();
+    expect(document.body.querySelector('[aria-label="implementation setup"]')).toBeNull();
+  });
+
+  it("preserves refinement notes across back navigation and sends only on submit", async () => {
+    render();
+    await act(async () => buttonByText("refine").click());
+    expect(step().dataset.planReviewStep).toBe("refine");
+    expect(planFrame()).toBeNull();
+    await typeIntoTextarea(notesBox(), "keep the retry bounded");
+    await act(async () => buttonByText("back to plan").click());
+    await act(async () => buttonByText("refine").click());
+    expect(notesBox().value).toBe("keep the retry bounded");
+    expect(verdictFrame()).toBeUndefined();
+
+    await act(async () => buttonByText("send changes").click());
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "refine" });
+    expect(promptFrame()?.message).toBe("Revise the plan to incorporate these requested changes:\n\nkeep the retry bounded");
+    expect(backendMock.rpcSend.mock.calls.filter((call) => (call[1] as Record<string, unknown>).type === "extension_ui_response")).toHaveLength(1);
+  });
+
+  it("opens setup without a verdict and executes with staged branch state", async () => {
+    render();
+    await act(async () => buttonByText("execute…").click());
+    expect(step().dataset.planReviewStep).toBe("setup");
+    expect(document.body.querySelector('[aria-label="implementation setup"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="proposed plan"]')).toBeNull();
+    expect(verdictFrame()).toBeUndefined();
+    await act(async () => branchOption("new branch").click());
+    await typeInto(newNameInput(), "feat/mobile-review");
+    await act(async () => executeButton().click());
+    expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feat/mobile-review", { create: true });
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+  });
+
+  it.each(["close", "Escape", "scrim", "not now"])("defers from compact review via %s without a verdict", async (route) => {
+    render();
+    await act(async () => {
+      if (route === "close") document.body.querySelector<HTMLButtonElement>('button[aria-label="close dialog"]')!.click();
+      else if (route === "Escape") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      else if (route === "scrim") document.body.querySelector<HTMLElement>("[data-overlay-root]")!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      else buttonByText("not now").click();
+    });
+    expect(verdictFrame()).toBeUndefined();
+    expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(true);
+  });
+
+  it("returns to review for a revised proposal and after defer while retaining its draft", async () => {
+    render();
+    await act(async () => buttonByText("refine").click());
+    await typeIntoTextarea(notesBox(), "unsent draft");
+    await act(async () => buttonByText("back to plan").click());
+    await act(async () => buttonByText("refine").click());
+    await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="close dialog"]')!.click());
+    await act(async () => useStore.getState().showPlanReview(TAB));
+    expect(step().dataset.planReviewStep).toBe("review");
+    await act(async () => buttonByText("refine").click());
+    expect(notesBox().value).toBe("unsent draft");
+
+    await act(async () => {
+      useStore.setState({ rpc: { [TAB]: tabState({ planReview: { request: { title: "Revised", planFilePath: "local://revised.md", planAbsPath: "/x/revised.md" }, frame: { id: "p2" } }, planHtml: "<h1>Revised</h1>" }) } });
+    });
+    expect(step().dataset.planReviewStep).toBe("review");
+  });
+
+  it("keeps the complete workflow mounted on desktop", () => {
+    setCompact(false);
+    render();
+    expect(document.body.querySelector("[data-plan-review-step]")).toBeNull();
+    expect(planFrame()).not.toBeNull();
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="implementation setup"]')).not.toBeNull();
+    expect(executeButton()).toBeDefined();
+  });
+  it("keeps compact setup visible for busy-session confirmation", async () => {
+    useStore.setState({
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" }), tabInfo({ tabId: "tab-2", projectCwd: "/p" })],
+      rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1>" }), "tab-2": tabState({ planReview: null, planText: null, status: "running" }) },
+      state: stateWithSessions({ [TAB]: "Planning session", "tab-2": "Busy work" }),
+    });
+    render();
+    await act(async () => buttonByText("execute…").click());
+    await act(async () => branchOption("existing branch").click());
+    await act(async () => buttonByText("feature/y").click());
+    await act(async () => executeButton().click());
+    expect(step().dataset.planReviewStep).toBe("setup");
+    expect(document.body.textContent).toContain("is mid-turn");
+    expect(verdictFrame()).toBeUndefined();
+  });
+
+  it("keeps compact setup visible when checkout fails", async () => {
+    backendMock.checkoutBranch.mockRejectedValueOnce(new Error("checkout rejected"));
+    render();
+    await act(async () => buttonByText("execute…").click());
+    await act(async () => branchOption("new branch").click());
+    await typeInto(newNameInput(), "feat/rejected");
+    await act(async () => executeButton().click());
+    expect(step().dataset.planReviewStep).toBe("setup");
+    expect(document.body.textContent).toContain("checkout rejected");
+    expect(verdictFrame()).toBeUndefined();
+  });
+
 });
 
 describe("PlanReview hydrated gate (issue #215)", () => {

@@ -6,6 +6,7 @@ import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/c
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { preparePlanDocument } from "../lib/plan-document";
+import { useCompactShell } from "../lib/responsive";
 import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
@@ -42,6 +43,7 @@ const CONTEXTS: Array<{
 
 /** Stable empty array so the selector doesn't resubscribe on every store tick. */
 const EMPTY_MODELS: ModelInfo[] = [];
+type CompactReviewStep = "review" | "refine" | "setup";
 
 /** The aside's keyword rows, in omp's notice-push order. */
 const KEYWORD_ROWS: ReadonlyArray<{ keyword: MagicKeyword; hint: string }> = [
@@ -83,6 +85,8 @@ export function PlanReview({ tabId }: { tabId: string }) {
   const deferPlanReview = useStore((s) => s.deferPlanReview);
   /** True after "not now": the pane is dismissed but the gate is unanswered. */
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
+  const compact = useCompactShell();
+  const [compactStep, setCompactStep] = useState<CompactReviewStep>("review");
 
   const [context, setContext] = useState<PlanExecutionContext>("existing");
   /** Change notes for the planner; text + optional images ride a steer prompt. */
@@ -158,6 +162,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
     setStagedAdvisorModel(sessionRecord?.advisorModel ?? null);
     setUltrathink(false);
     setOrchestrate(false);
+    setCompactStep("review");
     setWorkflowz(false);
   }
 
@@ -246,7 +251,10 @@ export function PlanReview({ tabId }: { tabId: string }) {
   };
   // Escape/scrim: defer, matching "not now" — never answer the gate with notes
   // the user did not finish writing. The plan stays pending in the plans tab.
-  const dismiss = () => deferPlanReview(tabId);
+  const dismiss = () => {
+    setCompactStep("review");
+    deferPlanReview(tabId);
+  };
 
   const branchInvalid =
     isRepo &&
@@ -332,22 +340,34 @@ export function PlanReview({ tabId }: { tabId: string }) {
 
   return (
     <>
-    <Modal onClose={dismiss} width="w-[68rem]">
-      <div className="plan-review flex max-h-[80vh] flex-col">
+    <Modal onClose={dismiss} width="w-[68rem]" labelledBy="plan-review-title">
+      <div
+        className="plan-review flex max-h-[80vh] flex-col"
+        data-plan-review-step={compact ? compactStep : undefined}
+      >
         <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-3.5">
           <div className="min-w-0">
-            <Label>plan ready</Label>
-            <h2 className="mt-1 truncate font-display text-base font-medium text-ink" title={request.title}>
+            <Label>
+              {compact
+                ? compactStep === "review"
+                  ? "review plan"
+                  : compactStep === "refine"
+                    ? "request changes"
+                    : "implementation setup"
+                : "plan ready"}
+            </Label>
+            <h2 id="plan-review-title" className="mt-1 truncate font-display text-base font-medium text-ink" title={request.title}>
               {request.title}
             </h2>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-ink-faint">
+            <p className="plan-review-artifact mt-0.5 truncate font-mono text-[10px] text-ink-faint">
               {request.planFilePath}
             </p>
           </div>
-          {planText && <CopyButton text={planText} label="copy plan" />}
+          {planText && (!compact || compactStep === "review") && <CopyButton text={planText} label="copy plan" />}
         </header>
 
         <div className="plan-review-layout grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_21rem] overflow-hidden">
+          {(!compact || compactStep !== "setup") && (
           <section
             className={cn(
               "plan-review-document min-h-0 px-5 py-4",
@@ -358,26 +378,31 @@ export function PlanReview({ tabId }: { tabId: string }) {
             )}
             aria-label="proposed plan"
           >
-            {planHtml ? (
-              // sandbox="" is the empty token list: no scripts, no same-origin
-              // access, no forms, no popups, no navigation. srcDoc keeps the
-              // read on the confined plan:read channel rather than a file:// URL.
-              <iframe
-                title="proposed plan"
-                sandbox=""
-                srcDoc={preparePlanDocument(planHtml)}
-                className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
-              />
-            ) : planText ? (
-              <Markdown text={planText} />
-            ) : (
-              <p className="text-sm text-ink-dim">
-                The plan file could not be read. Execute only if you know what it contains —
-                otherwise refine and let the agent rewrite it.
-              </p>
+            {(!compact || compactStep === "review") && (
+              <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
+                {planHtml ? (
+                  // sandbox="" is the empty token list: no scripts, no same-origin
+                  // access, no forms, no popups, no navigation. srcDoc keeps the
+                  // read on the confined plan:read channel rather than a file:// URL.
+                  <iframe
+                    title="proposed plan"
+                    sandbox=""
+                    srcDoc={preparePlanDocument(planHtml)}
+                    className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
+                  />
+                ) : planText ? (
+                  <Markdown text={planText} />
+                ) : (
+                  <p className="text-sm text-ink-dim">
+                    The plan file could not be read. Execute only if you know what it contains —
+                    otherwise refine and let the agent rewrite it.
+                  </p>
+                )}
+              </div>
             )}
 
-            <div className={cn("mt-6 border-t border-line pt-4", planHtml && "shrink-0")}>
+            {(!compact || compactStep === "refine") && (
+            <div className={cn("plan-review-refine mt-6 border-t border-line pt-4", planHtml && "shrink-0")}>
               <div className="flex items-baseline justify-between gap-3">
                 <div>
                   <Label>send it back</Label>
@@ -439,8 +464,11 @@ export function PlanReview({ tabId }: { tabId: string }) {
               </div>
               {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}
             </div>
+            )}
           </section>
+          )}
 
+          {(!compact || compactStep === "setup") && (
           <aside className="plan-review-setup min-h-0 overflow-y-auto border-l border-line bg-sunken/70 px-4 py-4" aria-label="implementation setup">
             <div className="mb-4">
               <Label>implementation setup</Label>
@@ -810,48 +838,76 @@ export function PlanReview({ tabId }: { tabId: string }) {
               </div>
             )}
           </aside>
+          )}
         </div>
 
-        <footer className="plan-review-actions flex shrink-0 items-center justify-between gap-4 border-t border-line bg-overlay px-5 py-3">
-          <div className="min-w-0">
-            <Label>ready to dispatch</Label>
-            <p className="mt-0.5 truncate text-[11px] text-ink-dim">
-              {CONTEXTS.find((c) => c.id === context)?.label}
-              {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
-              {ultrathink && " · ultrathink"}
-              {orchestrate && " · orchestrate"}
-              {workflowz && " · workflowz"}
-              {isRepo && (
+        {compact ? (
+          <footer className="plan-review-actions plan-review-actions-compact flex shrink-0 items-center justify-between gap-3 border-t border-line bg-overlay px-4 py-3">
+            {compactStep === "setup" && (
+              <div className="min-w-0 flex-1">
+                <Label>ready to dispatch</Label>
+                <p className="mt-0.5 truncate text-[11px] text-ink-dim">
+                  {CONTEXTS.find((c) => c.id === context)?.label}
+                  {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
+                  {ultrathink && " · ultrathink"}
+                  {orchestrate && " · orchestrate"}
+                  {workflowz && " · workflowz"}
+                </p>
+              </div>
+            )}
+            <div className="plan-review-action-buttons ml-auto flex shrink-0 items-center gap-2">
+              {compactStep === "review" ? (
                 <>
-                  {" · "}
-                  {branchChoice === "current"
-                    ? (branchInfo!.current ?? "detached HEAD")
-                    : branchChoice === "new"
-                      ? (newName.trim() || "new branch")
-                      : (existingName ?? "choose a branch")}
+                  <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>
+                    not now
+                  </Button>
+                  <Button onClick={() => setCompactStep("refine")}>refine</Button>
+                  <Button variant="solid" tone="signal" onClick={() => setCompactStep("setup")}>
+                    execute…
+                  </Button>
+                </>
+              ) : compactStep === "refine" ? (
+                <>
+                  <Button variant="ghost" onClick={() => setCompactStep("review")}>back to plan</Button>
+                  <Button variant="solid" tone="signal" onClick={() => void refine()}>send changes</Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="ghost" onClick={() => setCompactStep("review")}>back to plan</Button>
+                  <Button
+                    variant="solid"
+                    tone="signal"
+                    disabled={checkingOut || branchInvalid}
+                    onClick={() => void execute()}
+                  >
+                    {checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
+                  </Button>
                 </>
               )}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              title="Leave the plan pending — the agent stays paused until you answer here"
-              variant="ghost"
-              onClick={() => deferPlanReview(tabId)}
-            >
-              not now
-            </Button>
-            <Button onClick={() => void refine()}>refine</Button>
-            <Button
-              variant="solid"
-              tone="signal"
-              disabled={checkingOut || branchInvalid}
-              onClick={() => void execute()}
-            >
-              {checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
-            </Button>
-          </div>
-        </footer>
+            </div>
+          </footer>
+        ) : (
+          <footer className="plan-review-actions flex shrink-0 items-center justify-between gap-4 border-t border-line bg-overlay px-5 py-3">
+            <div className="min-w-0">
+              <Label>ready to dispatch</Label>
+              <p className="mt-0.5 truncate text-[11px] text-ink-dim">
+                {CONTEXTS.find((c) => c.id === context)?.label}
+                {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
+                {ultrathink && " · ultrathink"}
+                {orchestrate && " · orchestrate"}
+                {workflowz && " · workflowz"}
+                {isRepo && <> {" · "}{branchChoice === "current" ? (branchInfo!.current ?? "detached HEAD") : branchChoice === "new" ? (newName.trim() || "new branch") : (existingName ?? "choose a branch")}</>}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>not now</Button>
+              <Button onClick={() => void refine()}>refine</Button>
+              <Button variant="solid" tone="signal" disabled={checkingOut || branchInvalid} onClick={() => void execute()}>
+                {checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
+              </Button>
+            </div>
+          </footer>
+        )}
       </div>
     </Modal>
 
