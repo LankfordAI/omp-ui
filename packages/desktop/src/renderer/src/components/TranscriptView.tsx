@@ -205,7 +205,7 @@ function NoticeLine({ item }: { item: NoticeItem }) {
     <div className="animate-rise flex justify-center">
       <div
         className={cn(
-          "flex max-w-[80%] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]",
+          "flex max-w-[80%] items-center gap-1.5 rounded-2xl border px-2.5 py-1 text-[11px]",
           tone === "rose" && "border-rose-dim/50 bg-rose-wash text-rose",
           tone === "copper" && "border-copper-dim/50 bg-copper-wash text-copper",
           tone === "neutral" && "border-line bg-raised text-ink-dim",
