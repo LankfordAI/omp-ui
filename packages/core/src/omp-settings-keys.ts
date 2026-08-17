@@ -43,6 +43,20 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<{
       "colorBlindMode",
     ],
   },
+  {
+    title: "Memory",
+    description:
+      "Mnemopi gives sessions durable recall. per-project-tagged writes project-local " +
+      "and recalls project + global. Backend changes apply to sessions started afterwards.",
+    keys: [
+      "memory.backend",
+      "mnemopi.scoping",
+      "mnemopi.autoRecall",
+      "mnemopi.autoRetain",
+      "mnemopi.noEmbeddings",
+      "autolearn.enabled",
+    ],
+  },
 ];
 export const OMP_SETTING_KEYS: readonly string[] = OMP_SETTING_GROUPS.flatMap(
   (g) => g.keys,

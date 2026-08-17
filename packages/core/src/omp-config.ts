@@ -140,17 +140,19 @@ function nestedScalar(text: string, parent: string, key: string): string | undef
   return undefined;
 }
 
-/** The config layers omp merges, lowest priority first; missing files drop out. */
-function configLayers(projectCwd: string, env: NodeJS.ProcessEnv): string[] {
+/** The global agent-config layer alone (config.yml wins over config.yaml, as in omp). */
+function globalLayer(env: NodeJS.ProcessEnv): string[] {
   const agentDir = getOmpAgentDir(env);
-  const texts: string[] = [];
   for (const name of CONFIG_FILENAMES) {
     const text = readConfigText(path.join(agentDir, name));
-    if (text !== null) {
-      texts.push(text);
-      break; // config.yml wins over config.yaml, as in omp.
-    }
+    if (text !== null) return [text];
   }
+  return [];
+}
+
+/** The config layers omp merges, lowest priority first; missing files drop out. */
+function configLayers(projectCwd: string, env: NodeJS.ProcessEnv): string[] {
+  const texts = globalLayer(env);
   const project = readConfigText(path.join(projectCwd, ".omp", "config.yml"));
   if (project !== null) texts.push(project);
   return texts;
@@ -162,6 +164,28 @@ function readConfigText(filePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The effective value of `<parent>.<key>` across omp's config layers: the
+ * global agent config overlaid by the project's `.omp/config.yml`, later
+ * layers winning. A null `projectCwd` reads the global layer alone (the
+ * project overlay makes no sense without a project). Never throws — an
+ * unreadable or unparsable layer just contributes nothing.
+ */
+export function readLayeredConfigScalar(
+  projectCwd: string | null,
+  parent: string,
+  key: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const layers = projectCwd === null ? globalLayer(env) : configLayers(projectCwd, env);
+  let resolved: string | undefined;
+  for (const text of layers) {
+    const value = nestedScalar(text, parent, key);
+    if (value !== undefined) resolved = value;
+  }
+  return resolved;
 }
 
 /**

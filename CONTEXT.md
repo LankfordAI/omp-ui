@@ -75,8 +75,8 @@ on chrome destroys the property that a glance answers "is it working?".
 _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
-The right-hand icon strip in an rpc-ui tab, with five panes behind it —
-Todos, Agents, Session, Plans, Diffs. The strip is the permanent posture:
+The right-hand icon strip in an rpc-ui tab, with six panes behind it —
+Todos, Agents, Session, Plans, Diffs, Memory. The strip is the permanent posture:
 pressing an icon opens just that one pane beside it, re-pressing the active
 icon (or the pane's close control) dismisses it, and badge counts live on
 the strip icons. Remembers its selected pane per tab.
@@ -261,6 +261,16 @@ git-only `getBranchDiff` channel) and renders the parsed result, so "all
 changes on the current branch" is what the user reads regardless of which
 session produced them.
 _Avoid_: per-session diff log, file edit history
+
+**Memory pane**:
+The inspector rail pane that browses and edits omp's mnemopi memory for the
+focus session's project, with a scope toggle to the shared global bank. It
+reads the bank SQLite files directly in the main process (ADR-0017) — no live
+session required — so it is a store view, not a session view: what the user
+reads is what the next session's recall can see. Working-store rows are
+editable; episodic rows are read-only; project banks are discovered, never
+created, by omp-ui.
+_Avoid_: memory manager, knowledge base, memory browser tab, memory settings
 
 **Update card**:
 The small non-modal card in the lower-right corner announcing an available

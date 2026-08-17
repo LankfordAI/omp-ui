@@ -8,7 +8,16 @@ import type { RpcTabState } from "../store";
 import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-const backendMock = { rpcSend: vi.fn(), getBranchDiff: vi.fn() };
+const backendMock = {
+  rpcSend: vi.fn(),
+  getBranchDiff: vi.fn(),
+  memoryOverview: vi.fn(),
+  memoryList: vi.fn(),
+  memoryGet: vi.fn(),
+  memoryAdd: vi.fn(),
+  memoryUpdate: vi.fn(),
+  memoryForget: vi.fn(),
+};
 Object.assign(window, { ompBackend: backendMock });
 
 // Dynamic imports are required because store.ts captures window.ompBackend at module evaluation.
@@ -130,6 +139,29 @@ beforeEach(() => {
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
   });
   backendMock.getBranchDiff.mockReset();
+  backendMock.memoryOverview.mockReset();
+  backendMock.memoryList.mockReset();
+  backendMock.memoryGet.mockReset();
+  backendMock.memoryAdd.mockReset();
+  backendMock.memoryUpdate.mockReset();
+  backendMock.memoryForget.mockReset();
+  // Backend-off overview keeps the memory pane inert unless a test overrides it.
+  backendMock.memoryOverview.mockResolvedValue({
+    backend: "off",
+    scoping: "per-project",
+    baseDir: "",
+    global: {
+      bank: "default",
+      dbPath: "",
+      exists: false,
+      sizeBytes: 0,
+      workingCount: 0,
+      episodicCount: 0,
+      lastWrite: null,
+    },
+    project: null,
+    error: null,
+  });
   useStore.setState({
     state: null,
     branches: {},
@@ -151,7 +183,7 @@ describe("desktop InspectorRail", () => {
 
     // The strip is the whole rail: feature icons with badges, no expand control.
     expect(button("expand inspector")).toBeNull();
-    for (const label of ["todos", "agents", "session", "plans", "diffs"]) {
+    for (const label of ["todos", "agents", "session", "plans", "diffs", "memory"]) {
       expect(button(label)).not.toBeNull();
     }
     expect(button("todos")?.title).toBe("todos (1)");
@@ -277,5 +309,28 @@ describe("desktop InspectorRail", () => {
     });
     expect(document.body.textContent).toContain("newer.txt");
     expect(document.body.textContent).not.toContain("older.txt");
+  });
+
+  it("renders the memory tab on the strip", () => {
+    renderRail();
+
+    // No badge count: memory has nothing to summarize on the strip.
+    expect(railTab("memory")).not.toBeNull();
+    expect(railTab("memory")?.title).toBe("memory");
+  });
+
+  it("shows the enable empty state when the memory backend is off", async () => {
+    useStore.setState({ state });
+    renderRail();
+
+    act(() => railTab("memory")!.click());
+    await act(async () => {});
+
+    expect(backendMock.memoryOverview).toHaveBeenCalledWith(PROJECT);
+    expect(document.body.textContent).toContain("memory is off");
+    const enable = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      (b.textContent ?? "").includes("Enable Mnemopi memory"),
+    );
+    expect(enable).not.toBeUndefined();
   });
 });

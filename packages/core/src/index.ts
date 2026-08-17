@@ -51,9 +51,23 @@ export {
   type PlanStatus,
 } from "./plan";
 export {
+  addMemory,
+  forgetMemory,
+  getMemory,
+  listMemories,
+  readMemoryOverview,
+  resolveGlobalBank,
+  resolveMemoryBase,
+  resolveProjectBank,
+  updateMemory,
+  type MemoryBase,
+  type ResolvedBank,
+} from "./memory-store";
+export {
   formatModelRole,
   getOmpAgentDir,
   parseModelRole,
+  readLayeredConfigScalar,
   readOmpAdvisorDefaults,
   readOmpModelRole,
   type ModelRole,
