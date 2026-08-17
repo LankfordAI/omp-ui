@@ -410,6 +410,57 @@ describe("Composer attachment picker", () => {
   });
 });
 
+describe("Composer action row overflow", () => {
+  it("compresses identity controls and keeps running actions whole", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seed("running");
+    useStore.setState((s) => ({
+      state: {
+        ...s.state!,
+        projects: s.state!.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((session) =>
+            session.tabId === TAB
+              ? { ...session, advisor: true, advisorModel: "p/advisor-model" }
+              : session,
+          ),
+        })),
+      },
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: { id: "model-x", name: "An unreasonably long model display name", provider: "test", input: ["text"], contextWindow: 1000 },
+          availableModels: [{ id: "model-x", name: "An unreasonably long model display name", provider: "test", input: ["text"], contextWindow: 1000 }],
+        },
+      },
+    }));
+    renderComposer();
+
+    const row = document.querySelector('button[title="abort the agent (esc)"]')!.parentElement!;
+    const byTitle = (prefix: string): HTMLButtonElement =>
+      row.querySelector<HTMLButtonElement>(`button[title^="${prefix}"]`)!;
+
+    const modelCapsule = row.firstElementChild as HTMLElement;
+    expect(modelCapsule.classList.contains("shrink")).toBe(true);
+    expect(modelCapsule.classList.contains("shrink-0")).toBe(false);
+    expect(modelCapsule.querySelector("span.truncate")!.classList.contains("min-w-0")).toBe(true);
+    expect(byTitle("thinking level").classList.contains("shrink-0")).toBe(true);
+
+    expect(byTitle("queue this").classList.contains("shrink-0")).toBe(true);
+    expect(byTitle("inject this").classList.contains("shrink-0")).toBe(true);
+    expect(byTitle("abort the agent").classList.contains("shrink-0")).toBe(true);
+
+    const interrupt = byTitle("abort the current turn");
+    expect(interrupt.classList.contains("shrink")).toBe(true);
+    expect(interrupt.classList.contains("min-w-0")).toBe(true);
+    expect(interrupt.querySelector("span.truncate")!.classList.contains("min-w-0")).toBe(true);
+  });
+});
+
 describe("Composer focus treatment", () => {
   it("uses Tailwind's important outline suppression on the textarea", () => {
     seed("ready"); renderComposer();

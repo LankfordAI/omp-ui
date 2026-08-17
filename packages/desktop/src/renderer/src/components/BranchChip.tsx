@@ -253,7 +253,7 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
   );
 
   return (
-    <span ref={rootRef} className="relative flex">
+    <span ref={rootRef} className="relative flex min-w-0">
       <button
         ref={triggerRef}
         type="button"
@@ -264,7 +264,7 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
             : `branch — ${current} · ${behindReading} (click to switch)`
         }
         onClick={toggleMenu}
-        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
+        className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
       >
         <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
           <circle cx="5" cy="4" r="1.6" {...S} />
@@ -272,7 +272,7 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
           <circle cx="11" cy="6" r="1.6" {...S} />
           <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...S} />
         </svg>
-        <span className="max-w-44 truncate">{current ?? "detached"}</span>
+        <span className="min-w-0 max-w-44 truncate">{current ?? "detached"}</span>
         {resolvable && behind > 0 && (
           <>
             {/* Behind is a neutral fact; only divergence — where the fix is

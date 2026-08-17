@@ -123,14 +123,21 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   return (
     <>
-      <Capsule tone={on ? "signal" : "neutral"} className={cn("font-mono", layout === "sheet" && "h-11 w-full")}>
+      <Capsule
+        tone={on ? "signal" : "neutral"}
+        className={cn(
+          "font-mono",
+          layout === "sheet" && "h-11 w-full",
+          layout === "inline" && "min-w-0 shrink",
+        )}
+      >
         <button
           type="button"
           disabled={disabled}
           aria-pressed={on}
           title={title}
           onClick={toggle}
-          className={cn(CAPSULE_SEGMENT, "text-[10px]", layout === "sheet" && (on ? "shrink-0 px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
+          className={cn(CAPSULE_SEGMENT, "shrink-0 text-[10px]", layout === "sheet" && (on ? "px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
         >
           {on ? (
             <>
@@ -161,7 +168,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               inherited ? "text-ink-faint" : "text-ink-mid",
             )}
           >
-            <span className="truncate">
+            <span className="min-w-0 truncate">
               {effective === null
                 ? "pick model"
                 : effectiveModel?.name || effectiveModel?.id || shortLabel(effective)}
@@ -182,8 +189,8 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               onClick={() => setLevelMenu((m) => !m)}
               className={cn(
                 CAPSULE_SEGMENT,
-                "rounded-r-[5px] text-[11px] tabular-nums text-iris",
-                layout === "sheet" && "shrink-0 px-3",
+                "shrink-0 rounded-r-[5px] text-[11px] tabular-nums text-iris",
+                layout === "sheet" && "px-3",
               )}
             >
               {effectiveLevel ?? "think —"}

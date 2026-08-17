@@ -703,7 +703,7 @@ export function Composer({
 
           {!compact && (
           <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
-            <Capsule className="min-w-0">
+            <Capsule className="min-w-0 shrink">
               <ModelSelector tabId={tabId} disabled={dead} />
 
               <span ref={effortAnchor} className="relative flex">
@@ -720,7 +720,7 @@ export function Composer({
                   }}
                   className={cn(
                     CAPSULE_SEGMENT,
-                    "rounded-r-[5px] font-mono text-[11px] tabular-nums text-iris",
+                    "shrink-0 rounded-r-[5px] font-mono text-[11px] tabular-nums text-iris",
                   )}
                 >
                   {thinkingLevel ?? "think —"}
@@ -765,15 +765,15 @@ export function Composer({
 
 
             {queueChip && (
-              <Chip mono tone="copper" title={queueChip.title}>
-                {queueChip.label}
+              <Chip mono tone="copper" title={queueChip.title} className="min-w-0 shrink">
+                <span className="min-w-0 truncate">{queueChip.label}</span>
               </Chip>
             )}
 
             <span className="flex-1" />
 
             {text.length > COUNTER_AT && (
-              <span className="font-mono tabular-nums text-ink-faint">
+              <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-ink-faint">
                 {text.length}c · {lines}l
               </span>
             )}
@@ -786,8 +786,9 @@ export function Composer({
                   disabled={!canSend}
                   title="abort the current turn, then send this as a fresh prompt (mod+shift+enter)"
                   onClick={() => submit("interrupt")}
+                  className="min-w-0 shrink"
                 >
-                  interrupt & send
+                  <span className="min-w-0 truncate">interrupt & send</span>
                 </Button>
                 <Button
                   size="xs"

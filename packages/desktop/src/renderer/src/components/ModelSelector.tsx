@@ -72,7 +72,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
         onClick={() => setOpen(true)}
         className={cn(CAPSULE_SEGMENT, "max-w-56 text-xs font-medium text-ink-mid")}
       >
-        <span className="truncate">{model === null ? "no model" : model.name || model.id}</span>
+        <span className="min-w-0 truncate">{model === null ? "no model" : model.name || model.id}</span>
         <Chevron open={false} className="rotate-90 text-ink-faint" />
       </button>
       {open && (
