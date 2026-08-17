@@ -529,6 +529,49 @@ describe("Composer focus treatment", () => {
     expect(document.activeElement).toBe(textarea);
     trigger.remove();
   });
+
+  function setStatus(status: "starting" | "ready" | "running"): void {
+    act(() => seed(status));
+  }
+
+  it("focuses the box when a fresh session's boot clears its starting state (regression, #102)", () => {
+    seed("starting");
+    renderComposer();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    // Boot disables the box, so the mount-time focus is a no-op.
+    expect(box.disabled).toBe(true);
+    expect(document.activeElement).not.toBe(box);
+    setStatus("ready");
+    expect(box.disabled).toBe(false);
+    expect(document.activeElement).toBe(box);
+  });
+
+  it("refocuses after the box is disabled mid-boot and re-enabled (case A)", () => {
+    seed("ready");
+    useStore.setState({ rpc: {} }); // record absent: the box mounts enabled
+    renderComposer();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(document.activeElement).toBe(box);
+    setStatus("starting"); // bootRpcTab's synchronous patch disables the box
+    expect(box.disabled).toBe(true);
+    setStatus("ready");
+    expect(document.activeElement).toBe(box);
+  });
+
+  it("does not steal focus on status churn that leaves the box usable", () => {
+    seed("ready");
+    renderComposer();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(document.activeElement).toBe(box);
+    // The compact shell's prompt-options control is the only action-row button
+    // that survives the ready→running row swap with an empty draft — Send is
+    // disabled without a draft and the running row replaces it.
+    const options = document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!;
+    act(() => options.focus());
+    expect(document.activeElement).toBe(options);
+    setStatus("running"); // unavailable stays false: no re-arm
+    expect(document.activeElement).toBe(options);
+  });
 });
 
 describe("Composer BuildPlanControl", () => {

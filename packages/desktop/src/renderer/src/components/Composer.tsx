@@ -282,33 +282,41 @@ export function Composer({
     return () => observer.disconnect();
   }, [fit]);
 
-  // A freshly spawned session should land with the caret ready to type — the point of
-  // the composer is that the next keystroke is a message. Tabs stay mounted (switching
-  // only toggles `display`), so this runs once per session, never on a tab switch. A
-  // session started from inside an open overlay (command palette, compact session/HUD
-  // sheets, ui.tsx useOverlay) mounts the box while that overlay holds `#root` inert, so
-  // the focus above cannot land and the sheet's close restores the trigger instead; when
-  // the last overlay tears down it removes #root's `inert` in the same synchronous task
-  // as that restore, and our MutationObserver microtask runs after — so reclaim the caret
-  // the moment the box becomes focusable and it isn't holding focus.
+  // The composer lands focused so the next keystroke is a message — on a fresh
+  // session, and again when a boot or advisor relaunch finishes (`unavailable`
+  // clears). Tabs stay mounted (switching only toggles `display`), and
+  // `unavailable` — the boot/relaunch gate, not the visibility gate — never
+  // changes on a tab switch, so this never steals focus from a resurfaced tab.
+  // While the session boots (`status: "starting"`) the textarea is disabled,
+  // so a mount-time focus is a no-op (record present) or is dropped the moment
+  // boot disables the box (record absent) — the effect re-runs on the
+  // `unavailable` transition and lands the caret the instant the box is usable.
+  // A session started from inside an open overlay (command palette, compact
+  // session/HUD sheets, ui.tsx useOverlay) mounts while that overlay holds
+  // `#root` inert, so the focus above cannot land and the sheet's close
+  // restores the trigger instead; when the last overlay tears down it removes
+  // #root's `inert` in the same synchronous task as that restore, and our
+  // MutationObserver microtask runs after — so reclaim the caret the moment
+  // the box becomes focusable and it isn't holding focus.
   useEffect(() => {
     const el = box.current;
-    if (el === null) return;
+    if (el === null || unavailable) return;
     const reclaim = () => {
       if (document.activeElement !== el) el.focus({ preventScroll: true });
     };
     reclaim();
     const root = document.getElementById("root");
     if (root === null) return;
-    // Only sessions spawned under a sheet need the deferred reclaim; a normal mount
-    // already focused the box above, and later overlay teardowns are no-ops here.
+    // Only sessions spawned under a sheet need the deferred reclaim; a normal
+    // mount already focused the box above, and later overlay teardowns are
+    // no-ops here.
     if (root.getAttribute("inert") === null) return;
     const observer = new MutationObserver(() => {
       if (root.getAttribute("inert") === null) reclaim();
     });
     observer.observe(root, { attributes: true, attributeFilter: ["inert"] });
     return () => observer.disconnect();
-  }, []);
+  }, [unavailable]);
 
   // The shimmer runs only while focused with a keyword on screen, matching omp's
   // editor; everything else shows the static phase-0 palette.
