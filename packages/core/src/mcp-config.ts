@@ -22,12 +22,16 @@ import type {
  *   omp's extension packages, claude marketplace plugins, and codex TOML are
  *   not read — servers sourced only there do not appear.
  *
- * - {@link setMcpServerEnabled} is a port of omp's `setMcpServerEnabled`
- *   (src/mcp/config-writer.ts), cleanup invariants included: writable sources
- *   (native, root mcp.json) get the `enabled` flag written back in place;
- *   tool-owned files are NEVER mutated — toggling those servers goes through
- *   the user-level `disabledServers`/`enabledServers` lists in the agent dir's
- *   `mcp.json` instead.
+ * - {@link setMcpServerEnabled} flips one server's enabled state. Global
+ *   scope (`projectCwd: null`) is a port of omp's `setMcpServerEnabled`
+ *   (src/mcp/config-writer.ts): writable sources (native, root mcp.json) get
+ *   the `enabled` flag written back in place; tool-owned files are NEVER
+ *   mutated — toggling those servers goes through the user-level
+ *   `disabledServers`/`enabledServers` lists in the agent dir's `mcp.json`.
+ *   Project scope deliberately diverges: a toggle writes ONLY inside the
+ *   project (its own writable file, or a secret-free suppression entry in
+ *   `.omp/mcp.json`), never user-level state — see
+ *   {@link setProjectServerEnabled}.
  *
  * Redaction is a boundary rule, not a display choice: the DTO never carries
  * `env`, `headers`, `auth`, or `oauth` values, and http/sse endpoints are
@@ -169,14 +173,22 @@ function stringArray(value: unknown): string[] | undefined {
   return value.every((item) => typeof item === "string") ? (value as string[]) : undefined;
 }
 
+/** The transport identity of one raw entry, before redaction. */
+interface TransportFacts {
+  transport: McpServerEntry["transport"];
+  command: string | undefined;
+  args: string[] | undefined;
+  url: string | undefined;
+}
+
 /**
- * Folds one file's server entry down to the three redacted facts the DTO
- * carries. opencode's `mcp` map has its own shape (`type: "local"|"remote"`,
- * `command` string|array, `environment`); everything else is mcp.json-shaped.
+ * Extracts one file's server entry down to its transport identity. opencode's
+ * `mcp` map has its own shape (`type: "local"|"remote"`, `command`
+ * string|array, `environment`); everything else is mcp.json-shaped.
  * Transport inference mirrors omp's `convertToLegacyConfig`:
  * `type` field, else `command` → stdio, `url` → http, else stdio.
  */
-function normalizeServer(provider: McpServerSource, raw: RawServer): NormalizedServer {
+function extractTransport(provider: McpServerSource, raw: RawServer): TransportFacts {
   const type = typeof raw.type === "string" ? raw.type : undefined;
   let command: string | undefined;
   let args: string[] | undefined;
@@ -206,6 +218,15 @@ function normalizeServer(provider: McpServerSource, raw: RawServer): NormalizedS
   }
 
   transport = transport ?? (command !== undefined ? "stdio" : url !== undefined ? "http" : "stdio");
+  return { transport, command, args, url };
+}
+
+/**
+ * Folds one file's server entry down to the three redacted facts the DTO
+ * carries (see {@link extractTransport} for the shape handling).
+ */
+function normalizeServer(provider: McpServerSource, raw: RawServer): NormalizedServer {
+  const { transport, command, args, url } = extractTransport(provider, raw);
   const endpoint =
     transport === "stdio"
       ? [command ?? "", ...(args ?? [])].join(" ").trim()
@@ -381,69 +402,227 @@ async function setServerListed(
 }
 
 /**
- * Flips one server's enabled state, wherever it lives — a faithful port of
- * omp's `setMcpServerEnabled` (src/mcp/config-writer.ts):
+ * Flips one server's enabled state and resolves with the refreshed server
+ * list so the renderer updates in one round trip. A write or parse failure
+ * rejects; nothing is half-reported.
  *
- * - First candidate file (writable `sourcePath`, then project `mcp.json`
- *   when `projectCwd` is not null, then user mcp.json) that actually
- *   defines `name` gets `{ ...entry, enabled }` written back; the search
- *   stops there.
+ * Global scope (`projectCwd: null`) is a faithful port of omp's
+ * `setMcpServerEnabled` (src/mcp/config-writer.ts) — see
+ * {@link setGlobalServerEnabled}. Project scope deliberately diverges: the
+ * toggle writes only inside the project and NEVER touches user-level state —
+ * see {@link setProjectServerEnabled}. `req.sourcePath` is honoured in global
+ * scope only; the project writer resolves the winning definition itself.
+ */
+export async function setMcpServerEnabled(
+  req: McpSetEnabledRequest,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<McpServersResult> {
+  if (req.projectCwd === null) {
+    await setGlobalServerEnabled(req.name, req.enabled, req.sourcePath, env);
+  } else {
+    await setProjectServerEnabled(req.projectCwd, req.name, req.enabled, env);
+  }
+  return resolveMcpServers(req.projectCwd, env);
+}
+
+/**
+ * Global-scope toggle — omp's own write algorithm:
+ *
+ * - First candidate file (writable `sourcePath`, then user mcp.json) that
+ *   actually defines `name` gets `{ ...entry, enabled }` written back; the
+ *   search stops there.
  * - Enable: clears any user denylist entry; adds a user allowlist entry only
  *   when no file was updated (a tool-owned source's `enabled: false` needs
  *   the override); drops the allowlist entry when a writable file now says
  *   `enabled: true` (redundant override).
  * - Disable: clears any user allowlist entry; adds a user denylist entry when
  *   no file was updated.
- *
- * Resolves with the refreshed server list so the renderer updates in one
- * round trip. A write or parse failure rejects; nothing is half-reported.
  */
-export async function setMcpServerEnabled(
-  req: McpSetEnabledRequest,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<McpServersResult> {
+async function setGlobalServerEnabled(
+  name: string,
+  enabled: boolean,
+  sourcePath: string | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
   const userPath = path.join(getOmpAgentDir(env), "mcp.json");
-  const projectPath =
-    req.projectCwd === null ? undefined : path.join(req.projectCwd, ".omp", "mcp.json");
-  const candidatePaths = [
-    ...new Set([req.sourcePath, projectPath, userPath].filter((p) => p !== undefined)),
-  ];
+  const candidatePaths = [...new Set([sourcePath, userPath].filter((p) => p !== undefined))];
   let updatedInConfig = false;
 
   for (const filePath of candidatePaths) {
     const config = await readMcpConfigFile(filePath);
-    const server = config.mcpServers?.[req.name];
+    const server = config.mcpServers?.[name];
     if (server === undefined) continue;
     await writeMcpConfigFile(filePath, {
       ...config,
-      mcpServers: { ...config.mcpServers, [req.name]: { ...server, enabled: req.enabled } },
+      mcpServers: { ...config.mcpServers, [name]: { ...server, enabled } },
     });
     updatedInConfig = true;
     break;
   }
 
-  if (req.enabled) {
+  if (enabled) {
     const denied = readStringList(await readMcpConfigFile(userPath), "disabledServers");
-    if (denied.includes(req.name)) {
-      await setServerListed(userPath, "disabledServers", req.name, false);
+    if (denied.includes(name)) {
+      await setServerListed(userPath, "disabledServers", name, false);
     }
     const forced = readStringList(await readMcpConfigFile(userPath), "enabledServers").includes(
-      req.name,
+      name,
     );
     if (!updatedInConfig && !forced) {
-      await setServerListed(userPath, "enabledServers", req.name, true);
+      await setServerListed(userPath, "enabledServers", name, true);
     } else if (updatedInConfig && forced) {
-      await setServerListed(userPath, "enabledServers", req.name, false);
+      await setServerListed(userPath, "enabledServers", name, false);
     }
   } else {
     const forced = readStringList(await readMcpConfigFile(userPath), "enabledServers");
-    if (forced.includes(req.name)) {
-      await setServerListed(userPath, "enabledServers", req.name, false);
+    if (forced.includes(name)) {
+      await setServerListed(userPath, "enabledServers", name, false);
     }
     if (!updatedInConfig) {
-      await setServerListed(userPath, "disabledServers", req.name, true);
+      await setServerListed(userPath, "disabledServers", name, true);
     }
   }
+}
 
-  return resolveMcpServers(req.projectCwd, env);
+/** Every (file, raw) definition of `name`, in provider priority order. */
+async function findDefinitions(
+  name: string,
+  files: ProviderFile[],
+  projectCwd: string | null,
+): Promise<Array<{ file: ProviderFile; raw: RawServer }>> {
+  const defs: Array<{ file: ProviderFile; raw: RawServer }> = [];
+  for (const file of files) {
+    let text: string;
+    try {
+      text = await fs.promises.readFile(file.path, "utf8");
+    } catch {
+      continue; // absent/unreadable files simply contribute nothing
+    }
+    let root: RawServer;
+    try {
+      root = asRecord(JSON.parse(text)) ?? {};
+    } catch {
+      continue; // the resolution pass already reports malformed files
+    }
+    for (const map of file.maps(root, projectCwd)) {
+      const raw = asRecord(asRecord(map)?.[name]);
+      if (raw) defs.push({ file, raw });
+    }
+  }
+  return defs;
+}
+
+/**
+ * The mcp.json schema is closed (`additionalProperties: false`), so skeleton
+ * detection is structural: `enabled === false` and no keys beyond the
+ * transport identity. Known accepted edge: a user-authored project entry
+ * that is structurally identical to a skeleton and shadows a same-named
+ * source gets deleted on enable — the effect ("server turns on using its
+ * source definition") still matches the toggle's intent.
+ */
+const SKELETON_KEYS: Record<string, true> = { type: true, command: true, url: true, enabled: true };
+
+function isDisableSkeleton(entry: RawServer): boolean {
+  return entry.enabled === false && Object.keys(entry).every((key) => SKELETON_KEYS[key] === true);
+}
+
+/**
+ * A secret-free suppression entry for the project override. It owns the name
+ * (schema-valid, wins priority) and is suppressed by omp (never spawned), so
+ * fidelity of args/env/headers is irrelevant — and none of them are copied:
+ * `.omp/` may be committed to the repo, so `args`, `env`, `headers`, `auth`,
+ * and `oauth` NEVER land here, and urls are redacted.
+ */
+function disableSkeleton(provider: McpServerSource, raw: RawServer): RawServer {
+  const { transport, command, url } = extractTransport(provider, raw);
+  if (transport === "stdio") {
+    // A source with no command fails omp's validation and never runs anyway.
+    return { command: command ?? "-", enabled: false };
+  }
+  return { type: transport, url: url === undefined ? "-" : redactUrl(url), enabled: false };
+}
+
+/**
+ * Project-scope toggle — a deliberate divergence from omp's writer. The
+ * invariant: a toggle writes ONLY inside the project (its `.omp/mcp.json`, or
+ * a project-scope writable file that already defines the server). It NEVER
+ * touches the user-level `mcp.json` — neither definitions nor the
+ * `disabledServers`/`enabledServers` lists.
+ *
+ * A single priority walk mirrors resolution (which also avoids the latent
+ * candidate-loop flaw of flipping a *shadowed* entry while a higher-priority
+ * entry stays effective):
+ *
+ * - Winner in a project-scope writable file → flip `enabled` in place. On
+ *   enable, a disable skeleton with a shadowed source behind it is DELETED
+ *   instead — enabling a skeleton in place would run a broken argless copy,
+ *   while deletion restores whatever the source says today (drift-safe).
+ *   Skeleton removal keeps remaining `mcpServers` keys and every unrelated
+ *   top-level key intact.
+ * - Winner elsewhere, disabling → write a {@link disableSkeleton} into the
+ *   project's `.omp/mcp.json` (a project entry with `enabled: false`
+ *   suppresses the name for this project only; omp honours suppression, not
+ *   drop).
+ * - Winner elsewhere, enabling → nothing project-local can beat the user
+ *   denylist or a source's `enabled: false` without copying secrets into a
+ *   possibly-committed project file, so those states reject with a pointer
+ *   to the global manager; an already-enabled server is an idempotent no-op.
+ */
+async function setProjectServerEnabled(
+  projectCwd: string,
+  name: string,
+  enabled: boolean,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const defs = await findDefinitions(name, providerFiles(projectCwd, env), projectCwd);
+  const winner = defs[0];
+  if (winner === undefined) {
+    throw new Error(`Server "${name}" is not defined in any config source.`);
+  }
+
+  if (winner.file.scope === "project" && winner.file.writable) {
+    const config = await readMcpConfigFile(winner.file.path);
+    if (enabled && isDisableSkeleton(winner.raw) && defs.length > 1) {
+      const { [name]: _removed, ...rest } = config.mcpServers ?? {};
+      await writeMcpConfigFile(winner.file.path, { ...config, mcpServers: rest });
+      return;
+    }
+    await writeMcpConfigFile(winner.file.path, {
+      ...config,
+      mcpServers: { ...config.mcpServers, [name]: { ...winner.raw, enabled } },
+    });
+    return;
+  }
+
+  if (!enabled) {
+    const overridePath = path.join(projectCwd, ".omp", "mcp.json");
+    const config = await readMcpConfigFile(overridePath);
+    await writeMcpConfigFile(overridePath, {
+      ...config,
+      mcpServers: {
+        ...config.mcpServers,
+        [name]: disableSkeleton(winner.file.provider, winner.raw),
+      },
+    });
+    return;
+  }
+
+  // Enabling a server defined outside the project: mirror resolution's state
+  // derivation to reject the states no project-local write can change.
+  const errors: McpServersResult["errors"] = [];
+  const { denylist, allowlist } = await readServerLists(
+    path.join(getOmpAgentDir(env), "mcp.json"),
+    errors,
+  );
+  if (denylist.has(name)) {
+    throw new Error(
+      `"${name}" is disabled by the user-level denylist — enable it globally from Settings → MCP servers.`,
+    );
+  }
+  if (winner.raw.enabled === false && !allowlist.has(name)) {
+    throw new Error(
+      `"${name}" is disabled in its source config — enable it globally from Settings → MCP servers.`,
+    );
+  }
+  // Already effectively enabled — idempotent no-op, no write.
 }

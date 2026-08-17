@@ -129,6 +129,19 @@ const shadowedRow: McpServerEntry = {
   writable: false,
 };
 
+/** A writable user-native row: togglable globally, pinned when source-disabled in project scope. */
+const userNativeRow: McpServerEntry = {
+  name: "user-native-one",
+  transport: "stdio",
+  endpoint: "user-bin",
+  source: "native",
+  scope: "user",
+  sourcePath: "/home/u/.omp/agent/mcp.json",
+  effective: true,
+  state: "enabled",
+  writable: true,
+};
+
 /** Mirrors App.tsx's mounting: the modal exists only while the store says so. */
 function Gate() {
   const mcpManager = useStore((s) => s.mcpManager);
@@ -184,7 +197,7 @@ describe("McpManager", () => {
     expect(document.body.textContent).toContain("native-one");
   });
 
-  it("passes sourcePath only for a writable row's toggle", async () => {
+  it("never passes sourcePath in project scope, even for writable rows", async () => {
     backendMock.getMcpServers.mockResolvedValue({
       servers: [writableRow, toolRow],
       errors: [],
@@ -203,7 +216,7 @@ describe("McpManager", () => {
     expect(backendMock.setMcpServerEnabled).toHaveBeenCalledWith({
       projectCwd: PROJECT,
       name: "native-one",
-      sourcePath: "/proj/.omp/mcp.json",
+      sourcePath: undefined,
       enabled: false,
     });
 
@@ -254,7 +267,7 @@ describe("McpManager", () => {
 
   it("renders global scope for null projectCwd", async () => {
     useStore.setState({ mcpManager: { projectCwd: null }, state: null });
-    backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow], errors: [] } satisfies McpServersResult);
+    backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow, userNativeRow], errors: [] } satisfies McpServersResult);
     await renderManager();
     expect(backendMock.getMcpServers).toHaveBeenCalledWith(null);
     const body = document.body.textContent ?? "";
@@ -262,7 +275,7 @@ describe("McpManager", () => {
     expect(body).toContain("Global — user-level configuration");
     expect(body).toContain("Changes apply to new sessions in every project.");
     expect(body).not.toContain("restart session to apply");
-    backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [], errors: [] } satisfies McpServersResult);
+    backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [toolRow, userNativeRow], errors: [] } satisfies McpServersResult);
     await act(async () => {
       switchFor("disable cursor-one").click();
     });
@@ -270,6 +283,15 @@ describe("McpManager", () => {
       projectCwd: null,
       name: "cursor-one",
       sourcePath: undefined,
+      enabled: false,
+    });
+    await act(async () => {
+      switchFor("disable user-native-one").click();
+    });
+    expect(backendMock.setMcpServerEnabled).toHaveBeenCalledWith({
+      projectCwd: null,
+      name: "user-native-one",
+      sourcePath: "/home/u/.omp/agent/mcp.json",
       enabled: false,
     });
   });
@@ -313,5 +335,67 @@ describe("McpManager", () => {
     useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null });
     await renderManager();
     expect(document.body.textContent).not.toContain("restart session to apply");
+  });
+
+  it("pins user-level-disabled rows in project scope, but not in global scope", async () => {
+    const denylisted: McpServerEntry = {
+      ...userNativeRow,
+      name: "denied-one",
+      state: "disabled",
+      disabledBy: "denylist",
+    };
+    const sourceDisabled: McpServerEntry = {
+      ...toolRow,
+      name: "off-one",
+      state: "disabled",
+      disabledBy: "config",
+    };
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [denylisted, sourceDisabled],
+      errors: [],
+    } satisfies McpServersResult);
+
+    // Project scope: nothing project-local can enable these — pinned.
+    await renderManager();
+    for (const label of ["enable denied-one", "enable off-one"]) {
+      const pinned = switchFor(label);
+      expect(pinned.disabled).toBe(true);
+      expect(pinned.title).toContain("enable it globally from Settings");
+    }
+    act(() => root?.unmount());
+    root = null;
+    document.body.innerHTML = "";
+
+    // Global scope: the same rows toggle through omp's user-level algorithm.
+    useStore.setState({ mcpManager: { projectCwd: null }, state: null });
+    await renderManager();
+    for (const label of ["enable denied-one", "enable off-one"]) {
+      expect(switchFor(label).disabled).toBe(false);
+    }
+  });
+
+  it("keeps a live switch on a project-disabled row and describes the override write", async () => {
+    const projectDisabled: McpServerEntry = {
+      ...writableRow,
+      name: "skeleton-one",
+      state: "disabled",
+      disabledBy: "config",
+    };
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [projectDisabled, toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    await renderManager();
+
+    // Disabled by a project-scope entry → still togglable, flipped in place.
+    const skeleton = switchFor("enable skeleton-one");
+    expect(skeleton.disabled).toBe(false);
+    expect(skeleton.title).toBe("writes enabled:true to /proj/.omp/mcp.json");
+    // Winner outside the project → the toggle writes a project-only override.
+    expect(switchFor("disable cursor-one").title).toBe(
+      "writes a project-only override to .omp/mcp.json",
+    );
+    // Project-scope footer names the blast radius.
+    expect(document.body.textContent).toContain("Changes apply to new sessions in this project.");
   });
 });

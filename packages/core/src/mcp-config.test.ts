@@ -243,44 +243,22 @@ describe("setMcpServerEnabled", () => {
     });
   });
 
-  it("routes a tool-owned server's toggle through the user denylist, never its file", async () => {
-    const { env, home, agent, project } = fixture();
-    const cursorFile = path.join(home, ".cursor", "mcp.json");
-    writeJson(cursorFile, { mcpServers: { x: { command: "x-bin" } } });
-    const before = fs.readFileSync(cursorFile, "utf8");
-
-    const off = await setMcpServerEnabled({ projectCwd: project, name: "x", enabled: false }, env);
-    const userFile = path.join(agent, "mcp.json");
-    expect(JSON.parse(fs.readFileSync(userFile, "utf8")).disabledServers).toEqual(["x"]);
-    expect(fs.readFileSync(cursorFile, "utf8")).toBe(before);
-    expect(off.servers.find((s) => s.name === "x")).toMatchObject({
-      state: "disabled",
-      disabledBy: "denylist",
-    });
-
-    const on = await setMcpServerEnabled({ projectCwd: project, name: "x", enabled: true }, env);
-    // An emptied denylist deletes the key rather than leaving [] behind.
-    expect(JSON.parse(fs.readFileSync(userFile, "utf8"))).not.toHaveProperty("disabledServers");
-    expect(fs.readFileSync(cursorFile, "utf8")).toBe(before);
-    expect(on.servers.find((s) => s.name === "x")).toMatchObject({ state: "enabled" });
-  });
-
   it("force-enables via the allowlist, then drops it once a writable source says on", async () => {
-    const { env, home, agent, project } = fixture();
+    const { env, home, agent } = fixture();
     writeJson(path.join(home, ".cursor", "mcp.json"), {
       mcpServers: { x: { command: "x-bin", enabled: false } },
     });
     const userFile = path.join(agent, "mcp.json");
 
-    await setMcpServerEnabled({ projectCwd: project, name: "x", enabled: true }, env);
+    await setMcpServerEnabled({ projectCwd: null, name: "x", enabled: true }, env);
     expect(JSON.parse(fs.readFileSync(userFile, "utf8")).enabledServers).toEqual(["x"]);
 
     // The same name now appears in a writable native file; enabling there
     // makes the allowlist override redundant, so it is dropped.
-    const nativeFile = path.join(project, ".omp", "mcp.json");
+    const nativeFile = path.join(agent, ".mcp.json");
     writeJson(nativeFile, { mcpServers: { x: { command: "x-bin" } } });
     const result = await setMcpServerEnabled(
-      { projectCwd: project, name: "x", sourcePath: nativeFile, enabled: true },
+      { projectCwd: null, name: "x", sourcePath: nativeFile, enabled: true },
       env,
     );
     expect(JSON.parse(fs.readFileSync(userFile, "utf8"))).not.toHaveProperty("enabledServers");
@@ -289,14 +267,14 @@ describe("setMcpServerEnabled", () => {
   });
 
   it("clears a stale allowlist entry when disabling", async () => {
-    const { env, home, agent, project } = fixture();
+    const { env, home, agent } = fixture();
     writeJson(path.join(home, ".cursor", "mcp.json"), {
       mcpServers: { x: { command: "x-bin", enabled: false } },
     });
     const userFile = path.join(agent, "mcp.json");
     writeJson(userFile, { enabledServers: ["x"] });
 
-    await setMcpServerEnabled({ projectCwd: project, name: "x", enabled: false }, env);
+    await setMcpServerEnabled({ projectCwd: null, name: "x", enabled: false }, env);
     const written = JSON.parse(fs.readFileSync(userFile, "utf8"));
     expect(written).not.toHaveProperty("enabledServers");
     expect(written.disabledServers).toEqual(["x"]);
@@ -333,5 +311,199 @@ describe("setMcpServerEnabled", () => {
       state: "disabled",
       disabledBy: "config",
     });
+  });
+});
+
+describe("setMcpServerEnabled (project scope)", () => {
+  it("disables a user-native server via a skeleton in the project override, leaving the user file alone", async () => {
+    const { env, agent, project } = fixture();
+    const otherProject = tmpDir();
+    const userFile = path.join(agent, "mcp.json");
+    writeJson(userFile, { mcpServers: { ctx: { command: "user-bin", args: ["--x"] } } });
+    const before = fs.readFileSync(userFile, "utf8");
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "ctx", enabled: false },
+      env,
+    );
+
+    const override = JSON.parse(
+      fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8"),
+    );
+    // Secret-free suppression skeleton: no args copied.
+    expect(override.mcpServers.ctx).toEqual({ command: "user-bin", enabled: false });
+    expect(fs.readFileSync(userFile, "utf8")).toBe(before);
+
+    expect(result.servers.find((s) => s.name === "ctx" && s.effective)).toMatchObject({
+      state: "disabled",
+      disabledBy: "config",
+      scope: "project",
+    });
+
+    // The blast radius is this project only.
+    const elsewhere = await resolveMcpServers(otherProject, env);
+    expect(elsewhere.servers.find((s) => s.name === "ctx")).toMatchObject({ state: "enabled" });
+  });
+
+  it("writes a redacted http skeleton and never touches the user override lists", async () => {
+    const { env, home, agent, project } = fixture();
+    writeJson(path.join(home, ".cursor", "mcp.json"), {
+      mcpServers: {
+        remote: {
+          type: "http",
+          url: "https://user:url-secret@api.example.com/mcp?key=query-secret",
+          headers: { Authorization: "Bearer header-secret" },
+        },
+      },
+    });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "remote", enabled: false }, env);
+
+    const overrideText = fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8");
+    for (const secret of ["url-secret", "query-secret", "header-secret"]) {
+      expect(overrideText).not.toContain(secret);
+    }
+    expect(JSON.parse(overrideText).mcpServers.remote).toEqual({
+      type: "http",
+      url: "https://api.example.com/mcp",
+      enabled: false,
+    });
+    // No user-level state of any kind was written.
+    expect(fs.existsSync(path.join(agent, "mcp.json"))).toBe(false);
+  });
+
+  it("re-enabling deletes the skeleton and falls back to the source definition", async () => {
+    const { env, agent, project } = fixture();
+    writeJson(path.join(agent, "mcp.json"), { mcpServers: { ctx: { command: "user-bin" } } });
+    const overrideFile = path.join(project, ".omp", "mcp.json");
+    writeJson(overrideFile, {
+      mcpServers: { keep: { command: "keep-bin" } },
+      otherRootKey: { nested: true },
+    });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "ctx", enabled: false }, env);
+    expect(
+      JSON.parse(fs.readFileSync(overrideFile, "utf8")).mcpServers.ctx,
+    ).toEqual({ command: "user-bin", enabled: false });
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "ctx", enabled: true },
+      env,
+    );
+    const written = JSON.parse(fs.readFileSync(overrideFile, "utf8"));
+    expect(written.mcpServers).toEqual({ keep: { command: "keep-bin" } });
+    expect(written.otherRootKey).toEqual({ nested: true });
+    expect(result.servers.find((s) => s.name === "ctx" && s.effective)).toMatchObject({
+      state: "enabled",
+      scope: "user",
+      source: "native",
+    });
+  });
+
+  it("re-enabling a non-skeleton project entry flips it in place, preserving its keys", async () => {
+    const { env, agent, project } = fixture();
+    writeJson(path.join(agent, "mcp.json"), { mcpServers: { ctx: { command: "user-bin" } } });
+    const overrideFile = path.join(project, ".omp", "mcp.json");
+    writeJson(overrideFile, {
+      mcpServers: {
+        ctx: { command: "proj-bin", args: ["--p"], env: { K: "v" }, enabled: false },
+      },
+    });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "ctx", enabled: true }, env);
+    expect(JSON.parse(fs.readFileSync(overrideFile, "utf8")).mcpServers.ctx).toEqual({
+      command: "proj-bin",
+      args: ["--p"],
+      env: { K: "v" },
+      enabled: true,
+    });
+  });
+
+  it("flips a root mcp.json winner in place instead of writing a skeleton", async () => {
+    const { env, project } = fixture();
+    const rootFile = path.join(project, "mcp.json");
+    writeJson(rootFile, { mcpServers: { ctx: { command: "root-bin" } } });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "ctx", enabled: false }, env);
+    expect(JSON.parse(fs.readFileSync(rootFile, "utf8")).mcpServers.ctx.enabled).toBe(false);
+    expect(fs.existsSync(path.join(project, ".omp", "mcp.json"))).toBe(false);
+  });
+
+  it("suppresses the real winner, not a shadowed project entry", async () => {
+    const { env, agent, project } = fixture();
+    writeJson(path.join(agent, "mcp.json"), { mcpServers: { ctx: { command: "user-bin" } } });
+    const rootFile = path.join(project, "mcp.json");
+    writeJson(rootFile, { mcpServers: { ctx: { command: "root-bin" } } });
+    const rootBefore = fs.readFileSync(rootFile, "utf8");
+
+    await setMcpServerEnabled({ projectCwd: project, name: "ctx", enabled: false }, env);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8")).mcpServers.ctx,
+    ).toEqual({ command: "user-bin", enabled: false });
+    // The shadowed root entry must not be flipped (the old candidate-loop flaw).
+    expect(fs.readFileSync(rootFile, "utf8")).toBe(rootBefore);
+  });
+
+  it("rejects enabling a denylisted server and leaves every file untouched", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    writeJson(userFile, {
+      mcpServers: { ctx: { command: "user-bin" } },
+      disabledServers: ["ctx"],
+    });
+    const before = fs.readFileSync(userFile, "utf8");
+
+    await expect(
+      setMcpServerEnabled({ projectCwd: project, name: "ctx", enabled: true }, env),
+    ).rejects.toThrow(/denylist — enable it globally from Settings/);
+    expect(fs.readFileSync(userFile, "utf8")).toBe(before);
+    expect(fs.existsSync(path.join(project, ".omp", "mcp.json"))).toBe(false);
+  });
+
+  it("rejects a project-scope enable of a source-disabled tool server", async () => {
+    const { env, home, project } = fixture();
+    const cursorFile = path.join(home, ".cursor", "mcp.json");
+    writeJson(cursorFile, { mcpServers: { x: { command: "x-bin", enabled: false } } });
+    const before = fs.readFileSync(cursorFile, "utf8");
+
+    await expect(
+      setMcpServerEnabled({ projectCwd: project, name: "x", enabled: true }, env),
+    ).rejects.toThrow(/disabled in its source config/);
+    expect(fs.readFileSync(cursorFile, "utf8")).toBe(before);
+    expect(fs.existsSync(path.join(project, ".omp", "mcp.json"))).toBe(false);
+  });
+
+  it("enabling an already-enabled outside server is an idempotent no-op", async () => {
+    const { env, agent, project } = fixture();
+    writeJson(path.join(agent, "mcp.json"), { mcpServers: { ctx: { command: "user-bin" } } });
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "ctx", enabled: true },
+      env,
+    );
+    expect(result.servers.find((s) => s.name === "ctx")).toMatchObject({ state: "enabled" });
+    expect(fs.existsSync(path.join(project, ".omp"))).toBe(false);
+  });
+
+  it("skeletons an opencode array command down to argv[0], copying no args", async () => {
+    const { env, project } = fixture();
+    writeJson(path.join(project, "opencode.json"), {
+      mcp: {
+        srv: { type: "local", command: ["bunx", "srv", "--x"], environment: { K: "oc-secret" } },
+      },
+    });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "srv", enabled: false }, env);
+    const overrideText = fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8");
+    expect(overrideText).not.toContain("oc-secret");
+    expect(overrideText).not.toContain("--x");
+    expect(JSON.parse(overrideText).mcpServers.srv).toEqual({ command: "bunx", enabled: false });
+  });
+
+  it("rejects a toggle for a name no source defines", async () => {
+    const { env, project } = fixture();
+    await expect(
+      setMcpServerEnabled({ projectCwd: project, name: "ghost", enabled: false }, env),
+    ).rejects.toThrow('Server "ghost" is not defined in any config source.');
   });
 });

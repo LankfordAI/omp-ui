@@ -8,10 +8,15 @@ import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
 /**
  * The MCP management modal (issue #17): every server omp resolves for one
  * scope — a project (`projectCwd`) or global (`null`, user-level sources
- * only) — with its effective enabled state, and toggles that go through
- * omp's own enable/disable write algorithm. All resolution and mutation
+ * only) — with its effective enabled state. All resolution and mutation
  * lives in core — the renderer only ever sees the redacted DTO. The modal is
  * pinned to a tab (`tabId`) only when opened from a session.
+ *
+ * Toggle scope follows the modal's scope (#223): project toggles write only
+ * project files (an in-place flip, or a suppression override in
+ * `.omp/mcp.json`) and never user-level state — rows that only a global
+ * write could enable render a pinned switch instead. Global toggles use
+ * omp's own user-level write algorithm.
  *
  * omp has no MCP RPC verbs and no config watching, so a toggle takes effect
  * on the next session spawn; the footer says so and offers an in-place
@@ -33,14 +38,24 @@ function displayMessage(err: unknown): string {
 
 function Row({
   entry,
+  projectScoped,
   pending,
   onToggle,
 }: {
   entry: McpServerEntry;
+  /** True when the modal is scoped to a project (`projectCwd !== null`). */
+  projectScoped: boolean;
   pending: boolean;
   onToggle: (entry: McpServerEntry, next: boolean) => void;
 }) {
   const shadowedSource = entry.shadowedBy?.split(":", 1)[0];
+  // Exactly the states the project writer rejects: nothing project-local can
+  // beat the user denylist or a user-level source's enabled:false.
+  const pinnedGlobally =
+    projectScoped &&
+    entry.state === "disabled" &&
+    (entry.disabledBy === "denylist" || entry.scope === "user");
+  const inPlaceTitle = `writes enabled:${entry.state === "enabled" ? "false" : "true"} to ${entry.sourcePath}`;
   return (
     <li
       className={cn(
@@ -79,11 +94,17 @@ function Row({
           on={entry.state === "enabled"}
           label={`${entry.state === "enabled" ? "disable" : "enable"} ${entry.name}`}
           title={
-            entry.writable
-              ? `writes enabled:${entry.state === "enabled" ? "false" : "true"} to ${entry.sourcePath}`
-              : "tool-owned file — toggled via omp's user-level override lists"
+            projectScoped
+              ? pinnedGlobally
+                ? "disabled at the user level — enable it globally from Settings → MCP servers"
+                : entry.scope === "project" && entry.writable
+                  ? inPlaceTitle
+                  : "writes a project-only override to .omp/mcp.json"
+              : entry.writable
+                ? inPlaceTitle
+                : "tool-owned file — toggled via omp's user-level override lists"
           }
-          disabled={pending}
+          disabled={pending || pinnedGlobally}
           onChange={(next) => onToggle(entry, next)}
         />
       )}
@@ -124,9 +145,9 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
       .setMcpServerEnabled({
         projectCwd,
         name: entry.name,
-        // Tool-owned files are never mutated; the toggle goes through omp's
-        // user-level override lists instead (see core/mcp-config.ts).
-        sourcePath: entry.writable ? entry.sourcePath : undefined,
+        // Global scope only: the project-override writer (core/mcp-config.ts)
+        // resolves the winning definition itself and ignores sourcePath.
+        sourcePath: projectCwd === null && entry.writable ? entry.sourcePath : undefined,
         enabled: next,
       })
       .then(
@@ -214,6 +235,7 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
                     <Row
                       key={`${entry.source}:${entry.sourcePath}:${entry.name}`}
                       entry={entry}
+                      projectScoped={projectCwd !== null}
                       pending={pendingName === entry.name}
                       onToggle={toggle}
                     />
@@ -226,7 +248,7 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
 
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">
-            {projectCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions."}
+            {projectCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions in this project."}
           </p>
           {live && (
             <Button
