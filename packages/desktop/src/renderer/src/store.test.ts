@@ -6,10 +6,13 @@ import type {
   LiveState,
   OmpSettingsSnapshot,
   OmpUpdateState,
+  PendingPlan,
+  PlanSettle,
   RemoteState,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
+import { planProposalItem } from "./lib/transcript";
 import { ADVISOR_REPLY_SETTLE_MS } from "./lib/advisor-reply";
 import {
   backendState as makeBackendState,
@@ -222,6 +225,8 @@ function stateWithRecord(
             title: "New session",
             status: null,
             live,
+            pendingPlan: null,
+            planSettle: null,
           },
         ],
       },
@@ -4141,6 +4146,8 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     title: "New session",
     status: null,
     live,
+    pendingPlan: null,
+    planSettle: null,
   });
 
   it("newSession records the spawned tab as the project's focus", async () => {
@@ -4250,6 +4257,8 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
     title: "New session",
     status: null,
     live: "live" as const,
+    pendingPlan: null,
+    planSettle: null,
   });
   const twoSessionState = (): BackendState =>
     makeBackendState({
@@ -4919,5 +4928,156 @@ describe("transcript commit batching (issue #187)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+
+describe("plan-review gate reconciliation (issue #215)", () => {
+  const PENDING: PendingPlan = {
+    title: "add auth",
+    planFilePath: "local://auth-plan.html",
+    planAbsPath: "/l/auth-plan.html",
+    frameId: "p1",
+    proposedAt: "2026-08-17T00:00:00.000Z",
+  };
+
+  const gateState = (gate: {
+    pendingPlan?: PendingPlan | null;
+    planSettle?: PlanSettle | null;
+  }): BackendState => {
+    const base = stateWithRecord(null);
+    return {
+      ...base,
+      projects: [
+        {
+          ...base.projects[0]!,
+          sessions: [
+            {
+              ...base.projects[0]!.sessions[0]!,
+              pendingPlan: gate.pendingPlan ?? null,
+              planSettle: gate.planSettle ?? null,
+            },
+          ],
+        },
+      ],
+    };
+  };
+
+  /**
+   * A fresh store module (init latches per evaluation) with the real
+   * onStateChanged handler captured — the entry point every broadcast
+   * passes through, and where reconciliation runs.
+   */
+  const initFreshStore = async (): Promise<{
+    store: typeof import("./store").useStore;
+    onStateChanged: (state: BackendState) => void;
+  }> => {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    const init = fresh.getState().init();
+    const onStateChanged = mockBackend.onStateChanged.mock.calls[0]![0] as (
+      state: BackendState,
+    ) => void;
+    await init;
+    return { store: fresh, onStateChanged };
+  };
+
+  const reviewedTab = (patch: Partial<ReturnType<typeof rpcTabState>> = {}) =>
+    rpcTabState({
+      planReview: {
+        request: {
+          title: "add auth",
+          planFilePath: "local://auth-plan.html",
+          planAbsPath: "/l/auth-plan.html",
+        },
+        frame: { id: "p1" },
+      },
+      plans: [{ key: "local://auth-plan.html", title: "add auth", status: "pending" }],
+      ...patch,
+    });
+
+  it("hydrates a late-joining renderer from the record alone", async () => {
+    const { store, onStateChanged } = await initFreshStore();
+    store.setState({ rpc: { [TAB]: rpcTabState() } });
+
+    onStateChanged(gateState({ pendingPlan: PENDING }));
+    let tab = store.getState().rpc[TAB]!;
+    expect(tab.planReview).toEqual({
+      request: {
+        title: "add auth",
+        planFilePath: "local://auth-plan.html",
+        planAbsPath: "/l/auth-plan.html",
+      },
+      frame: { id: "p1" },
+    });
+    expect(tab.planDeferred).toBe(false);
+    expect(tab.plans).toEqual([
+      { key: "local://auth-plan.html", title: "add auth", status: "pending" },
+    ]);
+    expect(mockBackend.readPlanFile).toHaveBeenCalledWith(TAB, "/l/auth-plan.html");
+    await flushMicrotasks();
+    tab = store.getState().rpc[TAB]!;
+    expect(tab.planText).toBe("<h1>Plan</h1>");
+    expect(tab.planHtml).toBe("<h1>Plan</h1>");
+  });
+
+  it("settles a verdict another client made, matching the proposal frame id", async () => {
+    const { store, onStateChanged } = await initFreshStore();
+    const planItem = planProposalItem("add auth", "local://auth-plan.html", "/l/auth-plan.html");
+    store.setState({ rpc: { [TAB]: reviewedTab({ items: [planItem] }) } });
+
+    onStateChanged(gateState({ planSettle: { frameId: "p1", verdict: "executed" } }));
+    const tab = store.getState().rpc[TAB]!;
+    expect(tab.planReview).toBeNull();
+    expect(tab.plans).toEqual([
+      { key: "local://auth-plan.html", title: "add auth", status: "executed" },
+    ]);
+    expect(tab.items).toEqual([{ ...planItem, status: "executed" }]);
+  });
+
+  it("closes the pane when the settle is for a different gate", async () => {
+    const { store, onStateChanged } = await initFreshStore();
+    store.setState({ rpc: { [TAB]: reviewedTab() } });
+
+    onStateChanged(gateState({ planSettle: { frameId: "p2", verdict: "executed" } }));
+    const tab = store.getState().rpc[TAB]!;
+    expect(tab.planReview).toBeNull();
+    expect(tab.planText).toBeNull();
+    expect(tab.planDeferred).toBe(false);
+    // The row stays a dimmed pending record — no verdict was observed for it.
+    expect(tab.plans).toEqual([
+      { key: "local://auth-plan.html", title: "add auth", status: "pending" },
+    ]);
+  });
+
+  it("replaces a stale local review when the record proposes a different frame", async () => {
+    const { store, onStateChanged } = await initFreshStore();
+    store.setState({
+      rpc: {
+        [TAB]: reviewedTab({
+          planReview: {
+            request: {
+              title: "add auth",
+              planFilePath: "local://auth-plan.html",
+              planAbsPath: "/l/auth-plan.html",
+            },
+            frame: { id: "old" },
+          },
+        }),
+      },
+    });
+
+    onStateChanged(gateState({ pendingPlan: { ...PENDING, frameId: "new" } }));
+    expect(store.getState().rpc[TAB]!.planReview?.frame).toEqual({ id: "new" });
+  });
+
+  it("marks the sidebar awaiting-answer from the record alone", () => {
+    const record = {
+      ...stateWithRecord(null).projects[0]!.sessions[0]!,
+      pendingPlan: PENDING,
+    };
+    expect(deriveSidebarSessionState(record, undefined, undefined)).toBe(
+      "awaiting-answer",
+    );
   });
 });

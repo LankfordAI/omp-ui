@@ -76,10 +76,32 @@ export interface OwnedSessionRecord {
   cachedModified: string | null;
 }
 
+/** Plan-review gate the session's agent is blocked on right now. Main-process owned. */
+export interface PendingPlan {
+  /** The proposal title as the agent wrote it. */
+  title: string;
+  /** The one plan artifact, as a local:// URL (matches PlanReviewRequest). */
+  planFilePath: string;
+  /** Absolute path for plan:read; null when no artifacts dir could be resolved. */
+  planAbsPath: string | null;
+  /** id of the proposal `extension_ui_request` frame — answering the gate must echo it. */
+  frameId: string;
+  /** ISO-8601 timestamp of the proposal. */
+  proposedAt: string;
+}
+
+/** Latest verdict that closed a gate, so renderers that did not answer can settle their rows. */
+export interface PlanSettle {
+  frameId: string;
+  verdict: "executed" | "refined";
+}
+
 export interface SessionSummary extends OwnedSessionRecord {
   title: string;
   status: SessionStatus | null;
   live: LiveState;
+  pendingPlan: PendingPlan | null;
+  planSettle: PlanSettle | null;
 }
 
 export interface ProjectGroup {

@@ -54,6 +54,8 @@ const state = backendState({
           title: "Inspect",
           status: "complete",
           live: "live",
+          pendingPlan: null,
+          planSettle: null,
         },
       ],
     },

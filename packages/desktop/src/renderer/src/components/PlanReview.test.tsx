@@ -82,6 +82,8 @@ function sessionRecord(tabId: string, title: string) {
     title,
     status: "complete" as const,
     live: "live" as const,
+    pendingPlan: null,
+    planSettle: null,
   };
 }
 
@@ -703,5 +705,35 @@ describe("PlanReview plan rendering (issue #109)", () => {
 
     expect(planFrame()).toBeNull();
     expect(document.body.textContent).toContain("The plan file could not be read");
+  });
+});
+
+describe("PlanReview hydrated gate (issue #215)", () => {
+  it("answers with the frame id the reconciler hydrated, not a stale one", async () => {
+    // Seed the tab exactly as reconcilePlanGates does: a minimal
+    // reconstructed frame carrying the record's proposal id, plus the
+    // loaded document.
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          planReview: {
+            request: {
+              title: "Fix the login race",
+              planFilePath: "local://fix-login-race-plan.md",
+              planAbsPath: "/x/fix-login-race-plan.md",
+            },
+            frame: { id: "p9" },
+          },
+        }),
+      },
+    });
+    render();
+    // The modal opened for the hydrated review...
+    expect(document.body.textContent).toContain("Fix the login race");
+
+    await act(async () => executeButton().click());
+    // ...and its execute verdict echoes the hydrated frame id, so the
+    // main process recognizes it as the answer to the pending gate.
+    expect(verdictFrame()).toMatchObject({ id: "p9", value: "execute" });
   });
 });

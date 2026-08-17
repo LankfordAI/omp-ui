@@ -16,6 +16,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     spawnOmp: vi.fn(),
     spawnShell: vi.fn(),
     watchLineageDir: vi.fn(),
+    RpcClient: vi.fn(),
   };
 });
 
@@ -25,6 +26,7 @@ const resolveSessionLocationMock = vi.mocked(Core.resolveSessionLocation);
 const spawnOmpMock = vi.mocked(Core.spawnOmp);
 const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
+const RpcClientMock = vi.mocked(Core.RpcClient);
 
 interface FakePty {
   dataCb: ((data: Buffer) => void) | null;
@@ -39,6 +41,12 @@ interface FakePty {
 
 const fakePtys: FakePty[] = [];
 const fakeShells: FakePty[] = [];
+const rpcInstances: {
+  kill: Mock;
+  send: Mock;
+  exit: (code: number) => void;
+  frame: (frame: unknown) => void;
+}[] = [];
 const watcherDisposes: Mock[] = [];
 let nextPtyDiesOn: "default" | "SIGKILL" | "never" = "never";
 let base = "";
@@ -82,7 +90,7 @@ function asPtyHandle(id: string, fake: FakePty): PtyHandle {
   };
 }
 
-function setup(): {
+function setup(opts: { mode?: "pty" | "rpc-ui" } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -111,7 +119,7 @@ function setup(): {
         sessionId: null,
         lineageDir: LINEAGE,
         projectCwd: "/proj",
-        mode: "pty",
+        mode: opts.mode ?? "pty",
       }),
     ],
   });
@@ -155,6 +163,7 @@ beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
   fakePtys.length = 0;
   fakeShells.length = 0;
+  rpcInstances.length = 0;
   watcherDisposes.length = 0;
   nextPtyDiesOn = "never";
   resolveSessionLocationMock.mockClear();
@@ -176,6 +185,20 @@ beforeEach(() => {
     watcherDisposes.push(dispose);
     return dispose;
   });
+  RpcClientMock.mockReset();
+  RpcClientMock.mockImplementation(function (
+    this: unknown,
+    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void },
+  ) {
+    const instance = {
+      kill: vi.fn(),
+      send: vi.fn(),
+      exit: (code: number) => opts.onExit(code),
+      frame: (frame: unknown) => opts.onFrame(frame),
+    };
+    rpcInstances.push(instance);
+    return instance;
+  } as unknown as typeof Core.RpcClient);
 });
 
 describe("SessionManager live ownership", () => {
@@ -384,4 +407,108 @@ describe("lineage watcher broadcast throttle (issue #187)", () => {
       vi.useRealTimers();
     }
   }, 20_000);
+});
+
+describe("plan-review gate (issue #215)", () => {
+  const proposalFrame = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: "/l/auth-plan.html",
+    })}`,
+  });
+
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB,
+    });
+
+  it("records a proposal as its frame passes through, and broadcasts it", async () => {
+    const { manager, broadcast } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    broadcast.mockClear();
+
+    rpcInstances[0]!.frame(proposalFrame("p1"));
+
+    expect(manager.planGate(TAB)).toEqual({
+      pending: {
+        title: "add auth",
+        planFilePath: "local://auth-plan.html",
+        planAbsPath: "/l/auth-plan.html",
+        frameId: "p1",
+        proposedAt: expect.any(String),
+      },
+      settle: null,
+    });
+    expect(broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the gate untouched for ordinary extension dialogs", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+
+    rpcInstances[0]!.frame({
+      type: "extension_ui_request",
+      id: "q1",
+      method: "select",
+      title: "Pick an option",
+    });
+
+    expect(manager.planGate(TAB)).toBeUndefined();
+  });
+
+  it("settles the gate when its own answer comes back, still forwarding the verdict", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    rpcInstances[0]!.frame(proposalFrame("p1"));
+
+    manager.rpcSend(TAB, {
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_EXECUTE,
+    });
+
+    expect(manager.planGate(TAB)).toEqual({
+      pending: null,
+      settle: { frameId: "p1", verdict: "executed" },
+    });
+    expect(rpcInstances[0]!.send).toHaveBeenCalledWith({
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_EXECUTE,
+    });
+  });
+
+  it("ignores an answer whose id matches no pending gate", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    rpcInstances[0]!.frame(proposalFrame("p1"));
+    const before = manager.planGate(TAB);
+
+    manager.rpcSend(TAB, {
+      type: "extension_ui_response",
+      id: "other",
+      value: Core.PLAN_EXECUTE,
+    });
+
+    expect(manager.planGate(TAB)).toEqual(before);
+  });
+
+  it("drops the gate when the process exits", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    rpcInstances[0]!.frame(proposalFrame("p1"));
+
+    rpcInstances[0]!.exit(0);
+
+    expect(manager.planGate(TAB)).toBeUndefined();
+  });
 });

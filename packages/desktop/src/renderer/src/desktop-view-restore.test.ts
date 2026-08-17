@@ -134,6 +134,8 @@ const session = (
   title: tabId,
   status: null,
   live,
+  pendingPlan: null,
+  planSettle: null,
 });
 
 const backendState: BackendState = makeBackendState({

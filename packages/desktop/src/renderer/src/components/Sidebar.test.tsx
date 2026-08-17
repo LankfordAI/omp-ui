@@ -97,6 +97,8 @@ const state = backendState({
           title: "Owned session",
           status: "complete",
           live: "live",
+          pendingPlan: null,
+          planSettle: null,
         },
         {
           tabId: "tab-2",
@@ -112,6 +114,8 @@ const state = backendState({
           title: "Second owned session",
           status: "complete",
           live: "live",
+          pendingPlan: null,
+          planSettle: null,
         },
       ],
     },
@@ -805,6 +809,8 @@ describe("project name display", () => {
             title: `Session ${i + 1}`,
             status: "complete" as const,
             live,
+            pendingPlan: null,
+            planSettle: null,
           })),
         },
       ],
@@ -897,6 +903,8 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     title,
     status: "complete" as const,
     live: "live" as const,
+    pendingPlan: null,
+    planSettle: null,
   });
   const project = (path: string, name: string) => ({
     project: { path, name, addedAt: "t", lastModel: null, lastAdvisorModel: null },

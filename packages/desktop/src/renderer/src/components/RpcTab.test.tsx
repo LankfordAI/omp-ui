@@ -41,7 +41,7 @@ const state = backendState({
     sessions: [{
       tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t",
       mode: "rpc-ui", advisor: false, advisorModel: null, cachedTitle: "T",
-      cachedModified: "t", title: "T", status: "complete", live: "live",
+      cachedModified: "t", title: "T", status: "complete", live: "live", pendingPlan: null, planSettle: null,
     }],
   }],
 });

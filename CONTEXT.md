@@ -184,7 +184,12 @@ pane — Escape, scrim-click, or "not now" — is the third, non-answering verdi
 paused on its proposal and the plan stays pending in the rail's proposed
 plans pane until the user returns. Defer encodes "ignore for the time being";
 refine is the only verdict that revises immediately. Both keep the working
-tree read-only. Because the advisor reviews a turn only after it ends, the
+tree read-only. The pending plan gate itself is owned by the main process —
+the proposal frame is recorded as the session's `pendingPlan` on its summary,
+and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a
+remote client) hydrates the review from the record and settles a verdict
+another client already made; the gate never outlives the session process.
+Because the advisor reviews a turn only after it ends, the
 plan turn's review can outlive the gate — so on execute, a session with a
 configured advisor answers the verdict first, waits (bounded) for that review
 to land, then folds its concerns into the implementation prompt in every

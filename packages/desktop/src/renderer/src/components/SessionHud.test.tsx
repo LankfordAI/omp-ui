@@ -47,6 +47,8 @@ const state = backendState({
           title: "Mobile session",
           status: "complete",
           live: "live",
+          pendingPlan: null,
+          planSettle: null,
         },
       ],
     },

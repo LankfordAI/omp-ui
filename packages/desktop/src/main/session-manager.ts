@@ -10,6 +10,7 @@ import {
   hydrateSessionFile,
   mintLineageDirName,
   parseModelRole,
+  parsePlanReviewTitle,
   planMessage,
   type ProviderKeys,
   type Registry,
@@ -24,9 +25,12 @@ import {
   writeDefaultModelOverlay,
   writeImageToScratch,
   writePlanExtension,
+  PLAN_EXECUTE,
   MAX_IMAGE_BYTES,
   type ImageAttachment,
   type OwnedSessionRecord,
+  type PendingPlan,
+  type PlanSettle,
   type PtyHandle,
   type SessionMode,
   type SpawnRequest,
@@ -87,6 +91,12 @@ export interface SessionManagerDependencies {
   broadcast: () => Promise<void>;
 }
 
+/** One session's plan-review gate state, as observed from its frames. */
+interface PlanGate {
+  pending: PendingPlan | null;
+  settle: PlanSettle | null;
+}
+
 /** The sole owner of live session children and their supporting process state. */
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -99,6 +109,11 @@ export class SessionManager {
    * arriving mid-spawn can wait for the process to exist and then kill it.
    */
   private readonly spawning = new Map<string, Promise<void>>();
+  /**
+   * Live plan-review gates, keyed by tabId (issue #215). In-memory: they die
+   * with the process, so a gate can never outlive its agent.
+   */
+  private readonly planGates = new Map<string, PlanGate>();
   /** Throttle state for mtime-only watcher broadcasts (issue #187). */
   private watcherBroadcastAt = 0;
   private watcherBroadcastTimer: NodeJS.Timeout | undefined;
@@ -322,8 +337,14 @@ export class SessionManager {
             },
           ]
         : undefined,
-      onFrame: (frame) => this.deps.send(CH.onRpcFrame, record.tabId, frame),
+      onFrame: (frame) => {
+        // Recording precedes fan-out: the gate must be set before the first
+        // broadcast can read it (issue #215).
+        this.seePlanFrame(record.tabId, frame);
+        this.deps.send(CH.onRpcFrame, record.tabId, frame);
+      },
       onExit: (code) => {
+        this.clearPlanGate(record.tabId);
         entry.markExited();
         if (this.live.get(record.tabId) === entry) this.live.delete(record.tabId);
         if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, code ?? -1);
@@ -472,7 +493,53 @@ export class SessionManager {
     this.live.get(tabId)?.pty?.resize(cols, rows);
   }
 
+  /** Read by MainBackend.summarize; undefined when the tab never proposed. */
+  planGate(tabId: string): PlanGate | undefined {
+    return this.planGates.get(tabId);
+  }
+
+  /** Records a proposal as soon as its frame passes through the session. */
+  private seePlanFrame(tabId: string, frame: unknown): void {
+    if (typeof frame !== "object" || frame === null) return;
+    const f = frame as Record<string, unknown>;
+    if (f.type !== "extension_ui_request") return;
+    const review = parsePlanReviewTitle(typeof f.title === "string" ? f.title : undefined);
+    if (review === null) return;
+    const frameId = typeof f.id === "string" ? f.id : "";
+    this.planGates.set(tabId, {
+      pending: {
+        title: review.title,
+        planFilePath: review.planFilePath,
+        planAbsPath: review.planAbsPath,
+        frameId,
+        proposedAt: new Date().toISOString(),
+      },
+      settle: null, // a fresh gate replaces the last cycle's verdict
+    });
+    void this.deps.broadcast();
+  }
+
+  /** Settles the gate when its select answer comes back from any renderer. */
+  private notePlanVerdict(tabId: string, cmd: object): void {
+    const c = cmd as Record<string, unknown>;
+    if (c.type !== "extension_ui_response") return;
+    const id = typeof c.id === "string" ? c.id : null;
+    const gate = this.planGates.get(tabId);
+    if (id === null || !gate || gate.pending === null || gate.pending.frameId !== id) return;
+    this.planGates.set(tabId, {
+      pending: null,
+      settle: { frameId: id, verdict: c.value === PLAN_EXECUTE ? "executed" : "refined" },
+    });
+    void this.deps.broadcast();
+  }
+
+  /** Drops the gate on every path where the live process ends. */
+  clearPlanGate(tabId: string): void {
+    if (this.planGates.delete(tabId)) void this.deps.broadcast();
+  }
+
   rpcSend(tabId: string, cmd: object): void {
+    this.notePlanVerdict(tabId, cmd);
     this.live.get(tabId)?.rpc?.send(cmd);
   }
 

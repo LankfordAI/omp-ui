@@ -674,7 +674,15 @@ export class MainBackend {
         // Vanished mid-hydrate — render from cached fields.
       }
     }
-    return { ...record, title: title?.trim() || "New session", status, live };
+    const gate = this.sessions.planGate(record.tabId);
+    return {
+      ...record,
+      title: title?.trim() || "New session",
+      status,
+      live,
+      pendingPlan: gate?.pending ?? null,
+      planSettle: gate?.settle ?? null,
+    };
   }
 
   /** Fans state to every sink; the window sink self-guards, so remote clients survive a closed window. */

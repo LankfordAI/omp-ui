@@ -1,15 +1,26 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  CH,
+  PLAN_EXECUTE,
+  PLAN_REVIEW_SENTINEL,
+  ProviderKeys,
+  Registry,
+  RpcClient,
+  type BackendState,
+  type KeyCipher,
+} from "@omp-ui/core";
 import { MainBackend } from "./backend";
-import { CH } from "@omp-ui/core";
+import { SessionManager } from "./session-manager";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 const handlers = vi.hoisted(
   () => new Map<string, (e: unknown, ...args: unknown[]) => unknown>(),
 );
 const resolveSessionLocationMock = vi.hoisted(() => vi.fn());
+const RpcClientMock = vi.mocked(RpcClient);
 
 vi.mock("electron", () => ({
   app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => os.tmpdir() },
@@ -31,6 +42,8 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
   return {
     ...(original as object),
     resolveSessionLocation: resolveSessionLocationMock,
+    RpcClient: vi.fn(),
+    watchLineageDir: vi.fn(() => () => {}),
   };
 });
 
@@ -45,6 +58,15 @@ const win = {
 };
 
 let base = "";
+
+interface FakeRpc {
+  kill: Mock;
+  send: Mock;
+  exit: (code: number) => void;
+  frame: (frame: unknown) => void;
+}
+
+const rpcInstances: FakeRpc[] = [];
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -99,7 +121,22 @@ beforeEach(() => {
 
   handlers.clear();
   sent.length = 0;
+  rpcInstances.length = 0;
   resolveSessionLocationMock.mockReset().mockResolvedValue({ where: "missing" });
+  RpcClientMock.mockReset();
+  RpcClientMock.mockImplementation(function (
+    this: unknown,
+    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void },
+  ) {
+    const instance = {
+      kill: vi.fn(),
+      send: vi.fn(),
+      exit: (code: number) => opts.onExit(code),
+      frame: (frame: unknown) => opts.onFrame(frame),
+    };
+    rpcInstances.push(instance);
+    return instance;
+  } as unknown as typeof RpcClient);
   new MainBackend(win as never, registryFile).registerIpc();
 });
 
@@ -202,5 +239,148 @@ describe("window sink resilience (issue #183)", () => {
     } finally {
       win.webContents.send = original;
     }
+  });
+});
+
+describe("plan-review gate on the wire (issue #215)", () => {
+  const LINEAGE_A = "omp-ui--a--11111111-2222-3333-4444-555555555555";
+  const LINEAGE_B = "omp-ui--b--aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const TAB_A = "tab-a";
+  const TAB_B = "tab-b";
+
+  const proposalFrame = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: `${PLAN_REVIEW_SENTINEL}${JSON.stringify({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: "/l/auth-plan.html",
+    })}`,
+  });
+
+  // broadcast() is private in production; the injected manager must fan out
+  // on the backend's own chain, so the test reaches it through one named view.
+  const backendBroadcast = (
+    target: MainBackend,
+  ): (() => Promise<void>) =>
+    (target as unknown as { broadcast(): Promise<void> }).broadcast.bind(target);
+
+  /**
+   * A MainBackend whose SessionManager is injected so the test drives the
+   * fake RpcClient directly. Spawns the /p/a session before returning, and
+   * the manager's gate mutations broadcast through the backend's own chain,
+   * exactly like the default manager's.
+   */
+  const gateBackend = async (): Promise<{ manager: SessionManager; rpc: FakeRpc }> => {
+    const registryFile = path.join(base, "registry.json");
+    seedRegistry(registryFile, {
+      projects: [
+        { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+        { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+      ],
+      sessions: [
+        ownedSessionRecord({ tabId: TAB_A, lineageDir: LINEAGE_A, projectCwd: "/p/a", mode: "rpc-ui" }),
+        ownedSessionRecord({ tabId: TAB_B, lineageDir: LINEAGE_B, projectCwd: "/p/b", mode: "rpc-ui" }),
+      ],
+    });
+    const sessionsRoot = path.join(base, "agent", "sessions");
+    fs.mkdirSync(path.join(sessionsRoot, LINEAGE_A), { recursive: true });
+    fs.mkdirSync(path.join(sessionsRoot, LINEAGE_B), { recursive: true });
+
+    const cipher: KeyCipher = {
+      available: true,
+      backend: "test",
+      encrypt: (plain) => Buffer.from(plain),
+      decrypt: (blob) => blob.toString("utf8"),
+    };
+    const backendRef: { current: MainBackend | null } = { current: null };
+    const manager = new SessionManager({
+      registry: Registry.load(registryFile),
+      providerKeys: new ProviderKeys(
+        path.join(base, "provider-keys.json"),
+        cipher,
+        { OPENROUTER_API_KEY: "test-key" },
+      ),
+      getOmpPath: () => path.join(base, "omp"),
+      getSessionsRoot: () => sessionsRoot,
+      getArchiveRoot: () => path.join(base, "archive"),
+      send: () => {},
+      broadcast: () =>
+        backendRef.current === null
+          ? Promise.resolve()
+          : backendBroadcast(backendRef.current)(),
+    });
+    const backend = new MainBackend(win as never, registryFile, { sessions: manager });
+    backend.registerIpc();
+    backendRef.current = backend;
+    await invoke(CH.spawnSession, {
+      projectCwd: "/p/a",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB_A,
+    });
+    return { manager, rpc: rpcInstances[0]! };
+  };
+
+  const lastBroadcast = (): BackendState => {
+    const event = sent.filter((e) => e.channel === CH.onStateChanged).at(-1);
+    expect(event).toBeDefined();
+    return event!.args[0] as BackendState;
+  };
+
+  const sessionsOf = (state: BackendState, projectPath: string) =>
+    state.projects.find((group) => group.project.path === projectPath)!.sessions;
+
+  it("carries the pending plan on the summary and to the window sink", async () => {
+    const { manager, rpc } = await gateBackend();
+    expect(manager.planGate(TAB_A)).toBeUndefined();
+
+    rpc.frame(proposalFrame("p1"));
+    // The gate's broadcast queued first; this state change lands behind it, so
+    // awaiting it proves the gate's state already reached the sink.
+    await invoke(CH.toggleFavorite, "model-a");
+
+    const broadcasted = lastBroadcast();
+    expect(sessionsOf(broadcasted, "/p/a")[0]!.pendingPlan).toEqual({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: "/l/auth-plan.html",
+      frameId: "p1",
+      proposedAt: expect.any(String),
+    });
+    expect(sessionsOf(broadcasted, "/p/b")[0]!.pendingPlan).toBeNull();
+    expect(sessionsOf(broadcasted, "/p/b")[0]!.planSettle).toBeNull();
+
+    // A direct state read — what a late-joining renderer fetches — agrees.
+    const state = (await invoke(CH.getState)) as BackendState;
+    expect(sessionsOf(state, "/p/a")[0]!.pendingPlan?.frameId).toBe("p1");
+    expect(sessionsOf(state, "/p/b")[0]!.pendingPlan).toBeNull();
+  });
+
+  it("settles on the verdict, and clears both fields once the process exits", async () => {
+    const { manager, rpc } = await gateBackend();
+    rpc.frame(proposalFrame("p1"));
+
+    manager.rpcSend(TAB_A, {
+      type: "extension_ui_response",
+      id: "p1",
+      value: PLAN_EXECUTE,
+    });
+    await invoke(CH.toggleFavorite, "model-b");
+    let state = lastBroadcast();
+    expect(sessionsOf(state, "/p/a")[0]!.pendingPlan).toBeNull();
+    expect(sessionsOf(state, "/p/a")[0]!.planSettle).toEqual({
+      frameId: "p1",
+      verdict: "executed",
+    });
+
+    rpc.exit(0);
+    await invoke(CH.toggleFavorite, "model-c");
+    state = lastBroadcast();
+    expect(sessionsOf(state, "/p/a")[0]!.pendingPlan).toBeNull();
+    expect(sessionsOf(state, "/p/a")[0]!.planSettle).toBeNull();
   });
 });

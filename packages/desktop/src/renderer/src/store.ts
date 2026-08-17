@@ -152,6 +152,9 @@ export function deriveSidebarSessionState(
 ): SidebarSessionState {
   if (summary.live !== "live") return summary.live;
   if (exitCode !== undefined) return "dormant";
+  // A pending gate is main-process state (issue #215) — the record alone
+  // marks the session awaiting-answer, even before its tab is booted.
+  if (summary.pendingPlan !== null) return "awaiting-answer";
   if (summary.mode === "pty" || !rpc) return "live";
   if (rpc.status === "error") return "error";
   if (rpc.planReview !== null || rpc.extensionQueue.length > 0)
@@ -442,6 +445,82 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (!tab) return s;
       return { rpc: { ...s.rpc, [tabId]: { ...tab, ...patch } } };
     });
+  };
+
+  /**
+   * Reconciles each open rpc tab's plan-review gate against the
+   * main-process-owned record on the session summary (issue #215). The
+   * record wins: a pending gate hydrates the review pane (a late-joining
+   * renderer never saw the proposal frame), and a settled gate closes a
+   * verdict another client already made. Idempotent — patches only on
+   * disagreement, so it is safe to run on every state broadcast.
+   */
+  const reconcilePlanGates = (state: BackendState): void => {
+    for (const [tabId, tab] of Object.entries(get().rpc)) {
+      const rec = findRecord(state, tabId);
+      if (rec === undefined) continue;
+      const pending = rec.pendingPlan;
+      const review = tab.planReview;
+
+      if (pending !== null) {
+        // Hydrate — or replace a stale local review (the record wins).
+        const frameId =
+          review !== null && typeof review.frame === "object" && review.frame !== null
+            ? strField(review.frame, "id")
+            : null;
+        if (frameId !== pending.frameId) {
+          patchRpc(tabId, {
+            planReview: {
+              request: {
+                title: pending.title,
+                planFilePath: pending.planFilePath,
+                planAbsPath: pending.planAbsPath,
+              },
+              // Minimal reconstructed frame: answerPlanSelect reads only `.id`.
+              frame: { id: pending.frameId },
+            },
+            planDeferred: false,
+            plans: upsertPlan(tab.plans, pending.title, pending.planFilePath),
+          });
+          void get().loadPlanText(tabId, pending.planAbsPath);
+        }
+        continue;
+      }
+
+      if (review === null) continue; // no local gate, nothing to settle
+
+      // Gate gone. Was this client's review answered somewhere?
+      const localId =
+        typeof review.frame === "object" && review.frame !== null
+          ? strField(review.frame, "id")
+          : null;
+      const settle = rec.planSettle;
+      if (settle !== null && settle.frameId === localId) {
+        const key = review.request.planFilePath;
+        patchRpc(tabId, {
+          plans: settlePlan(tab.plans, key, settle.verdict),
+          planReview: null,
+          planText: null,
+          planHtml: null,
+          planDeferred: false,
+        });
+        // The same item settle executePlan/refinePlan perform locally.
+        patchItems(tabId, (i) =>
+          i.kind === "plan" && i.planFilePath === key && i.status === "pending"
+            ? { ...i, status: settle.verdict }
+            : i,
+        );
+      } else {
+        // Gate lost without an observed verdict (process died, mode switch):
+        // close the pane; the plan row stays a dimmed pending record.
+        patchRpc(tabId, {
+          planReview: null,
+          planText: null,
+          planHtml: null,
+          planDeferred: false,
+        });
+      }
+    }
   };
 
   /**
@@ -1177,6 +1256,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
         }));
         syncTheme(state);
+        reconcilePlanGates(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) => {
@@ -1218,6 +1298,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       ]);
       set({ state, appUpdate, ompUpdate, remote });
       syncTheme(state);
+      reconcilePlanGates(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
     },
@@ -1576,6 +1657,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
           });
         } else {
           patchRpc(tabId, { status: "ready" });
+          // Boot reset the tab to fresh state before this ran, so a pending
+          // gate on the record hydrates now instead of being clobbered.
+          const bootedState = get().state;
+          if (bootedState !== null) reconcilePlanGates(bootedState);
         }
       } catch (err) {
         const liveState = findRecord(get().state, tabId)?.live;
