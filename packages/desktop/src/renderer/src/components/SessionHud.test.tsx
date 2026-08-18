@@ -372,7 +372,7 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.textContent).toContain("no stream activity for 30.0s");
-    const chip = host.querySelector('span[title^="The renderer has received no model-stream"]');
+    const chip = host.querySelector<HTMLSpanElement>('span[title^="The renderer has received no model-stream"]');
     // Observation-only tooltip (#179): claims the renderer's observation,
     // never a cause.
     expect(chip?.title).toContain("The session may still recover");
