@@ -135,9 +135,12 @@ describe("removeWorktree", () => {
     fs.rmSync(wtPath, { recursive: true, force: true });
     await removeWorktree(dir, wtPath);
     const list = await git(dir, ["worktree", "list", "--porcelain"]);
-    expect(list.split("\n").filter((l) => l.startsWith("worktree "))).toEqual([
-      `worktree ${fs.realpathSync.native(dir)}`,
-    ]);
+    // git emits porcelain paths in forward-slash form on every platform,
+    // but fs.realpathSync.native carries the platform separator — normalize
+    // both sides so the comparison holds on Windows too (issue #230).
+    expect(
+      list.split("\n").filter((l) => l.startsWith("worktree ")).map(path.normalize),
+    ).toEqual([path.normalize(`worktree ${fs.realpathSync.native(dir)}`)]);
     expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
   });
 });
