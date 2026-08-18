@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { cn } from "../lib/cn";
+import { formatDuration } from "../lib/duration";
 import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
@@ -191,6 +192,37 @@ const STATUS: Record<string, { tone: Tone; pulse: boolean }> = {
   running: { tone: "copper", pulse: true },
   error: { tone: "rose", pulse: false },
 };
+
+/** Observation-only claim for the stall chip (issue #228, #179). */
+const STALL_CHIP_TITLE =
+  "The renderer has received no model-stream frames — text, thinking, or " +
+  "tool-call arguments — for the shown time while the assistant response is " +
+  "open. Local tool execution does not count. The session may still recover; " +
+  "if it does not, omp's idle watchdog posts a retry notice.";
+
+/**
+ * The live stream-stall chip (issue #228), one component for both HUD
+ * faces. The dot has no pulse: ADR-0004 reserves `breathe` for "work is
+ * happening right now", and a stalled stream is the negation of that.
+ */
+function StreamStallChip({
+  stallMs,
+  short,
+  className,
+}: {
+  stallMs: number;
+  short?: boolean;
+  className?: string;
+}) {
+  return (
+    <Chip tone="copper" mono title={STALL_CHIP_TITLE} className={cn("shrink-0", className)}>
+      <Dot tone="copper" />
+      {short
+        ? `stalled ${formatDuration(stallMs)}`
+        : `no stream activity for ${formatDuration(stallMs)}`}
+    </Chip>
+  );
+}
 
 /**
  * Click-to-rename title. Enter commits; Escape and blur both abandon.
@@ -511,6 +543,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const surface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
+  const streamStallMs = useStore((s) => s.rpc[tabId]?.streamStallMs);
 
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
   const face = STATUS[status] ?? STATUS.starting;
@@ -531,7 +564,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     return (
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
-          {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
+          {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : streamStallMs !== undefined ? <StreamStallChip stallMs={streamStallMs} short /> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
           {exceptionalAgentMode && <Chip tone="iris" title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}>{exceptionalAgentMode}</Chip>}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} />}
@@ -585,6 +618,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <Dot tone="copper" pulse />
           compacting
         </Chip>
+      ) : streamStallMs !== undefined ? (
+        <StreamStallChip stallMs={streamStallMs} className="[app-region:no-drag]" />
       ) : (
         <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-dim [app-region:no-drag]" title={`rpc status: ${status}`}>
           <Dot tone={face.tone} pulse={face.pulse} />

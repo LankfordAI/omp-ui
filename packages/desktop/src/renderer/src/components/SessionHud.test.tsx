@@ -345,3 +345,70 @@ describe("compact Session HUD", () => {
     expect(newSession).toHaveBeenCalledWith("/p");
   });
 });
+
+describe("SessionHud stream-stall chip (issue #228)", () => {
+  const desktop = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  };
+
+  const seedRunning = (patch: Record<string, unknown> = {}): void => {
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          status: "running",
+          ...patch,
+        },
+      },
+    });
+  };
+
+  it("shows the live stall label while running and stalled (wide HUD)", () => {
+    desktop();
+    seedRunning({ streamStallMs: 30_000 });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.textContent).toContain("no stream activity for 30.0s");
+    const chip = host.querySelector('span[title^="The renderer has received no model-stream"]');
+    // Observation-only tooltip (#179): claims the renderer's observation,
+    // never a cause.
+    expect(chip?.title).toContain("The session may still recover");
+    // Copper "attention" tone (ADR-0004) and the wide-row drag exemption.
+    expect(chip?.className).toContain("text-copper");
+    expect(chip?.className).toContain("[app-region:no-drag]");
+    // No pulse: a stalled stream is not "work happening right now".
+    expect(chip?.querySelector("span")?.className).not.toContain("animate-breathe");
+  });
+
+  it("shows the short stall label in the compact shell", () => {
+    seedRunning({ streamStallMs: 30_000 });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.querySelector("header")?.textContent).toContain("stalled 30.0s");
+    expect(host.textContent).not.toContain("no stream activity");
+  });
+
+  it("keeps the plain status label when not stalled", () => {
+    desktop();
+    seedRunning();
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.textContent).toContain("running");
+    expect(host.textContent).not.toContain("stalled");
+  });
+
+  it("lets the compacting chip take priority over the stall chip", () => {
+    desktop();
+    seedRunning({
+      streamStallMs: 30_000,
+      session: { ...emptySessionRuntime(), isCompacting: true },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.textContent).toContain("compacting");
+    expect(host.textContent).not.toContain("no stream activity for");
+  });
+});

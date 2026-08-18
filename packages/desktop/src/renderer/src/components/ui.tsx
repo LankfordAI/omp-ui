@@ -715,11 +715,27 @@ export function Switch({
   );
 }
 
-/** An indeterminate activity bar — the honest signal for "streaming". */
-export function ProgressSweep({ tone = "signal" }: { tone?: Tone }) {
+/**
+ * An indeterminate activity bar — the honest signal for "streaming".
+ * `paused` freezes the sweep: motion means the stream is flowing, so a
+ * stalled stream shows a frozen bar (ADR-0004).
+ */
+export function ProgressSweep({
+  tone = "signal",
+  paused = false,
+}: {
+  tone?: Tone;
+  paused?: boolean;
+}) {
   return (
     <div className="relative h-px w-full overflow-hidden bg-line">
-      <div className={cn("absolute inset-y-0 w-1/4 animate-sweep", TONE_DOT[tone])} />
+      <div
+        className={cn(
+          "absolute inset-y-0 w-1/4 animate-sweep",
+          TONE_DOT[tone],
+          paused && "[animation-play-state:paused]",
+        )}
+      />
     </div>
   );
 }

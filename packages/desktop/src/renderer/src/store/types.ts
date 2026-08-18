@@ -100,6 +100,12 @@ export interface RpcTabState {
   pendingCommands: Map<string, PendingCommand>;
   /** Renderer-observed request/model progress; never local tool execution. */
   streamCheckpoint?: { at: number; label: string };
+  /**
+   * Model-stream silence in ms, present only while an assistant response is
+   * open AND the silence has exceeded STREAM_STALL_THRESHOLD_MS (issue #228).
+   * Whole-second granularity: changes at most once per second.
+   */
+  streamStallMs?: number;
   stallCount?: number;
   extensionQueue: unknown[];
   /** True while any rpc command is in flight. */

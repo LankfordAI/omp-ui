@@ -49,6 +49,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     streamCheckpoint: undefined,
+    streamStallMs: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,

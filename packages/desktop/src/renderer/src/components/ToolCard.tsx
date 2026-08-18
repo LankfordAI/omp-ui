@@ -5,6 +5,7 @@ import { langFromPath, useHighlightTokens } from "../lib/highlight";
 import { strField } from "../lib/fields";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
+import { useStore } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { linkify, Markdown } from "./Markdown";
 import { Chip, Chevron, Disclosure, Label, Panel, ProgressSweep, type Tone } from "./ui";
@@ -355,7 +356,19 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
 
 /* ---------------------------------------------------------------- card */
 
-export function ToolCard({ item }: { item: ToolItem }) {
+/** Stable no-op selector for mounts without a tab (SubagentView): the hook
+ *  must stay unconditional. */
+const readNoStall = (): undefined => undefined;
+
+/** Observation-only claim for the stalled chip (issue #228, #179). */
+const STALLED_CHIP_TITLE =
+  "No model-stream frame (text, thinking, or tool-call arguments) has arrived while " +
+  "the assistant response is open. Local tool execution does not reset this clock.";
+
+export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
+  const streamStallMs = useStore(
+    tabId === undefined ? readNoStall : (s) => s.rpc[tabId]?.streamStallMs,
+  );
   const resultLines = useMemo(
     () => (item.resultText ? item.resultText.split("\n").length : 0),
     [item.resultText],
@@ -414,14 +427,22 @@ export function ToolCard({ item }: { item: ToolItem }) {
           </span>
         )}
         {planWrite && <Chip tone="iris">plan</Chip>}
-        {item.status === "running" && <Chip tone="copper">running</Chip>}
+        {item.status === "running" &&
+          (streamStallMs === undefined ? (
+            <Chip tone="copper">running</Chip>
+          ) : (
+            <Chip tone="copper" mono title={STALLED_CHIP_TITLE}>
+              stalled {formatDuration(streamStallMs)}
+            </Chip>
+          ))}
         {item.status === "error" && <Chip tone="rose">error</Chip>}
         {item.status === "cancelled" && <Chip>cancelled</Chip>}
         {item.status === "done" && <CheckGlyph />}
       </button>
 
-      {item.status === "running" && <ProgressSweep tone="copper" />}
-
+      {item.status === "running" && (
+        <ProgressSweep tone="copper" paused={streamStallMs !== undefined} />
+      )}
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">
           <ToolArgs name={item.name} args={item.args} />

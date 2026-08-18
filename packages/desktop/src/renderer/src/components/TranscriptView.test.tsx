@@ -6,6 +6,8 @@ import { planProposalItem, type RenderItem, type ToolItem } from "../lib/transcr
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
+import { rpcTabState } from "../test/fixtures";
+import { useStore } from "../store";
 import { TranscriptView } from "./TranscriptView";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,9 +18,9 @@ vi.mock("./ToolCard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ToolCard")>();
   return {
     ...actual,
-    ToolCard: function ToolCardProbe({ item }: { item: ToolItem }) {
+    ToolCard: function ToolCardProbe({ item, tabId }: { item: ToolItem; tabId?: string }) {
       toolCardRenders.push(item.id);
-      return <actual.ToolCard item={item} />;
+      return <actual.ToolCard item={item} tabId={tabId} />;
     },
   };
 });
@@ -50,12 +52,12 @@ function assistant(id: string, text: string): RenderItem {
   return { kind: "assistant", id, text, thinking: "", streaming: false };
 }
 
-function render(items: RenderItem[]): { el: HTMLDivElement; root: Root } {
+function render(items: RenderItem[], tabId?: string): { el: HTMLDivElement; root: Root } {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
   act(() => {
-    root.render(<TranscriptView items={items} />);
+    root.render(<TranscriptView items={items} tabId={tabId} />);
   });
   return { el, root };
 }
@@ -378,6 +380,57 @@ describe("row memoization (issue #187)", () => {
 
     expect(toolCardRenders).toEqual(["t1", "t2", "t2"]);
     expect(el.textContent).toContain("ok");
+    act(() => root.unmount());
+  });
+});
+
+describe("stream-stall indicator (issue #228)", () => {
+  const TAB = "tab-stall";
+
+  const runningTool: RenderItem = {
+    kind: "tool",
+    id: "t1",
+    toolCallId: "t1",
+    name: "bash",
+    args: { command: "sleep 40" },
+    status: "running",
+  };
+
+  beforeEach(() => {
+    useStore.setState({ rpc: {} });
+  });
+
+  it("reads the tab's stall field into the running chip and freezes the sweep", () => {
+    useStore.setState({
+      rpc: { [TAB]: { ...rpcTabState(), status: "running", streamStallMs: 30_000 } },
+    });
+    const { el, root } = render([runningTool], TAB);
+    expect(el.textContent).toContain("stalled 30.0s");
+    // The chip stays copper ("running, attention") with its observation-only
+    // tooltip (#228, #179) — it does not flip to an error tone.
+    const chip = el.querySelector('span[title^="No model-stream frame"]');
+    expect(chip?.className).toContain("text-copper");
+    const sweep = el.querySelector(".animate-sweep");
+    expect(sweep?.className).toContain("paused");
+    act(() => root.unmount());
+  });
+
+  it("keeps the plain running chip and a live sweep without a stall field", () => {
+    useStore.setState({
+      rpc: { [TAB]: { ...rpcTabState(), status: "running" } },
+    });
+    const { el, root } = render([runningTool], TAB);
+    expect(el.textContent).toContain("running");
+    expect(el.textContent).not.toContain("stalled");
+    const sweep = el.querySelector(".animate-sweep");
+    expect(sweep?.className).not.toContain("paused");
+    act(() => root.unmount());
+  });
+
+  it("mounts without a tab (SubagentView shape) and shows plain running", () => {
+    const { el, root } = render([runningTool]);
+    expect(el.textContent).toContain("running");
+    expect(el.textContent).not.toContain("stalled");
     act(() => root.unmount());
   });
 });

@@ -132,6 +132,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     extensionStatus: {},
     pendingCommands: new Map(),
     streamCheckpoint: undefined,
+    streamStallMs: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,
@@ -206,8 +207,11 @@ const STALL_MESSAGE_RE =
   /stream (stalled|timed out) while waiting for the (next|first) event/i;
 
 /**
- * The latest renderer-observed request/model progress checkpoint. Local tool
- * execution is deliberately excluded: it cannot reset a provider-stream clock.
+ * The latest renderer-observed request/model progress checkpoint. Every
+ * model-stream frame counts — deltas plus block start/end events (issue
+ * #228) — so a stalled stream is detectable even in a gap between deltas.
+ * Local tool execution is deliberately excluded: it cannot reset a
+ * provider-stream clock.
  */
 function streamCheckpointLabel(frame: object): string | null {
   const type = "type" in frame ? frame.type : undefined;
@@ -220,10 +224,18 @@ function streamCheckpointLabel(frame: object): string | null {
         : null;
     case "message_update": {
       switch (strField(field(frame, "assistantMessageEvent"), "type")) {
+        case "text_start":
+          return "text block started";
         case "text_delta":
           return "streaming text";
+        case "text_end":
+          return "text block complete";
+        case "thinking_start":
+          return "thinking block started";
         case "thinking_delta":
           return "streaming thinking";
+        case "thinking_end":
+          return "thinking block complete";
         case "toolcall_start":
         case "toolcall_delta":
           return "streaming tool-call arguments";
@@ -313,6 +325,16 @@ const lastUsageRefresh = new Map<string, number>();
  */
 export const QUEUE_SETTLE_REFRESH_MS = 1500;
 const queueSettleTimers = new Map<string, number>();
+
+/**
+ * Live stream-stall detection (issue #228). Clock: the renderer-observed
+ * checkpoint (never reset by local tool execution). Gate: the transcript's
+ * own "assistant response open" flag. The label claims observation only —
+ * "no stream activity", never a cause (issue #179).
+ */
+export const STREAM_STALL_THRESHOLD_MS = 30_000;
+export const STREAM_STALL_TICK_MS = 1_000;
+const streamStallTimers = new Map<string, number>();
 
 /**
  * Heartbeat-driven roster refresh (issue #62): every subagent_* frame wants a
@@ -620,6 +642,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (!tab) return;
     // A flush queued by the dying process must not land in the fresh state.
     cancelTranscriptBatch(tabId);
+    // No frames will come from the dying process: stop the stall clock now
+    // rather than waiting for its next tick (issue #228).
+    stopStreamStallTimer(tabId);
     patchRpc(tabId, {
       status: "starting",
       session: { ...tab.session, isStreaming: false },
@@ -629,6 +654,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       planHtml: null,
       planDeferred: false,
       failure: undefined,
+      // A fresh process has no renderer-observed checkpoint: resetting it
+      // also stops the #100 notice from citing the dead process's
+      // "since turn started" (issue #228, #179).
+      streamCheckpoint: undefined,
+      streamStallMs: undefined,
     });
   };
 
@@ -1204,6 +1234,58 @@ export const useStore = create<UiStore>()((set, get, api) => {
     );
   };
 
+  /** Stops the armed tab's interval, if any; idempotent. */
+  const stopStreamStallTimer = (tabId: string): void => {
+    const id = streamStallTimers.get(tabId);
+    if (id !== undefined) window.clearInterval(id);
+    streamStallTimers.delete(tabId);
+  };
+
+  /**
+   * One second, per armed tab (issue #228). Self-terminating: a gone tab,
+   * a non-"running" status, a closed response, or a missing checkpoint
+   * stops the clock and clears the field; the next frame while "running"
+   * re-arms it, so callers only ever arm it.
+   */
+  const streamStallTick = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    // The gate is the transcript's own streaming flag: while it is set,
+    // deltas would still be routed to that item, so the model owes us
+    // frames. A closed response (tool execution, between turns,
+    // compaction) is silent by design, and a missing checkpoint means
+    // there is no silence to measure (a late joiner cannot time what it
+    // never saw) — both stop the clock.
+    const streamingOpen =
+      tab !== undefined &&
+      effectiveItems(tabId).some((i) => i.kind === "assistant" && i.streaming);
+    const checkpoint = tab?.streamCheckpoint;
+    if (
+      tab === undefined ||
+      tab.status !== "running" ||
+      !streamingOpen ||
+      checkpoint === undefined
+    ) {
+      stopStreamStallTimer(tabId);
+      if (tab !== undefined && tab.streamStallMs !== undefined)
+        patchRpc(tabId, { streamStallMs: undefined });
+      return;
+    }
+    const silence = Date.now() - checkpoint.at;
+    const next =
+      silence >= STREAM_STALL_THRESHOLD_MS
+        ? Math.floor(silence / 1000) * 1000
+        : undefined;
+    if (next !== tab.streamStallMs) patchRpc(tabId, { streamStallMs: next });
+  };
+
+  const ensureStreamStallTimer = (tabId: string): void => {
+    if (streamStallTimers.has(tabId)) return;
+    streamStallTimers.set(
+      tabId,
+      window.setInterval(() => streamStallTick(tabId), STREAM_STALL_TICK_MS),
+    );
+  };
+
   const loadHistory = async (tabId: string): Promise<void> => {
     const resp = await get().rpcCommand(tabId, { type: "get_messages" });
     // History replaces the transcript wholesale — a batch reduced from the
@@ -1304,10 +1386,28 @@ export const useStore = create<UiStore>()((set, get, api) => {
           ? settleRunningTools(effectiveItems(tabId))
           : undefined;
         cancelTranscriptBatch(tabId);
+        // No frame may ever come again: stop the stall clock now instead of
+        // letting the next tick re-arm on the leftover open-assistant flag
+        // (issue #228).
+        stopStreamStallTimer(tabId);
         set((s) => {
+          // The stall field must clear even when no tool cards were running
+          // — a pure-text stall settles to `settled === before.items`.
+          const clearStall = before?.streamStallMs !== undefined;
           const rpc =
-            before && settled !== undefined && settled !== before.items
-              ? { ...s.rpc, [tabId]: { ...before, items: settled } }
+            before &&
+            (clearStall ||
+              (settled !== undefined && settled !== before.items))
+              ? {
+                  ...s.rpc,
+                  [tabId]: {
+                    ...before,
+                    ...(clearStall ? { streamStallMs: undefined } : {}),
+                    ...(settled !== undefined && settled !== before.items
+                      ? { items: settled }
+                      : {}),
+                  },
+                }
               : s.rpc;
           return { exited: { ...s.exited, [tabId]: code }, rpc };
         });
@@ -1989,6 +2089,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
                 "The live session process stopped. Resume the session to continue.",
             },
             items: settledItems,
+            // Process death is terminal for this run (issue #228).
+            streamStallMs: undefined,
           });
           return;
         }
@@ -2015,6 +2117,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           if (checkpointLabel !== null) {
             tab.streamCheckpoint = { at: Date.now(), label: checkpointLabel };
           }
+          // Late-joining clients see frames while "running" without an
+          // agent_start — arm the stall clock on any such frame (issue #228).
+          if (tab.status === "running") ensureStreamStallTimer(tabId);
           // The AgentSessionEvent stream — the actual transcript. Reduction is
           // eager (frame-exact for the watchers below) but the render commit is
           // coalesced — one Zustand set per burst instead of per frame, so the
@@ -2053,6 +2158,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
           }
           if (type === "agent_start") {
             patchRpc(tabId, { status: "running" });
+            // A stale entry from a prior run (its tick has not fired yet)
+            // must not block the fresh arm.
+            stopStreamStallTimer(tabId);
+            ensureStreamStallTimer(tabId);
             const pending = queueSettleTimers.get(tabId);
             if (pending !== undefined) {
               window.clearTimeout(pending);
@@ -2066,7 +2175,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
             refreshLiveUsage(tabId);
           }
           if (type === "agent_end") {
-            if (tab.status === "running") patchRpc(tabId, { status: "ready" });
+            // The tick self-terminates on the next pass; the explicit clear
+            // keeps the field from lingering up to a second after the run.
+            if (tab.status === "running")
+              patchRpc(tabId, { status: "ready", streamStallMs: undefined });
 
             // Retry net: a rename that failed at prompt time (hasRenamed was
             // released) gets another shot at the next turn boundary.

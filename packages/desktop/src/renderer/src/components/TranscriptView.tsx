@@ -384,10 +384,12 @@ const TranscriptRow = memo(function TranscriptRow({
   item,
   count,
   first,
+  tabId,
 }: {
   item: RenderItem;
   count: number;
   first: boolean;
+  tabId?: string;
 }) {
   switch (item.kind) {
     case "user":
@@ -395,7 +397,7 @@ const TranscriptRow = memo(function TranscriptRow({
     case "assistant":
       return <AssistantBlock item={item} />;
     case "tool":
-      return <ToolCard item={item} />;
+      return <ToolCard item={item} tabId={tabId} />;
     case "advisory":
       return (
         <div className="animate-rise">
@@ -415,7 +417,15 @@ const TranscriptRow = memo(function TranscriptRow({
 
 /* ------------------------------------------------------------------ view */
 
-export function TranscriptView({ items }: { items: RenderItem[] }) {
+export function TranscriptView({
+  items,
+  tabId,
+}: {
+  items: RenderItem[];
+  /** Owns the tab's stream-stall field (issue #228); omitted for the
+   *  read-only subagent view, which never shows the live indicator. */
+  tabId?: string;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
@@ -557,7 +567,7 @@ export function TranscriptView({ items }: { items: RenderItem[] }) {
               )}
               {run.rows.map(({ item, count }, i) => (
                 <ErrorBoundary key={item.id} fallback={(error) => <BrokenRow error={error} />}>
-                  <TranscriptRow item={item} count={count} first={i === 0} />
+                  <TranscriptRow item={item} count={count} first={i === 0} tabId={tabId} />
                 </ErrorBoundary>
               ))}
             </div>

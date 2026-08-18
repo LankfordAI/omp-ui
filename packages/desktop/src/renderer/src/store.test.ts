@@ -161,6 +161,12 @@ const windowStub = {
   get clearTimeout() {
     return globalThis.clearTimeout;
   },
+  get setInterval() {
+    return globalThis.setInterval;
+  },
+  get clearInterval() {
+    return globalThis.clearInterval;
+  },
   // The transcript scheduler (issue #187) coalesces onto rAF in production.
   // Tests commit synchronously by default; batching tests replace this with a
   // capturing stub and run the frame themselves.
@@ -179,6 +185,8 @@ const {
   QUEUE_SETTLE_REFRESH_MS,
   registerShellWriter,
   RpcCommandTimeoutError,
+  STREAM_STALL_THRESHOLD_MS,
+  STREAM_STALL_TICK_MS,
   useStore,
 } = await import("./store");
 
@@ -5097,5 +5105,324 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     expect(deriveSidebarSessionState(record, undefined, undefined)).toBe(
       "awaiting-answer",
     );
+  });
+});
+
+describe("live stream-stall indicator (issue #228)", () => {
+  const BLOCK_EVENTS = [
+    "text_start",
+    "text_end",
+    "thinking_start",
+    "thinking_end",
+  ] as const;
+
+  const BLOCK_LABELS = [
+    "text block started",
+    "text block complete",
+    "thinking block started",
+    "thinking block complete",
+  ] as const;
+
+  beforeEach(() => {
+    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+  });
+
+  /** agent_start plus an open assistant response: the stall gate is armed. */
+  const openAssistant = (): void => {
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    useStore.getState().handleRpcFrame(TAB, { type: "turn_start" });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "message_start",
+      message: { role: "assistant" },
+    });
+  };
+
+  afterEach(() => {
+    // Terminate any armed interval before the fake clock is discarded; a
+    // stale map entry would block re-arming in a later test.
+    if (vi.isFakeTimers()) {
+      useStore.setState({ rpc: {} });
+      vi.advanceTimersByTime(1_000);
+    }
+    vi.useRealTimers();
+  });
+
+  it("pins the 30s threshold and 1Hz tick from the plan", () => {
+    expect(STREAM_STALL_THRESHOLD_MS).toBe(30_000);
+    expect(STREAM_STALL_TICK_MS).toBe(1_000);
+  });
+
+  it("arms at the threshold and ticks once per second", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    vi.advanceTimersByTime(2_000);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS + 2_000,
+    );
+  });
+
+  it("clears within one tick when a model-stream frame resumes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "hi" },
+    });
+    vi.advanceTimersByTime(1_000);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+  });
+
+  it("classifies each block start/end event as its own checkpoint", () => {
+    vi.useFakeTimers();
+    for (const [i, type] of BLOCK_EVENTS.entries()) {
+      // A distinct time per event: an unclassified event would leave the
+      // previous checkpoint in place and fail both assertions.
+      vi.setSystemTime(1_000_000 + i * 10_000);
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type, contentIndex: 0 },
+      });
+      expect(useStore.getState().rpc[TAB]!.streamCheckpoint).toMatchObject({
+        at: 1_000_000 + i * 10_000,
+        label: BLOCK_LABELS[i],
+      });
+    }
+  });
+
+  it("publishes whole-second (floor) values for off-boundary checkpoints", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    // The response opens 37ms after the interval armed, so every 1s tick
+    // boundary sees an off-boundary silence (ceil would overstate it).
+    vi.advanceTimersByTime(37);
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "message_start",
+      message: { role: "assistant" },
+    });
+    // Until the first tick that reaches the threshold (silence 30,963ms).
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS + 963);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+  });
+
+  it("block start/end frames reset the silence clock mid-stall", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    for (const type of BLOCK_EVENTS) {
+      // Each classified block event restarts the silence clock...
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type, contentIndex: 0 },
+      });
+      vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+      expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+        STREAM_STALL_THRESHOLD_MS,
+      );
+      // ...and the next frame clears the indicator within one tick.
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type, contentIndex: 0 },
+      });
+      vi.advanceTimersByTime(1_000);
+      expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    }
+  });
+
+  it("keeps ticking while an auto-retry notice is on screen", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    // omp gives up and schedules a retry: the #100 notice lands...
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "auto_retry_start",
+      attempt: 1,
+      maxAttempts: 10,
+      delayMs: 2000,
+      errorMessage:
+        "OpenAI responses stream stalled while waiting for the next event",
+    });
+    // ...and the live indicator keeps ticking on the same clock (the retry
+    // frame does not reset it).
+    vi.advanceTimersByTime(1_000);
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.streamStallMs).toBe(STREAM_STALL_THRESHOLD_MS + 1_000);
+    expect(tab.items.at(-1)).toMatchObject({ kind: "notice", level: "warn" });
+  });
+
+  it("never arms during local tool execution, then re-arms on the next response", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "message_end",
+      message: { role: "assistant" },
+    });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+    });
+    vi.advanceTimersByTime(60_000);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    // The next assistant response in the same run re-arms the clock:
+    // every frame while "running" defensively arms it.
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "message_start",
+      message: { role: "assistant" },
+    });
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+  });
+
+  it("agent_end clears the field and stops the clock", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.streamStallMs).toBeUndefined();
+    expect(tab.status).toBe("ready");
+    // The clock is stopped: no re-arm, no re-patch, ever.
+    vi.advanceTimersByTime(120_000);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+  });
+
+  it("relaunch resets the field and the checkpoint", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    useStore.setState({ state: stateWithRecord(null) });
+    openAssistant();
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    expect(useStore.getState().rpc[TAB]!.streamCheckpoint).toBeDefined();
+    // The explicit stop is observable without advancing the clock: the armed
+    // interval is gone the moment the relaunch lands (self-termination would
+    // only remove it on the next tick).
+    const timersBefore = vi.getTimerCount();
+    mockBackend.restartSession.mockResolvedValueOnce(undefined);
+    await useStore.getState().restartSession(TAB);
+    expect(vi.getTimerCount()).toBe(timersBefore - 1);
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.status).toBe("starting");
+    expect(tab.streamStallMs).toBeUndefined();
+    expect(tab.streamCheckpoint).toBeUndefined();
+    // The clock is stopped: nothing can re-arm it while "starting".
+    vi.advanceTimersByTime(120_000);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+  });
+
+  it("does not claim a stall before it has seen a checkpoint (late joiner)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    // A client that joined mid-response: the transcript shows an open
+    // assistant, but this client has seen no model-stream frame — it cannot
+    // time what it never saw.
+    useStore.setState((s) => {
+      const t = s.rpc[TAB]!;
+      return {
+        rpc: {
+          ...s.rpc,
+          [TAB]: {
+            ...t,
+            items: [
+              {
+                kind: "assistant",
+                id: "a-late",
+                text: "",
+                thinking: "",
+                streaming: true,
+              },
+            ],
+          },
+        },
+      };
+    });
+    vi.advanceTimersByTime(60_000);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    // The first frame this client sees sets the clock — and arms it.
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "hi" },
+    });
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+  });
+
+  it("omp_ui_error clears the field and sets the error status", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "omp_ui_error",
+      message: "boom",
+    });
+    const tab = useStore.getState().rpc[TAB]!;
+    expect(tab.streamStallMs).toBeUndefined();
+    expect(tab.status).toBe("error");
+  });
+
+  it("silent process death stops the clock and clears the field", async () => {
+    // A fresh module: init latches per evaluation, and the shell-routing
+    // suite already owns the shared module's listener captures.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    fresh.setState({ rpc: { [TAB]: rpcTabState() } });
+    fresh.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    fresh.getState().handleRpcFrame(TAB, { type: "turn_start" });
+    fresh.getState().handleRpcFrame(TAB, {
+      type: "message_start",
+      message: { role: "assistant" },
+    });
+    const init = fresh.getState().init();
+    // No tool cards were running — the pure-text-stall shape.
+    const exitCb = mockBackend.onPtyExit.mock.calls[0]![0] as (
+      tabId: string,
+      code: number,
+    ) => void;
+    await init;
+    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
+    expect(fresh.getState().rpc[TAB]!.streamStallMs).toBe(
+      STREAM_STALL_THRESHOLD_MS,
+    );
+    exitCb(TAB, 1);
+    expect(fresh.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(fresh.getState().exited[TAB]).toBe(1);
+    vi.advanceTimersByTime(120_000);
+    expect(fresh.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
   });
 });

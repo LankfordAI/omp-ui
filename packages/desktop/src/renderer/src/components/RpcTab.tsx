@@ -238,7 +238,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                 ) : status === "starting" && items.length === 0 ? (
                   <TranscriptSkeleton />
                 ) : (
-                  <TranscriptView items={items} />
+                  <TranscriptView items={items} tabId={tabId} />
                 )}
                 {/* Docked, not modal: the user may need to scroll the transcript to
                     answer, so the question must not cover it. */}
