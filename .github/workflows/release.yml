@@ -75,10 +75,6 @@ jobs:
             latest-linux.yml
 
   release-macos:
-    # Temporarily disabled: Apple notarytool returns HTTP 500 for this new
-    # account (issue #124). Re-enable by deleting this `if` once a manual
-    # macos-preview.yml run notarizes successfully.
-    if: false
     needs: release-linux
     strategy:
       fail-fast: false
@@ -107,15 +103,21 @@ jobs:
           fi
       - name: Rebuild node-pty
         run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
-      - name: Package signed and notarized macOS preview
-        run: npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never
+      - name: Package signed macOS release (notarization deferred to next step)
+        run: >-
+          npm run package:mac --workspace @omp-ui/desktop --
+          --${{ matrix.arch }} --publish never --config.mac.notarize=false
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      - name: Notarize macOS release (notarytool with retries)
+        shell: bash
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Verify signed and notarized macOS preview
+        run: bash packages/desktop/scripts/notarize-macos-preview.sh "${{ matrix.arch }}"
+      - name: Verify signed and notarized macOS package
         shell: bash
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -215,9 +217,7 @@ jobs:
 
   release-manifest:
     needs: [release-linux, release-macos, release-windows]
-    # release-macos is temporarily disabled (issue #124); run the manifest as
-    # long as the required Linux and Windows lanes succeeded.
-    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.release-windows.result == 'success' && (needs.release-macos.result == 'success' || needs.release-macos.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
@@ -231,8 +231,8 @@ jobs:
           set -euo pipefail
           mkdir release-assets
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*.AppImage'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg' || true
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip' || true
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
       - name: Generate and upload canonical checksums
         shell: bash
@@ -247,12 +247,8 @@ jobs:
           zips=(*-mac-preview-*.zip)
           installers=(*-windows-preview-x64-setup.exe)
           (( ${#appimages[@]} == 1 ))
-          # macOS assets are all-or-nothing: two DMGs and two ZIPs when the
-          # macOS lane ran, none while it is disabled (issue #124).
-          if (( ${#dmgs[@]} != 0 || ${#zips[@]} != 0 )); then
-            (( ${#dmgs[@]} == 2 ))
-            (( ${#zips[@]} == 2 ))
-          fi
+          (( ${#dmgs[@]} == 2 ))
+          (( ${#zips[@]} == 2 ))
           (( ${#installers[@]} == 1 ))
           files=("${appimages[@]}" "${dmgs[@]}" "${zips[@]}" "${installers[@]}")
           expected=$(( 2 + ${#dmgs[@]} + ${#zips[@]} ))
