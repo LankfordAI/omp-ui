@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BranchList } from "@omp-ui/core/types";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { markerItem, noticeItem } from "../lib/transcript";
@@ -27,7 +28,7 @@ class ResizeObserverStub {
 const backendMock = {
   listProjectFiles: vi.fn(async () => ({ files: [], truncated: false })),
   resolveFileMentions: vi.fn(async () => ({ contextText: "", images: [] })),
-  listBranches: vi.fn(async () => ({
+  listBranches: vi.fn(async (): Promise<BranchList> => ({
     repoRoot: null,
     current: null,
     branches: [],
@@ -42,6 +43,7 @@ const backendMock = {
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setSessionAdvisor: vi.fn(async () => {}),
+  convertToWorktree: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -943,5 +945,75 @@ describe("Composer keyword glow", () => {
     expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
     typeDraft("fix `orchestrate` now");
     expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
+  });
+});
+
+describe("worktree conversion through the branch chip (issue #227)", () => {
+  const gitBranches = {
+    repoRoot: "/p", current: "main", branches: ["main", "feature/x"], defaultBranch: "main",
+    upstreamRef: null, upstreamRemote: null, hasUpstream: false, ahead: 0, behind: 0,
+    upstreamFetchedAt: null, upstreamRefreshError: null,
+  };
+
+  // The worktree section lives in the non-compact action row, but the global
+  // matchMedia stub reports the compact shell — override it the way the
+  // relaunch handoff test does.
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seed("ready");
+    // Without this, the chip's per-open refresh would replace the seeded git
+    // state with the mock's non-git default and unmount the chip.
+    backendMock.listBranches.mockResolvedValue(gitBranches);
+    useStore.setState({ branches: { "/p": gitBranches } });
+  });
+
+  function renderUnprompted(): void {
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<Composer tabId={TAB} unprompted />));
+  }
+
+  const chipTrigger = (): HTMLButtonElement => document.body.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+
+  const buttonByText = (text: string): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === text)!;
+
+  const flush = async (): Promise<void> => { await act(async () => {}); };
+
+  async function enterWorktreeSection(): Promise<void> {
+    act(() => chipTrigger().click());
+    await flush();
+    act(() => buttonByText("worktree…").click());
+    // Let WorktreeBranchFields default the base to the checkout's current branch.
+    await flush();
+  }
+
+  it("the first send converts, then prompts", async () => {
+    renderUnprompted();
+    await enterWorktreeSection();
+    typeDraft("hello");
+    await act(async () => buttonByText("send").click());
+    await flush();
+    expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
+    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^omp-ui\/[0-9a-f]{8}$/), "main");
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", []);
+    // A successful conversion resets the selection; the chip reads the checkout's branch again.
+    expect(chipTrigger().textContent).toContain("main");
+    expect(chipTrigger().textContent).not.toContain("worktree");
+  });
+
+  it("a conversion failure keeps the draft and shows the error", async () => {
+    backendMock.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
+    renderUnprompted();
+    await enterWorktreeSection();
+    const textarea = typeDraft("hello");
+    await act(async () => buttonByText("send").click());
+    await flush();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("hello");
+    expect(document.body.textContent).toContain("branch already exists");
+    expect(document.body.querySelector('button[aria-label="dismiss worktree error"]')).not.toBeNull();
   });
 });

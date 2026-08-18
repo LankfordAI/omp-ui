@@ -31,7 +31,7 @@ import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
-import { WorkspaceControl, type WorkspaceSelection } from "./WorkspaceControl";
+import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, PerimeterGlow, PerimeterSweep, Sheet } from "./ui";
 
 /**
@@ -74,9 +74,9 @@ export function Composer({
   /** Fires when a non-slash draft is submitted on any route — the first one docks the hero. */
   onPrompt?: () => void;
   /**
-   * True only while the session sits at its empty-transcript hero (issue
-   * #225): the workspace chip is offered, and the first send may convert the
-   * session to a worktree before the prompt goes out.
+   * True only while the session sits at its empty-transcript hero (issues
+   * #225, #227): the branch chip's worktree section is offered, and the first
+   * send may convert the session to a worktree before the prompt goes out.
    */
   unprompted?: boolean;
 }) {
@@ -107,8 +107,12 @@ export function Composer({
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
   // A session already running in a worktree has its workspace fixed for
-  // life — the chip is never offered to it.
+  // life — the branch chip's worktree section is never offered to it.
   const hasWorktree = useStore((s) => findRecord(s.state, tabId)?.worktree != null);
+  // The worktree section of the branch chip (issue #227) stands in for the
+  // standalone workspace chip: offered only while the session is unprompted
+  // and has no worktree of its own.
+  const offerWorkspace = unprompted && !hasWorktree && cwd !== undefined;
 
   const sendPrompt = useStore((s) => s.sendPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
@@ -147,14 +151,24 @@ export function Composer({
   /** Whether the box has focus — omp shimmers a keyword only while it does. */
   const [focused, setFocused] = useState(false);
   /**
-   * Where this session's first prompt will run (issue #225), chosen via the
-   * workspace chip that is offered only while the session is unprompted.
+   * Where this session's first prompt will run (issues #225, #227), chosen
+   * via the worktree section of the branch chip, offered only while the
+   * session is unprompted.
    */
   const [workspace, setWorkspace] = useState<WorkspaceSelection>({ mode: "checkout" });
-  /** The last worktree-conversion failure, rendered inline by the chip. */
+  /** The last worktree-conversion failure, rendered in the composer's inline strip. */
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   /** True while the first send is converting the session to a worktree. */
   const [converting, setConverting] = useState(false);
+
+  const handleWorkspaceChange = (
+    next: WorkspaceSelection | ((prev: WorkspaceSelection) => WorkspaceSelection),
+  ): void => {
+    setWorkspace(next);
+    // A stale git error must never outlive the selection it names — the next
+    // attempt renders its own failure.
+    setWorkspaceError(null);
+  };
   /** Gradient rotation ∈ [0,1); 0 is the static palette. */
   const [phase, setPhase] = useState(0);
 
@@ -399,11 +413,11 @@ export function Composer({
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
       if ((message === "" && payload.length === 0) || unavailable || converting) return;
-      // A first prompt with the workspace chip set to a fresh worktree
-      // converts the session before anything else happens (issue #225): on
-      // failure the draft, the hero, and the chip all stay put, and git's
-      // message renders inline in the sub-row. Slash commands are not
-      // prompts — they bypass the conversion entirely.
+      // A first prompt with the branch chip's worktree section set to a fresh
+      // worktree converts the session before anything else happens (issue
+      // #225): on failure the draft, the hero, and the chip all stay put, and
+      // git's message renders in the composer's inline strip. Slash commands
+      // are not prompts — they bypass the conversion entirely.
       if (!message.startsWith("/") && workspace.mode === "worktree" && unprompted) {
         setConverting(true);
         setWorkspaceError(null);
@@ -823,23 +837,12 @@ export function Composer({
               onSelected={() => box.current?.focus({ preventScroll: true })}
             />
 
-            <BranchChip projectCwd={cwd} />
-
-            {unprompted && !hasWorktree && cwd !== undefined && (
-              <WorkspaceControl
-                projectCwd={cwd}
-                disabled={unavailable || converting}
-                value={workspace}
-                onChange={(next) => {
-                  setWorkspace(next);
-                  // A stale git error must never outlive the selection it
-                  // names — the next attempt renders its own failure.
-                  setWorkspaceError(null);
-                }}
-                error={workspaceError}
-                pending={converting}
-              />
-            )}
+            <BranchChip
+              projectCwd={cwd}
+              workspace={offerWorkspace ? workspace : undefined}
+              onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
+              workspaceDisabled={unavailable || converting}
+            />
 
             <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
 
@@ -973,6 +976,30 @@ export function Composer({
             <IconButton label="dismiss paste warning" onClick={() => setPasteError(null)}>
               <IconClose className="size-3" />
             </IconButton>
+          </div>
+        )}
+
+        {/* The worktree-conversion status lives here, not in the branch chip's
+            popover (issue #227): the conversion runs on send, when the popover
+            is closed, and its failure must stay visible with the draft intact. */}
+        {(converting || workspaceError !== null) && (
+          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px]">
+            {workspaceError !== null ? (
+              <>
+                <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0 text-copper">
+                  <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
+                  <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
+                </svg>
+                <span className="min-w-0 flex-1 break-words text-copper" data-selectable>
+                  {workspaceError}
+                </span>
+                <IconButton label="dismiss worktree error" onClick={() => setWorkspaceError(null)}>
+                  <IconClose className="size-3" />
+                </IconButton>
+              </>
+            ) : (
+              <span className="text-ink-faint">cutting the worktree…</span>
+            )}
           </div>
         )}
       </div>

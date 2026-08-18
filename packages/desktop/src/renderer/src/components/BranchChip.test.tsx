@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList } from "@omp-ui/core/types";
 import { backendState as makeBackendState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
+import type { WorkspaceSelection } from "./WorktreeBranchFields";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -34,6 +35,9 @@ const { useStore } = await import("../store");
 const { BranchChip } = await import("./BranchChip");
 
 let root: Root | null = null;
+let changes: WorkspaceSelection[] = [];
+let workspaceDisabledFlag = false;
+let workspaceOffered = true;
 
 /** One running session on the project — the busy-confirm trigger. */
 function seedBusy(): void {
@@ -77,6 +81,44 @@ function render(cwd = "/p"): void {
   act(() => root!.render(<BranchChip projectCwd={cwd} />));
 }
 
+/**
+ * Controlled harness: the composer owns the selection, the test watches it.
+ * `workspaceOffered` lets a test drop the workspace props while keeping the
+ * same BranchChip instance — the stale-sub-mode effect, not a remount, must
+ * do the work.
+ */
+function WorkspaceChipHarness({ cwd }: { cwd: string }) {
+  const [value, setValue] = useState<WorkspaceSelection>({ mode: "checkout" });
+  // Functional updates chain against the latest selection, exactly as
+  // React's setState does — one event can emit several (the base pick
+  // sets both the ref and the touched latch).
+  const latest = useRef(value);
+  return (
+    <BranchChip
+      projectCwd={cwd}
+      workspace={workspaceOffered ? value : undefined}
+      onWorkspaceChange={
+        workspaceOffered
+          ? (next) => {
+              const applied = typeof next === "function" ? next(latest.current) : next;
+              latest.current = applied;
+              setValue(applied);
+              changes.push(applied);
+            }
+          : undefined
+      }
+      workspaceDisabled={workspaceDisabledFlag}
+    />
+  );
+}
+
+function renderWorkspaceChip(cwd = "/p"): void {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  act(() => root!.render(<WorkspaceChipHarness cwd={cwd} />));
+}
+
 const chip = (): HTMLButtonElement => {
   const button = document.body.querySelector<HTMLButtonElement>("button[aria-expanded]");
   expect(button).not.toBeNull();
@@ -104,6 +146,16 @@ const pullButton = (): HTMLButtonElement | undefined =>
     candidate.textContent?.toLowerCase().startsWith("pull"),
   );
 
+const worktreeRow = (): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.textContent === "worktree…",
+  );
+
+const checkoutRow = (): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.textContent === "Current checkout",
+  );
+
 async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
@@ -112,8 +164,25 @@ async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
   });
 }
 
+async function selectInto(select: HTMLSelectElement, value: string): Promise<void> {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+  await act(async () => {
+    setter.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  changes = [];
+  workspaceDisabledFlag = false;
+  workspaceOffered = true;
   backendMock.listBranches.mockResolvedValue(fixture);
   backendMock.pullBranch.mockResolvedValue(undefined);
   useStore.setState({
@@ -457,5 +526,173 @@ describe("BranchChip", () => {
     expect(document.body.textContent).toContain("fast-forward pull failed");
     expect(chip().getAttribute("aria-expanded")).toBe("true");
     expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+  });
+});
+
+describe("BranchChip worktree section (issue #227)", () => {
+  it("the worktree row appears only with the workspace prop", async () => {
+    render();
+    await act(async () => chip().click());
+    expect(worktreeRow()).toBeUndefined();
+
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    expect(worktreeRow()).toBeDefined();
+    expect(checkoutRow()).toBeUndefined();
+  });
+
+  it("picking worktree mints once; re-picking keeps the name", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+
+    const input = document.body.querySelector<HTMLInputElement>("#composer-worktree-branch");
+    expect(input).not.toBeNull();
+    expect(input!.value).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    await flushMicrotasks();
+    expect(
+      document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!.value,
+    ).toBe("main");
+
+    const reports = changes.length;
+    await act(async () => buttonByText("back").click());
+    await act(async () => chip().click());
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+
+    expect(
+      document.body.querySelector<HTMLInputElement>("#composer-worktree-branch")!.value,
+    ).toBe(input!.value);
+    expect(changes.length).toBe(reports);
+  });
+
+  it("a hand-picked base survives a popover round-trip and refresh (the D2 regression)", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+
+    await selectInto(
+      document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!,
+      "feature/x",
+    );
+
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+
+    await act(async () => chip().click());
+    await flushMicrotasks();
+    await act(async () => worktreeRow()!.click());
+
+    expect(
+      document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!.value,
+    ).toBe("feature/x");
+  });
+
+  it("branch edits and base picks report through onWorkspaceChange", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+
+    await typeInto(
+      document.body.querySelector<HTMLInputElement>("#composer-worktree-branch")!,
+      "feature/mine",
+    );
+    expect(changes.at(-1)).toEqual({
+      mode: "worktree",
+      branch: "feature/mine",
+      baseRef: "main",
+      baseTouched: false,
+    });
+
+    await selectInto(
+      document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!,
+      "feature/x",
+    );
+    expect(changes.at(-1)).toEqual({
+      mode: "worktree",
+      branch: "feature/mine",
+      baseRef: "feature/x",
+      baseTouched: true,
+    });
+  });
+
+  it("the trigger shows the minted branch and a worktree marker while selected", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    const minted =
+      document.body.querySelector<HTMLInputElement>("#composer-worktree-branch")!.value;
+    await act(async () => chip().click());
+
+    expect(chip().textContent).toContain(minted);
+    expect(chip().textContent).toContain("worktree");
+    expect(chip().title.startsWith("worktree —")).toBe(true);
+  });
+
+  it("escaping peels worktree to list, keeping the selection", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+    const reports = changes.length;
+
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+    expect(changes.length).toBe(reports);
+  });
+
+  it("Current checkout reverts the selection and closes", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await act(async () => buttonByText("back").click());
+    await act(async () => checkoutRow()!.click());
+
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+    expect(chip().getAttribute("aria-expanded")).toBe("false");
+    expect(changes.at(-1)).toEqual({ mode: "checkout" });
+  });
+
+  it("the worktree row is disabled while workspaceDisabled", async () => {
+    workspaceDisabledFlag = true;
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+
+    const row = worktreeRow()!;
+    expect(row.disabled).toBe(true);
+    expect(row.title).toBe("the session must be ready before it can run in a worktree");
+  });
+
+  it("a removed workspace prop drops a stale worktree sub-mode", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    expect(document.body.querySelector("#composer-worktree-branch")).not.toBeNull();
+
+    // Same BranchChip instance, workspace props removed: the stale-sub-mode
+    // effect must peel the sub-mode back to the list (a remount would pass
+    // from the state reset alone).
+    workspaceOffered = false;
+    act(() => root!.render(<WorkspaceChipHarness cwd="/p" />));
+
+    expect(document.body.querySelector("#composer-worktree-branch")).toBeNull();
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).not.toBeNull();
+    expect(worktreeRow()).toBeUndefined();
+    expect(chip().textContent).toContain("main");
+    expect(chip().textContent).not.toContain("worktree");
+
+    // The mode truly fell back to the list: one Escape now closes the
+    // popover (a stale worktree mode would swallow this Escape as a peel and
+    // leave the popover open).
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
   });
 });

@@ -1,5 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../store";
+
+/**
+ * Where an unprompted session's first prompt will run (issues #225, #227):
+ * the project checkout as-is, or a fresh worktree cut on the first send.
+ * `baseTouched` lives in the selection, not in the fields, because the
+ * composer's popover unmounts the fields when it closes — a hand-picked base
+ * must survive that round-trip (issue #227).
+ */
+export type WorkspaceSelection =
+  | { mode: "checkout" }
+  | { mode: "worktree"; branch: string; baseRef: string | null; baseTouched: boolean };
 
 /**
  * Branch mint for a worktree session (issues #224, #225): the renderer-side
@@ -13,12 +24,12 @@ export function mintBranchName(): string {
 
 /**
  * The branch and base fields of a worktree session (issues #224, #225),
- * shared by the sidebar's new-worktree dialog and the composer's workspace
- * selector: the branch is cut from the base and checked out under the app's
- * worktrees root, so the project's own working tree is never touched. The
- * base defaults to the checkout's current branch once known and follows the
- * select until the user picks one by hand. Ids are prefixed by the caller so
- * both surfaces can live in one document.
+ * shared by the sidebar's new-worktree dialog and the composer's branch chip
+ * (issue #227): the branch is cut from the base and checked out under the
+ * app's worktrees root, so the project's own working tree is never touched.
+ * The base defaults to the checkout's current branch once known and follows
+ * the select until the user picks one by hand. Ids are prefixed by the caller
+ * so both surfaces can live in one document.
  */
 export function WorktreeBranchFields({
   projectCwd,
@@ -27,6 +38,8 @@ export function WorktreeBranchFields({
   baseRef,
   onBaseRefChange,
   idPrefix,
+  baseTouched,
+  onBaseTouchedChange,
 }: {
   projectCwd: string;
   branch: string;
@@ -35,10 +48,26 @@ export function WorktreeBranchFields({
   baseRef: string | null;
   onBaseRefChange: (value: string | null) => void;
   idPrefix: string;
+  /**
+   * The manual-base latch, controlled (issue #227): the composer's popover
+   * unmounts the fields on close, so the latch is lifted state there.
+   * undefined = uncontrolled, the internal latch the sidebar dialog uses.
+   */
+  baseTouched?: boolean;
+  onBaseTouchedChange?: (touched: boolean) => void;
 }) {
   // The base defaults to the checkout's current branch once known; a manual
   // pick must survive later refreshes of the branch list.
-  const baseTouched = useRef(false);
+  // The manual-base latch. Uncontrolled (the sidebar dialog) it lives here;
+  // controlled (the composer's popover) it is lifted state, because the
+  // popover unmounts these fields when it closes.
+  const [internalTouched, setInternalTouched] = useState(false);
+  const touched = baseTouched === undefined ? internalTouched : baseTouched;
+  const markTouched = (): void => {
+    if (touched) return;
+    setInternalTouched(true);
+    onBaseTouchedChange?.(true);
+  };
 
   const info = useStore((s) => s.branches[projectCwd]);
   const refreshBranches = useStore((s) => s.refreshBranches);
@@ -50,7 +79,7 @@ export function WorktreeBranchFields({
   }, [projectCwd, refreshBranches]);
 
   useEffect(() => {
-    if (baseTouched.current) return;
+    if (touched) return;
     if (info === undefined) return;
     // Default to the checkout's current branch; when the list is empty or
     // the checkout detaches, the only base is HEAD itself — the state must
@@ -60,7 +89,7 @@ export function WorktreeBranchFields({
         ? (info.current ?? info.defaultBranch)
         : null;
     if (next !== baseRef) onBaseRefChange(next);
-  }, [info, baseRef, onBaseRefChange]);
+  }, [info, baseRef, onBaseRefChange, touched]);
 
   // No local branches, or a detached HEAD: nothing to cut from but the
   // checkout's HEAD itself.
@@ -88,7 +117,7 @@ export function WorktreeBranchFields({
           id={`${idPrefix}-base`}
           value={baseRef ?? ""}
           onChange={(event) => {
-            baseTouched.current = true;
+            markTouched();
             onBaseRefChange(event.target.value === "" ? null : event.target.value);
           }}
           className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"

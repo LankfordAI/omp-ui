@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { Button } from "./ui";
+import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
 
 /**
  * The composer's git-branch indicator and switcher (issues #35, #168): a
  * neutral chip showing the project's current branch and how far it trails its
  * configured upstream, opening a filter-as-you-type menu of local branches with
  * a fast-forward pull and a "new branch…" action. Hidden entirely on non-git
- * projects. Neutral chrome only — signal mint is reserved for agent liveness
- * (ADR-0004), and neither branch identity nor upstream drift is liveness, so
- * divergence escalates to copper and failures to rose.
+ * projects. The composer additionally offers its pending-workspace selection
+ * here (issue #227): while the session is unprompted and has no worktree of
+ * its own, the menu gains a "worktree…" row whose sub-mode hosts the shared
+ * branch/base fields, and the trigger reads the minted branch with a
+ * "worktree" marker. Neutral chrome only — signal mint is reserved for agent
+ * liveness (ADR-0004), and neither branch identity nor upstream drift is
+ * liveness, so divergence escalates to copper and failures to rose.
  *
  * Upstream reads are transport-only: the store owns every git call, coalesces
  * concurrent refreshes, and keeps the last good snapshot when one fails, so
@@ -37,7 +42,31 @@ type Pending = { kind: "checkout"; branch: string } | { kind: "pull" };
 
 const commits = (count: number): string => `${count} commit${count === 1 ? "" : "s"}`;
 
-export function BranchChip({ projectCwd }: { projectCwd?: string }) {
+export function BranchChip({
+  projectCwd,
+  workspace,
+  onWorkspaceChange,
+  workspaceDisabled = false,
+}: {
+  projectCwd?: string;
+  /**
+   * The composer's pending-workspace selection (issue #227), offered only
+   * while the session is unprompted and has no worktree of its own. Absent
+   * (the default) the popover is the branch menu alone — the compact sheet
+   * instance, and every prompted or worktree session.
+   */
+  workspace?: WorkspaceSelection;
+  /**
+   * The functional form merges against the latest selection: one event can
+   * emit several partial updates (a base pick sets both the ref and the
+   * touched latch), and a stale spread would clobber its sibling.
+   */
+  onWorkspaceChange?: (
+    value: WorkspaceSelection | ((prev: WorkspaceSelection) => WorkspaceSelection),
+  ) => void;
+  /** The composer's session unavailability; disables the worktree rows. */
+  workspaceDisabled?: boolean;
+}) {
   const info = useStore((s) => (projectCwd === undefined ? undefined : s.branches[projectCwd]));
   const refreshing = useStore(
     (s) => projectCwd !== undefined && s.branchActivity[projectCwd]?.refreshing === true,
@@ -64,7 +93,7 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const [mode, setMode] = useState<"list" | "create">("list");
+  const [mode, setMode] = useState<"list" | "create" | "worktree">("list");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** The change awaiting the busy-session confirm; null when not confirming. */
@@ -94,6 +123,10 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
       setName("");
       return;
     }
+    if (mode === "worktree") {
+      setMode("list");
+      return;
+    }
     if (confirm !== null) {
       setConfirm(null);
       return;
@@ -108,6 +141,12 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
       void refreshBranches(projectCwd, { fetchUpstream: false });
     }
   }, [projectCwd, info, refreshBranches]);
+
+  // The composer drops the section the moment the session is prompted or
+  // converted: a stale worktree sub-mode must not outlive the prop.
+  useEffect(() => {
+    if (workspace === undefined && mode === "worktree") setMode("list");
+  }, [workspace, mode]);
 
   // Regaining the window is the cheapest honest moment to learn the branch
   // moved elsewhere. Both events fire on one alt-tab, so they share a debounce,
@@ -202,6 +241,31 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
   // as a silent failure.
   const showPull = pulling || (resolvable && behind > 0);
   const pullEnabled = resolvable && behind > 0 && ahead === 0 && !refreshing && !pulling;
+  // The worktree section of the merged chip (issue #227). The branch menu
+  // itself is git-level and never disabled; only the worktree rows honour
+  // the composer's session readiness.
+  const worktreeOffered = workspace !== undefined && onWorkspaceChange !== undefined;
+  const worktreeLocked = workspaceDisabled;
+
+  /**
+   * Enters the worktree sub-mode. The branch is minted once, on the first
+   * pick only — re-picking the active selection keeps the minted name and
+   * any edits (issue #225 semantics, preserved).
+   */
+  const enterWorktree = (): void => {
+    if (!worktreeOffered || worktreeLocked) return;
+    if (workspace !== undefined && workspace.mode === "worktree") {
+      setMode("worktree");
+      return;
+    }
+    onWorkspaceChange?.({ mode: "worktree", branch: mintBranchName(), baseRef: null, baseTouched: false });
+    setMode("worktree");
+  };
+
+  const pickCheckout = (): void => {
+    onWorkspaceChange?.({ mode: "checkout" });
+    closeMenu();
+  };
 
   const toggleMenu = (): void => {
     if (menuOpen) {
@@ -264,9 +328,11 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
         type="button"
         aria-expanded={menuOpen}
         title={
-          behindReading === null
-            ? `branch — ${current ?? "detached HEAD"} (click to switch)`
-            : `branch — ${current} · ${behindReading} (click to switch)`
+          workspace?.mode === "worktree"
+            ? `worktree — the first prompt cuts ${workspace.branch} from ${workspace.baseRef ?? "current HEAD"}`
+            : behindReading === null
+              ? `branch — ${current ?? "detached HEAD"} (click to switch)`
+              : `branch — ${current} · ${behindReading} (click to switch)`
         }
         onClick={toggleMenu}
         className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
@@ -277,7 +343,12 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
           <circle cx="11" cy="6" r="1.6" {...S} />
           <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...S} />
         </svg>
-        <span className="min-w-0 max-w-44 truncate">{current ?? "detached"}</span>
+        <span className="min-w-0 max-w-44 truncate">
+          {workspace?.mode === "worktree" ? workspace.branch : current ?? "detached"}
+        </span>
+        {workspace?.mode === "worktree" && (
+          <span className="shrink-0 text-ink-dim">· worktree</span>
+        )}
         {resolvable && behind > 0 && (
           <>
             {/* Behind is a neutral fact; only divergence — where the fix is
@@ -299,7 +370,10 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
       {menuOpen && (
         <div
           aria-busy={refreshing || pulling}
-          className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-60 flex-col rounded-md border border-line-strong bg-overlay p-1"
+          className={cn(
+            "animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
+            mode === "worktree" ? "w-72" : "w-60",
+          )}
         >
           {confirm !== null ? (
             <>
@@ -371,6 +445,35 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
                 </Button>
               </div>
             </>
+          ) : mode === "worktree" && workspace?.mode === "worktree" ? (
+            <>
+              <WorktreeBranchFields
+                projectCwd={projectCwd}
+                branch={workspace.branch}
+                onBranchChange={(branch) => onWorkspaceChange?.({ ...workspace, branch })}
+                baseRef={workspace.baseRef}
+                onBaseRefChange={(baseRef) =>
+                  onWorkspaceChange?.((prev) =>
+                    prev.mode === "worktree" ? { ...prev, baseRef } : prev,
+                  )
+                }
+                baseTouched={workspace.baseTouched}
+                onBaseTouchedChange={(baseTouched) =>
+                  onWorkspaceChange?.((prev) =>
+                    prev.mode === "worktree" ? { ...prev, baseTouched } : prev,
+                  )
+                }
+                idPrefix="composer-worktree"
+              />
+              <span className="px-1.5 pb-1 text-[10px] text-ink-faint">
+                the first prompt cuts this branch in a fresh worktree
+              </span>
+              <div className="flex gap-1.5 px-1.5 pb-0.5">
+                <Button size="xs" variant="ghost" onClick={() => setMode("list")}>
+                  back
+                </Button>
+              </div>
+            </>
           ) : (
             <>
               {showPull && (
@@ -403,6 +506,40 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
               >
                 new branch…
               </button>
+              {workspace?.mode === "worktree" && (
+                <button
+                  type="button"
+                  disabled={worktreeLocked}
+                  onClick={pickCheckout}
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                    "disabled:pointer-events-none disabled:text-ink-dim",
+                  )}
+                >
+                  Current checkout
+                </button>
+              )}
+              {worktreeOffered && (
+                <button
+                  type="button"
+                  disabled={worktreeLocked}
+                  title={
+                    worktreeLocked
+                      ? "the session must be ready before it can run in a worktree"
+                      : undefined
+                  }
+                  onClick={enterWorktree}
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                    // No pointer-events-none: the disabled state carries its
+                    // hint as a tooltip, which hover must still reach.
+                    "disabled:text-ink-dim disabled:hover:bg-transparent",
+                    workspace?.mode === "worktree" ? "text-iris" : "text-ink-mid",
+                  )}
+                >
+                  worktree…
+                </button>
+              )}
               <input
                 autoFocus
                 value={filter}
