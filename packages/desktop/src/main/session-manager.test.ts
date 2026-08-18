@@ -778,3 +778,89 @@ describe("worktree sessions (issue #224)", () => {
     expect(registry.sessions.some((s) => s.tabId === "tab-wt-bad")).toBe(false);
   });
 });
+
+describe("convert to worktree (issue #225)", () => {
+  const worktreesRoot = (): string => path.join(base, "worktrees");
+
+  it("kills a live session, patches the record, and respawns in the checkout", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-convert";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    const predecessor = fakePtys[0]!;
+
+    await manager.convertToWorktree(tabId, branch, null);
+
+    // The idle process was killed (the fake exited on the default signal)…
+    expect(predecessor.signals).toEqual(["default"]);
+    // …the record carries the worktree…
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch });
+    // …the checkout exists on disk…
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    // …and the successor runs in it.
+    expect(spawnOmpMock).toHaveBeenCalledTimes(2);
+    const call = spawnCalls[spawnCalls.length - 1]!;
+    expect(call.id).toBe(tabId);
+    expect(call.cwd).toBe(worktreePath);
+    expect(manager.isLive(tabId)).toBe(true);
+  });
+
+  it("leaves the live session untouched when the branch already exists", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-taken";
+    await execFileP("git", ["branch", branch], { cwd: project });
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    const predecessor = fakePtys[0]!;
+
+    await expect(manager.convertToWorktree(tabId, branch, null)).rejects.toThrow(
+      /already exists/,
+    );
+
+    // Create-before-kill: no kill, no respawn, no record patch.
+    expect(predecessor.kill).not.toHaveBeenCalled();
+    expect(spawnOmpMock).toHaveBeenCalledTimes(1);
+    expect(manager.isLive(tabId)).toBe(true);
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree ?? null).toBeNull();
+    expect(fs.existsSync(Core.mintWorktreePath(worktreesRoot(), project, branch))).toBe(false);
+  });
+
+  it("patches a dormant record without killing or spawning", async () => {
+    const { manager, registry, broadcast } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-dormant";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const record = registry.addSession(
+      ownedSessionRecord({ tabId: "tab-dormant", projectCwd: project, mode: "pty" }),
+    );
+
+    await manager.convertToWorktree(record.tabId, branch, null);
+
+    const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
+    expect(updated.worktree).toEqual({ path: worktreePath, branch });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    expect(spawnOmpMock).not.toHaveBeenCalled();
+    expect(manager.isLive(record.tabId)).toBe(false);
+    expect(broadcast).toHaveBeenCalled();
+  });
+});

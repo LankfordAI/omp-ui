@@ -104,6 +104,7 @@ const mockBackend = {
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   restartSession: vi.fn(),
+  convertToWorktree: vi.fn(async () => {}),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
   forkSession: vi.fn(),
@@ -4112,6 +4113,22 @@ describe("deleteSession", () => {
 
     expect(useStore.getState().deleteConfirmation).toBeNull();
     expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+  });
+});
+
+describe("convertSessionToWorktree (issue #225)", () => {
+  it("converts via the backend channel and rethrows failures", async () => {
+    await useStore
+      .getState()
+      .convertSessionToWorktree(TAB, { branch: "omp-ui/abcd1234", baseRef: "main" });
+    expect(mockBackend.convertToWorktree).toHaveBeenCalledWith(TAB, "omp-ui/abcd1234", "main");
+
+    mockBackend.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
+    await expect(
+      useStore
+        .getState()
+        .convertSessionToWorktree(TAB, { branch: "omp-ui/abcd1234", baseRef: null }),
+    ).rejects.toThrow("branch already exists");
   });
 });
 

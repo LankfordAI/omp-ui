@@ -31,6 +31,7 @@ import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
+import { WorkspaceControl, type WorkspaceSelection } from "./WorkspaceControl";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, PerimeterGlow, PerimeterSweep, Sheet } from "./ui";
 
 /**
@@ -67,10 +68,17 @@ function IconSend() {
 export function Composer({
   tabId,
   onPrompt,
+  unprompted = false,
 }: {
   tabId: string;
   /** Fires when a non-slash draft is submitted on any route — the first one docks the hero. */
   onPrompt?: () => void;
+  /**
+   * True only while the session sits at its empty-transcript hero (issue
+   * #225): the workspace chip is offered, and the first send may convert the
+   * session to a worktree before the prompt goes out.
+   */
+  unprompted?: boolean;
 }) {
   const status = useStore((s) => s.rpc[tabId]?.status);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
@@ -98,12 +106,16 @@ export function Composer({
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
+  // A session already running in a worktree has its workspace fixed for
+  // life — the chip is never offered to it.
+  const hasWorktree = useStore((s) => findRecord(s.state, tabId)?.worktree != null);
 
   const sendPrompt = useStore((s) => s.sendPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
+  const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
 
   const [text, setText] = useState("");
   /**
@@ -134,6 +146,15 @@ export function Composer({
   const [pasteError, setPasteError] = useState<string | null>(null);
   /** Whether the box has focus — omp shimmers a keyword only while it does. */
   const [focused, setFocused] = useState(false);
+  /**
+   * Where this session's first prompt will run (issue #225), chosen via the
+   * workspace chip that is offered only while the session is unprompted.
+   */
+  const [workspace, setWorkspace] = useState<WorkspaceSelection>({ mode: "checkout" });
+  /** The last worktree-conversion failure, rendered inline by the chip. */
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  /** True while the first send is converting the session to a worktree. */
+  const [converting, setConverting] = useState(false);
   /** Gradient rotation ∈ [0,1); 0 is the static palette. */
   const [phase, setPhase] = useState(0);
 
@@ -377,7 +398,30 @@ export function Composer({
       let payload = images;
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
-      if ((message === "" && payload.length === 0) || unavailable) return;
+      if ((message === "" && payload.length === 0) || unavailable || converting) return;
+      // A first prompt with the workspace chip set to a fresh worktree
+      // converts the session before anything else happens (issue #225): on
+      // failure the draft, the hero, and the chip all stay put, and git's
+      // message renders inline in the sub-row. Slash commands are not
+      // prompts — they bypass the conversion entirely.
+      if (!message.startsWith("/") && workspace.mode === "worktree" && unprompted) {
+        setConverting(true);
+        setWorkspaceError(null);
+        try {
+          await convertSessionToWorktree(tabId, {
+            branch: workspace.branch,
+            baseRef: workspace.baseRef,
+          });
+        } catch (err) {
+          setWorkspaceError(err instanceof Error ? err.message : String(err));
+          setConverting(false);
+          return;
+        }
+        setConverting(false);
+        // The record's new worktree hides the chip via its selector; reset
+        // the selection anyway so a stale "worktree" can never gate a send.
+        setWorkspace({ mode: "checkout" });
+      }
       if (!message.startsWith("/")) onPrompt?.();
       // Consecutive duplicates make ↑ recall useless.
       if (message !== "" && history.current[history.current.length - 1] !== message) {
@@ -431,6 +475,10 @@ export function Composer({
       abortAndPrompt,
       sendPrompt,
       onPrompt,
+      unprompted,
+      workspace,
+      converting,
+      convertSessionToWorktree,
     ],
   );
 
@@ -549,7 +597,7 @@ export function Composer({
         : "message the agent…   /  commands · @  files";
 
   // An image alone is sendable: "what is this?" is in the picture, not the text.
-  const canSend = (trimmed !== "" || images.length > 0) && !unavailable;
+  const canSend = (trimmed !== "" || images.length > 0) && !unavailable && !converting;
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
@@ -776,6 +824,22 @@ export function Composer({
             />
 
             <BranchChip projectCwd={cwd} />
+
+            {unprompted && !hasWorktree && cwd !== undefined && (
+              <WorkspaceControl
+                projectCwd={cwd}
+                disabled={unavailable || converting}
+                value={workspace}
+                onChange={(next) => {
+                  setWorkspace(next);
+                  // A stale git error must never outlive the selection it
+                  // names — the next attempt renders its own failure.
+                  setWorkspaceError(null);
+                }}
+                error={workspaceError}
+                pending={converting}
+              />
+            )}
 
             <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
 

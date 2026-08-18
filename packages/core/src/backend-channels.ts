@@ -398,6 +398,10 @@ export const BACKEND_CHANNELS = {
     channel: "session:restart",
     ...request<[tabId: string], void>(),
   },
+  convertToWorktree: {
+    channel: "session:convert-to-worktree",
+    ...request<[tabId: string, branch: string, baseRef: string | null], void>(),
+  },
   /**
    * Project-relative file listing for the composer's @ picker;
    * gitignore-aware, with a walk fallback outside repos.

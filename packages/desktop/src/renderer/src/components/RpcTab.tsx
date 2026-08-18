@@ -244,7 +244,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     answer, so the question must not cover it. */}
                 <ExtensionDialogHost tabId={tabId} />
                 <div ref={slotRef} className={cn(centered && "pb-2")}>
-                  <Composer tabId={tabId} onPrompt={() => setPrompted(true)} />
+                  <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
                 </div>
                 {centered && <HeroFooter items={items} />}
               </>

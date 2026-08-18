@@ -240,6 +240,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     projectCwd: string,
     opts: { branch: string; baseRef: string | null },
   ): Promise<void>;
+  /**
+   * Converts an unprompted session to a worktree session (issue #225);
+   * throws on failure (the composer renders the message inline) — unlike
+   * restartSession's alertError.
+   */
+  convertSessionToWorktree(
+    tabId: string,
+    opts: { branch: string; baseRef: string | null },
+  ): Promise<void>;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;
   openSession(tabId: string): Promise<void>;

@@ -353,6 +353,8 @@ export class MainBackend {
           this.sessions.switchMode(tabId, mode),
         [CH.deleteSession]: (tabId: string) => this.sessions.deleteSession(tabId),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
+        [CH.convertToWorktree]: (tabId: string, branch: string, baseRef: string | null) =>
+          this.sessions.convertToWorktree(tabId, branch, baseRef),
         [CH.setSessionAdvisor]: (
           tabId: string,
           advisor: boolean,

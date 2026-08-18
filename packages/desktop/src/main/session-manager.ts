@@ -463,6 +463,40 @@ export class SessionManager {
     });
   }
 
+  /**
+   * Converts an unprompted session to a worktree session (issue #225): mints
+   * the checkout, records it on the session, and respawns in place so the
+   * first prompt lands in the worktree. Create-before-kill: a failed
+   * `git worktree add` leaves the live session untouched and surfaces git's
+   * own message. A respawn failure after the record update leaves a
+   * resumable worktree session rather than rolling back into the project root.
+   */
+  async convertToWorktree(tabId: string, branch: string, baseRef: string | null): Promise<void> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) throw new Error(`unknown session tab ${tabId}`);
+    if (record.worktree) throw new Error("session already runs in a worktree");
+    const worktreePath = mintWorktreePath(
+      this.deps.getWorktreesRoot(), record.projectCwd, branch);
+    await addWorktree(record.projectCwd, worktreePath, branch, baseRef);
+    this.deps.registry.updateSession(tabId, { worktree: { path: worktreePath, branch } });
+    const entry = this.live.get(tabId);
+    if (!entry) {
+      // A dormant restored tab: its next resume picks the worktree up from
+      // the record.
+      await this.deps.broadcast();
+      return;
+    }
+    await this.relaunch(entry, {
+      projectCwd: record.projectCwd,
+      mode: record.mode,
+      advisor: record.advisor,
+      advisorModel: record.advisorModel,
+      cols: 80,
+      rows: 24,
+      resumeTabId: tabId,
+    });
+  }
+
   /** Delivers a pasted image to a PTY session as a scratch-file path. */
   async ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void> {
     const pty = this.live.get(tabId)?.pty;

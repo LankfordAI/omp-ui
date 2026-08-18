@@ -1425,6 +1425,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
       }));
     },
 
+    /**
+     * Converts an unprompted session to a worktree session (issue #225): the
+     * main process mints the checkout, patches the record, and respawns in
+     * place, and its broadcasts drive the state here — no tab churn. Throws
+     * on failure; the composer renders the message inline.
+     */
+    async convertSessionToWorktree(tabId, opts) {
+      await backend.convertToWorktree(tabId, opts.branch, opts.baseRef);
+    },
+
     openWorktreeDialog(projectCwd) {
       set({ worktreeDialogProject: projectCwd });
     },
