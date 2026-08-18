@@ -138,15 +138,34 @@ install_icons() {
         return 0
     fi
 
+    # Remove owned icons from earlier installs so a repair converges to exactly
+    # the current AppImage's icon set (ownership boundary: $APP_ID.* only, as
+    # in do_uninstall).
+    local stale
+    for stale in "$HICOLOR_DIR"/*/apps/"$APP_ID".*; do
+        [ -e "$stale" ] || continue
+        rm -f -- "$stale"
+    done
+
     local installed=0
-    local src rest size
-    for src in "$root"/usr/share/icons/hicolor/*/apps/"$APP_ID".*; do
+    local src rest size name dest
+    # electron-builder embeds the icon under the executable name (omp-ui), not
+    # the desktop id; accept both, publish under $APP_ID.
+    local exec_name
+    exec_name="$(basename "$TARGET" .AppImage)"
+    for src in "$root"/usr/share/icons/hicolor/*/apps/"$APP_ID".* \
+               "$root"/usr/share/icons/hicolor/*/apps/"$exec_name".*; do
         [ -f "$src" ] || continue
         rest="${src#"$root"/usr/share/icons/hicolor/}"
         size="${rest%%/*}"
+        name="$(basename "$src")"
+        dest="$HICOLOR_DIR/$size/apps/$APP_ID.${name##*.}"
+        if [ -e "$dest" ]; then
+            continue
+        fi
         mkdir -p "$HICOLOR_DIR/$size/apps"
-        cp -- "$src" "$HICOLOR_DIR/$size/apps/$(basename "$src")"
-        chmod 0644 "$HICOLOR_DIR/$size/apps/$(basename "$src")"
+        cp -- "$src" "$dest"
+        chmod 0644 "$dest"
         installed=1
     done
 
@@ -183,7 +202,7 @@ Icon=$APP_ID
 Type=Application
 Categories=Development;
 Terminal=false
-StartupWMClass=omp-ui
+StartupWMClass=$APP_ID
 EOF
     chmod 0644 "$DESKTOP_FILE"
 }

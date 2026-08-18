@@ -20,15 +20,20 @@ import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 // userData dirs because requestSingleInstanceLock is scoped to userData. A
 // long-lived standalone run (for example, one launched by a desktop service)
 // must not make `npm run dev` start its renderer server and immediately exit.
-// Keep the historical unpackaged path for standalone runs so their registry
-// does not move; electron-vite exposes ELECTRON_RENDERER_URL and gets a
-// dedicated identity. This must precede requestSingleInstanceLock below.
-if (!app.isPackaged) {
-  const name = process.env.ELECTRON_RENDERER_URL
+// The packaged name is pinned rather than derived from app.name — app.name is
+// the desktop id "ai.lankford.omp-ui" (desktopName in package.json), and
+// existing installs must keep their registry, window state, and Chromium
+// storage where they already are. electron-vite exposes ELECTRON_RENDERER_URL
+// and gets a dedicated identity. This must precede requestSingleInstanceLock
+// below.
+const userDataName = app.isPackaged
+  ? "@omp-ui/desktop"
+  : process.env.ELECTRON_RENDERER_URL
     ? "@omp-ui/desktop-dev-server"
     : "@omp-ui/desktop-dev";
-  app.setPath("userData", join(app.getPath("appData"), name));
-}
+app.setPath("userData", join(app.getPath("appData"), userDataName));
+// app.name is the desktop id; user-facing surfaces show the product name.
+app.setAboutPanelOptions({ applicationName: "omp-ui" });
 
 // Dev/test seam: opt-in CDP endpoint for programmatic renderer inspection.
 if (process.env.OMP_UI_CDP_PORT) {

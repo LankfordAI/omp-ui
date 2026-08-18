@@ -1,11 +1,11 @@
-import { app, Menu, type MenuItemConstructorOptions } from "electron";
+import { Menu, type MenuItemConstructorOptions } from "electron";
 
 export function installApplicationMenu(): void {
   if (process.platform !== "darwin") return;
 
   const template: MenuItemConstructorOptions[] = [
     {
-      label: app.name,
+      label: "omp-ui", // display name; app.name is the desktop id
       submenu: [
         { role: "about" },
         { type: "separator" },
