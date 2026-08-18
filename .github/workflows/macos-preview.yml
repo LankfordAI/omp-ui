@@ -2,6 +2,16 @@ name: macOS Preview
 
 on:
   workflow_dispatch:
+    inputs:
+      notarize:
+        description: >-
+          Notarize with Apple. Set false during a Notary Service outage
+          (issue #124) to still get a signed, non-notarized artifact.
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
 
 permissions:
   contents: read
@@ -42,23 +52,33 @@ jobs:
         working-directory: packages/desktop
       - name: Rebuild node-pty
         run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
-      - name: Package signed and notarized macOS preview
-        run: npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never
+      - name: Package signed macOS preview (notarization deferred to next step)
+        run: >-
+          npm run package:mac --workspace @omp-ui/desktop --
+          --${{ matrix.arch }} --publish never --config.mac.notarize=false
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      - name: Notarize macOS preview (notarytool with retries)
+        if: ${{ inputs.notarize == 'true' }}
+        shell: bash
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Verify signed and notarized macOS preview
+        run: bash packages/desktop/scripts/notarize-macos-preview.sh "${{ matrix.arch }}"
+      - name: Verify signed macOS preview
         shell: bash
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash packages/desktop/scripts/verify-macos-package.sh "${{ matrix.arch }}"
+        run: >-
+          bash packages/desktop/scripts/verify-macos-package.sh
+          "${{ matrix.arch }}"
+          "${{ inputs.notarize == 'true' && 'full' || 'signed-only' }}"
       - name: Upload macOS preview
         uses: actions/upload-artifact@v4
         with:
-          name: omp-ui-macos-${{ matrix.arch }}-${{ github.sha }}
+          name: omp-ui-macos-${{ matrix.arch }}-${{ github.sha }}-${{ inputs.notarize == 'true' && 'notarized' || 'signed-only' }}
           path: |
             packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.dmg
             packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.zip

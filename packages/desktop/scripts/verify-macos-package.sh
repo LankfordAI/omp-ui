@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (( $# != 1 )); then
-  printf 'Usage: %s <arm64|x64>\n' "$0" >&2
+if (( $# < 1 || $# > 2 )); then
+  printf 'Usage: %s <arm64|x64> [full|signed-only]\n' "$0" >&2
   exit 2
 fi
 
 arch="$1"
+mode="${2:-full}"
 case "$arch" in
   arm64)
     required_arch=arm64
@@ -18,6 +19,13 @@ case "$arch" in
     ;;
   *)
     printf 'Unsupported architecture: %s (expected arm64 or x64)\n' "$arch" >&2
+    exit 2
+    ;;
+esac
+case "$mode" in
+  full | signed-only) ;;
+  *)
+    printf 'Unsupported mode: %s (expected full or signed-only)\n' "$mode" >&2
     exit 2
     ;;
 esac
@@ -76,8 +84,15 @@ grep -Fq "TeamIdentifier=$APPLE_TEAM_ID" <<<"$signature" || {
   exit 1
 }
 codesign --verify --strict --verbose=2 "$pty"
-spctl --assess --type execute --verbose=4 "$app"
-xcrun stapler validate "$app"
+# Gatekeeper assessment and stapling only hold for notarized artifacts; a
+# signed-only preview (Apple Notary Service outage — issue #124) is still
+# verified for signature integrity, identity, and team.
+if [[ "$mode" == "full" ]]; then
+  spctl --assess --type execute --verbose=4 "$app"
+  xcrun stapler validate "$app"
+else
+  printf 'signed-only mode: skipping spctl assessment and stapler validation\n'
+fi
 
 dmg="${dmgs[0]##*/}"
 zip="${zips[0]##*/}"
