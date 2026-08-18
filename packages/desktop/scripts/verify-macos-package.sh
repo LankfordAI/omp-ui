@@ -71,6 +71,8 @@ for binary in "$executable" "$pty"; do
 done
 
 : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required for signature verification}"
+# Trim whitespace/newlines that may be present in the secret value.
+expected_team="$(printf '%s' "$APPLE_TEAM_ID" | tr -d '[:space:]')"
 
 codesign --verify --deep --strict --verbose=2 "$app"
 signature="$(codesign -dv --verbose=4 "$app" 2>&1)"
@@ -79,10 +81,12 @@ grep -Fq "Authority=Developer ID Application:" <<<"$signature" || {
   printf 'App is not signed with a Developer ID Application identity\n' >&2
   exit 1
 }
-grep -Fq "TeamIdentifier=$APPLE_TEAM_ID" <<<"$signature" || {
-  printf 'Expected signing team %s\n' "$APPLE_TEAM_ID" >&2
+actual_team="$(sed -n 's/^TeamIdentifier=//p' <<<"$signature" | head -1 | tr -d '[:space:]')"
+if [[ -z "$actual_team" || "$actual_team" != "$expected_team" ]]; then
+  printf 'Signing team mismatch: signature has "%s", APPLE_TEAM_ID has length %s\n' \
+    "$actual_team" "${#expected_team}" >&2
   exit 1
-}
+fi
 codesign --verify --strict --verbose=2 "$pty"
 # Gatekeeper assessment and stapling only hold for notarized artifacts; a
 # signed-only preview (Apple Notary Service outage — issue #124) is still
