@@ -5,8 +5,9 @@
 # notarytool submission attempt. Apple's Notary Service intermittently returns
 # HTTP 500 (see issue #124), which kills the whole build. The preview workflow
 # therefore builds with `--config.mac.notarize=false` and delegates notarization
-# this script, which retries transient failures with backoff, then staples the
-# ticket onto the .app and .dmg and re-zips the artifact.
+# to this script, which submits the DMG (so Apple issues tickets for both the
+# disk image and the app inside), retries transient failures with backoff, then
+# staples the tickets onto the .app and .dmg and re-zips the artifact.
 #
 # Usage: notarize-macos-preview.sh <arm64|x64>
 #
@@ -36,11 +37,13 @@ dist="packages/desktop/dist"
 zips=("$dist"/*-mac-preview-"$arch".zip)
 dmgs=("$dist"/*-mac-preview-"$arch".dmg)
 
-if (( ${#zips[@]} != 1 )); then
-  printf 'Expected exactly one preview ZIP for %s in %s, found %s\n' "$arch" "$dist" "${#zips[@]}" >&2
+if (( ${#zips[@]} != 1 || ${#dmgs[@]} != 1 )); then
+  printf 'Expected exactly one preview ZIP and one DMG for %s in %s, found %s ZIP(s) and %s DMG(s)\n' \
+    "$arch" "$dist" "${#zips[@]}" "${#dmgs[@]}" >&2
   exit 1
 fi
 zip="${zips[0]}"
+dmg="${dmgs[0]}"
 
 max_attempts=4
 delays=(60 300 900) # seconds before attempts 2, 3 and 4
@@ -50,9 +53,9 @@ trap 'rm -f "$log"' EXIT
 attempt=1
 notarized=0
 while (( attempt <= max_attempts )); do
-  printf '\n=== Notarization attempt %s/%s: %s ===\n' "$attempt" "$max_attempts" "$zip"
+  printf '\n=== Notarization attempt %s/%s: %s ===\n' "$attempt" "$max_attempts" "$dmg"
   status=0
-  xcrun notarytool submit "$zip" \
+  xcrun notarytool submit "$dmg" \
     --apple-id "$APPLE_ID" \
     --password "$APPLE_APP_SPECIFIC_PASSWORD" \
     --team-id "$APPLE_TEAM_ID" \
@@ -116,10 +119,6 @@ rm -f "$zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 printf 'Re-zipped stapled app into %s\n' "$zip"
 
-if (( ${#dmgs[@]} == 1 )); then
-  xcrun stapler staple "${dmgs[0]}"
-else
-  printf 'Warning: no DMG found for %s to staple (found %s)\n' "$arch" "${#dmgs[@]}" >&2
-fi
+xcrun stapler staple "$dmg"
 
 printf 'Notarization and stapling complete for %s.\n' "$arch"
