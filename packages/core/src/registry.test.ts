@@ -601,6 +601,47 @@ describe("Registry mutations", () => {
   });
 });
 
+describe("Registry worktree field", () => {
+  it("round-trips a worktree record through save and load", () => {
+    const file = tmpFile();
+    const worktree = {
+      path: "/state/omp-ui/worktrees/proj--abc12345/omp-ui-deadbeef",
+      branch: "omp-ui/deadbeef",
+    };
+    Registry.load(file).addSession(sessionRecord({ worktree }));
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions).toHaveLength(1);
+    expect(reloaded.sessions[0]).toEqual({
+      ...sessionRecord({ worktree }),
+      model: null,
+      thinkingLevel: null,
+      advisorModel: null,
+    });
+  });
+
+  it("normalizes a record without a worktree to null on load", () => {
+    const file = tmpFile();
+    Registry.load(file).addSession(sessionRecord());
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions).toHaveLength(1);
+    expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-1", worktree: null });
+  });
+
+  it("drops a session with a malformed worktree, keeping the rest of the registry", () => {
+    const file = tmpFile();
+    const good = sessionRecord({ tabId: "good" });
+    const bad = { ...sessionRecord({ tabId: "bad" }), worktree: { path: "x" } };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [good, bad] }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "good" });
+    expect(fs.existsSync(file)).toBe(true);
+  });
+});
+
 describe("Registry snapshots", () => {
   it("returns deep-frozen snapshots detached from internal state", () => {
     const reg = Registry.load(tmpFile());

@@ -22,6 +22,9 @@ import {
   listMemories,
   readMemoryOverview,
   pullBranch,
+  mintWorktreePath,
+  isWithin,
+  removeWorktree,
   listProjectFiles,
   resolveFileMentions,
   resolveMcpServers,
@@ -99,6 +102,8 @@ export class MainBackend {
    * stored keys; the login-shell capture is awaited separately at boot.
    */
   private readonly providerKeys: ProviderKeys;
+  /** Where worktree checkouts live; defaults beside the registry. */
+  private readonly worktreesRoot: string;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -112,6 +117,8 @@ export class MainBackend {
       webRoot?: string;
       /** Where provider credentials are stored; defaults beside the registry. */
       providerKeysFile?: string;
+      /** Where worktree checkouts live; defaults beside the registry. */
+      worktreesRoot?: string;
       /** Process owner override for focused main-process tests. */
       sessions?: SessionManager;
     } = {},
@@ -125,6 +132,8 @@ export class MainBackend {
       electronKeyCipher(),
     );
     this.providerKeys.applyToProcessEnv();
+    this.worktreesRoot =
+      opts.worktreesRoot ?? path.join(path.dirname(registryFile), "worktrees");
     this.sessions =
       opts.sessions ??
       new SessionManager({
@@ -133,6 +142,7 @@ export class MainBackend {
         getOmpPath: () => this.ompPath,
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
+        getWorktreesRoot: () => this.worktreesRoot,
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
       });
@@ -255,6 +265,25 @@ export class MainBackend {
             throw new Error("project has live sessions — terminate them first");
           }
           this.sessions.stopProjectWatchers(projectPath);
+          const worktreePaths = new Set(
+            this.registry.sessions
+              .filter(
+                (s) =>
+                  s.projectCwd === projectPath &&
+                  s.worktree &&
+                  // Only the canonical minted path inside the worktrees
+                  // root: a corrupt registry value must not steer the
+                  // recursive fallback inside removeWorktree.
+                  s.worktree.path ===
+                    mintWorktreePath(this.worktreesRoot, projectPath, s.worktree.branch) &&
+                  isWithin(this.worktreesRoot, s.worktree.path),
+              )
+              .map((s) => s.worktree!.path),
+          );
+          for (const wt of worktreePaths) {
+            try { await removeWorktree(projectPath, wt); }
+            catch (err) { console.warn(`[backend] worktree cleanup failed for ${wt}:`, err); }
+          }
           this.registry.removeProject(projectPath);
           await this.broadcast();
         },

@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import * as Core from "@omp-ui/core";
 import type { KeyCipher, PtyHandle } from "@omp-ui/core";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
@@ -27,6 +29,8 @@ const spawnOmpMock = vi.mocked(Core.spawnOmp);
 const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
 const RpcClientMock = vi.mocked(Core.RpcClient);
+const execFileP = promisify(execFile);
+const spawnCalls: Array<Record<string, unknown>> = [];
 
 interface FakePty {
   dataCb: ((data: Buffer) => void) | null;
@@ -90,7 +94,20 @@ function asPtyHandle(id: string, fake: FakePty): PtyHandle {
   };
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui" } = {}): {
+/** A real git repo under the harness base: one committed file, repo-local identity. */
+async function gitProject(baseDir: string): Promise<string> {
+  const dir = fs.mkdtempSync(path.join(baseDir, "project-"));
+  const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+  await git(["init", "-q", "-b", "main"]);
+  await git(["config", "user.email", "test@example.com"]);
+  await git(["config", "user.name", "test"]);
+  fs.writeFileSync(path.join(dir, ".seed"), "seed\n");
+  await git(["add", "."]);
+  await git(["commit", "-q", "-m", "init"]);
+  return dir;
+}
+
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -106,7 +123,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui" } = {}): {
     settings: { defaultMode: "pty" },
     projects: [
       {
-        path: "/proj",
+        path: opts.project ?? "/proj",
         name: "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
@@ -118,7 +135,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui" } = {}): {
         tabId: TAB,
         sessionId: null,
         lineageDir: LINEAGE,
-        projectCwd: "/proj",
+        projectCwd: opts.project ?? "/proj",
         mode: opts.mode ?? "pty",
       }),
     ],
@@ -143,6 +160,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui" } = {}): {
     getOmpPath: () => "/test/omp",
     getSessionsRoot: () => sessionsRoot,
     getArchiveRoot: () => archiveRoot,
+    getWorktreesRoot: () => path.join(base, "worktrees"),
     send: (channel, ...args) => sent.push({ channel, args }),
     broadcast,
   });
@@ -165,18 +183,21 @@ beforeEach(() => {
   fakeShells.length = 0;
   rpcInstances.length = 0;
   watcherDisposes.length = 0;
+  spawnCalls.length = 0;
   nextPtyDiesOn = "never";
   resolveSessionLocationMock.mockClear();
   spawnOmpMock.mockReset();
   spawnOmpMock.mockImplementation((opts) => {
     const fake = fakeHandle(nextPtyDiesOn);
     fakePtys.push(fake);
+    spawnCalls.push({ ...opts });
     return asPtyHandle(opts.id, fake);
   });
   spawnShellMock.mockReset();
   spawnShellMock.mockImplementation((opts) => {
     const fake = fakeHandle("never");
     fakeShells.push(fake);
+    spawnCalls.push({ ...opts });
     return asPtyHandle(opts.id, fake);
   });
   watchLineageDirMock.mockReset();
@@ -510,5 +531,250 @@ describe("plan-review gate (issue #215)", () => {
     rpcInstances[0]!.exit(0);
 
     expect(manager.planGate(TAB)).toBeUndefined();
+  });
+});
+
+describe("worktree sessions (issue #224)", () => {
+  const worktreesRoot = (): string => path.join(base, "worktrees");
+
+  it("spawns a worktree session in its own checkout and persists it on the record", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-spawn";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    const call = spawnCalls[spawnCalls.length - 1]!;
+    expect(call.id).toBe(tabId);
+    expect(call.cwd).toBe(worktreePath);
+  });
+
+  it("resumes a worktree session in its persisted checkout, not the project root", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-resume";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    await Core.addWorktree(project, worktreePath, branch, null);
+    const record = registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-wt",
+        projectCwd: project,
+        mode: "pty",
+        worktree: { path: worktreePath, branch },
+      }),
+    );
+
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: record.tabId,
+    });
+
+    expect(tabId).toBe(record.tabId);
+    const call = spawnCalls[spawnCalls.length - 1]!;
+    expect(call.id).toBe(record.tabId);
+    expect(call.cwd).toBe(worktreePath);
+  });
+
+  it("removes the checkout and prunes it from git when a worktree session is deleted", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-delete";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+
+    await manager.deleteSession(tabId);
+
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout: worktrees } = await execFileP("git", ["worktree", "list"], {
+      cwd: project,
+    });
+    expect(worktrees).not.toContain(worktreePath);
+    const { stdout: branches } = await execFileP("git", ["branch", "--list", branch], {
+      cwd: project,
+    });
+    expect(branches).toContain(branch);
+  });
+
+  it("keeps the checkout while a fork shares it, and removes it with the last session", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-fork";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    // forkSessionFile reads the source transcript — seed one in the lineage dir.
+    const source = registry.sessions.find((s) => s.tabId === tabId)!;
+    const transcript = path.join(
+      base,
+      "sessions",
+      source.lineageDir,
+      "2026-08-13T00-00-00-000Z_wt-source.jsonl",
+    );
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(
+      transcript,
+      `${JSON.stringify({ type: "session", id: "wt-source", cwd: project })}\n`,
+    );
+
+    const { tabId: forkTabId } = await manager.forkSession(tabId);
+
+    await manager.deleteSession(tabId);
+
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    const fork = registry.sessions.find((s) => s.tabId === forkTabId)!;
+    expect(fork.worktree).toEqual({ path: worktreePath, branch });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+
+    await manager.deleteSession(forkTabId);
+
+    expect(registry.sessions.some((s) => s.tabId === forkTabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout: worktrees } = await execFileP("git", ["worktree", "list"], {
+      cwd: project,
+    });
+    expect(worktrees).not.toContain(worktreePath);
+    const { stdout: branches } = await execFileP("git", ["branch", "--list", branch], {
+      cwd: project,
+    });
+    expect(branches).toContain(branch);
+  });
+
+  it("refuses to resume a worktree session whose checkout was removed from disk", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-gone";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const record = registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-wt",
+        projectCwd: project,
+        mode: "pty",
+        worktree: { path: worktreePath, branch },
+      }),
+    );
+
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+
+    await expect(
+      manager.spawn({
+        projectCwd: project,
+        mode: "pty",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        resumeTabId: record.tabId,
+      }),
+    ).rejects.toThrow("worktree checkout is gone");
+    expect(spawnOmpMock).not.toHaveBeenCalled();
+  });
+
+  it("spawns an rpc-ui worktree session in its checkout (RpcClient cwd)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-rpc";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch });
+    const opts = RpcClientMock.mock.calls.at(-1)![0] as { cwd: string };
+    expect(opts.cwd).toBe(worktreePath);
+  });
+
+  it("leaves no record or checkout when the worktree branch already exists", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-taken";
+    await execFileP("git", ["branch", branch], { cwd: project });
+    const before = registry.sessions.length;
+
+    await expect(
+      manager.spawn({
+        projectCwd: project,
+        mode: "pty",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: { branch, baseRef: null },
+      }),
+    ).rejects.toThrow(/already exists/);
+
+    expect(registry.sessions.length).toBe(before);
+    expect(fs.existsSync(Core.mintWorktreePath(worktreesRoot(), project, branch))).toBe(false);
+  });
+
+  it("never cleans up outside the worktrees root, even for a corrupt record", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    // A corrupt registry value: branch ".." mints to the worktrees root
+    // itself, which canonical-path equality alone would accept.
+    const root = worktreesRoot();
+    fs.mkdirSync(root, { recursive: true });
+    const sentinel = path.join(root, "sentinel");
+    fs.writeFileSync(sentinel, "keep\n");
+    registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-wt-bad",
+        projectCwd: project,
+        mode: "pty",
+        worktree: { path: root, branch: ".." },
+      }),
+    );
+
+    await manager.deleteSession("tab-wt-bad");
+
+    expect(fs.existsSync(sentinel)).toBe(true);
+    expect(registry.sessions.some((s) => s.tabId === "tab-wt-bad")).toBe(false);
   });
 });

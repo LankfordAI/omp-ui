@@ -10,7 +10,7 @@ import {
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
-import { findRecord, useStore, type PlanRecord, type RpcTabState } from "../store";
+import { findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
@@ -511,27 +511,24 @@ function PlansPane({ tabId }: { tabId: string }) {
  * pane mount and on demand; not a git repository renders an empty state.
  */
 function DiffsPane({ tabId }: { tabId: string }) {
-  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const record = useStore((s) => findRecord(s.state, tabId));
+  const cwd = sessionCwd(record);
   // A checkout through the composer chip (issue #35) updates this slice; the
   // pane re-reads so it never shows the previous branch's diff.
-  const currentBranch = useStore((s) =>
-    projectCwd ? s.branches[projectCwd]?.current : undefined,
-  );
-  const branchDiffRevision = useStore((s) =>
-    projectCwd ? (s.branchDiffRevision[projectCwd] ?? 0) : 0,
-  );
+  const currentBranch = useStore((s) => (cwd ? s.branches[cwd]?.current : undefined));
+  const branchDiffRevision = useStore((s) => (cwd ? (s.branchDiffRevision[cwd] ?? 0) : 0));
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
   const requestIdRef = useRef(0);
 
   const refresh = useCallback(async () => {
     const requestId = ++requestIdRef.current;
-    if (!projectCwd) {
+    if (!cwd) {
       setLoad({ status: "loaded", repoRoot: null, branch: null, files: [] });
       return;
     }
     if (requestId === requestIdRef.current) setLoad({ status: "loading" });
     try {
-      const branch = await backend.getBranchDiff(projectCwd);
+      const branch = await backend.getBranchDiff(cwd);
       if (requestId !== requestIdRef.current) return;
       setLoad({
         status: "loaded",
@@ -543,7 +540,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
       if (requestId !== requestIdRef.current) return;
       setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
-  }, [projectCwd]);
+  }, [cwd]);
 
   useEffect(() => {
     void refresh();

@@ -52,6 +52,16 @@ export interface ProjectRecord {
   lastAdvisorModel: string | null;
 }
 
+/**
+ * A worktree session's dedicated checkout (see CONTEXT.md "Worktree session").
+ */
+export interface SessionWorktree {
+  /** Absolute path of the checkout under omp-ui's worktrees root. */
+  path: string;
+  /** The branch created for and checked out in this worktree. */
+  branch: string;
+}
+
 export interface OwnedSessionRecord {
   tabId: string;
   /** UUIDv7 — null until the session materializes on disk (lazy materialization). */
@@ -59,6 +69,12 @@ export interface OwnedSessionRecord {
   /** Dir NAME under the sessions root (ADR-0003), never a path. */
   lineageDir: string;
   projectCwd: string;
+  /**
+   * Dedicated git worktree this session runs in; null/absent = the session
+   * runs at projectCwd. Post-dates the first schema-1 records — absent is
+   * legal and normalized to null on load.
+   */
+  worktree?: SessionWorktree | null;
   launchedAt: string;
   mode: SessionMode;
   /** Main model selected for this session, as omp's `provider/id` selector. */
@@ -207,6 +223,12 @@ export interface SpawnRequest {
   cols: number;
   rows: number;
   resumeTabId?: string;
+  /**
+   * Create a dedicated git worktree and run the session in it. Only read when
+   * resumeTabId is absent — resumes take the worktree from the record.
+   * baseRef null starts from the project checkout's HEAD.
+   */
+  worktree?: { branch: string; baseRef: string | null };
   /**
    * Initial Plan/Build posture for any rpc-ui spawn. Explicit true/false always
    * wins. Omitted new sessions follow Default agent mode; omitted resumes start

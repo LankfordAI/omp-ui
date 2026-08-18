@@ -64,7 +64,9 @@ vi.mock("../backend", () => ({
 }));
 vi.mock("../lib/themes", () => ({ useTheme: () => ({ term: {} }) }));
 vi.mock("../store", () => ({
+  findRecord: () => undefined,
   registerShellWriter: () => vi.fn(),
+  sessionCwd: () => undefined,
   useStore: (
     selector: (state: {
       consoleOpen: Record<string, boolean>;

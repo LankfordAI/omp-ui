@@ -2,7 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OmpSettingsSnapshot, OmpUpdateState } from "@omp-ui/core/types";
+import type {
+  BackendState,
+  OmpSettingsSnapshot,
+  OmpUpdateState,
+  SessionSummary,
+} from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -89,6 +94,56 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+/** A minimal registry state holding one project and the session under test. */
+const stateWith = (
+  session: SessionSummary,
+  skipDeleteConfirmation: boolean,
+): BackendState => ({
+  projects: [
+    {
+      project: {
+        path: "/repo",
+        name: "repo",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        lastModel: null,
+        lastAdvisorModel: null,
+      },
+      sessions: [session],
+    },
+  ],
+  defaultMode: "rpc-ui",
+  defaultAgentMode: "build",
+  planFormat: "md",
+  advisorAutoReply: false,
+  defaultAdvisor: false,
+  modelFavorites: [],
+  skipDeleteConfirmation,
+  themeId: "default",
+  appUpdateCheckOnLaunch: true,
+  ompUpdateCheckOnLaunch: true,
+  dismissedAppUpdateVersion: null,
+  dismissedOmpUpdateVersion: null,
+});
+
+const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
+  tabId: "tab-1",
+  sessionId: null,
+  lineageDir: "lineage-1",
+  projectCwd: "/repo",
+  launchedAt: "2026-01-01T00:00:00.000Z",
+  mode: "rpc-ui",
+  advisor: false,
+  advisorModel: null,
+  cachedTitle: null,
+  cachedModified: null,
+  title: "Production repair",
+  status: null,
+  live: "live",
+  pendingPlan: null,
+  planSettle: null,
+  ...overrides,
+});
+
 describe("DeleteSessionDialog", () => {
   it("shows every destructive effect and submits the checked opt-out", () => {
     const confirmDeleteSession = vi.fn(async () => {});
@@ -106,6 +161,7 @@ describe("DeleteSessionDialog", () => {
             title: "Production repair",
             running: true,
             hasFiles: true,
+            worktreeBranch: null,
           }}
         />,
       ),
@@ -121,6 +177,7 @@ describe("DeleteSessionDialog", () => {
     expect(dialog.textContent).toContain("Production repair");
     expect(dialog.textContent).toContain("running agent will be stopped");
     expect(dialog.textContent).toContain("transcript and artifacts will be erased");
+    expect(dialog.textContent).not.toContain("worktree checkout will be removed");
 
     const checkbox = document.body.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(checkbox).not.toBeNull();
@@ -133,5 +190,73 @@ describe("DeleteSessionDialog", () => {
     expect(deleteButton).toBeDefined();
     act(() => deleteButton!.click());
     expect(confirmDeleteSession).toHaveBeenCalledWith(true);
+  });
+
+  it("names the worktree checkout when the session has one", () => {
+    useStore.setState({
+      confirmDeleteSession: vi.fn(async () => {}),
+      cancelDeleteSession: vi.fn(),
+    });
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <DeleteSessionDialog
+          confirmation={{
+            tabId: "tab-1",
+            title: "Worktree repair",
+            running: false,
+            hasFiles: true,
+            worktreeBranch: "omp-ui/deadbeef",
+          }}
+        />,
+      ),
+    );
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.textContent).toContain(
+      "Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on omp-ui/deadbeef.",
+    );
+  });
+
+  it("stages a confirmation for a worktree session even with the skip flag set", async () => {
+    backendMock.deleteSession.mockReset();
+    useStore.setState({
+      deleteConfirmation: null,
+      state: stateWith(
+        summary({
+          worktree: { path: "/worktrees/repo--1234/omp-ui-deadbeef", branch: "omp-ui/deadbeef" },
+        }),
+        true,
+      ),
+    });
+
+    await act(async () => {
+      await useStore.getState().deleteSession("tab-1");
+    });
+
+    expect(useStore.getState().deleteConfirmation).toMatchObject({
+      tabId: "tab-1",
+      worktreeBranch: "omp-ui/deadbeef",
+    });
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("erases immediately when the skip flag is set and the session has no worktree", async () => {
+    backendMock.deleteSession.mockReset();
+    useStore.setState({
+      deleteConfirmation: null,
+      state: stateWith(summary({ worktree: null }), true),
+    });
+
+    await act(async () => {
+      await useStore.getState().deleteSession("tab-1");
+    });
+
+    expect(useStore.getState().deleteConfirmation).toBeNull();
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-1");
   });
 });

@@ -3,17 +3,21 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CH,
+  addWorktree,
   base64Bytes,
   bracketedImagePaste,
   deleteSessionFiles,
   forkSessionFile,
   hydrateSessionFile,
   mintLineageDirName,
+  mintWorktreePath,
+  isWithin,
   parseModelRole,
   parsePlanReviewTitle,
   planMessage,
   type ProviderKeys,
   type Registry,
+  removeWorktree,
   resolveSessionLocation,
   RpcClient,
   spawnOmp,
@@ -33,6 +37,7 @@ import {
   type PlanSettle,
   type PtyHandle,
   type SessionMode,
+  type SessionWorktree,
   type SpawnRequest,
 } from "@omp-ui/core";
 
@@ -87,6 +92,7 @@ export interface SessionManagerDependencies {
   getOmpPath: () => string | null;
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
+  getWorktreesRoot: () => string;
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
 }
@@ -231,12 +237,21 @@ export class SessionManager {
         if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
         record = await this.prepareResume(existing);
       } else {
+        let worktree: SessionWorktree | null = null;
+        if (req.worktree) {
+          const worktreePath = mintWorktreePath(
+            this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
+          await addWorktree(
+            req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
+          worktree = { path: worktreePath, branch: req.worktree.branch };
+        }
         const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
         record = this.deps.registry.addSession({
           tabId: randomUUID(),
           sessionId: null,
           lineageDir: mintLineageDirName(req.projectCwd),
           projectCwd: req.projectCwd,
+          worktree,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           model: project?.lastModel ?? null,
@@ -284,7 +299,7 @@ export class SessionManager {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const ptyHandle = spawnOmp({
       id: record.tabId,
-      cwd: record.projectCwd,
+      cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
@@ -321,7 +336,7 @@ export class SessionManager {
     fs.mkdirSync(absLineageDir, { recursive: true });
     const entry = liveEntry({ kind: "rpc-ui", record });
     entry.rpc = new RpcClient({
-      cwd: record.projectCwd,
+      cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
@@ -555,6 +570,11 @@ export class SessionManager {
 
   /** Unarchives / adopts as needed so spawn can --resume the right session. */
   private async prepareResume(record: OwnedSessionRecord): Promise<OwnedSessionRecord> {
+    if (record.worktree && !fs.existsSync(record.worktree.path)) {
+      throw new Error(
+        "this session's worktree checkout is gone — delete the session from the sidebar",
+      );
+    }
     const loc = await resolveSessionLocation(
       this.deps.getSessionsRoot(),
       this.deps.getArchiveRoot(),
@@ -633,6 +653,28 @@ export class SessionManager {
       this.startWatcher(record);
       throw err;
     }
+    if (record.worktree) {
+      const wt = record.worktree;
+      const shared = this.deps.registry.sessions.some(
+        (s) => s.tabId !== tabId && s.worktree?.path === wt.path,
+      );
+      // Only the canonical minted path, inside the worktrees root:
+      // worktree.path comes from the registry, and a corrupt value must
+      // not steer the recursive fallback inside removeWorktree (branch
+      // ".." mints to the root itself — isWithin rejects that).
+      const worktreesRoot = this.deps.getWorktreesRoot();
+      const canonical =
+        wt.path === mintWorktreePath(worktreesRoot, record.projectCwd, wt.branch) &&
+        isWithin(worktreesRoot, wt.path);
+      if (!canonical) {
+        console.warn(
+          `[sessions] worktree path ${wt.path} does not match its minted location — leaving it for manual removal`,
+        );
+      } else if (!shared) {
+        try { await removeWorktree(record.projectCwd, wt.path); }
+        catch (err) { console.warn(`[sessions] worktree cleanup failed for ${wt.path}:`, err); }
+      }
+    }
     this.deps.registry.removeSession(tabId);
     await this.deps.broadcast();
   }
@@ -662,6 +704,7 @@ export class SessionManager {
       sessionId,
       lineageDir,
       projectCwd: source.projectCwd,
+      worktree: source.worktree ?? null,
       launchedAt: new Date().toISOString(),
       mode: source.mode,
       model: source.model,

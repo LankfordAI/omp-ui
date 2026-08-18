@@ -1,4 +1,8 @@
-import type { BackendState, SessionSummary } from "@omp-ui/core/types";
+import type {
+  BackendState,
+  OwnedSessionRecord,
+  SessionSummary,
+} from "@omp-ui/core/types";
 import type { StateCreator, StoreApi } from "zustand";
 import {
   desktopViewStorage,
@@ -24,6 +28,7 @@ export interface ViewSlice {
   focusedTabByProject: Record<string, string>;
   restoringTabs: boolean;
   projectPickerOpen: boolean;
+  worktreeDialogProject: string | null;
   mcpManager: { projectCwd: string | null; tabId?: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -180,6 +185,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   focusedTabByProject: {},
   restoringTabs: false,
   projectPickerOpen: false,
+  worktreeDialogProject: null,
   mcpManager: null,
   compactSurface: null,
   sidebarCollapsed: false,
@@ -228,4 +234,11 @@ export function findRecord(
     if (record) return record;
   }
   return undefined;
+}
+
+/** The session's effective working tree: its worktree checkout, else the project root. */
+export function sessionCwd(
+  rec: Pick<OwnedSessionRecord, "projectCwd" | "worktree"> | undefined,
+): string | undefined {
+  return rec ? (rec.worktree?.path ?? rec.projectCwd) : undefined;
 }

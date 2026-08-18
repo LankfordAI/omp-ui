@@ -6,12 +6,12 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { useTheme } from "../lib/themes";
-import { registerShellWriter, useStore } from "../store";
+import { findRecord, registerShellWriter, sessionCwd, useStore } from "../store";
 import { Button } from "./ui";
 
 /**
  * The console drawer's right half (issue #42): a real PTY running the user's
- * login shell in the session's project cwd — not omp's stateless rpc `bash`
+ * login shell in the session's working tree (its worktree, if any) — not omp's stateless rpc `bash`
  * verb. Terminal construction mirrors TerminalTab (same options, addons, WebGL
  * context-loss handling); the differences are the shell channels, the lazy
  * spawn-on-first-visible, and a ResizeObserver (the drawer width moves with
@@ -23,7 +23,11 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const spawnedRef = useRef(false);
   const theme = useTheme();
-  const projectCwd = useStore((s) => s.tabs.find((t) => t.tabId === tabId)?.projectCwd);
+  const projectCwd = useStore(
+    (s) =>
+      sessionCwd(findRecord(s.state, tabId)) ??
+      s.tabs.find((t) => t.tabId === tabId)?.projectCwd,
+  );
   const exitCode = useStore((s) => s.shellExited[tabId]);
   const clearShellExited = useStore((s) => s.clearShellExited);
 

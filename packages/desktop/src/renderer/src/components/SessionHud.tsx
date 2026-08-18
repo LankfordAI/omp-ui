@@ -505,6 +505,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
   const openMcpManager = useStore((s) => s.openMcpManager);
   const compact = useCompactShell();
   const surface = useStore((s) => s.compactSurface);
@@ -543,8 +544,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label="session actions" onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? "untitled"} />
-            {(usage || stats || advisorStats?.available === true || notices.length > 0) && (
+            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
+                {worktree && <div className="flex items-center justify-between gap-3"><Label>worktree</Label><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
                 {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{compactNum(advisorStats.contextTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
@@ -599,6 +601,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {exceptionalAgentMode}
         </Chip>
       )}
+      {worktree && (
+        <Chip mono title={worktree.path} className="[app-region:no-drag]">
+          ⎇ {worktree.branch}
+        </Chip>
+      )}
+
 
       <TitleField tabId={tabId} title={title ?? "untitled"} />
 

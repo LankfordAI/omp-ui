@@ -305,6 +305,7 @@ describe("plan-review gate on the wire (issue #215)", () => {
       getOmpPath: () => path.join(base, "omp"),
       getSessionsRoot: () => sessionsRoot,
       getArchiveRoot: () => path.join(base, "archive"),
+      getWorktreesRoot: () => path.join(base, "worktrees"),
       send: () => {},
       broadcast: () =>
         backendRef.current === null

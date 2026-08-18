@@ -84,8 +84,8 @@ _Avoid_: right sidebar, panel, drawer
 
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the
-project's name and full path, then New session, New terminal session, and
-Remove project. It replaces the desktop header's hover-revealed control
+project's name and full path, then New session, New terminal session,
+New worktree session, MCP servers, and Remove project. It replaces the
 cluster below 900px. The desktop open targets (VS Code, Files) are
 deliberately absent: a compact shell is usually a phone talking to a
 remote omp-ui, where opening on the host answers a question nobody asked.
@@ -266,6 +266,17 @@ git-only `getBranchDiff` channel) and renders the parsed result, so "all
 changes on the current branch" is what the user reads regardless of which
 session produced them.
 _Avoid_: per-session diff log, file edit history
+
+**Worktree session**:
+A session whose omp process runs in a dedicated git worktree of its project —
+a separate checkout on its own branch, minted at spawn under omp-ui's app-data
+worktrees root, sharing the repo's object store. `projectCwd` still names the
+project (sidebar grouping, MCP scope, parameter memory); the worktree is the
+session's effective working tree, so the branch diff pane, branch chip,
+@-picker and console shell all read it. Deleting the session removes the
+checkout; the branch and its commits survive in the repo. Resume, restart and
+mode switches keep the worktree — it lives on the session record.
+_Avoid_: sandbox session, isolated session, branch session
 
 **MCP manager**:
 The modal listing every MCP server omp resolves for one scope — a project

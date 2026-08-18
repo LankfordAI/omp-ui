@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList } from "@omp-ui/core/types";
+import { backendState as makeBackendState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,7 +41,32 @@ function seedBusy(): void {
     branches: { "/p": fixture },
     tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
     rpc: { "tab-1": { status: "running" } as unknown as RpcTabState },
-    state: null,
+    state: makeBackendState({
+      projects: [
+        {
+          project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+          sessions: [
+            {
+              tabId: "tab-1",
+              sessionId: null,
+              lineageDir: "omp-ui--p--11111111-2222-3333-4444-555555555555",
+              projectCwd: "/p",
+              launchedAt: "t",
+              mode: "rpc-ui",
+              advisor: false,
+              advisorModel: null,
+              cachedTitle: null,
+              cachedModified: null,
+              title: "Busy",
+              status: null,
+              live: "live",
+              pendingPlan: null,
+              planSettle: null,
+            },
+          ],
+        },
+      ],
+    }),
   });
 }
 

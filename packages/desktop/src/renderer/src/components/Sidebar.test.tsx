@@ -183,9 +183,9 @@ function openContextMenu(trigger: HTMLElement): MouseEvent {
 
 function terminalMenuItem(): HTMLButtonElement {
   const items = document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-  expect(items).toHaveLength(1);
-  expect(items[0]!.textContent).toBe("New terminal session");
-  return items[0]!;
+  const item = [...items].find((el) => el.textContent === "New terminal session");
+  expect(item).not.toBeUndefined();
+  return item!;
 }
 interface Deferred<T> {
   promise: Promise<T>;
@@ -608,7 +608,7 @@ describe("Sidebar project open control (issue #169)", () => {
     const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
       .map((row) => row.textContent?.trim())
       .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual(["New session", "New terminal session", "MCP servers…", "Remove project…"]);
+    expect(rows).toEqual(["New session", "New terminal session", "New worktree session…", "MCP servers…", "Remove project…"]);
 
     const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',

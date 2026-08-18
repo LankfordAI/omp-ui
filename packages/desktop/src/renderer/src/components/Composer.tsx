@@ -24,7 +24,7 @@ import {
 import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { findRecord, sessionCwd, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
@@ -97,7 +97,7 @@ export function Composer({
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
-  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
 
   const sendPrompt = useStore((s) => s.sendPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
@@ -120,7 +120,7 @@ export function Composer({
   /** Caret offset in the draft; tracked so the @-word under it can be found. */
   const [caret, setCaret] = useState(0);
   /**
-   * The project's file listing for the @ picker, fetched on each open and kept
+   * The session's working-tree file listing for the @ picker, fetched on each
    * afterwards so a picked mention paints resolved immediately.
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
@@ -226,10 +226,10 @@ export function Composer({
   // The listing is refetched on every open so files created mid-session
   // appear; the previous list stays on screen while the new one is in flight.
   useEffect(() => {
-    if (!mentionOpen || projectCwd === undefined) return;
+    if (!mentionOpen || cwd === undefined) return;
     let alive = true;
     void backend
-      .listProjectFiles(projectCwd)
+      .listProjectFiles(cwd)
       .then((result) => {
         if (alive) setFiles({ list: result.files, truncated: result.truncated });
       })
@@ -237,7 +237,7 @@ export function Composer({
     return () => {
       alive = false;
     };
-  }, [mentionOpen, projectCwd]);
+  }, [mentionOpen, cwd]);
 
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
@@ -404,9 +404,9 @@ export function Composer({
       // those routes. Idle and interrupt (abort_and_prompt re-enters idle)
       // rely on omp's native resolution — no double-inclusion is possible.
       const busyRoute = route === "steer" || route === "follow_up";
-      if (busyRoute && projectCwd !== undefined && message.includes("@")) {
+      if (busyRoute && cwd !== undefined && message.includes("@")) {
         try {
-          const resolved = await backend.resolveFileMentions(projectCwd, message);
+          const resolved = await backend.resolveFileMentions(cwd, message);
           message += resolved.contextText;
           payload = [...payload, ...resolved.images];
         } catch {
@@ -426,7 +426,7 @@ export function Composer({
       images,
       unavailable,
       tabId,
-      projectCwd,
+      cwd,
       runSlashCommand,
       abortAndPrompt,
       sendPrompt,
@@ -775,7 +775,7 @@ export function Composer({
               onSelected={() => box.current?.focus({ preventScroll: true })}
             />
 
-            <BranchChip projectCwd={projectCwd} />
+            <BranchChip projectCwd={cwd} />
 
             <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
 
@@ -932,7 +932,7 @@ export function Composer({
               <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
               <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
                 <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">branch</span>
-                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queueChip && <Chip mono tone="copper" title={queueChip.title}>{queueChip.label}</Chip>}</span>
+                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={cwd} />{queueChip && <Chip mono tone="copper" title={queueChip.title}>{queueChip.label}</Chip>}</span>
               </div>
             </div>
           </section>

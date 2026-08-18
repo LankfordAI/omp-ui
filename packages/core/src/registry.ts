@@ -211,6 +211,17 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     typeof value.lineageDir === "string" &&
     "projectCwd" in value &&
     typeof value.projectCwd === "string" &&
+    // worktree post-dates the first schema-1 records, so absent or null is
+    // legal and normalized to null by `parseRegistryData` — a present value
+    // must carry both the checkout path and its branch, not just one.
+    (!("worktree" in value) ||
+      value.worktree === null ||
+      (typeof value.worktree === "object" &&
+        value.worktree !== null &&
+        "path" in value.worktree &&
+        typeof value.worktree.path === "string" &&
+        "branch" in value.worktree &&
+        typeof value.worktree.branch === "string")) &&
     "launchedAt" in value &&
     typeof value.launchedAt === "string" &&
     "mode" in value &&
@@ -262,6 +273,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
+      worktree: s.worktree ?? null,
     }));
   const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"

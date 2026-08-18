@@ -4010,6 +4010,7 @@ describe("deleteSession", () => {
       title: "New session",
       running: true,
       hasFiles: true,
+      worktreeBranch: null,
     });
 
     await useStore.getState().confirmDeleteSession(false);

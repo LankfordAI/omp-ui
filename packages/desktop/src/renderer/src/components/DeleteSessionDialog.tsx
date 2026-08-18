@@ -34,6 +34,8 @@ export function DeleteSessionDialog({
         <p className="text-sm leading-relaxed text-ink-dim">
           {confirmation.running && "Its running agent will be stopped. "}
           {confirmation.hasFiles && "Its transcript and artifacts will be erased. "}
+          {confirmation.worktreeBranch &&
+            `Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on ${confirmation.worktreeBranch}. `}
           This cannot be undone.
         </p>
 

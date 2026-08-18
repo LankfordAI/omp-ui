@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { findRecord, useStore } from "../store";
+import { findRecord, sessionCwd, useStore } from "../store";
 import { Button } from "./ui";
 
 /**
@@ -48,11 +48,16 @@ export function BranchChip({ projectCwd }: { projectCwd?: string }) {
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
   const pullGitBranch = useStore((s) => s.pullGitBranch);
-  // A session mid-turn on this project: a plain checkout or a fast-forward
+  // A session mid-turn on this checkout: a plain checkout or a fast-forward
   // would move the working tree out from under it, so both earn a confirm.
+  // Matched on the effective cwd, so a running worktree session guards its
+  // own checkout — the tab's projectCwd would see every worktree of a
+  // project as the same place.
   const busyTitle = useStore((s) => {
     const tab = s.tabs.find(
-      (t) => t.projectCwd === projectCwd && s.rpc[t.tabId]?.status === "running",
+      (t) =>
+        sessionCwd(findRecord(s.state, t.tabId)) === projectCwd &&
+        s.rpc[t.tabId]?.status === "running",
     );
     return tab ? (findRecord(s.state, tab.tabId)?.title ?? "a session") : null;
   });

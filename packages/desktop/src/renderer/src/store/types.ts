@@ -125,6 +125,7 @@ export interface DeleteConfirmation {
   title: string;
   running: boolean;
   hasFiles: boolean;
+  worktreeBranch: string | null;
 }
 
 export type SettingsPage =
@@ -207,6 +208,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
   projectPickerOpen: boolean;
+  worktreeDialogProject: string | null;
   mcpManager: { projectCwd: string | null; tabId?: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -230,6 +232,16 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   moveProject(projectPath: string, beforePath: string | null): Promise<void>;
   toggleFavorite(key: string): Promise<void>;
   newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
+  /**
+   * Creates a worktree session; throws on failure (the dialog renders the
+   * message inline) — unlike newSession's alertError.
+   */
+  newWorktreeSession(
+    projectCwd: string,
+    opts: { branch: string; baseRef: string | null },
+  ): Promise<void>;
+  openWorktreeDialog(projectCwd: string): void;
+  closeWorktreeDialog(): void;
   openSession(tabId: string): Promise<void>;
   focusTab(tabId: string): void;
   hideTab(tabId: string): void;

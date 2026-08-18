@@ -12,6 +12,13 @@ export {
   type GitRunner,
   type ParsedBranchStatus,
 } from "./branches";
+export {
+  addWorktree,
+  isWithin,
+  mintWorktreeBranch,
+  mintWorktreePath,
+  removeWorktree,
+} from "./worktree";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
 export * from "./fetch";

@@ -199,6 +199,9 @@ export function SessionRow({ s, onActivate }: { s: SessionSummary; onActivate?: 
             <span className={face.textClass}>{face.label}</span>
             {when ? ` · ${when}` : ""}
             {showPersistedStatus && s.status ? ` · ${s.status}` : ""}
+            {s.worktree ? (
+              <span title={s.worktree.path}>{` · ⎇ ${s.worktree.branch}`}</span>
+            ) : null}
           </span>
         </span>
       </button>

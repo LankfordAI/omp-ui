@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { BackendState, SessionSummary } from "@omp-ui/core/types";
+import type {
+  BackendState,
+  SessionMode,
+  SessionSummary,
+} from "@omp-ui/core/types";
 import {
   isHtmlPlanPath,
   parsePlanReviewTitle,
@@ -81,7 +85,7 @@ export type {
   TabInfo,
   UiStore,
 } from "./store/types";
-export { findRecord } from "./store/slices/view";
+export { findRecord, sessionCwd } from "./store/slices/view";
 import {
   historyToItems,
   markerItem,
@@ -1227,6 +1231,36 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (t.id !== currentThemeId()) applyTheme(t);
   };
 
+  /**
+   * Resolves the parameters every fresh session is spawned with: the default
+   * mode plus the project's complete last-used advisor tuple.
+   */
+  const resolveSpawnParams = async (
+    projectCwd: string,
+  ): Promise<{
+    mode: SessionMode;
+    advisor: boolean;
+    advisorModel: string | null;
+  }> => {
+    const mode = get().state?.defaultMode ?? "pty";
+    // Carry the project's complete last-used advisor tuple into the new
+    // session. Before any explicit choice, the app's own default decides;
+    // omp's configured default only seeds while the app is not booted.
+    await get().loadAdvisorDefaults(projectCwd);
+    const defaults = get().advisorDefaults[projectCwd];
+    const project = get().state?.projects.find(
+      (g) => g.project.path === projectCwd,
+    )?.project;
+    const lastAdvisorModel =
+      project?.lastAdvisorModel ?? defaults?.model ?? null;
+    const advisor =
+      project?.lastAdvisor ??
+      get().state?.defaultAdvisor ??
+      defaults?.enabled ??
+      false;
+    return { mode, advisor, advisorModel: lastAdvisorModel };
+  };
+
   return {
     ...createViewSlice(set, get, api),
     ...createSettingsSlice(set, get, api),
@@ -1350,28 +1384,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async newSession(projectCwd, modeOverride) {
-      const mode = modeOverride ?? get().state?.defaultMode ?? "pty";
-      // Carry the project's complete last-used advisor tuple into the new
-      // session. Before any explicit choice, the app's own default decides;
-      // omp's configured default only seeds while the app is not booted.
-      await get().loadAdvisorDefaults(projectCwd);
-      const defaults = get().advisorDefaults[projectCwd];
-      const project = get().state?.projects.find(
-        (g) => g.project.path === projectCwd,
-      )?.project;
-      const lastAdvisorModel =
-        project?.lastAdvisorModel ?? defaults?.model ?? null;
-      const advisor =
-        project?.lastAdvisor ??
-        get().state?.defaultAdvisor ??
-        defaults?.enabled ??
-        false;
+      const { mode: defaultMode, advisor, advisorModel } =
+        await resolveSpawnParams(projectCwd);
+      const mode = modeOverride ?? defaultMode;
       try {
         const { tabId } = await backend.spawnSession({
           projectCwd,
           mode,
           advisor,
-          advisorModel: lastAdvisorModel,
+          advisorModel,
           cols: 80,
           rows: 24,
         });
@@ -1383,6 +1404,32 @@ export const useStore = create<UiStore>()((set, get, api) => {
       } catch (err) {
         alertError(err);
       }
+    },
+
+    async newWorktreeSession(projectCwd, opts) {
+      const { mode, advisor, advisorModel } =
+        await resolveSpawnParams(projectCwd);
+      const { tabId } = await backend.spawnSession({
+        projectCwd,
+        mode,
+        advisor,
+        advisorModel,
+        cols: 80,
+        rows: 24,
+        worktree: opts,
+      });
+      set((s) => ({
+        tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
+        ...focusOn(s, tabId, projectCwd),
+        exited: dropExited(s.exited, tabId),
+      }));
+    },
+
+    openWorktreeDialog(projectCwd) {
+      set({ worktreeDialogProject: projectCwd });
+    },
+    closeWorktreeDialog() {
+      set({ worktreeDialogProject: null });
     },
 
     async openSession(tabId) {
@@ -1522,7 +1569,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async deleteSession(tabId) {
       const rec = findRecord(get().state, tabId);
       if (!rec) return;
-      if (get().state?.skipDeleteConfirmation === true) {
+      if (get().state?.skipDeleteConfirmation === true && !rec.worktree) {
         await eraseSession(tabId);
         return;
       }
@@ -1532,6 +1579,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           title: rec.title,
           running: rec.live === "live",
           hasFiles: rec.live !== "missing",
+          worktreeBranch: rec.worktree?.branch ?? null,
         },
       });
     },

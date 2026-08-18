@@ -70,7 +70,13 @@ export function getArchiveRoot(sessionsRoot: string): string {
 // corrupt registry value like `omp-ui--x/../..--<uuid>` escape the root.
 const LINEAGE_DIR_RE = /^omp-ui--[^/\\]+-[0-9a-f-]{36}$/;
 
-function slugify(projectCwd: string): string {
+/**
+ * Stable per-project directory slug: the basename lowercased, runs of
+ * non-alphanumerics collapsed to dashes, capped at 32 chars, "project" when
+ * the basename has no usable characters. Shared by lineage dir names and
+ * worktree paths — one slug convention for both.
+ */
+export function projectSlug(projectCwd: string): string {
   const slug = path
     .basename(projectCwd)
     .toLowerCase()
@@ -81,7 +87,7 @@ function slugify(projectCwd: string): string {
 }
 
 export function mintLineageDirName(projectCwd: string): string {
-  return `omp-ui--${slugify(projectCwd)}--${randomUUID()}`;
+  return `omp-ui--${projectSlug(projectCwd)}--${randomUUID()}`;
 }
 
 export function isLineageDirName(name: string): boolean {
