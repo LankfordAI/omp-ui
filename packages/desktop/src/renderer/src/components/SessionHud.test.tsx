@@ -160,8 +160,8 @@ describe("wide Session HUD", () => {
             cost: 0.0886, premiumRequests: 3, contextUsage: null,
           },
           advisorStats: {
-            available: true, configured: true, active: false, model: null, subscription: false,
-            contextWindow: 1000, contextTokens: 200, cost: 0.273, totalTokens: 0,
+            available: true, configured: true, active: false, model: "root/advisor", subscription: false,
+            contextWindow: 1000, contextTokens: 200, cost: 0.273, totalTokens: 320_000,
           },
         },
       },
@@ -176,6 +176,10 @@ describe("wide Session HUD", () => {
     expect(mainCost).toBeLessThan(adv);
     expect(adv).toBeLessThan(advisorCost);
     expect(text.slice(0, adv)).toContain("1.1M tok");
+    const advisorCluster = host.querySelector<HTMLElement>(".titlebar-advisor")!;
+    expect(advisorCluster.title).toContain("parent advisor context · root/advisor");
+    expect(advisorCluster.title).toContain("session-tree advisor spend $0.2730");
+    expect(advisorCluster.title).toContain("session-tree advisor tokens 320,000");
   });
 
   it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
@@ -343,6 +347,30 @@ describe("compact Session HUD", () => {
     expect(branchSession).toHaveBeenCalledWith(TAB);
     // #82: "new" runs the same spawn as /new and mod+shift+n, not an in-tab reset.
     expect(newSession).toHaveBeenCalledWith("/p");
+  });
+
+  it("shows session-tree advisor tokens and cost in the actions sheet", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          advisorStats: {
+            available: true, configured: true, active: false, model: "root/advisor", subscription: false,
+            contextWindow: 200_000, contextTokens: 12_000, cost: 0.375, totalTokens: 456_000,
+          },
+        },
+      },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const actions = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("session actions"))!;
+    act(() => actions.click());
+
+    const totalLabel = [...document.body.querySelectorAll("span")].find((span) => span.textContent === "advisor total");
+    expect(totalLabel).toBeDefined();
+    expect(totalLabel?.parentElement?.textContent).toContain("456K tok");
+    expect(totalLabel?.parentElement?.textContent).toContain("$0.3750");
+    expect(totalLabel?.parentElement?.textContent).not.toContain("12K tok");
   });
 });
 

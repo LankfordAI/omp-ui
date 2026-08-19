@@ -114,8 +114,12 @@ The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,
 new, refresh, queue modes). Model, thinking level, and the advisor live in the
 composer instead, next to the text they affect. With the advisor enabled, a
-second, quieter `adv` context/cost readout sits beside the main usage — it is
-delivered by a generated `-e` extension (ADR-0008), never a text parse.
+second, quieter `adv` readout sits beside the main usage. Its context meter and
+model describe the parent advisor; its spend and token total include advisor
+activity in every spawned descendant. The parent switch is a ceiling: an
+advisor-off parent disables descendant advisors, while an advisor-on parent
+still leaves each descendant's own opt-in authoritative. A generated `-e`
+extension delivers the values (ADR-0008), never a text parse.
 _Avoid_: toolbar, header, status bar
 
 **Session parameter memory**:

@@ -1,63 +1,88 @@
 # Advisor accounting, delivered by a second generated extension
 
-When a session runs with the advisor enabled, the Session HUD shows a second,
-quieter context/cost readout beside the main model usage: an `adv` tag, a
-compact context meter, the fill percent, and the advisor's spend so far. That
-data reaches the renderer the same way plan mode does — an **omp extension
-omp-ui generates into the session's lineage dir** (ADR-0003) and passes as `-e`
-at spawn (ADR-0007). It publishes a reduced view of omp's own advisor
-accounting, so no client-side token/pricing reimplementation exists.
+The Session HUD shows a quiet `adv` readout beside main model usage. Its meter
+and model describe the parent advisor. Its spend and token total cover advisor
+activity in the parent and every task descendant. An omp extension generated
+in the session's lineage dir publishes these values. No renderer code parses
+advisor prose or recalculates provider pricing.
 
-## Why not the obvious routes
+## Why the extension owns this
 
-Verified against omp 17.1.8:
+Verified against omp 17.3.7:
 
-- **No rpc surface reports advisor accounting.** `get_session_stats` returns a
-  `SessionStats` with no advisor breakdown, and `get_state`'s `RpcSessionState`
-  reports neither advisor cost nor context (ADR-0005). The TUI's
-  `$2.67 (sub) + $0.41 (adv)` status line is computed in-process, not exposed.
-- **`/advisor status` is not structured.** Its grammar is
-  `[on|off|status|dump [raw]|configure]`, and its output is prose. omp-ui never
-  regresses a numeric readout into a text parse.
+- `get_session_stats` includes primary-agent task usage in `SessionStats.cost`,
+  but it has no advisor breakdown. Advisor accounting must stay separate from
+  the main usage receipt.
+- `get_state` reports neither advisor cost nor advisor context.
+- `/advisor status` returns prose.
+- Each live `AgentSession` exposes `isAdvisorEnabled()`,
+  `setAdvisorEnabled(boolean)`, `getAdvisorStats()`, `getAdvisorCost()`, and
+  `getAdvisorStatusOverview()`.
 
-## What is actually reachable
+The generated extension is the one in-process point that sees the root
+`AgentSession` and every task descendant. It patches
+`AgentSession.prototype.prompt`, as the plan extension does, and publishes over
+the existing `ui.setStatus` channel.
 
-The live `AgentSession` carries the whole advisor read as public methods —
-`getAdvisorStats()`, `getAdvisorCost()`, `getAdvisorStatusOverview()`. The
-extension hooks `AgentSession.prototype.prompt` (the same unsupported surface
-ADR-0007 uses) to capture the live session, then publishes a reduced view over
-the rpc protocol's existing `ui.setStatus` key — no new frame type is invented.
+## Parent-gated descendants
 
-## The wire contract
+OMP resolves a task agent's advisor choice independently from its parent.
+omp-ui narrows that rule for native sessions:
 
-`setStatus` key `omp-ui:advisorStats` carries JSON reduced from
-`getAdvisorStats()`: `configured`, `active`, `model`, `contextWindow`,
-`contextTokens`, `cost`, `totalTokens`. When the surface is unreachable the
-extension publishes `available: false` with a reason and the HUD omits the
-element rather than fake a zero.
+`child advisor enabled = parent advisor enabled AND child per-agent opt-in`
 
-Small enough to live in the renderer via the `@omp-ui/core/advisor-stats`
-subpath (the `ADVISOR_STATS_KEY` / `ADVISOR_STATS_COMMAND` constants and the
-`parseAdvisorStats` reducer), mirroring `core/plan.ts`.
+The first patched prompt binds the parent. Before each later session prompt
+reaches OMP, the extension reads the parent's advisor state. If the parent is
+off and the child is on, it calls `child.setAdvisorEnabled(false)`. If the
+parent is on, the extension leaves the child's resolved setting and model
+untouched. Every non-root `AgentSession` in that process follows the same rule,
+including nested task agents.
 
-## Timing
+If the parent-off guard is missing or throws, the extension publishes
+`available: false` with the method failure. It still invokes the original
+prompt. Protecting the HUD must not abort user work, and an unenforced guard
+must not produce a false zero-cost claim.
 
-- **Turn boundaries.** `getAdvisorStats()` re-tokenizes the advisor transcript,
-  so the extension publishes after each `AgentSession.prompt()` resolves,
-  gated behind the cheap `getAdvisorStatusOverview().configured` check so an
-  advisor-off session pays nothing per turn.
-- **A cost-delta poll.** omp runs the advisor's review async to the primary
-  loop (`waitForCatchup` is headless-only) and folds its cost in *after*
-  `prompt()` resolves, so turn-end publishes alone permanently trail by one
-  review — a readout that reads $0 until the next turn. The extension therefore
-  also polls `getAdvisorCost()` (a plain sum over a small per-advisor map — no
-  re-tokenize) every 2 s on an unref'd interval, and only a moved total pays
-  for the full `getAdvisorStats()` publish. An advisor-off session pays a no-op
-  map sum per tick and publishes nothing.
-- **Never mid-stream.** Publishing happens inside omp, so the renderer never
-  sends a slash prompt while a turn is running (which could be steered into or
-  reach the model as literal text). The HUD's manual refresh skips the advisor
-  fetch while `status === "running"` or `isStreaming` is true.
-- **Boot arm.** One slash call at tab boot sets the extension's `ui` channel
-  and starts the poll, without which its auto-publish is a no-op; a resumed
-  session displays advisor stats from its first new turn or poll tick onward.
+## Identity and lifetime
+
+`RpcClient` sends the extension's boot-arm command before it forwards `ready`,
+so the first prompt belongs to the parent. Descendants are keyed by
+`sessionManager.getSessionId()`:
+
+- repeated prompts reuse one entry;
+- a new object with the same session id replaces the old object;
+- an object whose session id changes moves to the new key;
+- a changed parent session id clears every descendant and cached snapshot.
+
+Each descendant entry keeps its last successful cost and token snapshot. If a
+completed child has been disposed and later stats reads fail, its accumulated
+usage remains in the receipt. A revived object replaces that snapshot when its
+stats become readable.
+
+## Stable wire contract
+
+The `omp-ui:advisorStats` JSON shape does not change. Its fields have asymmetric
+semantics:
+
+- `configured`, `model`, `subscription`, `contextWindow`, and `contextTokens`
+  describe the parent advisor;
+- `active` is true when any advisor runtime in the current session tree is
+  active;
+- `cost` and `totalTokens` are cumulative parent-plus-descendant totals.
+
+An OAuth subscription remains a parent display fact. A nonzero aggregate cost
+always renders as a number, even when the parent model uses subscription
+billing.
+
+## Publishing and polling
+
+`getAdvisorStats()` re-tokenizes advisor transcripts. The extension avoids that
+work unless a prompt ends, a manual refresh runs, or the cheap poll changes.
+The 2-second unref'd poll sums `getAdvisorCost()` and advisor-message counts for
+the parent and all tracked descendants. It performs the full tree walk only
+when that aggregate probe moves. This catches advisor reviews that finish after
+the primary prompt resolves, including zero-cost subscription activity.
+
+Publishing remains in-process. The renderer never sends a stats slash command
+mid-stream, where OMP could treat it as steering or literal prompt text. The
+boot-arm command only supplies the `ui` channel and starts the poll.

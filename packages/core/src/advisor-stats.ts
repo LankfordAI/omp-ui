@@ -7,12 +7,9 @@
 /**
  * `setStatus` key carrying the JSON advisor stats. Routed, never rendered raw.
  *
- * omp's rpc surface reports no advisor accounting at all (ADR-0005 verified
- * against v17.1.8): `get_session_stats` and `get_state` carry no advisor
- * breakdown. The live `AgentSession` does — `getAdvisorStats()` returns cost,
- * context tokens, and context window — so omp-ui ships a generated `-e`
- * extension (same delivery as ADR-0007's plan mode) that publishes a reduced
- * view of it over this key.
+ * omp's rpc surface reports no advisor accounting. The generated extension
+ * reads the root `AgentSession` plus its task descendants and publishes the
+ * reduced session-tree view over this key.
  */
 export const ADVISOR_STATS_KEY = "omp-ui:advisorStats";
 
@@ -20,34 +17,34 @@ export const ADVISOR_STATS_KEY = "omp-ui:advisorStats";
 export const ADVISOR_STATS_COMMAND = "omp-ui-advisor-stats";
 
 /**
- * The reduced advisor-accounting view the extension publishes. Mirrors the
- * fields omp's `getAdvisorStats()` exposes that the HUD renders; `model` is
- * flattened to an id string because omp's `Model` object does not serialize.
+ * The stable advisor wire view. Configuration, model, subscription, and
+ * context fields describe the root advisor. Cost and total tokens cover the
+ * root plus every tracked descendant in the current session tree.
  */
 export interface AdvisorStatsView {
   /** True when the extension reached the session and read stats at all. */
   available: boolean;
   /** Populated when the extension could not drive omp's surface. */
   unavailable?: string;
-  /** `advisor.enabled`, from omp's own runtime — not the UI's record. */
+  /** Root `advisor.enabled`, from omp's runtime rather than the UI record. */
   configured: boolean;
-  /** Whether an advisor runtime is actually attached right now. */
+  /** Whether any advisor runtime in the current session tree is active. */
   active: boolean;
-  /** The resolved advisor model id, or null while unset / unreadable. */
+  /** The resolved root advisor model id, or null while unset or unreadable. */
   model: string | null;
   /**
-   * True when the advisor model bills through an OAuth subscription — spend
-   * legitimately stays $0 and omp's own TUI renders "(sub)" instead. Absent in
-   * frames from older extensions; treated as false.
+   * True when the root advisor model bills through an OAuth subscription.
+   * Absent in frames from older extensions and treated as false. A nonzero
+   * aggregate descendant cost still renders numerically.
    */
   subscription: boolean;
-  /** Current advisor context window (provider capacity). */
+  /** Root advisor context window in tokens. */
   contextWindow: number;
-  /** Current advisor context tokens in use — how deep its context is. */
+  /** Root advisor context tokens currently in use. */
   contextTokens: number;
-  /** Cumulative advisor spend for this session. */
+  /** Cumulative root-plus-descendant advisor spend for this session tree. */
   cost: number;
-  /** Cumulative advisor tokens (all kinds) for this session. */
+  /** Cumulative root-plus-descendant advisor tokens of all kinds. */
   totalTokens: number;
 }
 

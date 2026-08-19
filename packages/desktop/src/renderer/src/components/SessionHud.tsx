@@ -302,13 +302,18 @@ function ContextCluster({ usage }: { usage: ContextUsage }) {
 function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
   const window = stats.contextWindow > 0 ? stats.contextWindow : 0;
   const percent = window > 0 ? (stats.contextTokens / window) * 100 : 0;
-  // A subscription-billed advisor legitimately accrues $0 — omp's own TUI
-  // renders "(sub)". Mirror that instead of a $0.0000 that reads as broken.
+  // A subscription-billed root advisor legitimately accrues $0. Descendant
+  // usage can still make the session-tree total nonzero, which stays numeric.
   const spend = stats.subscription && stats.cost === 0 ? "sub" : formatCost(stats.cost);
+  const billing =
+    stats.subscription && stats.cost === 0
+      ? "parent advisor uses subscription billing"
+      : `session-tree advisor spend ${formatCost(stats.cost)}`;
   const exact =
-    `advisor${stats.model ? ` · ${stats.model}` : ""}: ` +
-    `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
-    ` (${percent.toFixed(2)}%) · ${stats.subscription ? "subscription billing" : formatCost(stats.cost)}`;
+    `parent advisor context${stats.model ? ` · ${stats.model}` : ""}: ` +
+    `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} tokens` +
+    ` (${percent.toFixed(2)}%) · ${billing} · ` +
+    `session-tree advisor tokens ${exactNum(stats.totalTokens)}`;
   return (
     <div className="titlebar-advisor hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex [app-region:no-drag]" title={exact}>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">adv</span>
@@ -582,7 +587,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {worktree && <div className="flex items-center justify-between gap-3"><Label>worktree</Label><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
-                {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{compactNum(advisorStats.contextTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
+                {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{compactNum(advisorStats.totalTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
             )}

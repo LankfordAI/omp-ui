@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseAdvisorStats } from "./advisor-stats";
 
 describe("parseAdvisorStats", () => {
-  it("reads a published stats view", () => {
+  it("reads root context and session-tree totals from the stable wire frame", () => {
     expect(
       parseAdvisorStats(
         JSON.stringify({
