@@ -66,10 +66,18 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
             location.reload();
             return;
           }
-          // The server is up but no longer accepts this cookie — the token was regenerated.
-          // Saying so beats "reconnecting…" forever, since no amount of waiting will help.
+          // The server is up but no longer accepts this credential — the password changed
+          // or the token was regenerated. Offer the login page instead of waiting forever.
           if (res.status === 401) {
-            strip.textContent = "this token was revoked — get a fresh link from omp-ui";
+            strip.textContent = "session ended — tap to sign in again";
+            strip.style.cursor = "pointer";
+            strip.addEventListener(
+              "click",
+              () => {
+                location.href = "./login";
+              },
+              { once: true },
+            );
             clearInterval(probe);
             probe = undefined;
           }

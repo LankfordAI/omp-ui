@@ -78,6 +78,28 @@ function connect(port: number, token: string): Promise<WebSocket> {
   });
 }
 
+/** Native form POST to /login on the given port, following no redirects. */
+function postLogin(port: number, password: string): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      // Not pooled: a password set/clear restarts the server, and a keep-alive socket into the
+      // old listener would race its closeAllConnections() on the next request.
+      connection: "close",
+    },
+    body: `password=${encodeURIComponent(password)}`,
+    redirect: "manual",
+  });
+}
+
+function registryPassword(): { hash: string; salt: string } {
+  const raw = JSON.parse(fs.readFileSync(registryFile, "utf8")) as {
+    settings: { remotePasswordHash: string; remotePasswordSalt: string };
+  };
+  return { hash: raw.settings.remotePasswordHash, salt: raw.settings.remotePasswordSalt };
+}
+
 beforeEach(() => {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-remote-"));
   process.env.PI_CODING_AGENT_DIR = path.join(base, "agent");
@@ -308,5 +330,102 @@ describe("remote server lifecycle", () => {
         },
       });
     }
+  });
+});
+
+describe("remote password sign-in", () => {
+  it("setting a password switches primary URLs to bare and keeps the token fallback", async () => {
+    await invoke(CH.setRemotePort, 45688);
+    await invoke(CH.setRemoteEnabled, true);
+    await invoke(CH.setRemotePassword, "correct-horse-battery");
+
+    const state = lastPush();
+    expect(state.status).toBe("listening");
+    expect(state.hasPassword).toBe(true);
+    expect(state.urls[0]).toBe("http://127.0.0.1:45688/");
+    expect(state.urls[0]).not.toContain("?t=");
+    expect(state.tokenUrls[0]).toContain(state.token);
+
+    // Only the salted hash is persisted — never the password itself.
+    const { hash, salt } = registryPassword();
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(salt).toMatch(/^[0-9a-f]{32}$/);
+    expect(fs.readFileSync(registryFile, "utf8")).not.toContain("correct-horse-battery");
+  });
+
+  it("rejects a too-short password without persisting", async () => {
+    await expect(invoke(CH.setRemotePassword, "short")).rejects.toThrow(/at least 8 characters/);
+    const state = (await invoke(CH.getRemoteState)) as RemoteState;
+    expect(state.hasPassword).toBe(false);
+    expect(registryPassword().hash).toBe("");
+  });
+
+  it("password login works end to end", async () => {
+    await invoke(CH.setRemotePort, 45689);
+    await invoke(CH.setRemoteEnabled, true);
+    await invoke(CH.setRemotePassword, "correct-horse-battery");
+
+    const res = await postLogin(45689, "correct-horse-battery");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+    const cookie = res.headers.get("set-cookie");
+    expect(cookie).toContain("omp_ui_token=");
+    const jar = cookie!.split(";")[0];
+    expect(
+      (await fetch(`http://127.0.0.1:45689/healthz`, { headers: { cookie: jar } })).status,
+    ).toBe(200);
+
+    const anon = await fetch("http://127.0.0.1:45689/", { redirect: "manual" });
+    expect(anon.status).toBe(302);
+    expect(anon.headers.get("location")).toBe("/login");
+  });
+
+  it("clearing the password restores token-only behavior", async () => {
+    await invoke(CH.setRemotePort, 45690);
+    await invoke(CH.setRemoteEnabled, true);
+    await invoke(CH.setRemotePassword, "correct-horse-battery");
+    expect(lastPush().hasPassword).toBe(true);
+
+    await invoke(CH.clearRemotePassword);
+    const cleared = lastPush();
+    expect(cleared.hasPassword).toBe(false);
+    expect(cleared.urls[0]).toContain(cleared.token);
+    expect(cleared.tokenUrls[0]).toContain(cleared.token);
+    expect(registryPassword().hash).toBe("");
+
+    const anon = await fetch("http://127.0.0.1:45690/", { redirect: "manual" });
+    expect(anon.status).toBe(401);
+    expect(anon.headers.get("location")).toBeNull();
+  });
+
+  it("changing the password drops connected clients and revokes old cookies", async () => {
+    await invoke(CH.setRemotePort, 45691);
+    await invoke(CH.setRemoteEnabled, true);
+    await invoke(CH.setRemotePassword, "correct-horse-battery");
+
+    const login = await postLogin(45691, "correct-horse-battery");
+    const jar = login.headers.get("set-cookie")!.split(";")[0];
+    expect(
+      (
+        await fetch(`http://127.0.0.1:45691/healthz`, {
+          headers: { cookie: jar, connection: "close" },
+        })
+      ).status,
+    ).toBe(200);
+
+    const ws = await connect(45691, lastPush().token);
+    const closed = new Promise<void>((resolve) => ws.once("close", () => resolve()));
+
+    await invoke(CH.setRemotePassword, "some-other-passphrase");
+    await closed;
+    expect(lastPush().hasPassword).toBe(true);
+
+    // The first password's session credential is dead; the token still works.
+    const stale = await fetch(`http://127.0.0.1:45691/healthz`, { headers: { cookie: jar } });
+    expect(stale.status).toBe(401);
+    const token = lastPush().token;
+    expect(
+      (await fetch(`http://127.0.0.1:45691/healthz?t=${token}`)).status,
+    ).toBe(200);
   });
 });

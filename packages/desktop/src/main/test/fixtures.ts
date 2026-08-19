@@ -26,6 +26,8 @@ interface RegistrySettings {
   remoteBind: RemoteBind;
   remotePort: number;
   remoteToken: string;
+  remotePasswordHash: string;
+  remotePasswordSalt: string;
 }
 
 interface RegistrySeed {
@@ -79,6 +81,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     remoteBind: "localhost",
     remotePort: 4677,
     remoteToken: "",
+    remotePasswordHash: "",
+    remotePasswordSalt: "",
     ...patch.settings,
   };
   settings.modelFavorites = [...settings.modelFavorites];

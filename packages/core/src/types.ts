@@ -435,10 +435,14 @@ export interface RemoteState {
   enabled: boolean;
   bind: RemoteBind;
   port: number;
-  /** The bearer token in the clear — the settings page reveals, copies, and QRs it. */
+  /** The bearer token in the clear — fallback credential; settings page reveals, copies, QRs it. */
   token: string;
-  /** Pairing URLs with the token in the query, primary first. Empty unless listening. */
+  /** True once the user has set a sign-in password; primary pairing URLs then omit the token. */
+  hasPassword: boolean;
+  /** Primary pairing URLs: bare when hasPassword, token-bearing otherwise. Empty unless listening. */
   urls: string[];
+  /** Token-bearing pairing URLs (fallback). Empty unless listening. */
+  tokenUrls: string[];
   /** True when out/web is absent, so the server answers 503 with a build hint. */
   webBundleMissing: boolean;
   error: string | null;

@@ -62,7 +62,7 @@ import {
   type SessionSummary,
   type SpawnRequest,
 } from "@omp-ui/core";
-import { mintRemoteToken } from "@omp-ui/server";
+import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
@@ -192,6 +192,8 @@ export class MainBackend {
         bind: this.registry.remoteBind,
         port: this.registry.remotePort,
         token: this.registry.remoteToken,
+        passwordHash: this.registry.remotePasswordHash,
+        passwordSalt: this.registry.remotePasswordSalt,
       }),
       setToken: (token) => this.registry.setRemoteToken(token),
       send: (state) => this.send(CH.onRemoteState, state),
@@ -472,6 +474,20 @@ export class MainBackend {
         [CH.regenerateRemoteToken]: async () => {
           this.registry.setRemoteToken(mintRemoteToken());
           await this.remote.restart();
+        },
+        [CH.setRemotePassword]: async (password: string) => {
+          const problem = validateRemotePassword(password);
+          if (problem !== null) throw new Error(problem);
+          const { salt, hash } = hashRemotePassword(password);
+          this.registry.setRemotePasswordHash(hash);
+          this.registry.setRemotePasswordSalt(salt);
+          // apply(), not restart(): the new hash/salt already makes sameTarget false.
+          await this.remote.apply();
+        },
+        [CH.clearRemotePassword]: async () => {
+          this.registry.setRemotePasswordHash("");
+          this.registry.setRemotePasswordSalt("");
+          await this.remote.apply();
         },
       },
       notify: {

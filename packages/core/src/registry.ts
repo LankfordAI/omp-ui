@@ -38,6 +38,10 @@ export interface RegistrySettings {
   remotePort: number;
   /** Bearer token; "" until first minted. */
   remoteToken: string;
+  /** Salted scrypt hash (hex) of the remote sign-in password; "" = password auth off. */
+  remotePasswordHash: string;
+  /** Hex salt used for remotePasswordHash; "" = password auth off. */
+  remotePasswordSalt: string;
 }
 
 interface RegistryData {
@@ -139,6 +143,14 @@ export const SETTINGS: SettingDescriptors = {
       typeof value === "number" && Number.isInteger(value) && value >= 1024 && value <= 65535,
   ),
   remoteToken: validatedSetting(
+    () => "",
+    (value): value is string => typeof value === "string",
+  ),
+  remotePasswordHash: validatedSetting(
+    () => "",
+    (value): value is string => typeof value === "string",
+  ),
+  remotePasswordSalt: validatedSetting(
     () => "",
     (value): value is string => typeof value === "string",
   ),
@@ -572,6 +584,22 @@ export class Registry {
 
   setRemoteToken(token: string): void {
     this.#setSetting("remoteToken", token);
+  }
+
+  get remotePasswordHash(): string {
+    return this.#getSetting("remotePasswordHash");
+  }
+
+  setRemotePasswordHash(hash: string): void {
+    this.#setSetting("remotePasswordHash", hash);
+  }
+
+  get remotePasswordSalt(): string {
+    return this.#getSetting("remotePasswordSalt");
+  }
+
+  setRemotePasswordSalt(salt: string): void {
+    this.#setSetting("remotePasswordSalt", salt);
   }
 
   get dismissedAppUpdateVersion(): string | null {

@@ -169,6 +169,8 @@ export interface SettingsSlice {
   setRemoteBind(bind: RemoteBind): Promise<void>;
   setRemotePort(port: number): Promise<void>;
   regenerateRemoteToken(): Promise<void>;
+  setRemotePassword(password: string): Promise<void>;
+  clearRemotePassword(): Promise<void>;
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;

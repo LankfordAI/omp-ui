@@ -8,6 +8,7 @@ import type {
   OmpSettingsSnapshot,
   OmpUpdateState,
   PlanFormat,
+  RemoteState,
 } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
 
@@ -26,6 +27,19 @@ const emptyOmpSettings: OmpSettingsSnapshot = {
   entries: [],
   agentDir: null,
   projectConfigPath: null,
+  error: null,
+};
+
+const idleRemote: RemoteState = {
+  status: "stopped",
+  enabled: false,
+  bind: "localhost",
+  port: 4677,
+  token: "t",
+  hasPassword: false,
+  urls: [],
+  tokenUrls: [],
+  webBundleMissing: false,
   error: null,
 };
 
@@ -86,6 +100,14 @@ const backendMock = {
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
   memoryOverview: vi.fn(),
   writeOmpSetting: vi.fn(async () => {}),
+  getRemoteState: vi.fn(async () => idleRemote),
+  setRemoteEnabled: vi.fn(async () => {}),
+  setRemoteBind: vi.fn(async () => {}),
+  setRemotePort: vi.fn(async () => {}),
+  regenerateRemoteToken: vi.fn(async () => {}),
+  setRemotePassword: vi.fn(async () => {}),
+  clearRemotePassword: vi.fn(async () => {}),
+  onRemoteState: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -642,5 +664,68 @@ describe("Settings Memory page (issue #213)", () => {
     expect(
       document.querySelector('[role="switch"][aria-label="mnemopi.autoRecall"]'),
     ).not.toBeNull();
+  });
+});
+
+describe("Settings Remote page password row", () => {
+  function seedRemote(patch: Partial<RemoteState>): void {
+    useStore.setState({
+      settingsPage: "remote",
+      state: null,
+      tabs: [],
+      activeTabId: null,
+      remote: {
+        ...idleRemote,
+        enabled: true,
+        status: "listening",
+        urls: ["http://127.0.0.1:4677/"],
+        tokenUrls: ["http://127.0.0.1:4677/?t=t"],
+        port: 4677,
+        ...patch,
+      },
+    });
+  }
+
+  function passwordInput(): HTMLInputElement {
+    const input = document.body.querySelector<HTMLInputElement>(
+      'input[aria-label="remote access password"]',
+    );
+    expect(input).not.toBeNull();
+    return input!;
+  }
+
+  async function typeInto(input: HTMLInputElement, value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("saves a typed password with Enter", async () => {
+    seedRemote({ hasPassword: false });
+    await renderSettings();
+
+    click(buttonWithText("Set password")!);
+    await typeInto(passwordInput(), "correct-horse-battery");
+    await act(async () => {
+      passwordInput().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(backendMock.setRemotePassword).toHaveBeenCalledTimes(1);
+    expect(backendMock.setRemotePassword).toHaveBeenCalledWith("correct-horse-battery");
+  });
+
+  it("clears the password when asked", async () => {
+    seedRemote({ hasPassword: true });
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("password set");
+    click(buttonWithText("Clear")!);
+    await act(async () => {});
+
+    expect(backendMock.clearRemotePassword).toHaveBeenCalledTimes(1);
   });
 });

@@ -625,7 +625,7 @@ function remoteStatusTone(
  * field remaps its entry and stubs `fs`, so `toString(..., { type: "svg" })` is the one route that
  * needs no polyfill in either the renderer or the web bundle.
  */
-function PairingQr({ url }: { url: string }) {
+function PairingQr({ url, hasPassword }: { url: string; hasPassword: boolean }) {
   const [svg, setSvg] = useState("");
 
   useEffect(() => {
@@ -660,11 +660,107 @@ function PairingQr({ url }: { url: string }) {
       <div className="min-w-0">
         <Label>Scan to pair</Label>
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-          Opens omp-ui in the phone&apos;s browser with the token already
-          attached.
+          {hasPassword
+            ? "Opens omp-ui in the phone&apos;s browser; it will ask for your password."
+            : "Opens omp-ui in the phone&apos;s browser with the token already attached."}
         </p>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * The remote sign-in password row. Mirrors ProviderRow: self-managed editing/draft state, the
+ * input never pre-filled (only a hash exists server-side, nothing to reveal), Enter saves,
+ * Escape cancels without closing the modal.
+ */
+function PasswordRow() {
+  const hasPassword = useStore((s) => s.remote.hasPassword);
+  const setRemotePassword = useStore((s) => s.setRemotePassword);
+  const clearRemotePassword = useStore((s) => s.clearRemotePassword);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) input.current?.focus();
+  }, [editing]);
+
+  const save = (): void => {
+    const value = draft.trim();
+    if (value === "") return;
+    setDraft("");
+    setEditing(false);
+    void setRemotePassword(value); // policy rejections surface via alertRemoteError
+  };
+
+  const cancel = (): void => {
+    setDraft("");
+    setEditing(false);
+  };
+
+  return (
+    <div className="py-2.5">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-ink">Password</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+            Primary sign-in for remote devices. Stored as a salted hash — it cannot
+            be revealed, only changed or cleared.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {!editing && !hasPassword && (
+            <Button size="xs" onClick={() => setEditing(true)}>
+              Set password
+            </Button>
+          )}
+          {!editing && hasPassword && (
+            <>
+              <span className="text-[11px] text-ink-mid">password set</span>
+              <Button size="xs" variant="ghost" onClick={() => setEditing(true)}>
+                Change
+              </Button>
+              <Button size="xs" onClick={() => void clearRemotePassword()}>
+                Clear
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+      {editing && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <input
+            ref={input}
+            type="password"
+            value={draft}
+            aria-label="remote access password"
+            placeholder="at least 8 characters"
+            spellCheck={false}
+            autoComplete="new-password"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                save();
+              } else if (e.key === "Escape") {
+                // Stopped so Escape cancels the row, not the whole modal.
+                e.preventDefault();
+                e.stopPropagation();
+                cancel();
+              }
+            }}
+            className={cn(FIELD, "flex-1")}
+          />
+          <Button size="xs" disabled={draft.trim() === ""} onClick={save}>
+            Save
+          </Button>
+          <Button size="xs" variant="ghost" onClick={cancel}>
+            cancel
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -729,7 +825,7 @@ function RemotePage() {
           </Row>
           {remote.bind === "lan" && (
             <p className="pb-2.5 text-[11px] leading-relaxed text-rose">
-              Anyone on this network who has the token can drive your agent.
+              Anyone on this network with your password or a token link can drive your agent.
               Plain HTTP, so the connection is not encrypted.
             </p>
           )}
@@ -744,9 +840,10 @@ function RemotePage() {
             onCommit={(raw) => void setRemotePort(Number(raw))}
           />
         </Row>
+        <PasswordRow />
         <Row
-          title="Access token"
-          hint="Regenerating disconnects every connected client."
+          title="Access token (fallback)"
+          hint="Still works while a password is set. Regenerating disconnects every client using it."
         >
           <div className="flex items-center gap-1.5">
             <span
@@ -771,7 +868,11 @@ function RemotePage() {
         </Row>
         <Row
           title="Connection URL"
-          hint="Open this on the other device — the token rides along."
+          hint={
+            remote.hasPassword
+              ? "Open this on the other device, then sign in with your password."
+              : "Open this on the other device — the token rides along."
+          }
         >
           <div className="flex items-center gap-1.5">
             <span
@@ -784,6 +885,25 @@ function RemotePage() {
             {primaryUrl !== null && <CopyButton text={primaryUrl} />}
           </div>
         </Row>
+        {remote.hasPassword && (
+          <Row
+            title="Token link (fallback)"
+            hint="Full-access URL with the embedded token, for devices where typing a password is impractical."
+          >
+            <div className="flex items-center gap-1.5">
+              <span
+                data-selectable
+                className="max-w-64 truncate font-mono text-[11px] text-ink-mid"
+                title={remote.tokenUrls[0] ?? undefined}
+              >
+                {remote.tokenUrls[0] ?? "—"}
+              </span>
+              {remote.tokenUrls[0] !== undefined && (
+                <CopyButton text={remote.tokenUrls[0]} />
+              )}
+            </div>
+          </Row>
+        )}
       </div>
 
       {remote.urls.length > 1 && (
@@ -802,7 +922,7 @@ function RemotePage() {
       )}
 
       {remote.status === "listening" && primaryUrl !== null && (
-        <PairingQr url={primaryUrl} />
+        <PairingQr url={primaryUrl} hasPassword={remote.hasPassword} />
       )}
     </div>
   );

@@ -530,6 +530,14 @@ export const BACKEND_CHANNELS = {
   setRemotePort: { channel: "remote:setPort", ...request<[port: number], void>() },
   /** Mints a fresh token and restarts the server, dropping every connected client. */
   regenerateRemoteToken: { channel: "remote:regenerateToken", ...request<[], void>() },
+  /**
+   * Sets the remote sign-in password (stored as a salted scrypt hash) and restarts the server,
+   * dropping every connected client. Rejects with the policy message from
+   * validateRemotePassword when the password is unacceptable.
+   */
+  setRemotePassword: { channel: "remote:setPassword", ...request<[password: string], void>() },
+  /** Clears the password; remote access falls back to token-only. Restarts the server. */
+  clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>() },
   onRemoteState: { channel: "remote:state", ...event<[state: RemoteState]>() },
 } as const;
 

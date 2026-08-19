@@ -19,6 +19,10 @@ export interface RemoteSettings {
   bind: RemoteBind;
   port: number;
   token: string;
+  /** Salted scrypt hash (hex) of the sign-in password; "" = password auth off. */
+  passwordHash: string;
+  /** Hex salt for passwordHash; "" = password auth off. */
+  passwordSalt: string;
 }
 
 export interface RemoteServerManagerDeps {
@@ -32,7 +36,14 @@ export interface RemoteServerManagerDeps {
 
 /** True when both tuples name the same listener. */
 function sameTarget(a: RemoteSettings, b: RemoteSettings): boolean {
-  return a.enabled === b.enabled && a.bind === b.bind && a.port === b.port && a.token === b.token;
+  return (
+    a.enabled === b.enabled &&
+    a.bind === b.bind &&
+    a.port === b.port &&
+    a.token === b.token &&
+    a.passwordHash === b.passwordHash &&
+    a.passwordSalt === b.passwordSalt
+  );
 }
 
 export class RemoteServerManager {
@@ -54,7 +65,9 @@ export class RemoteServerManager {
       bind: s.bind,
       port: s.port,
       token: s.token,
+      hasPassword: s.passwordHash !== "",
       urls: [],
+      tokenUrls: [],
       webBundleMissing: false,
       error: null,
     };
@@ -90,7 +103,9 @@ export class RemoteServerManager {
         bind: s.bind,
         port: s.port,
         token: s.token,
+        hasPassword: s.passwordHash !== "",
         urls: [],
+        tokenUrls: [],
         webBundleMissing: false,
         error: null,
       });
@@ -126,25 +141,62 @@ export class RemoteServerManager {
     await this.#closeRunning();
 
     if (!desired.enabled) {
-      this.#publish({ ...desired, status: "stopped", urls: [], webBundleMissing: false, error: null });
+      this.#publish({
+        status: "stopped",
+        enabled: desired.enabled,
+        bind: desired.bind,
+        port: desired.port,
+        token: desired.token,
+        hasPassword: desired.passwordHash !== "",
+        urls: [],
+        tokenUrls: [],
+        webBundleMissing: false,
+        error: null,
+      });
       return;
     }
 
-    this.#publish({ ...desired, status: "starting", urls: [], webBundleMissing: false, error: null });
+    this.#publish({
+      status: "starting",
+      enabled: desired.enabled,
+      bind: desired.bind,
+      port: desired.port,
+      token: desired.token,
+      hasPassword: desired.passwordHash !== "",
+      urls: [],
+      tokenUrls: [],
+      webBundleMissing: false,
+      error: null,
+    });
     try {
+      // Both must be non-empty: a hash without its salt is a partial/corrupt write, and the
+      // safe fallback is token-only mode rather than a crash.
+      const password =
+        desired.passwordHash !== "" && desired.passwordSalt !== ""
+          ? { salt: desired.passwordSalt, hash: desired.passwordHash }
+          : null;
       const handle = await startRemoteServer({
         host: this.deps.host,
         token: desired.token,
         bind: desired.bind,
         port: desired.port,
         webRoot: this.deps.webRoot,
+        password,
       });
       this.#handle = handle;
       this.#running = desired;
       this.#publish({
-        ...desired,
         status: "listening",
-        urls: handle.urls,
+        enabled: desired.enabled,
+        bind: desired.bind,
+        port: desired.port,
+        token: desired.token,
+        hasPassword: desired.passwordHash !== "",
+        // Primary URLs are bare once a password exists; the token fallback always rides
+        // tokenUrls. Built field by field — never spread desired — so passwordHash and
+        // passwordSalt can never ride a remote:state push to a client.
+        urls: desired.passwordHash !== "" ? handle.urls : handle.tokenUrls,
+        tokenUrls: handle.tokenUrls,
         webBundleMissing: handle.webBundleMissing,
         error: null,
       });
@@ -152,9 +204,14 @@ export class RemoteServerManager {
       // No server is left running on this path — #closeRunning already ran and the failed
       // startRemoteServer never handed one back.
       this.#publish({
-        ...desired,
         status: "error",
+        enabled: desired.enabled,
+        bind: desired.bind,
+        port: desired.port,
+        token: desired.token,
+        hasPassword: desired.passwordHash !== "",
         urls: [],
+        tokenUrls: [],
         webBundleMissing: false,
         error: err instanceof Error ? err.message : String(err),
       });

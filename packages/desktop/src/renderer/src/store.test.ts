@@ -53,7 +53,9 @@ const idleRemoteState: RemoteState = {
   bind: "localhost",
   port: 4677,
   token: "t",
+  hasPassword: false,
   urls: [],
+  tokenUrls: [],
   webBundleMissing: false,
   error: null,
 };
@@ -138,6 +140,8 @@ const mockBackend = {
   setRemoteBind: vi.fn(async () => {}),
   setRemotePort: vi.fn(async () => {}),
   regenerateRemoteToken: vi.fn(async () => {}),
+  setRemotePassword: vi.fn(async () => {}),
+  clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
 };
 
@@ -4474,6 +4478,8 @@ describe("remote access settings", () => {
       ["setRemoteBind", "lan"],
       ["setRemotePort", 5000],
       ["regenerateRemoteToken", undefined],
+      ["setRemotePassword", "short"],
+      ["clearRemotePassword", undefined],
     ] as const) {
       mockBackend[action].mockRejectedValueOnce(
         new Error("remote connection lost"),

@@ -9,7 +9,9 @@ const DEFAULT_REMOTE: SettingsSlice["remote"] = {
   bind: "localhost",
   port: 4677,
   token: "",
+  hasPassword: false,
   urls: [],
+  tokenUrls: [],
   webBundleMissing: false,
   error: null,
 };
@@ -162,6 +164,22 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
   async regenerateRemoteToken() {
     try {
       await backend.regenerateRemoteToken();
+    } catch (err) {
+      alertRemoteError(err);
+    }
+  },
+
+  async setRemotePassword(password) {
+    try {
+      await backend.setRemotePassword(password);
+    } catch (err) {
+      alertRemoteError(err);
+    }
+  },
+
+  async clearRemotePassword() {
+    try {
+      await backend.clearRemotePassword();
     } catch (err) {
       alertRemoteError(err);
     }

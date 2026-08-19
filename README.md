@@ -177,14 +177,25 @@ remote clients are extra views of the same sessions, not a second owner. It is
 - **Bind address.** `localhost` (default) listens on `127.0.0.1` only. `local
   network` listens on `0.0.0.0` so a phone or second machine can reach it — an
   explicit, warned choice, over plain HTTP with no encryption.
-- **Access token.** A 32-byte bearer token authenticates every request and the
-  WebSocket upgrade. The page reveals, copies, and QR-codes the pairing URL;
-  regenerating the token disconnects every connected client.
+- **Sign-in password (primary).** Set under Settings → Remote access. Stored as a
+  salted scrypt hash in the registry — never plaintext, never recoverable.
+  Unauthenticated browsers are redirected to a `/login` page; a correct password
+  sets an HttpOnly session cookie. Wrong attempts are rate-limited per IP: after
+  5 failures the address is locked out with exponential backoff (60 s doubling,
+  capped at 15 min). While a password is set, the primary pairing URL and QR no
+  longer contain the token.
+- **Access token (fallback).** The auto-minted 32-byte bearer token stays valid
+  alongside the password: pairing URLs with `?t=`, the QR code, and
+  `Authorization: Bearer` all keep working. Regenerating the token revokes every
+  token link; changing or clearing the password revokes every password session.
 - **Port.** Default `4677`; any whole number in 1024–65535.
 - **Build requirement.** The browser bundle is a separate Vite build. Run
   `npm run build:web --workspace @omp-ui/desktop` (it is part of `npm run
   build`); without it the server answers `503` with that hint and the settings
   page says the bundle is missing.
+
+The transport remains plain HTTP: both the password and the token travel
+unencrypted on the wire, so LAN binding stays an explicit, warned choice.
 
 Because the server lives inside the Electron main process, there is no remote
 access while the desktop app is closed — the point is controlling *this app's*

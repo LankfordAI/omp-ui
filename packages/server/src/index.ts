@@ -11,7 +11,11 @@ import {
   REMOTE_TOKEN_PARAM,
   REMOTE_WS_PATH,
 } from "./protocol";
-import { tokenMatches } from "./token";
+import {
+  passwordSessionCredential,
+  tokenMatches,
+  verifyRemotePassword,
+} from "./token";
 
 /** What the transport needs from MainBackend — nothing about sessions, Electron, or the registry. */
 export interface RemoteHost {
@@ -26,10 +30,15 @@ export interface RemoteServerOptions {
   port: number;
   /** Directory holding the built browser bundle (index.html + assets + icon.png). */
   webRoot: string;
+  /** Password credential; null = password auth disabled (token-only). */
+  password?: { salt: string; hash: string } | null;
 }
 
 export interface RemoteServerHandle {
+  /** Primary pairing URLs: bare when a password is set, otherwise see tokenUrls. */
   readonly urls: string[];
+  /** Token-bearing pairing URLs (fallback), always carrying the token. */
+  readonly tokenUrls: string[];
   readonly webBundleMissing: boolean;
   /** The bound port — meaningful when `port: 0` asked the OS to pick one. */
   readonly port: number;
@@ -41,6 +50,14 @@ const MAX_PAYLOAD = 64 * 1024 * 1024;
 const COOKIE_MAX_AGE = 31_536_000;
 /** How long a 1001 close handshake gets before the socket is torn down anyway. */
 const CLOSE_DRAIN_MS = 250;
+/** POST /login body ceiling; a real form is a few dozen bytes. */
+const MAX_LOGIN_BODY = 8192;
+/** Consecutive failures before an IP is locked out of /login. */
+const LOGIN_FAIL_THRESHOLD = 5;
+const LOGIN_LOCK_BASE_S = 60;
+const LOGIN_LOCK_CAP_S = 900;
+/** Caps the per-IP attempt map; the oldest insertion goes first. */
+const LOGIN_ATTEMPTS_CAP = 10_000;
 
 const MIME: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -86,11 +103,13 @@ function requestUrl(req: IncomingMessage): URL {
   return new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
 }
 
-function manifest(token: string): string {
+function manifest(token: string | null): string {
   return JSON.stringify({
     name: "omp-ui",
     short_name: "omp-ui",
-    start_url: `./?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`,
+    // Password mode serves a bare start_url: the session cookie carries the credential, and
+    // baking a token in would outlive a password change for an installed PWA.
+    start_url: token ? `./?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}` : "./",
     scope: "./",
     display: "standalone",
     background_color: "#0a0b0d",
@@ -99,17 +118,77 @@ function manifest(token: string): string {
   });
 }
 
-function lanUrls(port: number, token: string): string[] {
-  const q = `/?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`;
+/** Bare (token-free) URLs, LAN first, loopback last. */
+function lanHosts(port: number): string[] {
   const out: string[] = [];
   for (const addrs of Object.values(networkInterfaces())) {
     for (const a of addrs ?? []) {
       if (a.family !== "IPv4" || a.internal) continue;
-      out.push(`http://${a.address}:${port}${q}`);
+      out.push(`http://${a.address}:${port}/`);
     }
   }
-  out.push(`http://127.0.0.1:${port}${q}`);
+  out.push(`http://127.0.0.1:${port}/`);
   return out;
+}
+
+function withToken(urls: string[], token: string): string[] {
+  return urls.map((u) => `${u}?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`);
+}
+
+/**
+ * The sign-in form served at /login in password mode. Inline CSS, no JS, no external assets:
+ * it must render even when the web bundle is missing, and it deliberately reveals the service
+ * is omp-ui to an unauthenticated caller (accepted trade-off for usability).
+ */
+function loginPage(error: string | null): string {
+  const errorHtml = error
+    ? `<p role="alert" style="margin:0 0 12px;color:#f87171;font-size:13px">${escapeHtml(error)}</p>`
+    : "";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>omp-ui — Sign in</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { display:flex; align-items:center; justify-content:center; min-height:100dvh;
+         background:#0a0b0d; color:#c8d0da; font:14px/1.5 system-ui,sans-serif; padding:24px; }
+  .card { width:100%; max-width:340px; }
+  h1 { font-size:18px; font-weight:600; color:#e6ebf2; margin-bottom:4px; }
+  .sub { font-size:12px; color:#8b95a3; margin-bottom:20px; }
+  label { display:block; font-size:12px; color:#8b95a3; margin-bottom:6px; }
+  input[type="password"] { width:100%; padding:9px 12px; border:1px solid #2a3038;
+    border-radius:6px; background:#14171b; color:#e6ebf2; font:inherit; outline:none; }
+  input[type="password"]:focus { border-color:#4a5568; }
+  button { margin-top:12px; width:100%; padding:9px 12px; border:none; border-radius:6px;
+    background:#c8d0da; color:#0a0b0d; font:inherit; font-weight:600; cursor:pointer; }
+  button:hover { background:#e6ebf2; }
+  .hint { margin-top:16px; font-size:11px; color:#8b95a3; text-align:center; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>omp-ui</h1>
+  <p class="sub">Remote access &mdash; sign in to continue</p>
+  ${errorHtml}
+  <form method="post" action="/login">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autofocus autocomplete="current-password">
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="hint">or open a pairing link with an access token</p>
+</div>
+</body>
+</html>`;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /** null rather than a throw: a missing path is a routing decision here, not an error. */
@@ -123,12 +202,47 @@ function statOrNull(file: string): fs.Stats | null {
 
 export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServerHandle> {
   const { host, token, bind, port, webRoot } = opts;
+  const password = opts.password ?? null;
+  // The session credential is derived from the stored hash, never from the password: a logged-in
+  // browser can present it indefinitely, and it rotates the moment the hash changes.
+  const sessionCred = password ? passwordSessionCredential(password.hash) : null;
   const indexFile = path.join(webRoot, "index.html");
   const webBundleMissing = !fs.existsSync(indexFile);
 
   const send = (res: ServerResponse, code: number, body: string, type = "text/plain; charset=utf-8"): void => {
     res.writeHead(code, { "Content-Type": type, "Content-Length": Buffer.byteLength(body) });
     res.end(body);
+  };
+
+  /** Accepts the bearer token or the password-derived session credential. */
+  const credentialMatches = (value: string | null): boolean => {
+    if (value === null) return false;
+    return tokenMatches(token, value) || (sessionCred !== null && tokenMatches(sessionCred, value));
+  };
+
+  // In-memory per-IP lockout state for POST /login. Function-scoped on purpose: every
+  // startRemoteServer is a fresh server, and a restart (config change) resetting the lockout is
+  // the documented v1 behavior.
+  const loginAttempts = new Map<string, { fails: number; until: number }>();
+  const pruneLoginAttempts = (): void => {
+    if (loginAttempts.size <= LOGIN_ATTEMPTS_CAP) return;
+    // Map iterates in insertion order — evict the oldest first.
+    for (const key of loginAttempts.keys()) {
+      loginAttempts.delete(key);
+      if (loginAttempts.size <= LOGIN_ATTEMPTS_CAP) break;
+    }
+  };
+  const recordLoginFailure = (ip: string): void => {
+    const entry = loginAttempts.get(ip);
+    const fails = (entry?.fails ?? 0) + 1;
+    let until = 0;
+    if (fails >= LOGIN_FAIL_THRESHOLD) {
+      until =
+        Date.now() +
+        Math.min(LOGIN_LOCK_BASE_S * 2 ** (fails - LOGIN_FAIL_THRESHOLD), LOGIN_LOCK_CAP_S) * 1000;
+    }
+    loginAttempts.set(ip, { fails, until });
+    pruneLoginAttempts();
   };
 
   const serveStatic = (res: ServerResponse, pathname: string): void => {
@@ -162,31 +276,120 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     res.end(body);
   };
 
+  const handleLogin = (req: IncomingMessage, res: ServerResponse): void => {
+    const ip = req.socket.remoteAddress ?? "?";
+    const entry = loginAttempts.get(ip);
+    if (entry !== undefined && entry.until > Date.now()) {
+      const retryAfter = Math.ceil((entry.until - Date.now()) / 1000);
+      res.writeHead(429, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Retry-After": String(retryAfter),
+      });
+      res.end(loginPage(`Too many attempts. Try again in ${retryAfter}s.`));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_LOGIN_BODY) {
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (size > MAX_LOGIN_BODY) {
+        send(res, 400, "request too large");
+        return;
+      }
+      const contentType = req.headers["content-type"] ?? "";
+      if (!contentType.includes("application/x-www-form-urlencoded")) {
+        send(res, 400, "expected form-encoded body");
+        return;
+      }
+      const params = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+      const pw = params.get("password") ?? "";
+      if (pw === "") {
+        // An empty field is not a guess, so it is not counted against the rate limit.
+        send(res, 400, loginPage("Password is required."), "text/html; charset=utf-8");
+        return;
+      }
+      if (!password || !verifyRemotePassword(pw, password.salt, password.hash)) {
+        recordLoginFailure(ip);
+        send(res, 401, loginPage("Wrong password. Try again."), "text/html; charset=utf-8");
+        return;
+      }
+      loginAttempts.delete(ip);
+      res.writeHead(302, {
+        // No `Secure`: plain HTTP is the v1 transport (see the settings footer's honesty note).
+        "Set-Cookie": `${REMOTE_COOKIE}=${encodeURIComponent(sessionCred!)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`,
+        Location: "/",
+      });
+      res.end();
+    });
+  };
+
   const server: Server = createServer((req, res) => {
     const url = requestUrl(req);
     const { value, from } = presentedToken(req, url);
-    if (!tokenMatches(token, value)) {
-      // Auth precedes every route including the manifest: an unauthenticated caller learns
-      // nothing beyond the fact that something listens here.
+
+    if (credentialMatches(value)) {
+      if (from === "query" && value !== null) {
+        // A query hit re-sets the cookie to the exact credential presented, so a pairing link
+        // (token) and the login page (session credential) both work for the WS upgrade.
+        res.setHeader(
+          "Set-Cookie",
+          `${REMOTE_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`,
+        );
+      }
+      if (url.pathname === "/healthz") {
+        send(res, 200, "ok");
+        return;
+      }
+      if (url.pathname === "/manifest.webmanifest") {
+        // Password mode: bare start_url, the cookie carries the credential.
+        send(res, 200, manifest(password ? null : token), "application/manifest+json");
+        return;
+      }
+      serveStatic(res, url.pathname);
+      return;
+    }
+
+    // --- Unauthenticated ---
+    if (password === null) {
+      // Token-only mode: an unauthenticated caller learns nothing beyond the fact that
+      // something listens here.
       send(res, 401, "unauthorized");
       return;
     }
-    if (from === "query") {
-      // No `Secure`: plain HTTP is the v1 transport (see the settings footer's honesty note).
-      res.setHeader(
-        "Set-Cookie",
-        `${REMOTE_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`,
-      );
-    }
+
+    // /healthz stays a bare 401 so the reconnect probe in main.web.tsx can distinguish
+    // "server down" from "credential revoked".
     if (url.pathname === "/healthz") {
-      send(res, 200, "ok");
+      send(res, 401, "unauthorized");
       return;
     }
-    if (url.pathname === "/manifest.webmanifest") {
-      send(res, 200, manifest(token), "application/manifest+json");
+
+    if (url.pathname === "/login") {
+      if (req.method === "GET") {
+        send(res, 200, loginPage(null), "text/html; charset=utf-8");
+        return;
+      }
+      if (req.method === "POST") {
+        handleLogin(req, res);
+        return;
+      }
+    }
+
+    if (req.method === "GET") {
+      res.writeHead(302, { Location: "/login" });
+      res.end();
       return;
     }
-    serveStatic(res, url.pathname);
+
+    send(res, 401, "unauthorized");
   });
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
@@ -194,7 +397,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = requestUrl(req);
     const { value } = presentedToken(req, url);
-    if (url.pathname !== REMOTE_WS_PATH || !tokenMatches(token, value)) {
+    if (url.pathname !== REMOTE_WS_PATH || !credentialMatches(value)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
@@ -291,11 +494,10 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       server.removeListener("error", onEarlyError);
       const address = server.address();
       const bound = typeof address === "object" && address !== null ? address.port : port;
+      const bare = bind === "lan" ? lanHosts(bound) : [`http://127.0.0.1:${bound}/`];
       resolve({
-        urls:
-          bind === "lan"
-            ? lanUrls(bound, token)
-            : [`http://127.0.0.1:${bound}/?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`],
+        urls: bare,
+        tokenUrls: withToken(bare, token),
         webBundleMissing,
         port: bound,
         close: async () => {
@@ -323,9 +525,19 @@ function reply(ws: WebSocket, frame: unknown): void {
 }
 
 export { REMOTE_CLOSE_REVOKED, REMOTE_COOKIE, REMOTE_TOKEN_PARAM, REMOTE_WS_PATH } from "./protocol";
+export {
+  hashRemotePassword,
+  mintRemoteToken,
+  passwordSessionCredential,
+  REMOTE_PASSWORD_MAX_BYTES,
+  REMOTE_PASSWORD_MIN,
+  tokenMatches,
+  validateRemotePassword,
+  verifyRemotePassword,
+  type PasswordHash,
+} from "./token";
 export { decodeBinaryEvent, encodeBinaryEvent } from "./protocol";
 export type { ClientFrame, ServerFrame } from "./protocol";
-export { mintRemoteToken, tokenMatches } from "./token";
 
 /**
  * Resolves once every client socket has left OPEN/CLOSING, or after `ms` — whichever first. A

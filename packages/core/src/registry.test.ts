@@ -60,6 +60,8 @@ describe("SETTINGS", () => {
       "remoteBind",
       "remotePort",
       "remoteToken",
+      "remotePasswordHash",
+      "remotePasswordSalt",
     ]);
   });
 
@@ -134,6 +136,8 @@ describe("Registry.load", () => {
     expect(reg.remoteBind).toBe("localhost");
     expect(reg.remotePort).toBe(4677);
     expect(reg.remoteToken).toBe("");
+    expect(reg.remotePasswordHash).toBe("");
+    expect(reg.remotePasswordSalt).toBe("");
     expect(fs.existsSync(file)).toBe(true); // absent remote* keys are legal, not corrupt
   });
 
@@ -175,6 +179,8 @@ describe("Registry.load", () => {
           remoteBind: "public",
           remotePort: 1023,
           remoteToken: 123,
+          remotePasswordHash: 123,
+          remotePasswordSalt: 456,
         },
         projects: [],
         sessions: [],
@@ -198,6 +204,8 @@ describe("Registry.load", () => {
     expect(reg.remoteBind).toBe("localhost");
     expect(reg.remotePort).toBe(4677);
     expect(reg.remoteToken).toBe("");
+    expect(reg.remotePasswordHash).toBe("");
+    expect(reg.remotePasswordSalt).toBe("");
   });
 
   it("accepts only bounded integer remote ports", () => {
@@ -367,6 +375,8 @@ describe("Registry persistence", () => {
       ["remoteBind", (registry) => registry.setRemoteBind("localhost")],
       ["remotePort", (registry) => registry.setRemotePort(4677)],
       ["remoteToken", (registry) => registry.setRemoteToken("")],
+      ["remotePasswordHash", (registry) => registry.setRemotePasswordHash("")],
+      ["remotePasswordSalt", (registry) => registry.setRemotePasswordSalt("")],
       ["dismissedAppUpdateVersion", (registry) => registry.setDismissedAppUpdateVersion(null)],
       ["dismissedOmpUpdateVersion", (registry) => registry.setDismissedOmpUpdateVersion(null)],
     ];
@@ -379,6 +389,18 @@ describe("Registry persistence", () => {
       setSameValue(reg);
       expect(fs.readFileSync(file, "utf8"), name).toBe(marker);
     }
+  });
+
+  it("round-trips the remote password hash and salt across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setRemotePasswordHash("deadbeef");
+    reg.setRemotePasswordSalt("0011");
+    expect(reg.remotePasswordHash).toBe("deadbeef");
+    expect(reg.remotePasswordSalt).toBe("0011");
+    const reloaded = Registry.load(file);
+    expect(reloaded.remotePasswordHash).toBe("deadbeef");
+    expect(reloaded.remotePasswordSalt).toBe("0011");
   });
 
   it("uses Object.is when comparing setting values", () => {

@@ -34,7 +34,9 @@ const idleRemoteState: RemoteState = {
   bind: "localhost",
   port: 4677,
   token: "t",
+  hasPassword: false,
   urls: [],
+  tokenUrls: [],
   webBundleMissing: false,
   error: null,
 };
@@ -104,6 +106,8 @@ const mockBackend = {
   setRemoteBind: vi.fn(async () => {}),
   setRemotePort: vi.fn(async () => {}),
   regenerateRemoteToken: vi.fn(async () => {}),
+  setRemotePassword: vi.fn(async () => {}),
+  clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
 };
 Object.assign(window, { ompBackend: mockBackend });

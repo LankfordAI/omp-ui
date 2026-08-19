@@ -7,7 +7,11 @@ import { WebSocket } from "ws";
 import type { ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
 import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
-import { mintRemoteToken } from "./token";
+import {
+  hashRemotePassword,
+  mintRemoteToken,
+  passwordSessionCredential,
+} from "./token";
 
 const TOKEN = mintRemoteToken();
 
@@ -151,6 +155,167 @@ describe("startRemoteServer auth", () => {
     const body = (await res.json()) as { start_url: string; display: string };
     expect(body.start_url).toContain(TOKEN);
     expect(body.display).toBe("standalone");
+  });
+});
+
+const PW = "correct-horse-battery";
+const PW_HASH = hashRemotePassword(PW);
+
+/** Native form POST to /login, following no redirects. */
+function postLogin(base: string, password: string): Promise<Response> {
+  return fetch(`${base}/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `password=${encodeURIComponent(password)}`,
+    redirect: "manual",
+  });
+}
+
+/** Opens a socket authenticated only by the given cookie header. */
+function connectWithCookie(base: string, cookie: string): Promise<WebSocket> {
+  const url = `${base.replace("http://", "ws://")}${REMOTE_WS_PATH}`;
+  const ws = new WebSocket(url, { headers: { cookie } });
+  sockets.push(ws);
+  return new Promise((resolve, reject) => {
+    ws.once("open", () => resolve(ws));
+    ws.once("close", () => reject(new Error("closed before open")));
+    ws.once("error", () => {
+      /* the close handler is the one that settles */
+    });
+  });
+}
+
+describe("startRemoteServer password auth", () => {
+  it("redirects an unauthenticated GET / to /login, but /healthz stays a bare 401", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const res = await fetch(`${base}/`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/login");
+
+    const health = await fetch(`${base}/healthz`);
+    expect(health.status).toBe(401);
+    expect(health.headers.get("location")).toBeNull();
+    expect(await health.text()).toBe("unauthorized");
+  });
+
+  it("serves the login form at GET /login", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const res = await fetch(`${base}/login`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain('name="password"');
+    expect(body).toContain('<form method="post" action="/login">');
+  });
+
+  it("answers a wrong password with 401 and an empty password with 400", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const wrong = await postLogin(base, "wrong-horse-battery");
+    expect(wrong.status).toBe(401);
+    expect(await wrong.text()).toContain("Wrong password");
+
+    const empty = await fetch(`${base}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "password=",
+      redirect: "manual",
+    });
+    expect(empty.status).toBe(400);
+    expect(await empty.text()).toContain("Password is required");
+  });
+
+  it("answers a correct password with a redirect and a session cookie that then works", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const res = await postLogin(base, PW);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+    const cookie = res.headers.get("set-cookie");
+    expect(cookie).toContain("omp_ui_token=");
+    expect(cookie).toContain("HttpOnly");
+
+    const jar = cookie!.split(";")[0];
+    const health = await fetch(`${base}/healthz`, { headers: { cookie: jar } });
+    expect(health.status).toBe(200);
+    expect(await health.text()).toBe("ok");
+  });
+
+  it("keeps the token working as a fallback while a password is set", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const query = await fetch(`${base}/?t=${TOKEN}`, { redirect: "manual" });
+    // No bundle on disk, so the static route answers 503 — the point is that auth passed.
+    expect(query.status).toBe(503);
+    expect(query.headers.get("set-cookie")).toContain("omp_ui_token=");
+
+    const bearer = await fetch(`${base}/healthz`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(bearer.status).toBe(200);
+  });
+
+  it("accepts a WS upgrade carrying only the session cookie, and rejects one with none", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const cred = passwordSessionCredential(PW_HASH.hash);
+    const ws = await connectWithCookie(base, `omp_ui_token=${cred}`);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    await expect(connectWithCookie(base, "omp_ui_token=nope")).rejects.toThrow(
+      "closed before open",
+    );
+  });
+
+  it("locks an IP out after five failed logins and a fresh server is not locked", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    for (let i = 0; i < 5; i++) {
+      const res = await postLogin(base, "wrong-horse-battery");
+      expect(res.status, `attempt ${i + 1}`).toBe(401);
+    }
+    const locked = await postLogin(base, "wrong-horse-battery");
+    expect(locked.status).toBe(429);
+    expect(Number(locked.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await locked.text()).toContain("Too many attempts");
+    // Even the right password is refused while locked.
+    const stillLocked = await postLogin(base, PW);
+    expect(stillLocked.status).toBe(429);
+
+    // Lockout state is per-server: a fresh listener answers normally.
+    const fresh = await serve({ password: PW_HASH });
+    const ok = await postLogin(fresh.base, PW);
+    expect(ok.status).toBe(302);
+  });
+
+  it("serves a bare manifest start_url in password mode", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const res = await fetch(`${base}/manifest.webmanifest`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { start_url: string };
+    expect(body.start_url).toBe("./");
+  });
+
+  it("revokes old session cookies when the server restarts with a different password", async () => {
+    const first = await serve({ password: PW_HASH });
+    const cred = passwordSessionCredential(PW_HASH.hash);
+    const health = await fetch(`${first.base}/healthz`, {
+      headers: { cookie: `omp_ui_token=${cred}` },
+    });
+    expect(health.status).toBe(200);
+    const port = first.handle.port;
+    open.splice(open.indexOf(first.handle), 1);
+    await first.handle.close();
+
+    const second = await startRemoteServer({
+      host: fakeHost(),
+      token: TOKEN,
+      bind: "localhost",
+      port,
+      webRoot: "/nonexistent-web-root",
+      password: hashRemotePassword("some-other-passphrase"),
+    });
+    open.push(second);
+    const stale = await fetch(`http://127.0.0.1:${port}/healthz`, {
+      headers: { cookie: `omp_ui_token=${cred}` },
+    });
+    expect(stale.status).toBe(401);
   });
 });
 
@@ -327,9 +492,10 @@ describe("startRemoteServer lifecycle", () => {
     expect(await res.text()).toBe('omp-ui web bundle not built — run "npm run build:web"');
   });
 
-  it("puts the loopback URL first with the token in the query", async () => {
+  it("puts the bare loopback URL first and keeps the token in tokenUrls", async () => {
     const { handle } = await serve();
-    expect(handle.urls).toEqual([`http://127.0.0.1:${handle.port}/?t=${TOKEN}`]);
+    expect(handle.urls).toEqual([`http://127.0.0.1:${handle.port}/`]);
+    expect(handle.tokenUrls).toEqual([`http://127.0.0.1:${handle.port}/?t=${TOKEN}`]);
   });
 });
 
