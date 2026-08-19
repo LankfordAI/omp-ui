@@ -11,6 +11,12 @@ describe("routeExtensionRequest", () => {
     }
   });
 
+  it("routes open_url to the system browser", () => {
+    expect(
+      routeExtensionRequest({ type: "extension_ui_request", id: "1", method: "open_url" }),
+    ).toEqual({ action: "open-url" });
+  });
+
   it("auto-cancels every other method", () => {
     for (const method of [
       "notify",
@@ -18,7 +24,6 @@ describe("routeExtensionRequest", () => {
       "setWidget",
       "setTitle",
       "set_editor_text",
-      "open_url",
       "cancel",
     ]) {
       expect(routeExtensionRequest({ type: "extension_ui_request", id: "1", method })).toEqual({

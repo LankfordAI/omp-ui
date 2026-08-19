@@ -26,7 +26,7 @@ import {
   extensionCancelResponse,
   routeExtensionRequest,
 } from "./lib/extension-router";
-import { arrField, field, numField, strField } from "./lib/fields";
+import { arrField, boolField, field, numField, strField } from "./lib/fields";
 import {
   PlanConcernWatcher,
   withConcerns,
@@ -88,17 +88,26 @@ export type {
 } from "./store/types";
 export { findRecord, sessionCwd } from "./store/slices/view";
 import {
+  commandItem,
   historyToItems,
   markerItem,
   noticeItem,
   planProposalItem,
   reduceEvent,
   settleRunningTools,
+  type CommandItem,
   type NoticeItem,
   type RenderItem,
 } from "./lib/transcript";
 
 const RPC_COMMAND_TIMEOUT_MS = 30_000;
+
+/**
+ * Per-item ceiling for accumulated command_output text. Unbounded growth is
+ * the exact reason issue #43 deleted the drawer's output pane; a bounded
+ * per-item buffer is not that.
+ */
+const COMMAND_OUTPUT_CAP = 64 * 1024;
 
 /** A renderer-side RPC wait expired; the process may still finish the command. */
 export class RpcCommandTimeoutError extends Error {
@@ -567,6 +576,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
   }
   const transcriptBatches = new Map<string, TranscriptBatch>();
 
+  /**
+   * Slash-command echo correlation: request id → CommandItem id, per tab.
+   * Entries live only while the item may still settle off a late
+   * `prompt_result`/`agent_start` (the response carried no `agentInvoked`).
+   */
+  const slashCommandItems = new Map<string, Map<string, string>>();
+
   /** Committed items plus anything reduced but not yet flushed. */
   const effectiveItems = (tabId: string): RenderItem[] =>
     transcriptBatches.get(tabId)?.items ?? get().rpc[tabId]?.items ?? [];
@@ -695,7 +711,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const runCommand = async (
     tabId: string,
     cmd: Record<string, unknown>,
-    opts?: { quiet?: boolean },
+    opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown> => {
     const command = typeof cmd.type === "string" ? cmd.type : "unknown";
     try {
@@ -1053,6 +1069,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     concernWatcher.cancel(tabId);
     advisorReplyWatcher.cancel(tabId);
     cancelTranscriptBatch(tabId);
+    slashCommandItems.delete(tabId);
     if (tab) {
       for (const pending of tab.pendingCommands.values()) {
         clearTimeout(pending.timer);
@@ -1897,6 +1914,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
         });
       });
       if (!quiet) patchRpc(tabId, { busy: true });
+      // Callers correlating async frames (prompt_result) with this command
+      // learn the wire id before the first byte leaves.
+      opts?.captureId?.(id);
       backend.rpcSend(tabId, { ...cmd, id });
       // The map is the ref count: both settle paths remove their entry before
       // settling, so concurrent commands can't clear `busy` for each other.
@@ -2019,10 +2039,30 @@ export const useStore = create<UiStore>()((set, get, api) => {
           });
           return;
         }
-        case "command_output":
-          // Slash-command replies had a pane in the console drawer until
-          // issue #43 made the drawer a full-width shell; dropped on purpose.
+        case "command_output": {
+          // Attaches to the in-flight slash command's transcript row. The
+          // shipped binary emits none for builtins today — this is forward
+          // compatibility for the upstream reply-text issue, with a hard cap
+          // so it can never regrow the drawer pane issue #43 removed.
+          const text = strField(frame, "text") ?? "";
+          const running = effectiveItems(tabId)
+            .filter((i): i is CommandItem => i.kind === "command" && i.status === "running")
+            .at(-1);
+          if (running === undefined) {
+            appendItem(tabId, noticeItem(text, "info"));
+            return;
+          }
+          const joined =
+            running.output === undefined ? text : `${running.output}\n${text}`;
+          const output =
+            joined.length <= COMMAND_OUTPUT_CAP
+              ? joined
+              : `${joined.slice(0, COMMAND_OUTPUT_CAP)}\n… output truncated`;
+          patchItems(tabId, (i) =>
+            i.kind === "command" && i.id === running.id ? { ...i, output } : i,
+          );
           return;
+        }
         case "extension_ui_request": {
           // Plan mode rides the extension channel, so it is claimed before the
           // generic routing: the review dialog must reach the plan pane rather
@@ -2058,6 +2098,32 @@ export const useStore = create<UiStore>()((set, get, api) => {
             patchRpc(tabId, { extensionQueue: [...tab.extensionQueue, frame] });
             return;
           }
+          if (action.action === "open-url") {
+            const url = strField(frame, "url");
+            const id = "id" in frame ? frame.id : undefined;
+            if (url === undefined || url === "") {
+              backend.rpcSend(tabId, extensionCancelResponse(id));
+              return;
+            }
+            // Main's setWindowOpenHandler denies the window and routes through
+            // openExternalSafe (https/http/mailto only) — the renderer adds no
+            // second policy. Reply immediately: a login flow's callback wait is
+            // omp's to time out, never ours to block on the OS browser.
+            window.open(url);
+            backend.rpcSend(tabId, {
+              type: "extension_ui_response",
+              id,
+              confirmed: true,
+            });
+            let origin = url;
+            try {
+              origin = new URL(url).origin;
+            } catch {
+              // Not parseable as a URL — the marker carries the raw string.
+            }
+            appendItem(tabId, markerItem(`opened browser: ${origin}`));
+            return;
+          }
           // Every non-dialog method is answered immediately — omp blocks on the
           // reply — but status/widget/title text is recorded first, because it
           // is the extension's actual output, not an interaction to decline.
@@ -2078,9 +2144,26 @@ export const useStore = create<UiStore>()((set, get, api) => {
           }
           return;
         }
-        case "prompt_result":
+        case "prompt_result": {
+          // Settles a slash-command row whose response carried no
+          // `agentInvoked` (older runtime): the wire id maps back to the item.
+          const id = "id" in frame && typeof frame.id === "string" ? frame.id : null;
+          const byRequest = slashCommandItems.get(tabId);
+          const itemId = id !== null ? byRequest?.get(id) : undefined;
+          if (byRequest !== undefined && id !== null && itemId !== undefined) {
+            byRequest.delete(id);
+            const invoked =
+              boolField(frame, "agentInvoked") ??
+              boolField(field(frame, "data"), "agentInvoked");
+            patchItems(tabId, (i) =>
+              i.kind === "command" && i.id === itemId && i.status === "running"
+                ? { ...i, status: invoked === true ? "agent" : "done" }
+                : i,
+            );
+          }
           patchRpc(tabId, { status: "ready" });
           return;
+        }
         case "omp_ui_error": {
           const message = strField(frame, "message") ?? "omp rpc error";
           const liveState = findRecord(get().state, tabId)?.live;
@@ -2178,6 +2261,18 @@ export const useStore = create<UiStore>()((set, get, api) => {
             if (pending !== undefined) {
               window.clearTimeout(pending);
               queueSettleTimers.delete(tabId);
+            }
+            // A slash command still awaiting its verdict (response carried no
+            // `agentInvoked`) is what started this turn — mark it so.
+            const byRequest = slashCommandItems.get(tabId);
+            if (byRequest !== undefined && byRequest.size > 0) {
+              const tracked = new Set(byRequest.values());
+              byRequest.clear();
+              patchItems(tabId, (i) =>
+                i.kind === "command" && i.status === "running" && tracked.has(i.id)
+                  ? { ...i, status: "agent" }
+                  : i,
+              );
             }
           }
           // Context and spend grow at turn boundaries — tick the HUD meter and
@@ -2706,9 +2801,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // reach the model as literal prompt text and start an agent turn
       // (ADR-0007). Bare forms only — "/plan …" with any other argument still
       // reaches omp verbatim, and a pty tab's TUI owns its own /plan.
-      const planLine = message.trim();
-      const planOn = /^\/plan(?:\s+on)?$/.test(planLine);
-      const planOff = /^\/(?:plan\s+off|no-plan)$/.test(planLine);
+      const trimmed = message.trim();
+      const planOn = /^\/plan(?:\s+on)?$/.test(trimmed);
+      const planOff = /^\/(?:plan\s+off|no-plan)$/.test(trimmed);
       if (planOn || planOff) {
         const tab = get().tabs.find((t) => t.tabId === tabId);
         if (tab?.mode === "rpc-ui") {
@@ -2716,9 +2811,70 @@ export const useStore = create<UiStore>()((set, get, api) => {
           return;
         }
       }
-      // Replies arrive asynchronously as command_output frames, which the
-      // store drops — the drawer's output pane is gone (issue #43).
-      await runCommand(tabId, { type: "prompt", message });
+      // omp-ui's MCP manager already owns the /mcp list surface. Bare forms
+      // only — every other subcommand (reauth, add, …) works over rpc and
+      // reaches omp verbatim with the normal command lifecycle.
+      if (/^\/mcp(?:\s+list)?$/.test(trimmed)) {
+        const projectCwd = get().tabs.find(
+          (t) => t.tabId === tabId,
+        )?.projectCwd;
+        if (projectCwd !== undefined) {
+          get().openMcpManager(projectCwd, tabId);
+          return;
+        }
+      }
+      // A first word matching no advertised command is a literal model prompt
+      // (omp forwards it verbatim) — the user/assistant items tell that story;
+      // it gets no command row.
+      const body = trimmed.slice(1);
+      const spaceAt = body.search(/\s/);
+      const name = spaceAt === -1 ? body : body.slice(0, spaceAt);
+      const args = spaceAt === -1 ? "" : body.slice(spaceAt + 1).trim();
+      const known = get().rpc[tabId]?.commands.some(
+        (c) => c.name === name || (c.aliases?.includes(name) ?? false),
+      );
+      if (known !== true) {
+        await runCommand(tabId, { type: "prompt", message });
+        return;
+      }
+      // The acknowledgement row: builtin replies never cross the rpc boundary
+      // (their command_output is an upstream ask), so the row itself is what
+      // makes the command visibly run — and settle.
+      const item = commandItem(name, args);
+      appendItem(tabId, item);
+      const byRequest =
+        slashCommandItems.get(tabId) ?? new Map<string, string>();
+      slashCommandItems.set(tabId, byRequest);
+      let requestId: string | undefined;
+      const resp = await runCommand(
+        tabId,
+        { type: "prompt", message },
+        {
+          captureId: (id) => {
+            requestId = id;
+            byRequest.set(id, item.id);
+          },
+        },
+      );
+      const settle = (patch: Partial<CommandItem>): void => {
+        if (requestId !== undefined) byRequest.delete(requestId);
+        patchItems(tabId, (i) =>
+          i.kind === "command" && i.id === item.id ? { ...i, ...patch } : i,
+        );
+      };
+      if (resp === null) {
+        // runCommand recorded the RpcFailure — mirror its text onto the row.
+        settle({
+          status: "failed",
+          error: get().rpc[tabId]?.failure?.message ?? "command failed",
+        });
+        return;
+      }
+      const invoked = boolField(respData(resp), "agentInvoked");
+      if (invoked === false) settle({ status: "done" });
+      else if (invoked === true) settle({ status: "agent" });
+      // `agentInvoked` absent (older runtime): stay running — prompt_result's
+      // id mapping or the next agent_start settles it.
     },
 
     async setTodos(tabId, phases) {

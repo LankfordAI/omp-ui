@@ -106,6 +106,19 @@ export interface PlanItem {
   text: string | null;
   status: "pending" | "executed" | "refined";
 }
+export interface CommandItem {
+  kind: "command";
+  id: string;
+  /** First word without the slash, e.g. "mcp". */
+  name: string;
+  /** Remainder of the line, may be "". */
+  args: string;
+  status: "running" | "done" | "failed" | "agent";
+  /** rpc failure text when status === "failed". */
+  error?: string;
+  /** Concatenated command_output text; absent until a frame arrives. */
+  output?: string;
+}
 
 export type RenderItem =
   | UserItem
@@ -115,7 +128,8 @@ export type RenderItem =
   | NoticeItem
   | IrcItem
   | MarkerItem
-  | PlanItem;
+  | PlanItem
+  | CommandItem;
 
 let counter = 0;
 
@@ -132,15 +146,20 @@ export function noticeItem(text: string, level?: NoticeItem["level"]): NoticeIte
   return { kind: "notice", id: `notice-${++counter}`, text, level };
 }
 
+export function commandItem(name: string, args: string): CommandItem {
+  return { kind: "command", id: `command-${++counter}`, name, args, status: "running" };
+}
+
 /**
- * True while the transcript carries no exchange — only ambient notices and
- * markers (a fresh session already holds the xd:// notice and the
- * thinking-level marker). Any other kind — user, assistant, tool, plan,
- * advisory, irc — means a conversation exists and the fresh-session hero
- * must yield to the full transcript.
+ * True while the transcript carries no exchange — only ambient notices,
+ * markers, and command rows (a fresh session already holds the xd:// notice
+ * and the thinking-level marker; a pre-prompt slash command is ambient, not
+ * an exchange). Any other kind — user, assistant, tool, plan, advisory,
+ * irc — means a conversation exists and the fresh-session hero must yield
+ * to the full transcript.
  */
 export function preExchange(items: readonly RenderItem[]): boolean {
-  return items.every((i) => i.kind === "notice" || i.kind === "marker");
+  return items.every((i) => i.kind === "notice" || i.kind === "marker" || i.kind === "command");
 }
 
 export function planProposalItem(

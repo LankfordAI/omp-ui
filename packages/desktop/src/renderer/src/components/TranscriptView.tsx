@@ -12,6 +12,7 @@ import { formatDuration } from "../lib/duration";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
+  CommandItem,
   IrcItem,
   MarkerItem,
   NoticeItem,
@@ -293,6 +294,49 @@ function MarkerRule({ item, count }: { item: MarkerItem; count: number }) {
 }
 
 /**
+ * One slash command as the user ran it: the literal line in a mono slab, plus
+ * the smallest status affix that answers "did it finish?". `agent` gets no
+ * affix — the agent turn it invoked renders right below and speaks for itself.
+ */
+function CommandRow({ item }: { item: CommandItem }) {
+  return (
+    <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55]">
+      <div className="flex items-baseline gap-1.5">
+        <span
+          data-selectable
+          className={cn(
+            "min-w-0 break-words",
+            item.status === "failed" ? "text-rose" : "text-ink",
+          )}
+        >
+          {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
+        </span>
+        {item.status === "running" && (
+          <span className="animate-caret inline-block shrink-0 align-baseline text-signal">▍</span>
+        )}
+        {item.status === "done" && <span className="shrink-0 text-ink-faint">✓</span>}
+      </div>
+      {item.status === "failed" && item.error !== undefined && (
+        <p
+          data-selectable
+          className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-rose"
+        >
+          {item.error}
+        </p>
+      )}
+      {item.output !== undefined && (
+        <pre
+          data-selectable
+          className="mt-1 overflow-auto whitespace-pre-wrap break-words text-ink-mid"
+        >
+          {item.output}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
  * What a transcript row that threw during render collapses to. The message
  * itself is unrecoverable (same props → same throw), so this shows just enough
  * to report: the row died, and why.
@@ -334,6 +378,7 @@ const SPEAKER: Record<RenderItem["kind"], string> = {
   irc: "meta",
   marker: "meta",
   plan: "tool",
+  command: "command",
 };
 
 function buildRuns(items: RenderItem[]): Run[] {
@@ -412,6 +457,8 @@ const TranscriptRow = memo(function TranscriptRow({
       return <MarkerRule item={item} count={count} />;
     case "plan":
       return <PlanCard item={item} />;
+    case "command":
+      return <CommandRow item={item} />;
   }
 });
 

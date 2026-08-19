@@ -78,6 +78,21 @@ function HeroFooter({ items }: { items: RenderItem[] }) {
           >
             {item.label}
           </p>
+        ) : item.kind === "command" ? (
+          <p
+            key={item.id}
+            data-selectable
+            className={cn(
+              "max-w-3xl text-center font-mono text-[11px]",
+              item.status === "failed" ? "text-rose" : "text-ink-faint",
+            )}
+          >
+            {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
+            {item.status === "running" && (
+              <span className="animate-caret ml-px inline-block align-baseline text-signal">▍</span>
+            )}
+            {item.status === "done" && " ✓"}
+          </p>
         ) : null,
       )}
     </div>

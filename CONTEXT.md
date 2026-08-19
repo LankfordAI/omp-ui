@@ -59,9 +59,9 @@ _Avoid_: lineage, parent session
 **Render item**:
 One entry in the native transcript, reduced from the `AgentSessionEvent`
 stream by `lib/transcript.ts`: `user`, `assistant`, `tool`, `advisory`,
-`notice`, `irc`, or `marker`. Items are derived state — the session file stays
-the source of truth, and an unknown event type adds nothing rather than
-breaking the transcript.
+`notice`, `irc`, `marker`, or `command`. Items are derived state — the session
+file stays the source of truth, and an unknown event type adds nothing rather
+than breaking the transcript.
 _Avoid_: message, bubble, row
 
 **Marker**:

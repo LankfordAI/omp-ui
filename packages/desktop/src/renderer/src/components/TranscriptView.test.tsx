@@ -2,7 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { planProposalItem, type RenderItem, type ToolItem } from "../lib/transcript";
+import {
+  planProposalItem,
+  type CommandItem,
+  type RenderItem,
+  type ToolItem,
+} from "../lib/transcript";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
@@ -431,6 +436,73 @@ describe("stream-stall indicator (issue #228)", () => {
     const { el, root } = render([runningTool]);
     expect(el.textContent).toContain("running");
     expect(el.textContent).not.toContain("stalled");
+    act(() => root.unmount());
+  });
+});
+
+describe("command rows (slash-command parity)", () => {
+  function command(status: CommandItem["status"], extra?: Partial<CommandItem>): RenderItem {
+    return { kind: "command", id: `c-${status}`, name: "mcp", args: "reauth linear", status, ...extra };
+  }
+
+  it("shows the literal line with a live caret while running", () => {
+    const { el, root } = render([command("running")]);
+    expect(el.textContent).toContain("/mcp reauth linear");
+    expect(el.querySelector(".animate-caret")).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("omits the trailing space when args are empty", () => {
+    const { el, root } = render([
+      { kind: "command", id: "c0", name: "usage", args: "", status: "done" },
+    ]);
+    expect(el.textContent).toContain("/usage");
+    expect(el.textContent).not.toContain("/usage ");
+    act(() => root.unmount());
+  });
+
+  it("settles done to a quiet check", () => {
+    const { el, root } = render([command("done")]);
+    expect(el.textContent).toContain("✓");
+    expect(el.querySelector(".animate-caret")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("renders failed in rose with the rpc error on a second line", () => {
+    const { el, root } = render([command("failed", { error: "session is busy" })]);
+    expect(el.textContent).toContain("session is busy");
+    const line = [...el.querySelectorAll(".text-rose")];
+    expect(line.length).toBeGreaterThanOrEqual(2); // command line + error line
+    act(() => root.unmount());
+  });
+
+  it("renders agent status with no affix at all", () => {
+    const { el, root } = render([command("agent")]);
+    expect(el.textContent).toContain("/mcp reauth linear");
+    expect(el.textContent).not.toContain("✓");
+    expect(el.querySelector(".animate-caret")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("shows command_output as a selectable preformatted block", () => {
+    const { el, root } = render([command("done", { output: "tokens: 1234\ncost: $0.02" })]);
+    const pre = [...el.querySelectorAll("pre")].find((p) =>
+      p.textContent?.includes("tokens: 1234"),
+    );
+    expect(pre).toBeDefined();
+    expect(pre!.getAttribute("data-selectable")).not.toBeNull();
+    expect(pre!.className).toContain("whitespace-pre-wrap");
+    act(() => root.unmount());
+  });
+
+  it("keeps a command row out of the adjacent user group", () => {
+    const user: RenderItem = { kind: "user", id: "u1", text: "hello" };
+    const { el, root } = render([user, command("done")]);
+    // The user bubble and the command slab are separate runs: the slab is
+    // never inside the right-aligned user column.
+    const slab = el.querySelector(".bg-sunken.font-mono");
+    expect(slab).not.toBeNull();
+    expect(slab!.closest(".items-end")).toBeNull();
     act(() => root.unmount());
   });
 });

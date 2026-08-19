@@ -102,6 +102,24 @@ OMP's rpc-ui protocol has no plan-mode command, so core generates a per-lineage 
 
 Plan review can execute in the planning session, execute there after compaction, or seed a fresh implementation session. Only the fresh-session choice creates a plan handoff. The source snapshot is persisted with the fresh session before the implementation prompt is dispatched, and the new session begins in Build mode. The same-session choices preserve their existing execution paths and create no cross-session relation (issues #165 and #238).
 
+### Slash commands in native sessions
+
+A native session's composer accepts the same slash commands as the terminal TUI. A few commands map to omp-ui surfaces and never reach the child; every other command line is forwarded to OMP.
+
+| Composer input | Handling |
+|---|---|
+| `/new` | Opens a new tab session; the composer never dispatches it. |
+| `/plan`, `/no-plan` (bare) | Toggle plan mode through the generated extension described above. |
+| `/mcp`, `/mcp list` (bare) | Open the MCP manager for the session's project. Every other `/mcp …` subcommand forwards normally. |
+| Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
+| Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
+
+A forwarded command appends a command render item in the transcript that starts `running` and settles from the `response` frame: an RPC failure settles it `failed` with OMP's own error text, `agentInvoked: false` settles it `done`, and `agentInvoked: true` settles it `agent` because the resulting agent turn renders on its own. An older runtime that omits the acknowledgement data leaves the item `running` until the matching `prompt_result`, mapped by request id, settles it `done` or `agent`, or the tab's next `agent_start` settles it `agent`. A command sent while the agent is streaming goes out unchanged; OMP rejects it and the item settles `failed`.
+
+`command_output` frames attach to the newest running command item, joined by newlines and capped at 64 KiB with a head-preserving truncation note; with no running command item the text falls back to an info notice. This path is forward compatibility only. The shipped OMP binary emits no `command_output` over rpc-ui, so local-only builtin replies such as `/usage` and `/context` execute but stay mute in native mode; an upstream OMP issue tracks text parity. omp-ui does not fabricate those replies from adjacent RPC state.
+
+`open_url` extension UI requests, emitted by RPC login and OAuth flows, route to the system browser: the renderer calls `window.open`, main's window-open handler denies the window and passes the URL through `openExternalSafe`, which gates schemes to https, http, and mailto. The request is answered `confirmed: true` and the transcript records an opened-browser marker. A request without a valid URL is cancelled as before.
+
 ### Advisor
 
 Advisor enablement and model selection are session state. Core writes a per-lineage `--config` overlay, and a change relaunches a live child with `--resume` because OMP binds the root advisor at process start. A second generated extension treats the root switch as a ceiling on every task descendant before its prompt starts. It also publishes root advisor configuration and context together with session-tree advisor cost and token totals over an existing extension status key. Advisor notes remain structured transcript events. Renderer logic handles the bounded late-review fold and idle-session reply; the transport and server do not interpret advisor content. See [ADR-0005](adr/0005-session-scoped-advisor-via-config-overlay.md), [ADR-0008](adr/0008-advisor-accounting-via-generated-extension.md), [ADR-0009](adr/0009-late-advisor-concerns-folded-into-plan-execution.md), and [ADR-0012](adr/0012-advisor-reply-on-idle-sessions.md).

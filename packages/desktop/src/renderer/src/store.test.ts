@@ -12,7 +12,7 @@ import type {
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
-import { planProposalItem } from "./lib/transcript";
+import { commandItem, planProposalItem } from "./lib/transcript";
 import { ADVISOR_REPLY_SETTLE_MS } from "./lib/advisor-reply";
 import {
   backendState as makeBackendState,
@@ -149,6 +149,9 @@ const mockBackend = {
 // stubs record what they were asked; `confirm` accepts unless a case says no.
 const prompts: string[] = [];
 const alerts: string[] = [];
+// open_url extension requests route through window.open; main's
+// setWindowOpenHandler owns the real policy, the stub just records the ask.
+const openedUrls: string[] = [];
 
 const windowStub = {
   ompBackend: mockBackend,
@@ -158,6 +161,10 @@ const windowStub = {
   confirm: (msg: string): boolean => {
     prompts.push(msg);
     return true;
+  },
+  open: (url?: string | URL): null => {
+    openedUrls.push(String(url ?? ""));
+    return null;
   },
   get setTimeout() {
     return globalThis.setTimeout;
@@ -289,6 +296,7 @@ beforeEach(() => {
   sent.length = 0;
   prompts.length = 0;
   alerts.length = 0;
+  openedUrls.length = 0;
   // Cases that answer "no" overwrite confirm; reinstall the default each time.
   windowStub.confirm = (msg: string): boolean => {
     prompts.push(msg);
@@ -1318,6 +1326,41 @@ describe("handleRpcFrame routing", () => {
         label: "extension notify auto-cancelled",
       }),
     ]);
+  });
+
+  it("open_url opens the system browser, confirms, and stamps a marker", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "u1",
+      method: "open_url",
+      url: "https://auth.example.com/login?state=1",
+    });
+    expect(openedUrls).toEqual(["https://auth.example.com/login?state=1"]);
+    expect(sent.pop()!.cmd).toEqual({
+      type: "extension_ui_response",
+      id: "u1",
+      confirmed: true,
+    });
+    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+      expect.objectContaining({
+        kind: "marker",
+        label: "opened browser: https://auth.example.com",
+      }),
+    ]);
+  });
+
+  it("open_url without a url string is cancelled, never opened", () => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id: "u2",
+      method: "open_url",
+    });
+    expect(openedUrls).toHaveLength(0);
+    expect(sent.pop()!.cmd).toMatchObject({
+      type: "extension_ui_response",
+      id: "u2",
+      cancelled: true,
+    });
   });
 
   it("claims the plan status frame as state, not as displayed text", () => {
@@ -2676,12 +2719,51 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
-  it("drops command_output frames — the drawer's output pane is gone (issue #43)", () => {
-    const before = useStore.getState().rpc[TAB];
+  it("command_output attaches to the newest running command row", () => {
+    const first = commandItem("usage", "");
+    const second = commandItem("context", "");
+    useStore.setState({
+      rpc: { [TAB]: rpcTabState({ items: [first, second] }) },
+    });
     useStore
       .getState()
       .handleRpcFrame(TAB, { type: "command_output", text: "out-1" });
-    expect(useStore.getState().rpc[TAB]).toBe(before);
+    useStore
+      .getState()
+      .handleRpcFrame(TAB, { type: "command_output", text: "out-2" });
+    const items = useStore.getState().rpc[TAB]!.items;
+    expect(items[0]).toBe(first);
+    expect(items[1]).toMatchObject({ id: second.id, output: "out-1\nout-2" });
+  });
+
+  it("command_output with no running command row falls back to a notice", () => {
+    useStore
+      .getState()
+      .handleRpcFrame(TAB, { type: "command_output", text: "stray reply" });
+    const items = useStore.getState().rpc[TAB]!.items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "notice",
+      text: "stray reply",
+      level: "info",
+    });
+  });
+
+  it("command_output accumulation is capped, head-preserving", () => {
+    const item = commandItem("usage", "");
+    useStore.setState({ rpc: { [TAB]: rpcTabState({ items: [item] }) } });
+    useStore
+      .getState()
+      .handleRpcFrame(TAB, { type: "command_output", text: "x".repeat(64 * 1024) });
+    useStore
+      .getState()
+      .handleRpcFrame(TAB, { type: "command_output", text: "tail" });
+    const updated = useStore.getState().rpc[TAB]!.items[0]!;
+    expect(updated.kind).toBe("command");
+    const output = updated.kind === "command" ? updated.output! : "";
+    expect(output.length).toBeLessThanOrEqual(64 * 1024 + 24);
+    expect(output.startsWith("xxx")).toBe(true);
+    expect(output.endsWith("… output truncated")).toBe(true);
   });
 
   it("available_commands_update replaces the command palette", () => {
@@ -3247,6 +3329,167 @@ describe("prompting, slash commands, and session ops", () => {
     expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/plan" });
     await settleAll();
     await promise;
+  });
+
+  /** Advertises commands so the echo path treats them as known (issue #241). */
+  const seedCommands = (
+    ...commands: Array<{ name: string; aliases?: string[] }>
+  ): void => {
+    useStore.setState({
+      rpc: {
+        [TAB]: rpcTabState({
+          commands: commands.map((c) => ({ ...c, description: "" })),
+        }),
+      },
+    });
+  };
+
+  it("runSlashCommand echoes an advertised command and settles done when no agent ran", async () => {
+    seedCommands({ name: "usage" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/usage");
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      name: "usage",
+      args: "",
+      status: "running",
+    });
+    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "done",
+    });
+  });
+
+  it("runSlashCommand matches aliases and marks the row agent when a turn starts", async () => {
+    seedCommands({ name: "usage", aliases: ["cost"] });
+    const promise = useStore.getState().runSlashCommand(TAB, "/cost this month");
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      name: "cost",
+      args: "this month",
+      status: "running",
+    });
+    respond(TAB, sent[0]!.cmd, { agentInvoked: true });
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "agent",
+    });
+  });
+
+  it("runSlashCommand settles failed with omp's own error text", async () => {
+    seedCommands({ name: "usage" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/usage");
+    respond(TAB, sent[0]!.cmd, "prompt rejected while streaming", false);
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "failed",
+      error: 'RPC command "prompt" failed: prompt rejected while streaming',
+    });
+  });
+
+  it("a bare ack without agentInvoked stays running until prompt_result settles it", async () => {
+    seedCommands({ name: "usage" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/usage");
+    const cmd = sent[0]!.cmd;
+    respond(TAB, cmd, {});
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "running",
+    });
+    // A foreign prompt_result must not settle it.
+    useStore
+      .getState()
+      .handleRpcFrame(TAB, { type: "prompt_result", id: "other" });
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      status: "running",
+    });
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "prompt_result",
+      id: cmd.id,
+      agentInvoked: false,
+    });
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "done",
+    });
+  });
+
+  it("a bare ack settles to agent on the tab's next agent_start", async () => {
+    seedCommands({ name: "commit" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/commit");
+    respond(TAB, sent[0]!.cmd, {});
+    await promise;
+    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    const row = useStore
+      .getState()
+      .rpc[TAB]!.items.find((i) => i.kind === "command");
+    expect(row).toMatchObject({ kind: "command", status: "agent" });
+  });
+
+  it("an unadvertised /word forwards as a literal prompt with no command row", async () => {
+    const promise = useStore
+      .getState()
+      .runSlashCommand(TAB, "/nonexistent-xyz do it");
+    expect(sent[0]!.cmd).toMatchObject({
+      type: "prompt",
+      message: "/nonexistent-xyz do it",
+    });
+    expect(
+      useStore.getState().rpc[TAB]!.items.some((i) => i.kind === "command"),
+    ).toBe(false);
+    await settleAll();
+    await promise;
+  });
+
+  it("bare /mcp and /mcp list open the MCP manager instead of prompting omp", async () => {
+    useStore.setState({
+      mcpManager: null,
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+    });
+    await useStore.getState().runSlashCommand(TAB, "/mcp");
+    expect(sent).toHaveLength(0);
+    expect(useStore.getState().mcpManager).toEqual({
+      projectCwd: "/p",
+      tabId: TAB,
+    });
+    useStore.getState().closeMcpManager();
+    await useStore.getState().runSlashCommand(TAB, "/mcp list");
+    expect(sent).toHaveLength(0);
+    expect(useStore.getState().mcpManager).toEqual({
+      projectCwd: "/p",
+      tabId: TAB,
+    });
+    useStore.getState().closeMcpManager();
+  });
+
+  it("other /mcp subcommands forward with the command lifecycle", async () => {
+    useStore.setState({
+      mcpManager: null,
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+    });
+    seedCommands({ name: "mcp" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/mcp reauth linear");
+    expect(useStore.getState().mcpManager).toBeNull();
+    expect(sent[0]!.cmd).toMatchObject({
+      type: "prompt",
+      message: "/mcp reauth linear",
+    });
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      name: "mcp",
+      args: "reauth linear",
+      status: "running",
+    });
+    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "done",
+    });
   });
 
   it("busy is true while a command is in flight and survives a concurrent one", async () => {

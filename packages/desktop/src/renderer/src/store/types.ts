@@ -272,7 +272,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   rpcCommand(
     tabId: string,
     cmd: Record<string, unknown>,
-    opts?: { quiet?: boolean },
+    opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
   answerExtension(
