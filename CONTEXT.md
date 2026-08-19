@@ -49,6 +49,13 @@ session plus every `/new` and `/branch` it switches into (omp replaces the
 session file in-process). A lineage shares one pinned session dir.
 _Avoid_: tab history
 
+**Plan handoff**:
+A persistent, one-way relation from a fresh implementation session to the
+planning session whose approved plan seeded it. The sessions stay independent:
+deleting either one never deletes the other, and an implementation session
+keeps the plan's provenance if the planning session is later deleted.
+_Avoid_: lineage, parent session
+
 **Render item**:
 One entry in the native transcript, reduced from the `AgentSessionEvent`
 stream by `lib/transcript.ts`: `user`, `assistant`, `tool`, `advisory`,

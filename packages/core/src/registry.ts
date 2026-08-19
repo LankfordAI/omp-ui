@@ -4,6 +4,7 @@ import type {
   AgentMode,
   OwnedSessionRecord,
   PlanFormat,
+  PlanImplementationSource,
   ProjectRecord,
   RemoteBind,
   SessionMode,
@@ -211,6 +212,22 @@ function isProjectRecord(value: unknown): value is ProjectRecord {
   );
 }
 
+function isPlanImplementationSource(value: unknown): value is PlanImplementationSource {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "sourceTabId" in value &&
+    typeof value.sourceTabId === "string" &&
+    value.sourceTabId !== "" &&
+    "planTitle" in value &&
+    typeof value.planTitle === "string" &&
+    value.planTitle !== "" &&
+    "planFilePath" in value &&
+    typeof value.planFilePath === "string" &&
+    value.planFilePath !== ""
+  );
+}
+
 function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
   return (
     value !== null &&
@@ -234,6 +251,11 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
         typeof value.worktree.path === "string" &&
         "branch" in value.worktree &&
         typeof value.worktree.branch === "string")) &&
+    // Handoff provenance also post-dates the first schema-1 records. When
+    // present it must be complete: partial metadata cannot identify a plan.
+    (!("planImplementationSource" in value) ||
+      value.planImplementationSource === null ||
+      isPlanImplementationSource(value.planImplementationSource)) &&
     "launchedAt" in value &&
     typeof value.launchedAt === "string" &&
     "mode" in value &&
@@ -286,6 +308,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
       worktree: s.worktree ?? null,
+      planImplementationSource: s.planImplementationSource ?? null,
     }));
   const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"

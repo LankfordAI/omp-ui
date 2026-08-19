@@ -120,6 +120,45 @@ describe("Registry.load", () => {
     expect(fs.existsSync(file)).toBe(true); // no quarantine for element-level issues
   });
 
+  it("normalizes a legacy session without plan handoff metadata to null", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [sessionRecord()] }),
+    );
+
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]?.planImplementationSource).toBeNull();
+  });
+
+  it("drops a malformed plan handoff record without quarantining unrelated sessions", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [
+          sessionRecord(),
+          {
+            ...sessionRecord({ tabId: "bad-handoff" }),
+            planImplementationSource: {
+              sourceTabId: "planning-tab",
+              planTitle: "",
+              planFilePath: "local://plans/accepted.md",
+            },
+          },
+        ],
+      }),
+    );
+
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((session) => session.tabId)).toEqual(["tab-1"]);
+    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(["registry.json"]);
+  });
+
   it("defaults the remote-access settings when no remote* key is present", () => {
     const file = tmpFile();
     fs.writeFileSync(
@@ -245,6 +284,21 @@ describe("Registry persistence", () => {
     expect(reloaded.defaultMode).toBe("rpc-ui");
     expect(reloaded.defaultAgentMode).toBe("build");
     expect(reloaded.skipDeleteConfirmation).toBe(true);
+  });
+
+  it("round-trips persisted plan handoff metadata", () => {
+    const file = tmpFile();
+    const source = {
+      sourceTabId: "planning-tab",
+      planTitle: "Implement the accepted plan",
+      planFilePath: "local://plans/accepted.md",
+    };
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord({ planImplementationSource: source }));
+
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions[0]?.planImplementationSource).toEqual(source);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).schemaVersion).toBe(1);
   });
 
   it("defaults dismissedAppUpdateVersion to null when the field is absent", () => {
@@ -638,6 +692,7 @@ describe("Registry worktree field", () => {
       model: null,
       thinkingLevel: null,
       advisorModel: null,
+      planImplementationSource: null,
     });
   });
 

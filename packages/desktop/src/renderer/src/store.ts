@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   BackendState,
+  PlanImplementationSource,
   SessionMode,
   SessionSummary,
 } from "@omp-ui/core/types";
@@ -890,6 +891,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     tabId: string,
     context: PlanExecutionContext,
     planText: string | null,
+    planImplementationSource: Readonly<PlanImplementationSource> | undefined,
     concerns: string | null,
     options?: PlanExecutionOptions,
   ): void => {
@@ -898,7 +900,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
       options ?? {},
     );
     if (context === "fresh") {
-      void spawnFreshImplementation(tabId, planText, concerns, options);
+      if (!planImplementationSource) return;
+      void spawnFreshImplementation(
+        tabId,
+        planText,
+        planImplementationSource,
+        concerns,
+        options,
+      );
       return;
     }
     // What the receiving session runs today — only staged *changes* are applied.
@@ -995,6 +1004,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         tabId,
         intent.context,
         intent.planText,
+        intent.planImplementationSource,
         concerns,
         intent.options,
       );
@@ -1074,6 +1084,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const spawnFreshImplementation = async (
     srcTabId: string,
     planText: string | null,
+    planImplementationSource: Readonly<PlanImplementationSource>,
     concerns: string | null = null,
     options?: PlanExecutionOptions,
   ): Promise<void> => {
@@ -1107,6 +1118,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         cols: 80,
         rows: 24,
         startInPlanMode: false,
+        planImplementationSource,
       }));
     } catch (err) {
       alertError(err);
@@ -2556,14 +2568,27 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     executePlan(tabId, context, options) {
-      // The fresh context embeds the plan text in the new session's prompt, so
-      // capture it before the gate's answer clears the pane.
+      // Fresh execution embeds the plan text and persists the proposal source,
+      // so capture both before the gate's answer clears the review pane.
       const tab = get().rpc[tabId];
       const planText = tab?.planText ?? null;
-      const planKey = tab?.planReview?.request.planFilePath;
+      const review = tab?.planReview?.request;
+      const planKey = review?.planFilePath;
+      const planImplementationSource = review
+        ? Object.freeze({
+            sourceTabId: tabId,
+            planTitle: review.title,
+            planFilePath: review.planFilePath,
+          })
+        : null;
       // Answer the gate first — omp's agent is blocked on the reply, so every
       // exit from the review pane must land its verdict before any dispatch.
-      if (!answerPlanSelect(tabId, PLAN_EXECUTE)) return;
+      if (
+        !planImplementationSource ||
+        !answerPlanSelect(tabId, PLAN_EXECUTE)
+      ) {
+        return;
+      }
       if (planKey) {
         patchRpc(tabId, {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "executed"),
@@ -2584,10 +2609,22 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // store just checks its own advisor config for whether a review is coming.
       const configured = get().rpc[tabId]?.advisorStats?.configured === true;
       if ((options?.addressAdvisor ?? true) && configured) {
-        concernWatcher.begin(tabId, { context, planText, options });
+        concernWatcher.begin(tabId, {
+          context,
+          planText,
+          planImplementationSource,
+          options,
+        });
         return;
       }
-      dispatchExecutePlan(tabId, context, planText, null, options);
+      dispatchExecutePlan(
+        tabId,
+        context,
+        planText,
+        planImplementationSource,
+        null,
+        options,
+      );
     },
 
     refinePlan(tabId, notes) {

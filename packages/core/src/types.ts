@@ -62,6 +62,16 @@ export interface SessionWorktree {
   branch: string;
 }
 
+/** Saved provenance for a fresh implementation session created from an accepted plan. */
+export interface PlanImplementationSource {
+  /** Planning session tab that dispatched the implementation. */
+  sourceTabId: string;
+  /** Plan title captured at dispatch time. */
+  planTitle: string;
+  /** Canonical plan artifact, as a local:// URL. */
+  planFilePath: string;
+}
+
 export interface OwnedSessionRecord {
   tabId: string;
   /** UUIDv7 — null until the session materializes on disk (lazy materialization). */
@@ -75,6 +85,11 @@ export interface OwnedSessionRecord {
    * legal and normalized to null on load.
    */
   worktree?: SessionWorktree | null;
+  /**
+   * Planning-session provenance for a fresh implementation. Post-dates the
+   * first schema-1 records, so absent is legal and normalized to null on load.
+   */
+  planImplementationSource?: PlanImplementationSource | null;
   launchedAt: string;
   mode: SessionMode;
   /** Main model selected for this session, as omp's `provider/id` selector. */
@@ -229,6 +244,8 @@ export interface SpawnRequest {
    * baseRef null starts from the project checkout's HEAD.
    */
   worktree?: { branch: string; baseRef: string | null };
+  /** Provenance to persist on a fresh implementation session. */
+  planImplementationSource?: PlanImplementationSource | null;
   /**
    * Initial Plan/Build posture for any rpc-ui spawn. Explicit true/false always
    * wins. Omitted new sessions follow Default agent mode; omitted resumes start

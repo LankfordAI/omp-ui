@@ -1216,3 +1216,216 @@ describe("Sidebar keyboard project reorder (issue #120)", () => {
     expect(document.body.querySelector('button[aria-label^="reorder "]')).toBeNull();
   });
 });
+
+describe("Sidebar plan handoffs (issue #238)", () => {
+  const handoffPath = "/projects/handoff";
+
+  interface HandoffPatch {
+    planImplementationSource?: {
+      sourceTabId: string;
+      planTitle: string;
+      planFilePath: string;
+    } | null;
+  }
+
+  /** Newest-first fixture rows, matching the backend broadcast order. */
+  const handoffSession = (tabId: string, title: string, patch: HandoffPatch = {}) => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--handoff--sid-${tabId}`,
+    projectCwd: handoffPath,
+    launchedAt: "2026-08-03T00:00:00.000Z",
+    mode: "rpc-ui" as const,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: title,
+    cachedModified: "2026-08-03T00:00:00.000Z",
+    title,
+    status: "complete" as const,
+    live: "live" as const,
+    pendingPlan: null,
+    planSettle: null,
+    ...patch,
+  });
+
+  const handoffProject = {
+    path: handoffPath,
+    name: "Handoff",
+    addedAt: "2026-08-03T00:00:00.000Z",
+    lastModel: null,
+    lastAdvisorModel: null,
+  };
+
+  // The implementation arrives newer than its source — the sidebar must still
+  // render the planning session first. The orphan's source tab is gone.
+  const handoffState = backendState({
+    projects: [
+      {
+        project: handoffProject,
+        sessions: [
+          handoffSession("tab-impl", "Implement dark mode", {
+            planImplementationSource: {
+              sourceTabId: "tab-plan",
+              planTitle: "Ship dark mode",
+              planFilePath: "local://plans/ship-dark-mode.md",
+            },
+          }),
+          handoffSession("tab-plan", "Plan dark mode"),
+          handoffSession("tab-orphan", "Orphan build", {
+            planImplementationSource: {
+              sourceTabId: "tab-gone",
+              planTitle: "Lost plan",
+              planFilePath: "local://plans/lost.md",
+            },
+          }),
+          handoffSession("tab-plain", "Plain session"),
+        ],
+      },
+    ],
+  });
+
+  function row(title: string): HTMLButtonElement {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.includes(title),
+    );
+    if (found === undefined) throw new Error(`session row not found: ${title}`);
+    return found;
+  }
+
+  function setFilter(value: string): void {
+    const input = document.body.querySelector<HTMLInputElement>(
+      'input[aria-label="filter sessions"]',
+    );
+    if (input === null) throw new Error("filter input not found");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("renders the planning source above its implementation with a neutral connector", () => {
+    useStore.setState({ state: handoffState });
+    renderSidebar();
+
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")].map(
+      (candidate) => candidate.textContent ?? "",
+    );
+    const sourceIndex = rows.findIndex((text) => text.includes("Plan dark mode"));
+    const childIndex = rows.findIndex((text) => text.includes("Implement dark mode"));
+    expect(sourceIndex).toBeGreaterThanOrEqual(0);
+    expect(childIndex).toBeGreaterThan(sourceIndex);
+
+    // Exactly one connector — the linked child. Orphans and plain rows stay
+    // flush left. The stem/elbow is decorative (aria-hidden) neutral chrome:
+    // border-line-soft, never the signal accent (ADR-0004).
+    const connectors = document.body.querySelectorAll("[data-handoff-connector]");
+    expect(connectors).toHaveLength(1);
+    const connector = connectors[0]!;
+    expect(connector.getAttribute("aria-hidden")).toBe("true");
+    expect(connector.className).toContain("border-line-soft");
+    expect(connector.className).not.toContain("signal");
+    // Depth 1 indents the child's wrapper; the connector sits in the gutter.
+    expect(connector.parentElement?.className).toContain("pl-4");
+    expect(connector.parentElement?.contains(row("Implement dark mode"))).toBe(true);
+  });
+
+  it("labels implementation, plan source, and orphan rows without exposing the plan path", () => {
+    useStore.setState({ state: handoffState });
+    renderSidebar();
+
+    const child = row("Implement dark mode");
+    expect(child.textContent).toContain("· implementation");
+    expect(child.textContent).not.toContain("source unavailable");
+    expect(child.title).toBe(
+      "Implement dark mode — Implements “Ship dark mode” from Plan dark mode",
+    );
+
+    const source = row("Plan dark mode");
+    expect(source.textContent).toContain("· plan source");
+    expect(source.textContent).not.toContain("· implementation");
+
+    const orphan = row("Orphan build");
+    expect(orphan.textContent).toContain("· implementation · source unavailable");
+    expect(orphan.title).toBe("Orphan build — Implements “Lost plan” — source unavailable");
+
+    const plain = row("Plain session");
+    expect(plain.textContent).not.toContain("· implementation");
+    expect(plain.textContent).not.toContain("· plan source");
+
+    // The saved local:// artifact path is metadata, never UI.
+    expect(document.body.innerHTML).not.toContain("local://");
+  });
+
+  it("opens the planning session from the child affordance while the row opens the child", () => {
+    useStore.setState({ state: handoffState });
+    renderSidebar();
+
+    // Only the linked child gets the affordance — an orphan has nowhere to go.
+    const planButtons = document.body.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="open planning session"]',
+    );
+    expect(planButtons).toHaveLength(1);
+
+    act(() => planButtons[0]!.click());
+    expect(openSession).toHaveBeenCalledWith("tab-plan");
+
+    openSession.mockClear();
+    act(() => row("Implement dark mode").click());
+    expect(openSession).toHaveBeenCalledWith("tab-impl");
+  });
+
+  it("keeps the whole tree when only the implementation matches the filter", () => {
+    useStore.setState({ state: handoffState });
+    renderSidebar();
+    setFilter("Implement dark");
+
+    // The non-matching planning source survives with its matching child…
+    expect(row("Plan dark mode")).toBeDefined();
+    expect(row("Implement dark mode")).toBeDefined();
+    // …while unrelated rows are filtered out.
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")].map(
+      (candidate) => candidate.textContent ?? "",
+    );
+    expect(rows.some((text) => text.includes("Plain session"))).toBe(false);
+    expect(rows.some((text) => text.includes("Orphan build"))).toBe(false);
+  });
+
+  it("extends the page past PAGE so a handoff tree is never split", () => {
+    // Seven plain rows, then a two-row tree: the default page of 8 would cut
+    // between the source (row 8) and its implementation (row 9).
+    const paginatedState = backendState({
+      projects: [
+        {
+          project: handoffProject,
+          sessions: [
+            ...Array.from({ length: 7 }, (_, i) =>
+              handoffSession(`tab-filler-${i + 1}`, `Filler session ${i + 1}`),
+            ),
+            handoffSession("tab-impl", "Implement dark mode", {
+              planImplementationSource: {
+                sourceTabId: "tab-plan",
+                planTitle: "Ship dark mode",
+                planFilePath: "local://plans/ship-dark-mode.md",
+              },
+            }),
+            handoffSession("tab-plan", "Plan dark mode"),
+          ],
+        },
+      ],
+    });
+    useStore.setState({ state: paginatedState });
+    renderSidebar();
+
+    // Both tree rows render even though the ninth row is past the page.
+    expect(row("Plan dark mode")).toBeDefined();
+    expect(row("Implement dark mode")).toBeDefined();
+    expect(document.body.textContent).toContain("showing 9 of 9");
+    // Nothing remains, so no "show more" — the page was widened, not split.
+    const showMore = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) =>
+        candidate.textContent?.startsWith("show ") && candidate.textContent !== "show less",
+    );
+    expect(showMore).toBeUndefined();
+  });
+});

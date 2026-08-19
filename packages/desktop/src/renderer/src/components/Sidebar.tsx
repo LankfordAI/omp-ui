@@ -9,7 +9,8 @@ import {
   SIDEBAR_MIN_WIDTH,
   resolveDesktopPanelWidths,
 } from "../lib/panel-layout";
-import { PAGE, sessionWindow } from "../lib/session-window";
+import { PAGE } from "../lib/session-window";
+import { arrangeSessionHandoffs } from "../lib/session-handoffs";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
@@ -146,7 +147,10 @@ function initials(name: string): string {
 
 interface FilteredGroup {
   group: ProjectGroup;
+  /** Sessions matching the query themselves — the filter chip's count. */
   sessions: SessionSummary[];
+  /** The project name matched, so every handoff tree survives untrimmed. */
+  projectHit: boolean;
 }
 type OpenTerminalMenu = (
   projectCwd: string,
@@ -161,19 +165,25 @@ interface TerminalMenuRequest {
 }
 
 /**
- * A session survives the filter when either its own title or its project name
- * matches — typing a project name should reveal that project's whole list.
+ * A session survives the filter when its own title (or its saved plan title)
+ * matches; a matching project name reveals that project's whole list. Group
+ * survival mirrors the arrangement's whole-tree filter: a tree is retained by
+ * any member match, and members live in the same group as their source.
  */
 function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
   const q = query.trim().toLowerCase();
-  if (!q) return groups.map((group) => ({ group, sessions: group.sessions }));
+  if (!q) return groups.map((group) => ({ group, sessions: group.sessions, projectHit: true }));
   const out: FilteredGroup[] = [];
   for (const group of groups) {
     const projectHit = group.project.name.toLowerCase().includes(q);
     const sessions = projectHit
       ? group.sessions
-      : group.sessions.filter((s) => s.title.toLowerCase().includes(q));
-    if (projectHit || sessions.length > 0) out.push({ group, sessions });
+      : group.sessions.filter(
+          (s) =>
+            s.title.toLowerCase().includes(q) ||
+            (s.planImplementationSource?.planTitle.toLowerCase().includes(q) ?? false),
+        );
+    if (projectHit || sessions.length > 0) out.push({ group, sessions, projectHit });
   }
   return out;
 }
@@ -196,7 +206,10 @@ function beforePathOf(
   return after ? (paths[index + 1] ?? null) : paths[index];
 }
 
-interface ProjectSectionProps extends FilteredGroup {
+interface ProjectSectionProps {
+  group: ProjectGroup;
+  /** The project name matched the filter, so no tree is trimmed (issue #238). */
+  projectHit: boolean;
   query: string;
   openTerminalMenu: OpenTerminalMenu;
   compact: boolean;
@@ -220,7 +233,7 @@ interface ProjectSectionProps extends FilteredGroup {
 
 function ProjectSection({
   group,
-  sessions,
+  projectHit,
   query,
   openTerminalMenu,
   compact,
@@ -257,13 +270,21 @@ function ProjectSection({
 
   // Pagination follows this project's remembered focus, not the global active
   // tab: after another project takes global focus (or after an update restore)
-  // each project's list still shows the session last focused in it.
-  const activeIndex = sessions.findIndex((s) => s.tabId === focusedTabId);
-  const { shown, remaining } = sessionWindow(sessions.length, visible, activeIndex);
-  const page = sessions.slice(0, shown);
+  // each project's list still shows the session last focused in it. The
+  // arrangement also widens the page so a handoff tree is never split, and
+  // resolves each row's plan source (issue #238).
+  const { entries, shown, remaining, total } = arrangeSessionHandoffs(
+    group.sessions,
+    query,
+    projectHit,
+    visible,
+    focusedTabId,
+  );
 
   const { project } = group;
-  const live = liveCount(sessions);
+  // Chips describe the project itself, so they count raw sessions — filtering
+  // and tree retention only change which rows render below.
+  const live = liveCount(group.sessions);
 
   return (
     <section
@@ -324,8 +345,8 @@ function ProjectSection({
                   text={project.name}
                   className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
                 />
-                <Chip mono title={`${sessions.length} sessions`}>
-                  {sessions.length}
+                <Chip mono title={`${group.sessions.length} sessions`}>
+                  {group.sessions.length}
                 </Chip>
                 {live > 0 && (
                   <Chip mono tone="signal" title={`${live} live`}>
@@ -344,8 +365,8 @@ function ProjectSection({
                   <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">
                     {project.path}
                   </span>
-                  <Chip mono title={`${sessions.length} sessions`}>
-                    {sessions.length}
+                  <Chip mono title={`${group.sessions.length} sessions`}>
+                    {group.sessions.length}
                   </Chip>
                   {live > 0 && (
                     <Chip mono tone="signal" title={`${live} live`}>
@@ -393,16 +414,46 @@ function ProjectSection({
 
       {open && (
         <div className="space-y-px px-1.5">
-          {page.map((s) => (
-            <SessionRow key={s.tabId} s={s} onActivate={onActivate} />
+          {entries.map((entry) => (
+            <div
+              key={entry.session.tabId}
+              className={cn(
+                "relative",
+                entry.depth === 1 && "pl-4",
+                entry.depth >= 2 && "pl-8",
+              )}
+            >
+              {entry.depth > 0 && (
+                // Handoff connector — a stem and elbow from the plan source
+                // above into this implementation row. Neutral chrome, never
+                // the signal accent (ADR-0004, issue #238).
+                <span
+                  aria-hidden
+                  data-handoff-connector
+                  className={cn(
+                    "pointer-events-none absolute top-0 h-1/2 w-2 rounded-bl border-b border-l border-line-soft",
+                    entry.depth === 1 ? "left-1.5" : "left-5.5",
+                  )}
+                />
+              )}
+              <SessionRow
+                s={entry.session}
+                onActivate={onActivate}
+                handoff={{
+                  source: entry.source,
+                  orphanSource: entry.orphanSource,
+                  hasDescendants: entry.hasDescendants,
+                }}
+              />
+            </div>
           ))}
-          {sessions.length === 0 && (
+          {total === 0 && (
             <p className="px-3 py-1 text-[11px] text-ink-faint italic">no sessions yet</p>
           )}
-          {sessions.length > PAGE && (
+          {total > PAGE && (
             <div className="flex items-center gap-2 px-3 pt-1 pb-0.5">
               <span className="font-mono text-[10px] text-ink-faint tabular-nums">
-                showing {shown} of {sessions.length}
+                showing {shown} of {total}
               </span>
               <span className="ml-auto flex shrink-0 items-center gap-1">
                 {visible > PAGE && shown > PAGE && (
@@ -780,7 +831,7 @@ export function Sidebar() {
                 <ProjectSection
                   key={path}
                   group={f.group}
-                  sessions={f.sessions}
+                  projectHit={f.projectHit}
                   query={query}
                   openTerminalMenu={openTerminalMenu}
                   compact={compact}

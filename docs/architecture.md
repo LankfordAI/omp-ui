@@ -78,6 +78,7 @@ OMP's JSONL files are authoritative for session identity, transcript content, ti
 
 - **Registry.** One `OwnedSessionRecord` represents one spawned lineage. Registry writes replace the JSON file atomically. An unknown or corrupt registry schema is quarantined rather than partially trusted.
 - **Lineage.** A new owned session gets a pinned `omp-ui--<project-slug>--<uuid>/` directory directly under OMP's active sessions root and passes it as `--session-dir`. One OMP process may move through several session ids via `/new` or `/branch`; they remain one lineage and one tab.
+- **Plan handoff.** When an approved plan starts in a fresh implementation session, registry metadata on the implementation's `OwnedSessionRecord` owns the one-way `planImplementationSource` relation. It snapshots `sourceTabId`, `planTitle`, and the `local://` `planFilePath`. The planning record has no reverse link; the sidebar derives that link from current records. This relation never uses the transcript's `parentSession`. The planning and implementation transcripts and pinned lineage directories remain independent. Deleting either session never cascades to the other. If the planning session is deleted, the implementation record keeps the snapshot as orphaned plan provenance (issue #238).
 - **Materialization.** OMP may keep a new session only in memory until it produces durable output. The registry record and `tabId` exist first, and `sessionId: null` remains valid. A lineage watcher adopts the JSONL header id after the file appears and follows later in-process session changes.
 - **Archive.** OMP garbage collection may gzip and move a lineage under the archive sessions root. omp-ui stores the lineage directory name and session id, not a cached absolute file path. Hydration resolves the active root first and the archive root second. Resume restores an archived lineage to the active root before spawning OMP.
 - **Delete.** Explicit session deletion reaps a live child, removes the lineage from both active and archive roots, and only then removes the registry record. If file deletion fails, the record remains visible and retryable. This is the one destructive operation against the authoritative session storage.
@@ -95,9 +96,11 @@ See [Session storage and encoding](session-encoding.md) for the verified JSONL, 
 
 Core owns binary discovery, version comparison, release asset selection, temporary-executable validation, and atomic replacement. Resolution prefers an explicit `OMP_UI_OMP_PATH`, then omp-ui's private managed copy, then `PATH` and known user install locations. Desktop main owns the visible update state and refreshes the resolved path after an install. Session, title, and branch-name processes all use that resolved binary. The renderer never downloads or launches omp itself.
 
-### Plan mode and generated extensions
+### Plan mode and plan review
 
 OMP's rpc-ui protocol has no plan-mode command, so core generates a per-lineage extension and desktop passes it with `-e` on rpc-ui spawns. The extension uses OMP's existing extension UI frames to publish mode state and block on plan review. It also drives OMP's own write guard; the renderer does not simulate read-only mode. Plan-file reads are confined in main to the owning lineage directory. HTML plans use the sandboxed renderer path described above. The decisions and unsupported OMP method hooks are recorded in [ADR-0007](adr/0007-plan-mode-via-generated-extension.md), [ADR-0013](adr/0013-plan-mode-as-read-only-with-on-demand-gate.md), and [ADR-0014](adr/0014-html-plans-authored-directly.md).
+
+Plan review can execute in the planning session, execute there after compaction, or seed a fresh implementation session. Only the fresh-session choice creates a plan handoff. The source snapshot is persisted with the fresh session before the implementation prompt is dispatched, and the new session begins in Build mode. The same-session choices preserve their existing execution paths and create no cross-session relation (issues #165 and #238).
 
 ### Advisor
 

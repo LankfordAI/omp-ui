@@ -33,6 +33,7 @@ import {
   MAX_IMAGE_BYTES,
   type ImageAttachment,
   type OwnedSessionRecord,
+  type PlanImplementationSource,
   type PendingPlan,
   type PlanSettle,
   type PtyHandle,
@@ -197,7 +198,45 @@ export class SessionManager {
     );
   }
 
+  /**
+   * A plan handoff is valid only for a fresh native implementation session.
+   * Resolve its source before spawn performs any storage or process mutation,
+   * then copy the request snapshot so registry ownership begins atomically
+   * with the child record.
+   */
+  private validatePlanImplementationSource(req: SpawnRequest): PlanImplementationSource | null {
+    const snapshot = req.planImplementationSource ?? null;
+    if (snapshot === null) return null;
+    if (req.resumeTabId !== undefined) {
+      throw new Error("a plan implementation source cannot be attached when resuming a session");
+    }
+    if (req.mode !== "rpc-ui") {
+      throw new Error("a plan implementation source requires rpc-ui mode");
+    }
+    if (typeof snapshot.sourceTabId !== "string" || snapshot.sourceTabId === "") {
+      throw new Error("plan implementation source sourceTabId must be a non-empty string");
+    }
+    if (typeof snapshot.planTitle !== "string" || snapshot.planTitle === "") {
+      throw new Error("plan implementation source planTitle must be a non-empty string");
+    }
+    if (typeof snapshot.planFilePath !== "string" || snapshot.planFilePath === "") {
+      throw new Error("plan implementation source planFilePath must be a non-empty string");
+    }
+    const source = this.deps.registry.sessions.find(
+      (record) => record.tabId === snapshot.sourceTabId,
+    );
+    if (!source) throw new Error(`unknown plan source tab ${snapshot.sourceTabId}`);
+    if (source.projectCwd !== req.projectCwd) {
+      throw new Error("a plan implementation source must belong to the same project");
+    }
+    if (source.mode !== "rpc-ui") {
+      throw new Error("a plan implementation source must use rpc-ui mode");
+    }
+    return { ...snapshot };
+  }
+
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
+    const planImplementationSource = this.validatePlanImplementationSource(req);
     // Dedupe guard — the renderer should never send this, but a second
     // process for the same session would corrupt the .jsonl. The in-flight
     // set closes the race window before the first await (live.set happens
@@ -252,6 +291,7 @@ export class SessionManager {
           lineageDir: mintLineageDirName(req.projectCwd),
           projectCwd: req.projectCwd,
           worktree,
+          planImplementationSource,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           model: project?.lastModel ?? null,

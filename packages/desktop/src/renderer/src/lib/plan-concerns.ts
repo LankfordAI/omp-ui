@@ -1,3 +1,4 @@
+import type { PlanImplementationSource } from "@omp-ui/core/types";
 import { collectNewConcerns, renderConcernsBlock } from "./advisor-concerns";
 import type { ModelInfo } from "./rpc-types";
 import type { RenderItem } from "./transcript";
@@ -70,6 +71,8 @@ export function withKeywords(
 export interface PlanConcernIntent {
   context: PlanExecutionContext;
   planText: string | null;
+  /** Accepted proposal provenance captured before the review pane is cleared. */
+  readonly planImplementationSource?: Readonly<PlanImplementationSource>;
   options?: PlanExecutionOptions;
 }
 

@@ -1829,6 +1829,11 @@ describe("handleRpcFrame routing", () => {
         projectCwd: "/p",
         mode: "rpc-ui",
         startInPlanMode: false,
+        planImplementationSource: {
+          sourceTabId: TAB,
+          planTitle: "t",
+          planFilePath: "local://p.md",
+        },
       }),
     );
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
@@ -2189,6 +2194,7 @@ describe("handleRpcFrame routing", () => {
     openReview("c6");
     await flushMicrotasks();
     useStore.getState().executePlan(TAB, "fresh");
+    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
     useStore
       .getState()
       .handleRpcFrame(
@@ -2200,6 +2206,11 @@ describe("handleRpcFrame routing", () => {
       expect.objectContaining({
         projectCwd: "/p",
         mode: "rpc-ui",
+        planImplementationSource: {
+          sourceTabId: TAB,
+          planTitle: "t",
+          planFilePath: "local://p.md",
+        },
         startInPlanMode: false,
       }),
     );

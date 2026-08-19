@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@omp-ui/core/types";
+import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { Button, Dot, IconButton, type Tone } from "./ui";
@@ -134,7 +134,48 @@ function IconPower() {
   );
 }
 
-export function SessionRow({ s, onActivate }: { s: SessionSummary; onActivate?: () => void }) {
+/** A small plan document — the row's link back to the planning session (issue #238). */
+function IconPlan() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 2.5h5.5L12 5v8.5H4z" />
+      <path d="M6 7.5h4M6 10h4" />
+    </svg>
+  );
+}
+
+/**
+ * Plan-handoff view of one sidebar row, derived by the sidebar arrangement
+ * (issue #238). Exactly one of `source`/`orphanSource` is set on an
+ * implementation row; a plain row carries neither.
+ */
+export interface SessionRowHandoff {
+  /** The planning session this row implements, when it still exists. */
+  source: SessionSummary | null;
+  /** Saved dispatch metadata when the planning session is gone. */
+  orphanSource: PlanImplementationSource | null;
+  /** This row dispatched at least one implementation shown beneath it. */
+  hasDescendants: boolean;
+}
+
+export function SessionRow({
+  s,
+  onActivate,
+  handoff,
+}: {
+  s: SessionSummary;
+  onActivate?: () => void;
+  handoff?: SessionRowHandoff;
+}) {
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
   const terminate = useStore((st) => st.terminate);
@@ -151,6 +192,19 @@ export function SessionRow({ s, onActivate }: { s: SessionSummary; onActivate?: 
   const when = relativeTime(s.cachedModified);
   const face = SESSION_FACE[sidebarState];
   const showPersistedStatus = !(s.live === "live" && rpc);
+
+  // Plan handoff (issue #238). The dispatch snapshot lives on the row's own
+  // record; the arrangement resolves it to a live source or an orphan marker.
+  // The saved local:// plan path is deliberately never rendered.
+  const source = handoff?.source ?? null;
+  const orphanSource = handoff?.orphanSource ?? null;
+  const planTitle = (orphanSource ?? s.planImplementationSource)?.planTitle ?? null;
+  const implementsNote =
+    source !== null && planTitle !== null
+      ? `Implements “${planTitle}” from ${source.title}`
+      : orphanSource !== null
+        ? `Implements “${orphanSource.planTitle}” — source unavailable`
+        : null;
 
   return (
     <div
@@ -170,7 +224,9 @@ export function SessionRow({ s, onActivate }: { s: SessionSummary; onActivate?: 
       <button
         type="button"
         aria-current={selected ? "page" : undefined}
-        title={missing ? MISSING_HINT : s.title}
+        title={
+          missing ? MISSING_HINT : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
+        }
         onClick={() => {
           if (missing) return;
           void openSession(s.tabId);
@@ -202,11 +258,26 @@ export function SessionRow({ s, onActivate }: { s: SessionSummary; onActivate?: 
             {s.worktree ? (
               <span title={s.worktree.path}>{` · ⎇ ${s.worktree.branch}`}</span>
             ) : null}
+            {source !== null
+              ? " · implementation"
+              : orphanSource !== null
+                ? " · implementation · source unavailable"
+                : ""}
+            {handoff?.hasDescendants ? " · plan source" : ""}
           </span>
         </span>
       </button>
 
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+        {source !== null && (
+          <IconButton
+            label="open planning session"
+            onClick={() => void openSession(source.tabId)}
+            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
+          >
+            <IconPlan />
+          </IconButton>
+        )}
         {!missing && s.live === "live" ? (
           <IconButton
             label="stop the agent (session stays resumable)"
