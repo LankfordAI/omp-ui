@@ -414,6 +414,12 @@
 
 @media (hover: none) {
   .group\/row button, .group\/att button, .compact-lifecycle-visible, .console-drawer-controls { opacity: 1 !important; }
+  /* The project header's hover reveals become permanent on touch: full width
+     and the spacing the hover variants would otherwise supply
+     (Sidebar.tsx ProjectSection). */
+  .proj-reveal { opacity: 1 !important; max-width: none !important; }
+  .proj-reveal-r { margin-right: 0.375rem !important; }
+  .proj-reveal-l { margin-left: 0.375rem !important; }
 }
 
 :focus-visible {

@@ -302,40 +302,54 @@ function ProjectSection({
     >
       <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
         <div
-          className={cn("group/proj flex items-start gap-1.5", canReorder && "cursor-grab active:cursor-grabbing")}
+          // No gap in the non-compact layout: the reveals bring their own margin,
+          // so the name owns the full row width at rest.
+          className={cn("group/proj flex items-start", compact && "gap-1.5", canReorder && "cursor-grab active:cursor-grabbing")}
           draggable={canReorder}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
         >
           {canReorder && (
-            <button
-              type="button"
-              ref={(el) => {
-                registerGrip?.(project.path, el);
-              }}
-              aria-label={`reorder ${project.name}`}
-              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-              title={`reorder ${project.name} — drag, or Alt+↑ / Alt+↓`}
-              onKeyDown={(e) => {
-                if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
-                // Ours: neither scroll the list nor wake Electron's
-                // auto-hidden menu bar (main/index.ts: autoHideMenuBar).
-                e.preventDefault();
-                onReorder?.(e.key === "ArrowUp" ? -1 : 1);
-              }}
-              className="mt-px shrink-0 self-center rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
-            >
-              <IconGrip />
-            </button>
+            <span className="proj-reveal proj-reveal-r mt-px shrink-0 self-center overflow-hidden max-w-0 transition-all duration-200 group-hover/proj:mr-1.5 group-hover/proj:max-w-11 focus-within:mr-1.5 focus-within:max-w-11">
+              <button
+                type="button"
+                ref={(el) => {
+                  registerGrip?.(project.path, el);
+                }}
+                aria-label={`reorder ${project.name}`}
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                title={`reorder ${project.name} — drag, or Alt+↑ / Alt+↓`}
+                onKeyDown={(e) => {
+                  if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+                  // Ours: neither scroll the list nor wake Electron's
+                  // auto-hidden menu bar (main/index.ts: autoHideMenuBar).
+                  e.preventDefault();
+                  onReorder?.(e.key === "ArrowUp" ? -1 : 1);
+                }}
+                className="shrink-0 rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+              >
+                <IconGrip />
+              </button>
+            </span>
           )}
           <button
             type="button"
             aria-expanded={open}
             onClick={() => setOpen(!open)}
             title={project.path}
-            className="mt-px flex min-w-0 flex-1 items-start gap-1.5 text-left"
+            className={cn("mt-px flex min-w-0 flex-1 items-start text-left", compact && "gap-1.5")}
           >
-            <Chevron open={open} className="mt-1 text-ink-dim" />
+            {/* Joins the hover-reveal family: zero width at rest so the name runs
+                edge to edge. In the compact shell it is permanently visible —
+                a phone has no hover, and the name tap alone is a weak affordance. */}
+            <span
+              className={cn(
+                "mt-1 shrink-0",
+                !compact && "proj-reveal proj-reveal-r overflow-hidden opacity-0 max-w-0 transition-all duration-200 group-hover/proj:mr-1.5 group-hover/proj:max-w-3 group-hover/proj:opacity-100 group-focus-within/proj:mr-1.5 group-focus-within/proj:max-w-3 group-focus-within/proj:opacity-100",
+              )}
+            >
+              <Chevron open={open} className="text-ink-dim" />
+            </span>
             {compact ? (
               // Compact keeps one line: name + chips + the ⋯ trigger. The
               // full path lives in the actions sheet (issue #205); the
@@ -390,7 +404,10 @@ function ProjectSection({
               <IconEllipsis />
             </IconButton>
           ) : (
-            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-within:opacity-100 compact-lifecycle-visible">
+            // max-w-0 (not w-0): children carry min-widths under coarse pointers,
+            // and the ProjectOpenControl error line can grow; the revealed cap is
+            // the row itself, so nothing ever clips.
+            <div className="proj-reveal proj-reveal-l compact-lifecycle-visible flex shrink-0 items-center gap-1 overflow-hidden opacity-0 max-w-0 transition-all duration-200 group-hover/proj:ml-1.5 group-hover/proj:max-w-full group-hover/proj:opacity-100 focus-within:ml-1.5 focus-within:max-w-full focus-within:opacity-100">
               <ProjectOpenControl
                 project={project}
                 vsCodeAvailable={vsCodeAvailable}
