@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, rpcTabState } from "../test/fixtures";
+import type { RpcFailure } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -84,6 +85,19 @@ function seed(selectedSubagent: string | null): void {
   });
 }
 
+function seedExited(failure?: RpcFailure): void {
+  seed(null);
+  useStore.setState((current) => {
+    const tab = { ...current.rpc[TAB]! };
+    if (failure) tab.failure = failure;
+    else delete tab.failure;
+    return {
+      exited: { [TAB]: -1 },
+      rpc: { ...current.rpc, [TAB]: tab },
+    };
+  });
+}
+
 function renderTab(): void {
   const host = document.createElement("div");
   document.body.append(host);
@@ -131,5 +145,39 @@ describe("RpcTab subagent view", () => {
     renderTab();
     expect(document.body.textContent).toContain("main transcript");
     expect(document.body.textContent).not.toContain("read-only subagent view");
+  });
+});
+
+describe("RpcTab exit overlay", () => {
+  it("surfaces a fatal process failure once with recovery and copy actions", () => {
+    const message = "omp did not speak rpc-ui (no ready frame in 10 s); stderr: (empty)";
+    seedExited({
+      message,
+      kind: "process",
+      fatal: true,
+      sessionStatus: "error",
+      recovery: "The live session process stopped. Resume the session to continue.",
+    });
+    renderTab();
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Agent exited");
+    expect(text).toContain("exit -1");
+    expect(text.match(new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(1);
+    expect(text).toContain("The live session process stopped. Resume the session to continue.");
+    expect(text).toContain("Copy");
+    expect(text).toContain("resume session");
+  });
+
+  it("keeps the compact exit fallback when no process failure was captured", () => {
+    seedExited();
+    renderTab();
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Agent exited");
+    expect(text).toContain("exit -1");
+    expect(text).toContain("resume session");
+    expect(text).not.toContain("The live session process stopped");
+    expect(text).not.toContain("Copy");
   });
 });

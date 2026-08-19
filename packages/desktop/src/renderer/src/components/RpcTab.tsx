@@ -182,7 +182,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
         </div>
       )}
 
-      {failure && (
+      {failure && exitCode === undefined && (
         <div className="px-3 pt-2">
           <Panel tone="rose" className="animate-rise flex items-start gap-2 px-2.5 py-2">
             <p className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] leading-snug text-rose">
@@ -261,11 +261,24 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
 
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-blur-sm">
-          <Panel className="edge-lit animate-rise flex flex-col items-center gap-3 px-8 py-6">
+          <Panel
+            className={cn(
+              "edge-lit animate-rise mx-4 flex flex-col items-center gap-3 px-8 py-6",
+              failure && "w-[calc(100%-2rem)] max-w-xl",
+            )}
+          >
             <p className="font-display text-sm text-ink">Agent exited</p>
             <Chip tone="rose" mono title={`process exit code ${exitCode}`}>
               exit {exitCode}
             </Chip>
+            {failure && (
+              <div className="flex w-full items-start gap-2">
+                <p className="min-w-0 flex-1 whitespace-pre-wrap text-left text-[11px] leading-snug text-rose">
+                  {failureText}
+                </p>
+                <CopyButton text={failureText} label="Copy" />
+              </div>
+            )}
             <Button variant="solid" tone="signal" onClick={() => void resumeDead(tabId)}>
               resume session
             </Button>

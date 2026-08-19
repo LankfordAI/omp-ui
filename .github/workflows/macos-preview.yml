@@ -47,6 +47,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Test fd sweep on macOS
+        run: npm test --workspace @omp-ui/core -- src/fd-sweep.test.ts
       - name: Stamp preview version
         run: npm version "0.0.0-preview.${GITHUB_RUN_NUMBER}" --no-git-tag-version
         working-directory: packages/desktop

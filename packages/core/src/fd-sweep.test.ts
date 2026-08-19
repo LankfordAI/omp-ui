@@ -7,13 +7,14 @@ import { FD_SWEEP_SCRIPT, withFdSweep } from "./fd-sweep";
 
 /** dash is the shell that rejects multi-digit fd redirections (Debian/Ubuntu /bin/sh). */
 const dashPath = ["/usr/bin/dash", "/bin/dash"].find((p) => fs.existsSync(p));
+const fdRoot = process.platform === "darwin" ? "/dev/fd" : "/proc/self/fd";
 
 /**
  * Runs the sweep wrapper under `shell` with fds 3 and 12 leaked into the
  * child (stdio slot 12 exercises the multi-digit redirection that kills
  * dash), asserting both get closed and a space-bearing arg survives exec.
  */
-function runSweptProbe(shell: string): string {
+function runSweptProbe(shell: string, noFileLimit?: number): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fd-sweep-"));
   const payload = path.join(dir, "payload");
   fs.writeFileSync(payload, "x");
@@ -25,7 +26,7 @@ function runSweptProbe(shell: string): string {
   // glob, whose opendir would itself occupy a free slot at readdir time.
   const probe = [
     "-c",
-    'printf "%s|" "$1"; for n in 3 12; do if [ -e /proc/self/fd/$n ]; then printf "%s:OPEN|" $n; else printf "%s:CLOSED|" $n; fi; done; echo end',
+    `printf "%s|" "$1"; for n in 3 12; do if [ -e ${fdRoot}/$n ]; then printf "%s:OPEN|" $n; else printf "%s:CLOSED|" $n; fi; done; echo end`,
     "inner",
     "a b",
   ];
@@ -38,8 +39,26 @@ function runSweptProbe(shell: string): string {
     const control = execFileSync("/bin/sh", probe, { stdio, encoding: "utf8" });
     expect(control.trim()).toBe("a b|3:OPEN|12:OPEN|end");
 
-    const cmd = withFdSweep("/bin/sh", probe);
-    return execFileSync(shell, cmd.args, { stdio, encoding: "utf8" }).trim();
+    const swept = withFdSweep("/bin/sh", probe);
+    const cmd =
+      noFileLimit === undefined
+        ? swept
+        : {
+            file: "/bin/sh",
+            args: [
+              "-c",
+              'ulimit -n "$1"; shift; exec "$@"',
+              "fd-limit",
+              String(noFileLimit),
+              swept.file,
+              ...swept.args,
+            ],
+          };
+    return execFileSync(cmd.file, cmd.args, {
+      stdio,
+      encoding: "utf8",
+      timeout: 2_000,
+    }).trim();
   } finally {
     fs.closeSync(low);
     fs.closeSync(high);
@@ -76,10 +95,17 @@ describe("withFdSweep", () => {
     expect(bashArg![1]).not.toContain("'");
   });
 
-  it.skipIf(process.platform !== "linux")(
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")(
     "closes inherited fds above stderr — including double-digit fds — before exec (live kernel check)",
     () => {
       expect(runSweptProbe("/bin/sh")).toBe("a b|3:CLOSED|12:CLOSED|end");
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "stays bounded under Electron-sized descriptor limits on macOS",
+    () => {
+      expect(runSweptProbe("/bin/sh", 1_048_576)).toBe("a b|3:CLOSED|12:CLOSED|end");
     },
   );
 

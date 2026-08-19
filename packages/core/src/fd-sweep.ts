@@ -16,23 +16,31 @@ export interface SpawnCommand {
 }
 
 /**
- * The close loop proper. Linux enumerates /proc/self/fd (exact); elsewhere a
- * ulimit-bounded brute close (macOS has no /proc; closing an unopened fd is a
- * harmless, silenced error). argv is forwarded via "$@" — never
- * string-interpolated — so paths with spaces and empty args survive verbatim.
+ * The close loop proper. Linux enumerates /proc/self/fd; macOS and other BSDs
+ * expose the same live descriptor view at /dev/fd. Globs are expanded before
+ * the loop, so closing the listed descriptors cannot invalidate enumeration.
+ * Platforms with neither view fall back to a bounded numeric sweep: leaking a
+ * descriptor above the cap is preferable to delaying process spawn behind an
+ * enormous RLIMIT_NOFILE.
+ *
+ * argv is forwarded via "$@" — never string-interpolated — so paths with
+ * spaces and empty args survive verbatim.
  *
  * MUST stay free of single quotes: FD_SWEEP_SCRIPT embeds this body inside
  * '…' for the bash re-exec below (hence "" not '' in the limit case).
  */
 const SWEEP_BODY = [
-  "if [ -d /proc/self/fd ]; then",
-  "  for fd in /proc/self/fd/*; do",
+  "fd_root=",
+  "if [ -d /proc/self/fd ]; then fd_root=/proc/self/fd; elif [ -d /dev/fd ]; then fd_root=/dev/fd; fi",
+  'if [ -n "$fd_root" ]; then',
+  '  for fd in "$fd_root"/*; do',
   "    n=${fd##*/}",
   '    case $n in 0|1|2) ;; *) eval "exec $n>&-" 2>/dev/null ;; esac',
   "  done",
   "else",
   "  limit=$(ulimit -n 2>/dev/null)",
   '  case $limit in ""|*[!0-9]*) limit=4096 ;; esac',
+  '  if [ "$limit" -gt 4096 ]; then limit=4096; fi',
   "  i=3",
   '  while [ "$i" -lt "$limit" ]; do eval "exec $i>&-" 2>/dev/null; i=$((i+1)); done',
   "fi",
