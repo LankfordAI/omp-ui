@@ -297,7 +297,8 @@ _Avoid_: memory manager, knowledge base, memory browser tab
 
 **Update card**:
 The small non-modal card in the lower-right corner announcing an available
-update. There are two: the omp-ui release card (AppImage and NSIS stage through
+update. There are two: the omp-ui release card (AppImage, NSIS, and macOS
+installs — the staged ZIP applies through Squirrel.Mac — stage through
 `electron-updater` before it appears, offering Restart now / Install when I quit
 / Later; unsigned NSIS is the Windows preview path) and the omp binary
 install/update card (Update now / Later, or Install / Later when omp is not

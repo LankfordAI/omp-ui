@@ -72,12 +72,12 @@ curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/in
 It verifies the download against `SHA256SUMS.txt`, installs the AppImage to
 `~/.local/bin`, and registers a desktop entry; `install.sh --uninstall`
 removes it. Or grab the AppImage straight from
-[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). Windows x64
-and macOS builds are unsigned previews documented under
+[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases). The Windows
+x64 build is an unsigned preview and the macOS builds are signed previews,
+both documented under
 [Unsigned Windows x64 preview](#unsigned-windows-x64-preview) and
-[Unsigned macOS preview](#unsigned-macos-preview). The supported Linux path
-remains AppImage-only
-([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)).
+[macOS preview](#macos-preview). The supported Linux path remains
+AppImage-only ([ADR-0011](docs/adr/0011-appimage-only-linux-distribution.md)).
 
 ## How it works
 
@@ -226,11 +226,12 @@ Rationale and threat model:
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`. Every release includes
 the supported Linux **AppImage**, one unsigned Windows x64 preview installer,
-and unsigned `arm64`/`x64` macOS preview DMGs and ZIPs: six distributables in
-total. Linux publishes `latest-linux.yml`; Windows publishes `latest.yml` and
-the installer blockmap for background staging. Unsigned macOS previews never
-publish `latest-mac.yml`. One combined `SHA256SUMS.txt` covers the AppImage,
-Windows installer, and all four macOS files and remains compatible with
+and signed, notarized `arm64`/`x64` macOS preview DMGs and ZIPs: six
+distributables in total. Linux publishes `latest-linux.yml`; Windows publishes
+`latest.yml` and the installer blockmap for background staging. Signed macOS
+previews publish `latest-mac.yml`, feeding in-place self-updates on both
+architectures. One combined `SHA256SUMS.txt` covers the AppImage, Windows
+installer, and all four macOS files and remains compatible with
 `packaging/install.sh`, which selects only the AppImage's matching line.
 
 The AppImage remains the sole first-party supported Linux artifact
@@ -253,8 +254,9 @@ choice is always explicit, and both pass through the live-session quit guard.
 
 What the update action does depends on how the app was installed:
 
-- **AppImage and Windows NSIS** — in-place update via `electron-updater`
-  (sha512/blockmap verified against platform update metadata). When the
+- **AppImage, Windows NSIS, and macOS** — in-place update via
+  `electron-updater` (sha512/blockmap verified against platform update
+  metadata; on macOS the staged ZIP applies through Squirrel.Mac). When the
   download finishes the card offers "Restart now" and "Install when I quit";
   restarting still passes the live-session quit guard.
 - **Legacy deb / rpm / Flatpak installs** (v0.4.0 and earlier) — no
@@ -297,23 +299,22 @@ choices and live-session quit guard as AppImage. Managed omp installs
 
 See [ADR-0015](docs/adr/0015-unsigned-windows-nsis-preview.md).
 
-### Unsigned macOS preview
+### macOS preview
 
 Each [GitHub release](https://github.com/LankfordAI/omp-ui/releases/latest)
-includes unsupported, unsigned macOS preview builds. Download the DMG matching
-your Mac:
+includes unsupported macOS preview builds, Developer ID signed and notarized.
+Download the DMG matching your Mac:
 
 - Apple Silicon: `omp-ui-<version>-mac-preview-arm64.dmg`
 - Intel: `omp-ui-<version>-mac-preview-x64.dmg`
 
-The matching ZIP is published for preview inspection and future update
-readiness, but it is not advertised through application-update metadata.
-[Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) remains open for
-the signed, notarized stable milestone.
+The matching ZIP is advertised through `latest-mac.yml` and powers in-place
+self-updates. [Issue #124](https://github.com/LankfordAI/omp-ui/issues/124)
+remains open until the macOS lane is promoted from preview to supported.
 
-Verify the download before installing. Download `SHA256SUMS.txt` beside the
-chosen DMG or ZIP, select that asset's line, and check it. For example, for the
-Apple Silicon DMG:
+If you want belt-and-braces assurance, verify the download before installing.
+Download `SHA256SUMS.txt` beside the chosen DMG or ZIP, select that asset's
+line, and check it. For example, for the Apple Silicon DMG:
 
 ```sh
 grep 'omp-ui-.*-mac-preview-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
@@ -325,22 +326,14 @@ download also prints harmless `No such file` messages for the other four
 manifest entries; the selected-line form avoids that noise. Continue only if
 the chosen file reports `OK`.
 
-Mount the DMG and copy **omp-ui** to **Applications**. For the first open, use
-Apple's supported override flow: attempt to launch **omp-ui** once, then open
-**System Settings → Privacy & Security → Security → Open Anyway**, authenticate,
-and confirm **Open**. Do not disable Gatekeeper globally, and do not remove
-quarantine with `xattr`.
+Mount the DMG and copy **omp-ui** to **Applications**. The build is Developer
+ID signed and notarized, so macOS opens it directly — no Gatekeeper override
+is needed.
 
-Preview limitations:
-
-- no publisher identity or notarization;
-- unsupported preview status; and
-- no omp-ui automatic updates — install a new version by downloading the next
-  release's preview DMG.
+Preview limitation: unsupported preview status.
 
 Managed **omp binary** install and updates remain enabled independently. omp-ui
-selects `omp-darwin-arm64` on Apple Silicon or `omp-darwin-x64` on Intel; the
-automatic-update limitation applies only to the omp-ui application.
+selects `omp-darwin-arm64` on Apple Silicon or `omp-darwin-x64` on Intel.
 
 ## Session storage
 
