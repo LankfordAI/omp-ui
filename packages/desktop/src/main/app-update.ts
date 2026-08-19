@@ -21,8 +21,8 @@ import { UpdateController, type UpdateControllerDeps } from "./update-controller
 // Main-process orchestration for omp-ui's own release updates (issue #18).
 // All the machine work — release lookup, package-format detection, the
 // checksum-verified download — lives in @omp-ui/core; this file owns the
-// state machine the renderer's update card renders, plus the AppImage/NSIS
-// in-place path through electron-updater.
+// state machine the renderer's update card renders, plus the AppImage/NSIS/
+// macOS-zip in-place path through electron-updater.
 //
 // Quiet by default: background checks never surface errors or up-to-date
 // states. Auto-updates stage immediately and quietly; only the verified,
@@ -30,10 +30,13 @@ import { UpdateController, type UpdateControllerDeps } from "./update-controller
 // failures. Other package formats still wait for an explicit Download click.
 
 
+/** Auto-updatable through electron-updater: AppImage, NSIS, macOS ZIP feed. */
+export type AutoUpdateFormat = "appimage" | "nsis" | "maczip";
+
 export function isAutoUpdateFormat(
   format: AppPackageFormat,
-): format is "appimage" | "nsis" {
-  return format === "appimage" || format === "nsis";
+): format is AutoUpdateFormat {
+  return format === "appimage" || format === "nsis" || format === "maczip";
 }
 /** The slice of electron-updater's AppUpdater this flow uses (6.8.9 API). */
 export interface AutoUpdaterLike {
@@ -100,7 +103,7 @@ const defaultAutoUpdaterFactory = async (): Promise<AutoUpdaterLike> => {
   // Lazy on purpose (dynamic-import exception): electron-updater hooks the
   // real Electron app when imported, which breaks under vitest's mocked
   // electron and is dead weight on manual installer formats — only the
-  // AppImage/NSIS download path needs it.
+  // AppImage/NSIS/macOS-zip download path needs it.
   const autoUpdater = resolveAutoUpdater(await import("electron-updater"));
   if (autoUpdater === null) throw new Error("electron-updater export unavailable");
   return autoUpdater;
@@ -187,13 +190,14 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   }
 
   /**
-   * Stages an AppImage or NSIS update through electron-updater's
-   * sha512/blockmap-verified path. Background checks expose only the completed
-   * state; a manual check makes the same in-flight stage and failures visible.
+   * Stages an AppImage/NSIS/macOS-zip update through electron-updater's
+   * sha512/blockmap-verified path; on macOS the staged ZIP is applied through
+   * Squirrel.Mac. Background checks expose only the completed state; a manual
+   * check makes the same in-flight stage and failures visible.
    */
   private async stageAutoUpdate(
     release: AppReleaseInfo,
-    format: "appimage" | "nsis",
+    format: AutoUpdateFormat,
     visible: boolean,
   ): Promise<void> {
     const releaseState = {
@@ -354,10 +358,10 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   }
 
   /**
-   * Applies a staged AppImage/NSIS update on the next natural quit only after
-   * an explicit user choice. BaseUpdater skips quit-hook registration when the
-   * download completed with autoInstallOnAppQuit=false, so arming later must
-   * register that idempotent hook; it re-checks the flag at quit, making
+   * Applies a staged AppImage/NSIS/macOS-zip update on the next natural quit
+   * only after an explicit user choice. BaseUpdater skips quit-hook registration
+   * when the download completed with autoInstallOnAppQuit=false, so arming later
+   * must register that idempotent hook; it re-checks the flag at quit, making
    * disarming reliable.
    */
   setInstallOnQuit(on: boolean): void {

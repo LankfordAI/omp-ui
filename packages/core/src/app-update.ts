@@ -7,9 +7,10 @@ import type { AppPackageFormat } from "./types";
 
 // Pure, transport- and UI-agnostic omp-ui release update logic. The Electron
 // main process drives this over IPC; nothing here touches Electron (ADR-0002).
-// The auto-updatable AppImage/NSIS path (electron-updater) lives in the main
-// process — this module owns the shared parts: release lookup, package-format
-// detection, and the checksum-verified download the deb/rpm/Flatpak paths use.
+// The auto-updatable AppImage/NSIS/macOS-zip path (electron-updater) lives in
+// the main process — this module owns the shared parts: release lookup,
+// package-format detection, and the checksum-verified download the
+// deb/rpm/Flatpak paths use.
 
 export const APP_GITHUB_REPO = "LankfordAI/omp-ui";
 export const APP_LATEST_RELEASE_URL =
@@ -81,7 +82,8 @@ export async function fetchLatestAppRelease(
 }
 
 /**
- * How this install updates. Windows packages are NSIS. Linux preserves the
+ * How this install updates. Windows packages are NSIS. macOS DMG installs
+ * auto-update through the ZIP feed Squirrel.Mac consumes. Linux preserves the
  * APPIMAGE → Flatpak → deb → rpm precedence; other platforms are unknown.
  */
 export function detectPackageFormat(
@@ -90,6 +92,7 @@ export function detectPackageFormat(
   platform: NodeJS.Platform = process.platform,
 ): AppPackageFormat {
   if (platform === "win32") return "nsis";
+  if (platform === "darwin") return "maczip";
   if (platform !== "linux") return "unknown";
   if (env.APPIMAGE) return "appimage";
   if (exists("/.flatpak-info")) return "flatpak";

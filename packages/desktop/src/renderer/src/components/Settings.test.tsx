@@ -185,19 +185,22 @@ describe("Settings Updates page (issue #89)", () => {
     expect(backendMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it("labels the omp-ui action Update on AppImage", async () => {
-    seed({
-      appUpdate: appUpdateState({
-        status: "available",
-        latestVersion: "1.2.0",
-        format: "appimage",
-      }),
-    });
-    await renderSettings();
-    expect(buttonWithText("Download")).toBeNull();
-    click(buttonWithText("Update")!);
-    expect(backendMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
-  });
+  it.each(["appimage", "maczip"] as const)(
+    "labels the omp-ui action Update on %s",
+    async (format) => {
+      seed({
+        appUpdate: appUpdateState({
+          status: "available",
+          latestVersion: "1.2.0",
+          format,
+        }),
+      });
+      await renderSettings();
+      expect(buttonWithText("Download")).toBeNull();
+      click(buttonWithText("Update")!);
+      expect(backendMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("falls back to View release when the package format is unknown", async () => {
     seed({
@@ -219,6 +222,19 @@ describe("Settings Updates page (issue #89)", () => {
         status: "downloaded",
         latestVersion: "1.2.0",
         format: "appimage",
+      }),
+    });
+    await renderSettings();
+    click(buttonWithText("Restart now")!);
+    expect(backendMock.restartForAppUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Restart now once a macOS zip update is downloaded", async () => {
+    seed({
+      appUpdate: appUpdateState({
+        status: "downloaded",
+        latestVersion: "1.2.0",
+        format: "maczip",
       }),
     });
     await renderSettings();

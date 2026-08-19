@@ -74,7 +74,7 @@ export function AppUpdateCard() {
       format === "unknown"
         ? { label: "View release", run: () => void openAppUpdateReleaseNotes() }
         : {
-            label: format === "appimage" || format === "nsis" ? "Update" : "Download",
+            label: format === "appimage" || format === "nsis" || format === "maczip" ? "Update" : "Download",
             run: () => void downloadAppUpdate(),
           };
     body = (
@@ -110,7 +110,7 @@ export function AppUpdateCard() {
         )}
       </>
     );
-  } else if (status === "downloaded" && (format === "appimage" || format === "nsis")) {
+  } else if (status === "downloaded" && (format === "appimage" || format === "nsis" || format === "maczip")) {
     body = (
       <>
         <p className="text-sm font-medium text-ink">omp-ui {version} ready</p>
@@ -159,7 +159,7 @@ export function AppUpdateCard() {
       status === "up-to-date"
         ? `omp-ui is up to date (${currentVersion})`
         : status === "disabled"
-          ? "Update checks are disabled in this build"
+          ? "omp-ui update checks are disabled in this build"
           : error === "could not reach GitHub"
             ? "Update check failed"
             : "Download failed";

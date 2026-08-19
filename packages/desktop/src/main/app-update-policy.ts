@@ -3,5 +3,9 @@ export function appUpdateEnabledForBuild(opts: {
   platform: NodeJS.Platform;
   forceEnabled: boolean;
 }): boolean {
-  return opts.forceEnabled || (opts.packaged && (opts.platform === "linux" || opts.platform === "win32"));
+  return (
+    opts.forceEnabled ||
+    (opts.packaged &&
+      (opts.platform === "linux" || opts.platform === "win32" || opts.platform === "darwin"))
+  );
 }

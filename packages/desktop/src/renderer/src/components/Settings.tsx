@@ -380,7 +380,7 @@ function appStatusLine(u: AppUpdateState): string {
     case "checking":
       return "checking…";
     case "disabled":
-      return "update checks are disabled in this build";
+      return "omp-ui checks disabled in this build — omp binary updates are independent";
     case "error":
       return u.error ?? "update check failed";
     default:
@@ -475,12 +475,17 @@ function UpdatesPage() {
                   variant="solid"
                   onClick={() => void downloadAppUpdate()}
                 >
-                  {appUpdate.format === "appimage" ? "Update" : "Download"}
+                  {appUpdate.format === "appimage" ||
+                  appUpdate.format === "nsis" ||
+                  appUpdate.format === "maczip"
+                    ? "Update"
+                    : "Download"}
                 </Button>
               ))}
             {appUpdate.status === "downloaded" &&
               (appUpdate.format === "appimage" ||
-              appUpdate.format === "nsis" ? (
+              appUpdate.format === "nsis" ||
+              appUpdate.format === "maczip" ? (
                 <>
                   <AppUpdateRestartAction size="xs" />
                   <Button

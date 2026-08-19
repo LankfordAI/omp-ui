@@ -240,8 +240,9 @@ if (!app.requestSingleInstanceLock()) {
       authorizeAppUpdateQuit: () => {
         forceQuit = true;
       },
-      // omp-ui updates are enabled for packaged Linux and Windows builds; the
-      // env override lets a dev run exercise the real flow against a release.
+      // omp-ui updates are enabled for packaged Linux, Windows, and macOS
+      // builds; the env override lets a dev run exercise the real flow against
+      // a release.
       appUpdateEnabled: appUpdateEnabledForBuild({
         packaged: app.isPackaged,
         platform: process.platform,

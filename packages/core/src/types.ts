@@ -295,7 +295,7 @@ export interface OmpUpdateInfo {
 }
 
 /** How this omp-ui install was packaged (see core/app-update.ts). */
-export type AppPackageFormat = "appimage" | "nsis" | "deb" | "rpm" | "flatpak" | "unknown";
+export type AppPackageFormat = "appimage" | "nsis" | "maczip" | "deb" | "rpm" | "flatpak" | "unknown";
 
 /** Snapshot of the omp-ui app update situation (see main/app-update.ts). */
 export type AppUpdateStatus =
@@ -305,7 +305,7 @@ export type AppUpdateStatus =
   | "up-to-date" // manual check only; transient
   | "available" // manual formats only; auto-updatable packages stage during the check
   | "downloading"
-  | "downloaded" // AppImage/NSIS: staged + verified; others: installer opened/in folder
+  | "downloaded" // AppImage/NSIS/macOS zip: staged + verified; others: installer opened/in folder
   | "error";
 
 export interface AppUpdateState {

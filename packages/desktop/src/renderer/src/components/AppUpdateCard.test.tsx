@@ -139,7 +139,7 @@ describe("AppUpdateCard", () => {
     expect(backendMock.dismissAppUpdate).toHaveBeenLastCalledWith("1.2.0", true);
   });
 
-  it.each(["appimage", "nsis"] as const)("labels %s available action Update", (format) => {
+  it.each(["appimage", "nsis", "maczip"] as const)("labels %s available action Update", (format) => {
     useStore.setState({
       appUpdate: appUpdateState({ status: "available", latestVersion: "1.2.0", format }),
     });
@@ -147,7 +147,7 @@ describe("AppUpdateCard", () => {
     buttonWithText("Update");
   });
 
-  it.each(["appimage", "nsis"] as const)(
+  it.each(["appimage", "nsis", "maczip"] as const)(
     "shows %s staging progress",
     (format) => {
       useStore.setState({
@@ -164,7 +164,7 @@ describe("AppUpdateCard", () => {
     },
   );
 
-  it.each(["appimage", "nsis"] as const)(
+  it.each(["appimage", "nsis", "maczip"] as const)(
     "restarts, arms install-on-quit, and dismisses a staged %s update",
     (format) => {
       useStore.setState({
@@ -210,7 +210,7 @@ describe("AppUpdateCard", () => {
     expect(backendMock.restartForAppUpdate).toHaveBeenNthCalledWith(2, true);
   });
 
-  it.each(["appimage", "nsis"] as const)(
+  it.each(["appimage", "nsis", "maczip"] as const)(
     "shows and disarms a %s install-on-quit choice",
     (format) => {
       useStore.setState({

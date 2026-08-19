@@ -161,8 +161,12 @@ describe("detectPackageFormat", () => {
     expect(detectPackageFormat({ APPIMAGE: "/ignored" }, () => true, "win32")).toBe("nsis");
   });
 
-  it("returns unknown on non-Linux, non-Windows platforms", () => {
-    expect(detectPackageFormat({ APPIMAGE: "/ignored" }, () => true, "darwin")).toBe("unknown");
+  it("detects macOS as the maczip auto-update format", () => {
+    expect(detectPackageFormat({ APPIMAGE: "/ignored" }, () => true, "darwin")).toBe("maczip");
+  });
+
+  it("returns unknown on unsupported platforms", () => {
+    expect(detectPackageFormat({ APPIMAGE: "/ignored" }, () => true, "freebsd")).toBe("unknown");
   });
 
 describe("expectedAssetName", () => {

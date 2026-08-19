@@ -14,9 +14,9 @@ describe("appUpdateEnabledForBuild", () => {
       expected: true,
     },
     {
-      name: "disables packaged Darwin builds",
+      name: "enables packaged Darwin builds",
       opts: { packaged: true, platform: "darwin" as const, forceEnabled: false },
-      expected: false,
+      expected: true,
     },
     {
       name: "disables unpackaged Linux builds",

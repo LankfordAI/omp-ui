@@ -492,8 +492,8 @@ export const BACKEND_CHANNELS = {
   checkAppUpdate: { channel: "app:updateCheck", ...request<[], AppUpdateState>() },
   /**
    * Starts the package-appropriate manual action for non-auto-update formats:
-   * verified download + system-installer handoff. AppImage/NSIS staging begins
-   * as soon as a check finds an update (issue #99, issue #125).
+   * verified download + system-installer handoff. AppImage/NSIS/macOS-zip
+   * staging begins as soon as a check finds an update (issue #99, issue #125).
    */
   downloadAppUpdate: { channel: "app:updateDownload", ...request<[], void>() },
   /** Opens the pending release's GitHub page. */

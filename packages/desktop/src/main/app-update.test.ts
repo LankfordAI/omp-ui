@@ -388,7 +388,7 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
   } as FakeAutoUpdater;
 }
 
-describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
+describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (format) => {
   async function stageAutoUpdate(
     autoUpdater: AutoUpdaterLike,
     manual = false,
@@ -397,7 +397,7 @@ describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
       fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
       autoUpdaterFactory: async () => autoUpdater,
       env: format === "appimage" ? { APPIMAGE: "/run/omp-ui.AppImage" } : {},
-      platform: format === "nsis" ? "win32" : "linux",
+      platform: format === "nsis" ? "win32" : format === "maczip" ? "darwin" : "linux",
       exists: () => false,
     });
     await made.updater.checkNow(manual);
@@ -505,7 +505,7 @@ describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
           throw new Error("electron-updater export unavailable");
         },
         env: format === "appimage" ? { APPIMAGE: "/run/omp-ui.AppImage" } : {},
-        platform: format === "nsis" ? "win32" : "linux",
+        platform: format === "nsis" ? "win32" : format === "maczip" ? "darwin" : "linux",
         exists: () => false,
       });
 
@@ -524,7 +524,7 @@ describe.each(["appimage", "nsis"] as const)("AppUpdater %s path", (format) => {
       fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
       autoUpdaterFactory: (async () => undefined) as never,
       env: format === "appimage" ? { APPIMAGE: "/run/omp-ui.AppImage" } : {},
-      platform: format === "nsis" ? "win32" : "linux",
+      platform: format === "nsis" ? "win32" : format === "maczip" ? "darwin" : "linux",
       exists: () => false,
     });
 
