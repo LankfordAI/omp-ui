@@ -323,6 +323,7 @@ export type AppUpdateStatus =
   | "available" // manual formats only; auto-updatable packages stage during the check
   | "downloading"
   | "downloaded" // AppImage/NSIS/macOS zip: staged + verified; others: installer opened/in folder
+  | "installing" // authorized post-download handoff to the installer/native updater
   | "error";
 
 export interface AppUpdateState {

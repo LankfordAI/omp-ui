@@ -375,6 +375,8 @@ function appStatusLine(u: AppUpdateState): string {
       return `downloading ${u.latestVersion ?? ""}…`;
     case "downloaded":
       return `${u.latestVersion ?? "update"} downloaded${u.installOnQuit ? " — installs on quit" : ""}`;
+    case "installing":
+      return `applying ${u.latestVersion ?? "update"}…`;
     case "up-to-date":
       return "up to date";
     case "checking":
@@ -509,7 +511,11 @@ function UpdatesPage() {
                   Show in folder
                 </Button>
               ))}
-            <Button size="xs" onClick={() => void checkAppUpdate()}>
+            <Button
+              size="xs"
+              disabled={appUpdate.status === "installing"}
+              onClick={() => void checkAppUpdate()}
+            >
               Check now
             </Button>
           </div>

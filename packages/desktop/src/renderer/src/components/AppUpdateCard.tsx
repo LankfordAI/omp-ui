@@ -110,6 +110,20 @@ export function AppUpdateCard() {
         )}
       </>
     );
+  } else if (status === "installing") {
+    body = (
+      <>
+        <p className="text-sm font-medium text-ink">Applying omp-ui {version}…</p>
+        <div className="mt-2.5 h-1 rounded bg-raised">
+          <div className="h-1 w-full animate-pulse rounded bg-iris" />
+        </div>
+        <p className="mt-2 text-xs text-ink-dim">
+          {format === "maczip"
+            ? "macOS is preparing the update. omp-ui will restart automatically; this can take several minutes."
+            : "omp-ui will restart automatically."}
+        </p>
+      </>
+    );
   } else if (status === "downloaded" && (format === "appimage" || format === "nsis" || format === "maczip")) {
     body = (
       <>
@@ -162,7 +176,7 @@ export function AppUpdateCard() {
           ? "omp-ui update checks are disabled in this build"
           : error === "could not reach GitHub"
             ? "Update check failed"
-            : "Download failed";
+            : "Update failed";
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>

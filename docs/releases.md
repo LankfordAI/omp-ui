@@ -65,6 +65,7 @@ AppImage, NSIS, and macOS installs use `electron-updater`. A background check do
 - macOS uses `latest-mac.yml`; Squirrel.Mac applies the ZIP that matches the Mac's architecture.
 
 A staged update does not install silently. `Restart now` asks for confirmation when live sessions exist, then quits, installs, and relaunches. `Install when I quit` arms the staged update for the next natural quit and can be undone. A natural quit still goes through the live-session quit guard. Once the user confirms a quit, omp-ui stops its processes; neither update choice preserves running work.
+On macOS, the wrapper download completes before Squirrel.Mac finishes its native preparation. After `Restart now`, omp-ui immediately displays `Applying update…` and removes the update actions. The app may remain open for several minutes while a large ZIP is prepared, then quits and relaunches automatically. A native preparation failure remains visible as an update error instead of leaving an apparently inert restart control.
 
 `Later` on an available offer remembers that release version during background checks. After an auto-updatable package is staged, `Later` only hides the ready card; it does not remove the staged download or undo `Install when I quit`. A manual check bypasses a remembered dismissal.
 

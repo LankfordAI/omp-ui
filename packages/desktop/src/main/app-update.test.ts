@@ -367,6 +367,7 @@ interface FakeAutoUpdater extends AutoUpdaterLike {
   quitAndInstall: Mock<() => void>;
   emitProgress: (percent: number) => void;
   emitDownloaded: () => void;
+  emitError: (error: Error) => void;
 }
 
 function makeFakeAutoUpdater(): FakeAutoUpdater {
@@ -385,6 +386,8 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
       listeners.get("download-progress")?.forEach((cb) => cb({ percent })),
     emitDownloaded: () =>
       listeners.get("update-downloaded")?.forEach((cb) => cb({ version: "1.2.0" })),
+    emitError: (error) =>
+      listeners.get("error")?.forEach((cb) => cb(error)),
   } as FakeAutoUpdater;
 }
 
@@ -479,8 +482,10 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     expect(updater.restart()).toBe("confirmation-required");
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
     expect(authorizeQuit).not.toHaveBeenCalled();
+    expect(updater.state.status).toBe("downloaded");
 
     expect(updater.restart(true)).toBe("restarting");
+    expect(updater.state.status).toBe("installing");
     expect(updater.restart(true)).toBe("restarting");
     expect(hasLiveSessions).toHaveBeenCalledTimes(2);
     expect(authorizeQuit).toHaveBeenCalledTimes(1);
@@ -488,6 +493,49 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(
       ...(format === "nsis" ? [true, true] : []),
     );
+  });
+
+  it("publishes installing before the installer handoff and invokes it once", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const { updater } = await stageAutoUpdate(autoUpdater);
+    autoUpdater.emitDownloaded();
+    autoUpdater.quitAndInstall.mockImplementation(() => {
+      expect(updater.state.status).toBe("installing");
+      expect(updater.state.progress).toBeNull();
+      expect(updater.state.error).toBeNull();
+    });
+
+    expect(updater.restart()).toBe("restarting");
+    expect(updater.restart()).toBe("restarting");
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces updater errors during the installer handoff and clears the latch", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const { updater } = await stageAutoUpdate(autoUpdater);
+    autoUpdater.emitDownloaded();
+    expect(updater.restart()).toBe("restarting");
+
+    autoUpdater.emitError(new Error("native preparation failed"));
+
+    expect(updater.state.status).toBe("error");
+    expect(updater.state.error).toBe("could not apply update: native preparation failed");
+    expect(updater.restart()).toBe("unavailable");
+  });
+
+  it("surfaces a synchronous installer throw and clears the latch", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    autoUpdater.quitAndInstall.mockImplementation(() => {
+      throw new Error("installer launch failed");
+    });
+    const { updater } = await stageAutoUpdate(autoUpdater);
+    autoUpdater.emitDownloaded();
+
+    expect(updater.restart()).toBe("unavailable");
+    expect(updater.state.status).toBe("error");
+    expect(updater.state.error).toBe("could not apply update: installer launch failed");
+    expect(updater.restart()).toBe("unavailable");
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
   it("reports restart unavailable until the update is downloaded", async () => {

@@ -243,6 +243,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
           });
         });
         autoUpdater.on("error", (err) => {
+          if (this.restarting) {
+            this.restarting = false;
+            this.set({
+              status: "error",
+              progress: null,
+              error: `could not apply update: ${err.message}`,
+            });
+            return;
+          }
           if (!this.autoUpdateStaging) return;
           const wasVisible = this.autoUpdateStageVisible;
           this.autoUpdateStaging = false;
@@ -351,9 +360,21 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     if (this.autoUpdater === null) return "unavailable";
     if (this.deps.hasLiveSessions() && !confirmed) return "confirmation-required";
     this.restarting = true;
+    this.set({ status: "installing", progress: null, error: null });
     this.deps.authorizeQuit();
-    if (this.state.format === "nsis") this.autoUpdater.quitAndInstall(true, true);
-    else this.autoUpdater.quitAndInstall();
+    try {
+      if (this.state.format === "nsis") this.autoUpdater.quitAndInstall(true, true);
+      else this.autoUpdater.quitAndInstall();
+    } catch (error) {
+      this.restarting = false;
+      const message = error instanceof Error ? error.message : String(error);
+      this.set({
+        status: "error",
+        progress: null,
+        error: `could not apply update: ${message}`,
+      });
+      return "unavailable";
+    }
     return "restarting";
   }
 

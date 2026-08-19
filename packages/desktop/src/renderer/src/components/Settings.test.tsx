@@ -264,6 +264,22 @@ describe("Settings Updates page (issue #89)", () => {
     expect(backendMock.restartForAppUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("shows an applying macOS update without actions and disables checks", async () => {
+    seed({
+      appUpdate: appUpdateState({
+        status: "installing",
+        latestVersion: "1.2.0",
+        format: "maczip",
+      }),
+    });
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("applying 1.2.0…");
+    expect(buttonWithText("Restart now")).toBeNull();
+    expect(buttonWithText("Install when I quit")).toBeNull();
+    expect(buttonWithText("Check now")?.disabled).toBe(true);
+  });
+
   it("offers Show in folder once an installer download finishes", async () => {
     seed({
       appUpdate: appUpdateState({

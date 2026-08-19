@@ -97,6 +97,14 @@ function buttonWithText(text: string): HTMLButtonElement {
   return found;
 }
 
+function buttonWithTextOrNull(text: string): HTMLButtonElement | null {
+  return (
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent === text,
+    ) ?? null
+  );
+}
+
 function click(el: HTMLElement): void {
   act(() => {
     el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -163,6 +171,24 @@ describe("AppUpdateCard", () => {
       expect(document.body.textContent).toContain("42%");
     },
   );
+
+  it("shows an indeterminate macOS applying state without update actions", () => {
+    useStore.setState({
+      appUpdate: appUpdateState({
+        status: "installing",
+        latestVersion: "1.2.0",
+        format: "maczip",
+      }),
+    });
+    renderCard();
+
+    expect(document.body.textContent).toContain("Applying omp-ui 1.2.0");
+    expect(document.body.textContent).toContain("this can take several minutes");
+    expect(document.body.querySelector(".animate-pulse")).not.toBeNull();
+    expect(buttonWithTextOrNull("Restart now")).toBeNull();
+    expect(buttonWithTextOrNull("Install when I quit")).toBeNull();
+    expect(buttonWithTextOrNull("Later")).toBeNull();
+  });
 
   it.each(["appimage", "nsis", "maczip"] as const)(
     "restarts, arms install-on-quit, and dismisses a staged %s update",
@@ -255,5 +281,17 @@ describe("AppUpdateCard", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("uses a generic title for apply failures", () => {
+    useStore.setState({
+      appUpdate: appUpdateState({
+        status: "error",
+        error: "could not apply update: native preparation failed",
+      }),
+    });
+    renderCard();
+    expect(document.body.textContent).toContain("Update failed");
+    expect(document.body.textContent).not.toContain("Download failed");
   });
 });
