@@ -132,8 +132,6 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           dist="packages/desktop/dist"
-          rm -f "$dist/latest-mac.yml"
-          test ! -e "$dist/latest-mac.yml"
           dmgs=("$dist"/*-mac-preview-${{ matrix.arch }}.dmg)
           zips=("$dist"/*-mac-preview-${{ matrix.arch }}.zip)
           gh release upload "$GITHUB_REF_NAME" --clobber \
@@ -258,23 +256,68 @@ jobs:
           sha256sum "${files[@]}" | sort -k2 > SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -eq "$expected"
           gh release upload "$GITHUB_REF_NAME" --clobber SHA256SUMS.txt
+      - name: Generate and upload the macOS update feed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          node <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+
+          const digest = async (file) => {
+            const sha512 = crypto.createHash("sha512");
+            await new Promise((resolve, reject) => {
+              fs.createReadStream(file)
+                .on("data", (chunk) => sha512.update(chunk))
+                .on("end", resolve)
+                .on("error", reject);
+            });
+            return { file, size: fs.statSync(file).size, sha512: sha512.digest("base64") };
+          };
+
+          async function main() {
+            const version = (process.env.GITHUB_REF_NAME || "").replace(/^v/, "");
+            if (!version) throw new Error("GITHUB_REF_NAME is not a version tag");
+            const files = [];
+            for (const arch of ["arm64", "x64"]) {
+              files.push(await digest(`omp-ui-${version}-mac-preview-${arch}.dmg`));
+              files.push(await digest(`omp-ui-${version}-mac-preview-${arch}.zip`));
+            }
+            const lines = [`version: ${version}`, "files:"];
+            for (const f of files) {
+              lines.push(`  - url: ${f.file}`, `    sha512: ${f.sha512}`, `    size: ${f.size}`);
+            }
+            lines.push(`path: ${files[0].file}`, `sha512: ${files[0].sha512}`);
+            lines.push(`releaseDate: '${new Date().toISOString()}'`);
+            fs.writeFileSync("latest-mac.yml", lines.join("\n") + "\n");
+          }
+
+          main().catch((err) => { console.error(err); process.exit(1); });
+          NODE
+          gh release upload "$GITHUB_REF_NAME" --clobber latest-mac.yml
       - name: Assert release metadata and asset boundary
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
           mkdir release-metadata
           gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-linux.yml'
           gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest.yml'
+          gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-mac.yml'
           appimage="$(basename release-assets/*.AppImage)"
           grep -q "sha512" release-metadata/latest-linux.yml
           grep -Fq "$appimage" release-metadata/latest-linux.yml
           installer="$(basename release-assets/*-windows-preview-x64-setup.exe)"
           grep -q "sha512" release-metadata/latest.yml
           grep -Fq "$installer" release-metadata/latest.yml
-          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' > release-assets.txt
-          if grep -Fxq 'latest-mac.yml' release-assets.txt; then
-            echo 'latest-mac.yml must not be published for unsigned previews' >&2
-            exit 1
-          fi
+          grep -q "sha512" release-metadata/latest-mac.yml
+          grep -q "^version: ${ver}$" release-metadata/latest-mac.yml
+          for name in "omp-ui-${ver}-mac-preview-arm64.dmg" "omp-ui-${ver}-mac-preview-arm64.zip" \
+                      "omp-ui-${ver}-mac-preview-x64.dmg" "omp-ui-${ver}-mac-preview-x64.zip"; do
+            grep -Fq "$name" release-metadata/latest-mac.yml
+          done
