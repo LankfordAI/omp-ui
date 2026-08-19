@@ -1,5 +1,7 @@
 # Session Storage & Encoding Reference
 
+[Documentation home](README.md)
+
 How OMP stores sessions on disk, verified against
 `@oh-my-pi/pi-coding-agent` **v17.1.8**
 (`src/session/session-paths.ts`, `session-listing.ts`, `session-entries.ts`,

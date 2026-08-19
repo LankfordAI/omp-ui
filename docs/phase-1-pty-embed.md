@@ -1,5 +1,11 @@
 # Phase 1: PTY Embed (Electron + node-pty + xterm.js)
 
+[Documentation home](README.md)
+
+**Current status:** PTY sessions are shipped as an optional terminal mode. See
+the [current architecture](architecture.md) and [user guide](user-guide.md) for
+the implemented behavior. The original design record follows.
+
 > Session-format and CLI claims verified against `@oh-my-pi/pi-coding-agent`
 > **v17.1.8** (`src/session/session-paths.ts`, `session-listing.ts`,
 > `session-entries.ts`, `session-loader.ts`) and a live install; see

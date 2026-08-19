@@ -7,10 +7,10 @@ Instructions for coding agents working in this repository.
 - Read `CONTEXT.md` first — it defines the project vocabulary (session, live
   session, tab, lineage, owned session, inspector rail, ...). Use those terms
   and respect their _Avoid_ lists in code, commits, and issues.
-- Architecture and phase plans live in `README.md` and `docs/`
-  (`phase-1-pty-embed.md`, `phase-2-rpc-ui.md`, `phase-3-acp.md`). Design
-  decisions live in `docs/adr/` — check them before proposing an approach
-  an ADR already rejected.
+- Current architecture lives in `docs/architecture.md`. Phase plans remain in
+  `docs/` (`phase-1-pty-embed.md`, `phase-2-rpc-ui.md`, `phase-3-acp.md`), and
+  design decisions remain in `docs/adr/`. Check the ADRs before proposing an
+  approach an ADR already rejected.
 - `packages/core` is plain Node/TS with **zero Electron imports**
   (ADR-0002). `packages/desktop` is the Electron shell. Never introduce an
   Electron dependency into `core`.

@@ -1,5 +1,12 @@
 # Phase 2: RPC-UI Native Rendering
 
+[Documentation home](README.md)
+
+**Current status:** Native RPC UI sessions are shipped and are the default
+session mode. See the [current architecture](architecture.md) and
+[user guide](user-guide.md) for the implemented behavior. The original design
+record follows.
+
 ## Goal
 
 Replace the xterm.js terminal in the main pane with native UI components by using

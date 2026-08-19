@@ -1,5 +1,9 @@
 # Transport-agnostic core (`packages/core` + `OmpBackend`)
 
+> **Status note:** The future-server wording below is historical.
+> `packages/server` and [remote access](../remote-access.md) now ship. See the
+> [current architecture](../architecture.md).
+
 Remote browser access to the UI is a stated future goal but not planned work.
 We therefore split the repo so all OMP-facing logic (PTY via node-pty, rpc-ui
 frame codec, session scanning) lives in **`packages/core`** — plain Node with

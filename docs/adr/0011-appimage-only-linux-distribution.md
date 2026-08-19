@@ -1,5 +1,9 @@
 # AppImage as the sole first-party Linux artifact, via a staged bridge
 
+> **Status note:** The staged cutover below is complete. AppImage is now the
+> sole supported Linux artifact. See the [current architecture](../architecture.md)
+> and [user guide](../user-guide.md).
+
 Linux releases currently ship four formats — AppImage, deb, rpm, and a
 standalone Flatpak bundle — but only the AppImage updates in place. deb, rpm,
 and Flatpak users must download an installer, authorize it, and manually

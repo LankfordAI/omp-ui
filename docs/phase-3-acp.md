@@ -1,5 +1,12 @@
 # Phase 3: ACP Integration
 
+[Documentation home](README.md)
+
+**Current status:** OMP ships the ACP server described here, but omp-ui uses
+PTY and RPC UI session modes rather than an ACP client. See the
+[current architecture](architecture.md) and [user guide](user-guide.md) for the
+implemented behavior. The original design record follows.
+
 > Verified against `@oh-my-pi/pi-coding-agent` **v17.1.8**
 > (`src/modes/acp/acp-mode.ts`, `acp-agent.ts`) and the installed
 > `@agentclientprotocol/sdk`. Zed configuration verified against
