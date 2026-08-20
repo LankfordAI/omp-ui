@@ -49,6 +49,12 @@ if (!app.requestSingleInstanceLock()) {
   let forceQuit = false;
   let appQuitting = false;
   let quitDialogOpen = false;
+  // Latched by AppUpdater.restart() and revoked on install failure. Electron's
+  // native quitAndInstall (Squirrel.Mac / NSIS) closes all windows BEFORE any
+  // before-quit fires; the darwin hide-on-close and both live-session quit
+  // guards must stand down for that close or the quit silently aborts and the
+  // app stays in the dock on the old version (issue #244).
+  let updateQuitAuthorized = false;
   // The `before-quit` flush reads window geometry from the renderer process;
   // the closure is set once whenReady has a window (see whenReady below).
   let flushWindowState: (() => void) | null = null;
@@ -56,7 +62,8 @@ if (!app.requestSingleInstanceLock()) {
 
   /** Awaitable quit guard used by window and application quit paths. */
   const confirmLiveQuit = async (): Promise<boolean> => {
-    if (forceQuit || !backend || backend.sessions.liveCount === 0) return true;
+    if (forceQuit || updateQuitAuthorized || !backend || backend.sessions.liveCount === 0)
+      return true;
     if (quitDialogOpen) return false;
     quitDialogOpen = true;
     const win = BrowserWindow.getAllWindows()[0];
@@ -84,7 +91,8 @@ if (!app.requestSingleInstanceLock()) {
    * never show. Returns true when the quit may proceed.
    */
   const confirmQuitIfLive = (): boolean => {
-    if (forceQuit || !backend || backend.sessions.liveCount === 0) return true;
+    if (forceQuit || updateQuitAuthorized || !backend || backend.sessions.liveCount === 0)
+      return true;
     void confirmLiveQuit().then((ok) => {
       if (ok) app.quit();
     });
@@ -237,8 +245,8 @@ if (!app.requestSingleInstanceLock()) {
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     const be = new MainBackend(win, registryFile, {
-      authorizeAppUpdateQuit: () => {
-        forceQuit = true;
+      setAppUpdateQuitAuthorized: (on) => {
+        updateQuitAuthorized = on;
       },
       // omp-ui updates are enabled for packaged Linux, Windows, and macOS
       // builds; the env override lets a dev run exercise the real flow against
@@ -272,7 +280,9 @@ if (!app.requestSingleInstanceLock()) {
     void be.captureShellKeys();
 
     win.on("close", (e) => {
-      if (process.platform === "darwin" && !appQuitting) {
+      // updateQuitAuthorized: the close was issued by native quitAndInstall,
+      // which only calls app.quit() after every window closes (issue #244).
+      if (process.platform === "darwin" && !appQuitting && !updateQuitAuthorized) {
         e.preventDefault();
         win.hide();
       } else if (process.platform !== "darwin" && !confirmQuitIfLive()) {

@@ -115,13 +115,13 @@ interface MadeUpdater {
   downloadsDir: string;
   dismissed: { value: string | null };
   hasLiveSessions: Mock<() => boolean>;
-  authorizeQuit: Mock<() => void>;
+  setQuitAuthorized: Mock<(on: boolean) => void>;
 }
 
 function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
   const dismissed = { value: null as string | null };
   const hasLiveSessions = vi.fn(() => false);
-  const authorizeQuit = vi.fn();
+  const setQuitAuthorized = vi.fn();
   const downloadsDir = mkTmp();
   const updater = new AppUpdater({
     win: {} as never,
@@ -133,13 +133,13 @@ function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
       dismissed.value = v;
     },
     hasLiveSessions,
-    authorizeQuit,
+    setQuitAuthorized,
     send: (channel, state) => sent.push({ channel, state: { ...state } }),
     channel: "app:updateState",
     platform: "linux",
     ...overrides,
   });
-  return { updater, downloadsDir, dismissed, hasLiveSessions, authorizeQuit };
+  return { updater, downloadsDir, dismissed, hasLiveSessions, setQuitAuthorized };
 }
 
 const statuses = (): AppUpdateState["status"][] => sent.map((s) => s.state.status);
@@ -475,20 +475,21 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
 
   it("requires renderer confirmation for live sessions, then authorizes restart", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater, hasLiveSessions, authorizeQuit } = await stageAutoUpdate(autoUpdater);
+    const { updater, hasLiveSessions, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
     hasLiveSessions.mockReturnValue(true);
 
     expect(updater.restart()).toBe("confirmation-required");
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
-    expect(authorizeQuit).not.toHaveBeenCalled();
+    expect(setQuitAuthorized).not.toHaveBeenCalled();
     expect(updater.state.status).toBe("downloaded");
 
     expect(updater.restart(true)).toBe("restarting");
     expect(updater.state.status).toBe("installing");
     expect(updater.restart(true)).toBe("restarting");
     expect(hasLiveSessions).toHaveBeenCalledTimes(2);
-    expect(authorizeQuit).toHaveBeenCalledTimes(1);
+    expect(setQuitAuthorized).toHaveBeenCalledTimes(1);
+    expect(setQuitAuthorized).toHaveBeenCalledWith(true);
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(
       ...(format === "nsis" ? [true, true] : []),
@@ -512,7 +513,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
 
   it("surfaces updater errors during the installer handoff and clears the latch", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAutoUpdate(autoUpdater);
+    const { updater, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
     expect(updater.restart()).toBe("restarting");
 
@@ -521,6 +522,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     expect(updater.state.status).toBe("error");
     expect(updater.state.error).toBe("could not apply update: native preparation failed");
     expect(updater.restart()).toBe("unavailable");
+    expect(setQuitAuthorized.mock.calls).toEqual([[true], [false]]);
   });
 
   it("surfaces a synchronous installer throw and clears the latch", async () => {
@@ -528,7 +530,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     autoUpdater.quitAndInstall.mockImplementation(() => {
       throw new Error("installer launch failed");
     });
-    const { updater } = await stageAutoUpdate(autoUpdater);
+    const { updater, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
 
     expect(updater.restart()).toBe("unavailable");
@@ -536,6 +538,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     expect(updater.state.error).toBe("could not apply update: installer launch failed");
     expect(updater.restart()).toBe("unavailable");
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+    expect(setQuitAuthorized.mock.calls).toEqual([[true], [false]]);
   });
 
   it("reports restart unavailable until the update is downloaded", async () => {

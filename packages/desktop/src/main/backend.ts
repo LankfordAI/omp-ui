@@ -109,7 +109,7 @@ export class MainBackend {
     private readonly win: BrowserWindow,
     registryFile: string,
     opts: {
-      authorizeAppUpdateQuit?: () => void;
+      setAppUpdateQuitAuthorized?: (on: boolean) => void;
       appUpdateEnabled?: boolean;
       appVersion?: string;
       appUpdateEnv?: NodeJS.ProcessEnv;
@@ -170,7 +170,7 @@ export class MainBackend {
       getDismissed: () => this.registry.dismissedAppUpdateVersion,
       setDismissed: (v) => this.registry.setDismissedAppUpdateVersion(v),
       hasLiveSessions: () => this.sessions.liveCount > 0,
-      authorizeQuit: opts.authorizeAppUpdateQuit ?? (() => {}),
+      setQuitAuthorized: opts.setAppUpdateQuitAuthorized ?? (() => {}),
       send: (ch, s) => this.send(ch, s),
       channel: CH.onAppUpdateState,
     });
