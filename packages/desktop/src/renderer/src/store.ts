@@ -2040,10 +2040,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
           return;
         }
         case "command_output": {
-          // Attaches to the in-flight slash command's transcript row. The
-          // shipped binary emits none for builtins today — this is forward
-          // compatibility for the upstream reply-text issue, with a hard cap
-          // so it can never regrow the drawer pane issue #43 removed.
+          // Attaches to the in-flight slash command's transcript row. omp
+          // 17.3.8+ emits this for builtin replies (/computer status,
+          // /usage, /context, ...), which is what makes them visible in
+          // native sessions; the hard cap means a verbose reply can never
+          // regrow the drawer pane issue #43 removed.
           const text = strField(frame, "text") ?? "";
           const running = effectiveItems(tabId)
             .filter((i): i is CommandItem => i.kind === "command" && i.status === "running")
@@ -2837,9 +2838,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
         await runCommand(tabId, { type: "prompt", message });
         return;
       }
-      // The acknowledgement row: builtin replies never cross the rpc boundary
-      // (their command_output is an upstream ask), so the row itself is what
-      // makes the command visibly run — and settle.
+      // The acknowledgement row: makes the command visibly run - and settle -
+      // while the reply itself rides command_output frames (omp 17.3.8+
+      // emits them for builtin replies too).
       const item = commandItem(name, args);
       appendItem(tabId, item);
       const byRequest =

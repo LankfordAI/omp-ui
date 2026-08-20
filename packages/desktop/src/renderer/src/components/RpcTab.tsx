@@ -79,20 +79,37 @@ function HeroFooter({ items }: { items: RenderItem[] }) {
             {item.label}
           </p>
         ) : item.kind === "command" ? (
-          <p
-            key={item.id}
-            data-selectable
-            className={cn(
-              "max-w-3xl text-center font-mono text-[11px]",
-              item.status === "failed" ? "text-rose" : "text-ink-faint",
+          <div key={item.id} className="flex max-w-3xl flex-col gap-1 font-mono text-[11px]">
+            <p
+              data-selectable
+              className={cn(
+                "text-center",
+                item.status === "failed" ? "text-rose" : "text-ink-faint",
+              )}
+            >
+              {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
+              {item.status === "running" && (
+                <span className="animate-caret ml-px inline-block align-baseline text-signal">▍</span>
+              )}
+              {item.status === "done" && " ✓"}
+            </p>
+            {item.status === "failed" && item.error !== undefined && (
+              <p
+                data-selectable
+                className="whitespace-pre-wrap break-words text-left text-rose"
+              >
+                {item.error}
+              </p>
             )}
-          >
-            {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
-            {item.status === "running" && (
-              <span className="animate-caret ml-px inline-block align-baseline text-signal">▍</span>
+            {item.output !== undefined && (
+              <pre
+                data-selectable
+                className="max-w-full overflow-auto whitespace-pre-wrap break-words text-left text-ink-mid"
+              >
+                {item.output}
+              </pre>
             )}
-            {item.status === "done" && " ✓"}
-          </p>
+          </div>
         ) : null,
       )}
     </div>

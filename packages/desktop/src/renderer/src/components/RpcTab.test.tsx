@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, rpcTabState } from "../test/fixtures";
+import type { RenderItem } from "../lib/transcript";
 import type { RpcFailure } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -179,5 +180,70 @@ describe("RpcTab exit overlay", () => {
     expect(text).toContain("resume session");
     expect(text).not.toContain("The live session process stopped");
     expect(text).not.toContain("Copy");
+  });
+});
+
+describe("RpcTab hero slash-command replies", () => {
+  function seedHero(items: RenderItem[]): void {
+    seed(null);
+    useStore.setState((current) => ({
+      rpc: { ...current.rpc, [TAB]: { ...current.rpc[TAB]!, items } },
+    }));
+  }
+
+  const BOOT = { kind: "notice" as const, id: "boot", text: "xd://: mounted" };
+
+  it("renders a settled command's output in the hero footer", () => {
+    seedHero([
+      BOOT,
+      { kind: "command", id: "c1", name: "computer", args: "status",
+        status: "done", output: "Computer use: disabled" },
+    ]);
+    renderTab();
+    const pre = [...document.querySelectorAll("pre")].find(
+      (p) => p.textContent?.includes("Computer use: disabled"),
+    );
+    expect(pre).toBeDefined();
+    expect(pre?.hasAttribute("data-selectable")).toBe(true);
+  });
+
+  it("renders a failed command's error in the hero footer", () => {
+    seedHero([
+      BOOT,
+      { kind: "command", id: "c1", name: "usage", args: "",
+        status: "failed", error: 'RPC command "prompt" failed: timed out' },
+    ]);
+    renderTab();
+    expect(document.body.textContent).toContain(
+      'RPC command "prompt" failed: timed out',
+    );
+  });
+
+  it("keeps the hero for command rows, docks when an exchange lands", () => {
+    seedHero([
+      BOOT,
+      { kind: "command", id: "c1", name: "computer", args: "status",
+        status: "done", output: "Computer use: disabled" },
+    ]);
+    renderTab();
+    expect(document.body.textContent).toContain("What's next in p?");
+
+    act(() => {
+      useStore.setState((current) => ({
+        rpc: {
+          ...current.rpc,
+          [TAB]: {
+            ...current.rpc[TAB]!,
+            items: [
+              ...current.rpc[TAB]!.items,
+              { kind: "user" as const, id: "u1", text: "hello" },
+            ],
+          },
+        },
+      }));
+    });
+    expect(document.body.textContent).not.toContain("What's next in p?");
+    // The reply survives the dock, now rendered by TranscriptView's CommandRow.
+    expect(document.body.textContent).toContain("Computer use: disabled");
   });
 });
