@@ -155,6 +155,8 @@ export interface BackendState {
   streamStallAbortSeconds: number;
   /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
   advisorAutoReply: boolean;
+  /** Bounded auto-continue after a turn dies to a stream stall (issue #251); app-level, default on. */
+  stallAutoContinue: boolean;
   /** Seeds the advisor on/off for new sessions, default off (issue #174). */
   defaultAdvisor: boolean;
   modelFavorites: string[];

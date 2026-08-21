@@ -140,6 +140,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setAdvisorAutoReply",
     ...request<[on: boolean], void>(),
   },
+  setStallAutoContinue: {
+    channel: "settings:setStallAutoContinue",
+    ...request<[on: boolean], void>(),
+  },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
     ...request<[on: boolean], void>(),

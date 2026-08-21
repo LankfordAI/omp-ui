@@ -15,6 +15,7 @@ interface RegistrySettings {
   planFormat: PlanFormat;
   streamStallAbortSeconds: number;
   advisorAutoReply: boolean;
+  stallAutoContinue: boolean;
   defaultAdvisor: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
@@ -72,6 +73,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     planFormat: "html",
     streamStallAbortSeconds: 180,
     advisorAutoReply: true,
+    stallAutoContinue: true,
     defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,

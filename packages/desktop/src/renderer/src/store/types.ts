@@ -108,6 +108,8 @@ export interface RpcTabState {
    */
   streamStallMs?: number;
   stallCount?: number;
+  /** The turn's terminal assistant message end; drives settle target and stall classification. */
+  lastTurn?: LastTurnMeta;
   extensionQueue: unknown[];
   /** True while any rpc command is in flight. */
   busy: boolean;
@@ -122,6 +124,13 @@ export interface RpcTabState {
   plans: PlanRecord[];
   advisorStats: AdvisorStatsView | null;
   advisorReply: boolean;
+}
+
+/** The turn's terminal assistant message end; drives settle target and stall classification. */
+export interface LastTurnMeta {
+  stopReason?: string;
+  errorMessage?: string;
+  errorId?: number;
 }
 
 export type SidebarSessionState =
@@ -172,6 +181,7 @@ export interface SettingsSlice {
   setHibernateIdleMinutes(minutes: number): Promise<void>;
   setStreamStallAbortSeconds(seconds: number): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
+  setStallAutoContinue(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;

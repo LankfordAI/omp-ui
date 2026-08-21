@@ -11,6 +11,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     hibernateIdleMinutes: 30,
     streamStallAbortSeconds: 180,
     advisorAutoReply: true,
+    stallAutoContinue: true,
     defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,

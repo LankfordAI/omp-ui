@@ -22,6 +22,8 @@ export interface RegistrySettings {
   streamStallAbortSeconds: number;
   /** Auto-answer a late advisor review (issue #111); app-level, default on. */
   advisorAutoReply: boolean;
+  /** Bounded auto-continue after a turn dies to a stream stall (issue #251); app-level, default on. */
+  stallAutoContinue: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   modelFavorites: string[];
@@ -99,6 +101,10 @@ export const SETTINGS: SettingDescriptors = {
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3600,
   ),
   advisorAutoReply: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  stallAutoContinue: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -569,6 +575,14 @@ export class Registry {
 
   setAdvisorAutoReply(on: boolean): void {
     this.#setSetting("advisorAutoReply", on);
+  }
+
+  get stallAutoContinue(): boolean {
+    return this.#getSetting("stallAutoContinue");
+  }
+
+  setStallAutoContinue(on: boolean): void {
+    this.#setSetting("stallAutoContinue", on);
   }
 
   get defaultAdvisor(): boolean {

@@ -57,6 +57,7 @@ const backendMock = {
   setHibernateIdleMinutes: vi.fn(async () => {}),
   setStreamStallAbortSeconds: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
+  setStallAutoContinue: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
   spawnSession: vi.fn(),
@@ -459,6 +460,38 @@ describe("Settings General page advisor auto-reply (issue #111)", () => {
     seedAutoReply(false);
     await renderSettings();
     expect(autoReplySwitch().getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("Settings General page stall auto-continue (issue #251)", () => {
+  const seedAutoContinue = (stallAutoContinue: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ stallAutoContinue }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const autoContinueSwitch = (): HTMLElement =>
+    document.querySelector(
+      '[role="switch"][aria-label="Stall auto-continue"]',
+    ) as HTMLElement;
+
+  it("shows the setting on and persists switching it off", async () => {
+    seedAutoContinue(true);
+    await renderSettings();
+    expect(autoContinueSwitch().getAttribute("aria-checked")).toBe("true");
+    click(autoContinueSwitch());
+    expect(backendMock.setStallAutoContinue).toHaveBeenCalledWith(false);
+  });
+
+  it("reflects a persisted off setting", async () => {
+    seedAutoContinue(false);
+    await renderSettings();
+    expect(autoContinueSwitch().getAttribute("aria-checked")).toBe("false");
   });
 });
 

@@ -117,6 +117,7 @@ const stateWith = (
   hibernateIdleMinutes: 30,
   streamStallAbortSeconds: 180,
   advisorAutoReply: false,
+  stallAutoContinue: true,
   defaultAdvisor: false,
   modelFavorites: [],
   skipDeleteConfirmation,

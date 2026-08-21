@@ -50,6 +50,7 @@ describe("SETTINGS", () => {
       "hibernateIdleMinutes",
       "streamStallAbortSeconds",
       "advisorAutoReply",
+      "stallAutoContinue",
       "defaultAdvisor",
       "modelFavorites",
       "skipDeleteConfirmation",
@@ -86,6 +87,8 @@ describe("Registry.load", () => {
     expect(reg.hibernateIdleMinutes).toBe(30);
     // Issue #111: auto-reply defaults on.
     expect(reg.advisorAutoReply).toBe(true);
+    // Issue #251: stall auto-continue defaults on.
+    expect(reg.stallAutoContinue).toBe(true);
     // Issue #174: the advisor does not default on.
     expect(reg.defaultAdvisor).toBe(false);
   });
@@ -211,6 +214,7 @@ describe("Registry.load", () => {
           planFormat: "markdown",
           hibernateIdleMinutes: 30.5,
           advisorAutoReply: "true",
+          stallAutoContinue: "no",
           defaultAdvisor: "yes",
           modelFavorites: [42, "kept", null, "also-kept"],
           skipDeleteConfirmation: 1,
@@ -237,6 +241,7 @@ describe("Registry.load", () => {
     expect(reg.planFormat).toBe("html");
     expect(reg.hibernateIdleMinutes).toBe(30);
     expect(reg.advisorAutoReply).toBe(true);
+    expect(reg.stallAutoContinue).toBe(true);
     expect(reg.defaultAdvisor).toBe(false);
     expect(reg.getFavorites()).toEqual(["kept", "also-kept"]);
     expect(reg.skipDeleteConfirmation).toBe(false);
@@ -423,6 +428,27 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).advisorAutoReply).toBe(true);
   });
 
+  it("round-trips stall auto-continue and defaults to on for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setStallAutoContinue(false);
+    expect(Registry.load(file).stallAutoContinue).toBe(false);
+    reg.setStallAutoContinue(true);
+    expect(Registry.load(file).stallAutoContinue).toBe(true);
+
+    for (const junk of ["no", 1, null, {}]) {
+      const f = tmpFile();
+      fs.writeFileSync(
+        f,
+        JSON.stringify({ schemaVersion: 1, settings: { stallAutoContinue: junk } }),
+      );
+      expect(Registry.load(f).stallAutoContinue).toBe(true);
+    }
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).stallAutoContinue).toBe(true);
+  });
+
   it("round-trips default advisor and falls back to off for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -472,6 +498,7 @@ describe("Registry persistence", () => {
       ["hibernateIdleMinutes", (registry) => registry.setHibernateIdleMinutes(30)],
       ["streamStallAbortSeconds", (registry) => registry.setStreamStallAbortSeconds(180)],
       ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
+      ["stallAutoContinue", (registry) => registry.setStallAutoContinue(true)],
       ["defaultAdvisor", (registry) => registry.setDefaultAdvisor(false)],
       ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],
       ["themeId", (registry) => registry.setThemeId("graphite")],

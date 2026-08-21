@@ -225,6 +225,7 @@ function GeneralPage() {
     (s) => s.setSkipDeleteConfirmation,
   );
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
+  const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
@@ -291,6 +292,16 @@ function GeneralPage() {
           options={STALL_ABORT_OPTIONS}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
           optionClassName="px-2 text-[11px]"
+        />
+      </Row>
+      <Row
+        title="Stall auto-continue"
+        hint="When a turn is aborted because the model stream stalled, send a bounded continue prompt (max 2 in a row; any prompt re-arms) so the session resumes instead of sitting idle. The stall diagnostic still appears with this off. Terminal tabs have no prompt channel and are unaffected."
+      >
+        <Switch
+          on={state?.stallAutoContinue ?? true}
+          onChange={(next) => void setStallAutoContinue(next)}
+          label="Stall auto-continue"
         />
       </Row>
       <Row

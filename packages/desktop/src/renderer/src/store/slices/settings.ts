@@ -106,6 +106,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     }
   },
 
+  async setStallAutoContinue(on) {
+    try {
+      await backend.setStallAutoContinue(on);
+    } catch (err) {
+      alertError(err);
+    }
+  },
+
   async setDefaultAdvisor(on) {
     try {
       await backend.setDefaultAdvisor(on);

@@ -12,8 +12,17 @@ import type {
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
-import { commandItem, planProposalItem } from "./lib/transcript";
-import { ADVISOR_REPLY_SETTLE_MS } from "./lib/advisor-reply";
+import { commandItem, planProposalItem, type NoticeItem } from "./lib/transcript";
+import {
+  ADVISOR_REPLY_CAP_NOTICE,
+  ADVISOR_REPLY_LEAD,
+  ADVISOR_REPLY_SETTLE_MS,
+} from "./lib/advisor-reply";
+import {
+  STALL_CONTINUE_CAP_NOTICE,
+  STALL_CONTINUE_LEAD,
+  STALL_CONTINUE_SETTLE_MS,
+} from "./lib/stall-continue";
 import {
   backendState as makeBackendState,
   rpcTabState,
@@ -102,6 +111,7 @@ const mockBackend = {
   setDefaultMode: vi.fn(),
   setPlanFormat: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
+  setStallAutoContinue: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
@@ -2878,6 +2888,343 @@ describe("handleRpcFrame routing", () => {
       sessionId: "sess-9",
       thinkingLevel: "low",
     });
+  });
+});
+
+describe("stall auto-continue (issue #251)", () => {
+  // The loop-guard state lives in module-scoped watchers keyed by tab id, so
+  // each test owns its own tab: a shared id would leak counts between cases.
+  /** The incident's terminal message_end: the provider watchdog's stall abort. */
+  const stallEndFrame = () => ({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "Findings: …" }],
+      stopReason: "error",
+      errorMessage: "OpenAI responses stream stalled while waiting for the next event",
+      errorId: 397312, // 0x4000 timeout bit set
+    },
+  });
+
+  const continuePrompts = () =>
+    sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === STALL_CONTINUE_LEAD);
+
+  it("continues a stalled turn end with a bounded follow-up prompt (incident replay)", async () => {
+    const T = "tab-stall-a";
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = useStore.getState();
+      // The real frame sequence of session 01a024fc (issue #250's incident):
+      // the ask's args are still streaming when the model stream goes silent.
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "tA",
+        toolName: "ask",
+        args: { i: "Choosing radiance build path" },
+      });
+      store.handleRpcFrame(T, {
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "toolcall_delta",
+          contentIndex: 0,
+          delta: "Choosing radiance build path",
+          partial: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "tA",
+                name: "ask",
+                arguments: { i: "Choosing radiance build path" },
+              },
+            ],
+          },
+        },
+      });
+      // Ninety seconds of silence later, omp's provider watchdog aborts.
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
+
+    // The in-flight ask card reads aborted, not cancelled.
+    const items = useStore.getState().rpc[T]!.items;
+    const tools = items.filter((i) => i.kind === "tool");
+    expect(tools).not.toHaveLength(0);
+    for (const t of tools) expect(t).toMatchObject({ status: "aborted" });
+
+    // The #100 diagnostic posted at the error turn-end.
+    const diagnostic = items.find(
+      (i): i is NoticeItem =>
+        i.kind === "notice" && i.level === "warn" && i.text.includes("provider stream stall"),
+    );
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic!.text).toContain("OpenAI responses stream stalled");
+
+    // The continue announced itself, then went out as a followUp prompt.
+    const announced = items.find(
+      (i) => i.kind === "notice" && i.level === "info" && i.text.includes("stall auto-continue #1"),
+    );
+    expect(announced).toBeDefined();
+    const prompts = continuePrompts();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
+  });
+
+  it("posts the diagnostic but sends no continue when the app switch is off", async () => {
+    const T = "tab-stall-b";
+    vi.useFakeTimers();
+    try {
+      backendState = { ...backendState, stallAutoContinue: false };
+      useStore.setState({
+        state: backendState,
+        rpc: { [T]: rpcTabState({ status: "running" }) },
+      });
+      const store = useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+      });
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
+    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    const items = useStore.getState().rpc[T]!.items;
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
+    ).toBe(true);
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("stall auto-continue")),
+    ).toBe(false);
+  });
+
+  it("does not continue a user interrupt: the card cancels, no diagnostic, no prompt", async () => {
+    const T = "tab-stall-c";
+    useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+    const store = useStore.getState();
+    store.handleRpcFrame(T, {
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+    });
+    store.handleRpcFrame(T, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "on it" }],
+        stopReason: "aborted",
+      },
+    });
+    store.handleRpcFrame(T, { type: "agent_end" });
+    await flushMicrotasks();
+    const items = useStore.getState().rpc[T]!.items;
+    const tool = items.find((i) => i.kind === "tool");
+    expect(tool).toMatchObject({ status: "cancelled" });
+    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
+    ).toBe(false);
+  });
+
+  it("aborts cards on a non-stall error end, with no diagnostic and no continue", async () => {
+    const T = "tab-stall-d";
+    useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+    const store = useStore.getState();
+    store.handleRpcFrame(T, {
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+    });
+    store.handleRpcFrame(T, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "half done" }],
+        stopReason: "error",
+        errorMessage: "provider 500",
+      },
+    });
+    store.handleRpcFrame(T, { type: "agent_end" });
+    await flushMicrotasks();
+    const items = useStore.getState().rpc[T]!.items;
+    const tool = items.find((i) => i.kind === "tool");
+    expect(tool).toMatchObject({ status: "aborted" });
+    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
+    ).toBe(false);
+  });
+
+  it("caps consecutive continues, then re-arms on a user prompt", async () => {
+    const T = "tab-stall-e";
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      // One stalled turn end: the continue prompt goes out, then its turn
+      // (simulated) dies to a stall again.
+      const stalledTurn = async () => {
+        useStore.setState((s) => ({
+          rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
+        }));
+        useStore.getState().handleRpcFrame(T, stallEndFrame());
+        useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+      };
+
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(1);
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(2);
+
+      // A third consecutive stall hits the cap: explained once, nothing sent.
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(2);
+      const capped = useStore
+        .getState()
+        .rpc[T]!.items.filter(
+          (i) => i.kind === "notice" && i.text === STALL_CONTINUE_CAP_NOTICE,
+        );
+      expect(capped).toHaveLength(1);
+
+      // The per-session stall counter (issue #100 numbering) advanced across
+      // stalls — stallNotice must mutate the live tab, not the frame-start
+      // capture the ready patch above it replaced.
+      const stallNotices = useStore
+        .getState()
+        .rpc[T]!.items.filter(
+          (i): i is NoticeItem =>
+            i.kind === "notice" && i.text.includes("provider stream stall"),
+        );
+      expect(stallNotices.map((n) => n.text)).toEqual([
+        expect.stringContaining("provider stream stall #1"),
+        expect.stringContaining("provider stream stall #2"),
+        expect.stringContaining("provider stream stall #3"),
+      ]);
+
+      // A user prompt re-arms the guard: the next stall gets its continue.
+      void useStore.getState().sendPrompt(T, "carry on");
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
+  });
+
+  it("a user prompt inside the settle window wins the race", async () => {
+    const T = "tab-stall-f";
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+      });
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      // The user sees the error and types their own continuation.
+      void useStore.getState().sendPrompt(T, "carry on where you stopped");
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
+    const prompts = sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd.message).toBe("carry on where you stopped");
+  });
+
+  it("does not dispatch into a process that died inside the settle window", async () => {
+    const T = "tab-stall-g";
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+      });
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      // The session process dies before the settle window closes.
+      useStore.setState((s) => ({ exited: { ...s.exited, [T]: 1 } }));
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
+    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+  });
+
+  it("the auto-continue does not reset the advisor-reply streak", async () => {
+    const T = "tab-stall-h";
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      // The production sequence, load-bearing for the advisor watcher's cursor:
+      // the reviewed turn's agent_end lands while the tab still reads running
+      // (seeding the baseline past the marker), then the review arrives on the
+      // idle session.
+      const review = async (note: string) => {
+        useStore.setState((s) => ({
+          rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
+        }));
+        useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+        useStore.getState().handleRpcFrame(T, {
+          type: "message_end",
+          message: {
+            role: "custom",
+            customType: "advisor",
+            content: "<advisory/>",
+            details: { notes: [{ note, severity: "concern", advisor: "ops" }] },
+          },
+        });
+        await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+      };
+      const advisorReplies = () =>
+        sent.filter(
+          (s) => s.cmd.type === "prompt" && String(s.cmd.message).startsWith(ADVISOR_REPLY_LEAD),
+        );
+
+      // Two reviews fill the reply guard's budget.
+      await review("first finding");
+      expect(advisorReplies()).toHaveLength(1);
+      await review("second finding");
+      expect(advisorReplies()).toHaveLength(2);
+
+      // A stall end dispatches its continue; the advisor guard must not reset.
+      useStore.setState((s) => ({
+        rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
+      }));
+      useStore.getState().handleRpcFrame(T, stallEndFrame());
+      useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+      expect(continuePrompts()).toHaveLength(1);
+
+      // A third review arrives: the guard is still capped, so it explains
+      // instead of answering. Had the continue reset it, the reply would go out.
+      await review("third finding");
+      expect(advisorReplies()).toHaveLength(2);
+      const capNotice = useStore.getState().rpc[T]!.items.find(
+        (i) => i.kind === "notice" && i.text === ADVISOR_REPLY_CAP_NOTICE,
+      );
+      expect(capNotice).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushMicrotasks();
   });
 });
 

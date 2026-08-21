@@ -54,6 +54,10 @@ import {
   isUntitled,
 } from "./lib/session-title";
 import { reduceSubagentFrame, SUBAGENT_BUFFER_CAP, subagentKey } from "./lib/subagent-events";
+import {
+  STALL_CONTINUE_LEAD,
+  StallContinueWatcher,
+} from "./lib/stall-continue";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { createSettingsSlice } from "./store/slices/settings";
 import { createUpdatesSlice } from "./store/slices/updates";
@@ -68,6 +72,7 @@ import {
 } from "./store/slices/view";
 import type {
   BranchActivity,
+  LastTurnMeta,
   PlanRecord,
   RpcTabState,
   SidebarSessionState,
@@ -253,6 +258,15 @@ function stallNotice(tab: RpcTabState, frame: object): NoticeItem | null {
   return noticeItem(
     `provider stream stall #${tab.stallCount} — ${detail}${upstream}`,
     "warn",
+  );
+}
+
+/** A turn's terminal message ended in a stream stall/timeout, not a user interrupt or other error. */
+function isStreamStallEnd(lt: LastTurnMeta): boolean {
+  if (lt.stopReason !== "error") return false;
+  return (
+    ((lt.errorId ?? 0) & OMP_ERROR_FLAG_TIMEOUT) !== 0 ||
+    STALL_MESSAGE_RE.test(lt.errorMessage ?? "")
   );
 }
 
@@ -985,6 +999,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // reads false — this reset is what stops the reply watcher from
       // separately answering the very review this dispatch just folded in.
       advisorReplyWatcher.reset(tabId);
+      stallContinueWatcher.reset(tabId);
       dispatchExecutePlan(
         tabId,
         intent.context,
@@ -1026,6 +1041,35 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
   });
 
+  /**
+   * Continues a live session whose turn died to a stream stall (issue #251):
+   * the watchdog aborted the turn, omp will not retry after content, and
+   * without this the session sits idle. Bounded like the advisor watcher —
+   * a settle window so a user's own "continue" wins the race, and a
+   * consecutive-continue cap, since the continue turn is itself stallable.
+   */
+  const stallContinueWatcher = new StallContinueWatcher({
+    canContinue: (tabId) => {
+      const tab = get().rpc[tabId];
+      if (!tab) return false;
+      if (get().state?.stallAutoContinue === false) return false;
+      // "ready" only: a running turn already has the continue in flight or
+      // the user is mid-prompt; a dead process must never receive one.
+      if (tab.status !== "ready") return false;
+      if (get().exited[tabId] !== undefined) return false;
+      // A question is already pending above the composer — do not stack a
+      // prompt on it.
+      if (tab.extensionQueue.length > 0) return false;
+      // The agent is blocked inside a plan gate — only the user can resolve it.
+      if (tab.planReview !== null || tab.planDeferred) return false;
+      return true;
+    },
+    onDispatch: (tabId) => {
+      void get().sendPrompt(tabId, STALL_CONTINUE_LEAD, "stall_continue");
+    },
+    onNotice: (tabId, text, level) => appendItem(tabId, noticeItem(text, level)),
+  });
+
   const eraseSession = async (tabId: string): Promise<void> => {
     try {
       await backend.deleteSession(tabId);
@@ -1037,6 +1081,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // A dangling concern-wait timer must not fire into the dead tab's slot.
     concernWatcher.cancel(tabId);
     advisorReplyWatcher.cancel(tabId);
+    stallContinueWatcher.cancel(tabId);
     cancelTranscriptBatch(tabId);
     slashCommandItems.delete(tabId);
     if (tab) {
@@ -1297,6 +1342,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // A resumed transcript's advisories are history, not a live review: the
     // baseline moves past them so nothing here is ever answered.
     advisorReplyWatcher.reset(tabId);
+    stallContinueWatcher.reset(tabId);
   };
 
   /**
@@ -1756,6 +1802,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // A pending concern handoff belongs to the session that just went away.
         concernWatcher.cancel(tabId);
         advisorReplyWatcher.cancel(tabId);
+        stallContinueWatcher.cancel(tabId);
         cancelTranscriptBatch(tabId);
         // A re-boot must not slam the Agents pane's drill-down shut: the open
         // detail view and the retained buffers behind it survive the process
@@ -2270,7 +2317,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             }
           }
           if (type === "agent_start") {
-            patchRpc(tabId, { status: "running" });
+            patchRpc(tabId, { status: "running", lastTurn: undefined });
             // A stale entry from a prior run (its tick has not fired yet)
             // must not block the fresh arm.
             stopStreamStallTimer(tabId);
@@ -2296,8 +2343,24 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // Context and spend grow at turn boundaries — tick the HUD meter and
           // cost counter live while the agent is still mid-run, not just once
           // at agent_end.
-          if (type === "message_end" && tab.status === "running") {
-            refreshLiveUsage(tabId);
+          if (type === "message_end") {
+            const message = field(frame, "message");
+            if (
+              message !== null &&
+              typeof message === "object" &&
+              strField(message, "role") === "assistant"
+            ) {
+              // The turn's terminal message end: drives the agent_end settle
+              // target and the stall classification below.
+              patchRpc(tabId, {
+                lastTurn: {
+                  stopReason: strField(message, "stopReason"),
+                  errorMessage: strField(message, "errorMessage"),
+                  errorId: numField(message, "errorId"),
+                },
+              });
+            }
+            if (tab.status === "running") refreshLiveUsage(tabId);
           }
           if (type === "agent_end") {
             // The tick self-terminates on the next pass; the explicit clear
@@ -2326,6 +2389,30 @@ export const useStore = create<UiStore>()((set, get, api) => {
             // it per run so the HUD cost counter updates instead of freezing
             // at $0.0000 for the whole session.
             void get().refreshStats(tabId);
+            // (C) The stall diagnostic posts at every stall-classified error
+            // turn-end — stallNotice was previously only reachable via
+            // auto_retry_start, so a non-retried stall
+            // (stream_interrupted_after_content) had no diagnostic at all
+            // (issue #250). The synthetic frame reuses the classifier and the
+            // text verbatim.
+            // (B) The continue prompt is gated on the app switch (issue
+            // #251); the diagnostic is not.
+            const lastTurn = get().rpc[tabId]?.lastTurn;
+            if (lastTurn !== undefined && isStreamStallEnd(lastTurn)) {
+              // The ready patch above replaced the stored tab, and stallNotice
+              // bumps its stall counter in place — re-fetch the live object so
+              // the increment does not land on a detached one.
+              const liveTab = get().rpc[tabId];
+              if (liveTab !== undefined) {
+                const notice = stallNotice(liveTab, {
+                  errorMessage: lastTurn.errorMessage,
+                  errorId: lastTurn.errorId,
+                });
+                if (notice) appendItem(tabId, notice);
+                if (get().state?.stallAutoContinue !== false)
+                  stallContinueWatcher.trigger(tabId);
+              }
+            }
           }
         }
       }
@@ -2409,13 +2496,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async sendPrompt(tabId, message, route = "steer", images) {
       const tab = get().rpc[tabId];
       if (!tab || tab.status === "starting") return;
-      if (route === "advisor_reply") {
-        // omp-ui's own answer to a late review: it must not title the session and
-        // must not re-arm the loop guard it was dispatched by.
+      if (route === "advisor_reply" || route === "stall_continue") {
+        // omp-ui's own prompt (a late-review answer, a stall continue): it
+        // must not title the session and must not re-arm either loop guard —
+        // an auto-prompt is not human direction.
       } else {
         // Titling reads the first substantive prompt, whichever route it took.
         get().setInitialPrompt(tabId, message);
         advisorReplyWatcher.reset(tabId);
+        stallContinueWatcher.reset(tabId);
       }
       // Always the `prompt` frame, never `steer`/`follow_up`: only AgentSession.prompt
       // builds the magic-keyword notices (orchestrate/ultrathink/workflowz), so those
@@ -2425,7 +2514,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // An advisor reply rides followUp, not steer: if a turn started between the
       // settle and this send, the reply queues behind it instead of interrupting.
       const streamingBehavior =
-        route === "follow_up" || route === "advisor_reply"
+        route === "follow_up" || route === "advisor_reply" || route === "stall_continue"
           ? "followUp"
           : "steer";
       const cmd = { type: "prompt", message, streamingBehavior };
@@ -2442,6 +2531,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (get().rpc[tabId]?.status === "starting") return;
       get().setInitialPrompt(tabId, message);
       advisorReplyWatcher.reset(tabId);
+      stallContinueWatcher.reset(tabId);
       const type = "abort_and_prompt";
       await runCommand(
         tabId,
