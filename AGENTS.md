@@ -14,6 +14,10 @@ Instructions for coding agents working in this repository.
 - `packages/core` is plain Node/TS with **zero Electron imports**
   (ADR-0002). `packages/desktop` is the Electron shell. Never introduce an
   Electron dependency into `core`.
+- Never request upstream changes in OMP: do not open issues, PRs, or
+  feature requests against the upstream OMP repository. Where OMP's
+  current state constrains this UI, work around it inside `omp-ui` where
+  possible; if no workaround exists, surface the constraint to the user.
 
 ## Feature requests and bugs → GitHub issues
 
