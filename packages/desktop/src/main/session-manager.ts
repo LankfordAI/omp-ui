@@ -60,7 +60,9 @@ interface LiveEntry {
   hibernateArmed: boolean;
   /** agent_start minus agent_end; >0 means a turn is running. */
   turnsRunning: number;
-  /** Set by notePlanVerdict; cleared by the next agent_end (or after SETTLE_WINDOW_MS). */
+  /** Set by notePlanVerdict; cleared by the next agent_end or (lazily) once
+   * lapsed — a check is scheduled at the lapse so quiet sessions lapse too
+   * (issue #247). */
   settleSuspendedUntil: number | null;
   /** In-flight pre-kill probe; matched against the response frame's id. */
   probeId: string | null;
@@ -701,7 +703,13 @@ export class SessionManager {
     // momentarily quiet; suspend hibernation until the next agent_end (or
     // the window lapses) (issue #246).
     const entry = this.live.get(tabId);
-    if (entry !== undefined) entry.settleSuspendedUntil = Date.now() + SETTLE_WINDOW_MS;
+    if (entry !== undefined) {
+      entry.settleSuspendedUntil = Date.now() + SETTLE_WINDOW_MS;
+      // A rejected plan leaves the session silent — no frame would re-arm
+      // the check, so schedule one at the window's lapse (issue #247). Any
+      // real frame re-arms over it and resets the clock.
+      this.scheduleHibernateCheck(tabId, SETTLE_WINDOW_MS);
+    }
     void this.deps.broadcast();
   }
 
@@ -780,7 +788,7 @@ export class SessionManager {
     // Responses to dialogs are commands (rpcSend), not frames: they clear
     // `openExtensionRequests` there. Any real frame re-arms the clock.
     entry.hibernateArmed = true;
-    this.armHibernateTimer(tabId, entry);
+    this.armHibernateTimer(tabId);
   }
 
   /** True when a kill cannot lose work or an in-flight exchange. */
@@ -800,15 +808,29 @@ export class SessionManager {
     return true;
   }
 
-  /** Resets the idle clock; arms only while hibernable and the setting is on. */
-  private armHibernateTimer(tabId: string, entry: LiveEntry): void {
+  /**
+   * Resets the idle clock. Arms regardless of guards (issue #247): the check
+   * re-verifies every guard itself, so a guard that lapses while the session
+   * is quiet is re-examined one window later. Arming only while hibernable
+   * was the silent stick: nothing but a child frame arms, and a quiet
+   * session produces none.
+   */
+  private armHibernateTimer(tabId: string): void {
+    this.scheduleHibernateCheck(tabId, this.deps.registry.hibernateIdleMinutes * 60_000);
+  }
+
+  /**
+   * One pending check per tab; a 0 setting means no check at all. Unref'd:
+   * a housekeeping timer must never hold the process open (quit clears them
+   * anyway via killAll), and tests that verdict/arm without fake timers must
+   * not leak a 30-minute real timer into the worker teardown.
+   */
+  private scheduleHibernateCheck(tabId: string, delayMs: number): void {
     clearTimeout(this.hibernateTimers.get(tabId));
-    const minutes = this.deps.registry.hibernateIdleMinutes;
-    if (minutes <= 0 || !this.hibernable(entry, tabId)) return;
-    this.hibernateTimers.set(
-      tabId,
-      setTimeout(() => void this.tryHibernate(tabId), minutes * 60_000),
-    );
+    if (this.deps.registry.hibernateIdleMinutes <= 0) return;
+    const timer = setTimeout(() => void this.tryHibernate(tabId), delayMs);
+    if (typeof timer.unref === "function") timer.unref();
+    this.hibernateTimers.set(tabId, timer);
   }
 
   /**
@@ -835,19 +857,39 @@ export class SessionManager {
       rpc.send({ type: "get_state", id });
     });
   }
-  /** Idle window elapsed: re-check every guard, probe, then kill and reap. */
+  /**
+   * Idle window elapsed: re-check every guard, probe, then kill and reap.
+   * Every no-kill exit re-arms (issue #247): guards lapse on their own
+   * clocks, and a quiet session has no frames to re-arm the check.
+   */
   private async tryHibernate(tabId: string): Promise<void> {
     this.hibernateTimers.delete(tabId);
     // The setting may have flipped to off since the timer armed.
     if (this.deps.registry.hibernateIdleMinutes <= 0) return;
     const entry = this.live.get(tabId);
-    if (!entry || !this.hibernable(entry, tabId)) return;
+    if (!entry || entry.kind !== "rpc-ui") return;
+    if (!this.hibernable(entry, tabId)) {
+      this.armHibernateTimer(tabId); // guard in force: re-examine next window
+      return;
+    }
     const state = await this.probeState(entry);
-    if (state === null) return; // probe timeout/failure: the next real frame re-arms
-    if (state.parked > 0 || state.streaming) return; // re-armed by the next frame
+    // The tab may have died or been replaced while the probe was out, and
+    // the setting may have flipped off — kill only what the current config
+    // wants, and never hibernate a stale entry (its exit path already ran).
+    if (this.deps.registry.hibernateIdleMinutes <= 0) return;
+    if (this.live.get(tabId) !== entry) return; // its own paths arm fresh
+    if (state === null || state.parked > 0 || state.streaming) {
+      // Probe hiccup or not really idle: never kill on uncertainty (#246),
+      // but do not drop the clock either (#247).
+      this.armHibernateTimer(tabId);
+      return;
+    }
     // Re-check after the probe round-trip: a prompt that landed while we
     // probed starts a turn the probe's snapshot cannot see.
-    if (!this.hibernable(entry, tabId)) return;
+    if (!this.hibernable(entry, tabId)) {
+      this.armHibernateTimer(tabId);
+      return;
+    }
     const reap = this.hibernate(tabId, entry);
     this.hibernating.set(tabId, reap);
     try {

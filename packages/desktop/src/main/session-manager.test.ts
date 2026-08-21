@@ -1051,6 +1051,8 @@ describe("hibernation (issue #246)", () => {
   /** The default hibernateIdleMinutes is 30; the harness registry keeps it. */
   const WINDOW = 30 * 60_000;
   const PROBE_TIMEOUT = 5_000;
+  /** SETTLE_WINDOW_MS in session-manager.ts. */
+  const SETTLE = 30 * 60_000;
 
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({
@@ -1181,7 +1183,7 @@ describe("hibernation (issue #246)", () => {
     }
   });
 
-  it("leaves a session live when the pre-kill probe never answers", async () => {
+  it("re-probes a quiet session every window when the probe never answers, never killing on silence", async () => {
     vi.useFakeTimers();
     try {
       const { manager, sent } = setup({ mode: "rpc-ui" });
@@ -1192,13 +1194,41 @@ describe("hibernation (issue #246)", () => {
       await vi.advanceTimersByTimeAsync(WINDOW);
       expect(rpc.send).toHaveBeenCalledTimes(1); // the probe went out
 
-      // No answer: the probe times out, the attempt is dropped, no re-probe.
+      // No answer: the probe times out and the attempt is dropped — but the
+      // clock re-arms (issue #247), so a still-quiet session is re-examined.
       await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT + 1);
       expect(rpc.kill).not.toHaveBeenCalled();
       expect(manager.isLive(TAB)).toBe(true);
-      await vi.advanceTimersByTimeAsync(WINDOW * 2);
-      expect(rpc.send).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(rpc.send).toHaveBeenCalledTimes(2); // one re-probe per window
+      expect(rpc.kill).not.toHaveBeenCalled(); // still silent: still not killed
+      expect(manager.isLive(TAB)).toBe(true);
       expect(sent.some((s) => s.channel === CH.onPtyExit)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hibernates a quiet session on the re-probe after a transient probe failure (issue #247)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW); // probe #1 goes out
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT + 1); // it times out; clock re-arms
+      await vi.advanceTimersByTimeAsync(WINDOW); // probe #2 goes out
+      expect(rpc.send).toHaveBeenCalledTimes(2);
+
+      cleanProbe(rpc); // the child answers the re-probe this time
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -1230,6 +1260,49 @@ describe("hibernation (issue #246)", () => {
       await flush();
 
       expect(rpc.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hibernates a quiet session once the post-verdict settle window lapses (issue #247)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      // Window shorter than SETTLE, so the lapse falls off the re-arm
+      // chain's grid: the verdict's one-shot is the only check that can
+      // land exactly there (issue #247).
+      registry.setHibernateIdleMinutes(8);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      // t=0: plan proposed (the frame arms t=8m). t=5m: reject, no frames
+      // after — settle runs to 5m + SETTLE (t=35m) while the 8m re-arm
+      // chain fires at t=8/16/24/32/40m. Without the one-shot, the first
+      // check at or after the lapse would be t=40m, not the lapse itself.
+      rpc.frame(proposalFrame("p1"));
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      manager.rpcSend(TAB, {
+        type: "extension_ui_response",
+        id: "p1",
+        value: Core.PLAN_REFINE,
+      });
+      expect(rpc.send).toHaveBeenCalledTimes(1); // just the verdict command
+
+      // Every chain fire inside the open settle window: guard in force,
+      // re-arm, no probe. The last is t=32m, 3m before the lapse.
+      await vi.advanceTimersByTimeAsync(SETTLE - 3 * 60_000);
+      expect(rpc.send).toHaveBeenCalledTimes(1);
+
+      // The one-shot scheduled at the verdict lands exactly at the lapse.
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+      expect(rpc.send).toHaveBeenCalledTimes(2); // the get_state probe
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
     } finally {
       vi.useRealTimers();
     }
