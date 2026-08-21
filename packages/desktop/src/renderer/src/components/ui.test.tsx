@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, ChoiceCapsule, ConfirmDialog, Modal, PerimeterGlow, PerimeterSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -501,5 +501,40 @@ describe("PerimeterGlow", () => {
     expect(el.style.getPropertyValue("--perimeter-glow")).toBe(
       "conic-gradient(from 270deg, red, blue, red)",
     );
+  });
+});
+
+describe("Meter", () => {
+  it("draws the marker notch at the given fraction", async () => {
+    await render(<Meter fraction={0.2} marker={0.85} className="meter-fill" />);
+    const bar = document.body.querySelector<HTMLElement>(".meter-fill")!;
+    const notch = bar.querySelector("span");
+    expect(notch).not.toBeNull();
+    expect(notch!.style.left).toBe("calc(85% - 1px)");
+    expect(notch!.classList.contains("bg-void")).toBe(true);
+    // The fill div is the only non-notch child; exactly one notch exists.
+    expect(bar.querySelectorAll("span")).toHaveLength(1);
+  });
+
+  it("draws no notch for null, zero, full, or NaN markers", async () => {
+    await render(<Meter fraction={0.5} marker={null} className="meter-fill" />);
+    const bar = document.body.querySelector<HTMLElement>(".meter-fill")!;
+    for (const marker of [null, 0, 1, Number.NaN]) {
+      act(() => root!.render(<Meter fraction={0.5} marker={marker} className="meter-fill" />));
+      expect(bar.querySelector("span"), `marker ${String(marker)}`).toBeNull();
+    }
+  });
+
+  it("keeps the fill width and tone escalation", async () => {
+    await render(<Meter fraction={0.5} className="meter-fill" />);
+    const bar = document.body.querySelector<HTMLElement>(".meter-fill")!;
+    const fill = (fraction: number): HTMLElement => {
+      act(() => root!.render(<Meter fraction={fraction} className="meter-fill" />));
+      return bar.firstElementChild as HTMLElement;
+    };
+    expect(fill(0.5).className).toContain("bg-signal");
+    expect(fill(0.8).className).toContain("bg-copper");
+    expect(fill(0.95).className).toContain("bg-rose");
+    expect(fill(0.95).style.width).toBe("95%");
   });
 });

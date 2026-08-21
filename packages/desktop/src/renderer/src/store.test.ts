@@ -313,8 +313,8 @@ beforeEach(() => {
     restoringTabs: false,
     exited: {},
     rpc: {},
+    compactionSettings: {},
     deleteConfirmation: null,
-    settingsPage: null,
     appUpdate: idleAppUpdate,
     ompUpdate: idleOmpUpdate,
     remote: idleRemoteState,
@@ -4724,6 +4724,71 @@ describe("settings", () => {
 
     useStore.getState().closeSettings();
     expect(useStore.getState().settingsPage).toBeNull();
+  });
+
+  it("caches the effective compaction threshold per project (issue #249)", async () => {
+    mockBackend.readOmpSettings.mockResolvedValueOnce({
+      ...emptyOmpSettings,
+      entries: [
+        { key: "compaction.thresholdPercent", type: "number", description: "", value: -1, options: null, layer: "default" },
+        { key: "compaction.thresholdTokens", type: "number", description: "", value: -1, options: null, layer: "default" },
+      ],
+    });
+
+    await useStore.getState().ensureCompactionSettings("/p");
+
+    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    expect(mockBackend.readOmpSettings).toHaveBeenCalledWith("/p");
+    expect(useStore.getState().compactionSettings["/p"]).toEqual({
+      thresholdPercent: -1,
+      thresholdTokens: -1,
+    });
+
+    // A second ensure is a cache hit — no second backend round trip.
+    await useStore.getState().ensureCompactionSettings("/p");
+    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes concurrent compaction settings reads for one project", async () => {
+    let resolveRead!: (snapshot: OmpSettingsSnapshot) => void;
+    mockBackend.readOmpSettings.mockImplementationOnce(
+      () => new Promise<OmpSettingsSnapshot>((resolve) => { resolveRead = resolve; }),
+    );
+    const inFlight = Promise.all([
+      useStore.getState().ensureCompactionSettings("/p"),
+      useStore.getState().ensureCompactionSettings("/p"),
+    ]);
+    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    resolveRead(emptyOmpSettings);
+    await inFlight;
+    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().compactionSettings["/p"]).toEqual({});
+  });
+
+  it("caches a failed compaction settings read as null, not a default", async () => {
+    mockBackend.readOmpSettings.mockResolvedValueOnce({
+      ...emptyOmpSettings,
+      error: "omp binary not found",
+    });
+
+    await useStore.getState().ensureCompactionSettings("/p");
+
+    expect(useStore.getState().compactionSettings["/p"]).toBeNull();
+    // The failure is cached too: the next ensure must not hammer a missing
+    // binary — the HUD only refetches after a compaction.* write or relaunch.
+    await useStore.getState().ensureCompactionSettings("/p");
+    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the compaction cache on compaction.* writes only", async () => {
+    await useStore.getState().ensureCompactionSettings("/p");
+    expect("/p" in useStore.getState().compactionSettings).toBe(true);
+
+    await useStore.getState().writeOmpSetting("advisor.enabled", true);
+    expect("/p" in useStore.getState().compactionSettings).toBe(true);
+
+    await useStore.getState().writeOmpSetting("compaction.thresholdPercent", 50);
+    expect(useStore.getState().compactionSettings).toEqual({});
   });
 
   it("rejects writeOmpSetting to its caller instead of alerting", async () => {

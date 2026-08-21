@@ -19,6 +19,7 @@ import type {
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
+import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
   PlanExecutionOptions,
@@ -157,6 +158,11 @@ export interface SettingsSlice {
   /** The settings modal's open page, or null while closed. */
   settingsPage: SettingsPage | null;
   remote: RemoteState;
+  /**
+   * Effective compaction threshold keys per project, from the settings read.
+   * `null` = the read failed (no notch); absent key = not read yet (no notch).
+   */
+  compactionSettings: Record<string, CompactionThresholdSettings | null>;
   openSettings(page?: SettingsPage): void;
   closeSettings(): void;
   replaceRemote(remote: RemoteState): void;
@@ -180,6 +186,7 @@ export interface SettingsSlice {
   setRemotePassword(password: string): Promise<void>;
   clearRemotePassword(): Promise<void>;
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
+  ensureCompactionSettings(projectCwd: string): Promise<void>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;

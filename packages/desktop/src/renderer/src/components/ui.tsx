@@ -1177,25 +1177,42 @@ export function Chevron({ open, className }: { open: boolean; className?: string
 
 /**
  * Horizontal fill meter. Tone escalates with the fraction so a filling context
- * window turns copper then rose without the caller deciding.
+ * window turns copper then rose without the caller deciding. `marker` draws a
+ * void-colored notch at a future landmark (the compaction threshold) cut
+ * through the bar; it is chrome, not an alarm, so it stays legible in every
+ * fill state without touching the hue budget.
  */
 export function Meter({
   fraction,
+  marker,
   className,
   title,
 }: {
   fraction: number;
+  /** 0–1 position of a future landmark (the compaction threshold), or null. */
+  marker?: number | null;
   className?: string;
   title?: string;
 }) {
   const clamped = Math.min(1, Math.max(0, fraction));
   const tone = clamped > 0.9 ? "rose" : clamped > 0.7 ? "copper" : "signal";
+  const showMarker = typeof marker === "number" && marker > 0 && marker < 1;
   return (
-    <div title={title} className={cn("h-1 w-full overflow-hidden rounded-full bg-line", className)}>
+    <div
+      title={title}
+      className={cn("relative h-1 w-full overflow-hidden rounded-full bg-line", className)}
+    >
       <div
         className={cn("h-full rounded-full transition-[width] duration-500", TONE_DOT[tone])}
         style={{ width: `${clamped * 100}%` }}
       />
+      {showMarker && (
+        <span
+          aria-hidden
+          className="absolute inset-y-0 w-0.5 bg-void"
+          style={{ left: `calc(${marker * 100}% - 1px)` }}
+        />
+      )}
     </div>
   );
 }

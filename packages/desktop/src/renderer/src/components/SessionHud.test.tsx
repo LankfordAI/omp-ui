@@ -82,6 +82,7 @@ beforeEach(() => {
       }),
     },
     compactSurface: null,
+    compactionSettings: {},
     compactSession, exportHtml, branchSession, newSession, toggleConsole,
   });
 });
@@ -464,5 +465,94 @@ describe("SessionHud hibernated label (issue #246)", () => {
     expect(span?.textContent?.trim()).toBe("hibernated");
     // Neutral, no pulse: liveness styling stays with the signal accent.
     expect(span?.querySelector("span")?.className).not.toContain("animate-breathe");
+  });
+});
+
+describe("SessionHud compaction threshold notch (issue #249)", () => {
+  const desktop = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  };
+
+  const seed = (
+    autoCompaction: boolean,
+    settings?: Record<string, { thresholdPercent?: number; thresholdTokens?: number; reserveTokens?: number } | null>,
+  ): void => {
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          session: {
+            ...useStore.getState().rpc[TAB]!.session!,
+            autoCompactionEnabled: autoCompaction,
+          },
+        },
+      },
+      ...(settings !== undefined ? { compactionSettings: settings } : {}),
+    });
+  };
+
+  const meter = (host: HTMLElement): HTMLElement =>
+    host.querySelector<HTMLElement>(".titlebar-context-meter")!;
+
+  it("marks the auto-compaction threshold on the context meter while auto-compact is on", () => {
+    desktop();
+    seed(true, { "/p": { thresholdPercent: -1, thresholdTokens: -1 } });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const bar = meter(host);
+    expect(bar).not.toBeNull();
+    const notch = bar.querySelector("span");
+    expect(notch).not.toBeNull();
+    // 85 of the fixture's 100-token window: for such a small window the 16K
+    // default reserve is impossible, so the 15% reserve decides.
+    expect(notch!.style.left).toBe("calc(85% - 1px)");
+    expect(notch!.classList.contains("bg-void")).toBe(true);
+    expect(bar.title).toContain("omp auto-compacts when context exceeds 85 of 100 tokens (85.0% of window)");
+  });
+
+  it("hides the notch while auto-compact is off, even with settings loaded", () => {
+    desktop();
+    seed(false, { "/p": { thresholdPercent: -1, thresholdTokens: -1 } });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const bar = meter(host);
+    expect(bar.querySelector("span")).toBeNull();
+    expect(bar.title).not.toContain("omp auto-compacts");
+  });
+
+  it("shows no notch while the settings read is still in flight", () => {
+    desktop();
+    seed(true);
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const bar = meter(host);
+    expect(bar).not.toBeNull();
+    expect(bar.querySelector("span")).toBeNull();
+    // The meter itself is unaffected by the missing settings.
+    expect(host.textContent).toContain("20.0%");
+  });
+
+  it("shows no notch when the settings read failed (cached null)", () => {
+    desktop();
+    seed(true, { "/p": null });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(meter(host).querySelector("span")).toBeNull();
+    expect(host.textContent).toContain("20.0%");
+  });
+
+  it("marks the compact shell's header meter too", () => {
+    // The default beforeEach matchMedia matches: true (compact shell).
+    seed(true, { "/p": { thresholdPercent: -1, thresholdTokens: -1 } });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const bar = meter(host);
+    expect(bar.closest("header")).not.toBeNull();
+    const notch = bar.querySelector("span");
+    expect(notch).not.toBeNull();
+    expect(notch!.style.left).toBe("calc(85% - 1px)");
   });
 });

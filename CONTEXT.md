@@ -121,7 +121,9 @@ _Avoid_: subagent tab, agent window, subagent chat
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,
-new, refresh, queue modes). Model, thinking level, and the advisor live in the
+new, refresh, queue modes). While auto-compact is enabled, the context meter
+carries a notch at the compaction threshold — the token count where omp
+auto-compacts. Model, thinking level, and the advisor live in the
 composer instead, next to the text they affect. With the advisor enabled, a
 second, quieter `adv` readout sits beside the main usage. Its context meter and
 model describe the parent advisor; its spend and token total include advisor

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
+import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { useCompactShell } from "../lib/responsive";
@@ -270,14 +271,31 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
   );
 }
 
-function ContextCluster({ usage }: { usage: ContextUsage }) {
+function ContextCluster({
+  usage,
+  markerTokens,
+}: {
+  usage: ContextUsage;
+  /** Token count where omp auto-compacts; null/undefined = no notch. */
+  markerTokens?: number | null;
+}) {
   const window = usage.contextWindow > 0 ? usage.contextWindow : 0;
   const fraction = window > 0 ? usage.tokens / window : 0;
   const percent = Number.isFinite(usage.percent) ? usage.percent : fraction * 100;
-  const exact = `${exactNum(usage.tokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens (${percent.toFixed(2)}%)`;
+  const threshold =
+    typeof markerTokens === "number" && window > 0
+      ? { tokens: markerTokens, at: Math.min(1, Math.max(0, markerTokens / window)) }
+      : null;
+  const thresholdLine = threshold
+    ? `omp auto-compacts when context exceeds ${exactNum(threshold.tokens)} of ${exactNum(window)} tokens` +
+      ` (${((threshold.tokens / window) * 100).toFixed(1)}% of window)`
+    : null;
+  const exact =
+    `${exactNum(usage.tokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
+    ` (${percent.toFixed(2)}%)${thresholdLine ? `\n${thresholdLine}` : ""}`;
   return (
     <div className="flex shrink-0 items-center gap-2" title={exact}>
-      <Meter fraction={fraction} className="titlebar-context-meter w-20" title={exact} />
+      <Meter fraction={fraction} marker={threshold?.at ?? null} className="titlebar-context-meter w-20" title={exact} />
       <span className="titlebar-context-tokens hidden font-mono text-[11px] tabular-nums text-ink-mid md:inline">
         {compactNum(usage.tokens)} / {window > 0 ? compactNum(window) : "?"}
       </span>
@@ -554,8 +572,30 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const streamStallMs = useStore((s) => s.rpc[tabId]?.streamStallMs);
+  const ensureCompactionSettings = useStore((s) => s.ensureCompactionSettings);
+  const compactionSettings = useStore((s) =>
+    projectCwd !== undefined ? s.compactionSettings[projectCwd] : undefined,
+  );
+
+  // Fetch while the entry is absent: on first mount, and again whenever a
+  // compaction.* write clears the cache, so the notch moves without a remount.
+  // A failed read lands null (not undefined), so no retry loop.
+  const needsCompaction = projectCwd !== undefined && compactionSettings === undefined;
+  useEffect(() => {
+    if (needsCompaction) void ensureCompactionSettings(projectCwd);
+  }, [needsCompaction, projectCwd, ensureCompactionSettings]);
 
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
+  // The notch renders only when omp will actually auto-compact this session AND
+  // the project's effective threshold settings have loaded (absent = loading,
+  // null = read failed — both mean "no notch", never a defaulted one).
+  const markerTokens =
+    usage !== null &&
+    session?.autoCompactionEnabled === true &&
+    compactionSettings !== null &&
+    compactionSettings !== undefined
+      ? compactionThresholdTokens(usage.contextWindow, compactionSettings)
+      : null;
   const face = hibernated
     ? { tone: "neutral" as const, pulse: false }
     : STATUS[status] ?? STATUS.starting;
@@ -580,7 +620,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : streamStallMs !== undefined ? <StreamStallChip stallMs={streamStallMs} short /> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{label}</span>}
           {exceptionalAgentMode && <Chip tone="iris" title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}>{exceptionalAgentMode}</Chip>}
           <span className="min-w-0 flex-1" />
-          {usage && <ContextCluster usage={usage} />}
+          {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
           <IconButton label="session actions" onClick={() => showCompactSurface("session-actions")} className="size-11">
             <IconKebab />
@@ -593,7 +633,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="flex items-center justify-between gap-3"><Label>worktree</Label><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip></div>}
-                {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} /></div>}
+                {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
                 {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{compactNum(advisorStats.totalTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
@@ -665,7 +705,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           dropping the other. */}
       {(usage || stats) && (
         <div className="flex shrink-0 items-center gap-2 [app-region:no-drag]">
-          {usage && <ContextCluster usage={usage} />}
+          {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           {stats && (
             <div
               className="titlebar-main-stats hidden shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-mid lg:flex"

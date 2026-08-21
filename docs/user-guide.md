@@ -51,6 +51,7 @@ The native transcript is derived from OMP's event stream. The session file remai
 ### Use the Session HUD
 
 The **Session HUD** runs across the top of a native tab. It shows liveness, a click-to-rename title, context use, total spend, and advisor context and cost when an advisor is active. A worktree chip names the effective branch. The controls let you compact context, toggle auto-compaction, open the console, export the transcript as HTML, open the MCP manager, branch the session, start a new session, refresh runtime state and statistics, and edit queue modes.
+While auto-compact is on, a notch in the context meter marks the token count where OMP auto-compacts — by default the window minus the larger of 15% of the window and the reserve — and hovering shows the exact value. The threshold is tunable in **Settings → omp → Context** via `compaction.thresholdPercent`, `compaction.thresholdTokens`, and `compaction.reserveTokens`; changing one moves the notch without restarting anything.
 
 Manual compacting summarizes the current context. Auto-compaction lets OMP compact when the context window fills. Export writes an HTML transcript and adds a notice with the path. **Branch this session** copies the full transcript into a new lineage and opens it in a new tab; the source session and its process stay untouched.
 

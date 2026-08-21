@@ -1,3 +1,4 @@
+import { compactionSettingsFromEntries } from "@omp-ui/core/compaction-threshold";
 import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
 import { applyTheme, currentThemeId, resolveTheme } from "../../lib/themes";
@@ -30,9 +31,20 @@ function alertRemoteError(err: unknown): void {
   window.alert(message);
 }
 
-export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> = (set) => ({
+/**
+ * Dedupes in-flight compaction settings reads per project. Lives outside the
+ * store state (which stays data-only); the cache itself is store state.
+ */
+const compactionInflight = new Map<string, Promise<void>>();
+/**
+ * Bumped on every compaction.* write; a snapshot read before the write must
+ * not land over the cleared cache (the notch would show a stale threshold).
+ */
+let compactionGeneration = 0;
+export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> = (set, get) => ({
   settingsPage: null,
   remote: DEFAULT_REMOTE,
+  compactionSettings: {},
 
   openSettings(page) {
     set({ settingsPage: page ?? "general" });
@@ -205,8 +217,50 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     return backend.readOmpSettings(projectCwd);
   },
 
+  async ensureCompactionSettings(projectCwd) {
+    // Cache hit (a failed read lands null, which is also cached): the value
+    // is valid until a compaction.* write clears it or the app relaunches.
+    if (projectCwd in get().compactionSettings) return;
+    const existing = compactionInflight.get(projectCwd);
+    if (existing) return existing;
+    const generation = compactionGeneration;
+    const fetch = (async () => {
+      try {
+        // Never rejects for missing keys — snapshot.error carries omp failures
+        // (same contract Settings.tsx relies on when it reads the page).
+        const snapshot = await backend.readOmpSettings(projectCwd);
+        const value = snapshot.error === null
+          ? compactionSettingsFromEntries(snapshot.entries)
+          : null;
+        // A compaction.* write bumped the generation and cleared the cache:
+        // this pre-write snapshot is stale and must not re-land; the next
+        // ensure refetches.
+        set((s) =>
+          generation !== compactionGeneration || projectCwd in s.compactionSettings
+            ? s
+            : { compactionSettings: { ...s.compactionSettings, [projectCwd]: value } },
+        );
+      } catch {
+        // IPC hop failure: leave the key absent; the next HUD mount retries.
+      }
+    })();
+    compactionInflight.set(projectCwd, fetch);
+    try {
+      await fetch;
+    } finally {
+      compactionInflight.delete(projectCwd);
+    }
+  },
+
   writeOmpSetting(key, value) {
-    return backend.writeOmpSetting(key, value);
+    return backend.writeOmpSetting(key, value).then(() => {
+      // Writes target omp's GLOBAL layer, so every project's effective values
+      // may change — clear the whole cache; the next HUD use refetches.
+      if (key.startsWith("compaction.")) {
+        compactionGeneration += 1;
+        set({ compactionSettings: {} });
+      }
+    });
   },
 
   readProviderKeys(projectCwd) {

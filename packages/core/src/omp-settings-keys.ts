@@ -40,7 +40,14 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   },
   {
     title: "Context",
-    keys: ["compaction.enabled", "compaction.idleEnabled", "autoResume"],
+    keys: [
+      "compaction.enabled",
+      "compaction.idleEnabled",
+      "autoResume",
+      "compaction.thresholdPercent",
+      "compaction.thresholdTokens",
+      "compaction.reserveTokens",
+    ],
   },
   {
     title: "Providers",
