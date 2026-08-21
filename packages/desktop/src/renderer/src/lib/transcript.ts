@@ -47,7 +47,7 @@ export interface ToolItem {
   toolCallId: string;
   name: string;
   args: unknown;
-  status: "running" | "done" | "error" | "cancelled";
+  status: "running" | "done" | "error" | "cancelled" | "aborted";
   /** tool_execution_start.intent — the human headline ("Reading hello.txt"). */
   intent?: string;
   resultText?: string;
@@ -178,11 +178,19 @@ export function planProposalItem(
   };
 }
 
-/** Settles tool cards still running when the run itself ends (abort, process death). */
-export function settleRunningTools(items: RenderItem[]): RenderItem[] {
+/**
+ * Settles tool cards still running when the run itself ends.
+ * `aborted` — the turn died: stream stall/timeout, provider error, process
+ * death. `cancelled` — a user interrupt (stopReason "aborted"), or a clean
+ * end that anomalously left a card running.
+ */
+export function settleRunningTools(
+  items: RenderItem[],
+  settled: "cancelled" | "aborted" = "cancelled",
+): RenderItem[] {
   if (!items.some((i) => i.kind === "tool" && i.status === "running")) return items;
   return items.map((i) =>
-    i.kind === "tool" && i.status === "running" ? { ...i, status: "cancelled" as const } : i,
+    i.kind === "tool" && i.status === "running" ? { ...i, status: settled } : i,
   );
 }
 
@@ -549,8 +557,16 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
 
     case "agent_start":
       return [...items, markerItem("agent started", "neutral")];
-    case "agent_end":
-      return [...settleRunningTools(items), markerItem("agent finished", "signal")];
+    case "agent_end": {
+      // The terminal assistant message of the turn carries the end reason: an
+      // error end aborts running cards, a user interrupt or a clean end cancels.
+      const lastAssistant = [...items].reverse().find((i) => i.kind === "assistant");
+      const settled =
+        lastAssistant?.kind === "assistant" && lastAssistant.stopReason === "error"
+          ? "aborted"
+          : "cancelled";
+      return [...settleRunningTools(items, settled), markerItem("agent finished", "signal")];
+    }
     // Turn boundaries are pure ceremony in a rendered transcript: one prompt
     // produced eight of them in a live smoke test, drowning the actual content.
     // The tool-call/assistant cards already show where each turn's work went,

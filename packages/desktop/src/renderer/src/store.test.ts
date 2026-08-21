@@ -5286,10 +5286,10 @@ describe("transcript commit batching (issue #187)", () => {
       expect.objectContaining({
         kind: "tool",
         toolCallId: "t1",
-        status: "cancelled",
+        status: "aborted",
       }),
     ]);
-    // The cancelled commit landed immediately; the dead batch is gone.
+    // The aborted commit landed immediately; the dead batch is gone.
     runFrame();
     expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
   });
@@ -5830,7 +5830,7 @@ describe("hibernation (issue #246)", () => {
     expect(fresh.getState().exited[TAB]).toBe(0);
     expect(fresh.getState().hibernated[TAB]).toBe(true);
     const [item] = fresh.getState().rpc[TAB]!.items;
-    expect(item).toMatchObject({ kind: "tool", toolCallId: "t1", status: "cancelled" });
+    expect(item).toMatchObject({ kind: "tool", toolCallId: "t1", status: "aborted" });
     vi.useRealTimers();
   });
 });

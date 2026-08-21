@@ -436,6 +436,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
             </Chip>
           ))}
         {item.status === "error" && <Chip tone="rose">error</Chip>}
+        {item.status === "aborted" && <Chip tone="copper">aborted</Chip>}
         {item.status === "cancelled" && <Chip>cancelled</Chip>}
         {item.status === "done" && <CheckGlyph />}
       </button>

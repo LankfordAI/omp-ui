@@ -356,6 +356,51 @@ describe("run-end tool settlement", () => {
     });
     expect(settleRunningTools(items)).toBe(items);
   });
+
+  it("agent_end after an error message_end aborts running tools", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "tA",
+      toolName: "ask",
+    });
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Findings:" }],
+        stopReason: "error",
+        errorMessage: "OpenAI responses stream stalled while waiting for the next event",
+      },
+    });
+    items = reduceEvent(items, { type: "agent_end" });
+    expect(tool(items, "tA")?.status).toBe("aborted");
+  });
+
+  it("agent_end after a user-interrupt message_end keeps cancelled", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "tB",
+      toolName: "bash",
+    });
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "on it" }], stopReason: "aborted" },
+    });
+    items = reduceEvent(items, { type: "agent_end" });
+    expect(tool(items, "tB")?.status).toBe("cancelled");
+  });
+
+  it("settleRunningTools honors an explicit settled target", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "tC",
+      toolName: "bash",
+    });
+    expect(tool(settleRunningTools(items, "aborted"), "tC")?.status).toBe("aborted");
+    expect(tool(settleRunningTools(items, "cancelled"), "tC")?.status).toBe("cancelled");
+  });
 });
 
 describe("reduceEvent tool-call args streaming (issue #97)", () => {

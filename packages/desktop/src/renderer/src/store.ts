@@ -1382,7 +1382,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // process's final frames must not be lost (issue #187).
         const before = get().rpc[tabId];
         const settled = before
-          ? settleRunningTools(effectiveItems(tabId))
+          ? settleRunningTools(effectiveItems(tabId), "aborted")
           : undefined;
         cancelTranscriptBatch(tabId);
         // No frame may ever come again: stop the stall clock now instead of
@@ -1420,7 +1420,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // Keep this teardown in sync with the onPtyExit handler above.
       backend.onSessionHibernated((tabId) => {
         const before = get().rpc[tabId];
-        const settled = before ? settleRunningTools(effectiveItems(tabId)) : undefined;
+        const settled = before ? settleRunningTools(effectiveItems(tabId), "aborted") : undefined;
         cancelTranscriptBatch(tabId);
         stopStreamStallTimer(tabId);
         set((s) => {
@@ -2188,7 +2188,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // The process died mid-tool, so no agent_end will settle running
           // cards. Settle the effective items — frames still pending in the
           // batch are part of the transcript up to the failure (issue #187).
-          const settledItems = settleRunningTools(effectiveItems(tabId));
+          const settledItems = settleRunningTools(effectiveItems(tabId), "aborted");
           cancelTranscriptBatch(tabId);
           patchRpc(tabId, {
             status: "error",
