@@ -70,6 +70,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     }
   },
 
+  async setHibernateIdleMinutes(minutes) {
+    try {
+      await backend.setHibernateIdleMinutes(minutes);
+    } catch (err) {
+      alertError(err);
+    }
+  },
+
   async setAdvisorAutoReply(on) {
     try {
       await backend.setAdvisorAutoReply(on);

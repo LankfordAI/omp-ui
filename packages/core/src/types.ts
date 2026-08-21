@@ -147,6 +147,8 @@ export interface BackendState {
   defaultAgentMode: AgentMode;
   /** Plan authoring format the next plan-mode toggle asks the agent for. */
   planFormat: PlanFormat;
+  /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
+  hibernateIdleMinutes: number;
   /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
   advisorAutoReply: boolean;
   /** Seeds the advisor on/off for new sessions, default off (issue #174). */

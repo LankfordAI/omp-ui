@@ -54,6 +54,7 @@ const backendMock = {
   setDefaultMode: vi.fn(),
   setDefaultAgentMode: vi.fn(async () => {}),
   setPlanFormat: vi.fn(async () => {}),
+  setHibernateIdleMinutes: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
@@ -343,6 +344,36 @@ describe("Settings General page plan format (issue #109)", () => {
       "true",
     );
     expect(buttonWithText("html")!.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("Settings General page hibernate idle sessions (issue #246)", () => {
+  const seedGeneral = (hibernateIdleMinutes: number): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ hibernateIdleMinutes }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("shows the persisted window and persists a change", async () => {
+    seedGeneral(30);
+    await renderSettings();
+    expect(document.body.textContent).toContain("Hibernate idle sessions");
+    expect(buttonWithText("30 min")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("1 hour")!.getAttribute("aria-pressed")).toBe("false");
+
+    click(buttonWithText("1 hour")!);
+    expect(backendMock.setHibernateIdleMinutes).toHaveBeenCalledWith(60);
+  });
+
+  it("reflects a persisted off setting", async () => {
+    seedGeneral(0);
+    await renderSettings();
+    expect(buttonWithText("off")!.getAttribute("aria-pressed")).toBe("true");
   });
 });
 

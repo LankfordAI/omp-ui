@@ -1046,3 +1046,341 @@ describe("convert to worktree (issue #225)", () => {
     expect(broadcast).toHaveBeenCalled();
   });
 });
+
+describe("hibernation (issue #246)", () => {
+  /** The default hibernateIdleMinutes is 30; the harness registry keeps it. */
+  const WINDOW = 30 * 60_000;
+  const PROBE_TIMEOUT = 5_000;
+
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB,
+    });
+
+  /** Microtask drain: probe settle → guard re-check → SIGTERM → reap. */
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  };
+
+  // The fake records raw command objects; the probe is the get_state call.
+  const lastProbeId = (rpc: (typeof rpcInstances)[number]): string => {
+    for (let i = rpc.send.mock.calls.length - 1; i >= 0; i -= 1) {
+      const cmd = rpc.send.mock.calls[i]?.[0];
+      if (cmd !== null && typeof cmd === "object" && "type" in cmd && "id" in cmd) {
+        if (cmd.type === "get_state") return cmd.id;
+      }
+    }
+    throw new Error("no get_state probe was sent");
+  };
+
+  const cleanProbe = (rpc: (typeof rpcInstances)[number]): void => {
+    rpc.frame({
+      type: "response",
+      id: lastProbeId(rpc),
+      command: "get_state",
+      success: true,
+      data: { queuedMessageCount: 0, isStreaming: false },
+    });
+  };
+
+  const proposalFrame = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: "/l/auth-plan.html",
+    })}`,
+  });
+
+  it("arms on the first frame and hibernates after the quiet window", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, broadcast, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+      broadcast.mockClear();
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(rpc.send).toHaveBeenCalledTimes(1);
+      expect(rpc.send.mock.calls[0]![0]).toMatchObject({ type: "get_state" });
+
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(rpc.kill.mock.calls[0]![0]).toBeUndefined(); // SIGTERM first
+      expect(
+        sent.some((s) => s.channel === CH.onSessionHibernated && s.args[0] === TAB),
+      ).toBe(true);
+      expect(sent.some((s) => s.channel === CH.onPtyExit)).toBe(false);
+      expect(manager.liveCount).toBe(0);
+      expect(broadcast).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never probes or kills while a turn is running", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      await vi.advanceTimersByTimeAsync(WINDOW * 2);
+
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("defers hibernation while messages are parked, and hibernates after they drain", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      rpc.frame({
+        type: "response",
+        id: lastProbeId(rpc),
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 1, isStreaming: false },
+      });
+      await flush();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+
+      // The next real frame re-arms; a drained probe then hibernates.
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.filter((s) => s.channel === CH.onSessionHibernated)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves a session live when the pre-kill probe never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(rpc.send).toHaveBeenCalledTimes(1); // the probe went out
+
+      // No answer: the probe times out, the attempt is dropped, no re-probe.
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT + 1);
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+      await vi.advanceTimersByTimeAsync(WINDOW * 2);
+      expect(rpc.send).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onPtyExit)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds hibernation across a plan review and the post-verdict settle window", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame(proposalFrame("p1"));
+      expect(manager.planGate(TAB)?.pending).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(rpc.send).not.toHaveBeenCalled(); // gate open: no probe
+
+      manager.rpcSend(TAB, {
+        type: "extension_ui_response",
+        id: "p1",
+        value: Core.PLAN_EXECUTE,
+      });
+      // The implementation turn ends the settle window and re-arms.
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds hibernation while an extension dialog awaits an answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({
+        type: "extension_ui_request",
+        id: "q1",
+        method: "select",
+        title: "Pick an option",
+      });
+      await vi.advanceTimersByTimeAsync(WINDOW * 2);
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(rpc.kill).not.toHaveBeenCalled();
+
+      // The answer is a command, not a frame; the next real frame re-arms.
+      manager.rpcSend(TAB, { type: "extension_ui_response", id: "q1", value: "a" });
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not hold hibernation on fire-and-forget extension requests", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      // setStatus/setWidget are state frames the renderer consumes without a
+      // reply; tracking them would block hibernation forever (issue #246).
+      rpc.frame({ type: "extension_ui_request", id: "s1", method: "setStatus", statusKey: "omp-ui:advisorStats" });
+      rpc.frame({ type: "extension_ui_request", id: "w1", method: "setWidget", widgetKey: "ctx" });
+
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never hibernates a PTY session", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup();
+      await resume(manager);
+      const pty = fakePtys[0]!;
+
+      pty.dataCb?.(Buffer.from("hello"));
+      await vi.advanceTimersByTimeAsync(WINDOW * 2);
+
+      expect(pty.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never arms a timer when the setting is 0", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.setHibernateIdleMinutes(0);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW * 2);
+
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hands back to the normal exit path when the child ignores both signals", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!; // kill is a no-op: the child ignores signals
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      await vi.advanceTimersByTimeAsync(3_000 + 2_000); // grace + SIGKILL windows
+
+      expect(rpc.kill).toHaveBeenCalledTimes(2);
+      expect(rpc.kill.mock.calls[1]![0]).toBe("SIGKILL");
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+      expect(manager.isLive(TAB)).toBe(true); // still live: the kill was ignored
+
+      // The later natural exit is a plain exit, not a phantom hibernation.
+      rpc.exit(0);
+      expect(sent.some((s) => s.channel === CH.onPtyExit)).toBe(true);
+      expect(sent.filter((s) => s.channel === CH.onSessionHibernated)).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("makes a concurrent resume wait for an in-flight reap instead of deduping", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      // SIGTERM acknowledged but the process lingers: the reap is observable.
+      rpc.kill.mockImplementation(() => {});
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(manager.isLive(TAB)).toBe(true); // kill in flight, entry not reaped
+
+      const resuming = resumeRpc(manager); // must not dedupe against the dying entry
+      await flush();
+      rpc.exit(0); // the reap completes
+      await resuming;
+
+      expect(RpcClientMock).toHaveBeenCalledTimes(2);
+      expect(manager.liveCount).toBe(1);
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

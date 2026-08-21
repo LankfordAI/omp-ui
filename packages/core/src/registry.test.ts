@@ -47,6 +47,7 @@ describe("SETTINGS", () => {
       "defaultMode",
       "defaultAgentMode",
       "planFormat",
+      "hibernateIdleMinutes",
       "advisorAutoReply",
       "defaultAdvisor",
       "modelFavorites",
@@ -80,6 +81,8 @@ describe("Registry.load", () => {
     expect(reg.skipDeleteConfirmation).toBe(false);
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.planFormat).toBe("html");
+    // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
+    expect(reg.hibernateIdleMinutes).toBe(30);
     // Issue #111: auto-reply defaults on.
     expect(reg.advisorAutoReply).toBe(true);
     // Issue #174: the advisor does not default on.
@@ -205,6 +208,7 @@ describe("Registry.load", () => {
           defaultMode: "terminal",
           defaultAgentMode: "PLAN",
           planFormat: "markdown",
+          hibernateIdleMinutes: 30.5,
           advisorAutoReply: "true",
           defaultAdvisor: "yes",
           modelFavorites: [42, "kept", null, "also-kept"],
@@ -230,6 +234,7 @@ describe("Registry.load", () => {
     expect(reg.defaultMode).toBe("rpc-ui");
     expect(reg.defaultAgentMode).toBe("plan");
     expect(reg.planFormat).toBe("html");
+    expect(reg.hibernateIdleMinutes).toBe(30);
     expect(reg.advisorAutoReply).toBe(true);
     expect(reg.defaultAdvisor).toBe(false);
     expect(reg.getFavorites()).toEqual(["kept", "also-kept"]);
@@ -357,6 +362,29 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).planFormat).toBe("html");
   });
 
+  it("round-trips the hibernate idle window and falls back to 30 for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setHibernateIdleMinutes(0);
+    expect(Registry.load(file).hibernateIdleMinutes).toBe(0);
+    reg.setHibernateIdleMinutes(1440);
+    expect(Registry.load(file).hibernateIdleMinutes).toBe(1440);
+    reg.setHibernateIdleMinutes(30);
+    expect(Registry.load(file).hibernateIdleMinutes).toBe(30);
+
+    for (const junk of [-1, 30.5, 1441, "30", null, true]) {
+      const f = tmpFile();
+      fs.writeFileSync(
+        f,
+        JSON.stringify({ schemaVersion: 1, settings: { hibernateIdleMinutes: junk } }),
+      );
+      expect(Registry.load(f).hibernateIdleMinutes).toBe(30);
+    }
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).hibernateIdleMinutes).toBe(30);
+  });
+
   it("round-trips advisor auto-reply and defaults to on for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -419,6 +447,7 @@ describe("Registry persistence", () => {
       ["defaultMode", (registry) => registry.setDefaultMode("rpc-ui")],
       ["defaultAgentMode", (registry) => registry.setDefaultAgentMode("plan")],
       ["planFormat", (registry) => registry.setPlanFormat("html")],
+      ["hibernateIdleMinutes", (registry) => registry.setHibernateIdleMinutes(30)],
       ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
       ["defaultAdvisor", (registry) => registry.setDefaultAdvisor(false)],
       ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],

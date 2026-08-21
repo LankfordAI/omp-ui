@@ -307,6 +307,10 @@ export class MainBackend {
           this.registry.setPlanFormat(format);
           await this.broadcast();
         },
+        [CH.setHibernateIdleMinutes]: async (minutes: number) => {
+          this.registry.setHibernateIdleMinutes(minutes);
+          await this.broadcast();
+        },
         [CH.setAdvisorAutoReply]: async (on: boolean) => {
           this.registry.setAdvisorAutoReply(on);
           await this.broadcast();
@@ -674,6 +678,7 @@ export class MainBackend {
       projects: groups,
       defaultMode: this.registry.defaultMode,
       planFormat: this.registry.planFormat,
+      hibernateIdleMinutes: this.registry.hibernateIdleMinutes,
       defaultAgentMode: this.registry.defaultAgentMode,
       advisorAutoReply: this.registry.advisorAutoReply,
       defaultAdvisor: this.registry.defaultAdvisor,

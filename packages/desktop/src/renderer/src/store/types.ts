@@ -157,6 +157,7 @@ export interface SettingsSlice {
   setDefaultMode(mode: SessionMode): Promise<void>;
   setDefaultAgentMode(mode: AgentMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
+  setHibernateIdleMinutes(minutes: number): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
@@ -208,6 +209,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   restoringTabs: boolean;
   exited: Record<string, number>;
   shellExited: Record<string, number>;
+  /** True for tabs whose process omp-ui hibernated while idle (issue #246). */
+  hibernated: Record<string, boolean>;
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
   branches: Record<string, BranchList>;

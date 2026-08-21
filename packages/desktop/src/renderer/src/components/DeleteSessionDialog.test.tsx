@@ -114,6 +114,7 @@ const stateWith = (
   defaultMode: "rpc-ui",
   defaultAgentMode: "build",
   planFormat: "md",
+  hibernateIdleMinutes: 30,
   advisorAutoReply: false,
   defaultAdvisor: false,
   modelFavorites: [],

@@ -305,6 +305,15 @@ function dropExited(
   return next;
 }
 
+function dropHibernated(
+  hibernated: Record<string, boolean>,
+  tabId: string,
+): Record<string, boolean> {
+  const next = { ...hibernated };
+  delete next[tabId];
+  return next;
+}
+
 function alertError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err));
 }
@@ -1379,6 +1388,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     state: null,
     exited: {},
     shellExited: {},
+    hibernated: {},
     rpc: {},
     consoleOpen: {},
     branches: {},
@@ -1439,6 +1449,42 @@ export const useStore = create<UiStore>()((set, get, api) => {
                 }
               : s.rpc;
           return { exited: { ...s.exited, [tabId]: code }, rpc };
+        });
+      });
+      // Hibernation: the process was stopped on purpose after an idle window
+      // (issue #246). Same teardown as a process exit — no frame may ever
+      // come again, so settle running tools and stop the stall clock — but
+      // the framing is "stopped to free memory", not a crash. `exited` is
+      // set on purpose: every dead gate (composer, canReply, HUD) keys off
+      // it; `hibernated` only changes what the overlay and HUD say.
+      // Keep this teardown in sync with the onPtyExit handler above.
+      backend.onSessionHibernated((tabId) => {
+        const before = get().rpc[tabId];
+        const settled = before ? settleRunningTools(effectiveItems(tabId)) : undefined;
+        cancelTranscriptBatch(tabId);
+        stopStreamStallTimer(tabId);
+        set((s) => {
+          const clearStall = before?.streamStallMs !== undefined;
+          const rpc =
+            before &&
+            (clearStall ||
+              (settled !== undefined && settled !== before.items))
+              ? {
+                  ...s.rpc,
+                  [tabId]: {
+                    ...before,
+                    ...(clearStall ? { streamStallMs: undefined } : {}),
+                    ...(settled !== undefined && settled !== before.items
+                      ? { items: settled }
+                      : {}),
+                  },
+                }
+              : s.rpc;
+          return {
+            exited: { ...s.exited, [tabId]: 0 },
+            hibernated: { ...s.hibernated, [tabId]: true },
+            rpc,
+          };
         });
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
@@ -1611,6 +1657,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           ],
           ...focusOn(s, tabId, rec.projectCwd),
           exited: dropExited(s.exited, tabId),
+          hibernated: dropHibernated(s.hibernated, tabId),
         }));
       } catch (err) {
         alertError(err);
@@ -1699,6 +1746,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           ),
           ...focusOn(s, tabId, rec.projectCwd),
           exited: dropExited(s.exited, tabId),
+          hibernated: dropHibernated(s.hibernated, tabId),
         }));
       } catch (err) {
         alertError(err);

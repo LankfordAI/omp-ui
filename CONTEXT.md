@@ -23,6 +23,15 @@ second process for the same session, because omp has no cross-process session
 lock (v17.1.8).
 _Avoid_: open session, active session, running session
 
+**Hibernated session**:
+An owned session whose `omp` process omp-ui stopped itself after the session
+sat idle beyond the *Hibernate idle sessions* window (issue #246). A hibernated
+session is dormant — transcript and worktree on disk, no process — and wakes
+through the ordinary resume path; the sidebar shows it as dormant and its tab
+offers resume. The distinction from a plain dormant session is causal: dormant
+lost its process because the app quit, hibernated lost it on purpose while idle.
+_Avoid_: suspended session, parked session, sleeping session
+
 **Tab**:
 The renderer's view onto a live session's PTY — one xterm.js instance per
 live session. Tabs hide rather than close; focus/dedupe keys on the tab,

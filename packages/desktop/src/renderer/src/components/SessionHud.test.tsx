@@ -440,3 +440,28 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     expect(host.textContent).not.toContain("no stream activity for");
   });
 });
+
+describe("SessionHud hibernated label (issue #246)", () => {
+  it("shows the neutral hibernated label over the stale status", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          status: "ready",
+        },
+      },
+      exited: { [TAB]: 0 },
+      hibernated: { [TAB]: true },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const span = host.querySelector('span[title="rpc status: hibernated"]')!;
+    expect(span?.textContent?.trim()).toBe("hibernated");
+    // Neutral, no pulse: liveness styling stays with the signal accent.
+    expect(span?.querySelector("span")?.className).not.toContain("animate-breathe");
+  });
+});

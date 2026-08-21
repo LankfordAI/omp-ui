@@ -8,6 +8,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
     planFormat: "html",
+    hibernateIdleMinutes: 30,
     advisorAutoReply: true,
     defaultAdvisor: false,
     modelFavorites: [],

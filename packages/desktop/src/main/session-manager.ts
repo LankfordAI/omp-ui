@@ -55,14 +55,46 @@ interface LiveEntry {
   readonly exited: Promise<void>;
   /** Resolver for `exited`, called from the exit handler. */
   readonly markExited: () => void;
+  // --- hibernation bookkeeping (issue #246) ---
+  /** True once the first frame has arrived; the idle clock arms only then. */
+  hibernateArmed: boolean;
+  /** agent_start minus agent_end; >0 means a turn is running. */
+  turnsRunning: number;
+  /** Set by notePlanVerdict; cleared by the next agent_end (or after SETTLE_WINDOW_MS). */
+  settleSuspendedUntil: number | null;
+  /** In-flight pre-kill probe; matched against the response frame's id. */
+  probeId: string | null;
+  probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
 }
 
-function liveEntry(fields: Omit<LiveEntry, "exited" | "markExited">): LiveEntry {
+function liveEntry(
+  fields: Omit<
+    LiveEntry,
+    | "exited"
+    | "markExited"
+    | "hibernateArmed"
+    | "turnsRunning"
+    | "settleSuspendedUntil"
+    | "probeId"
+    | "probeResolve"
+  >,
+): LiveEntry {
+  // Executor form (not Promise.withResolvers): the node tsconfig lib is
+  // ES2022, same convention as advisor-stats-live.test.ts.
   let markExited = (): void => {};
   const exited = new Promise<void>((resolve) => {
     markExited = () => resolve();
   });
-  return { ...fields, exited, markExited };
+  return {
+    ...fields,
+    exited,
+    markExited,
+    hibernateArmed: false,
+    turnsRunning: 0,
+    settleSuspendedUntil: null,
+    probeId: null,
+    probeResolve: null,
+  };
 }
 
 /** True when `p` settles inside `ms`. Bounded wait, no dangling timer. */
@@ -79,6 +111,23 @@ function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
 /** How long omp gets to exit on its own before the delete escalates. */
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
+/** Pre-kill get_state probe bound; a wedged child is left to the stall UX, not killed. */
+const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
+/** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
+const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
+/**
+ * Extension methods that open a native dialog awaiting the user's answer —
+ * the only requests whose unanswered state blocks hibernation. Mirrors the
+ * renderer's DIALOG_METHODS (extension-router.ts): every other method
+ * (notify, setStatus, setWidget, ...) is fire-and-forget state the renderer
+ * consumes without a reply, so tracking it would block hibernation forever.
+ */
+const HIBERNATE_DIALOG_METHODS: Record<string, true> = {
+  select: true,
+  confirm: true,
+  input: true,
+  editor: true,
+};
 /**
  * Min interval between sidebar broadcasts caused purely by session-file mtime
  * churn (issue #187). A mid-turn transcript rewrites its .jsonl constantly;
@@ -121,6 +170,16 @@ export class SessionManager {
    * with the process, so a gate can never outlive its agent.
    */
   private readonly planGates = new Map<string, PlanGate>();
+  /** Idle-kill timers, keyed by tabId (issue #246). */
+  private readonly hibernateTimers = new Map<string, NodeJS.Timeout>();
+  /**
+   * In-flight hibernation reaps, keyed by tabId (same race pattern as
+   * `spawning`): a resume issued mid-reap waits for the entry to leave
+   * `live` instead of deduping against the dying process.
+   */
+  private readonly hibernating = new Map<string, Promise<void>>();
+  /** Unanswered extension_ui_request ids per tab (plan reviews included). */
+  private readonly openExtensionRequests = new Map<string, Set<string>>();
   /** Throttle state for mtime-only watcher broadcasts (issue #187). */
   private watcherBroadcastAt = 0;
   private watcherBroadcastTimer: NodeJS.Timeout | undefined;
@@ -166,6 +225,11 @@ export class SessionManager {
       clearTimeout(this.watcherBroadcastTimer);
       this.watcherBroadcastTimer = undefined;
     }
+    for (const timer of this.hibernateTimers.values()) clearTimeout(timer);
+    this.hibernateTimers.clear();
+    this.openExtensionRequests.clear();
+    // Quit must not block on a hibernation reap: the child is already dying.
+    this.hibernating.clear();
   }
 
   /**
@@ -243,6 +307,11 @@ export class SessionManager {
     // after async prepareResume).
     let spawnSettled = (): void => {};
     if (req.resumeTabId) {
+      // A resume issued while a hibernation reap is in flight must wait for
+      // the dying entry to leave `live`, or it dedupes and the user clicks
+      // twice (issue #246).
+      const pendingHibernate = this.hibernating.get(req.resumeTabId);
+      if (pendingHibernate !== undefined) await pendingHibernate;
       if (this.live.has(req.resumeTabId) || this.spawning.has(req.resumeTabId)) {
         return { tabId: req.resumeTabId };
       }
@@ -357,7 +426,10 @@ export class SessionManager {
       entry.markExited();
       // Identity-checked: a mode-switch respawn may already have replaced
       // this entry — deleting then would orphan the new live session.
-      if (this.live.get(record.tabId) === entry) this.live.delete(record.tabId);
+      if (this.live.get(record.tabId) === entry) {
+        this.live.delete(record.tabId);
+        this.clearHibernateState(record.tabId);
+      }
       if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, exitCode);
       void this.deps.broadcast();
     });
@@ -393,6 +465,9 @@ export class SessionManager {
           ]
         : undefined,
       onFrame: (frame) => {
+        // Hibernation observation precedes the fan-out: the idle clock sees
+        // every frame, probe responses included (issue #246).
+        this.observeHibernation(record.tabId, frame);
         // Recording precedes fan-out: the gate must be set before the first
         // broadcast can read it (issue #215).
         this.seePlanFrame(record.tabId, frame);
@@ -401,7 +476,10 @@ export class SessionManager {
       onExit: (code) => {
         this.clearPlanGate(record.tabId);
         entry.markExited();
-        if (this.live.get(record.tabId) === entry) this.live.delete(record.tabId);
+        if (this.live.get(record.tabId) === entry) {
+          this.live.delete(record.tabId);
+          this.clearHibernateState(record.tabId);
+        }
         if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, code ?? -1);
         void this.deps.broadcast();
       },
@@ -619,6 +697,11 @@ export class SessionManager {
       pending: null,
       settle: { frameId: id, verdict: c.value === PLAN_EXECUTE ? "executed" : "refined" },
     });
+    // Between the verdict and the implementation prompt the process is
+    // momentarily quiet; suspend hibernation until the next agent_end (or
+    // the window lapses) (issue #246).
+    const entry = this.live.get(tabId);
+    if (entry !== undefined) entry.settleSuspendedUntil = Date.now() + SETTLE_WINDOW_MS;
     void this.deps.broadcast();
   }
 
@@ -627,8 +710,183 @@ export class SessionManager {
     if (this.planGates.delete(tabId)) void this.deps.broadcast();
   }
 
+  // --- Hibernation: idle rpc-ui sessions are killed and left dormant, then
+  // --- woken through the ordinary resume path (issue #246). ---
+
+  /** Clears hibernation bookkeeping on every path where a tab leaves `live`. */
+  private clearHibernateState(tabId: string): void {
+    clearTimeout(this.hibernateTimers.get(tabId));
+    this.hibernateTimers.delete(tabId);
+    this.openExtensionRequests.delete(tabId);
+  }
+
+  /**
+   * Every rpc frame updates hibernation state in one place and re-arms the
+   * idle clock. The setting is re-read on every arm, so a Settings change
+   * takes effect at the next activity — no separate re-arm path.
+   */
+  private observeHibernation(tabId: string, frame: unknown): void {
+    const entry = this.live.get(tabId);
+    if (!entry || entry.kind !== "rpc-ui") return;
+    if (typeof frame !== "object" || frame === null) return;
+    const f = frame as Record<string, unknown>;
+    // The probe's own response: settle it and do NOT reset the idle clock —
+    // probe traffic is our own, and resetting would postpone every hibernation
+    // attempt by its own probe.
+    if (f.type === "response" && entry.probeId !== null && f.id === entry.probeId) {
+      entry.probeId = null;
+      const resolve = entry.probeResolve;
+      entry.probeResolve = null;
+      if (resolve === null) return;
+      if (f.success === false) {
+        resolve(null);
+        return;
+      }
+      // Command responses nest their payload under `data` (same tolerant
+      // unwrap as the renderer's respData).
+      const data =
+        f.data !== null && typeof f.data === "object"
+          ? (f.data as Record<string, unknown>)
+          : f;
+      const parked =
+        typeof data.queuedMessageCount === "number" &&
+        Number.isFinite(data.queuedMessageCount)
+          ? data.queuedMessageCount
+          : 0;
+      resolve({ parked, streaming: data.isStreaming === true });
+      return;
+    }
+    switch (f.type) {
+      case "agent_start":
+        entry.turnsRunning++;
+        break;
+      case "agent_end":
+        entry.turnsRunning = Math.max(0, entry.turnsRunning - 1);
+        if (entry.settleSuspendedUntil !== null) entry.settleSuspendedUntil = null;
+        break;
+      case "extension_ui_request":
+        // Only user-answer dialogs block hibernation; the other methods are
+        // fire-and-forget state frames the renderer never replies to.
+        if (typeof f.id === "string" && HIBERNATE_DIALOG_METHODS[String(f.method)] === true) {
+          let open = this.openExtensionRequests.get(tabId);
+          if (open === undefined) {
+            open = new Set<string>();
+            this.openExtensionRequests.set(tabId, open);
+          }
+          open.add(f.id);
+        }
+        break;
+    }
+    // Responses to dialogs are commands (rpcSend), not frames: they clear
+    // `openExtensionRequests` there. Any real frame re-arms the clock.
+    entry.hibernateArmed = true;
+    this.armHibernateTimer(tabId, entry);
+  }
+
+  /** True when a kill cannot lose work or an in-flight exchange. */
+  private hibernable(entry: LiveEntry, tabId: string): boolean {
+    if (entry.kind !== "rpc-ui") return false;
+    if (!entry.hibernateArmed) return false; // still booting
+    if (entry.turnsRunning > 0) return false; // mid-turn
+    const gate = this.planGates.get(tabId);
+    if (gate !== undefined && gate.pending !== null) return false; // plan review open
+    const until = entry.settleSuspendedUntil;
+    if (until !== null) {
+      if (Date.now() < until) return false; // post-verdict window
+      entry.settleSuspendedUntil = null; // window lapsed
+    }
+    const open = this.openExtensionRequests.get(tabId);
+    if (open !== undefined && open.size > 0) return false; // dialog awaiting an answer
+    return true;
+  }
+
+  /** Resets the idle clock; arms only while hibernable and the setting is on. */
+  private armHibernateTimer(tabId: string, entry: LiveEntry): void {
+    clearTimeout(this.hibernateTimers.get(tabId));
+    const minutes = this.deps.registry.hibernateIdleMinutes;
+    if (minutes <= 0 || !this.hibernable(entry, tabId)) return;
+    this.hibernateTimers.set(
+      tabId,
+      setTimeout(() => void this.tryHibernate(tabId), minutes * 60_000),
+    );
+  }
+
+  /**
+   * Live check right before the kill: parked work or streaming means "not
+   * really idle". Settled by the matching response frame in
+   * observeHibernation; null on timeout or failure — never kill on our own
+   * uncertainty (a wedged session stays with the renderer's stall UX).
+   */
+  private probeState(entry: LiveEntry): Promise<{ parked: number; streaming: boolean } | null> {
+    const rpc = entry.rpc;
+    if (rpc === undefined) return Promise.resolve(null);
+    // Executor form (not Promise.withResolvers): the node tsconfig lib is
+    // ES2022.
+    const id = randomUUID();
+    return new Promise((resolve) => {
+      entry.probeId = id;
+      entry.probeResolve = resolve;
+      setTimeout(() => {
+        if (entry.probeId !== id) return; // settled in the meantime
+        entry.probeId = null;
+        entry.probeResolve = null;
+        resolve(null);
+      }, HIBERNATE_PROBE_TIMEOUT_MS);
+      rpc.send({ type: "get_state", id });
+    });
+  }
+  /** Idle window elapsed: re-check every guard, probe, then kill and reap. */
+  private async tryHibernate(tabId: string): Promise<void> {
+    this.hibernateTimers.delete(tabId);
+    // The setting may have flipped to off since the timer armed.
+    if (this.deps.registry.hibernateIdleMinutes <= 0) return;
+    const entry = this.live.get(tabId);
+    if (!entry || !this.hibernable(entry, tabId)) return;
+    const state = await this.probeState(entry);
+    if (state === null) return; // probe timeout/failure: the next real frame re-arms
+    if (state.parked > 0 || state.streaming) return; // re-armed by the next frame
+    // Re-check after the probe round-trip: a prompt that landed while we
+    // probed starts a turn the probe's snapshot cannot see.
+    if (!this.hibernable(entry, tabId)) return;
+    const reap = this.hibernate(tabId, entry);
+    this.hibernating.set(tabId, reap);
+    try {
+      await reap;
+    } finally {
+      this.hibernating.delete(tabId);
+    }
+  }
+
+  /**
+   * SIGTERM → grace → SIGKILL. Emits `session:hibernated` only after the reap
+   * succeeds, so a renderer that sees it never races a live process. If the
+   * child outlives SIGKILL the outcome goes back to the normal exit path.
+   */
+  private async hibernate(tabId: string, entry: LiveEntry): Promise<void> {
+    entry.suppressExit = true;
+    this.killLive(entry);
+    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) {
+      this.deps.send(CH.onSessionHibernated, tabId);
+      void this.deps.broadcast();
+      return;
+    }
+    entry.pty?.kill("SIGKILL");
+    entry.rpc?.kill("SIGKILL");
+    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) {
+      this.deps.send(CH.onSessionHibernated, tabId);
+      void this.deps.broadcast();
+      return;
+    }
+    entry.suppressExit = false;
+    console.warn(`[sessions] ${tabId}: hibernation kill ignored by child; leaving it live`);
+  }
+
   rpcSend(tabId: string, cmd: object): void {
     this.notePlanVerdict(tabId, cmd);
+    const c = cmd as Record<string, unknown>;
+    if (c.type === "extension_ui_response" && typeof c.id === "string") {
+      this.openExtensionRequests.get(tabId)?.delete(c.id);
+    }
     this.live.get(tabId)?.rpc?.send(cmd);
   }
 

@@ -121,6 +121,9 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const bootRpcTab = useStore((s) => s.bootRpcTab);
   const refreshState = useStore((s) => s.refreshState);
   const exitCode = useStore((s) => s.exited[tabId]);
+  // Hibernated framing: the exit was ours (idle window), not a crash — same
+  // overlay, different words (issue #246).
+  const hibernated = useStore((s) => s.hibernated[tabId] === true);
   const resumeDead = useStore((s) => s.resumeDead);
   const compact = useCompactShell();
   const [dismissedFailure, setDismissedFailure] = useState<RpcFailure | null>(null);
@@ -299,10 +302,23 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
               failure && "w-[calc(100%-2rem)] max-w-xl",
             )}
           >
-            <p className="font-display text-sm text-ink">Agent exited</p>
-            <Chip tone="rose" mono title={`process exit code ${exitCode}`}>
-              exit {exitCode}
-            </Chip>
+            <p className="font-display text-sm text-ink">
+              {hibernated ? "Hibernated" : "Agent exited"}
+            </p>
+            {hibernated ? (
+              <Chip tone="neutral" mono>
+                idle — process stopped to free memory
+              </Chip>
+            ) : (
+              <Chip tone="rose" mono title={`process exit code ${exitCode}`}>
+                exit {exitCode}
+              </Chip>
+            )}
+            {hibernated && (
+              <p className="text-[11px] text-ink-dim">
+                The session is dormant — its transcript is safe on disk. Resume to continue.
+              </p>
+            )}
             {failure && (
               <div className="flex w-full items-start gap-2">
                 <p className="min-w-0 flex-1 whitespace-pre-wrap text-left text-[11px] leading-snug text-rose">

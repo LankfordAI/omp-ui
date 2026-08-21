@@ -128,6 +128,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setPlanFormat",
     ...request<[format: PlanFormat], void>(),
   },
+  setHibernateIdleMinutes: {
+    channel: "settings:setHibernateIdleMinutes",
+    ...request<[minutes: number], void>(),
+  },
   setAdvisorAutoReply: {
     channel: "settings:setAdvisorAutoReply",
     ...request<[on: boolean], void>(),
@@ -461,6 +465,11 @@ export const BACKEND_CHANNELS = {
   onPtyExit: {
     channel: "pty:exit",
     ...event<[tabId: string, exitCode: number]>(),
+  },
+  /** The session's process was hibernated after an idle window (issue #246). */
+  onSessionHibernated: {
+    channel: "session:hibernated",
+    ...event<[tabId: string]>(),
   },
   onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: object]>() },
   onStateChanged: { channel: "state:changed", ...event<[state: BackendState]>() },

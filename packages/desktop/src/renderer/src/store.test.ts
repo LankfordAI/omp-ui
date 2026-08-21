@@ -76,6 +76,7 @@ const mockBackend = {
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
+  onSessionHibernated: vi.fn(),
   onShellData: vi.fn(),
   onShellExit: vi.fn(),
   shellSpawn: vi.fn(),
@@ -4524,6 +4525,28 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
       }),
     );
   });
+
+  it("resumeDead behind a hibernated tab wakes it and clears the flag", async () => {
+    backendState = projectState([rec(TAB, "dormant")]);
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
+    useStore.setState({
+      state: backendState,
+      tabs: [
+        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+      ],
+      exited: { [TAB]: 0 },
+      hibernated: { [TAB]: true },
+    });
+
+    await useStore.getState().resumeDead(TAB);
+
+    const st = useStore.getState();
+    expect(st.exited[TAB]).toBeUndefined();
+    expect(st.hibernated[TAB]).toBeUndefined();
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeTabId: TAB, projectCwd: "/p", mode: "rpc-ui" }),
+    );
+  });
 });
 
 describe("hiding or deleting a project's remembered focus moves or drops it (issue #99)", () => {
@@ -4985,6 +5008,7 @@ describe("initialization snapshot ordering", () => {
       mockBackend.onStateChanged,
       mockBackend.onPtyData,
       mockBackend.onPtyExit,
+      mockBackend.onSessionHibernated,
       mockBackend.onShellData,
       mockBackend.onShellExit,
       mockBackend.onRpcFrame,
@@ -5684,5 +5708,38 @@ describe("live stream-stall indicator (issue #228)", () => {
     expect(fresh.getState().exited[TAB]).toBe(1);
     vi.advanceTimersByTime(120_000);
     expect(fresh.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+  });
+});
+
+describe("hibernation (issue #246)", () => {
+  it("settles running tools and marks the tab hibernated, not crashed", async () => {
+    // A fresh module: init latches per evaluation, and the earlier suites
+    // already own the shared module's listener captures.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    fresh.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
+    // A tool card mid-flight: the process is stopped with it still running.
+    fresh.getState().handleRpcFrame(TAB, {
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+    });
+    expect(fresh.getState().rpc[TAB]!.items).toHaveLength(1);
+
+    const init = fresh.getState().init();
+    const hibernateCb =
+      mockBackend.onSessionHibernated.mock.calls[0]![0] as (tabId: string) => void;
+    await init;
+
+    hibernateCb(TAB);
+
+    // The dead gates see a plain exit (code 0); the framing is hibernated.
+    expect(fresh.getState().exited[TAB]).toBe(0);
+    expect(fresh.getState().hibernated[TAB]).toBe(true);
+    const [item] = fresh.getState().rpc[TAB]!.items;
+    expect(item).toMatchObject({ kind: "tool", toolCallId: "t1", status: "cancelled" });
+    vi.useRealTimers();
   });
 });

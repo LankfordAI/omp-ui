@@ -525,6 +525,11 @@ function exceptionalModeTooltip(mode: "build" | "plan", planFilePath: string | n
 
 export function SessionHud({ tabId }: { tabId: string }) {
   const status = useStore((s) => s.rpc[tabId]?.status) ?? "starting";
+  // Hibernation overrides the (stale) rpc status: the process is stopped on
+  // purpose, not live (issue #246). Neutral, no pulse — the mint signal
+  // accent is reserved for liveness (ADR-0004), matching the sidebar's
+  // dormant style.
+  const hibernated = useStore((s) => s.hibernated[tabId] === true);
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats);
   const extensionStatus = useStore((s) => s.rpc[tabId]?.extensionStatus);
@@ -551,7 +556,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const streamStallMs = useStore((s) => s.rpc[tabId]?.streamStallMs);
 
   const usage = session?.contextUsage ?? stats?.contextUsage ?? null;
-  const face = STATUS[status] ?? STATUS.starting;
+  const face = hibernated
+    ? { tone: "neutral" as const, pulse: false }
+    : STATUS[status] ?? STATUS.starting;
+  const label = hibernated ? "hibernated" : status;
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
   const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
   const exceptionalAgentMode =
@@ -569,7 +577,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     return (
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
-          {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : streamStallMs !== undefined ? <StreamStallChip stallMs={streamStallMs} short /> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{status}</span>}
+          {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : streamStallMs !== undefined ? <StreamStallChip stallMs={streamStallMs} short /> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{label}</span>}
           {exceptionalAgentMode && <Chip tone="iris" title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}>{exceptionalAgentMode}</Chip>}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} />}
@@ -626,9 +634,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
       ) : streamStallMs !== undefined ? (
         <StreamStallChip stallMs={streamStallMs} className="[app-region:no-drag]" />
       ) : (
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-dim [app-region:no-drag]" title={`rpc status: ${status}`}>
+        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-dim [app-region:no-drag]" title={`rpc status: ${label}`}>
           <Dot tone={face.tone} pulse={face.pulse} />
-          {status}
+          {label}
         </span>
       )}
 

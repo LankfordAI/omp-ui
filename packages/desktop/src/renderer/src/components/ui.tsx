@@ -539,7 +539,7 @@ export const CAPSULE_SEGMENT = cn(
   "disabled:pointer-events-none disabled:text-ink-faint",
 );
 
-export interface ChoiceCapsuleOption<T extends string> {
+export interface ChoiceCapsuleOption<T extends string | number> {
   value: T;
   label: ReactNode;
   disabled?: boolean;
@@ -550,7 +550,7 @@ export interface ChoiceCapsuleOption<T extends string> {
 }
 
 /** A labelled single-choice capsule with one Tab stop and arrow-key selection. */
-export function ChoiceCapsule<T extends string>({
+export function ChoiceCapsule<T extends string | number>({
   label,
   value,
   options,

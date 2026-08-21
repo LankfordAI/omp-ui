@@ -16,6 +16,8 @@ export interface RegistrySettings {
   defaultAgentMode: AgentMode;
   /** How the agent authors plans for review (see core/plan-extension.ts). */
   planFormat: PlanFormat;
+  /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
+  hibernateIdleMinutes: number;
   /** Auto-answer a late advisor review (issue #111); app-level, default on. */
   advisorAutoReply: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
@@ -83,6 +85,11 @@ export const SETTINGS: SettingDescriptors = {
   planFormat: validatedSetting<PlanFormat>(
     () => "html",
     (value): value is PlanFormat => value === "md",
+  ),
+  hibernateIdleMinutes: validatedSetting(
+    () => 30,
+    (value): value is number =>
+      typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1440,
   ),
   advisorAutoReply: validatedSetting(
     () => true,
@@ -531,6 +538,14 @@ export class Registry {
 
   setPlanFormat(format: PlanFormat): void {
     this.#setSetting("planFormat", format);
+  }
+
+  get hibernateIdleMinutes(): number {
+    return this.#getSetting("hibernateIdleMinutes");
+  }
+
+  setHibernateIdleMinutes(minutes: number): void {
+    this.#setSetting("hibernateIdleMinutes", minutes);
   }
 
   get advisorAutoReply(): boolean {

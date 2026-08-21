@@ -51,6 +51,7 @@ const mockBackend = {
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
+  onSessionHibernated: vi.fn(),
   onShellData: vi.fn(),
   onShellExit: vi.fn(),
   shellSpawn: vi.fn(),

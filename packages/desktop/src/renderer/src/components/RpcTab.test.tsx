@@ -181,6 +181,31 @@ describe("RpcTab exit overlay", () => {
     expect(text).not.toContain("The live session process stopped");
     expect(text).not.toContain("Copy");
   });
+
+  it("frames a hibernated tab as a memory save, not a crash", () => {
+    seedExited();
+    const resumeDead = vi.fn(async () => {});
+    useStore.setState({
+      exited: { [TAB]: 0 },
+      hibernated: { [TAB]: true },
+      resumeDead,
+    });
+    renderTab();
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Hibernated");
+    expect(text).not.toContain("Agent exited");
+    expect(text).toContain("idle — process stopped to free memory");
+    expect(text).not.toContain("exit 0");
+    expect(text).toContain("The session is dormant — its transcript is safe on disk. Resume to continue.");
+    expect(text).toContain("resume session");
+
+    const resume = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "resume session",
+    )!;
+    act(() => resume.click());
+    expect(resumeDead).toHaveBeenCalledWith(TAB);
+  });
 });
 
 describe("RpcTab hero slash-command replies", () => {

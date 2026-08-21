@@ -197,12 +197,20 @@ const PLAN_FORMAT_OPTIONS = [
   { value: "html", label: "html" },
   { value: "md", label: "markdown" },
 ] as const;
+const HIBERNATE_IDLE_OPTIONS = [
+  { value: 0, label: "off" },
+  { value: 15, label: "15 min" },
+  { value: 30, label: "30 min" },
+  { value: 60, label: "1 hour" },
+  { value: 240, label: "4 hours" },
+] as const;
 
 function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
+  const setHibernateIdleMinutes = useStore((s) => s.setHibernateIdleMinutes);
   const setSkipDeleteConfirmation = useStore(
     (s) => s.setSkipDeleteConfirmation,
   );
@@ -248,6 +256,18 @@ function GeneralPage() {
           value={planFormat}
           options={PLAN_FORMAT_OPTIONS}
           onChange={(value) => void setPlanFormat(value)}
+          optionClassName="px-2 text-[11px]"
+        />
+      </Row>
+      <Row
+        title="Hibernate idle sessions"
+        hint="Stop the agent process of a native session after it has been quiet this long. Its transcript stays on disk; resuming the session continues it. Terminal tabs are never hibernated."
+      >
+        <ChoiceCapsule
+          label="hibernate idle sessions"
+          value={state?.hibernateIdleMinutes ?? 30}
+          options={HIBERNATE_IDLE_OPTIONS}
+          onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="px-2 text-[11px]"
         />
       </Row>
