@@ -318,6 +318,7 @@ describe("McpManager", () => {
               live: "live",
               pendingPlan: null,
               planSettle: null,
+              streamStalled: false,
             },
           ],
         },

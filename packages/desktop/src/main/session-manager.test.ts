@@ -1047,6 +1047,187 @@ describe("convert to worktree (issue #225)", () => {
   });
 });
 
+describe("stream-stall watchdog (issue #248)", () => {
+  /** Fixture default: 180s window; the sweep ticks every 15s. */
+  const STALL_WINDOW = 180_000;
+
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB,
+    });
+
+  const stallNotices = (sent: { channel: string; args: unknown[] }[]): unknown[] =>
+    sent
+      .filter((s) => s.channel === CH.onRpcFrame)
+      .map((s) => s.args[1])
+      .filter(
+        (f) =>
+          typeof f === "object" &&
+          f !== null &&
+          (f as Record<string, unknown>).type === "omp_ui_notice",
+      );
+
+  it("aborts a turn whose model stream has been silent past the window", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, broadcast, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
+      expect(rpc.send).toHaveBeenCalledWith({ type: "abort" });
+      const notices = stallNotices(sent);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({
+        level: "warn",
+        message: expect.stringMatching(/stalled turn #1.*turn started/),
+      });
+      expect(manager.isStreamStalled(TAB)).toBe(true);
+      expect(broadcast).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves a busy stream alone", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      for (let elapsed = 0; elapsed < STALL_WINDOW + 60_000; elapsed += 30_000) {
+        rpc.frame({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "x" },
+        });
+        await vi.advanceTimersByTimeAsync(30_000);
+      }
+
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(stallNotices(sent)).toHaveLength(0);
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("exempts recent tool execution and aborts once local work has also gone quiet", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
+
+      // 4 minutes of silence: past the stall window, but the tool grace
+      // exempts the turn — a long bash run is not a dead provider.
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+      expect(rpc.send).not.toHaveBeenCalled();
+
+      // Past the 5-minute tool grace with no activity at all: stalled.
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(rpc.send).toHaveBeenCalledWith({ type: "abort" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never aborts an idle session, even when its last turn ended long ago", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW * 3);
+
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fires once per wedged turn — a refused abort does not re-fire every tick", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW * 3);
+
+      const aborts = rpc.send.mock.calls.filter(
+        (call) =>
+          typeof call[0] === "object" &&
+          call[0] !== null &&
+          (call[0] as Record<string, unknown>).type === "abort",
+      );
+      expect(aborts).toHaveLength(1);
+      expect(stallNotices(sent)).toHaveLength(1);
+      expect(manager.isStreamStalled(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the stalled badge when the session respawns", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+      expect(manager.isStreamStalled(TAB)).toBe(true);
+
+      rpc.exit(0);
+      await resumeRpc(manager);
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does nothing while the setting is off", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.setStreamStallAbortSeconds(0);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("hibernation (issue #246)", () => {
   /** The default hibernateIdleMinutes is 30; the harness registry keeps it. */
   const WINDOW = 30 * 60_000;

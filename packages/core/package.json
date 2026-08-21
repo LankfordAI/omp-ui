@@ -10,7 +10,8 @@
     "./backend-channels": "./src/backend-channels.ts",
     "./plan": "./src/plan.ts",
     "./advisor-stats": "./src/advisor-stats.ts",
-    "./omp-settings-keys": "./src/omp-settings-keys.ts"
+    "./omp-settings-keys": "./src/omp-settings-keys.ts",
+    "./stream-activity": "./src/stream-activity.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

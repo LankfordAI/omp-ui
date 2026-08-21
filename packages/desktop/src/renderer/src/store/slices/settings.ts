@@ -78,6 +78,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     }
   },
 
+  async setStreamStallAbortSeconds(seconds) {
+    try {
+      await backend.setStreamStallAbortSeconds(seconds);
+    } catch (err) {
+      alertError(err);
+    }
+  },
+
   async setAdvisorAutoReply(on) {
     try {
       await backend.setAdvisorAutoReply(on);

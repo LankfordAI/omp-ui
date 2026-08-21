@@ -66,6 +66,7 @@ function seedBusy(): void {
               live: "live",
               pendingPlan: null,
               planSettle: null,
+              streamStalled: false,
             },
           ],
         },

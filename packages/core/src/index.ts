@@ -147,6 +147,7 @@ export {
 } from "./archive";
 export { forkSessionFile } from "./fork";
 export { RpcChunkReassembler } from "./rpc/codec";
+export { modelStreamCheckpointLabel } from "./stream-activity";
 export {
   RpcClient,
   type RpcClientOpts,

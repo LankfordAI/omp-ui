@@ -106,6 +106,7 @@ const state = backendState({
           live: "live",
           pendingPlan: null,
           planSettle: null,
+              streamStalled: false,
         },
         {
           tabId: "tab-2",
@@ -123,6 +124,7 @@ const state = backendState({
           live: "live",
           pendingPlan: null,
           planSettle: null,
+              streamStalled: false,
         },
       ],
     },
@@ -870,6 +872,7 @@ describe("project name display", () => {
             live,
             pendingPlan: null,
             planSettle: null,
+            streamStalled: false,
           })),
         },
       ],
@@ -964,6 +967,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     live: "live" as const,
     pendingPlan: null,
     planSettle: null,
+    streamStalled: false,
   });
   const project = (path: string, name: string) => ({
     project: { path, name, addedAt: "t", lastModel: null, lastAdvisorModel: null },
@@ -1245,6 +1249,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     live: "live" as const,
     pendingPlan: null,
     planSettle: null,
+    streamStalled: false,
     ...patch,
   });
 

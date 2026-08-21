@@ -141,6 +141,7 @@ const session = (
   live,
   pendingPlan: null,
   planSettle: null,
+    streamStalled: false,
 });
 
 const backendState: BackendState = makeBackendState({

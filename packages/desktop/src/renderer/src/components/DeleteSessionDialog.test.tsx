@@ -115,6 +115,7 @@ const stateWith = (
   defaultAgentMode: "build",
   planFormat: "md",
   hibernateIdleMinutes: 30,
+  streamStallAbortSeconds: 180,
   advisorAutoReply: false,
   defaultAdvisor: false,
   modelFavorites: [],
@@ -142,6 +143,7 @@ const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   live: "live",
   pendingPlan: null,
   planSettle: null,
+  streamStalled: false,
   ...overrides,
 });
 

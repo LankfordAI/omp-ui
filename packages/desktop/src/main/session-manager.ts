@@ -11,6 +11,7 @@ import {
   hydrateSessionFile,
   mintLineageDirName,
   mintWorktreePath,
+  modelStreamCheckpointLabel,
   isWithin,
   parseModelRole,
   parsePlanReviewTitle,
@@ -67,6 +68,15 @@ interface LiveEntry {
   /** In-flight pre-kill probe; matched against the response frame's id. */
   probeId: string | null;
   probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
+  // --- stream-stall watchdog bookkeeping (issue #248) ---
+  /** Clock time of the last model-stream frame; armed on turn activity. */
+  lastModelStreamAt: number | null;
+  /** Clock time of the last local tool-execution frame. */
+  lastToolActivityAt: number | null;
+  /** Label of the last model-stream checkpoint, for the abort notice. */
+  stallCheckpointLabel: string | null;
+  /** Turns this live process has had aborted as stalled; appears in the notice. */
+  stallAbortCount: number;
 }
 
 function liveEntry(
@@ -79,6 +89,10 @@ function liveEntry(
     | "settleSuspendedUntil"
     | "probeId"
     | "probeResolve"
+    | "lastModelStreamAt"
+    | "lastToolActivityAt"
+    | "stallCheckpointLabel"
+    | "stallAbortCount"
   >,
 ): LiveEntry {
   // Executor form (not Promise.withResolvers): the node tsconfig lib is
@@ -96,6 +110,10 @@ function liveEntry(
     settleSuspendedUntil: null,
     probeId: null,
     probeResolve: null,
+    lastModelStreamAt: null,
+    lastToolActivityAt: null,
+    stallCheckpointLabel: null,
+    stallAbortCount: 0,
   };
 }
 
@@ -115,6 +133,15 @@ const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
 /** Pre-kill get_state probe bound; a wedged child is left to the stall UX, not killed. */
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
+/** Stream-stall watchdog sweep cadence (issue #248). */
+const STALL_WATCH_TICK_MS = 15_000;
+/**
+ * Local tool execution younger than this exempts a turn from the stall
+ * watchdog: a long bash run is legitimately quiet on the provider stream.
+ * Longer than the default stall window so a slow command is never aborted,
+ * short enough that a permanently wedged tool still trips the watchdog.
+ */
+const STALL_TOOL_GRACE_MS = 5 * 60_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
 /**
@@ -182,6 +209,8 @@ export class SessionManager {
   private readonly hibernating = new Map<string, Promise<void>>();
   /** Unanswered extension_ui_request ids per tab (plan reviews included). */
   private readonly openExtensionRequests = new Map<string, Set<string>>();
+  /** Turn-stall watchdog sweep; one interval for all live tabs (issue #248). */
+  private stallWatchInterval: NodeJS.Timeout | undefined;
   /** Throttle state for mtime-only watcher broadcasts (issue #187). */
   private watcherBroadcastAt = 0;
   private watcherBroadcastTimer: NodeJS.Timeout | undefined;
@@ -230,6 +259,11 @@ export class SessionManager {
     for (const timer of this.hibernateTimers.values()) clearTimeout(timer);
     this.hibernateTimers.clear();
     this.openExtensionRequests.clear();
+    if (this.stallWatchInterval !== undefined) {
+      clearInterval(this.stallWatchInterval);
+      this.stallWatchInterval = undefined;
+    }
+    this.streamStalledTabs.clear();
     // Quit must not block on a hibernation reap: the child is already dying.
     this.hibernating.clear();
   }
@@ -473,6 +507,16 @@ export class SessionManager {
         // Recording precedes fan-out: the gate must be set before the first
         // broadcast can read it (issue #215).
         this.seePlanFrame(record.tabId, frame);
+        // Stall watchdog (issue #248): arm the sweep on the first turn and
+        // timestamp model-stream activity.
+        if (
+          typeof frame === "object" &&
+          frame !== null &&
+          (frame as Record<string, unknown>).type === "agent_start"
+        ) {
+          this.ensureStallWatch();
+        }
+        this.observeStallActivity(entry, frame);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
       },
       onExit: (code) => {
@@ -489,6 +533,8 @@ export class SessionManager {
         this.deps.send(CH.onRpcFrame, record.tabId, { type: "omp_ui_error", message: msg }),
     });
     this.live.set(record.tabId, entry);
+    // A fresh process owes no stall badge: the wedge died with the old one.
+    this.streamStalledTabs.delete(record.tabId);
     this.startWatcher(record);
     void this.deps.broadcast();
     return { tabId: record.tabId };
@@ -726,6 +772,113 @@ export class SessionManager {
     clearTimeout(this.hibernateTimers.get(tabId));
     this.hibernateTimers.delete(tabId);
     this.openExtensionRequests.delete(tabId);
+    this.streamStalledTabs.delete(tabId);
+  }
+
+  // --- Stream-stall watchdog: abort a turn whose model stream has gone
+  // --- silently dead (issue #248). Display-only detection (#228) assumed
+  // --- omp's idle watchdog recovers stalls; OpenRouter's SSE keep-alives
+  // --- defeat it, so main carries the backstop. ---
+
+  /** Tabs whose current live process had a turn aborted as stalled; sidebar badge state. */
+  private readonly streamStalledTabs = new Set<string>();
+
+  /** Whether the stall watchdog has aborted a turn on this live process. */
+  isStreamStalled(tabId: string): boolean {
+    return this.streamStalledTabs.has(tabId);
+  }
+
+  /**
+   * Timestamps the latest model-stream / local-tool activity on the live
+   * entry. Called from the rpc onFrame path after hibernation observation;
+   * the classification is shared with the renderer's stall indicator
+   * (core/stream-activity) so both watchdogs judge "stream activity"
+   * identically.
+   */
+  private observeStallActivity(entry: LiveEntry, frame: unknown): void {
+    if (typeof frame !== "object" || frame === null) return;
+    const type = (frame as Record<string, unknown>).type;
+    if (
+      type === "tool_execution_start" ||
+      type === "tool_execution_update" ||
+      type === "tool_execution_end"
+    ) {
+      entry.lastToolActivityAt = Date.now();
+      return;
+    }
+    const label = modelStreamCheckpointLabel(frame);
+    if (label !== null) {
+      entry.lastModelStreamAt = Date.now();
+      entry.stallCheckpointLabel = label;
+    }
+  }
+
+  /**
+   * One ticking sweep for every live rpc tab. Arms lazily on the first turn
+   * and unrefs: housekeeping must never hold the process open. Every sweep
+   * re-reads the setting, so a Settings change applies at the next tick.
+   */
+  private ensureStallWatch(): void {
+    if (this.stallWatchInterval !== undefined) return;
+    this.stallWatchInterval = setInterval(() => this.checkStreamStalls(), STALL_WATCH_TICK_MS);
+    if (typeof this.stallWatchInterval.unref === "function") this.stallWatchInterval.unref();
+  }
+
+  /**
+   * Aborts turns whose model stream has been silent past the configured
+   * window. Guards: only a running turn can stall, and recent local tool
+   * execution is legitimate quiet (a long bash run is not a dead provider).
+   */
+  private checkStreamStalls(): void {
+    const thresholdSeconds = this.deps.registry.streamStallAbortSeconds;
+    if (thresholdSeconds <= 0) return;
+    for (const [tabId, entry] of this.live) {
+      if (entry.kind !== "rpc-ui") continue;
+      if (entry.turnsRunning === 0) continue;
+      const lastModel = entry.lastModelStreamAt;
+      if (lastModel === null) continue;
+      const now = Date.now();
+      const quietMs = now - lastModel;
+      if (quietMs < thresholdSeconds * 1_000) continue;
+      const toolAt = entry.lastToolActivityAt;
+      if (toolAt !== null && now - toolAt < STALL_TOOL_GRACE_MS) continue;
+      this.abortStalledTurn(tabId, entry, quietMs, thresholdSeconds);
+    }
+  }
+
+  /**
+   * Sends the abort and surfaces the notice. The turn's agent_end (or the
+   * child's refusal) settles the transcript's own status; the watchdog does
+   * not touch hibernation state — agent_end already clears turnsRunning.
+   */
+  private abortStalledTurn(
+    tabId: string,
+    entry: LiveEntry,
+    quietMs: number,
+    thresholdSeconds: number,
+  ): void {
+    const rpc = entry.rpc;
+    if (rpc === undefined) return;
+    // First fire wins: the notice quotes the silence observed at abort time.
+    // Resetting the clock now is also what stops a refused abort from
+    // re-firing every tick.
+    entry.lastModelStreamAt = null;
+    entry.stallAbortCount += 1;
+    this.streamStalledTabs.add(tabId);
+    rpc.send({ type: "abort" });
+    const minutes = Math.floor(thresholdSeconds / 60);
+    const since = entry.stallCheckpointLabel ?? "unknown";
+    this.deps.send(CH.onRpcFrame, tabId, {
+      type: "omp_ui_notice",
+      level: "warn",
+      source: "omp-ui",
+      message:
+        `omp-ui aborted a stalled turn #${entry.stallAbortCount} — no model-stream activity ` +
+        `for ${Math.round(quietMs / 1_000)}s (last: ${since}; window ${minutes}m). ` +
+        `omp's provider watchdog never fired — OpenRouter's stream keep-alives can defeat it. ` +
+        `Send a prompt to continue. Tune or disable under Settings → General → stall watchdog.`,
+    });
+    void this.deps.broadcast();
   }
 
   /**

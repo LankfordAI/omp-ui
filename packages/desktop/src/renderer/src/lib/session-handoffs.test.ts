@@ -43,6 +43,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     live: "dormant",
     pendingPlan: null,
     planSettle: null,
+    streamStalled: false,
     ...patch,
   };
 }

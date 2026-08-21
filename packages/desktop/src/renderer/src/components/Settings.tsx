@@ -197,6 +197,13 @@ const PLAN_FORMAT_OPTIONS = [
   { value: "html", label: "html" },
   { value: "md", label: "markdown" },
 ] as const;
+const STALL_ABORT_OPTIONS = [
+  { value: 0, label: "off" },
+  { value: 120, label: "2 min" },
+  { value: 180, label: "3 min" },
+  { value: 300, label: "5 min" },
+  { value: 600, label: "10 min" },
+] as const;
 const HIBERNATE_IDLE_OPTIONS = [
   { value: 0, label: "off" },
   { value: 15, label: "15 min" },
@@ -211,6 +218,9 @@ function GeneralPage() {
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const setHibernateIdleMinutes = useStore((s) => s.setHibernateIdleMinutes);
+  const setStreamStallAbortSeconds = useStore(
+    (s) => s.setStreamStallAbortSeconds,
+  );
   const setSkipDeleteConfirmation = useStore(
     (s) => s.setSkipDeleteConfirmation,
   );
@@ -268,6 +278,18 @@ function GeneralPage() {
           value={state?.hibernateIdleMinutes ?? 30}
           options={HIBERNATE_IDLE_OPTIONS}
           onChange={(value) => void setHibernateIdleMinutes(value)}
+          optionClassName="px-2 text-[11px]"
+        />
+      </Row>
+      <Row
+        title="Stream-stall watchdog"
+        hint="Abort a running turn after this much model-stream silence. omp's own provider watchdog can be defeated by gateway keep-alives (issue #248); local tool execution younger than five minutes is never treated as a stall. The session stays live — a stalled sidebar badge marks it, and a prompt continues it."
+      >
+        <ChoiceCapsule
+          label="stall watchdog"
+          value={state?.streamStallAbortSeconds ?? 180}
+          options={STALL_ABORT_OPTIONS}
+          onChange={(value) => void setStreamStallAbortSeconds(value)}
           optionClassName="px-2 text-[11px]"
         />
       </Row>

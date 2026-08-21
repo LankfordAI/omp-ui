@@ -23,6 +23,13 @@ const SESSION_FACE: Record<
     title: "Agent is waiting for your answer",
     textClass: "text-iris",
   },
+  stalled: {
+    tone: "copper",
+    pulse: false,
+    label: "stalled",
+    title: "omp-ui aborted a turn whose model stream went silently dead — send a prompt to continue",
+    textClass: "text-copper",
+  },
   ready: {
     tone: "signal",
     pulse: false,

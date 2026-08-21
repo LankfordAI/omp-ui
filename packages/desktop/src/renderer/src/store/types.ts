@@ -124,7 +124,13 @@ export interface RpcTabState {
 }
 
 export type SidebarSessionState =
-  "working" | "awaiting-answer" | "ready" | "starting" | "error" | LiveState;
+  | "working"
+  | "awaiting-answer"
+  | "stalled"
+  | "ready"
+  | "starting"
+  | "error"
+  | LiveState;
 
 export interface DeleteConfirmation {
   tabId: string;
@@ -158,6 +164,7 @@ export interface SettingsSlice {
   setDefaultAgentMode(mode: AgentMode): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
   setHibernateIdleMinutes(minutes: number): Promise<void>;
+  setStreamStallAbortSeconds(seconds: number): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;

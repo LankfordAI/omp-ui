@@ -55,6 +55,7 @@ const backendMock = {
   setDefaultAgentMode: vi.fn(async () => {}),
   setPlanFormat: vi.fn(async () => {}),
   setHibernateIdleMinutes: vi.fn(async () => {}),
+  setStreamStallAbortSeconds: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
@@ -374,6 +375,40 @@ describe("Settings General page hibernate idle sessions (issue #246)", () => {
     seedGeneral(0);
     await renderSettings();
     expect(buttonWithText("off")!.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("Settings General page stream-stall watchdog (issue #248)", () => {
+  const seedGeneral = (streamStallAbortSeconds: number): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ streamStallAbortSeconds }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("shows the persisted window and persists a change", async () => {
+    seedGeneral(180);
+    await renderSettings();
+    expect(document.body.textContent).toContain("Stream-stall watchdog");
+    expect(buttonWithText("3 min")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("5 min")!.getAttribute("aria-pressed")).toBe("false");
+
+    click(buttonWithText("5 min")!);
+    expect(backendMock.setStreamStallAbortSeconds).toHaveBeenCalledWith(300);
+  });
+
+  it("reflects a persisted off setting", async () => {
+    seedGeneral(0);
+    await renderSettings();
+    // Both this row and "Hibernate idle sessions" offer "off" — scope to the watchdog's group.
+    const pressed = [
+      ...document.querySelectorAll('[aria-label="stall watchdog"] [aria-pressed]'),
+    ].find((b) => b.textContent === "off");
+    expect(pressed?.getAttribute("aria-pressed")).toBe("true");
   });
 });
 

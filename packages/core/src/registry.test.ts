@@ -48,6 +48,7 @@ describe("SETTINGS", () => {
       "defaultAgentMode",
       "planFormat",
       "hibernateIdleMinutes",
+      "streamStallAbortSeconds",
       "advisorAutoReply",
       "defaultAdvisor",
       "modelFavorites",
@@ -385,6 +386,27 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).hibernateIdleMinutes).toBe(30);
   });
 
+  it("round-trips the stall watchdog window and falls back to 180 for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setStreamStallAbortSeconds(0);
+    expect(Registry.load(file).streamStallAbortSeconds).toBe(0);
+    reg.setStreamStallAbortSeconds(600);
+    expect(Registry.load(file).streamStallAbortSeconds).toBe(600);
+
+    for (const junk of [-1, 180.5, 3601, "180", null, true]) {
+      const f = tmpFile();
+      fs.writeFileSync(
+        f,
+        JSON.stringify({ schemaVersion: 1, settings: { streamStallAbortSeconds: junk } }),
+      );
+      expect(Registry.load(f).streamStallAbortSeconds).toBe(180);
+    }
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).streamStallAbortSeconds).toBe(180);
+  });
+
   it("round-trips advisor auto-reply and defaults to on for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -448,6 +470,7 @@ describe("Registry persistence", () => {
       ["defaultAgentMode", (registry) => registry.setDefaultAgentMode("plan")],
       ["planFormat", (registry) => registry.setPlanFormat("html")],
       ["hibernateIdleMinutes", (registry) => registry.setHibernateIdleMinutes(30)],
+      ["streamStallAbortSeconds", (registry) => registry.setStreamStallAbortSeconds(180)],
       ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
       ["defaultAdvisor", (registry) => registry.setDefaultAdvisor(false)],
       ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],

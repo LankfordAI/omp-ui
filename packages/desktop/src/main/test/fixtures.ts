@@ -13,6 +13,7 @@ interface RegistrySettings {
   defaultMode: SessionMode;
   defaultAgentMode: AgentMode;
   planFormat: PlanFormat;
+  streamStallAbortSeconds: number;
   advisorAutoReply: boolean;
   defaultAdvisor: boolean;
   modelFavorites: string[];
@@ -69,6 +70,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
     planFormat: "html",
+    streamStallAbortSeconds: 180,
     advisorAutoReply: true,
     defaultAdvisor: false,
     modelFavorites: [],

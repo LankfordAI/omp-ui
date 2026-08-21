@@ -132,6 +132,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setHibernateIdleMinutes",
     ...request<[minutes: number], void>(),
   },
+  setStreamStallAbortSeconds: {
+    channel: "settings:setStreamStallAbortSeconds",
+    ...request<[seconds: number], void>(),
+  },
   setAdvisorAutoReply: {
     channel: "settings:setAdvisorAutoReply",
     ...request<[on: boolean], void>(),

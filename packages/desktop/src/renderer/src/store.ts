@@ -19,6 +19,7 @@ import {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,
 } from "@omp-ui/core/advisor-stats";
+import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { backend } from "./backend";
 import { AdvisorReplyWatcher } from "./lib/advisor-reply";
 import { formatDuration } from "./lib/duration";
@@ -172,6 +173,9 @@ export function deriveSidebarSessionState(
   if (summary.pendingPlan !== null) return "awaiting-answer";
   if (summary.mode === "pty" || !rpc) return "live";
   if (rpc.status === "error") return "error";
+  // A watchdog-aborted turn outranks awaiting-answer: the user must prompt to
+  // continue the session, which also clears the queue (issue #248).
+  if (summary.streamStalled) return "stalled";
   if (rpc.planReview !== null || rpc.extensionQueue.length > 0)
     return "awaiting-answer";
   switch (rpc.status) {
@@ -215,50 +219,6 @@ const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
 /** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
 const STALL_MESSAGE_RE =
   /stream (stalled|timed out) while waiting for the (next|first) event/i;
-
-/**
- * The latest renderer-observed request/model progress checkpoint. Every
- * model-stream frame counts — deltas plus block start/end events (issue
- * #228) — so a stalled stream is detectable even in a gap between deltas.
- * Local tool execution is deliberately excluded: it cannot reset a
- * provider-stream clock.
- */
-function streamCheckpointLabel(frame: object): string | null {
-  const type = "type" in frame ? frame.type : undefined;
-  switch (type) {
-    case "turn_start":
-      return "turn started";
-    case "message_start":
-      return strField(field(frame, "message"), "role") === "assistant"
-        ? "response opened"
-        : null;
-    case "message_update": {
-      switch (strField(field(frame, "assistantMessageEvent"), "type")) {
-        case "text_start":
-          return "text block started";
-        case "text_delta":
-          return "streaming text";
-        case "text_end":
-          return "text block complete";
-        case "thinking_start":
-          return "thinking block started";
-        case "thinking_delta":
-          return "streaming thinking";
-        case "thinking_end":
-          return "thinking block complete";
-        case "toolcall_start":
-        case "toolcall_delta":
-          return "streaming tool-call arguments";
-        case "toolcall_end":
-          return "tool-call arguments complete";
-        default:
-          return null;
-      }
-    }
-    default:
-      return null;
-  }
-}
 
 /**
  * The per-stall diagnostic notice (issue #100), or null when this retry is
@@ -2213,6 +2173,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
           patchRpc(tabId, { status: "ready" });
           return;
         }
+        case "omp_ui_notice": {
+          // Main-process notice frame (issue #248: the stall watchdog's abort
+          // report). Appended verbatim, never answered.
+          appendItem(
+            tabId,
+            noticeItem(strField(frame, "message") ?? "omp-ui notice", "warn"),
+          );
+          return;
+        }
         case "omp_ui_error": {
           const message = strField(frame, "message") ?? "omp rpc error";
           const liveState = findRecord(get().state, tabId)?.live;
@@ -2257,7 +2226,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         default: {
           // Renderer-observed request/model progress for stall diagnosis. Local
           // tool execution and settlement frames deliberately do not reset it.
-          const checkpointLabel = streamCheckpointLabel(frame);
+          const checkpointLabel = modelStreamCheckpointLabel(frame);
           if (checkpointLabel !== null) {
             tab.streamCheckpoint = { at: Date.now(), label: checkpointLabel };
           }

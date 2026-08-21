@@ -311,6 +311,10 @@ export class MainBackend {
           this.registry.setHibernateIdleMinutes(minutes);
           await this.broadcast();
         },
+        [CH.setStreamStallAbortSeconds]: async (seconds: number) => {
+          this.registry.setStreamStallAbortSeconds(seconds);
+          await this.broadcast();
+        },
         [CH.setAdvisorAutoReply]: async (on: boolean) => {
           this.registry.setAdvisorAutoReply(on);
           await this.broadcast();
@@ -679,6 +683,7 @@ export class MainBackend {
       defaultMode: this.registry.defaultMode,
       planFormat: this.registry.planFormat,
       hibernateIdleMinutes: this.registry.hibernateIdleMinutes,
+      streamStallAbortSeconds: this.registry.streamStallAbortSeconds,
       defaultAgentMode: this.registry.defaultAgentMode,
       advisorAutoReply: this.registry.advisorAutoReply,
       defaultAdvisor: this.registry.defaultAdvisor,
@@ -706,6 +711,7 @@ export class MainBackend {
         : loc.where === "archived"
           ? "archived"
           : "missing";
+    const streamStalled = this.sessions.isStreamStalled(record.tabId);
     let title = record.cachedTitle;
     let status: SessionSummary["status"] = null;
     if (loc.where === "active") {
@@ -734,6 +740,7 @@ export class MainBackend {
       live,
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
+      streamStalled,
     };
   }
 

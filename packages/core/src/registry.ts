@@ -18,6 +18,8 @@ export interface RegistrySettings {
   planFormat: PlanFormat;
   /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
   hibernateIdleMinutes: number;
+  /** Silence window before a running turn is aborted as stream-stalled (issue #248); 0 disables. */
+  streamStallAbortSeconds: number;
   /** Auto-answer a late advisor review (issue #111); app-level, default on. */
   advisorAutoReply: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
@@ -90,6 +92,11 @@ export const SETTINGS: SettingDescriptors = {
     () => 30,
     (value): value is number =>
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1440,
+  ),
+  streamStallAbortSeconds: validatedSetting(
+    () => 180,
+    (value): value is number =>
+      typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3600,
   ),
   advisorAutoReply: validatedSetting(
     () => true,
@@ -546,6 +553,14 @@ export class Registry {
 
   setHibernateIdleMinutes(minutes: number): void {
     this.#setSetting("hibernateIdleMinutes", minutes);
+  }
+
+  get streamStallAbortSeconds(): number {
+    return this.#getSetting("streamStallAbortSeconds");
+  }
+
+  setStreamStallAbortSeconds(seconds: number): void {
+    this.#setSetting("streamStallAbortSeconds", seconds);
   }
 
   get advisorAutoReply(): boolean {

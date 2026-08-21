@@ -84,6 +84,7 @@ function sessionRecord(tabId: string, title: string) {
     live: "live" as const,
     pendingPlan: null,
     planSettle: null,
+    streamStalled: false,
   };
 }
 

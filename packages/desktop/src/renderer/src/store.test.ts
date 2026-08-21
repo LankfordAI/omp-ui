@@ -248,6 +248,7 @@ function stateWithRecord(
             live,
             pendingPlan: null,
             planSettle: null,
+              streamStalled: false,
           },
         ],
       },
@@ -410,6 +411,29 @@ describe("deriveSidebarSessionState", () => {
       deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "error", extensionQueue: [{ id: "q" }] }),
+        undefined,
+      ),
+    ).toBe("error");
+    // Issue #248: a watchdog-aborted turn badges the row stalled, outranking
+    // an awaiting answer — the user must prompt to continue either way.
+    expect(
+      deriveSidebarSessionState(
+        { ...summary(), streamStalled: true },
+        rpcTabState({ status: "ready" }),
+        undefined,
+      ),
+    ).toBe("stalled");
+    expect(
+      deriveSidebarSessionState(
+        { ...summary(), streamStalled: true },
+        rpcTabState({ status: "ready", extensionQueue: [{ id: "q" }] }),
+        undefined,
+      ),
+    ).toBe("stalled");
+    expect(
+      deriveSidebarSessionState(
+        { ...summary(), streamStalled: true },
+        rpcTabState({ status: "error" }),
         undefined,
       ),
     ).toBe("error");
@@ -4433,6 +4457,7 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     live,
     pendingPlan: null,
     planSettle: null,
+    streamStalled: false,
   });
 
   it("newSession records the spawned tab as the project's focus", async () => {
@@ -4566,6 +4591,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
     live: "live" as const,
     pendingPlan: null,
     planSettle: null,
+    streamStalled: false,
   });
   const twoSessionState = (): BackendState =>
     makeBackendState({

@@ -133,6 +133,8 @@ export interface SessionSummary extends OwnedSessionRecord {
   live: LiveState;
   pendingPlan: PendingPlan | null;
   planSettle: PlanSettle | null;
+  /** Main-process watchdog aborted a silently wedged turn (issue #248); sidebar badge. */
+  streamStalled: boolean;
 }
 
 export interface ProjectGroup {
@@ -149,6 +151,8 @@ export interface BackendState {
   planFormat: PlanFormat;
   /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
   hibernateIdleMinutes: number;
+  /** Silence window before a running turn is aborted as stream-stalled (issue #248); 0 disables. */
+  streamStallAbortSeconds: number;
   /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
   advisorAutoReply: boolean;
   /** Seeds the advisor on/off for new sessions, default off (issue #174). */

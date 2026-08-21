@@ -49,6 +49,7 @@ const state = backendState({
           live: "live",
           pendingPlan: null,
           planSettle: null,
+              streamStalled: false,
         },
       ],
     },

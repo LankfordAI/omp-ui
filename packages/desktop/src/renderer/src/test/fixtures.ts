@@ -9,6 +9,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     defaultAgentMode: "plan",
     planFormat: "html",
     hibernateIdleMinutes: 30,
+    streamStallAbortSeconds: 180,
     advisorAutoReply: true,
     defaultAdvisor: false,
     modelFavorites: [],
