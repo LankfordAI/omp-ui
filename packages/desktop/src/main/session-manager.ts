@@ -488,15 +488,13 @@ export class SessionManager {
       advisor: record.advisor,
       configOverlays: this.configOverlays(record, absLineageDir),
       extensions: this.planExtensions(absLineageDir),
-      initialCommands: startInPlanMode
-        ? [
-            {
-              type: "prompt",
-              id: `omp-ui-initial-plan-${randomUUID()}`,
-              message: planMessage(true, this.deps.registry.planFormat),
-            },
-          ]
-        : undefined,
+      initialCommands: [
+        {
+          type: "prompt",
+          id: `omp-ui-initial-mode-${randomUUID()}`,
+          message: planMessage(startInPlanMode, this.deps.registry.planFormat),
+        },
+      ],
       onFrame: (frame) => {
         // Hibernation observation precedes the fan-out: the idle clock sees
         // every frame, probe responses included (issue #246).

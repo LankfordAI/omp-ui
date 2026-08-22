@@ -255,29 +255,37 @@ describe("session:setAdvisor", () => {
     setup({ materialized: false, defaultAgentMode: "build" });
     await resume();
     await invoke(CH.setSessionAdvisor, TAB, false, null, true);
-    expect(rpcOptions.at(-1)?.initialCommands).toHaveLength(1);
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
+      expect.objectContaining({ message: "/omp-ui-plan on html" }),
+    ]);
 
     setup({ materialized: false, defaultAgentMode: "plan" });
     await resume();
     await invoke(CH.setSessionAdvisor, TAB, false, null, false);
-    expect(rpcOptions.at(-1)?.initialCommands).toBeUndefined();
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
+      expect.objectContaining({ message: "/omp-ui-plan off" }),
+    ]);
   });
 
   it.each([
-    ["explicit Plan with Build default", "build", true, true],
-    ["explicit Build with Plan default", "plan", false, false],
-    ["omitted fresh posture with Plan default", "plan", undefined, true],
-    ["omitted fresh posture with Build default", "build", undefined, false],
-  ] as const)("resolves %s", async (_label, defaultAgentMode, posture, expectedPlan) => {
+    ["explicit Plan with Build default", "build", true, "/omp-ui-plan on html"],
+    ["explicit Build with Plan default", "plan", false, "/omp-ui-plan off"],
+    ["omitted fresh posture with Plan default", "plan", undefined, "/omp-ui-plan on html"],
+    ["omitted fresh posture with Build default", "build", undefined, "/omp-ui-plan off"],
+  ] as const)("resolves %s", async (_label, defaultAgentMode, posture, expectedMessage) => {
     setup({ materialized: true, defaultAgentMode });
     await fresh(posture);
-    expect(rpcOptions.at(-1)?.initialCommands !== undefined).toBe(expectedPlan);
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
+      expect.objectContaining({ message: expectedMessage }),
+    ]);
   });
 
   it("starts an omitted resume in Build even when the app default is Plan", async () => {
     setup({ materialized: true, defaultAgentMode: "plan" });
     await resume();
-    expect(rpcOptions.at(-1)?.initialCommands).toBeUndefined();
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
+      expect.objectContaining({ message: "/omp-ui-plan off" }),
+    ]);
   });
 
   it("is a no-op for an unknown tab", async () => {

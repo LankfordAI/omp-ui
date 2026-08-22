@@ -282,7 +282,9 @@ describe("live session teardown (issue #64)", () => {
       expect(processStarts()).toBe(2);
       if (rpcSuccessor) {
         expect(RpcClientMock).toHaveBeenCalledWith(
-          expect.objectContaining({ initialCommands: undefined }),
+          expect.objectContaining({
+            initialCommands: [expect.objectContaining({ message: "/omp-ui-plan off" })],
+          }),
         );
       }
     },
@@ -316,7 +318,7 @@ describe("live session teardown (issue #64)", () => {
     },
   );
 
-  it("queues Plan mode during the handshake only for a genuinely new rpc-ui session (issue #140)", async () => {
+  it("queues Plan mode during the handshake for a genuinely new rpc-ui session (issue #140)", async () => {
     setup();
     await invoke(CH.spawnSession, {
       projectCwd: "/proj",
@@ -335,7 +337,7 @@ describe("live session teardown (issue #64)", () => {
     );
   });
 
-  it("does not queue Plan when Build is the configured default agent mode (issue #143)", async () => {
+  it("queues Build when Build is the configured default agent mode (issues #142, #143)", async () => {
     setup();
     await invoke(CH.setDefaultAgentMode, "build");
     await invoke(CH.spawnSession, {
@@ -347,11 +349,13 @@ describe("live session teardown (issue #64)", () => {
     });
 
     expect(RpcClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ initialCommands: undefined }),
+      expect.objectContaining({
+        initialCommands: [expect.objectContaining({ message: "/omp-ui-plan off" })],
+      }),
     );
   });
 
-  it("never arms Plan for a plan-execution spawn even when Plan is the default (issue #165)", async () => {
+  it("queues Build for a plan-execution spawn even when Plan is the default (issue #165)", async () => {
     setup();
     await invoke(CH.spawnSession, {
       projectCwd: "/proj",
@@ -363,7 +367,9 @@ describe("live session teardown (issue #64)", () => {
     });
 
     expect(RpcClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ initialCommands: undefined }),
+      expect.objectContaining({
+        initialCommands: [expect.objectContaining({ message: "/omp-ui-plan off" })],
+      }),
     );
   });
 

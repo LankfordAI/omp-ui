@@ -627,6 +627,7 @@ describe("native RPC relaunch preparation", () => {
       status: "running",
       items: [{ kind: "marker", id: "kept", label: "kept", tone: "neutral" }],
       session: { ...emptySessionRuntime(), isStreaming: true },
+      plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false },
       extensionQueue: [{ id: "question" }],
       planReview: {
         request: {
@@ -649,6 +650,7 @@ describe("native RPC relaunch preparation", () => {
   const expectPrepared = () => {
     const rpc = useStore.getState().rpc[TAB]!;
     expect(rpc.status).toBe("starting");
+    expect(rpc.plan).toBeNull();
     expect(rpc.session.isStreaming).toBe(false);
     expect(rpc.extensionQueue).toEqual([]);
     expect(rpc.planReview).toBeNull();
@@ -700,6 +702,12 @@ describe("native RPC relaunch preparation", () => {
     expectPrepared();
     changed.resolve(undefined);
     await update;
+    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      TAB,
+      true,
+      "openrouter/a/b:high",
+      true,
+    );
   });
 
   it("drains a pending thinking change through persistence before relaunch", async () => {
@@ -748,6 +756,62 @@ describe("native RPC relaunch preparation", () => {
     expect(mockBackend.setSessionModel.mock.invocationCallOrder[0]).toBeLessThan(
       mockBackend.setSessionAdvisor.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("preserves known Build posture when no newer status arrives", async () => {
+    backendState = stateWithRecord("sess-1");
+    useStore.setState({
+      state: backendState,
+      rpc: {
+        [TAB]: rpcTabState({
+          plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
+        }),
+      },
+    });
+
+    await useStore.getState().setSessionAdvisor(TAB, true, "openrouter/a/b:high");
+
+    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      TAB,
+      true,
+      "openrouter/a/b:high",
+      false,
+    );
+  });
+
+  it("restores prior mode when an unsettled command cancels advisor relaunch", async () => {
+    vi.useFakeTimers();
+    try {
+      backendState = stateWithRecord("sess-1");
+      const priorPlan = {
+        enabled: true,
+        planFilePath: "local://plan.md",
+        planAbsPath: "/plan.md",
+        approved: false,
+      };
+      const rpc = staleRpc();
+      rpc.plan = priorPlan;
+      rpc.pendingCommands.set("blocked", {
+        resolve: vi.fn(),
+        reject: vi.fn(),
+        timer: 0,
+        quiet: false,
+        command: "prompt",
+        startedAt: Date.now(),
+        timeoutMs: 60_000,
+      });
+      useStore.setState({ state: backendState, rpc: { [TAB]: rpc } });
+
+      const relaunch = useStore.getState().setSessionAdvisor(TAB, true, "openrouter/a/b:high");
+      expectPrepared();
+      await vi.advanceTimersByTimeAsync(31_000);
+      await relaunch;
+
+      expect(useStore.getState().rpc[TAB]!.plan).toEqual(priorPlan);
+      expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("blocks user-facing process commands while a relaunch is starting", async () => {

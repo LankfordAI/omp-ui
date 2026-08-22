@@ -658,6 +658,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     stopStreamStallTimer(tabId);
     patchRpc(tabId, {
       status: "starting",
+      plan: null,
       session: { ...tab.session, isStreaming: false },
       extensionQueue: [],
       planReview: null,
@@ -2592,6 +2593,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (changedLive && tab) {
         const previousStatus = tab.status;
         const previousStreaming = tab.session.isStreaming;
+        const previousPlan = tab.plan;
         const commandIds = new Set(
           [...tab.pendingCommands.entries()]
             .filter(([, pending]) => !pending.quiet)
@@ -2628,6 +2630,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             patchRpc(tabId, {
               status: previousStatus,
               session: { ...current.session, isStreaming: previousStreaming },
+              plan: previousPlan,
             });
           }
           window.alert(
@@ -2637,7 +2640,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
         }
       }
       const startInPlanMode =
-        preservedPlanMode ?? (changedLive && get().rpc[tabId]?.plan?.enabled === true);
+        preservedPlanMode ??
+        (changedLive
+          ? (get().rpc[tabId]?.plan?.enabled ?? tab?.plan?.enabled ?? false)
+          : false);
       try {
         await backend.setSessionAdvisor(tabId, advisor, advisorModel, startInPlanMode);
       } catch (err) {

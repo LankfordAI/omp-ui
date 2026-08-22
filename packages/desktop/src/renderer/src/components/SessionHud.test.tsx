@@ -189,6 +189,12 @@ describe("wide Session HUD", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     });
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        [TAB]: { ...state.rpc[TAB]!, plan: null },
+      },
+    }));
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
@@ -197,6 +203,17 @@ describe("wide Session HUD", () => {
     // inline selector is gone. Capsule titles start lowercase; chip titles capital.
     expect(host.querySelector("[title^=\"build mode\"]")).toBeNull();
     expect(host.querySelector("[title^=\"plan mode:\"]")).toBeNull();
+
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: true, planFilePath: "/plan.md", planAbsPath: "/plan.md", approved: false },
+        },
+      },
+    }));
+    expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
+    expect(host.querySelector("[title^=\"Build mode\"]")).toBeNull();
 
     act(() => useStore.setState({
       rpc: {
@@ -297,11 +314,28 @@ describe("compact Session HUD", () => {
   });
 
   it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        [TAB]: { ...state.rpc[TAB]!, plan: null },
+      },
+    }));
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.querySelector("header")?.textContent).not.toContain("plan");
     expect(host.querySelector("header")?.textContent).not.toContain("build");
     expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
+
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          plan: { enabled: true, planFilePath: "/plan.md", planAbsPath: "/plan.md", approved: false },
+        },
+      },
+    }));
+    expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
+    expect(host.querySelector("[title^=\"Build mode\"]")).toBeNull();
 
     act(() => useStore.setState({
       rpc: {

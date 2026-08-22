@@ -72,6 +72,14 @@ The generator (`core/src/plan-extension.ts`) consumes those same constants, so
 the two ends of the channel cannot drift; a test asserts they appear in the
 emitted source.
 
+Every rpc-ui process receives exactly one explicit `/omp-ui-plan on …` or
+`/omp-ui-plan off` command after protocol negotiation. That command makes the
+generated extension publish the process's authoritative `omp-ui:plan` status,
+including Build. Across process replacement, the renderer resets mode to
+unknown; neither Plan nor Build is renderable until the replacement extension
+publishes that status.
+
+
 ## Consequences
 
 - **The agent blocks on the verdict.** `xd://propose` does not resolve until the
