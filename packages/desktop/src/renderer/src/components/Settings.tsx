@@ -284,7 +284,7 @@ function GeneralPage() {
       </Row>
       <Row
         title="Stream-stall watchdog"
-        hint="Abort a running turn after this much model-stream silence. omp's own provider watchdog can be defeated by gateway keep-alives (issue #248); local tool execution younger than five minutes is never treated as a stall. The session stays live — a stalled sidebar badge marks it, and a prompt continues it."
+        hint="Abort a running turn after this much model-stream silence. The clock runs only while a model request is in flight: local tool execution suspends it for as long as the tool runs, and tool completion, compaction, retry backoff, and human answers each restart a full window. The session stays live — stall auto-continue or any prompt resumes it."
       >
         <ChoiceCapsule
           label="stall watchdog"

@@ -53,6 +53,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     pendingCommands: new Map(),
     streamCheckpoint: undefined,
     streamStallMs: undefined,
+    stallAbortPending: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,

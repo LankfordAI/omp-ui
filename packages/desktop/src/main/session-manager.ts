@@ -72,11 +72,11 @@ interface LiveEntry {
   /** In-flight pre-kill probe; matched against the response frame's id. */
   probeId: string | null;
   probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
-  // --- stream-stall watchdog bookkeeping (issue #248) ---
+  // --- stream-stall watchdog bookkeeping (issue #248, reworked in #253) ---
   /** Start of the currently eligible model-stream silence interval. */
   stallSilenceSince: number | null;
-  /** Clock time of the last local tool-execution frame. */
-  lastToolActivityAt: number | null;
+  /** Open local tool executions; the silence clock is suspended while > 0. */
+  openToolCount: number;
   /** Label of the last model-stream checkpoint, for the abort notice. */
   stallCheckpointLabel: string | null;
   /** Turns this live process has had aborted as stalled; appears in the notice. */
@@ -94,7 +94,7 @@ function liveEntry(
     | "probeId"
     | "probeResolve"
     | "stallSilenceSince"
-    | "lastToolActivityAt"
+    | "openToolCount"
     | "stallCheckpointLabel"
     | "stallAbortCount"
   >,
@@ -115,7 +115,7 @@ function liveEntry(
     probeId: null,
     probeResolve: null,
     stallSilenceSince: null,
-    lastToolActivityAt: null,
+    openToolCount: 0,
     stallCheckpointLabel: null,
     stallAbortCount: 0,
   };
@@ -139,13 +139,6 @@ const SIGKILL_EXIT_MS = 2_000;
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 /** Stream-stall watchdog sweep cadence (issue #248). */
 const STALL_WATCH_TICK_MS = 15_000;
-/**
- * Local tool execution younger than this exempts a turn from the stall
- * watchdog: a long bash run is legitimately quiet on the provider stream.
- * Longer than the default stall window so a slow command is never aborted,
- * short enough that a permanently wedged tool still trips the watchdog.
- */
-const STALL_TOOL_GRACE_MS = 5 * 60_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
 /**
@@ -819,7 +812,9 @@ export class SessionManager {
   // --- omp's idle watchdog recovers stalls; OpenRouter's SSE keep-alives
   // --- defeat it, so main carries the backstop. ---
 
-  /** Tabs whose current live process had a turn aborted as stalled; sidebar badge state. */
+  /** Tabs whose current live process had a turn aborted as stalled; sidebar
+   * badge state. Lasts until the next turn starts (issue #255), a respawn,
+   * or exit. */
   private readonly streamStalledTabs = new Set<string>();
 
   /** Whether the stall watchdog has aborted a turn on this live process. */
@@ -828,22 +823,65 @@ export class SessionManager {
   }
 
   /**
-   * Timestamps the latest model-stream / local-tool activity on the live
-   * entry. Called from the rpc onFrame path after hibernation observation;
-   * the classification is shared with the renderer's stall indicator
-   * (core/stream-activity) so both watchdogs judge "stream activity"
-   * identically.
+   * Tracks whether a model request is in flight on the live entry, and the
+   * start of the currently eligible silence interval. Called from the rpc
+   * onFrame path after hibernation observation; model-stream classification
+   * is shared with the renderer's stall indicator (core/stream-activity) so
+   * both watchdogs judge "stream activity" identically. Local tool
+   * execution suspends the clock outright (issue #253): omp owns tool
+   * deadlines, and a build or hub wait is legitimately quiet on the
+   * provider stream for as long as it runs.
    */
   private observeStallActivity(entry: LiveEntry, frame: unknown): void {
     if (typeof frame !== "object" || frame === null) return;
     const type = (frame as Record<string, unknown>).type;
-    if (
-      type === "tool_execution_start" ||
-      type === "tool_execution_update" ||
-      type === "tool_execution_end"
-    ) {
-      entry.lastToolActivityAt = Date.now();
-      return;
+    switch (type) {
+      // No tool execution survives a turn boundary. An abort's teardown can
+      // skip end frames for refused tools; a leaked count would suppress
+      // the watchdog for the whole next turn.
+      case "agent_start":
+      case "agent_end":
+        entry.openToolCount = 0;
+        return;
+      case "tool_execution_start":
+        entry.openToolCount++;
+        return;
+      case "tool_execution_update":
+        // A lost start frame must not leave the clock running against a
+        // live tool; an update proves one is open.
+        if (entry.openToolCount === 0) entry.openToolCount = 1;
+        return;
+      case "tool_execution_end":
+        // Ghost ends (no matching start) exist; the transcript reducer
+        // tolerates them too. Never let one underflow or rebase.
+        if (entry.openToolCount === 0) return;
+        entry.openToolCount--;
+        if (entry.openToolCount === 0) {
+          // The next model request starts here: give it a full window,
+          // exactly like the "human answer received" rebase in rpcSend.
+          entry.stallSilenceSince = Date.now();
+          entry.stallCheckpointLabel = "tool execution finished";
+        }
+        return;
+      // omp is legitimately quiet during compaction and retry backoff.
+      // Rebase — never suspend: a wedged compaction/retried stream is a
+      // real stall and must still trip the watchdog one window later.
+      case "auto_compaction_start":
+        entry.stallSilenceSince = Date.now();
+        entry.stallCheckpointLabel = "compaction started";
+        return;
+      case "auto_compaction_end":
+        entry.stallSilenceSince = Date.now();
+        entry.stallCheckpointLabel = "compaction finished";
+        return;
+      case "auto_retry_start":
+        entry.stallSilenceSince = Date.now();
+        entry.stallCheckpointLabel = "retry scheduled";
+        return;
+      case "auto_retry_end":
+        entry.stallSilenceSince = Date.now();
+        entry.stallCheckpointLabel = "retry settled";
+        return;
     }
     const label = modelStreamCheckpointLabel(frame);
     if (label !== null) {
@@ -866,8 +904,7 @@ export class SessionManager {
   /**
    * Aborts turns whose model stream has been silent past the configured
    * window. Guards: only a running turn with no pending human answer can
-   * stall, and recent local tool execution is legitimate quiet (a long bash
-   * run is not a dead provider).
+   * stall, and open tool executions suspend the check outright.
    */
   private checkStreamStalls(): void {
     const thresholdSeconds = this.deps.registry.streamStallAbortSeconds;
@@ -876,13 +913,15 @@ export class SessionManager {
       if (entry.kind !== "rpc-ui") continue;
       if (entry.turnsRunning === 0) continue;
       if (this.awaitingHumanAnswer(tabId)) continue;
+      // A running local tool is legitimately quiet on the provider stream —
+      // a build, a test suite, a hub wait. While one is open the model owes
+      // nothing, however long it runs (issue #253).
+      if (entry.openToolCount > 0) continue;
       const silenceSince = entry.stallSilenceSince;
       if (silenceSince === null) continue;
       const now = Date.now();
       const quietMs = now - silenceSince;
       if (quietMs < thresholdSeconds * 1_000) continue;
-      const toolAt = entry.lastToolActivityAt;
-      if (toolAt !== null && now - toolAt < STALL_TOOL_GRACE_MS) continue;
       this.abortStalledTurn(tabId, entry, quietMs, thresholdSeconds);
     }
   }
@@ -913,11 +952,16 @@ export class SessionManager {
       type: "omp_ui_notice",
       level: "warn",
       source: "omp-ui",
+      // Machine-readable: the renderer feeds this abort into stall
+      // auto-continue (issue #254) — the turn end it produces reads
+      // "aborted", which isStreamStallEnd can never classify.
+      reason: "stall-abort",
       message:
         `omp-ui aborted a stalled turn #${entry.stallAbortCount} — no model-stream activity ` +
         `for ${Math.round(quietMs / 1_000)}s (last: ${since}; window ${minutes}m). ` +
         `omp's provider watchdog never fired — OpenRouter's stream keep-alives can defeat it. ` +
-        `Send a prompt to continue. Tune or disable under Settings → General → stall watchdog.`,
+        `Stall auto-continue resumes the turn if enabled; any prompt also continues it. ` +
+        `Tune or disable under Settings → General → stall watchdog.`,
     });
     void this.deps.broadcast();
   }
@@ -961,6 +1005,9 @@ export class SessionManager {
     switch (f.type) {
       case "agent_start":
         entry.turnsRunning++;
+        // The stalled badge is a call-to-action ("prompt to continue"); a
+        // new turn is that continuation, whoever sent it (issue #255).
+        if (this.streamStalledTabs.delete(tabId)) void this.deps.broadcast();
         break;
       case "agent_end":
         entry.turnsRunning = Math.max(0, entry.turnsRunning - 1);

@@ -261,13 +261,14 @@ _Avoid_: advisor loop, auto-prompt, advisor echo
 **Stall auto-continue**:
 The follow-up prompt omp-ui dispatches into a live rpc-ui session when its
 turn ends with a stall-classified stream error (stopReason "error" plus the
-timeout errorId bit or the provider's stall message), so a session whose
-model stream died resumes instead of sitting idle. Bounded: two consecutive
-auto-continues per session, after which a warn notice pauses it until any
-user prompt re-arms the count. App-level switch (Settings → General), default
-on; terminal tabs are excluded — a PTY carries no prompt channel. The stall
-diagnostic notice (issue #100) posts at the error turn-end whether or not the
-continue fires (ADR-0019).
+timeout errorId bit or the provider's stall message), or when omp-ui's own
+stream-stall watchdog aborted the turn (its tagged abort notice), so a
+session whose model stream died resumes instead of sitting idle. Bounded:
+two consecutive auto-continues per session, after which a warn notice pauses
+it until any user prompt re-arms the count. App-level switch (Settings →
+General), default on; terminal tabs are excluded — a PTY carries no prompt
+channel. The stall diagnostic notice (issue #100) posts at the error turn-end
+whether or not the continue fires (ADR-0019).
 _Avoid_: auto-resume, session revive, stream retry
 
 **Parked message**:
