@@ -40,19 +40,24 @@ export function mintWorktreePath(
  * Creates the checkout at `worktreePath` on the new branch `branch`, rooted
  * at `baseRef` (the project checkout's HEAD when null). Rejects with git's
  * own message — e.g. when the branch already exists or the cwd is not a repo.
+ * Resolves to what the branch was cut from: `baseRef` verbatim when given
+ * (so merge-base semantics tolerate the base branch moving forward), else
+ * the project checkout's HEAD commit resolved before the add.
  */
 export async function addWorktree(
   projectCwd: string,
   worktreePath: string,
   branch: string,
   baseRef: string | null,
-): Promise<void> {
+): Promise<string> {
+  const base = baseRef ?? (await git(projectCwd, ["rev-parse", "HEAD"])).trim();
   await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });
   await git(
     projectCwd,
     ["worktree", "add", "-b", branch, worktreePath, ...(baseRef ? [baseRef] : [])],
     { timeoutMs: ADD_TIMEOUT_MS },
   );
+  return base;
 }
 
 /**
@@ -85,4 +90,56 @@ export async function removeWorktree(projectCwd: string, worktreePath: string): 
     await fs.promises.rm(worktreePath, { recursive: true, force: true });
     await git(projectCwd, ["worktree", "prune"], { timeoutMs: REMOVE_TIMEOUT_MS }).catch(() => {});
   }
+}
+
+/**
+ * Removes checkout directories under `worktreesRoot` that no session record
+ * references (issue #262). Layout is fixed two-level
+ * (`<projectSlug--hash8>/<branchSlug>`), so anything else at those depths is
+ * either an orphan checkout or stray debris — both deletable. `referenced`
+ * only *protects* paths; deletions remain gated by isWithin(worktreesRoot),
+ * so a corrupt registry path can never steer removal outside the root.
+ * Returns the removed paths. Never throws: a missing root resolves to [];
+ * per-entry failures are skipped.
+ */
+export async function sweepOrphanWorktrees(
+  worktreesRoot: string,
+  referenced: ReadonlySet<string>,
+): Promise<string[]> {
+  const root = path.resolve(worktreesRoot);
+  let projects: fs.Dirent[];
+  try {
+    projects = await fs.promises.readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const project of projects) {
+    const projectDir = path.join(root, project.name);
+    try {
+      if (!project.isDirectory()) {
+        // Nothing but checkout dirs legitimately lives here.
+        await fs.promises.rm(projectDir, { force: true });
+        removed.push(projectDir);
+        continue;
+      }
+      const leaves = await fs.promises.readdir(projectDir, { withFileTypes: true });
+      for (const leaf of leaves) {
+        const leafPath = path.join(projectDir, leaf.name);
+        if (referenced.has(path.resolve(leafPath))) continue;
+        if (!isWithin(root, leafPath)) continue;
+        try {
+          await fs.promises.rm(leafPath, { recursive: true, force: true });
+          removed.push(leafPath);
+        } catch {
+          // A busy or permission-locked entry is skipped, not fatal.
+        }
+      }
+      // Prune an emptied project dir; fails harmlessly when not empty.
+      await fs.promises.rmdir(projectDir).catch(() => {});
+    } catch {
+      // An unreadable project dir is skipped, not fatal.
+    }
+  }
+  return removed;
 }

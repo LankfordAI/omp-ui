@@ -228,7 +228,13 @@ function isProjectRecord(value: unknown): value is ProjectRecord {
       typeof value.lastAdvisor === "boolean") &&
     (!("lastAdvisorModel" in value) ||
       value.lastAdvisorModel === null ||
-      typeof value.lastAdvisorModel === "string")
+      typeof value.lastAdvisorModel === "string") &&
+    (!("defaultModel" in value) ||
+      value.defaultModel === null ||
+      typeof value.defaultModel === "string") &&
+    (!("defaultAdvisorModel" in value) ||
+      value.defaultAdvisorModel === null ||
+      typeof value.defaultAdvisorModel === "string")
   );
 }
 
@@ -270,7 +276,12 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
         "path" in value.worktree &&
         typeof value.worktree.path === "string" &&
         "branch" in value.worktree &&
-        typeof value.worktree.branch === "string")) &&
+        typeof value.worktree.branch === "string" &&
+        // base post-dates the first worktree records: absent is legal and
+        // normalized to null on load; a present value must be a string.
+        (!("base" in value.worktree) ||
+          typeof value.worktree.base === "string" ||
+          value.worktree.base === null))) &&
     // Handoff provenance also post-dates the first schema-1 records. When
     // present it must be complete: partial metadata cannot identify a plan.
     (!("planImplementationSource" in value) ||
@@ -319,6 +330,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       lastThinkingLevel: p.lastThinkingLevel ?? null,
       lastAdvisor: p.lastAdvisor ?? null,
       lastAdvisorModel: p.lastAdvisorModel ?? null,
+      defaultModel: p.defaultModel ?? null,
+      defaultAdvisorModel: p.defaultAdvisorModel ?? null,
     }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
@@ -327,7 +340,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
-      worktree: s.worktree ?? null,
+      worktree: s.worktree
+        ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
+        : null,
       planImplementationSource: s.planImplementationSource ?? null,
     }));
   const settingsValue =
@@ -432,6 +447,8 @@ export class Registry {
       lastThinkingLevel: null,
       lastAdvisor: null,
       lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
     };
     this.#data.projects.push(record);
     this.#save();
@@ -512,6 +529,22 @@ export class Registry {
       project.lastModel = model;
       project.lastThinkingLevel = thinkingLevel;
     }
+    this.#save();
+  }
+
+  /** Pins (or clears) the project's default main model for new sessions (issue #257). */
+  setProjectDefaultModel(projectPath: string, model: string | null): void {
+    const project = this.#data.projects.find((p) => p.path === projectPath);
+    if (!project || project.defaultModel === model) return;
+    project.defaultModel = model;
+    this.#save();
+  }
+
+  /** Pins (or clears) the project's default advisor model for new sessions (issue #257). */
+  setProjectDefaultAdvisorModel(projectPath: string, model: string | null): void {
+    const project = this.#data.projects.find((p) => p.path === projectPath);
+    if (!project || project.defaultAdvisorModel === model) return;
+    project.defaultAdvisorModel = model;
     this.#save();
   }
 

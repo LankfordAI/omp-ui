@@ -715,7 +715,78 @@ describe("Registry mutations", () => {
       lastThinkingLevel: null,
       lastAdvisor: null,
       lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
     });
+  });
+
+  it("initializes both model pins to null on addProject", () => {
+    const reg = Registry.load(tmpFile());
+    const record = reg.addProject("/abs/proj");
+    expect(record.defaultModel).toBeNull();
+    expect(record.defaultAdvisorModel).toBeNull();
+  });
+
+  it("setProjectDefaultModel pins, clears, and skips no-op writes", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.setProjectDefaultModel("/abs/proj", "p/m");
+    expect(reg.projects[0]).toMatchObject({ defaultModel: "p/m" });
+    // A pin must survive a reload.
+    expect(Registry.load(file).projects[0]).toMatchObject({ defaultModel: "p/m" });
+    // Setting the same value again saves nothing.
+    const before = fs.readFileSync(file, "utf8");
+    reg.setProjectDefaultModel("/abs/proj", "p/m");
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    // Clearing stores null, not the absence of a field.
+    reg.setProjectDefaultModel("/abs/proj", null);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      projects: Array<Record<string, unknown>>;
+    };
+    expect(raw.projects[0]).toMatchObject({ defaultModel: null });
+  });
+
+  it("setProjectDefaultAdvisorModel pins, clears, and skips no-op writes", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.setProjectDefaultAdvisorModel("/abs/proj", "p/m:high");
+    expect(reg.projects[0]).toMatchObject({ defaultAdvisorModel: "p/m:high" });
+    expect(Registry.load(file).projects[0]).toMatchObject({ defaultAdvisorModel: "p/m:high" });
+    const before = fs.readFileSync(file, "utf8");
+    reg.setProjectDefaultAdvisorModel("/abs/proj", "p/m:high");
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    reg.setProjectDefaultAdvisorModel("/abs/proj", null);
+    expect(Registry.load(file).projects[0]).toMatchObject({ defaultAdvisorModel: null });
+  });
+
+  it("pin mutators are no-ops for an unknown project and write nothing", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    const before = fs.readFileSync(file, "utf8");
+    reg.setProjectDefaultModel("/abs/zzz", "p/m");
+    reg.setProjectDefaultAdvisorModel("/abs/zzz", "p/m");
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(reg.projects[0]).toMatchObject({ defaultModel: null, defaultAdvisorModel: null });
+  });
+
+  it("drops a project record whose pin field is the wrong type", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [
+          { path: "/proj", name: "proj", addedAt: "t", lastModel: null, lastAdvisorModel: null, defaultModel: 42 },
+          { path: "/ok", name: "ok", addedAt: "t", lastModel: null, lastAdvisorModel: null, defaultAdvisorModel: null },
+        ],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.projects.map((p) => p.path)).toEqual(["/ok"]);
   });
 
   it("keeps legacy sessions and defaults missing preferences to null", () => {
@@ -762,6 +833,7 @@ describe("Registry worktree field", () => {
     const worktree = {
       path: "/state/omp-ui/worktrees/proj--abc12345/omp-ui-deadbeef",
       branch: "omp-ui/deadbeef",
+      base: "abcdef0123456789abcdef0123456789abcdef01",
     };
     Registry.load(file).addSession(sessionRecord({ worktree }));
     const reloaded = Registry.load(file);
@@ -781,6 +853,44 @@ describe("Registry worktree field", () => {
     const reloaded = Registry.load(file);
     expect(reloaded.sessions).toHaveLength(1);
     expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-1", worktree: null });
+  });
+
+  it("normalizes a legacy worktree without a base to base null on load", () => {
+    const file = tmpFile();
+    const legacy = {
+      ...sessionRecord(),
+      worktree: {
+        path: "/state/omp-ui/worktrees/proj--abc12345/omp-ui-deadbeef",
+        branch: "omp-ui/deadbeef",
+      },
+    };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]!.worktree).toEqual({
+      path: "/state/omp-ui/worktrees/proj--abc12345/omp-ui-deadbeef",
+      branch: "omp-ui/deadbeef",
+      base: null,
+    });
+  });
+
+  it("drops a session whose worktree base is neither a string nor null", () => {
+    const file = tmpFile();
+    const good = sessionRecord({ tabId: "good" });
+    const bad = {
+      ...sessionRecord({ tabId: "bad" }),
+      worktree: { path: "/wt/checkout", branch: "omp-ui/deadbeef", base: 42 },
+    };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [good, bad] }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "good" });
   });
 
   it("drops a session with a malformed worktree, keeping the rest of the registry", () => {

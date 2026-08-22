@@ -50,6 +50,19 @@ export interface ProjectRecord {
   lastAdvisor?: boolean | null;
   /** Advisor model most recently used, including its optional `:level` suffix. */
   lastAdvisorModel: string | null;
+  /**
+   * Pinned main model for new sessions, as omp's `provider/id` selector
+   * (issue #257). Consumed only at spawn; null/absent = no pin, the
+   * last-used memory and omp's config decide as before.
+   */
+  defaultModel?: string | null;
+  /**
+   * Pinned advisor model for new sessions, as omp's `model[:level]` selector
+   * (issue #257). Consumed only at spawn; null/absent = defer to the
+   * last-used advisor model, then omp config's `modelRoles.advisor`. A pin
+   * does not force the advisor on — on/off keeps its own chain (issue #174).
+   */
+  defaultAdvisorModel?: string | null;
 }
 
 /**
@@ -60,6 +73,12 @@ export interface SessionWorktree {
   path: string;
   /** The branch created for and checked out in this worktree. */
   branch: string;
+  /**
+   * What the branch was cut from: the spawn request's baseRef verbatim, or
+   * the project checkout's HEAD commit resolved at creation when baseRef was
+   * null. Null only on records predating this field.
+   */
+  base: string | null;
 }
 
 /** Saved provenance for a fresh implementation session created from an accepted plan. */
@@ -197,6 +216,11 @@ export interface BranchDiff {
   diff: string;
   /** New untracked files, read as creates. Oversized files are skipped. */
   untracked: Array<{ path: string; text: string; binary: boolean }>;
+  /**
+   * Merge-base commit the diff is taken from when a worktree base was
+   * supplied and resolvable; null = ordinary diff vs HEAD.
+   */
+  mergeBase: string | null;
 }
 
 /**

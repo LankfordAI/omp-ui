@@ -377,9 +377,9 @@ export class SessionManager {
         if (req.worktree) {
           const worktreePath = mintWorktreePath(
             this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
-          await addWorktree(
+          const base = await addWorktree(
             req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
-          worktree = { path: worktreePath, branch: req.worktree.branch };
+          worktree = { path: worktreePath, branch: req.worktree.branch, base };
         }
         const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
         record = this.deps.registry.addSession({
@@ -391,7 +391,7 @@ export class SessionManager {
           planImplementationSource,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
-          model: project?.lastModel ?? null,
+          model: project?.defaultModel ?? project?.lastModel ?? null,
           thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
@@ -651,8 +651,10 @@ export class SessionManager {
     if (record.worktree) throw new Error("session already runs in a worktree");
     const worktreePath = mintWorktreePath(
       this.deps.getWorktreesRoot(), record.projectCwd, branch);
-    await addWorktree(record.projectCwd, worktreePath, branch, baseRef);
-    this.deps.registry.updateSession(tabId, { worktree: { path: worktreePath, branch } });
+    const base = await addWorktree(record.projectCwd, worktreePath, branch, baseRef);
+    this.deps.registry.updateSession(tabId, {
+      worktree: { path: worktreePath, branch, base },
+    });
     const entry = this.live.get(tabId);
     if (!entry) {
       // A dormant restored tab: its next resume picks the worktree up from

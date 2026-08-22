@@ -109,6 +109,12 @@ async function gitProject(baseDir: string): Promise<string> {
   return dir;
 }
 
+/** The project's current HEAD SHA. */
+async function headSha(projectCwd: string): Promise<string> {
+  const { stdout } = await execFileP("git", ["rev-parse", "HEAD"], { cwd: projectCwd });
+  return stdout.trim();
+}
+
 function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
@@ -301,6 +307,78 @@ describe("MCP runtime status bridge", () => {
       expect.any(Error),
     );
     warning.mockRestore();
+  });
+});
+
+describe("project default model pins (issue #257)", () => {
+  const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+
+  it("spawns a fresh session on the pinned model, ahead of last-used memory", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSessionModel(TAB, "last/model", null);
+    registry.setProjectDefaultModel("/proj", "pin/model");
+
+    const { tabId } = await freshSpawn(manager);
+    const record = registry.sessions.find((s) => s.tabId === tabId);
+    expect(record).toBeDefined();
+    expect(record).toMatchObject({ model: "pin/model" });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as
+      | { configOverlays?: string[] }
+      | undefined;
+    const overlay = options?.configOverlays?.find(
+      (file) => path.basename(file) === "omp-ui-model.yml",
+    );
+    expect(overlay).toBeDefined();
+    expect(overlay).toBe(
+      Core.modelOverlayPath(path.join(sessionsRoot, record!.lineageDir)),
+    );
+    expect(fs.readFileSync(overlay!, "utf8")).toBe('modelRoles:\n  default: "pin/model"\n');
+  });
+
+  it("keeps the last-used model when no pin is set", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSessionModel(TAB, "last/model", null);
+
+    const { tabId } = await freshSpawn(manager);
+    expect(registry.sessions.find((s) => s.tabId === tabId)).toMatchObject({
+      model: "last/model",
+    });
+  });
+
+  it("combines the pinned model with the last-used thinking level", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSessionModel(TAB, "last/model", "high");
+    registry.setProjectDefaultModel("/proj", "pin/model");
+
+    await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as
+      | { configOverlays?: string[] }
+      | undefined;
+    const overlay = options?.configOverlays?.find(
+      (file) => path.basename(file) === "omp-ui-model.yml",
+    );
+    expect(fs.readFileSync(overlay!, "utf8")).toBe('modelRoles:\n  default: "pin/model:high"\n');
+  });
+
+  it("never consults the pin for a resumed session", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setProjectDefaultModel("/proj", "pin/model");
+
+    const { tabId } = await resume(manager);
+    expect(tabId).toBe(TAB);
+    // The resumed record keeps its own model (null here) — the pin is a
+    // fresh-spawn concern only.
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      model: null,
+    });
   });
 });
 
@@ -818,11 +896,35 @@ describe("worktree sessions (issue #224)", () => {
     });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    expect(record.worktree).toEqual({ path: worktreePath, branch });
+    // base is the project HEAD at spawn time (issue #259).
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
     expect(fs.existsSync(worktreePath)).toBe(true);
     const call = spawnCalls[spawnCalls.length - 1]!;
     expect(call.id).toBe(tabId);
     expect(call.cwd).toBe(worktreePath);
+  });
+
+  it("persists an explicit baseRef verbatim on the record (issue #259)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    // A named ref distinct from HEAD; the record carries the ref, not its SHA.
+    await execFileP("git", ["branch", "cut-point"], { cwd: project });
+    const branch = "omp-ui/wt-baseref";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: "cut-point" },
+    });
+
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: "cut-point" });
+    expect(fs.existsSync(worktreePath)).toBe(true);
   });
 
   it("resumes a worktree session in its persisted checkout, not the project root", async () => {
@@ -837,7 +939,7 @@ describe("worktree sessions (issue #224)", () => {
         tabId: "tab-wt",
         projectCwd: project,
         mode: "pty",
-        worktree: { path: worktreePath, branch },
+        worktree: { path: worktreePath, branch, base: null },
       }),
     );
 
@@ -924,7 +1026,7 @@ describe("worktree sessions (issue #224)", () => {
 
     expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
     const fork = registry.sessions.find((s) => s.tabId === forkTabId)!;
-    expect(fork.worktree).toEqual({ path: worktreePath, branch });
+    expect(fork.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
     expect(fs.existsSync(worktreePath)).toBe(true);
 
     await manager.deleteSession(forkTabId);
@@ -953,7 +1055,7 @@ describe("worktree sessions (issue #224)", () => {
         tabId: "tab-wt",
         projectCwd: project,
         mode: "pty",
-        worktree: { path: worktreePath, branch },
+        worktree: { path: worktreePath, branch, base: null },
       }),
     );
 
@@ -989,7 +1091,7 @@ describe("worktree sessions (issue #224)", () => {
     });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    expect(record.worktree).toEqual({ path: worktreePath, branch });
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
     const opts = RpcClientMock.mock.calls.at(-1)![0] as { cwd: string };
     expect(opts.cwd).toBe(worktreePath);
   });
@@ -1032,7 +1134,7 @@ describe("worktree sessions (issue #224)", () => {
         tabId: "tab-wt-bad",
         projectCwd: project,
         mode: "pty",
-        worktree: { path: root, branch: ".." },
+        worktree: { path: root, branch: "..", base: null },
       }),
     );
 
@@ -1069,7 +1171,7 @@ describe("convert to worktree (issue #225)", () => {
     expect(predecessor.signals).toEqual(["default"]);
     // …the record carries the worktree…
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    expect(record.worktree).toEqual({ path: worktreePath, branch });
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
     // …the checkout exists on disk…
     expect(fs.existsSync(worktreePath)).toBe(true);
     // …and the successor runs in it.
@@ -1121,11 +1223,29 @@ describe("convert to worktree (issue #225)", () => {
     await manager.convertToWorktree(record.tabId, branch, null);
 
     const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
-    expect(updated.worktree).toEqual({ path: worktreePath, branch });
+    expect(updated.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
     expect(fs.existsSync(worktreePath)).toBe(true);
     expect(spawnOmpMock).not.toHaveBeenCalled();
     expect(manager.isLive(record.tabId)).toBe(false);
     expect(broadcast).toHaveBeenCalled();
+  });
+
+  it("persists an explicit baseRef verbatim when converting (issue #259)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    await execFileP("git", ["branch", "cut-point"], { cwd: project });
+    const branch = "omp-ui/wt-convert-baseref";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const record = registry.addSession(
+      ownedSessionRecord({ tabId: "tab-convert-base", projectCwd: project, mode: "pty" }),
+    );
+
+    await manager.convertToWorktree(record.tabId, branch, "cut-point");
+
+    const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
+    expect(updated.worktree).toEqual({ path: worktreePath, branch, base: "cut-point" });
+    expect(fs.existsSync(worktreePath)).toBe(true);
   });
 });
 
