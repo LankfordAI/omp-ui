@@ -9,7 +9,8 @@ import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
-import { Button, Chip, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
+import { WorktreeChip } from "./WorktreeChip";
+import { Button, Chip, CopyButton, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -633,7 +634,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             <TitleField tabId={tabId} title={title ?? "untitled"} />
             {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
-                {worktree && <div className="flex items-center justify-between gap-3"><Label>worktree</Label><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip></div>}
+                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>worktree</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} /></div></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
                 {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{compactNum(advisorStats.totalTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
@@ -690,11 +691,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {exceptionalAgentMode}
         </Chip>
       )}
-      {worktree && (
-        <Chip mono title={worktree.path} className="[app-region:no-drag]">
-          ⎇ {worktree.branch}
-        </Chip>
-      )}
+      {worktree && <WorktreeChip worktree={worktree} className="[app-region:no-drag]" />}
 
 
       <TitleField tabId={tabId} title={title ?? "untitled"} />

@@ -42,6 +42,8 @@ const backendMock = {
   forkSession: vi.fn(),
   setSessionAdvisor: vi.fn(),
   getAdvisorDefaults: vi.fn(),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
   generateTitle: vi.fn(),
   readPlanFile: vi.fn(),
@@ -232,7 +234,7 @@ describe("DeleteSessionDialog", () => {
       deleteConfirmation: null,
       state: stateWith(
         summary({
-          worktree: { path: "/worktrees/repo--1234/omp-ui-deadbeef", branch: "omp-ui/deadbeef" },
+          worktree: { path: "/worktrees/repo--1234/omp-ui-deadbeef", branch: "omp-ui/deadbeef", base: null },
         }),
         true,
       ),
