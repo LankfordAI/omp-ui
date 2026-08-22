@@ -14,6 +14,7 @@ import { findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } f
 import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
+import { shortBase } from "./WorktreeChip";
 import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 interface BranchDiffLoad {
@@ -22,6 +23,7 @@ interface BranchDiffLoad {
   branch?: string | null;
   repoRoot?: string | null;
   files?: DiffFile[];
+  mergeBase?: string | null;
 }
 
 /**
@@ -513,6 +515,7 @@ function PlansPane({ tabId }: { tabId: string }) {
 function DiffsPane({ tabId }: { tabId: string }) {
   const record = useStore((s) => findRecord(s.state, tabId));
   const cwd = sessionCwd(record);
+  const base = record?.worktree?.base ?? null;
   // A checkout through the composer chip (issue #35) updates this slice; the
   // pane re-reads so it never shows the previous branch's diff.
   const currentBranch = useStore((s) => (cwd ? s.branches[cwd]?.current : undefined));
@@ -523,24 +526,25 @@ function DiffsPane({ tabId }: { tabId: string }) {
   const refresh = useCallback(async () => {
     const requestId = ++requestIdRef.current;
     if (!cwd) {
-      setLoad({ status: "loaded", repoRoot: null, branch: null, files: [] });
+      setLoad({ status: "loaded", repoRoot: null, branch: null, files: [], mergeBase: null });
       return;
     }
     if (requestId === requestIdRef.current) setLoad({ status: "loading" });
     try {
-      const branch = await backend.getBranchDiff(cwd);
+      const branch = await backend.getBranchDiff(cwd, base);
       if (requestId !== requestIdRef.current) return;
       setLoad({
         status: "loaded",
         branch: branch.branch,
         repoRoot: branch.repoRoot,
+        mergeBase: branch.mergeBase,
         files: parseBranchDiff(branch.diff, branch.untracked),
       });
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
       setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
-  }, [cwd]);
+  }, [cwd, base]);
 
   useEffect(() => {
     void refresh();
@@ -575,7 +579,11 @@ function DiffsPane({ tabId }: { tabId: string }) {
     return (
       <Empty
         title="Working tree clean"
-        hint={`No changes on ${load.branch ?? "this branch"} since HEAD.`}
+        hint={
+          load.mergeBase != null && base !== null
+            ? `No changes on ${load.branch ?? "this branch"} since ${shortBase(base)}.`
+            : `No changes on ${load.branch ?? "this branch"} since HEAD.`
+        }
       />
     );
   }
@@ -587,6 +595,11 @@ function DiffsPane({ tabId }: { tabId: string }) {
         <Chip mono title={load.repoRoot ?? undefined}>
           {load.branch ?? "detached"}
         </Chip>
+        {load.mergeBase != null && base !== null && (
+          <Chip mono title={load.mergeBase}>
+            since {shortBase(base)}
+          </Chip>
+        )}
         <span
           className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint"
           title={load.repoRoot ?? undefined}

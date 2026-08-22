@@ -117,6 +117,24 @@ export const BACKEND_CHANNELS = {
     channel: "project:move",
     ...request<[projectPath: string, beforePath: string | null], void>(),
   },
+  /**
+   * Pins the project's default main model (issue #257) — the `provider/id`
+   * selector new sessions boot with, ahead of last-used memory. null clears
+   * the pin.
+   */
+  setProjectDefaultModel: {
+    channel: "project:setDefaultModel",
+    ...request<[projectPath: string, model: string | null], void>(),
+  },
+  /**
+   * Pins the project's default advisor model (issue #257) — the
+   * `model[:level]` selector a new session's advisor uses when the advisor
+   * on/off chain enables it. null clears the pin.
+   */
+  setProjectDefaultAdvisorModel: {
+    channel: "project:setDefaultAdvisorModel",
+    ...request<[projectPath: string, model: string | null], void>(),
+  },
   setDefaultMode: {
     channel: "settings:setDefaultMode",
     ...request<[mode: SessionMode], void>(),
@@ -323,7 +341,7 @@ export const BACKEND_CHANNELS = {
    */
   getBranchDiff: {
     channel: "branch:diff",
-    ...request<[projectCwd: string], BranchDiff>(),
+    ...request<[projectCwd: string, base?: string | null], BranchDiff>(),
   },
   /**
    * Local branches of a project's git repo, default branch first. Null fields

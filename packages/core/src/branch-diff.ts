@@ -28,12 +28,24 @@ function readWorkingFile(absPath: string, maxBytes = MAX_UNTRACKED_BYTES): Branc
 
 /**
  * Working-tree state of the project's git repo: the active branch name, the
- * tracked `git diff HEAD` (staged + unstaged), and new untracked files read as
- * creates. Projects outside any git repo resolve to all-null fields — a
- * no-repo state, not an error.
+ * tracked diff, and new untracked files read as creates. With a worktree
+ * `base` the tracked diff is taken from `merge-base(base, HEAD)` in one pass
+ * — commits + staged + unstaged since the branch was cut — falling back to
+ * `git diff HEAD` (staged + unstaged) when base is null or unresolvable.
+ * Projects outside any git repo resolve to all-null fields — a no-repo
+ * state, not an error.
  */
-export async function readBranchDiff(projectCwd: string): Promise<BranchDiff> {
-  const empty: BranchDiff = { branch: null, repoRoot: null, diff: "", untracked: [] };
+export async function readBranchDiff(
+  projectCwd: string,
+  base: string | null = null,
+): Promise<BranchDiff> {
+  const empty: BranchDiff = {
+    branch: null,
+    repoRoot: null,
+    diff: "",
+    untracked: [],
+    mergeBase: null,
+  };
   let root: string;
   try {
     root = path.resolve((await git(projectCwd, ["rev-parse", "--show-toplevel"])).trim());
@@ -49,18 +61,32 @@ export async function readBranchDiff(projectCwd: string): Promise<BranchDiff> {
     branch = null;
   }
 
-  // `diff HEAD` covers staged + unstaged; a repo with no commits yet (unborn
-  // HEAD) rejects that, so fall back to the two staged/unstaged halves.
+  // With a resolvable worktree base, one diff from the merge-base covers
+  // commits + staged + unstaged with a single entry per file. A deleted base
+  // ref or unrelated history degrades silently to the plain HEAD diff.
+  let mergeBase: string | null = null;
   let diff = "";
-  try {
-    diff = await git(root, ["diff", "HEAD", "--no-ext-diff"]);
-  } catch {
+  if (base !== null) {
     try {
-      const unstaged = await git(root, ["diff", "--no-ext-diff"]);
-      const staged = await git(root, ["diff", "--cached", "--no-ext-diff"]);
-      diff = `${staged}${unstaged}`;
+      mergeBase = (await git(root, ["merge-base", base, "HEAD"])).trim();
+      diff = await git(root, ["diff", mergeBase, "--no-ext-diff"]);
     } catch {
-      // Unreadable repo — report what we can (the branch) with an empty diff.
+      mergeBase = null;
+    }
+  }
+  if (mergeBase === null) {
+    // `diff HEAD` covers staged + unstaged; a repo with no commits yet
+    // (unborn HEAD) rejects that, so fall back to the two halves.
+    try {
+      diff = await git(root, ["diff", "HEAD", "--no-ext-diff"]);
+    } catch {
+      try {
+        const unstaged = await git(root, ["diff", "--no-ext-diff"]);
+        const staged = await git(root, ["diff", "--cached", "--no-ext-diff"]);
+        diff = `${staged}${unstaged}`;
+      } catch {
+        // Unreadable repo — report what we can (the branch) with an empty diff.
+      }
     }
   }
 
@@ -79,5 +105,5 @@ export async function readBranchDiff(projectCwd: string): Promise<BranchDiff> {
     // No untracked listing — the tracked diff still stands.
   }
 
-  return { branch, repoRoot: root, diff, untracked };
+  return { branch, repoRoot: root, diff, untracked, mergeBase };
 }

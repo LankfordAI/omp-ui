@@ -44,6 +44,7 @@ describe("readBranchDiff", () => {
     expect(diff.diff).toContain("-export const a = 1;");
     expect(diff.diff).toContain("+export const a = 2;");
     expect(diff.untracked).toEqual([{ path: "notes.md", text: "# new\n", binary: false }]);
+    expect(diff.mergeBase).toBeNull();
   });
 
   it("reports non-repo projects as null fields, not an error", async () => {
@@ -54,6 +55,7 @@ describe("readBranchDiff", () => {
       repoRoot: null,
       diff: "",
       untracked: [],
+      mergeBase: null,
     });
   });
 
@@ -85,5 +87,67 @@ describe("readBranchDiff", () => {
     fs.writeFileSync(path.join(dir, "big.txt"), "x".repeat(400_000));
     const diff = await readBranchDiff(dir);
     expect(diff.untracked).toEqual([]);
+  });
+
+  it("diffs from the merge-base when a worktree base is given", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await git(["checkout", "-q", "-b", "omp-ui/session"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+
+    const diff = await readBranchDiff(dir, "main");
+    const expectedBase = (await git(["merge-base", "main", "HEAD"])).stdout.trim();
+    expect(diff.mergeBase).toBe(expectedBase);
+    expect(diff.diff).toContain("diff --git a/feature.ts b/feature.ts");
+    expect(diff.diff).toContain("+export const f = 1;");
+  });
+
+  it("keeps the diff scoped to the session branch after the base advances", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await git(["checkout", "-q", "-b", "omp-ui/session"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+
+    // main moves on after the cut — its new file must not enter the diff.
+    await git(["checkout", "-q", "main"]);
+    fs.writeFileSync(path.join(dir, "mainline.ts"), "export const m = 1;\n");
+    await git(["add", "mainline.ts"]);
+    await git(["commit", "-q", "-m", "mainline"]);
+    await git(["checkout", "-q", "omp-ui/session"]);
+
+    const diff = await readBranchDiff(dir, "main");
+    expect(diff.mergeBase).toBe((await git(["merge-base", "main", "HEAD"])).stdout.trim());
+    expect(diff.diff).toContain("+export const f = 1;");
+    expect(diff.diff).not.toContain("mainline.ts");
+  });
+
+  it("folds uncommitted edits into the single merge-base diff", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await git(["checkout", "-q", "-b", "omp-ui/session"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 2;\n");
+
+    const diff = await readBranchDiff(dir, "main");
+    // One diff covers the commit plus the working-tree edit — a single
+    // file entry, showing the working-tree content.
+    expect(diff.diff.match(/^diff --git a\/feature\.ts b\/feature\.ts$/gm)).toHaveLength(1);
+    expect(diff.diff).toContain("+export const f = 2;");
+    expect(diff.diff).not.toContain("+export const f = 1;");
+  });
+
+  it("falls back to the HEAD diff with a null mergeBase for a nonexistent base", async () => {
+    const dir = await tmpRepo();
+    fs.writeFileSync(path.join(dir, ".seed"), "changed\n");
+
+    const diff = await readBranchDiff(dir, "no-such-ref");
+    expect(diff.mergeBase).toBeNull();
+    expect(diff.diff).toContain("+changed");
   });
 });

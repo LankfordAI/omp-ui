@@ -62,6 +62,19 @@ const state = backendState({
     },
   ],
 });
+const WORKTREE_PATH = "/worktrees/alpha/omp-feature";
+/** Same session, but running in a dedicated worktree cut from main. */
+const worktreeState = backendState({
+  projects: [
+    {
+      ...state.projects[0]!,
+      sessions: state.projects[0]!.sessions.map((s) => ({
+        ...s,
+        worktree: { path: WORKTREE_PATH, branch: "omp/feature", base: "main" },
+      })),
+    },
+  ],
+});
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -76,12 +89,18 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-function diffResult(branch: string, path: string, text: string): BranchDiff {
+function diffResult(
+  branch: string,
+  path: string,
+  text: string,
+  mergeBase: string | null = null,
+): BranchDiff {
   return {
     branch,
     repoRoot: PROJECT,
     diff: "",
     untracked: [{ path, text, binary: false }],
+    mergeBase,
   };
 }
 
@@ -267,7 +286,7 @@ describe("desktop InspectorRail", () => {
     renderRail();
 
     act(() => railTab("diffs")!.click());
-    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT);
+    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT, null);
 
     await act(async () => {
       initial.resolve(diffResult("feature/alpha", "initial.txt", "initial change"));
@@ -282,7 +301,7 @@ describe("desktop InspectorRail", () => {
     await act(async () => {
       useStore.setState({ branchDiffRevision: { [PROJECT]: 1, [OTHER_PROJECT]: 1 } });
     });
-    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(2, PROJECT);
+    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(2, PROJECT, null);
     expect(backendMock.getBranchDiff).toHaveBeenCalledTimes(2);
 
     await act(async () => {
@@ -308,7 +327,7 @@ describe("desktop InspectorRail", () => {
       act(() => railTab("diffs")!.click());
     }
     await act(async () => {});
-    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT);
+    expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT, null);
     await act(async () => {
       useStore.setState({ branchDiffRevision: { [PROJECT]: 1 } });
     });
@@ -324,6 +343,27 @@ describe("desktop InspectorRail", () => {
     });
     expect(document.body.textContent).toContain("newer.txt");
     expect(document.body.textContent).not.toContain("older.txt");
+  });
+
+  it("diffs a worktree session against its base and labels the range (issue #261)", async () => {
+    const MERGE_BASE = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0";
+    backendMock.getBranchDiff.mockResolvedValueOnce(
+      diffResult("omp/feature", "change.txt", "worktree change", MERGE_BASE),
+    );
+    useStore.setState({ state: worktreeState });
+    renderRail();
+
+    act(() => railTab("diffs")!.click());
+    await act(async () => {});
+    // The pane reads the *worktree* checkout, scoped to the recorded base.
+    expect(backendMock.getBranchDiff).toHaveBeenCalledWith(WORKTREE_PATH, "main");
+
+    // A resolved merge base renders the range chip beside the branch chip.
+    const chip = [...document.body.querySelectorAll<HTMLElement>("span")].find(
+      (el) => el.textContent === "since main",
+    );
+    expect(chip).toBeDefined();
+    expect(chip!.title).toBe(MERGE_BASE);
   });
 
 

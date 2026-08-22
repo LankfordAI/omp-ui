@@ -25,6 +25,7 @@ import {
   mintWorktreePath,
   isWithin,
   removeWorktree,
+  sweepOrphanWorktrees,
   listProjectFiles,
   resolveFileMentions,
   resolveMcpServers,
@@ -199,6 +200,24 @@ export class MainBackend {
       setToken: (token) => this.registry.setRemoteToken(token),
       send: (state) => this.send(CH.onRemoteState, state),
     });
+    // Startup hygiene (issue #262): a crash between `git worktree add` and
+    // the registry write, or a lost registry, strands checkouts under the
+    // worktrees root. The referenced snapshot is taken from the fully loaded
+    // registry; any later spawn writes its record before creating observable
+    // state, so a just-spawned checkout can never be swept. Fire-and-forget —
+    // sweeping is hygiene, never load-bearing.
+    const referencedWorktrees = new Set(
+      this.registry.sessions
+        .filter((s) => s.worktree)
+        .map((s) => path.resolve(s.worktree!.path)),
+    );
+    void sweepOrphanWorktrees(this.worktreesRoot, referencedWorktrees)
+      .then((removed) => {
+        if (removed.length > 0) {
+          console.log(`[backend] swept ${removed.length} orphan worktree checkout(s)`);
+        }
+      })
+      .catch((err) => console.warn("[backend] worktree sweep failed:", err));
   }
 
   get liveCount(): number {
@@ -294,6 +313,14 @@ export class MainBackend {
         // live-session guard; a null `beforePath` appends (issue #115).
         [CH.moveProject]: async (projectPath: string, beforePath: string | null) => {
           this.registry.moveProject(projectPath, beforePath ?? null);
+          await this.broadcast();
+        },
+        [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
+          this.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
+          await this.broadcast();
+        },
+        [CH.setProjectDefaultAdvisorModel]: async (projectPath: string, model: string | null) => {
+          this.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
           await this.broadcast();
         },
         [CH.setDefaultMode]: async (mode: SessionMode) => {
@@ -394,7 +421,8 @@ export class MainBackend {
         [CH.showPathInFolder]: (absPath: string) => {
           shell.showItemInFolder(absPath);
         },
-        [CH.getBranchDiff]: (projectCwd: string) => readBranchDiff(projectCwd),
+        [CH.getBranchDiff]: (projectCwd: string, base?: string | null) =>
+          readBranchDiff(projectCwd, base ?? null),
         // Stateless core calls: branch operations touch no registry/BackendState field,
         // so these handlers never broadcast().
         [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) =>
