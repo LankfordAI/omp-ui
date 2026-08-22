@@ -385,3 +385,18 @@ describe("plan-review gate on the wire (issue #215)", () => {
     expect(sessionsOf(state, "/p/a")[0]!.planSettle).toBeNull();
   });
 });
+
+describe("orphan worktree sweep on startup (issue #262)", () => {
+  it("removes an unreferenced checkout dir under the worktrees root", async () => {
+    // The default worktrees root sits beside the registry file.
+    const orphan = path.join(base, "worktrees", "proj--deadbeef", "omp-ui-cafe");
+    fs.mkdirSync(orphan, { recursive: true });
+
+    new MainBackend(win as never, path.join(base, "registry.json")).registerIpc();
+
+    // The constructor fires the sweep without awaiting it.
+    await vi.waitFor(() => {
+      expect(fs.existsSync(orphan)).toBe(false);
+    });
+  });
+});

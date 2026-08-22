@@ -3,7 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { git } from "./git";
-import { addWorktree, isWithin, mintWorktreeBranch, mintWorktreePath, removeWorktree } from "./worktree";
+import {
+  addWorktree,
+  isWithin,
+  mintWorktreeBranch,
+  mintWorktreePath,
+  removeWorktree,
+  sweepOrphanWorktrees,
+} from "./worktree";
 
 const cleanups: string[] = [];
 afterEach(() => {
@@ -97,6 +104,19 @@ describe("addWorktree", () => {
     expect(fs.existsSync(path.join(dir, "marker.txt"))).toBe(true);
   });
 
+  it("resolves to the baseRef verbatim when one is given", async () => {
+    const dir = await tmpRepo();
+    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mintWorktreeBranch(), "main");
+    expect(base).toBe("main");
+  });
+
+  it("resolves to the project HEAD SHA when baseRef is null", async () => {
+    const dir = await tmpRepo();
+    const head = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mintWorktreeBranch(), null);
+    expect(base).toBe(head);
+  });
+
   it("rejects with git's own message when the branch already exists", async () => {
     const dir = await tmpRepo();
     const branch = mintWorktreeBranch();
@@ -142,5 +162,52 @@ describe("removeWorktree", () => {
       list.split("\n").filter((l) => l.startsWith("worktree ")).map(path.normalize),
     ).toEqual([path.normalize(`worktree ${fs.realpathSync.native(dir)}`)]);
     expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
+  });
+});
+
+describe("sweepOrphanWorktrees", () => {
+  /** A bare temp dir standing in for the worktrees root — the sweep is pure fs. */
+  function tmpRoot(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-sweep-"));
+    cleanups.push(dir);
+    return dir;
+  }
+
+  it("removes unreferenced leaves while a referenced sibling keeps its project dir", async () => {
+    const root = tmpRoot();
+    const kept = path.join(root, "proj--aaaa1111", "kept");
+    const orphan = path.join(root, "proj--aaaa1111", "orphan");
+    fs.mkdirSync(kept, { recursive: true });
+    fs.mkdirSync(orphan, { recursive: true });
+    fs.writeFileSync(path.join(orphan, "file.txt"), "x\n");
+
+    const removed = await sweepOrphanWorktrees(root, new Set([path.resolve(kept)]));
+    expect(removed).toEqual([path.join(path.resolve(root), "proj--aaaa1111", "orphan")]);
+    expect(fs.existsSync(kept)).toBe(true);
+    expect(fs.existsSync(orphan)).toBe(false);
+    expect(fs.existsSync(path.join(root, "proj--aaaa1111"))).toBe(true);
+  });
+
+  it("prunes a project dir emptied by the sweep", async () => {
+    const root = tmpRoot();
+    fs.mkdirSync(path.join(root, "gone--bbbb2222", "leaf"), { recursive: true });
+
+    const removed = await sweepOrphanWorktrees(root, new Set());
+    expect(removed).toEqual([path.join(path.resolve(root), "gone--bbbb2222", "leaf")]);
+    expect(fs.existsSync(path.join(root, "gone--bbbb2222"))).toBe(false);
+  });
+
+  it("removes a stray non-directory entry at the project level", async () => {
+    const root = tmpRoot();
+    fs.writeFileSync(path.join(root, "stray.txt"), "junk\n");
+
+    const removed = await sweepOrphanWorktrees(root, new Set());
+    expect(removed).toEqual([path.join(path.resolve(root), "stray.txt")]);
+    expect(fs.existsSync(path.join(root, "stray.txt"))).toBe(false);
+  });
+
+  it("resolves to [] when the root does not exist", async () => {
+    const root = path.join(tmpRoot(), "never-created");
+    expect(await sweepOrphanWorktrees(root, new Set())).toEqual([]);
   });
 });

@@ -18,6 +18,7 @@ export {
   mintWorktreeBranch,
   mintWorktreePath,
   removeWorktree,
+  sweepOrphanWorktrees,
 } from "./worktree";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";

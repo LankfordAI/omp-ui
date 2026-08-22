@@ -294,12 +294,16 @@ _Avoid_: plan inbox, plan queue, plan history
 
 **Branch diff pane**:
 The inspector rail pane that shows every working-tree change on the focus
-session's project git branch — the tracked `git diff HEAD` plus new untracked
-files read as creates, one `DiffViewer` per file. It is a repo view, not a
-session view: the rail asks the main process (`core/branch-diff.ts`, the
-git-only `getBranchDiff` channel) and renders the parsed result, so "all
-changes on the current branch" is what the user reads regardless of which
-session produced them.
+session's project git branch — the tracked diff plus new untracked files read
+as creates, one `DiffViewer` per file. It is a repo view, not a session view:
+the rail asks the main process (`core/branch-diff.ts`, the git-only
+`getBranchDiff` channel) and renders the parsed result, so "all changes on
+the current branch" is what the user reads regardless of which session
+produced them. For a worktree session the pane diffs the working tree against
+`merge-base(base, HEAD)` — the branch's cut point — so committed session work
+stays visible instead of vanishing at the first commit; a "since <base>" chip
+marks that reading. Sessions without a recorded base show the plain
+`git diff HEAD`.
 _Avoid_: per-session diff log, file edit history
 
 **Worktree session**:
@@ -308,7 +312,10 @@ a separate checkout on its own branch, minted at spawn under omp-ui's app-data
 worktrees root, sharing the repo's object store. `projectCwd` still names the
 project (sidebar grouping, MCP scope, parameter memory); the worktree is the
 session's effective working tree, so the branch diff pane, branch chip,
-@-picker and console shell all read it. Deleting the session removes the
+@-picker and console shell all read it. The record also carries what the
+branch was cut from (`base`: the picked ref, or the resolved HEAD commit),
+which the branch diff pane and the HUD's worktree chip read; records from
+before this field show plain HEAD diffs. Deleting the session removes the
 checkout; the branch and its commits survive in the repo. Resume, restart and
 mode switches keep the worktree — it lives on the session record.
 _Avoid_: sandbox session, isolated session, branch session
