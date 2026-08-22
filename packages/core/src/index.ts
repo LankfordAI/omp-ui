@@ -39,6 +39,17 @@ export {
   advisorStatsExtensionPath,
   writeAdvisorStatsExtension,
 } from "./advisor-stats-extension";
+export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
+export {
+  MCP_CONNECTION_STATUS_CHANNEL,
+  MCP_RUNTIME_STATUS_COMMAND,
+  MCP_RUNTIME_STATUS_KEY,
+  mcpRuntimeStatusMessage,
+  parseMcpRuntimeStatus,
+  type McpRuntimeFailure,
+  type McpRuntimeFailureKind,
+  type McpRuntimeStatus,
+} from "./mcp-status";
 export {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,

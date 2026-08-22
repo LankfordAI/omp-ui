@@ -12,6 +12,7 @@ import type {
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
+import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { commandItem, planProposalItem, type NoticeItem } from "./lib/transcript";
 import {
   ADVISOR_REPLY_CAP_NOTICE,
@@ -1518,6 +1519,111 @@ describe("handleRpcFrame routing", () => {
     // Advisor stats are state, never a status chip.
     expect(tab.extensionStatus).toEqual({});
     expect(tab.advisorStats?.active).toBe(true);
+  });
+
+  describe("MCP runtime failure state", () => {
+    const statusFrame = (statusText: string, id = "mcp-status") => ({
+      type: "extension_ui_request",
+      id,
+      method: "setStatus",
+      statusKey: MCP_RUNTIME_STATUS_KEY,
+      statusText,
+    });
+
+    it("derives one warning per new auth and connection failure", () => {
+      useStore.getState().handleRpcFrame(TAB, statusFrame(JSON.stringify({
+        pendingServers: [],
+        connectedServers: [],
+        failedServers: [
+          { serverName: "oauth-broken", kind: "auth" },
+          { serverName: "offline", kind: "connection" },
+        ],
+      })));
+
+      const tab = useStore.getState().rpc[TAB]!;
+      expect(tab.items).toEqual([
+        expect.objectContaining({
+          kind: "notice",
+          level: "warn",
+          text: "MCP server “oauth-broken” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then restart the session.",
+        }),
+        expect.objectContaining({
+          kind: "notice",
+          level: "warn",
+          text: "MCP server “offline” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then restart the session.",
+        }),
+      ]);
+      expect(tab.mcpStatus?.failedServers).toHaveLength(2);
+      expect(tab.extensionStatus).toEqual({});
+    });
+
+    it("deduplicates repeated snapshots and clears active failure state on connection", () => {
+      const failed = JSON.stringify({
+        pendingServers: [],
+        connectedServers: [],
+        failedServers: [{ serverName: "remote", kind: "auth" }],
+      });
+      useStore.getState().handleRpcFrame(TAB, statusFrame(failed, "first"));
+      useStore.getState().handleRpcFrame(TAB, statusFrame(failed, "repeat"));
+      useStore.getState().handleRpcFrame(TAB, statusFrame(JSON.stringify({
+        pendingServers: [],
+        connectedServers: ["remote"],
+        failedServers: [],
+      }), "connected"));
+
+      const tab = useStore.getState().rpc[TAB]!;
+      expect(tab.items.filter((item) => item.kind === "notice")).toHaveLength(1);
+      expect(tab.mcpStatus).toEqual({
+        pendingServers: [],
+        connectedServers: ["remote"],
+        failedServers: [],
+      });
+    });
+
+    it("claims malformed status without changing state or creating a generic chip", () => {
+      useStore.getState().handleRpcFrame(TAB, statusFrame("{not-json"));
+      const tab = useStore.getState().rpc[TAB]!;
+      expect(tab.mcpStatus).toBeNull();
+      expect(tab.items).toEqual([]);
+      expect(tab.extensionStatus).toEqual({});
+    });
+
+    it("updates and warns a background tab", () => {
+      useStore.setState({ activeTabId: "another-tab" });
+      useStore.getState().handleRpcFrame(TAB, statusFrame(JSON.stringify({
+        pendingServers: [],
+        connectedServers: [],
+        failedServers: [{ serverName: "background", kind: "connection" }],
+      })));
+      expect(useStore.getState().rpc[TAB]!.mcpStatus?.failedServers).toEqual([
+        { serverName: "background", kind: "connection" },
+      ]);
+      expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
+    });
+    it("clears process-scoped status and notices when the tab boots again", async () => {
+      const relaunchTab = "mcp-relaunch-tab";
+      const state = stateWithRecord("session-1");
+      state.projects[0]!.sessions[0]!.tabId = relaunchTab;
+      backendState = state;
+      useStore.setState({
+        state,
+        rpc: {
+          [relaunchTab]: rpcTabState({
+            items: [{ kind: "notice", id: "old-mcp-notice", text: "old" }],
+            mcpStatus: {
+              pendingServers: [],
+              connectedServers: [],
+              failedServers: [{ serverName: "old-process", kind: "auth" }],
+            },
+          }),
+        },
+      });
+
+      await driveBoot(relaunchTab);
+
+      expect(useStore.getState().rpc[relaunchTab]!.mcpStatus).toBeNull();
+      expect(useStore.getState().rpc[relaunchTab]!.items).toEqual([]);
+    });
   });
 
   describe("provider stream stall notices (issue #100)", () => {

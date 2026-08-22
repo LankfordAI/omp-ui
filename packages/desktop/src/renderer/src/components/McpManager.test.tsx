@@ -8,7 +8,7 @@ import type {
   OmpSettingsSnapshot,
   OmpUpdateState,
 } from "@omp-ui/core/types";
-import { backendState } from "../test/fixtures";
+import { backendState, rpcTabState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -219,7 +219,7 @@ function authenticateButtons(): HTMLButtonElement[] {
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
-  useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null });
+  useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null, rpc: {} });
 });
 
 afterEach(() => {
@@ -439,6 +439,62 @@ describe("McpManager", () => {
     expect(document.body.textContent).toContain(
       "OAuth servers authenticate through omp's TUI: omp refuses reauth over rpc.",
     );
+  });
+
+  it("shows auth and connection failures on matching effective rows", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [toolRow, writableRow, shadowedRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({
+      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      state: liveState,
+      rpc: {
+        [TAB]: rpcTabState({
+          mcpStatus: {
+            pendingServers: [],
+            connectedServers: [],
+            failedServers: [
+              { serverName: "cursor-one", kind: "auth" },
+              { serverName: "native-one", kind: "connection" },
+              { serverName: "dup", kind: "connection" },
+            ],
+          },
+        }),
+      },
+    });
+    await renderManager();
+
+    const cursor = [...document.body.querySelectorAll("li")]
+      .find((row) => row.textContent?.includes("cursor-one"));
+    const native = [...document.body.querySelectorAll("li")]
+      .find((row) => row.textContent?.includes("native-one"));
+    const shadowed = [...document.body.querySelectorAll("li")]
+      .find((row) => row.textContent?.includes("shadowed by native"));
+    expect(cursor?.textContent).toContain("authentication failed in this session");
+    expect(cursor?.textContent).toContain("authenticate");
+    expect(native?.textContent).toContain("connection failed in this session");
+    expect(native?.textContent).not.toContain("authenticate");
+    expect(shadowed?.textContent).not.toContain("connection failed in this session");
+  });
+
+  it("shows no live failure state in the global manager", async () => {
+    backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow], errors: [] } satisfies McpServersResult);
+    useStore.setState({
+      mcpManager: { projectCwd: null },
+      state: liveState,
+      rpc: {
+        [TAB]: rpcTabState({
+          mcpStatus: {
+            pendingServers: [],
+            connectedServers: [],
+            failedServers: [{ serverName: "cursor-one", kind: "auth" }],
+          },
+        }),
+      },
+    });
+    await renderManager();
+    expect(document.body.textContent).not.toContain("failed in this session");
   });
 
   it("stages /mcp reauth for the tab's TUI and closes the modal", async () => {

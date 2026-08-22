@@ -32,7 +32,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     pendingCommands: new Map(), extensionQueue: [], busy: false, initialPrompt: null,
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
-    plans: [], advisorStats: null, advisorReply: true, ...patch,
+    plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, ...patch,
   };
 }
 

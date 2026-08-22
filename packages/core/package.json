@@ -11,6 +11,7 @@
     "./plan": "./src/plan.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",
     "./advisor-stats": "./src/advisor-stats.ts",
+    "./mcp-status": "./src/mcp-status.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
     "./stream-activity": "./src/stream-activity.ts"
   },

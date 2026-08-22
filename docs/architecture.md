@@ -102,6 +102,14 @@ OMP's rpc-ui protocol has no plan-mode command, so core generates a per-lineage 
 
 Plan review can execute in the planning session, execute there after compaction, or seed a fresh implementation session. Only the fresh-session choice creates a plan handoff. The source snapshot is persisted with the fresh session before the implementation prompt is dispatched, and the new session begins in Build mode. The same-session choices preserve their existing execution paths and create no cross-session relation (issues #165 and #238).
 
+### MCP configuration, runtime status, and OAuth recovery
+
+MCP configuration resolution stays in transport-agnostic core and returns only a redacted effective view: credentials, headers, auth and OAuth blocks, source errors, and URL secrets never reach a renderer. A live native session's connection truth comes from OMP's `mcp:connection-status` event bus through a third per-lineage generated extension. That extension reduces raw events to server names plus `auth` or `connection` failure kinds and publishes the snapshot over OMP's existing `setStatus` frame. `MainBackend` forwards the ordinary rpc frame, so Electron and remote-browser renderers derive the same transcript notice, Session HUD badge, and manager-row state without a new backend channel or session-file entry.
+
+OAuth recovery is deliberately separate from runtime observation. OMP refuses `/mcp reauth` over rpc-ui, so an effective HTTP or SSE row in a live native session hands the command to a real OMP TUI in the console drawer. The TUI runs with `--no-session`; after browser consent, the user exits it with `/quit` and restarts the live session. Restart replaces that process's `MCPManager`, clears the old process-scoped snapshot, and lets the replacement report its own connections.
+
+Runtime status is compatibility-bound to OMP versions that emit `mcp:connection-status`. OMP's `startup.quiet` also suppresses those startup events. In either case omp-ui degrades silently: configured servers remain visible in the redacted manager, but the UI does not parse `/mcp list` prose or claim that configured means connected.
+
 ### Slash commands in native sessions
 
 A native session's composer accepts the same slash commands as the terminal TUI. A few commands map to omp-ui surfaces and never reach the child; every other command line is forwarded to OMP.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { McpServerEntry, McpServersResult } from "@omp-ui/core/types";
+import type { McpRuntimeFailure } from "@omp-ui/core/mcp-status";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { findRecord, useStore } from "../store";
@@ -43,11 +44,13 @@ function displayMessage(err: unknown): string {
 function Row({
   entry,
   projectScoped,
+  failure,
   pending,
   onToggle,
   onAuthenticate,
 }: {
   entry: McpServerEntry;
+  failure?: McpRuntimeFailure;
   /** True when the modal is scoped to a project (`projectCwd !== null`). */
   projectScoped: boolean;
   pending: boolean;
@@ -81,6 +84,13 @@ function Row({
           {!entry.effective && shadowedSource !== undefined && (
             <Chip tone="copper" title={entry.shadowedBy}>
               shadowed by {shadowedSource}
+            </Chip>
+          )}
+          {entry.effective && failure !== undefined && (
+            <Chip tone="rose">
+              {failure.kind === "auth"
+                ? "authentication failed in this session"
+                : "connection failed in this session"}
             </Chip>
           )}
         </div>
@@ -142,6 +152,9 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
   // there directly — so the button would be a dead control.
   const native = useStore((s) =>
     tabId === undefined ? false : findRecord(s.state, tabId)?.mode === "rpc-ui",
+  );
+  const mcpStatus = useStore((s) =>
+    tabId === undefined ? null : (s.rpc[tabId]?.mcpStatus ?? null),
   );
 
   const [load, setLoad] = useState<Load>({ status: "loading" });
@@ -207,6 +220,9 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
   };
 
   const result = load.status === "loaded" ? load.result : null;
+  const failures = new Map(
+    (mcpStatus?.failedServers ?? []).map((failure) => [failure.serverName, failure]),
+  );
 
   return (
     <Modal onClose={closeMcpManager} width="w-[40rem]">
@@ -275,6 +291,7 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
                       entry={entry}
                       projectScoped={projectCwd !== null}
                       pending={pendingName === entry.name}
+                      failure={failures.get(entry.name)}
                       onToggle={toggle}
                       onAuthenticate={authenticate}
                     />

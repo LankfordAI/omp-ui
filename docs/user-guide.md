@@ -132,11 +132,17 @@ The **MCP manager** shows the effective MCP servers that OMP resolves for one fi
 - Project scope uses the focused session's project or the project whose MCP action you opened.
 - Global scope shows user-level sources only and applies changes to new sessions in every project.
 
-Each row shows the server name, transport, redacted endpoint, source, scope, effective state, and any shadowing or disabling source. Redaction happens before data reaches the renderer. Environment values, headers, auth, and OAuth data are absent; HTTP and SSE URLs omit user information, query strings, and fragments.
+Each row shows the server name, transport, redacted endpoint, source, scope, effective state, and any shadowing or disabling source. Redaction happens before data reaches the renderer. Environment values, headers, auth, OAuth data, and raw connection errors are absent; HTTP and SSE URLs omit user information, query strings, and fragments.
+
+During native-session startup, supported OMP versions report truthful live connection state. A failed server produces a warning notice in the derived transcript, a rose failure count on the Session HUD's MCP control, and an authentication- or connection-failed chip on the matching effective manager row. The signal belongs to that one live process: repeated snapshots do not duplicate the notice, and restarting clears the active badge and row state before the replacement process reports its result. A plugin-owned server that the config resolver does not enumerate can still contribute to the notice and HUD count; the manager does not invent a config row for it.
 
 A project-scoped toggle writes only project configuration or a project-only override. It never changes user-level state. A server disabled at the user level may therefore be pinned off in project scope; change it in the global manager instead. Global toggles use OMP's user-level write rules.
 
 Changes affect the **next session spawn** in that scope. They do not reconfigure a running process because OMP has no MCP runtime command or config watcher. When you open the manager from a live session, **Restart session to apply** kills and resumes that same session in place with the new MCP configuration. The transcript, lineage, and worktree remain. A project-scoped change reaches a worktree session only when that config change exists in the worktree's branch.
+
+For a failed effective HTTP or SSE row in a live native session, choose **Authenticate**. The console drawer replaces its shell with OMP's real TUI, stages `/mcp reauth <server>`, and waits for you to press **Send**. Complete the provider's browser consent, return to the TUI, run `/quit`, then use **Restart session** in the handoff banner. The restart creates a fresh live MCP manager that can load the new credential; the `--no-session` authentication TUI creates no extra session or lineage. Stdio, shadowed, global-manager, terminal-tab, dormant, and hibernated rows do not receive this OAuth action.
+
+OMP versions that do not emit `mcp:connection-status`, and sessions with OMP's own `startup.quiet` enabled, provide no truthful runtime status. omp-ui degrades silently instead of parsing command prose or presenting configured servers as connected.
 
 For provider and other app configuration, see [Settings](settings.md).
 

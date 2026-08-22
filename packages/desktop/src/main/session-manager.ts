@@ -15,6 +15,7 @@ import {
   isWithin,
   parseModelRole,
   parsePlanReviewTitle,
+  mcpRuntimeStatusMessage,
   planMessage,
   type ProviderKeys,
   type Registry,
@@ -28,6 +29,7 @@ import {
   watchLineageDir,
   writeAdvisorOverlay,
   writeAdvisorStatsExtension,
+  writeMcpStatusExtension,
   writeDefaultModelOverlay,
   writeImageToScratch,
   writePlanExtension,
@@ -480,6 +482,22 @@ export class SessionManager {
     // Exactly like PTY (ADR-0003) — and the dir must exist for the watcher.
     fs.mkdirSync(absLineageDir, { recursive: true });
     const entry = liveEntry({ kind: "rpc-ui", record });
+    const { paths: extensions, mcpStatusLoaded } = this.rpcExtensions(absLineageDir);
+    const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
+    if (mcpStatusLoaded) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-mcp-${randomUUID()}`,
+        message: mcpRuntimeStatusMessage(),
+      });
+    }
+    if (startInPlanMode) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-mode-${randomUUID()}`,
+        message: planMessage(true, this.deps.registry.planFormat),
+      });
+    }
     entry.rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
@@ -487,14 +505,8 @@ export class SessionManager {
       resumeSessionId: record.sessionId ?? undefined,
       advisor: record.advisor,
       configOverlays: this.configOverlays(record, absLineageDir),
-      extensions: this.planExtensions(absLineageDir),
-      initialCommands: [
-        {
-          type: "prompt",
-          id: `omp-ui-initial-mode-${randomUUID()}`,
-          message: planMessage(startInPlanMode, this.deps.registry.planFormat),
-        },
-      ],
+      extensions,
+      initialCommands,
       onFrame: (frame) => {
         // Hibernation observation precedes the fan-out: the idle clock sees
         // every frame, probe responses included (issue #246).
@@ -559,20 +571,27 @@ export class SessionManager {
     return overlays;
   }
 
-  /** The `-e` extensions an rpc-ui spawn needs (plan mode, advisor stats). */
-  private planExtensions(absLineageDir: string): string[] {
-    const extensions: string[] = [];
+  /** The generated `-e` bridges an rpc-ui spawn needs. */
+  private rpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean } {
+    const paths: string[] = [];
     try {
-      extensions.push(writePlanExtension(absLineageDir));
+      paths.push(writePlanExtension(absLineageDir));
     } catch (err) {
       console.warn("[plan] could not write the plan extension:", err);
     }
     try {
-      extensions.push(writeAdvisorStatsExtension(absLineageDir));
+      paths.push(writeAdvisorStatsExtension(absLineageDir));
     } catch (err) {
       console.warn("[advisor] could not write the advisor-stats extension:", err);
     }
-    return extensions;
+    let mcpStatusLoaded = false;
+    try {
+      paths.push(writeMcpStatusExtension(absLineageDir));
+      mcpStatusLoaded = true;
+    } catch (err) {
+      console.warn("[mcp] could not write the MCP-status extension:", err);
+    }
+    return { paths, mcpStatusLoaded };
   }
 
   /** Re-pins a session's advisor, relaunching a live child to apply it. */

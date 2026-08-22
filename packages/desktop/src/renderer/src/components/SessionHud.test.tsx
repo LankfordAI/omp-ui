@@ -298,9 +298,64 @@ describe("wide Session HUD", () => {
     expect(spacer).toBeDefined();
     expect(carvedOut(spacer!)).toBe(false);
   });
+
+  it("shows the wide MCP failure badge and accessible count", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        [TAB]: rpcTabState({
+          ...state.rpc[TAB],
+          mcpStatus: {
+            pendingServers: [],
+            connectedServers: [],
+            failedServers: Array.from({ length: 120 }, (_, index) => ({
+              serverName: `server-${index}`,
+              kind: "connection" as const,
+            })),
+          },
+        }),
+      },
+    }));
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="manage MCP servers (120 failed)"]');
+    expect(trigger?.title).toBe("manage MCP servers (120 failed)");
+    expect(trigger?.parentElement?.textContent).toContain("99+");
+  });
 });
 
 describe("compact Session HUD", () => {
+  it("shows the MCP failure count in the session-actions sheet", () => {
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        [TAB]: rpcTabState({
+          ...state.rpc[TAB],
+          mcpStatus: {
+            pendingServers: [],
+            connectedServers: [],
+            failedServers: [
+              { serverName: "one", kind: "auth" },
+              { serverName: "two", kind: "connection" },
+            ],
+          },
+        }),
+      },
+    }));
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="session actions"]')!.click());
+
+    const mcp = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("MCP"));
+    expect(mcp?.textContent).toContain("2 failed");
+  });
+
   it("keeps the console control directly in the HUD and toggles this tab", () => {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));

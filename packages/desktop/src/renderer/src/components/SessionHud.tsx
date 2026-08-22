@@ -562,6 +562,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const refreshAdvisorStats = useStore((s) => s.refreshAdvisorStats);
   const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
+  const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
@@ -645,7 +646,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
-                {projectCwd !== undefined && <Button onClick={() => openMcpManager(projectCwd, tabId)} className={sheetAction}><IconMcp />MCP</Button>}
+                {projectCwd !== undefined && <Button onClick={() => openMcpManager(projectCwd, tabId)} className={sheetAction}><IconMcp />MCP{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{mcpFailureCount} failed</Chip>}</Button>}
                 <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />branch</Button>
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />new</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />refresh</Button>
@@ -762,12 +763,19 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <IconExport />
         </IconButton>
         {projectCwd !== undefined && (
-          <IconButton
-            label="manage MCP servers"
-            onClick={() => openMcpManager(projectCwd, tabId)}
-          >
-            <IconMcp />
-          </IconButton>
+          <span className="relative shrink-0">
+            <IconButton
+              label={mcpFailureCount > 0 ? `manage MCP servers (${mcpFailureCount} failed)` : "manage MCP servers"}
+              onClick={() => openMcpManager(projectCwd, tabId)}
+            >
+              <IconMcp />
+            </IconButton>
+            {mcpFailureCount > 0 && (
+              <span className="pointer-events-none absolute -right-1.5 -top-1 min-w-3 rounded-full bg-rose-wash px-0.5 text-center font-mono text-[9px] leading-3 text-rose">
+                {mcpFailureCount > 99 ? "99+" : mcpFailureCount}
+              </span>
+            )}
+          </span>
         )}
         <IconButton label="branch this session into a new tab" onClick={() => void branchSession(tabId)}>
           <IconBranch />

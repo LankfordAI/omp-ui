@@ -19,6 +19,10 @@ import {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,
 } from "@omp-ui/core/advisor-stats";
+import {
+  MCP_RUNTIME_STATUS_KEY,
+  parseMcpRuntimeStatus,
+} from "@omp-ui/core/mcp-status";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { backend } from "./backend";
 import { AdvisorReplyWatcher } from "./lib/advisor-reply";
@@ -164,6 +168,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     planDeferred: false,
     plans: [],
     advisorStats: null,
+    mcpStatus: null,
     advisorReply,
   };
 }
@@ -2177,6 +2182,26 @@ export const useStore = create<UiStore>()((set, get, api) => {
           }
           if (entry?.key === ADVISOR_STATS_KEY) {
             patchRpc(tabId, { advisorStats: parseAdvisorStats(entry.text) });
+            return;
+          }
+          if (entry?.key === MCP_RUNTIME_STATUS_KEY) {
+            const mcpStatus = parseMcpRuntimeStatus(entry.text);
+            if (mcpStatus === null) return;
+            const observed = new Set(
+              (tab.mcpStatus?.failedServers ?? []).map(
+                (failure) => `${failure.kind}\u0000${failure.serverName}`,
+              ),
+            );
+            for (const failure of mcpStatus.failedServers) {
+              const key = `${failure.kind}\u0000${failure.serverName}`;
+              if (observed.has(key)) continue;
+              observed.add(key);
+              const text = failure.kind === "auth"
+                ? `MCP server “${failure.serverName}” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then restart the session.`
+                : `MCP server “${failure.serverName}” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then restart the session.`;
+              appendItem(tabId, noticeItem(text, "warn"));
+            }
+            patchRpc(tabId, { mcpStatus });
             return;
           }
           const action = routeExtensionRequest(frame);

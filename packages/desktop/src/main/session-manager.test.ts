@@ -18,6 +18,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     spawnOmp: vi.fn(),
     spawnShell: vi.fn(),
     watchLineageDir: vi.fn(),
+    writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     RpcClient: vi.fn(),
   };
 });
@@ -28,6 +29,7 @@ const resolveSessionLocationMock = vi.mocked(Core.resolveSessionLocation);
 const spawnOmpMock = vi.mocked(Core.spawnOmp);
 const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
+const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const RpcClientMock = vi.mocked(Core.RpcClient);
 const execFileP = promisify(execFile);
 const spawnCalls: Array<Record<string, unknown>> = [];
@@ -185,6 +187,7 @@ beforeEach(() => {
   watcherDisposes.length = 0;
   spawnCalls.length = 0;
   nextPtyDiesOn = "never";
+  writeMcpStatusExtensionMock.mockClear();
   resolveSessionLocationMock.mockClear();
   spawnOmpMock.mockReset();
   spawnOmpMock.mockImplementation((opts) => {
@@ -220,6 +223,82 @@ beforeEach(() => {
     rpcInstances.push(instance);
     return instance;
   } as unknown as typeof Core.RpcClient);
+});
+
+describe("MCP runtime status bridge", () => {
+  it.each([
+    ["ordinary", false],
+    ["resumed", true],
+  ] as const)("loads and flushes the bridge for an %s rpc-ui spawn", async (_case, resumed) => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      startInPlanMode: false,
+      ...(resumed ? { resumeTabId: TAB } : {}),
+    });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
+    expect(options?.initialCommands).toHaveLength(1);
+    expect(options?.initialCommands?.[0]).toMatchObject({
+      type: "prompt",
+      message: Core.mcpRuntimeStatusMessage(),
+    });
+  });
+
+  it("flushes MCP status before entering initial Plan mode", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      startInPlanMode: true,
+    });
+
+    const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands as
+      | Array<{ message?: unknown }>
+      | undefined;
+    expect(commands?.map((command) => command.message)).toEqual([
+      Core.mcpRuntimeStatusMessage(),
+      Core.planMessage(true, "html"),
+    ]);
+  });
+
+  it("omits only the flush command when writing the bridge fails", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    writeMcpStatusExtensionMock.mockImplementationOnce(() => {
+      throw new Error("read-only lineage");
+    });
+    const { manager } = setup({ mode: "rpc-ui" });
+    await manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      startInPlanMode: true,
+    });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    expect(options?.extensions).not.toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
+      ?.map((command) => command.message);
+    expect(messages).toEqual([
+      Core.planMessage(true, "html"),
+    ]);
+    expect(RpcClientMock).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      "[mcp] could not write the MCP-status extension:",
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
 });
 
 describe("plan implementation handoff persistence (issue #238)", () => {

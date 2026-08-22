@@ -19,6 +19,7 @@ import type {
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
+import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -123,6 +124,7 @@ export interface RpcTabState {
   planDeferred: boolean;
   plans: PlanRecord[];
   advisorStats: AdvisorStatsView | null;
+  mcpStatus: McpRuntimeStatus | null;
   advisorReply: boolean;
 }
 
