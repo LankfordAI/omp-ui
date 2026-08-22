@@ -41,6 +41,8 @@ const backendMock = {
   forkSession: vi.fn(),
   setSessionAdvisor: vi.fn(),
   getAdvisorDefaults: vi.fn(),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
   generateTitle: vi.fn(),
   readPlanFile: vi.fn(),
@@ -381,6 +383,38 @@ describe("Sidebar session creation", () => {
     expect(newSession).not.toHaveBeenCalled();
   });
 
+  it("opens the same menu from the chevron and reaches the worktree dialog (issue #262)", () => {
+    useStore.setState({ worktreeDialogProject: null });
+    renderSidebar();
+    const chevron = button("new session options for Project One");
+
+    // A plain left click (jsdom reports 0,0 — the keyboard-activation shape)
+    // anchors the menu to the trigger instead of the pointer.
+    act(() => chevron.click());
+    const item = terminalMenuItem();
+    expect(document.activeElement).toBe(item);
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .map((row) => row.textContent);
+    expect(rows).toEqual(["New terminal session", "New worktree session…"]);
+
+    // Escape dismisses and hands focus back to the chevron.
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
+    );
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(chevron);
+
+    // The worktree row opens the new-worktree-session dialog for the project.
+    act(() => chevron.click());
+    const worktreeRow = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((row) => row.textContent === "New worktree session…")!;
+    act(() => worktreeRow.click());
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(useStore.getState().worktreeDialogProject).toBe(projectPath);
+    expect(newSession).not.toHaveBeenCalled();
+    useStore.setState({ worktreeDialogProject: null });
+  });
+
   it("activates the second session and exposes terminal creation on compact touch", () => {
     Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
       matches: true,
@@ -610,7 +644,7 @@ describe("Sidebar project open control (issue #169)", () => {
     const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
       .map((row) => row.textContent?.trim())
       .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual(["New session", "New terminal session", "New worktree session…", "MCP servers…", "Remove project…"]);
+    expect(rows).toEqual(["New session", "New terminal session", "New worktree session…", "MCP servers…", "Default models…", "Remove project…"]);
 
     const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',

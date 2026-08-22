@@ -15,6 +15,7 @@ import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
+import { ProjectDefaultsSheet } from "./ProjectDefaultsSheet";
 import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
@@ -109,6 +110,17 @@ function IconEllipsis() {
       <circle cx="3.5" cy="8" r="1.1" />
       <circle cx="8" cy="8" r="1.1" />
       <circle cx="12.5" cy="8" r="1.1" />
+    </svg>
+  );
+}
+
+/** Slider mark for the project default-models sheet (issue #257), matching the composer's options icon. */
+function IconTune() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
+      <path d="M2 4.5h4.6M10.4 4.5H14M2 11.5h2.6M8.4 11.5H14" />
+      <circle cx="9" cy="4.5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="6" cy="11.5" r="1.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -217,6 +229,7 @@ interface ProjectSectionProps {
   vsCodeAvailable: boolean | null;
   refreshAvailability: () => Promise<boolean>;
   onOpenActions?: () => void;
+  onOpenDefaults?: () => void;
   // issue #115 pointer reorder, issue #120 keyboard reorder — one gate for both
   canReorder?: boolean;
   registerGrip?: (path: string, el: HTMLButtonElement | null) => void;
@@ -241,6 +254,7 @@ function ProjectSection({
   refreshAvailability,
   onActivate,
   onOpenActions,
+  onOpenDefaults,
   canReorder = false,
   registerGrip,
   onReorder,
@@ -416,11 +430,20 @@ function ProjectSection({
               <IconButton label={`MCP servers for ${project.name}`} onClick={() => openMcpManager(project.path)}>
                 <IconMcp />
               </IconButton>
+              <IconButton label={`default models for ${project.name}`} onClick={() => onOpenDefaults?.()}>
+                <IconTune />
+              </IconButton>
               <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
                 <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
                   <IconPlus />
                 </IconButton>
               </span>
+              <IconButton
+                label={`new session options for ${project.name}`}
+                onClick={(event) => openTerminalMenu(project.path, event)}
+              >
+                <Chevron open className="size-2.5" />
+              </IconButton>
               <IconButton label="remove project" tone="rose" onClick={() => void removeProject(project.path)}>
                 <IconClose className="size-3.5" />
               </IconButton>
@@ -565,6 +588,8 @@ export function Sidebar() {
   // The project whose compact actions sheet is open (issue #205), by path.
   // Sidebar-local UI state, like `terminalMenu` — never in the store.
   const [actionsFor, setActionsFor] = useState<string | null>(null);
+  // The project whose default-models sheet is open (issue #257), by path.
+  const [defaultsFor, setDefaultsFor] = useState<string | null>(null);
   const [vsCodeAvailable, setVsCodeAvailable] = useState<boolean | null>(null);
   const availabilityMounted = useRef(false);
   const availabilityGeneration = useRef(0);
@@ -856,6 +881,7 @@ export function Sidebar() {
                   refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
                   onOpenActions={() => setActionsFor(path)}
+                  onOpenDefaults={() => setDefaultsFor(path)}
                   canReorder={canReorder}
                   registerGrip={registerGrip}
                   onReorder={(delta) => reorderProject(index, delta)}
@@ -923,8 +949,14 @@ export function Sidebar() {
           project={actionsProject}
           onClose={() => setActionsFor(null)}
           onActivate={closeCompactSurface}
+          onOpenDefaults={actionsProject !== null ? () => setDefaultsFor(actionsProject.path) : undefined}
         />
       )}
+
+      <ProjectDefaultsSheet
+        project={defaultsFor === null ? null : state?.projects.find((g) => g.project.path === defaultsFor)?.project ?? null}
+        onClose={() => setDefaultsFor(null)}
+      />
 
       {/* -------- footer -------- */}
       <footer

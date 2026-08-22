@@ -169,7 +169,7 @@ export function IconButton({
   className,
 }: {
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   label: string;
   tone?: Tone;
   disabled?: boolean;
