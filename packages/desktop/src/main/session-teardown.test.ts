@@ -283,7 +283,9 @@ describe("live session teardown (issue #64)", () => {
       if (rpcSuccessor) {
         expect(RpcClientMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            initialCommands: [expect.objectContaining({ message: "/omp-ui-plan off" })],
+            initialCommands: expect.arrayContaining([
+              expect.objectContaining({ message: "/omp-ui-plan off" }),
+            ]),
           }),
         );
       }
@@ -330,9 +332,9 @@ describe("live session teardown (issue #64)", () => {
 
     expect(RpcClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialCommands: [
+        initialCommands: expect.arrayContaining([
           expect.objectContaining({ type: "prompt", message: "/omp-ui-plan on html" }),
-        ],
+        ]),
       }),
     );
   });
@@ -350,7 +352,9 @@ describe("live session teardown (issue #64)", () => {
 
     expect(RpcClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialCommands: [expect.objectContaining({ message: "/omp-ui-plan off" })],
+        initialCommands: expect.arrayContaining([
+          expect.objectContaining({ message: "/omp-ui-plan off" }),
+        ]),
       }),
     );
   });
@@ -368,7 +372,9 @@ describe("live session teardown (issue #64)", () => {
 
     expect(RpcClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialCommands: [expect.objectContaining({ message: "/omp-ui-plan off" })],
+        initialCommands: expect.arrayContaining([
+          expect.objectContaining({ message: "/omp-ui-plan off" }),
+        ]),
       }),
     );
   });

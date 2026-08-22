@@ -243,11 +243,14 @@ describe("MCP runtime status bridge", () => {
 
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
-    expect(options?.initialCommands).toHaveLength(1);
-    expect(options?.initialCommands?.[0]).toMatchObject({
-      type: "prompt",
-      message: Core.mcpRuntimeStatusMessage(),
-    });
+    // The flush precedes the mode command; the mode command is published on
+    // every spawn, Build included (issue #142; regression #256).
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
+      ?.map((command) => command.message);
+    expect(messages).toEqual([
+      Core.mcpRuntimeStatusMessage(),
+      Core.planMessage(false, "html"),
+    ]);
   });
 
   it("flushes MCP status before entering initial Plan mode", async () => {

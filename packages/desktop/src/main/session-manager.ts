@@ -484,13 +484,14 @@ export class SessionManager {
         message: mcpRuntimeStatusMessage(),
       });
     }
-    if (startInPlanMode) {
-      initialCommands.push({
-        type: "prompt",
-        id: `omp-ui-initial-mode-${randomUUID()}`,
-        message: planMessage(true, this.deps.registry.planFormat),
-      });
-    }
+    // Always published, plan or build — the plan extension is the
+    // authoritative session-mode status source on every spawn (issue #142);
+    // #242's rewrite briefly made this conditional (issue #256).
+    initialCommands.push({
+      type: "prompt",
+      id: `omp-ui-initial-mode-${randomUUID()}`,
+      message: planMessage(startInPlanMode, this.deps.registry.planFormat),
+    });
     entry.rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,

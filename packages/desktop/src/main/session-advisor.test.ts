@@ -255,16 +255,16 @@ describe("session:setAdvisor", () => {
     setup({ materialized: false, defaultAgentMode: "build" });
     await resume();
     await invoke(CH.setSessionAdvisor, TAB, false, null, true);
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
-      expect.objectContaining({ message: "/omp-ui-plan on html" }),
-    ]);
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan on html" })]),
+    );
 
     setup({ materialized: false, defaultAgentMode: "plan" });
     await resume();
     await invoke(CH.setSessionAdvisor, TAB, false, null, false);
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
-      expect.objectContaining({ message: "/omp-ui-plan off" }),
-    ]);
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan off" })]),
+    );
   });
 
   it.each([
@@ -275,17 +275,17 @@ describe("session:setAdvisor", () => {
   ] as const)("resolves %s", async (_label, defaultAgentMode, posture, expectedMessage) => {
     setup({ materialized: true, defaultAgentMode });
     await fresh(posture);
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
-      expect.objectContaining({ message: expectedMessage }),
-    ]);
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ message: expectedMessage })]),
+    );
   });
 
   it("starts an omitted resume in Build even when the app default is Plan", async () => {
     setup({ materialized: true, defaultAgentMode: "plan" });
     await resume();
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual([
-      expect.objectContaining({ message: "/omp-ui-plan off" }),
-    ]);
+    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan off" })]),
+    );
   });
 
   it("is a no-op for an unknown tab", async () => {
