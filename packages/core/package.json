@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
+    "./model-role": "./src/model-role.ts",
     "./backend-channels": "./src/backend-channels.ts",
     "./plan": "./src/plan.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",

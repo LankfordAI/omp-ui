@@ -3,6 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { resolveProfile } from "./paths";
 
+import {
+  formatModelRole,
+  parseModelRole,
+  type ModelRole,
+} from "./model-role";
+
+/** Re-exported to keep the @omp-ui/core surface unchanged. */
+export { formatModelRole, parseModelRole, type ModelRole };
+
 /**
  * Reads the two facts omp-ui needs out of omp's own config: whether the advisor
  * is on by default, and which model the `advisor` role is bound to.
@@ -18,14 +27,6 @@ import { resolveProfile } from "./paths";
  * recognise degrades to "unset" rather than throwing: a missing default only
  * costs a neutral toggle, while a thrown error would break tab boot.
  */
-
-/** A `modelRoles.<role>` value: the model plus omp's `:<level>` suffix if present. */
-export interface ModelRole {
-  /** `provider/model` with any `:<level>` suffix stripped. */
-  model: string;
-  /** omp's thinking-level suffix (`high`, `low`, …), when the value carried one. */
-  level?: string;
-}
 
 export interface OmpAdvisorDefaults {
   /** `advisor.enabled` — omp's own schema default is false. */
@@ -54,32 +55,6 @@ export function getOmpAgentDir(env: NodeJS.ProcessEnv = process.env): string {
 
 /** omp reads `config.yml` first, then `config.yaml` — same order here. */
 const CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
-
-/**
- * Splits omp's role selector into model and thinking level. The model id itself
- * may contain colons (OpenRouter's `model:exacto`), and omp's own resolver
- * strips suffixes from the right — so only a final segment that looks like a
- * bare level word is treated as one.
- */
-const LEVEL_RE = /^[a-z]+$/;
-
-export function parseModelRole(value: string): ModelRole | null {
-  const trimmed = value.trim();
-  if (trimmed === "") return null;
-  const colon = trimmed.lastIndexOf(":");
-  // A colon at the very start or end names no model — take the whole string.
-  if (colon > 0 && colon < trimmed.length - 1) {
-    const tail = trimmed.slice(colon + 1);
-    // `anthropic/claude:high` splits; `openai/gpt:exacto-2` does not (digits).
-    if (LEVEL_RE.test(tail)) return { model: trimmed.slice(0, colon), level: tail };
-  }
-  return { model: trimmed };
-}
-
-/** Re-joins a role back into omp's `model[:level]` selector form. */
-export function formatModelRole(role: ModelRole): string {
-  return role.level === undefined ? role.model : `${role.model}:${role.level}`;
-}
 
 /** Strips `#` comments outside quotes and the trailing newline. */
 function scalar(raw: string): string {

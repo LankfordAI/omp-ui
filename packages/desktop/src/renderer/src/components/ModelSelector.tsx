@@ -3,7 +3,7 @@ import { cn } from "../lib/cn";
 import { filterModelsForTab } from "../lib/model-filter";
 import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
-import { useStore } from "../store";
+import { findRecord, useStore } from "../store";
 import { CAPSULE_SEGMENT, Chevron, Chip, Dot, IconButton, Label, Modal, StarIcon } from "./ui";
 import { ModelRail } from "./ModelRail";
 import { usePaletteNav } from "./palette";
@@ -44,6 +44,17 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const setModel = useStore((s) => s.setModel);
   const openSettings = useStore((s) => s.openSettings);
+  const setProjectDefaultModel = useStore((s) => s.setProjectDefaultModel);
+  // The project pin for the composer footer (issue #257): undefined when the
+  // tab has no registered project (no footer), null when the project simply
+  // has no pin yet ("not set").
+  const projectPin = useStore((s) => {
+    const rec = findRecord(s.state, tabId);
+    if (rec === undefined) return undefined;
+    const group = s.state?.projects.find((g) => g.project.path === rec.projectCwd);
+    return group === undefined ? null : (group.project.defaultModel ?? null);
+  });
+  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd ?? null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -89,6 +100,12 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
             setOpen(false);
             void setModel(tabId, picked);
           }}
+          projectPin={projectPin}
+          onPinChange={
+            projectCwd === null
+              ? undefined
+              : (selector) => void setProjectDefaultModel(projectCwd, selector)
+          }
         />
       )}
     </>
@@ -101,6 +118,10 @@ const VISIBLE_LIMIT = 120;
 type ModelPaletteProps = {
   models: ModelInfo[];
   onClose(): void;
+  /** The project's pin for this variant (issue #257); omit to hide the footer. */
+  projectPin?: string | null;
+  /** Apply (selector) or clear (null) the project pin. */
+  onPinChange?: (selector: string | null) => void;
 } & (
   | {
       variant: "main";
@@ -206,6 +227,16 @@ export function ModelPalette(props: ModelPaletteProps) {
     onPick: pickRow,
     onClose,
   });
+
+  // The pin footer (issue #257) targets the row under the cursor through the
+  // same path onPick uses; the configured-advisor row resolves to the
+  // configured selector — or null, defer to config, when omp has none.
+  const pinTarget = (() => {
+    const row = rows[active];
+    if (row === undefined) return null;
+    if (row.kind === "model") return selectorFor(row.model);
+    return props.variant === "advisor" ? (props.defaultModel ?? null) : null;
+  })();
 
   const cycleTab = (forward: boolean) => {
     const index = tabOrder.indexOf(tab);
@@ -389,6 +420,35 @@ export function ModelPalette(props: ModelPaletteProps) {
               </>
             )}
           </div>
+
+          {props.projectPin !== undefined && (
+            <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
+              <span className="min-w-0 flex-1 truncate text-[11px]">
+                <span className="text-ink-faint">project default:</span>{" "}
+                <span className={cn("font-mono", props.projectPin === null ? "text-ink-faint" : "text-ink")}>
+                  {props.projectPin ?? "not set"}
+                </span>
+                <span className="text-ink-faint"> · new sessions only</span>
+              </span>
+              <button
+                type="button"
+                disabled={pinTarget === null}
+                onClick={() => props.onPinChange?.(pinTarget)}
+                className="rounded px-1.5 py-0.5 text-[10px] text-ink-mid hover:bg-hover hover:text-ink disabled:opacity-40"
+              >
+                Set as default
+              </button>
+              {props.projectPin !== null && (
+                <button
+                  type="button"
+                  onClick={() => props.onPinChange?.(null)}
+                  className="rounded px-1.5 py-0.5 text-[10px] text-ink-mid hover:bg-hover hover:text-ink"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </Modal>

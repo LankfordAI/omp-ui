@@ -67,6 +67,8 @@ const backendMock = {
   forkSession: vi.fn(),
   setSessionAdvisor: vi.fn(),
   getAdvisorDefaults: vi.fn(),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
   generateTitle: vi.fn(),
   readPlanFile: vi.fn(),

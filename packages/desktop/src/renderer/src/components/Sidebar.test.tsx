@@ -620,6 +620,52 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(backendMock.openProject).not.toHaveBeenCalled();
   });
 
+
+  it("opens project defaults from the desktop project header", () => {
+    useStore.setState({
+      advisorDefaults: { [projectPath]: { enabled: false, model: null } },
+    });
+    renderSidebar();
+
+    act(() => button("default models for Project One").click());
+    expect(
+      document.body.querySelector(
+        '[role="dialog"][aria-label="default models — Project One"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("replaces the compact actions sheet with project defaults", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    useStore.setState({
+      compactSurface: "sessions",
+      advisorDefaults: { [projectPath]: { enabled: false, model: null } },
+    });
+    renderSidebar();
+
+    act(() => button("actions for Project One").click());
+    const actions = document.body.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Project One"]',
+    )!;
+    const defaults = [...actions.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "Default models…",
+    )!;
+    act(() => defaults.click());
+
+    expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
+    expect(
+      document.body.querySelector(
+        '[role="dialog"][aria-label="default models — Project One"]',
+      ),
+    ).not.toBeNull();
+  });
   it("layers the actions sheet over the sessions sheet and isolates Escape (issue #205)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,

@@ -25,6 +25,8 @@ const fixture: BranchList = {
 const backendMock = {
   listBranches: vi.fn(async () => fixture),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   spawnSession: vi.fn(async () => ({ tabId: "wt-1" })),
 };
 Object.assign(window, { ompBackend: backendMock });

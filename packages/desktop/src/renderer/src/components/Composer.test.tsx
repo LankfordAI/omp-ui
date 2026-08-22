@@ -42,6 +42,8 @@ const backendMock = {
     upstreamRefreshError: null,
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   convertToWorktree: vi.fn(async () => {}),
 };
@@ -255,6 +257,7 @@ describe("Composer advisor model palette", () => {
         ...s.state!,
         projects: s.state!.projects.map((group) => ({
           ...group,
+          project: { ...group.project, defaultAdvisorModel: "q/default" },
           sessions: group.sessions.map((session) =>
             session.tabId === TAB
               ? { ...session, advisor: true, advisorModel: "p/advisor-a" }
@@ -282,6 +285,20 @@ describe("Composer advisor model palette", () => {
     await act(async () => palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click());
     expect(palette.textContent).toContain("use omp's configured advisor");
     expect(palette.textContent).toContain("picking one restarts this session and resumes it");
+    expect(palette.textContent).toContain("project default:");
+    expect(palette.textContent).toContain("q/default");
+    const advisorRow = [...palette.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Advisor A"),
+    )!;
+    act(() => advisorRow.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    const setDefault = [...palette.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Set as default",
+    )!;
+    await act(async () => setDefault.click());
+    expect(backendMock.setProjectDefaultAdvisorModel).toHaveBeenCalledWith(
+      "/p",
+      "p/advisor-a",
+    );
 
     const configured = [...palette.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent?.includes("use omp's configured advisor"),

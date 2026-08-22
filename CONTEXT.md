@@ -101,8 +101,8 @@ _Avoid_: right sidebar, panel, drawer
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the
 project's name and full path, then New session, New terminal session,
-New worktree session, MCP servers, and Remove project. It replaces the
-cluster below 900px. The desktop open targets (VS Code, Files) are
+New worktree session, MCP servers, Default models, and Remove project. It
+replaces the cluster below 900px. The desktop open targets (VS Code, Files) are
 deliberately absent: a compact shell is usually a phone talking to a
 remote omp-ui, where opening on the host answers a question nobody asked.
 _Avoid_: project context menu, overflow menu, kebab menu
@@ -146,6 +146,12 @@ preference, **Default advisor** (Settings → General, off by default), decides
 whether a new session with no per-project memory starts with the advisor on;
 it supersedes omp's own config for that one decision, while the advisor model
 still falls back to omp config.
+A project may also pin a **Default model** and **Default advisor model** for
+fresh sessions. A pin is a standing choice, not last-used memory: composer
+changes continue to update the `last*` fields without moving either pin.
+Clearing a pin restores the last-used chain. The advisor pin is model-only;
+advisor on/off keeps its existing last-used → app default → omp config chain,
+so the pinned advisor model is dormant while that chain resolves off.
 _Avoid_: resetting model on advisor toggle
 
 **Attachment**:

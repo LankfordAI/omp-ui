@@ -36,6 +36,8 @@ const backendMock = {
   // The review modal loads advisor defaults on mount; the store's staged
   // model/advisor paths call the setters below.
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   rpcSend: vi.fn(),

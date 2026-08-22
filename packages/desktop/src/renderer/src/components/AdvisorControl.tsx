@@ -54,6 +54,14 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
   const setAdvisorModel = useStore((s) => s.setAdvisorModel);
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
   const projectCwd = record?.projectCwd;
+  const setProjectDefaultAdvisorModel = useStore((s) => s.setProjectDefaultAdvisorModel);
+  // The project's advisor pin (issue #257): undefined when the tab has no
+  // registered project, null when the project simply has no pin yet.
+  const projectAdvisorPin = useStore((s) => {
+    if (projectCwd === undefined) return undefined;
+    const group = s.state?.projects.find((g) => g.project.path === projectCwd);
+    return group === undefined ? null : (group.project.defaultAdvisorModel ?? null);
+  });
   const defaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectCwd] : undefined));
   const [picking, setPicking] = useState(false);
   const [levelMenu, setLevelMenu] = useState(false);
@@ -114,15 +122,19 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
     void setSessionAdvisor(tabId, !on, record.advisorModel);
   };
 
+  const pinNote =
+    projectAdvisorPin !== undefined && projectAdvisorPin !== null
+      ? ` · project default ${projectAdvisorPin} applies to new sessions`
+      : "";
   const title = on
     ? `advisor on${effective === null ? " (omp picks the model)" : ` — ${effective}`}${
         inherited && effective !== null ? " (from omp config)" : ""
-      } · click to turn off · restarts the session`
+      } · click to turn off${pinNote} · restarts the session`
     : `advisor off · click to turn on${
         defaults?.model === null || defaults?.model === undefined
           ? ""
           : ` with ${defaults.model} from omp config`
-      } · restarts the session`;
+      }${pinNote} · restarts the session`;
 
   return (
     <>
@@ -244,6 +256,12 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             setPicking(false);
             void setAdvisorModel(tabId, selector);
           }}
+          projectPin={projectAdvisorPin}
+          onPinChange={
+            projectCwd === undefined
+              ? undefined
+              : (selector) => void setProjectDefaultAdvisorModel(projectCwd, selector)
+          }
         />
       )}
     </>

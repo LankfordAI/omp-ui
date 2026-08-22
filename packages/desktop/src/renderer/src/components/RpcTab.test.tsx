@@ -26,6 +26,8 @@ const backendMock = {
     ahead: 0, behind: 0, upstreamFetchedAt: null, upstreamRefreshError: null,
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });

@@ -107,6 +107,8 @@ const mockBackend = {
   setSessionAdvisor: vi.fn(),
   setSessionModel: vi.fn(async () => {}),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setProjectDefaultModel: vi.fn(async () => {}),
+  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   generateTitle: vi.fn(async (): Promise<string | null> => null),
   readPlanFile: vi.fn(
     async (_tabId: string, absPath: string): Promise<string | null> =>
@@ -4580,6 +4582,161 @@ describe("prompting, slash commands, and session ops", () => {
     expect(useStore.getState().consoleOpen[`${TAB}-other`]).toBeUndefined();
     useStore.getState().toggleConsole(TAB);
     expect(useStore.getState().consoleOpen[TAB]).toBe(false);
+  });
+});
+
+describe("project default models (issue #257)", () => {
+  beforeEach(() => {
+    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+  });
+
+  /** Review frame whose plan file read resolves — fresh spawns seed from it. */
+  const openReviewWithPlan = (id: string) => {
+    useStore.getState().handleRpcFrame(TAB, {
+      type: "extension_ui_request",
+      id,
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "t",
+          planFilePath: "local://p.md",
+          planAbsPath: "/lineage/local/p.md",
+        }),
+    });
+  };
+
+  it("newSession boots the pinned advisor model ahead of last-used memory", async () => {
+    const state = stateWithRecord(null);
+    const project = state.projects[0]!.project;
+    project.lastAdvisor = true;
+    project.lastAdvisorModel = "last/advisor";
+    project.defaultAdvisorModel = "pin/advisor:high";
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "pin-tab" });
+    useStore.setState({
+      state,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: "pin/advisor:high",
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  it("newSession falls back to the last-used advisor model when the pin is null", async () => {
+    const state = stateWithRecord(null);
+    const project = state.projects[0]!.project;
+    project.lastAdvisor = true;
+    project.lastAdvisorModel = "last/advisor";
+    project.defaultAdvisorModel = null;
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "last-tab" });
+    useStore.setState({
+      state,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ advisor: true, advisorModel: "last/advisor" }),
+    );
+  });
+
+  it("newSession falls back to omp's configured advisor model when no app state exists", async () => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "cfg-tab" });
+    useStore.setState({
+      state: null,
+      advisorDefaults: { "/p": { enabled: true, model: "openrouter/a/b:high" } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ advisor: true, advisorModel: "openrouter/a/b:high" }),
+    );
+  });
+
+  it("keeps the pinned advisor model while the on/off chain resolves off", async () => {
+    // Inert-while-off is intended: the pin is a model value, and advisor
+    // on/off keeps its own chain (issue #174).
+    const state = stateWithRecord(null);
+    const project = state.projects[0]!.project;
+    project.lastAdvisor = false;
+    project.defaultAdvisorModel = "p/pin";
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "dormant-tab" });
+    useStore.setState({
+      state,
+      advisorDefaults: { "/p": { enabled: true, model: null } },
+    });
+
+    await useStore.getState().newSession("/p");
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: "p/pin",
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  it("plan dispatch in a fresh session: the staged advisor tuple beats the pin", async () => {
+    const state = stateWithRecord(null);
+    const project = state.projects[0]!.project;
+    project.defaultAdvisorModel = "pin/advisor";
+    useStore.setState({
+      state,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    openReviewWithPlan("pd1");
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-staged" });
+    useStore.getState().executePlan(TAB, "fresh", {
+      advisor: true,
+      advisorModel: "staged/advisor",
+    });
+    await flushMicrotasks();
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ advisor: true, advisorModel: "staged/advisor" }),
+    );
+  });
+
+  it("plan dispatch in a fresh session: the pin wins the fallback branch", async () => {
+    const state = stateWithRecord(null);
+    const project = state.projects[0]!.project;
+    project.lastAdvisorModel = "last/advisor";
+    project.defaultAdvisorModel = "pin/advisor";
+    useStore.setState({
+      state,
+      advisorDefaults: { "/p": { enabled: true, model: null } },
+    });
+    openReviewWithPlan("pd2");
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-pin" });
+    useStore.getState().executePlan(TAB, "fresh");
+    await flushMicrotasks();
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ advisor: false, advisorModel: "pin/advisor" }),
+    );
+  });
+
+  it("pin setters forward to the backend channel", async () => {
+    await useStore.getState().setProjectDefaultModel("/p", "p/m");
+    expect(mockBackend.setProjectDefaultModel).toHaveBeenCalledWith("/p", "p/m");
+    await useStore.getState().setProjectDefaultAdvisorModel("/p", null);
+    expect(mockBackend.setProjectDefaultAdvisorModel).toHaveBeenCalledWith("/p", null);
   });
 });
 

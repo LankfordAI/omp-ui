@@ -153,7 +153,12 @@ describe("generated MCP status extension", () => {
     harness.emit({ type: "failed", serverName: rawName, error: "401 secret=abc" });
     const name = harness.published.at(-1)?.failedServers[0]?.serverName;
     expect(name).toHaveLength(160);
-    expect(name).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(
+      [...(name ?? "")].every((char) => {
+        const code = char.charCodeAt(0);
+        return code > 0x1f && (code < 0x7f || code > 0x9f);
+      }),
+    ).toBe(true);
     expect(JSON.stringify(harness.published.at(-1))).not.toContain("secret=abc");
   });
 

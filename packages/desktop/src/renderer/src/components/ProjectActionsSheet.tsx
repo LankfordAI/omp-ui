@@ -24,11 +24,14 @@ export function ProjectActionsSheet({
   project,
   onClose,
   onActivate,
+  onOpenDefaults,
 }: {
   /** `null` renders a closed Sheet. */
   project: Pick<ProjectRecord, "name" | "path"> | null;
   onClose: () => void;
   onActivate: () => void;
+  /** Opens the project's default-models sheet (issue #257); omit to hide the row. */
+  onOpenDefaults?: () => void;
 }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
@@ -85,6 +88,18 @@ export function ProjectActionsSheet({
             >
               MCP servers…
             </button>
+            {onOpenDefaults !== undefined && (
+              <button
+                type="button"
+                className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+                onClick={() => {
+                  onOpenDefaults();
+                  onClose();
+                }}
+              >
+                Default models…
+              </button>
+            )}
             <button
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-rose hover:text-rose focus-visible:text-rose")}

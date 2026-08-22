@@ -228,4 +228,44 @@ describe("ModelPalette variants", () => {
     act(() => buttonByText("Rich Model").click());
     expect(pick).toHaveBeenCalledWith(rich);
   });
+
+  it("hides the project-default footer when no project pin context is supplied", () => {
+    mount(
+      <ModelPalette
+        variant="main"
+        models={models}
+        current={current}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(document.body.textContent).not.toContain("project default:");
+  });
+
+  it("sets the highlighted model as the project default and clears an existing pin", () => {
+    const onPinChange = vi.fn();
+    useStore.setState({
+      state: backendState({ modelFavorites: ["anthropic/claude-sonnet"] }),
+    });
+    mount(
+      <ModelPalette
+        variant="main"
+        models={models}
+        current={current}
+        projectPin="openai/gpt-5"
+        onPinChange={onPinChange}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(document.body.textContent).toContain("project default:");
+    expect(document.body.textContent).toContain("openai/gpt-5");
+    expect(document.body.textContent).toContain("new sessions only");
+    act(() => buttonByText("Set as default").click());
+    expect(onPinChange).toHaveBeenCalledWith("anthropic/claude-sonnet");
+    act(() => buttonByText("Clear").click());
+    expect(onPinChange).toHaveBeenLastCalledWith(null);
+  });
 });

@@ -1157,7 +1157,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const advisorModel =
       options?.advisor !== undefined
         ? (options.advisorModel ?? null)
-        : (project?.lastAdvisorModel ?? defaults?.model ?? null);
+        : (project?.defaultAdvisorModel ??
+          project?.lastAdvisorModel ??
+          defaults?.model ??
+          null);
     let freshId: string;
     try {
       ({ tabId: freshId } = await backend.spawnSession({
@@ -1396,14 +1399,18 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const project = get().state?.projects.find(
       (g) => g.project.path === projectCwd,
     )?.project;
-    const lastAdvisorModel =
-      project?.lastAdvisorModel ?? defaults?.model ?? null;
+    // The pinned advisor model wins; on/off keeps its own chain (issue #257).
+    const advisorModel =
+      project?.defaultAdvisorModel ??
+      project?.lastAdvisorModel ??
+      defaults?.model ??
+      null;
     const advisor =
       project?.lastAdvisor ??
       get().state?.defaultAdvisor ??
       defaults?.enabled ??
       false;
-    return { mode, advisor, advisorModel: lastAdvisorModel };
+    return { mode, advisor, advisorModel };
   };
 
   return {
@@ -1565,6 +1572,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async addProject(path) {
       await backend.addProject(path);
       set({ projectPickerOpen: false });
+    },
+
+    async setProjectDefaultModel(projectPath, model) {
+      await backend.setProjectDefaultModel(projectPath, model);
+    },
+
+    async setProjectDefaultAdvisorModel(projectPath, model) {
+      await backend.setProjectDefaultAdvisorModel(projectPath, model);
     },
 
     async removeProject(path) {
