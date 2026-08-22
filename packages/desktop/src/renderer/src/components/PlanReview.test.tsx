@@ -644,7 +644,7 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     expect(setModelFrame).toMatchObject({ type: "set_model", provider: "p", modelId: "b" });
   });
 
-  it("stages the configured advisor from the current provider-first palette", async () => {
+  it("stages the configured advisor from the favorites-default palette", async () => {
     const ADVISOR = { id: "advisor-a", name: "Advisor A", provider: "p" };
     const DEFAULT = { id: "default", name: "Default Advisor", provider: "q" };
     const persisted = stateWithSessions({ [TAB]: "Planning session" });
@@ -668,7 +668,9 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     await act(async () => buttonByText("Advisor A").click());
     const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
     const palette = overlays[overlays.length - 1]!;
-    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="Favorites"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click());
     expect(palette.textContent).toContain("picking one restarts this session and resumes it");
 
     await act(async () => buttonContainingText("use omp's configured advisor", palette).click());

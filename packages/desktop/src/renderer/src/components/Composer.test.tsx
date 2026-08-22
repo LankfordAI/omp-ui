@@ -246,7 +246,7 @@ describe("Composer relaunch handoff", () => {
 });
 
 describe("Composer advisor model palette", () => {
-  it("opens on the current provider and resets to the configured advisor through the restart path", async () => {
+  it("opens on Favorites and resets to the configured advisor through the restart path", async () => {
     const ADVISOR = { id: "advisor-a", name: "Advisor A", provider: "p" };
     const DEFAULT = { id: "default", name: "Default Advisor", provider: "q" };
     seed("ready");
@@ -277,7 +277,9 @@ describe("Composer advisor model palette", () => {
 
     const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
     const palette = overlays[overlays.length - 1]!;
-    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="Favorites"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click());
     expect(palette.textContent).toContain("use omp's configured advisor");
     expect(palette.textContent).toContain("picking one restarts this session and resumes it");
 

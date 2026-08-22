@@ -131,7 +131,7 @@ describe("ModelSelector", () => {
 });
 
 describe("ModelPalette variants", () => {
-  it("opens advisor selection on the current provider and exposes the configured null entry", () => {
+  it("opens the advisor palette on Favorites, then exposes the configured null entry on a provider tab", () => {
     const pick = vi.fn();
     mount(
       <ModelPalette
@@ -145,8 +145,10 @@ describe("ModelPalette variants", () => {
       />,
     );
 
-    expect(buttonByTitle("openai").getAttribute("aria-pressed")).toBe("true");
-    expect(buttonByTitle("Favorites").getAttribute("aria-pressed")).toBe("false");
+    expect(buttonByTitle("Favorites").getAttribute("aria-pressed")).toBe("true");
+    expect(buttonByTitle("openai").getAttribute("aria-pressed")).toBe("false");
+
+    act(() => buttonByTitle("openai").click());
     const favorite = document.body.querySelector<HTMLButtonElement>('button[aria-label="add to favorites"]')!;
     expect(favorite.parentElement?.querySelectorAll(":scope > button")).toHaveLength(2);
     const configured = buttonByText("use omp's configured advisor");

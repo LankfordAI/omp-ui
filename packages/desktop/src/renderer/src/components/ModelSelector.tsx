@@ -149,21 +149,9 @@ export function ModelPalette(props: ModelPaletteProps) {
   const currentSelector = props.variant === "main"
     ? props.current === null ? null : selectorFor(props.current)
     : props.current;
-  const currentProvider = useMemo(() => {
-    if (currentSelector === null) return null;
-    const slash = currentSelector.indexOf("/");
-    return slash > 0 ? currentSelector.slice(0, slash) : null;
-  }, [currentSelector]);
-
-  // Main model selection always opens at Favorites. Advisor selection opens
-  // where its effective model lives, preserving the provider-first workflow.
-  const [tab, setTab] = useState(() => {
-    if (props.variant === "advisor") {
-      if (currentProvider !== null && providers.includes(currentProvider)) return currentProvider;
-      return providers[0] ?? "favorites";
-    }
-    return "favorites";
-  });
+  // Both model pickers open at Favorites. The advisor's effective model keeps
+  // its current-model dot on its row, one tab click away.
+  const [tab, setTab] = useState("favorites");
   const tabOrder = useMemo(() => ["favorites", ...providers], [providers]);
 
   useEffect(() => {
