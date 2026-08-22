@@ -1072,6 +1072,122 @@ describe("stream-stall watchdog (issue #248)", () => {
           (f as Record<string, unknown>).type === "omp_ui_notice",
       );
 
+  const proposalFrame = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: "/l/auth-plan.html",
+    })}`,
+  });
+
+  const blockingDialog = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: "Pick an option",
+  });
+
+  const answerDialog = (manager: SessionManager, id: string): void =>
+    manager.rpcSend(TAB, { type: "extension_ui_response", id, value: "chosen" });
+
+  it("suppresses the watchdog while an ordinary dialog awaits an answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
+      rpc.frame(blockingDialog("q1"));
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      expect(stallNotices(sent)).toHaveLength(0);
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("suppresses the watchdog while plan review awaits a verdict", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
+      rpc.frame(proposalFrame("p1"));
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+
+      expect(manager.planGate(TAB)?.pending).not.toBeNull();
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      expect(stallNotices(sent)).toHaveLength(0);
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a fresh silence interval after the final human answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame(blockingDialog("q1"));
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      answerDialog(manager, "q1");
+
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW - 15_000);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(1);
+      expect(stallNotices(sent)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rebases silence only after every outstanding dialog is answered", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame(blockingDialog("q1"));
+      rpc.frame(blockingDialog("q2"));
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      answerDialog(manager, "q1");
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW * 2);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+
+      answerDialog(manager, "q2");
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW - 15_000);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(1);
+      expect(stallNotices(sent)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("aborts a turn whose model stream has been silent past the window", async () => {
     vi.useFakeTimers();
     try {

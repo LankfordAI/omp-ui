@@ -71,8 +71,8 @@ interface LiveEntry {
   probeId: string | null;
   probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
   // --- stream-stall watchdog bookkeeping (issue #248) ---
-  /** Clock time of the last model-stream frame; armed on turn activity. */
-  lastModelStreamAt: number | null;
+  /** Start of the currently eligible model-stream silence interval. */
+  stallSilenceSince: number | null;
   /** Clock time of the last local tool-execution frame. */
   lastToolActivityAt: number | null;
   /** Label of the last model-stream checkpoint, for the abort notice. */
@@ -91,7 +91,7 @@ function liveEntry(
     | "settleSuspendedUntil"
     | "probeId"
     | "probeResolve"
-    | "lastModelStreamAt"
+    | "stallSilenceSince"
     | "lastToolActivityAt"
     | "stallCheckpointLabel"
     | "stallAbortCount"
@@ -112,7 +112,7 @@ function liveEntry(
     settleSuspendedUntil: null,
     probeId: null,
     probeResolve: null,
-    lastModelStreamAt: null,
+    stallSilenceSince: null,
     lastToolActivityAt: null,
     stallCheckpointLabel: null,
     stallAbortCount: 0,
@@ -147,13 +147,13 @@ const STALL_TOOL_GRACE_MS = 5 * 60_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
 /**
- * Extension methods that open a native dialog awaiting the user's answer —
- * the only requests whose unanswered state blocks hibernation. Mirrors the
- * renderer's DIALOG_METHODS (extension-router.ts): every other method
- * (notify, setStatus, setWidget, ...) is fire-and-forget state the renderer
- * consumes without a reply, so tracking it would block hibernation forever.
+ * Renderer-routed dialogs whose unanswered requests suppress hibernation and
+ * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
+ * other method (notify, setStatus, setWidget, ...) is fire-and-forget state
+ * the renderer consumes without a reply, so tracking it would suppress both
+ * lifecycle guards forever.
  */
-const HIBERNATE_DIALOG_METHODS: Record<string, true> = {
+const BLOCKING_DIALOG_METHODS: Record<string, true> = {
   select: true,
   confirm: true,
   input: true,
@@ -830,7 +830,7 @@ export class SessionManager {
     }
     const label = modelStreamCheckpointLabel(frame);
     if (label !== null) {
-      entry.lastModelStreamAt = Date.now();
+      entry.stallSilenceSince = Date.now();
       entry.stallCheckpointLabel = label;
     }
   }
@@ -848,8 +848,9 @@ export class SessionManager {
 
   /**
    * Aborts turns whose model stream has been silent past the configured
-   * window. Guards: only a running turn can stall, and recent local tool
-   * execution is legitimate quiet (a long bash run is not a dead provider).
+   * window. Guards: only a running turn with no pending human answer can
+   * stall, and recent local tool execution is legitimate quiet (a long bash
+   * run is not a dead provider).
    */
   private checkStreamStalls(): void {
     const thresholdSeconds = this.deps.registry.streamStallAbortSeconds;
@@ -857,10 +858,11 @@ export class SessionManager {
     for (const [tabId, entry] of this.live) {
       if (entry.kind !== "rpc-ui") continue;
       if (entry.turnsRunning === 0) continue;
-      const lastModel = entry.lastModelStreamAt;
-      if (lastModel === null) continue;
+      if (this.awaitingHumanAnswer(tabId)) continue;
+      const silenceSince = entry.stallSilenceSince;
+      if (silenceSince === null) continue;
       const now = Date.now();
-      const quietMs = now - lastModel;
+      const quietMs = now - silenceSince;
       if (quietMs < thresholdSeconds * 1_000) continue;
       const toolAt = entry.lastToolActivityAt;
       if (toolAt !== null && now - toolAt < STALL_TOOL_GRACE_MS) continue;
@@ -884,7 +886,7 @@ export class SessionManager {
     // First fire wins: the notice quotes the silence observed at abort time.
     // Resetting the clock now is also what stops a refused abort from
     // re-firing every tick.
-    entry.lastModelStreamAt = null;
+    entry.stallSilenceSince = null;
     entry.stallAbortCount += 1;
     this.streamStalledTabs.add(tabId);
     rpc.send({ type: "abort" });
@@ -950,7 +952,7 @@ export class SessionManager {
       case "extension_ui_request":
         // Only user-answer dialogs block hibernation; the other methods are
         // fire-and-forget state frames the renderer never replies to.
-        if (typeof f.id === "string" && HIBERNATE_DIALOG_METHODS[String(f.method)] === true) {
+        if (typeof f.id === "string" && BLOCKING_DIALOG_METHODS[String(f.method)] === true) {
           let open = this.openExtensionRequests.get(tabId);
           if (open === undefined) {
             open = new Set<string>();
@@ -966,20 +968,23 @@ export class SessionManager {
     this.armHibernateTimer(tabId);
   }
 
+  /** True while plan review or a renderer-routed dialog awaits the user. */
+  private awaitingHumanAnswer(tabId: string): boolean {
+    if (this.planGates.get(tabId)?.pending != null) return true;
+    return (this.openExtensionRequests.get(tabId)?.size ?? 0) > 0;
+  }
+
   /** True when a kill cannot lose work or an in-flight exchange. */
   private hibernable(entry: LiveEntry, tabId: string): boolean {
     if (entry.kind !== "rpc-ui") return false;
     if (!entry.hibernateArmed) return false; // still booting
     if (entry.turnsRunning > 0) return false; // mid-turn
-    const gate = this.planGates.get(tabId);
-    if (gate !== undefined && gate.pending !== null) return false; // plan review open
+    if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
     const until = entry.settleSuspendedUntil;
     if (until !== null) {
       if (Date.now() < until) return false; // post-verdict window
       entry.settleSuspendedUntil = null; // window lapsed
     }
-    const open = this.openExtensionRequests.get(tabId);
-    if (open !== undefined && open.size > 0) return false; // dialog awaiting an answer
     return true;
   }
 
@@ -1099,12 +1104,23 @@ export class SessionManager {
   }
 
   rpcSend(tabId: string, cmd: object): void {
+    const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
     this.notePlanVerdict(tabId, cmd);
     const c = cmd as Record<string, unknown>;
     if (c.type === "extension_ui_response" && typeof c.id === "string") {
       this.openExtensionRequests.get(tabId)?.delete(c.id);
     }
-    this.live.get(tabId)?.rpc?.send(cmd);
+    const entry = this.live.get(tabId);
+    if (
+      wasAwaitingHuman &&
+      !this.awaitingHumanAnswer(tabId) &&
+      entry?.kind === "rpc-ui" &&
+      entry.turnsRunning > 0
+    ) {
+      entry.stallSilenceSince = Date.now();
+      entry.stallCheckpointLabel = "human answer received";
+    }
+    entry?.rpc?.send(cmd);
   }
 
   killShell(tabId: string): void {
