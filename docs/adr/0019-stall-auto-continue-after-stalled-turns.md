@@ -116,3 +116,10 @@ definition.
 - **Subagent stalls are out of scope.** Subagent events ride `subagent_*`
   frames and the root agent receives the failure as a task result; the
   root-only `agent_end` trigger cannot misfire on them.
+
+**Amended 2026-08-22 (#254):** a turn aborted by omp-ui's own stream-stall
+watchdog ends with stopReason "aborted" and can never match the error
+classifier; the watchdog's omp_ui_notice now carries reason: "stall-abort",
+and the renderer feeds the following agent_end into the same bounded
+continue. The watchdog abort's diagnostic is that notice itself — the issue
+#100 provider diagnostic still posts only for provider-classified ends.

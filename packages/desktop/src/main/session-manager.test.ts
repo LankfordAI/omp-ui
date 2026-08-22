@@ -1182,6 +1182,7 @@ describe("stream-stall watchdog (issue #248)", () => {
       rpc.frame({ type: "agent_start" });
       rpc.frame({ type: "turn_start" });
       rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
+      rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
       rpc.frame(blockingDialog("q1"));
       await vi.advanceTimersByTimeAsync(6 * 60_000);
 
@@ -1203,6 +1204,7 @@ describe("stream-stall watchdog (issue #248)", () => {
       rpc.frame({ type: "agent_start" });
       rpc.frame({ type: "turn_start" });
       rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
+      rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
       rpc.frame(proposalFrame("p1"));
       await vi.advanceTimersByTimeAsync(6 * 60_000);
 
@@ -1316,10 +1318,10 @@ describe("stream-stall watchdog (issue #248)", () => {
     }
   });
 
-  it("exempts recent tool execution and aborts once local work has also gone quiet", async () => {
+  it("suspends the watchdog while a tool execution is open and gives the next model call a fresh window", async () => {
     vi.useFakeTimers();
     try {
-      const { manager } = setup({ mode: "rpc-ui" });
+      const { manager, sent } = setup({ mode: "rpc-ui" });
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
 
@@ -1327,14 +1329,172 @@ describe("stream-stall watchdog (issue #248)", () => {
       rpc.frame({ type: "turn_start" });
       rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
 
-      // 4 minutes of silence: past the stall window, but the tool grace
-      // exempts the turn — a long bash run is not a dead provider.
-      await vi.advanceTimersByTimeAsync(4 * 60_000);
-      expect(rpc.send).not.toHaveBeenCalled();
+      // Half an hour inside one tool run: omp owns tool deadlines; the
+      // provider stream owes nothing while local work executes (issue #253).
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
 
-      // Past the 5-minute tool grace with no activity at all: stalled.
-      await vi.advanceTimersByTimeAsync(90_000);
+      // The tool finishing starts the next model request's window.
+      rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW - 15_000);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(1);
+      const notices = stallNotices(sent);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({
+        message: expect.stringMatching(/tool execution finished/),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a ghost tool_execution_end neither underflows nor rebases", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      // No matching start: must neither suspend the watchdog (underflow to
+      // -1 would read as "open") nor extend the silence window.
+      rpc.frame({ type: "tool_execution_end", toolCallId: "ghost" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
       expect(rpc.send).toHaveBeenCalledWith({ type: "abort" });
+      const notices = stallNotices(sent);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({
+        message: expect.stringMatching(/turn started/),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an orphan tool_execution_update recovers a lost start", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      // The start frame was lost; the update proves a tool is open.
+      rpc.frame({ type: "tool_execution_update", toolCallId: "t9" });
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+
+      rpc.frame({ type: "tool_execution_end", toolCallId: "t9" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(1);
+      expect(stallNotices(sent)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("turn boundaries clear leaked open tools", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      // Aborted teardown: the tool's end frame never arrives.
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame({ type: "tool_execution_start", toolCallId: "t1" });
+      rpc.frame({ type: "agent_end" });
+
+      // A leaked count must not suppress the watchdog for the next turn.
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
+      expect(rpc.send).toHaveBeenCalledWith({ type: "abort" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("compaction and retry boundaries rebase the clock", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(170_000);
+      rpc.frame({ type: "auto_compaction_start" });
+      // 340s of total stream silence, but the compaction boundary rebased:
+      // rebase — never suspend — so a wedged compaction still trips the
+      // watchdog one full window later.
+      await vi.advanceTimersByTimeAsync(170_000);
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+
+      rpc.frame({ type: "auto_compaction_end" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(1);
+      const notices = stallNotices(sent);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({
+        message: expect.stringMatching(/compaction finished/),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the abort notice carries reason: stall-abort", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
+      const notices = stallNotices(sent);
+      expect(notices).toHaveLength(1);
+      // Machine-readable hook for the renderer's stall auto-continue
+      // (issue #254): the aborted turn's end can never classify as a
+      // stall end on its own.
+      expect(notices[0]).toMatchObject({ reason: "stall-abort" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the stalled badge clears when a new turn starts", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, broadcast } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+      expect(manager.isStreamStalled(TAB)).toBe(true);
+      const broadcastsAtStall = broadcast.mock.calls.length;
+
+      // The badge is a call-to-action; the next turn is that continuation,
+      // whoever sent it (issue #255).
+      rpc.frame({ type: "agent_start" });
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+      expect(broadcast.mock.calls.length).toBeGreaterThan(broadcastsAtStall);
     } finally {
       vi.useRealTimers();
     }

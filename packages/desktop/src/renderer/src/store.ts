@@ -155,6 +155,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     pendingCommands: new Map(),
     streamCheckpoint: undefined,
     streamStallMs: undefined,
+    stallAbortPending: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,
@@ -2282,6 +2283,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
             tabId,
             noticeItem(strField(frame, "message") ?? "omp-ui notice", "warn"),
           );
+          // A watchdog abort ends the turn with stopReason "aborted", which
+          // isStreamStallEnd can never classify — the tagged notice is what
+          // feeds auto-continue instead (issue #254).
+          if (strField(frame, "reason") === "stall-abort")
+            patchRpc(tabId, { stallAbortPending: true });
           return;
         }
         case "omp_ui_error": {
@@ -2444,16 +2450,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
             // it per run so the HUD cost counter updates instead of freezing
             // at $0.0000 for the whole session.
             void get().refreshStats(tabId);
-            // (C) The stall diagnostic posts at every stall-classified error
-            // turn-end — stallNotice was previously only reachable via
-            // auto_retry_start, so a non-retried stall
-            // (stream_interrupted_after_content) had no diagnostic at all
-            // (issue #250). The synthetic frame reuses the classifier and the
-            // text verbatim.
-            // (B) The continue prompt is gated on the app switch (issue
-            // #251); the diagnostic is not.
+            // (C) The provider-stall diagnostic posts at every
+            // stall-classified error turn-end (issue #250). A watchdog abort
+            // (issue #254) posted its own notice from main already.
+            // (B) The continue prompt is gated on the app switch (issue #251).
             const lastTurn = get().rpc[tabId]?.lastTurn;
-            if (lastTurn !== undefined && isStreamStallEnd(lastTurn)) {
+            const providerStall =
+              lastTurn !== undefined && isStreamStallEnd(lastTurn);
+            if (providerStall) {
               // The ready patch above replaced the stored tab, and stallNotice
               // bumps its stall counter in place — re-fetch the live object so
               // the increment does not land on a detached one.
@@ -2464,10 +2468,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
                   errorId: lastTurn.errorId,
                 });
                 if (notice) appendItem(tabId, notice);
-                if (get().state?.stallAutoContinue !== false)
-                  stallContinueWatcher.trigger(tabId);
               }
             }
+            const watchdogAbort = get().rpc[tabId]?.stallAbortPending === true;
+            if (watchdogAbort) patchRpc(tabId, { stallAbortPending: false });
+            if (
+              (providerStall || watchdogAbort) &&
+              get().rpc[tabId] !== undefined &&
+              get().state?.stallAutoContinue !== false
+            )
+              stallContinueWatcher.trigger(tabId);
           }
         }
       }

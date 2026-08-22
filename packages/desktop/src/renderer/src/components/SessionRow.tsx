@@ -27,7 +27,8 @@ const SESSION_FACE: Record<
     tone: "copper",
     pulse: false,
     label: "stalled",
-    title: "omp-ui aborted a turn whose model stream went silently dead — send a prompt to continue",
+    title:
+      "omp-ui aborted a turn whose model stream went silently dead — stall auto-continue or a prompt resumes it; the badge clears when the next turn starts",
     textClass: "text-copper",
   },
   ready: {
