@@ -76,6 +76,11 @@ const emptyOmpSettings: OmpSettingsSnapshot = {
   error: null,
 };
 
+// init() registers the shell-exit listener once per file and the global
+// beforeEach wipes mock.calls, so suites running after it read the callback
+// from here instead of re-reading the registration.
+let shellExitCb: ((tabId: string, code: number) => void) | null = null;
+
 const mockBackend = {
   getState: vi.fn(async () => backendState),
   rpcSend: vi.fn((tabId: string, cmd: Record<string, unknown>) => {
@@ -87,7 +92,9 @@ const mockBackend = {
   onPtyExit: vi.fn(),
   onSessionHibernated: vi.fn(),
   onShellData: vi.fn(),
-  onShellExit: vi.fn(),
+  onShellExit: vi.fn((cb: (tabId: string, code: number) => void) => {
+    shellExitCb = cb;
+  }),
   shellSpawn: vi.fn(),
   shellKill: vi.fn(),
   shellWrite: vi.fn(),
@@ -4330,6 +4337,107 @@ describe("console-drawer shell routing (issue #42)", () => {
     expect(useStore.getState().shellExited[TAB]).toBe(7);
     useStore.getState().clearShellExited(TAB);
     expect(useStore.getState().shellExited[TAB]).toBeUndefined();
+  });
+});
+
+describe("TUI handoff staging (issue #243)", () => {
+  // init() is latched, so this is a no-op once the suite above has run; it
+  // still registers the shell-exit listener when only these cases are run.
+  beforeEach(async () => {
+    await useStore.getState().init();
+    useStore.setState({ consoleOpen: {}, shellExited: {}, tuiHandoff: {} });
+  });
+
+  it("stages a handoff, sends it on demand, and retires it when omp exits", () => {
+    // A previous login shell's exit code must not paint its notice over the
+    // omp TUI the drawer is about to spawn.
+    useStore.setState({ shellExited: { [TAB]: 0 } });
+
+    useStore.getState().startTuiHandoff(TAB, "/mcp reauth linear");
+    expect(useStore.getState().consoleOpen[TAB]).toBe(true);
+    expect(useStore.getState().shellExited[TAB]).toBeUndefined();
+    expect(useStore.getState().tuiHandoff[TAB]).toEqual({
+      line: "/mcp reauth linear",
+      key: 1,
+      phase: "running",
+    });
+
+    useStore.getState().sendTuiHandoff(TAB);
+    expect(mockBackend.shellWrite).toHaveBeenCalledWith(
+      TAB,
+      "/mcp reauth linear\r",
+    );
+
+    shellExitCb!(TAB, 0);
+    expect(useStore.getState().tuiHandoff[TAB]!.phase).toBe("exited");
+    expect(useStore.getState().shellExited[TAB]).toBe(0);
+
+    // Nothing is listening once omp is gone — the banner offers a restart.
+    mockBackend.shellWrite.mockClear();
+    useStore.getState().sendTuiHandoff(TAB);
+    expect(mockBackend.shellWrite).not.toHaveBeenCalled();
+
+    useStore.getState().dismissTuiHandoff(TAB);
+    expect(useStore.getState().tuiHandoff[TAB]).toBeUndefined();
+  });
+
+  it("bumps the key so a second handoff respawns the drawer's omp", () => {
+    useStore.getState().startTuiHandoff(TAB, "/mcp reauth linear");
+    useStore.getState().startTuiHandoff(TAB, "/mcp reauth github");
+    expect(useStore.getState().tuiHandoff[TAB]).toEqual({
+      line: "/mcp reauth github",
+      key: 2,
+      phase: "running",
+    });
+  });
+
+  it("tracks a plain shell's exit without minting a handoff", () => {
+    shellExitCb!(TAB, 1);
+    expect(useStore.getState().shellExited[TAB]).toBe(1);
+    expect(useStore.getState().tuiHandoff).toEqual({});
+  });
+
+  it("drops the staged handoff with the deleted session", async () => {
+    useStore.setState({
+      state: stateWithRecord("sess-1", "dormant"),
+      tuiHandoff: { [TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" } },
+    });
+    await useStore.getState().deleteSession(TAB);
+    await useStore.getState().confirmDeleteSession(false);
+    expect(useStore.getState().tuiHandoff[TAB]).toBeUndefined();
+  });
+
+  it("drops the staged handoff when the agent is terminated", async () => {
+    // killShell suppresses the drawer program's exit event, so no shell:exit
+    // ever arrives to retire the handoff — terminate must do it itself.
+    useStore.setState({
+      tuiHandoff: {
+        [TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
+      },
+    });
+
+    await useStore.getState().terminate(TAB);
+
+    expect(mockBackend.terminateSession).toHaveBeenCalledWith(TAB);
+    expect(useStore.getState().tuiHandoff[TAB]).toBeUndefined();
+  });
+
+  it("keeps the staged handoff when terminate is declined", async () => {
+    windowStub.confirm = (msg: string): boolean => {
+      prompts.push(msg);
+      return false;
+    };
+    const staged = {
+      line: "/mcp reauth linear",
+      key: 1,
+      phase: "running" as const,
+    };
+    useStore.setState({ tuiHandoff: { [TAB]: staged } });
+
+    await useStore.getState().terminate(TAB);
+
+    expect(mockBackend.terminateSession).not.toHaveBeenCalled();
+    expect(useStore.getState().tuiHandoff[TAB]).toEqual(staged);
   });
 });
 

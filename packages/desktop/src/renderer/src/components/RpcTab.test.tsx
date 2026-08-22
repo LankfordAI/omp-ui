@@ -271,4 +271,45 @@ describe("RpcTab hero slash-command replies", () => {
     // The reply survives the dock, now rendered by TranscriptView's CommandRow.
     expect(document.body.textContent).toContain("Computer use: disabled");
   });
+
+  // A session whose first input is one of omp's terminal-only /mcp verbs never
+  // docks — the refusal lands in the hero footer, which must offer the handoff
+  // too or the affordance is unreachable exactly when it is needed.
+  const TUI_REFUSAL =
+    "/mcp reauth requires OAuth or browser flows only available in the TUI client.";
+
+  function handoffButton(): HTMLButtonElement | undefined {
+    return [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "run in omp TUI",
+    );
+  }
+
+  it("offers the TUI handoff on a refused verb that never left the hero", () => {
+    const startTuiHandoff = vi.fn();
+    seedHero([
+      BOOT,
+      { kind: "command", id: "c1", name: "mcp", args: "reauth linear",
+        status: "done", output: TUI_REFUSAL },
+    ]);
+    useStore.setState({ startTuiHandoff });
+    renderTab();
+    // Still undocked: this is the hero surface, not TranscriptView's CommandRow.
+    expect(document.body.textContent).toContain("What's next in p?");
+
+    const button = handoffButton();
+    expect(button).toBeDefined();
+    act(() => button!.click());
+    expect(startTuiHandoff.mock.calls).toEqual([[TAB, "/mcp reauth linear"]]);
+  });
+
+  it("leaves an ordinary hero reply without a handoff button", () => {
+    seedHero([
+      BOOT,
+      { kind: "command", id: "c1", name: "mcp", args: "list",
+        status: "done", output: "linear  http  connected" },
+    ]);
+    renderTab();
+    expect(document.body.textContent).toContain("What's next in p?");
+    expect(handoffButton()).toBeUndefined();
+  });
 });

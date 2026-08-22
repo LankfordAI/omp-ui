@@ -428,6 +428,9 @@ export interface McpSetEnabledRequest {
   enabled: boolean;
 }
 
+/** Which program the tab's console-drawer PTY runs — a login shell, or an omp TUI for a handoff (issue #243). */
+export type ConsoleProgram = "shell" | "omp-tui";
+
 /** One directory candidate from browseDirectories. */
 export interface DirBrowseEntry {
   /** Basename, e.g. "omp-ui". */

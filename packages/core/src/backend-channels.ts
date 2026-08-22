@@ -7,6 +7,7 @@ import type {
   BranchDiff,
   BranchList,
   BranchListOptions,
+  ConsoleProgram,
   DirBrowseResult,
   ImageAttachment,
   McpServersResult,
@@ -445,13 +446,17 @@ export const BACKEND_CHANNELS = {
     ...notify<[tabId: string, cols: number, rows: number]>(),
   },
   /**
-   * Spawns the user's login shell ($SHELL -l; COMSPEC on Windows) in `cwd` for
-   * the tab's console-drawer terminal (issue #42). Replaces any shell already
-   * running for the tab. Rejects when the shell binary cannot be spawned.
+   * Spawns the tab's console-drawer program in `cwd` — the user's login shell
+   * ($SHELL -l; COMSPEC on Windows) by default (issue #42), or omp's TUI for a
+   * handoff (issue #243). Replaces any program already running for the tab.
+   * Rejects when the program cannot be spawned.
    */
   shellSpawn: {
     channel: "shell:spawn",
-    ...request<[tabId: string, cwd: string, cols: number, rows: number], void>(),
+    ...request<
+      [tabId: string, cwd: string, cols: number, rows: number, program?: ConsoleProgram],
+      void
+    >(),
   },
   /** Kills the tab's console-drawer shell, suppressing its exit event. */
   shellKill: { channel: "shell:kill", ...notify<[tabId: string]>() },

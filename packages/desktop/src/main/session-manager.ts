@@ -22,6 +22,7 @@ import {
   resolveSessionLocation,
   RpcClient,
   spawnOmp,
+  spawnOmpTui,
   spawnShell,
   unarchiveSession,
   watchLineageDir,
@@ -32,6 +33,7 @@ import {
   writePlanExtension,
   PLAN_EXECUTE,
   MAX_IMAGE_BYTES,
+  type ConsoleProgram,
   type ImageAttachment,
   type OwnedSessionRecord,
   type PlanImplementationSource,
@@ -359,12 +361,7 @@ export class SessionManager {
       );
     }
     try {
-      const ompPath = this.deps.getOmpPath();
-      if (!ompPath) {
-        throw new Error(
-          "omp binary not found (looked in $OMP_UI_OMP_PATH, PATH, ~/.bun/bin, /usr/local/bin, ~/.local/bin)",
-        );
-      }
+      const ompPath = this.requireOmpPath();
 
       // A new session cannot run without a model credential — omp would crash
       // moments after spawn with no explanation. Resuming an existing session
@@ -677,10 +674,35 @@ export class SessionManager {
     await Promise.resolve();
   }
 
-  /** Launches the console drawer's shell terminal in a session project. */
-  launchShell(tabId: string, cwd: string, cols: number, rows: number): void {
+  /**
+   * The single omp-path failure both spawn paths speak with: a session spawn
+   * and a console-drawer TUI handoff must fail with the same guidance.
+   */
+  private requireOmpPath(): string {
+    const ompPath = this.deps.getOmpPath();
+    if (!ompPath) {
+      throw new Error(
+        "omp binary not found (looked in $OMP_UI_OMP_PATH, PATH, ~/.bun/bin, /usr/local/bin, ~/.local/bin)",
+      );
+    }
+    return ompPath;
+  }
+
+  /** Launches the console drawer's program in a session project. */
+  launchShell(
+    tabId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    program: ConsoleProgram = "shell",
+  ): void {
     this.killShell(tabId);
-    const handle = spawnShell({ id: tabId, cwd, cols, rows });
+    // A handoff replaces whatever the drawer was running; the exit guard below
+    // keeps the killed program from reporting shell:exit over its successor.
+    const handle =
+      program === "omp-tui"
+        ? spawnOmpTui({ id: tabId, cwd, cols, rows, ompPath: this.requireOmpPath() })
+        : spawnShell({ id: tabId, cwd, cols, rows });
     const detachData = handle.onData((data) => this.deps.send(CH.onShellData, tabId, data));
     this.shells.set(tabId, { handle, detachData });
     handle.onExit(({ exitCode }) => {

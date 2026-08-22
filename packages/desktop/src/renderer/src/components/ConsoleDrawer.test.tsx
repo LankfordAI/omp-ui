@@ -74,6 +74,10 @@ vi.mock("../store", () => ({
       shellExited: Record<string, number>;
       clearShellExited: () => void;
       toggleConsole: (tabId: string) => void;
+      tuiHandoff: Record<string, unknown>;
+      sendTuiHandoff: (tabId: string) => void;
+      dismissTuiHandoff: (tabId: string) => void;
+      restartSession: (tabId: string) => Promise<void>;
     }) => unknown,
   ) =>
     selector({
@@ -82,6 +86,11 @@ vi.mock("../store", () => ({
       shellExited: {},
       clearShellExited: mocks.clearShellExited,
       toggleConsole: mocks.toggleConsole,
+      // No handoff staged: ShellDrawer runs the login shell and renders no banner.
+      tuiHandoff: {},
+      sendTuiHandoff: vi.fn(),
+      dismissTuiHandoff: vi.fn(),
+      restartSession: vi.fn(async () => {}),
     }),
 }));
 

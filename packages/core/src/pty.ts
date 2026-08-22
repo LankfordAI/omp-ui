@@ -105,3 +105,36 @@ export function spawnShell(opts: {
   });
   return adapt(opts.id, proc);
 }
+
+/**
+ * Argv for a handoff TUI. Deliberately no `--session-dir`, `--resume`,
+ * `--advisor` or `--config` overlays: this omp must not join the tab's lineage
+ * (ADR-0003), and `--no-session` keeps the errand out of session storage.
+ */
+export function ompTuiArgs(cwd: string): string[] {
+  return ["--cwd", cwd, "--no-session"];
+}
+
+/**
+ * A throwaway omp TUI in the tab's console drawer (issue #243). Some omp flows
+ * — `/mcp reauth` and friends — are refused outside the TUI client, so omp-ui
+ * hands the errand to a real TUI instead of re-implementing MCP OAuth.
+ */
+export function spawnOmpTui(opts: {
+  id: string;
+  cwd: string;
+  ompPath: string;
+  cols: number;
+  rows: number;
+}): PtyHandle {
+  const cmd = withFdSweep(opts.ompPath, ompTuiArgs(opts.cwd));
+  const proc = pty.spawn(cmd.file, cmd.args, {
+    name: "xterm-256color",
+    cols: opts.cols,
+    rows: opts.rows,
+    cwd: opts.cwd,
+    env: ompChildEnv(opts.ompPath),
+    encoding: null, // raw Buffers, same as spawnOmp
+  });
+  return adapt(opts.id, proc);
+}

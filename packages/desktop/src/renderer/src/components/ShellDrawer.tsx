@@ -22,6 +22,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const spawnedRef = useRef(false);
+  /** Handoff key already spawned into this PTY; a newer key forces a respawn. */
+  const handoffKeyRef = useRef<number | null>(null);
   const theme = useTheme();
   const projectCwd = useStore(
     (s) =>
@@ -30,6 +32,10 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   );
   const exitCode = useStore((s) => s.shellExited[tabId]);
   const clearShellExited = useStore((s) => s.clearShellExited);
+  const handoff = useStore((s) => s.tuiHandoff[tabId]);
+  const sendTuiHandoff = useStore((s) => s.sendTuiHandoff);
+  const dismissTuiHandoff = useStore((s) => s.dismissTuiHandoff);
+  const restartSession = useStore((s) => s.restartSession);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -84,30 +90,43 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       term.dispose();
       termRef.current = null;
       spawnedRef.current = false;
+      handoffKeyRef.current = null;
       backend.shellKill(tabId); // no-op if main already killed it
     };
   }, [tabId]);
 
   // Spawn on first visible; on later visible flips just re-fit and re-size
   // (display:none → real box degenerates fit, same as TerminalTab's refit).
+  // A staged handoff key the PTY has not seen yet spawns omp's TUI client
+  // instead of the login shell; main kills the previous program first, so the
+  // respawn is a clean replacement rather than a second process.
   useEffect(() => {
+    const key = handoff?.key ?? null;
+    // Dismissing drops the record, so the next staging restarts numbering at 1.
+    // Forget the spawned key the moment the record goes — before the
+    // visibility guard, since the drawer stays mounted while closed — so that
+    // fresh 1 cannot match a retired one and silently skip the respawn.
+    if (key === null) handoffKeyRef.current = null;
     const t = termRef.current;
     if (!t || !visible || projectCwd === undefined) return;
     t.fit.fit();
-    if (spawnedRef.current) {
+    const staged = key !== null && key !== handoffKeyRef.current;
+    if (spawnedRef.current && !staged) {
       backend.shellResize(tabId, t.term.cols, t.term.rows);
       return;
     }
     spawnedRef.current = true;
+    handoffKeyRef.current = key;
     void backend
-      .shellSpawn(tabId, projectCwd, t.term.cols, t.term.rows)
+      .shellSpawn(tabId, projectCwd, t.term.cols, t.term.rows, staged ? "omp-tui" : "shell")
       .then(() => clearShellExited(tabId))
       .catch((err: unknown) => {
         spawnedRef.current = false; // next visible flip retries
+        handoffKeyRef.current = null; // and retries as the same program
         const msg = err instanceof Error ? err.message : String(err);
-        t.term.write(`\x1b[31mshell failed to start: ${msg}\x1b[0m\r\n`);
+        t.term.write(`\x1b[31m${staged ? "omp" : "shell"} failed to start: ${msg}\x1b[0m\r\n`);
       });
-  }, [visible, tabId, projectCwd, clearShellExited]);
+  }, [visible, tabId, projectCwd, clearShellExited, handoff?.key]);
 
   // Re-theme a live terminal in place. Deliberately NOT a dep of the mount
   // effect: rebuilding the terminal would drop the scrollback and the PTY
@@ -131,9 +150,55 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   };
 
   return (
-    <div className="ambient relative min-h-0 flex-1 bg-surface p-2">
-      <div ref={hostRef} className="h-full w-full" />
-      {exitCode !== undefined && (
+    <div className="ambient relative flex min-h-0 flex-1 flex-col bg-surface p-2">
+      {handoff !== undefined && (
+        <div className="mb-2 shrink-0 rounded-md border border-line bg-raised px-2.5 py-2">
+          <p className="truncate font-mono text-[11px] text-ink">{handoff.line}</p>
+          <div className="mt-1.5 flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
+              {handoff.phase === "running"
+                ? "omp's terminal client — send this once the TUI has painted"
+                : "omp exited — restart the session so it reconnects with the new credential"}
+            </p>
+            {handoff.phase === "running" ? (
+              <Button
+                tone="signal"
+                variant="outline"
+                size="xs"
+                onClick={() => sendTuiHandoff(tabId)}
+              >
+                send
+              </Button>
+            ) : (
+              <Button
+                tone="copper"
+                variant="outline"
+                size="xs"
+                // restartSession alerts and resolves false rather than
+                // throwing; retiring the banner on that path would take the
+                // retry with it and leave only "restart shell", which spawns a
+                // login shell and never picks the credential up.
+                onClick={() =>
+                  void restartSession(tabId).then((ok) => {
+                    if (ok) dismissTuiHandoff(tabId);
+                  })
+                }
+              >
+                restart session
+              </Button>
+            )}
+            <Button variant="ghost" size="xs" onClick={() => dismissTuiHandoff(tabId)}>
+              dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+      {/* The banner shares the column, so the host takes the remaining box
+          instead of the full one; the ResizeObserver re-fits xterm to it. */}
+      <div ref={hostRef} className="min-h-0 w-full flex-1" />
+      {/* Suppressed while a handoff exists — its banner owns the exited state
+          (restart the session, not the program). */}
+      {exitCode !== undefined && handoff === undefined && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-blur-sm">
           <p className="font-display text-sm text-ink-mid">
             shell exited{" "}

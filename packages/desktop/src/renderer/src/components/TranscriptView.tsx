@@ -19,6 +19,7 @@ import type {
   RenderItem,
   UserItem,
 } from "../lib/transcript";
+import { useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
 import { PlanCard } from "./PlanCard";
@@ -294,11 +295,47 @@ function MarkerRule({ item, count }: { item: MarkerItem; count: number }) {
 }
 
 /**
+ * omp refuses `/mcp reauth|unauth|reconnect|smithery-*` and `/mcp notifications`
+ * outside its TUI client and answers on `command_output` (issue #243); match
+ * omp's own wording rather than intercepting the command — the verb still
+ * reaches omp verbatim, and if omp ever answers it over rpc this affordance
+ * just stops appearing.
+ */
+const TUI_ONLY_REPLY = /\bthe TUI client\b/;
+
+/** The line as the user ran it, which a handoff replays in omp's TUI. */
+function commandLine(item: CommandItem): string {
+  return item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`;
+}
+
+/**
+ * Hands a refused verb to omp's own TUI in the tab's console drawer. Both
+ * command surfaces render it — the transcript row and RpcTab's hero footer —
+ * because a session's first input can be one of these verbs, and a lone
+ * command row keeps the hero undocked. Absent in the subagent view, which owns
+ * no tab to host the drawer, and on any reply omp did not refuse.
+ */
+export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: string }) {
+  const startTuiHandoff = useStore((s) => s.startTuiHandoff);
+  if (tabId === undefined || item.output === undefined || !TUI_ONLY_REPLY.test(item.output))
+    return null;
+  return (
+    <button
+      type="button"
+      className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-mid hover:text-ink"
+      onClick={() => startTuiHandoff(tabId, commandLine(item))}
+    >
+      run in omp TUI
+    </button>
+  );
+}
+
+/**
  * One slash command as the user ran it: the literal line in a mono slab, plus
  * the smallest status affix that answers "did it finish?". `agent` gets no
  * affix — the agent turn it invoked renders right below and speaks for itself.
  */
-function CommandRow({ item }: { item: CommandItem }) {
+function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
   return (
     <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55]">
       <div className="flex items-baseline gap-1.5">
@@ -309,7 +346,7 @@ function CommandRow({ item }: { item: CommandItem }) {
             item.status === "failed" ? "text-rose" : "text-ink",
           )}
         >
-          {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
+          {commandLine(item)}
         </span>
         {item.status === "running" && (
           <span className="animate-caret inline-block shrink-0 align-baseline text-signal">▍</span>
@@ -332,6 +369,7 @@ function CommandRow({ item }: { item: CommandItem }) {
           {item.output}
         </pre>
       )}
+      <TuiHandoffButton item={item} tabId={tabId} />
     </div>
   );
 }
@@ -458,7 +496,7 @@ const TranscriptRow = memo(function TranscriptRow({
     case "plan":
       return <PlanCard item={item} />;
     case "command":
-      return <CommandRow item={item} />;
+      return <CommandRow item={item} tabId={tabId} />;
   }
 });
 

@@ -45,6 +45,7 @@ import {
   type BackendState,
   type ChannelTable,
   type BranchListOptions,
+  type ConsoleProgram,
   type ImageAttachment,
   type McpSetEnabledRequest,
   type LiveState,
@@ -451,8 +452,13 @@ export class MainBackend {
           resolveFileMentions(projectCwd, message),
         [CH.ptyPasteImage]: (tabId: string, image: ImageAttachment) =>
           this.sessions.ptyPasteImage(tabId, image),
-        [CH.shellSpawn]: (tabId: string, cwd: string, cols: number, rows: number) =>
-          this.sessions.launchShell(tabId, cwd, cols, rows),
+        [CH.shellSpawn]: (
+          tabId: string,
+          cwd: string,
+          cols: number,
+          rows: number,
+          program?: ConsoleProgram,
+        ) => this.sessions.launchShell(tabId, cwd, cols, rows, program),
         [CH.getOmpUpdateState]: () => this.ompUpdater.state,
         [CH.checkOmpUpdate]: () => this.ompUpdater.checkNow(true),
         [CH.downloadOmpUpdate]: () => this.ompUpdater.download(),

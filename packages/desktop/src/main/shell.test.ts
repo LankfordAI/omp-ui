@@ -23,16 +23,19 @@ vi.mock("electron", () => ({
   },
 }));
 
-// No real login shell is spawned — every other core export stays real.
+// Neither a real login shell nor a real omp TUI is spawned — every other core
+// export stays real.
 vi.mock("@omp-ui/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@omp-ui/core")>()),
   spawnShell: vi.fn(),
+  spawnOmpTui: vi.fn(),
 }));
 
 const { MainBackend } = await import("./backend");
 const { CH } = await import("@omp-ui/core");
-const { spawnShell } = await import("@omp-ui/core");
+const { spawnShell, spawnOmpTui } = await import("@omp-ui/core");
 const spawnShellMock = vi.mocked(spawnShell);
+const spawnOmpTuiMock = vi.mocked(spawnOmpTui);
 
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
 const TAB = "tab-1";
@@ -47,6 +50,8 @@ const win = {
 };
 
 let base: string;
+/** The path the TUI handoff must hand to spawnOmpTui — see setup(). */
+let ompBin: string;
 
 interface FakeShell {
   id: string;
@@ -73,6 +78,29 @@ function makeFakeShell(id: string): FakeShell {
 
 const fakeShells: FakeShell[] = [];
 
+/** Both console programs hand back the same fake handle; only the call differs. */
+function fakeHandle(opts: { id: string }): PtyHandle {
+  const fake = makeFakeShell(opts.id);
+  fakeShells.push(fake);
+  // The fake only fakes the handle; launchShell wires its callbacks itself.
+  return {
+    id: fake.id,
+    onData: (cb) => {
+      fake.dataCb = cb;
+      return () => {
+        fake.detachData();
+        fake.dataCb = null;
+      };
+    },
+    onExit: (cb) => {
+      fake.exitCb = cb;
+    },
+    write: fake.write,
+    resize: fake.resize,
+    kill: fake.kill,
+  };
+}
+
 /**
  * A session exactly as `newSession` leaves it: registered and **not yet
  * materialized** — `sessionId: null` and an empty lineage dir. The shell
@@ -87,6 +115,12 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
   delete process.env.XDG_DATA_HOME;
   delete process.env.OMP_PROFILE;
   delete process.env.PI_PROFILE;
+
+  // resolveOmpBinary runs once in the MainBackend constructor, so the override
+  // must exist before it: the omp-tui handoff asserts on this exact path.
+  ompBin = path.join(base, "omp");
+  fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+  process.env.OMP_UI_OMP_PATH = ompBin;
 
   const sessionsRoot = path.join(agentDir, "sessions");
   fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
@@ -130,30 +164,12 @@ const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(nu
 
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
+  delete process.env.OMP_UI_OMP_PATH;
   fakeShells.length = 0;
   spawnShellMock.mockReset();
-  spawnShellMock.mockImplementation((opts) => {
-    const fake = makeFakeShell(opts.id);
-    fakeShells.push(fake);
-    // The fake only fakes the handle; launchShell wires its callbacks itself.
-    const handle: PtyHandle = {
-      id: fake.id,
-      onData: (cb) => {
-        fake.dataCb = cb;
-        return () => {
-          fake.detachData();
-          fake.dataCb = null;
-        };
-      },
-      onExit: (cb) => {
-        fake.exitCb = cb;
-      },
-      write: fake.write,
-      resize: fake.resize,
-      kill: fake.kill,
-    };
-    return handle;
-  });
+  spawnShellMock.mockImplementation(fakeHandle);
+  spawnOmpTuiMock.mockReset();
+  spawnOmpTuiMock.mockImplementation(fakeHandle);
 });
 
 describe("console-drawer shell lifecycle (issue #42)", () => {
@@ -269,5 +285,51 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
 
     await invoke(CH.deleteSession, TAB);
     expect(fake.kill).toHaveBeenCalled();
+  });
+});
+
+describe("console-drawer TUI handoff (issue #243)", () => {
+  it("shell:spawn without a program keeps the login shell", () => {
+    setup();
+    invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
+
+    expect(spawnShellMock).toHaveBeenCalledWith({ id: TAB, cwd: "/proj", cols: 80, rows: 24 });
+    expect(spawnOmpTuiMock).not.toHaveBeenCalled();
+  });
+
+  it("shell:spawn with omp-tui runs omp in the tab's cwd at the drawer's size", () => {
+    setup();
+    invoke(CH.shellSpawn, TAB, "/proj", 100, 30, "omp-tui");
+
+    expect(spawnOmpTuiMock).toHaveBeenCalledWith({
+      id: TAB,
+      cwd: "/proj",
+      cols: 100,
+      rows: 30,
+      ompPath: ompBin,
+    });
+    expect(spawnShellMock).not.toHaveBeenCalled();
+
+    // The handoff's handle is the registered one: the banner's send must land
+    // in the TUI, not in a dead shell.
+    invoke(CH.shellWrite, TAB, "/mcp reauth ctx\r");
+    expect(fakeShells[0]!.write).toHaveBeenCalledWith("/mcp reauth ctx\r");
+  });
+
+  it("a staged handoff replaces the running login shell without a stale exit", () => {
+    setup();
+    invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
+    const shell = fakeShells[0]!;
+    invoke(CH.shellSpawn, TAB, "/proj", 80, 24, "omp-tui");
+    const tui = fakeShells[1]!;
+
+    expect(shell.kill).toHaveBeenCalled();
+    // Its exit lands after the TUI registered — reporting it would close the
+    // drawer out from under the handoff.
+    shell.exitCb!({ exitCode: 0 });
+    expect(sent.find((m) => m.channel === CH.onShellExit)).toBeUndefined();
+
+    tui.exitCb!({ exitCode: 0 });
+    expect(sent).toContainEqual({ channel: CH.onShellExit, args: [TAB, 0] });
   });
 });

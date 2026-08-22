@@ -142,6 +142,48 @@ const userNativeRow: McpServerEntry = {
   writable: true,
 };
 
+/** A live pinned session for TAB — the only shape that offers restart or TUI handoff. */
+const liveState = backendState({
+  projects: [
+    {
+      project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+      sessions: [
+        {
+          tabId: TAB,
+          sessionId: "s1",
+          lineageDir: "omp-ui--proj--s1",
+          projectCwd: PROJECT,
+          launchedAt: "t",
+          mode: "rpc-ui",
+          advisor: false,
+          advisorModel: null,
+          cachedTitle: "T",
+          cachedModified: "t",
+          title: "T",
+          status: "complete",
+          live: "live",
+          pendingPlan: null,
+          planSettle: null,
+          streamStalled: false,
+        },
+      ],
+    },
+  ],
+});
+
+/** The same pinned session, re-shaped: the handoff needs a live *native* tab. */
+const liveSession = liveState.projects[0]!.sessions[0]!;
+function pinnedState(session: Partial<typeof liveSession>) {
+  return backendState({
+    projects: [
+      {
+        project: liveState.projects[0]!.project,
+        sessions: [{ ...liveSession, ...session }],
+      },
+    ],
+  });
+}
+
 /** Mirrors App.tsx's mounting: the modal exists only while the store says so. */
 function Gate() {
   const mcpManager = useStore((s) => s.mcpManager);
@@ -165,6 +207,13 @@ function switchFor(label: string): HTMLButtonElement {
   );
   if (found === null) throw new Error(`switch not found: ${label}`);
   return found;
+}
+
+/** The per-row TUI-handoff buttons, in row order. */
+function authenticateButtons(): HTMLButtonElement[] {
+  return [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
+    (b) => b.textContent === "authenticate",
+  );
 }
 
 beforeEach(() => {
@@ -297,33 +346,6 @@ describe("McpManager", () => {
   });
 
   it("shows the restart button only when opened from a live tab", async () => {
-    const liveState = backendState({
-      projects: [
-        {
-          project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastAdvisorModel: null },
-          sessions: [
-            {
-              tabId: TAB,
-              sessionId: "s1",
-              lineageDir: "omp-ui--proj--s1",
-              projectCwd: PROJECT,
-              launchedAt: "t",
-              mode: "rpc-ui",
-              advisor: false,
-              advisorModel: null,
-              cachedTitle: "T",
-              cachedModified: "t",
-              title: "T",
-              status: "complete",
-              live: "live",
-              pendingPlan: null,
-              planSettle: null,
-              streamStalled: false,
-            },
-          ],
-        },
-      ],
-    });
     // Live tab → the footer offers the in-place restart.
     useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
     await renderManager();
@@ -398,5 +420,95 @@ describe("McpManager", () => {
     );
     // Project-scope footer names the blast radius.
     expect(document.body.textContent).toContain("Changes apply to new sessions in this project.");
+  });
+
+  it("offers the TUI handoff only on remote rows of a live pinned tab", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [writableRow, toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
+    await renderManager();
+
+    const buttons = authenticateButtons();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.closest("li")?.textContent).toContain("cursor-one");
+    expect(buttons[0]!.title).toBe(
+      "hand this session to omp's TUI and run /mcp reauth there — omp refuses OAuth flows over rpc",
+    );
+    expect(document.body.textContent).toContain(
+      "OAuth servers authenticate through omp's TUI: omp refuses reauth over rpc.",
+    );
+  });
+
+  it("stages /mcp reauth for the tab's TUI and closes the modal", async () => {
+    const startTuiHandoff = vi.fn();
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({
+      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      state: liveState,
+      startTuiHandoff,
+    });
+    await renderManager();
+
+    await act(async () => {
+      authenticateButtons()[0]!.click();
+    });
+    expect(startTuiHandoff).toHaveBeenCalledWith(TAB, "/mcp reauth cursor-one");
+    // The drawer takes over from here, so the modal gets out of the way.
+    expect(useStore.getState().mcpManager).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("offers no handoff on stdio rows — omp's TUI has no OAuth errand for them", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [writableRow, userNativeRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
+    await renderManager();
+    expect(authenticateButtons()).toHaveLength(0);
+  });
+
+  it("offers no handoff in the global modal — no tab to host the TUI", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({ mcpManager: { projectCwd: null }, state: liveState });
+    await renderManager();
+    expect(authenticateButtons()).toHaveLength(0);
+  });
+
+  it("offers no handoff on a live terminal tab — a pty tab has no console drawer", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    // Live, but terminal-mode: the tab is already an omp TUI, so there is no
+    // ConsoleDrawer to host the handoff and the button would be a dead control.
+    useStore.setState({
+      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      state: pinnedState({ mode: "pty" }),
+    });
+    await renderManager();
+    expect(authenticateButtons()).toHaveLength(0);
+  });
+
+  it("offers no handoff on a native tab that is not live — nothing to hand off to", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    // Native, so the mode gate passes; the dormant session is what must refuse.
+    useStore.setState({
+      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      state: pinnedState({ live: "dormant" }),
+    });
+    await renderManager();
+    expect(authenticateButtons()).toHaveLength(0);
   });
 });

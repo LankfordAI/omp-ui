@@ -225,6 +225,17 @@ export interface BranchActivity {
   pulling: boolean;
 }
 
+/**
+ * A terminal-only omp flow staged for the tab's console drawer (issue #243).
+ * The drawer runs omp's TUI for as long as this entry exists; `key` forces a
+ * respawn when a second handoff is staged into an already-open drawer.
+ */
+export interface TuiHandoff {
+  line: string;
+  key: number;
+  phase: "running" | "exited";
+}
+
 export interface UiStore extends SettingsSlice, UpdatesSlice {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -237,6 +248,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   hibernated: Record<string, boolean>;
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
+  tuiHandoff: Record<string, TuiHandoff>;
   branches: Record<string, BranchList>;
   branchActivity: Record<string, BranchActivity>;
   branchDiffRevision: Record<string, number>;
@@ -366,6 +378,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   closeSubagent(tabId: string): void;
   clearShellExited(tabId: string): void;
   toggleConsole(tabId: string): void;
+  /** Opens the console on an omp TUI and stages `line` for the user to send. */
+  startTuiHandoff(tabId: string, line: string): void;
+  /** Types the staged line into the running TUI; no-op once it has exited. */
+  sendTuiHandoff(tabId: string): void;
+  /** Drops the staged handoff, returning the drawer to a plain login shell. */
+  dismissTuiHandoff(tabId: string): void;
   refreshBranches(projectCwd: string, opts?: BranchListOptions): Promise<void>;
   checkoutGitBranch(
     projectCwd: string,

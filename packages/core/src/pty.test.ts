@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultShell, normalizePtyKillSignal, ptyChunkToBuffer } from "./pty";
+import { defaultShell, normalizePtyKillSignal, ompTuiArgs, ptyChunkToBuffer } from "./pty";
 
 describe("defaultShell", () => {
   it("uses COMSPEC without shell arguments on Windows", () => {
@@ -18,6 +18,20 @@ describe("defaultShell", () => {
       file: "/bin/zsh",
       args: ["-l"],
     });
+  });
+});
+
+describe("ompTuiArgs", () => {
+  it("runs the handoff TUI in the tab's cwd without a session", () => {
+    expect(ompTuiArgs("/w")).toEqual(["--cwd", "/w", "--no-session"]);
+  });
+
+  it("keeps the handoff out of the tab's lineage", () => {
+    // ADR-0003: a --session-dir or --resume here would make the errand a
+    // sibling of the tab's own session.
+    const args = ompTuiArgs("/w");
+    expect(args).not.toContain("--session-dir");
+    expect(args.some((arg) => arg.startsWith("--resume"))).toBe(false);
   });
 });
 

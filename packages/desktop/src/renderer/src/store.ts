@@ -76,6 +76,7 @@ import type {
   PlanRecord,
   RpcTabState,
   SidebarSessionState,
+  TuiHandoff,
   UiStore,
 } from "./store/types";
 export type {
@@ -90,6 +91,7 @@ export type {
   SettingsPage,
   SidebarSessionState,
   TabInfo,
+  TuiHandoff,
   UiStore,
 } from "./store/types";
 export { findRecord, sessionCwd } from "./store/slices/view";
@@ -284,6 +286,15 @@ function dropHibernated(
   tabId: string,
 ): Record<string, boolean> {
   const next = { ...hibernated };
+  delete next[tabId];
+  return next;
+}
+
+function dropTuiHandoff(
+  tuiHandoff: Record<string, TuiHandoff>,
+  tabId: string,
+): Record<string, TuiHandoff> {
+  const next = { ...tuiHandoff };
   delete next[tabId];
   return next;
 }
@@ -1104,6 +1115,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         activeTabId,
         focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
         exited: dropExited(s.exited, tabId),
+        tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId),
       };
     });
   };
@@ -1397,6 +1409,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     hibernated: {},
     rpc: {},
     consoleOpen: {},
+    tuiHandoff: {},
     branches: {},
     branchActivity: {},
     branchDiffRevision: {},
@@ -1495,7 +1508,18 @@ export const useStore = create<UiStore>()((set, get, api) => {
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
       backend.onShellExit((tabId, code) => {
-        set((s) => ({ shellExited: { ...s.shellExited, [tabId]: code } }));
+        set((s) => {
+          // The handoff TUI quit, so its banner switches from "send" to
+          // "restart session"; a plain login shell leaves the map identical.
+          const staged = s.tuiHandoff[tabId];
+          return {
+            shellExited: { ...s.shellExited, [tabId]: code },
+            tuiHandoff:
+              staged && staged.phase !== "exited"
+                ? { ...s.tuiHandoff, [tabId]: { ...staged, phase: "exited" } }
+                : s.tuiHandoff,
+          };
+        });
       });
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
       backend.onAppUpdateState((appUpdate) =>
@@ -1706,6 +1730,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       )
         return;
       await backend.terminateSession(tabId);
+      // Terminating kills the drawer's program through killShell, which
+      // deliberately suppresses its exit event — so nothing would ever retire
+      // a staged handoff, and its banner would keep offering to send into a
+      // dead PTY. Drop it here, as eraseSession does for the same reason.
+      set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
     },
 
     async switchMode(tabId, mode) {
@@ -3079,6 +3108,38 @@ export const useStore = create<UiStore>()((set, get, api) => {
       set((s) => ({
         consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] },
       }));
+    },
+
+    startTuiHandoff(tabId, line) {
+      set((s) => ({
+        consoleOpen: { ...s.consoleOpen, [tabId]: true },
+        // A previous shell's exit code would otherwise paint the drawer's
+        // "exited" notice over the omp TUI about to replace it.
+        shellExited: dropExited(s.shellExited, tabId),
+        tuiHandoff: {
+          ...s.tuiHandoff,
+          [tabId]: {
+            line,
+            // The drawer respawns on a changed key, so staging a second
+            // handoff into an open drawer restarts omp rather than typing
+            // into whatever is already running there.
+            key: (s.tuiHandoff[tabId]?.key ?? 0) + 1,
+            phase: "running",
+          },
+        },
+      }));
+    },
+
+    sendTuiHandoff(tabId) {
+      const staged = get().tuiHandoff[tabId];
+      if (staged?.phase !== "running") return;
+      // CR, not LF: omp's TUI editor submits on carriage return — the same
+      // byte xterm sends for Enter.
+      backend.shellWrite(tabId, `${staged.line}\r`);
+    },
+
+    dismissTuiHandoff(tabId) {
+      set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
     },
 
     async refreshBranches(projectCwd, opts) {

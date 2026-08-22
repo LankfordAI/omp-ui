@@ -29,7 +29,7 @@ export * from "./session-file";
 export * from "./types";
 export * from "./backend-channels";
 export { Registry } from "./registry";
-export { spawnOmp, spawnShell, type PtyHandle } from "./pty";
+export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";

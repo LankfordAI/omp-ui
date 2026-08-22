@@ -10,7 +10,7 @@ import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
-import { TranscriptView } from "./TranscriptView";
+import { TranscriptView, TuiHandoffButton } from "./TranscriptView";
 import { Button, Chip, CopyButton, Panel, ProgressSweep } from "./ui";
 
 const NO_ITEMS: never[] = [];
@@ -52,7 +52,7 @@ function HeroGreeting({ projectCwd }: { projectCwd: string | undefined }) {
 }
 
 /** Ambient pre-exchange items (boot notices, markers), quiet, below the hero card. */
-function HeroFooter({ items }: { items: RenderItem[] }) {
+function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
   return (
     <div className="flex min-h-0 flex-[0.85] flex-col items-center gap-1 overflow-y-auto px-6 pt-4">
       {items.map((item) =>
@@ -109,6 +109,9 @@ function HeroFooter({ items }: { items: RenderItem[] }) {
                 {item.output}
               </pre>
             )}
+            {/* A refused verb can be the session's first input, which leaves
+                the hero undocked — so this surface needs the handoff too. */}
+            <TuiHandoffButton item={item} tabId={tabId} />
           </div>
         ) : null,
       )}
@@ -281,7 +284,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                 <div ref={slotRef} className={cn(centered && "pb-2")}>
                   <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
                 </div>
-                {centered && <HeroFooter items={items} />}
+                {centered && <HeroFooter items={items} tabId={tabId} />}
               </>
             )}
           </div>

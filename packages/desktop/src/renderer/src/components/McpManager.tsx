@@ -23,6 +23,10 @@ import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
  * restart while the pinned tab is live. The store captures projectCwd
  * (+ tabId when session-opened) at open time, so a focus change mid-edit
  * cannot retarget a toggle at another project.
+ *
+ * omp refuses `/mcp reauth` outside its own TUI, so http/sse rows in a live
+ * pinned tab offer a handoff instead of a reauth button: the modal stages the
+ * verb for an omp TUI in the tab's console drawer and closes (#243).
  */
 
 type Load =
@@ -41,12 +45,16 @@ function Row({
   projectScoped,
   pending,
   onToggle,
+  onAuthenticate,
 }: {
   entry: McpServerEntry;
   /** True when the modal is scoped to a project (`projectCwd !== null`). */
   projectScoped: boolean;
   pending: boolean;
   onToggle: (entry: McpServerEntry, next: boolean) => void;
+  /** Defined only when the modal is pinned to a live tab — the handoff needs
+   *  a console drawer to spawn omp's TUI in. */
+  onAuthenticate?: (entry: McpServerEntry) => void;
 }) {
   const shadowedSource = entry.shadowedBy?.split(":", 1)[0];
   // Exactly the states the project writer rejects: nothing project-local can
@@ -89,6 +97,16 @@ function Row({
           {entry.source} · {entry.scope}
         </span>
       </div>
+      {entry.effective && entry.transport !== "stdio" && onAuthenticate !== undefined && (
+        <Button
+          size="xs"
+          variant="ghost"
+          title="hand this session to omp's TUI and run /mcp reauth there — omp refuses OAuth flows over rpc"
+          onClick={() => onAuthenticate(entry)}
+        >
+          authenticate
+        </Button>
+      )}
       {entry.effective && (
         <Switch
           on={entry.state === "enabled"}
@@ -115,7 +133,16 @@ function Row({
 export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; tabId?: string }) {
   const closeMcpManager = useStore((s) => s.closeMcpManager);
   const restartSession = useStore((s) => s.restartSession);
-  const live = useStore((s) => (tabId === undefined ? false : findRecord(s.state, tabId)?.live === "live"));
+  const startTuiHandoff = useStore((s) => s.startTuiHandoff);
+  const live = useStore((s) =>
+    tabId === undefined ? false : findRecord(s.state, tabId)?.live === "live",
+  );
+  // The handoff needs a console drawer to host omp's TUI, and only native tabs
+  // have one. A terminal tab is already an omp TUI — the user runs the verb
+  // there directly — so the button would be a dead control.
+  const native = useStore((s) =>
+    tabId === undefined ? false : findRecord(s.state, tabId)?.mode === "rpc-ui",
+  );
 
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -156,6 +183,17 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
       )
       .finally(() => setPendingName(null));
   };
+
+  // omp refuses `/mcp reauth` outside its TUI, so the row hands the errand to
+  // a real omp TUI in the tab's console drawer — undefined (and the button
+  // absent) without a live native tab to host it.
+  const authenticate =
+    tabId !== undefined && live && native
+      ? (entry: McpServerEntry): void => {
+          startTuiHandoff(tabId, `/mcp reauth ${entry.name}`);
+          closeMcpManager();
+        }
+      : undefined;
 
   const restart = (): void => {
     if (tabId === undefined) return;
@@ -238,6 +276,7 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
                       projectScoped={projectCwd !== null}
                       pending={pendingName === entry.name}
                       onToggle={toggle}
+                      onAuthenticate={authenticate}
                     />
                   ))}
                 </ul>
@@ -248,7 +287,8 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
 
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">
-            {projectCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions in this project."}
+            {projectCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions in this project."}{" "}
+            OAuth servers authenticate through omp's TUI: omp refuses reauth over rpc.
           </p>
           {live && (
             <Button

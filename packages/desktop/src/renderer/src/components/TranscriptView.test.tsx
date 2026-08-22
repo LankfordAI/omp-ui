@@ -445,6 +445,18 @@ describe("command rows (slash-command parity)", () => {
     return { kind: "command", id: `c-${status}`, name: "mcp", args: "reauth linear", status, ...extra };
   }
 
+  const TAB = "tab-command";
+  /** omp's verbatim refusal from its non-TUI slash handler (issue #243). */
+  const TUI_REFUSAL = "/mcp reauth requires OAuth or browser flows only available in the TUI client.";
+
+  function handoffButton(el: HTMLDivElement): HTMLButtonElement | undefined {
+    return [...el.querySelectorAll("button")].find((b) => b.textContent === "run in omp TUI");
+  }
+
+  beforeEach(() => {
+    useStore.setState({ rpc: {}, startTuiHandoff: vi.fn() });
+  });
+
   it("shows the literal line with a live caret while running", () => {
     const { el, root } = render([command("running")]);
     expect(el.textContent).toContain("/mcp reauth linear");
@@ -503,6 +515,30 @@ describe("command rows (slash-command parity)", () => {
     const slab = el.querySelector(".bg-sunken.font-mono");
     expect(slab).not.toBeNull();
     expect(slab!.closest(".items-end")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("offers the TUI handoff on omp's terminal-only refusal and stages the line", () => {
+    const { el, root } = render([command("done", { output: TUI_REFUSAL })], TAB);
+    const button = handoffButton(el);
+    expect(button).toBeDefined();
+    act(() => button!.click());
+    expect(vi.mocked(useStore.getState().startTuiHandoff).mock.calls).toEqual([
+      [TAB, "/mcp reauth linear"],
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("leaves ordinary command output without a handoff button", () => {
+    const { el, root } = render([command("done", { output: "linear  http  connected" })], TAB);
+    expect(handoffButton(el)).toBeUndefined();
+    act(() => root.unmount());
+  });
+
+  it("withholds the handoff in the subagent view, which owns no tab", () => {
+    const { el, root } = render([command("done", { output: TUI_REFUSAL })]);
+    expect(el.textContent).toContain("the TUI client");
+    expect(handoffButton(el)).toBeUndefined();
     act(() => root.unmount());
   });
 });
