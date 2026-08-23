@@ -13,14 +13,15 @@ import { findRecord, useStore } from "../store";
 import { shortLabel, splitRole } from "./AdvisorControl";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
-import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Modal, Switch } from "./ui";
+import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
- * call while this is open: execute lands a verdict and lets the renderer
- * dispatch the implementation into a chosen context (same session, same
- * session after compacting, or a fresh session), while refine sends the agent
- * back to revise the draft. "Not now" — Escape, scrim-click, or the button —
+ * call while this docked, non-modal panel is open in the session's tab. It has
+ * no scrim, app-wide inert state, or focus trap: execute lands a verdict and
+ * lets the renderer dispatch the implementation into a chosen context (same
+ * session, same session after compacting, or a fresh session), while refine
+ * sends the agent back to revise the draft. "Not now" or the close button
  * defers the decision without answering the gate: the agent stays paused and
  * the plan stays pending in the rail's plans tab until the user returns. Both
  * defer and refine keep the working tree read-only.
@@ -249,8 +250,8 @@ export function PlanReview({ tabId }: { tabId: string }) {
     setImages([]);
     setPasteError(null);
   };
-  // Escape/scrim: defer, matching "not now" — never answer the gate with notes
-  // the user did not finish writing. The plan stays pending in the plans tab.
+  // Close (X) / "not now": defer without answering the gate with notes the
+  // user did not finish writing. The plan stays pending in the plans tab.
   const dismiss = () => {
     setCompactStep("review");
     deferPlanReview(tabId);
@@ -340,9 +341,18 @@ export function PlanReview({ tabId }: { tabId: string }) {
 
   return (
     <>
-    <Modal onClose={dismiss} width="w-[68rem]" labelledBy="plan-review-title">
+    <div
+      role="region"
+      aria-labelledby="plan-review-title"
+      className={cn(
+        "animate-rise mx-auto mb-2 w-full shrink-0 overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
+        compact
+          ? "max-h-[min(70dvh,var(--app-viewport-height,70dvh))]"
+          : "max-h-[min(52dvh,var(--app-viewport-height,52dvh))]",
+      )}
+    >
       <div
-        className="plan-review flex max-h-[80vh] flex-col"
+        className="plan-review flex min-h-0 flex-col"
         data-plan-review-step={compact ? compactStep : undefined}
       >
         <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-3.5">
@@ -363,10 +373,18 @@ export function PlanReview({ tabId }: { tabId: string }) {
               {request.planFilePath}
             </p>
           </div>
-          {planText && (!compact || compactStep === "review") && <CopyButton text={planText} label="copy plan" />}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {planText && (!compact || compactStep === "review") && <CopyButton text={planText} label="copy plan" />}
+            <IconButton label="leave plan pending" onClick={dismiss}>
+              <IconClose />
+            </IconButton>
+          </div>
         </header>
 
-        <div className="plan-review-layout grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_21rem] overflow-hidden">
+        <div className={cn(
+          "plan-review-layout grid min-h-0 flex-1 overflow-hidden",
+          compact ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_21rem]",
+        )}>
           {(!compact || compactStep !== "setup") && (
           <section
             className={cn(
@@ -909,7 +927,7 @@ export function PlanReview({ tabId }: { tabId: string }) {
           </footer>
         )}
       </div>
-    </Modal>
+    </div>
 
     {pickingModel && (
       <ModelPalette

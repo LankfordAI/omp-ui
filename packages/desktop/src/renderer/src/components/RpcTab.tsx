@@ -259,10 +259,11 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
             {viewingSubagent !== null ? (
               <>
                 <SubagentView tabId={tabId} agentKey={viewingSubagent} />
-                {/* The main session keeps running behind the view — its
-                    extension dialogs must stay answerable. Remounts on
-                    switch; a half-typed editor draft resets, the pending
-                    request itself lives in the store. */}
+                {/* The main session keeps running behind the view — its plan
+                    gate and extension dialogs must stay answerable. Remounts
+                    on switch; a half-typed editor draft resets, while pending
+                    requests themselves live in the store. */}
+                {active && <PlanReview tabId={tabId} />}
                 <ExtensionDialogHost tabId={tabId} />
               </>
             ) : (
@@ -280,6 +281,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                 )}
                 {/* Docked, not modal: the user may need to scroll the transcript to
                     answer, so the question must not cover it. */}
+                {active && <PlanReview tabId={tabId} />}
                 <ExtensionDialogHost tabId={tabId} />
                 <div ref={slotRef} className={cn(centered && "pb-2")}>
                   <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
@@ -293,9 +295,6 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
         <ConsoleDrawer tabId={tabId} />
       </div>
 
-      {/* Only the focused tab's review may overlay the screen — a background
-          session's pending plan lives in the rail's plans tab until revisited. */}
-      {active && <PlanReview tabId={tabId} />}
 
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-blur-sm">

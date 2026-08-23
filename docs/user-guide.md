@@ -87,11 +87,11 @@ The queue count covers all displayable queued work, not only user follow-ups. It
 
 Use the composer selector, `/plan`, or `Mod+Shift+P` to switch a native session between Build and Plan. OMP's own write guard enforces Plan mode. The switch happens in-process, so it does not respawn the session or clear your draft. The **Default agent mode** setting affects ordinary new native sessions only. It does not change live or resumed sessions, terminal tabs, or approved-plan implementation.
 
-When a plan is proposed, review the artifact and choose one response:
+When a plan is proposed, the review docks in that session's view — the rest of the app stays usable — and you choose one response:
 
 - **Execute** settles the proposal and dispatches implementation.
 - **Refine** sends the planner back immediately. You can include revision notes and image attachments.
-- **Not now**, `Escape`, or a click on the scrim dismisses the review without answering it. The agent stays paused, the working tree stays read-only, and the plan remains pending in the inspector rail's Plans pane.
+- **Not now** (or the review's close button) dismisses it without answering. The agent stays paused and the working tree stays read-only; the rest of the app remains usable, and the session's sidebar row keeps its "answer needed" state until the gate is answered.
 
 Execution always begins in Build mode, regardless of the Default agent mode. Choose one of three implementation contexts:
 

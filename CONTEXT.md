@@ -200,20 +200,21 @@ execution context of an approved plan begins in Build (issue #165).
 _Avoid_: default session mode, startup plan mode
 
 **Plan review**:
-The gate between drafting and implementing. The agent submits by writing its
-plan's slug to `xd://propose`, which blocks it until the user answers execute
-or refine. Execute lands a single verdict and the renderer dispatches the
-implementation into a chosen context — the same session, the same session
-after compacting its context, or a freshly spawned session seeded with the
-plan — as a normal prompt. Implementation always begins in Build mode,
-whatever the Default agent mode says (issue #165). Refine sends the agent back to revise the draft,
-optionally carrying the user's revision notes (text + images). Abandoning the
-pane — Escape, scrim-click, or "not now" — is the third, non-answering verdict:
-`deferPlanReview` dismisses it without resolving the gate, so the agent stays
-paused on its proposal and the plan stays pending in the rail's proposed
-plans pane until the user returns. Defer encodes "ignore for the time being";
-refine is the only verdict that revises immediately. Both keep the working
-tree read-only. The pending plan gate itself is owned by the main process —
+The gate between drafting and implementing, rendered as a non-modal panel
+docked in the session's tab so it never locks the rest of the app. The agent
+submits by writing its plan's slug to `xd://propose`, which blocks it until the
+user answers execute or refine. Execute lands a single verdict and the renderer
+dispatches the implementation into a chosen context — the same session, the
+same session after compacting its context, or a freshly spawned session seeded
+with the plan — as a normal prompt. Implementation always begins in Build mode,
+whatever the Default agent mode says (issue #165). Refine sends the agent back
+to revise the draft, optionally carrying the user's revision notes (text +
+images). Abandoning the pane — "not now" or the pane's close button — is the
+third, non-answering verdict: `deferPlanReview` dismisses it without resolving
+the gate, so the agent stays paused on its proposal and the plan stays pending
+in the rail's proposed plans pane until the user returns. Defer encodes
+"ignore for the time being"; refine is the only verdict that revises
+immediately. Both keep the working tree read-only. The pending plan gate itself is owned by the main process —
 the proposal frame is recorded as the session's `pendingPlan` on its summary,
 and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a
 remote client) hydrates the review from the record and settles a verdict
@@ -231,7 +232,7 @@ One of omp's three prose keywords — `ultrathink`, `orchestrate`, `workflowz` �
 which, submitted as standalone prose, make omp append a hidden system notice
 steering the turn (and, for `ultrathink` under auto-thinking, resolve the turn
 to the model's highest thinking level). The composer paints each with its own
-gradient exactly as omp's editor does; the plan review modal stages them as
+gradient exactly as omp's editor does; the plan review stages them as
 switches that lead the implementation prompt in omp's notice order. omp's own
 config (`magicKeywords.*`) can disable each one, which makes the word inert
 literal text — omp-ui mirrors typing, so it neither detects nor overrides that.
@@ -242,7 +243,7 @@ How the agent is asked to author a plan for review, set once in Settings →
 General and carried when Plan mode is selected: `html` (default) or `md`. Under
 `html` the agent writes exactly one file, `local://<slug>-plan.html` — a
 self-contained document (inline CSS, no external resources, no scripts) that
-the review modal renders in a `sandbox=""` iframe. That file is the plan: it is
+the plan review renders in a `sandbox=""` iframe. That file is the plan: it is
 what the propose gate resolves, what gets pinned as the session's reference,
 and what the implementer executes. There is no markdown companion and nothing
 is authored twice. omp's own slug→file resolution is markdown-only, but omp-ui
@@ -292,11 +293,11 @@ _Avoid_: stuck queue, ghost message
 The inspector rail pane (ADR-0004 vocab) that lists the focus session's plan
 history — the pending plan first, with review / request changes / not now
 actions, then settled plans dimmed by verdict. The pending plan is one per
-session and is the same object the review modal shows: clicking it or the
-review action restores the modal, request changes answers `refinePlan`
-without notes, and not now calls `deferPlanReview`. Only the focused tab's
-review modal renders; a background session's pending plan surfaces here
-instead of stacking modal on modal.
+session and is the same object the plan review shows: clicking it or the
+review action restores the review in that tab, request changes answers
+`refinePlan` without notes, and not now calls `deferPlanReview`. Only the
+focused tab's review renders; a background session's pending plan surfaces
+here (its sidebar row reads "answer needed") instead of stacking review on review.
 _Avoid_: plan inbox, plan queue, plan history
 
 **Branch diff pane**:

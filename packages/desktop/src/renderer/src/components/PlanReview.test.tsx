@@ -33,7 +33,7 @@ const backendMock = {
   listBranches: vi.fn(async () => branches),
   checkoutBranch: vi.fn(async () => {}),
   suggestBranchName: vi.fn(async (): Promise<string | null> => null),
-  // The review modal loads advisor defaults on mount; the store's staged
+  // The review panel loads advisor defaults on mount; the store's staged
   // model/advisor paths call the setters below.
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
@@ -119,9 +119,10 @@ function seed(): void {
 }
 
 let root: Root | null = null;
+let host: HTMLDivElement | null = null;
 
 function render(): void {
-  const host = document.createElement("div");
+  host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
   act(() => root!.render(<PlanReview tabId={TAB} />));
@@ -247,7 +248,9 @@ afterEach(() => {
     act(() => root!.unmount());
     root = null;
   }
+  host = null;
   document.body.replaceChildren();
+  document.body.style.overflow = "";
   Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
 });
 
@@ -372,15 +375,11 @@ describe("PlanReview git branch section (issue #25)", () => {
     expect(newNameInput().value).toBe("my-branch");
   });
 
-  it.each(["close", "Escape", "scrim", "not now"])("defers from compact %s without a verdict", async (route) => {
+  it.each(["close", "not now"])("defers from desktop %s without a verdict", async (route) => {
     render();
     await act(async () => {
       if (route === "close") {
-        document.body.querySelector<HTMLButtonElement>('button[aria-label="close dialog"]')!.click();
-      } else if (route === "Escape") {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-      } else if (route === "scrim") {
-        document.body.querySelector<HTMLElement>("[data-overlay-root]")!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        document.body.querySelector<HTMLButtonElement>('button[aria-label="leave plan pending"]')!.click();
       } else {
         buttonByText("not now").click();
       }
@@ -388,6 +387,23 @@ describe("PlanReview git branch section (issue #25)", () => {
     expect(verdictFrame()).toBeUndefined();
     expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
     expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(true);
+  });
+
+  it("keeps the desktop review pending when Escape is pressed", async () => {
+    render();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(verdictFrame()).toBeUndefined();
+    expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(false);
+    expect(host!.querySelector("h2#plan-review-title")).not.toBeNull();
+  });
+
+  it("renders the review as a dock instead of an overlay", () => {
+    expect(document.body.style.overflow).toBe("");
+    render();
+    expect(host!.querySelector("[data-overlay-root]")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
   });
 });
 
@@ -626,7 +642,7 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     render();
 
     await act(async () => buttonByText("Model A").click());
-    // The palette stacks a second overlay root on top of the review modal.
+    // The palette is the only overlay root; the review itself is docked.
     const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
     const palette = overlays[overlays.length - 1]!;
     // The palette opens on its (empty) favorites tab — the models list under
@@ -781,16 +797,27 @@ describe("PlanReview compact flow (issue #216)", () => {
     expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
   });
 
-  it.each(["close", "Escape", "scrim", "not now"])("defers from compact review via %s without a verdict", async (route) => {
+  it.each(["close", "not now"])("defers from compact review via %s without a verdict", async (route) => {
     render();
     await act(async () => {
-      if (route === "close") document.body.querySelector<HTMLButtonElement>('button[aria-label="close dialog"]')!.click();
-      else if (route === "Escape") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-      else if (route === "scrim") document.body.querySelector<HTMLElement>("[data-overlay-root]")!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-      else buttonByText("not now").click();
+      if (route === "close") {
+        document.body.querySelector<HTMLButtonElement>('button[aria-label="leave plan pending"]')!.click();
+      } else {
+        buttonByText("not now").click();
+      }
     });
     expect(verdictFrame()).toBeUndefined();
     expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(true);
+  });
+
+  it("keeps the compact review pending when Escape is pressed", async () => {
+    render();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(verdictFrame()).toBeUndefined();
+    expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(false);
+    expect(host!.querySelector("h2#plan-review-title")).not.toBeNull();
   });
 
   it("returns to review for a revised proposal and after defer while retaining its draft", async () => {
@@ -799,7 +826,7 @@ describe("PlanReview compact flow (issue #216)", () => {
     await typeIntoTextarea(notesBox(), "unsent draft");
     await act(async () => buttonByText("back to plan").click());
     await act(async () => buttonByText("refine").click());
-    await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="close dialog"]')!.click());
+    await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="leave plan pending"]')!.click());
     await act(async () => useStore.getState().showPlanReview(TAB));
     expect(step().dataset.planReviewStep).toBe("review");
     await act(async () => buttonByText("refine").click());
