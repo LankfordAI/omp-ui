@@ -141,6 +141,10 @@ const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 const STALL_WATCH_TICK_MS = 15_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
+/** How fresh a tab:viewed report must be to protect its tab (issue #266). */
+const VIEWED_STALE_MS = 15 * 60 * 1_000;
+/** Reports older than this are swept on the next write. */
+const VIEWED_SWEEP_MS = 60 * 60 * 1_000;
 /**
  * Renderer-routed dialogs whose unanswered requests suppress hibernation and
  * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
@@ -206,6 +210,13 @@ export class SessionManager {
   private readonly hibernating = new Map<string, Promise<void>>();
   /** Unanswered extension_ui_request ids per tab (plan reviews included). */
   private readonly openExtensionRequests = new Map<string, Set<string>>();
+  /**
+   * Fresh tab:viewed reports keyed by renderer clientId (issue #266). A tab
+   * named by any fresh report is the one the user is looking at and is never
+   * hibernated. Stale entries stop protecting on their own (macOS window
+   * close, dead remote socket) — no disconnect hook is needed.
+   */
+  private readonly viewedTabs = new Map<string, { tabId: string | null; at: number }>();
   /** Turn-stall watchdog sweep; one interval for all live tabs (issue #248). */
   private stallWatchInterval: NodeJS.Timeout | undefined;
   /** Throttle state for mtime-only watcher broadcasts (issue #187). */
@@ -799,6 +810,15 @@ export class SessionManager {
     if (this.planGates.delete(tabId)) void this.deps.broadcast();
   }
 
+  /** Renderer reports the tab it currently has in view, or null (issue #266). */
+  setViewedTab(clientId: string, tabId: string | null): void {
+    const now = Date.now();
+    for (const [id, entry] of this.viewedTabs) {
+      if (now - entry.at > VIEWED_SWEEP_MS) this.viewedTabs.delete(id);
+    }
+    this.viewedTabs.set(clientId, { tabId, at: now });
+  }
+
   // --- Hibernation: idle rpc-ui sessions are killed and left dormant, then
   // --- woken through the ordinary resume path (issue #246). ---
 
@@ -1041,11 +1061,21 @@ export class SessionManager {
     return (this.openExtensionRequests.get(tabId)?.size ?? 0) > 0;
   }
 
+  /** True while any fresh tab:viewed report names this tab (issue #266). */
+  private isViewed(tabId: string): boolean {
+    const now = Date.now();
+    for (const { tabId: viewed, at } of this.viewedTabs.values()) {
+      if (viewed === tabId && now - at <= VIEWED_STALE_MS) return true;
+    }
+    return false;
+  }
+
   /** True when a kill cannot lose work or an in-flight exchange. */
   private hibernable(entry: LiveEntry, tabId: string): boolean {
     if (entry.kind !== "rpc-ui") return false;
     if (!entry.hibernateArmed) return false; // still booting
     if (entry.turnsRunning > 0) return false; // mid-turn
+    if (this.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
     if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
     const until = entry.settleSuspendedUntil;
     if (until !== null) {

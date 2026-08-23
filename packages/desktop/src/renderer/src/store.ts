@@ -71,6 +71,7 @@ import {
   focusOn,
   forgetFocus,
   installDesktopViewPersistence,
+  installViewedTabReporter,
   pruneFocus,
   restoreDesktopView,
 } from "./store/slices/view";
@@ -1569,6 +1570,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       reconcilePlanGates(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
+      installViewedTabReporter(api);
     },
 
     async restartSession(tabId) {

@@ -4,6 +4,7 @@ import type {
   SessionSummary,
 } from "@omp-ui/core/types";
 import type { StateCreator, StoreApi } from "zustand";
+import { backend } from "../../backend";
 import {
   desktopViewStorage,
   loadDesktopView,
@@ -17,6 +18,7 @@ import {
   INSPECTOR_DEFAULT_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
 } from "../../lib/panel-layout";
+import { randomId } from "../../lib/random-id";
 import type { CompactSurface, UiStore } from "../types";
 
 export type { CompactSurface } from "../types";
@@ -177,6 +179,70 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
     if (storage === null || version === null) return;
     saveDesktopView(storage, projectDesktopView(state, version));
   });
+}
+
+/** Storage key for this renderer's stable report identity. */
+const VIEWED_CLIENT_ID_KEY = "omp-ui.viewedTab.clientId";
+/** Re-report cadence; the backend treats a report as stale after 15 min. */
+const VIEWED_HEARTBEAT_MS = 5 * 60_000;
+
+let memoryClientId: string | null = null;
+
+/**
+ * This renderer's stable report identity: persisted so a reload replaces (not
+ * duplicates) its report on the backend; in-memory when storage is unavailable
+ * (jsdom harness, private mode). Same defensive style as desktop-view-state.ts.
+ */
+function clientId(): string {
+  if (memoryClientId !== null) return memoryClientId;
+  try {
+    const storage = desktopViewStorage();
+    if (storage !== null) {
+      const existing = storage.getItem(VIEWED_CLIENT_ID_KEY);
+      if (existing !== null && existing !== "") {
+        memoryClientId = existing;
+        return existing;
+      }
+      const fresh = randomId();
+      try {
+        storage.setItem(VIEWED_CLIENT_ID_KEY, fresh);
+      } catch {
+        // Best-effort persist; the in-memory copy still works for this load.
+      }
+      memoryClientId = fresh;
+      return fresh;
+    }
+  } catch {
+    // Fall through to the in-memory id.
+  }
+  memoryClientId = randomId();
+  return memoryClientId;
+}
+
+const reporterInstalled = new WeakSet<StoreApi<UiStore>>();
+
+/**
+ * Reports this renderer's active tab to the backend so the hibernation guard
+ * never kills the tab the user is looking at (issue #266). Mirrors
+ * installDesktopViewPersistence: one subscriber per store, installed after
+ * restoreDesktopView has settled focus, so the initial report carries the
+ * restored activeTabId. Returns the disposer.
+ */
+export function installViewedTabReporter(api: StoreApi<UiStore>): () => void {
+  if (reporterInstalled.has(api)) return () => {};
+  reporterInstalled.add(api);
+  const report = (): void => {
+    backend.tabViewed(clientId(), api.getState().activeTabId);
+  };
+  report(); // post-restore initial report (restoringTabs settled by then)
+  const unsubscribe = api.subscribe((state, previous) => {
+    if (state.activeTabId !== previous.activeTabId) report();
+  });
+  const timer = setInterval(report, VIEWED_HEARTBEAT_MS);
+  return () => {
+    unsubscribe();
+    clearInterval(timer);
+  };
 }
 
 export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) => ({

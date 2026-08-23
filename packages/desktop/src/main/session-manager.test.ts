@@ -1749,6 +1749,24 @@ describe("hibernation (issue #246)", () => {
     });
   };
 
+  /**
+   * Advances the clock while a live renderer keeps heartbeating its report
+   * (every 5 min, as installViewedTabReporter does) — without it, the report
+   * goes stale after 15 min and its protection lapses (issue #266).
+   */
+  const keepViewing = async (
+    manager: SessionManager,
+    clientId: string,
+    tabId: string,
+    ms: number,
+  ): Promise<void> => {
+    const step = 5 * 60_000;
+    for (let remaining = ms; remaining > 0; remaining -= step) {
+      await vi.advanceTimersByTimeAsync(Math.min(step, remaining));
+      manager.setViewedTab(clientId, tabId);
+    }
+  };
+
   const proposalFrame = (id: string) => ({
     type: "extension_ui_request",
     id,
@@ -2111,6 +2129,101 @@ describe("hibernation (issue #246)", () => {
       expect(RpcClientMock).toHaveBeenCalledTimes(2);
       expect(manager.liveCount).toBe(1);
       expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("never hibernates the tab being viewed (issue #266)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      manager.setViewedTab("c1", TAB);
+      rpc.frame({ type: "agent_end" });
+      await keepViewing(manager, "c1", TAB, WINDOW * 3); // still being viewed
+
+      // The guard precedes the probe: no get_state, no kill, still live.
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hibernates a previously viewed tab once no renderer views it (issue #266)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      manager.setViewedTab("c1", TAB);
+      rpc.frame({ type: "agent_end" });
+      await keepViewing(manager, "c1", TAB, WINDOW); // check 1: viewed → re-arm
+      manager.setViewedTab("c1", null); // the renderer looks away
+      await vi.advanceTimersByTimeAsync(WINDOW); // check 2: unviewed → probe
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hibernates once the viewed report goes stale (issue #266)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      manager.setViewedTab("c1", TAB);
+      rpc.frame({ type: "agent_end" });
+      // No heartbeat: the renderer is gone, and the t=0 report is 30 min old
+      // — past the 15-min freshness — at the first check (issue #266).
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps protecting while any of several renderers views the tab (issue #266)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      manager.setViewedTab("c1", TAB);
+      manager.setViewedTab("c2", TAB);
+      rpc.frame({ type: "agent_end" });
+      // c1 stops heartbeating; c2 keeps viewing → re-arm, no probe.
+      await keepViewing(manager, "c2", TAB, WINDOW);
+      manager.setViewedTab("c1", null);
+      await keepViewing(manager, "c2", TAB, WINDOW); // still viewed by c2 → re-arm
+      expect(rpc.send).not.toHaveBeenCalled();
+      manager.setViewedTab("c2", null);
+      await vi.advanceTimersByTimeAsync(WINDOW); // unviewed → probe
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
     } finally {
       vi.useRealTimers();
     }

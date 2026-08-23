@@ -492,6 +492,15 @@ export const BACKEND_CHANNELS = {
     ...event<[tabId: string, exitCode: number]>(),
   },
   rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: object]>() },
+  /**
+   * Reports the tab this renderer currently has in view, or null when none.
+   * `clientId` is the renderer's stable report identity so a reload replaces
+   * its previous report instead of accumulating. Fire-and-forget: the
+   * hibernation guard re-checks report freshness on every quiet-window tick,
+   * so a report that goes silent (closed window, dead socket) stops
+   * protecting on its own (issue #266).
+   */
+  tabViewed: { channel: "tab:viewed", ...notify<[clientId: string, tabId: string | null]>() },
   onPtyData: { channel: "pty:data", ...event<[tabId: string, data: Uint8Array]>() },
   onPtyExit: {
     channel: "pty:exit",

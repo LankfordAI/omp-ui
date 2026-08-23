@@ -545,6 +545,8 @@ export class MainBackend {
         [CH.shellResize]: (tabId: string, cols: number, rows: number) =>
           this.sessions.shellResize(tabId, cols, rows),
         [CH.rpcSend]: (tabId: string, cmd: object) => this.sessions.rpcSend(tabId, cmd),
+        [CH.tabViewed]: (clientId: string, tabId: string | null) =>
+          this.sessions.setViewedTab(clientId, tabId),
       },
     } satisfies ChannelTable;
   }

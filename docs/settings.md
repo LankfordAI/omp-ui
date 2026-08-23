@@ -11,7 +11,7 @@ The pages below follow the order in the app. Pay attention to the timing notes. 
 | Default session mode | Opens new sessions in the native transcript or embedded terminal. | New sessions only. Existing sessions keep their mode. |
 | Default agent mode | Starts a new native session in read-only Plan mode or write-enabled Build mode. | New native sessions only. |
 | Plan format | Asks the agent to author either one self-contained HTML plan for the review modal or a Markdown plan. | Immediately for the next plan request. It does not rewrite an existing plan. |
-| Hibernate idle sessions | Stops a quiet native session's omp process after this window; the transcript stays on disk and resuming wakes it. Terminal tabs are never hibernated. | Immediately; the next quiet window applies it. |
+| Hibernate idle sessions | Stops a quiet native session's omp process after this window; the transcript stays on disk and resuming wakes it. The tab a renderer is currently viewing and terminal tabs are never hibernated. | Immediately; the next quiet window applies it. |
 | Stream-stall watchdog | Aborts a running turn after this much model-stream silence while a model request is in flight. Local tool execution suspends the clock; tool completion, compaction, retry backoff, and human answers restart a full window. Off disables it. | Immediately, at the next 15-second sweep. |
 | Stall auto-continue | After a turn dies to a stream stall — omp's provider watchdog or omp-ui's own — sends a bounded continue prompt (max 2 in a row; any prompt re-arms). | Immediately. |
 | Advisor auto-reply | Automatically answers an advisor comment that arrives after the main turn ends. When off, the comment remains in the transcript. | Immediately, including live sessions. |

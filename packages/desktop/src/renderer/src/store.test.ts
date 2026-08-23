@@ -87,6 +87,7 @@ const mockBackend = {
   rpcSend: vi.fn((tabId: string, cmd: Record<string, unknown>) => {
     sent.push({ tabId, cmd });
   }),
+  tabViewed: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
@@ -6842,5 +6843,34 @@ describe("hibernation (issue #246)", () => {
     const [item] = fresh.getState().rpc[TAB]!.items;
     expect(item).toMatchObject({ kind: "tool", toolCallId: "t1", status: "aborted" });
     vi.useRealTimers();
+  });
+});
+
+describe("viewed-tab reporter (issue #266)", () => {
+  it("reports the active tab on init, on focus change, and on the heartbeat", async () => {
+    // A fresh module — a static import cannot work: init latches per
+    // evaluation, and the earlier suites already own the shared module's
+    // listener captures.
+    vi.useFakeTimers();
+    try {
+      vi.resetModules();
+      const { useStore: fresh } = await import("./store");
+      const init = fresh.getState().init();
+      await init;
+      expect(mockBackend.tabViewed).toHaveBeenCalledTimes(1);
+      expect(mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), null);
+
+      mockBackend.tabViewed.mockClear();
+      fresh.getState().focusTab(TAB);
+      expect(mockBackend.tabViewed).toHaveBeenCalledTimes(1);
+      expect(mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), TAB);
+
+      mockBackend.tabViewed.mockClear();
+      await vi.advanceTimersByTimeAsync(5 * 60_000); // heartbeat
+      expect(mockBackend.tabViewed).toHaveBeenCalledTimes(1);
+      expect(mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), TAB);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

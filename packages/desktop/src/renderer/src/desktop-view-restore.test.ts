@@ -47,6 +47,7 @@ let appUpdate: AppUpdateState = { ...idleAppUpdate, currentVersion: "1.1.0" };
 const mockBackend = {
   getState: vi.fn(async () => backendState),
   rpcSend: vi.fn(),
+  tabViewed: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
@@ -327,24 +328,26 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     const spy = vi.spyOn(Storage.prototype, "setItem");
 
     await store.useStore.getState().init();
-    expect(spy).toHaveBeenCalledTimes(1); // mandatory empty-view persist
+    // init also persists the viewed-tab reporter's one-time clientId
+    // (issue #266); every later write is a view snapshot.
+    expect(spy).toHaveBeenCalledTimes(2);
 
     store.useStore.setState({ rpc: { someTab: rpcTabState() } });
-    expect(spy).toHaveBeenCalledTimes(1); // rpc traffic never persists
+    expect(spy).toHaveBeenCalledTimes(2); // rpc traffic never persists
 
     store.useStore.getState().setSidebarWidth(400);
-    expect(spy).toHaveBeenCalledTimes(2);
-    store.useStore.getState().setInspectorWidth(260);
     expect(spy).toHaveBeenCalledTimes(3);
-
-    store.useStore.setState({ tabs: [tabInfo({ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false })], rpc: {} });
+    store.useStore.getState().setInspectorWidth(260);
     expect(spy).toHaveBeenCalledTimes(4);
 
-    store.useStore.getState().focusTab("t1");
+    store.useStore.setState({ tabs: [tabInfo({ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false })], rpc: {} });
     expect(spy).toHaveBeenCalledTimes(5);
 
-    store.useStore.getState().hideTab("t1");
+    store.useStore.getState().focusTab("t1");
     expect(spy).toHaveBeenCalledTimes(6);
+
+    store.useStore.getState().hideTab("t1");
+    expect(spy).toHaveBeenCalledTimes(7);
   });
 
   it("onStateChanged prunes focus entries whose tab or project is gone", async () => {

@@ -25,8 +25,9 @@ _Avoid_: open session, active session, running session
 
 **Hibernated session**:
 An owned session whose `omp` process omp-ui stopped itself after the session
-sat idle beyond the *Hibernate idle sessions* window (issue #246). A hibernated
-session is dormant — transcript and worktree on disk, no process — and wakes
+sat idle beyond the *Hibernate idle sessions* window while no renderer was
+viewing its tab (issue #246; viewed-tab exemption #266).
+A hibernated session is dormant — transcript and worktree on disk, no process — and wakes
 through the ordinary resume path; the sidebar shows it as dormant and its tab
 offers resume. The distinction from a plain dormant session is causal: dormant
 lost its process because the app quit, hibernated lost it on purpose while idle.
