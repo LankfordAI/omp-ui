@@ -50,14 +50,19 @@ jobs:
           test -f latest-linux.yml
           grep -q "sha512" latest-linux.yml
           grep -Fq "${appimages[0]}" latest-linux.yml
-      - name: Create GitHub release if missing
+      - name: Create draft GitHub release if missing
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # The release stays a draft until release-manifest publishes it.
+          # /releases/latest and the releases Atom feed exclude drafts, so while
+          # this build is in flight the updater and install.sh keep resolving
+          # the last COMPLETED release instead of 404ing on this release's
+          # not-yet-uploaded feed files (issue #265).
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag \
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
               --title "${GITHUB_REF_NAME#v}" --notes "" \
               || gh release view "$GITHUB_REF_NAME" >/dev/null
           fi
@@ -321,3 +326,16 @@ jobs:
                       "omp-ui-${ver}-mac-preview-x64.dmg" "omp-ui-${ver}-mac-preview-x64.zip"; do
             grep -Fq "$name" release-metadata/latest-mac.yml
           done
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Reached only when all three platform jobs succeeded (job-level
+          # if:) and the boundary check above passed — the "complete and
+          # ready" gate that makes the release visible to /releases/latest.
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+          if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != "false" ]; then
+            echo "release $GITHUB_REF_NAME is still a draft" >&2
+            exit 1
+          fi
