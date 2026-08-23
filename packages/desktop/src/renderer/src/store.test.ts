@@ -4044,6 +4044,81 @@ describe("prompting, slash commands, and session ops", () => {
     });
   });
 
+  it("refreshes usage after an advertised soft compact command", async () => {
+    seedCommands({ name: "compact", aliases: ["shrink"] });
+    useStore.setState({
+      rpc: {
+        [TAB]: rpcTabState({
+          commands: [
+            { name: "compact", aliases: ["shrink"], description: "" },
+          ],
+          session: {
+            ...emptySessionRuntime(),
+            contextUsage: {
+              tokens: 210049,
+              contextWindow: 256000,
+              percent: 82.1,
+            },
+          },
+        }),
+      },
+    });
+    const promise = useStore.getState().runSlashCommand(TAB, "/shrink soft");
+    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
+    await flushMicrotasks();
+    const state = sent.find((s) => s.cmd.type === "get_state");
+    const stats = sent.find((s) => s.cmd.type === "get_session_stats");
+    expect(state).toBeDefined();
+    expect(stats).toBeDefined();
+    respond(TAB, state!.cmd, {
+      contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
+    });
+    respond(TAB, stats!.cmd, {
+      userMessages: 2,
+      assistantMessages: 3,
+      tokens: { input: 10, output: 20, total: 30 },
+      cost: 0.5,
+    });
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(
+      47247,
+    );
+  });
+
+  it("does not refresh usage after a failed compact command", async () => {
+    seedCommands({ name: "compact" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/compact soft");
+    respond(TAB, sent[0]!.cmd, "compaction failed", false);
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "failed",
+    });
+    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+    expect(sent.some((s) => s.cmd.type === "get_session_stats")).toBe(false);
+  });
+
+  it("keeps a completed compact command when half the usage refresh fails", async () => {
+    seedCommands({ name: "compact" });
+    const promise = useStore.getState().runSlashCommand(TAB, "/compact soft");
+    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
+    await flushMicrotasks();
+    const state = sent.find((s) => s.cmd.type === "get_state");
+    const stats = sent.find((s) => s.cmd.type === "get_session_stats");
+    respond(TAB, state!.cmd, {
+      contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
+    });
+    respond(TAB, stats!.cmd, "stats unavailable", false);
+    await promise;
+    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      status: "done",
+    });
+    expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(
+      47247,
+    );
+  });
+
   it("runSlashCommand settles failed with omp's own error text", async () => {
     seedCommands({ name: "usage" });
     const promise = useStore.getState().runSlashCommand(TAB, "/usage");
@@ -4485,6 +4560,44 @@ describe("prompting, slash commands, and session ops", () => {
     const { items } = useStore.getState().rpc[TAB]!;
     expect(items.map((i) => i.kind)).toEqual(["marker", "marker"]);
     expect(JSON.stringify(items)).not.toContain("xxxx");
+  });
+
+  it("refreshes usage when automatic compaction ends", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: rpcTabState({
+          session: {
+            ...emptySessionRuntime(),
+            contextUsage: {
+              tokens: 210049,
+              contextWindow: 256000,
+              percent: 82.1,
+            },
+          },
+        }),
+      },
+    });
+    useStore.getState().handleRpcFrame(TAB, { type: "auto_compaction_end" });
+    await flushMicrotasks();
+    const state = sent.find((s) => s.cmd.type === "get_state");
+    const stats = sent.find((s) => s.cmd.type === "get_session_stats");
+    expect(state).toBeDefined();
+    expect(stats).toBeDefined();
+    respond(TAB, state!.cmd, {
+      contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
+    });
+    respond(TAB, stats!.cmd, {});
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.items).toContainEqual(
+      expect.objectContaining({
+        kind: "marker",
+        label: "auto-compaction finished",
+        tone: "copper",
+      }),
+    );
+    expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(
+      47247,
+    );
   });
 
   it("branchSession forks the transcript into a new tab and leaves the source untouched (issue #83)", async () => {

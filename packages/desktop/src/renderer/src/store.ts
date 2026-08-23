@@ -1252,6 +1252,21 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }
   };
 
+  const refreshUsage = async (tabId: string): Promise<void> => {
+    await Promise.all([
+      get()
+        .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
+        .then((resp) => applyRpcState(tabId, resp))
+        .catch(() => {}),
+      get()
+        .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
+        .then((resp) =>
+          patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
+        )
+        .catch(() => {}),
+    ]);
+  };
+
   /**
    * Live usage tick: context meter AND spend. Fired on each per-turn
    * `message_end` while the agent is mid-run, so the HUD tracks the growing
@@ -2363,6 +2378,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           const stall =
             type === "auto_retry_start" ? stallNotice(tab, frame) : null;
           queueTranscriptFrame(tabId, frame, stall);
+          if (type === "auto_compaction_end") void refreshUsage(tabId);
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
           concernWatcher.feed(tabId);
@@ -2801,8 +2817,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (resp === null) return;
       // `data.summary` is the entire compacted history — noted, never rendered.
       appendItem(tabId, markerItem("context compacted", "copper"));
-      await get().refreshState(tabId);
-      await get().refreshStats(tabId);
+      await refreshUsage(tabId);
     },
 
     async exportHtml(tabId) {
@@ -3023,10 +3038,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const spaceAt = body.search(/\s/);
       const name = spaceAt === -1 ? body : body.slice(0, spaceAt);
       const args = spaceAt === -1 ? "" : body.slice(spaceAt + 1).trim();
-      const known = get().rpc[tabId]?.commands.some(
+      const command = get().rpc[tabId]?.commands.find(
         (c) => c.name === name || (c.aliases?.includes(name) ?? false),
       );
-      if (known !== true) {
+      if (command === undefined) {
         await runCommand(tabId, { type: "prompt", message });
         return;
       }
@@ -3066,6 +3081,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const invoked = boolField(respData(resp), "agentInvoked");
       if (invoked === false) settle({ status: "done" });
       else if (invoked === true) settle({ status: "agent" });
+      if (command.name === "compact") await refreshUsage(tabId);
       // `agentInvoked` absent (older runtime): stay running — prompt_result's
       // id mapping or the next agent_start settles it.
     },
