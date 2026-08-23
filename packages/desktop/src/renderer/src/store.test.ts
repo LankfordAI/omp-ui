@@ -214,6 +214,8 @@ Object.assign(globalThis, { window: windowStub });
 // Dynamic import is required: ./backend reads window.ompBackend at module
 // load, so the stub above must land before the store module evaluates.
 const {
+  COMPACTION_USAGE_MAX_ATTEMPTS,
+  COMPACTION_USAGE_RETRY_MS,
   deriveSidebarSessionState,
   QUEUE_SETTLE_REFRESH_MS,
   registerShellWriter,
@@ -4563,42 +4565,155 @@ describe("prompting, slash commands, and session ops", () => {
     expect(JSON.stringify(items)).not.toContain("xxxx");
   });
 
-  it("refreshes usage when automatic compaction ends", async () => {
-    useStore.setState({
-      rpc: {
-        [TAB]: rpcTabState({
-          session: {
-            ...emptySessionRuntime(),
-            contextUsage: {
-              tokens: 210049,
-              contextWindow: 256000,
-              percent: 82.1,
+  describe("automatic compaction usage convergence", () => {
+    const seedUsage = (tokens = 210049): void => {
+      useStore.setState({
+        rpc: {
+          [TAB]: rpcTabState({
+            session: {
+              ...emptySessionRuntime(),
+              contextUsage: {
+                tokens,
+                contextWindow: 256000,
+                percent: (tokens / 256000) * 100,
+              },
             },
-          },
-        }),
-      },
+          }),
+        },
+      });
+    };
+    const stateRequests = (): Array<{ tabId: string; cmd: Record<string, unknown> }> =>
+      sent.filter((request) => request.cmd.type === "get_state");
+    const emitSuccessfulEnd = (tokensBefore = 210049): void =>
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "auto_compaction_end",
+        result: { tokensBefore },
+      });
+
+    it("waits through a stale first snapshot and applies the reduced state", async () => {
+      vi.useFakeTimers();
+      try {
+        seedUsage();
+        emitSuccessfulEnd();
+        await flushMicrotasks();
+        expect(stateRequests()).toHaveLength(1);
+        expect(sent.filter((request) => request.cmd.type === "get_session_stats")).toHaveLength(1);
+        respond(TAB, stateRequests()[0]!.cmd, {
+          contextUsage: { tokens: 210049, contextWindow: 256000, percent: 82.1 },
+        });
+        await flushMicrotasks();
+        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(210049);
+        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS);
+        expect(stateRequests()).toHaveLength(2);
+        respond(TAB, stateRequests()[1]!.cmd, {
+          contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
+        });
+        await flushMicrotasks();
+        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(47247);
+        expect(useStore.getState().rpc[TAB]!.items).toContainEqual(
+          expect.objectContaining({
+            kind: "marker",
+            label: "auto-compaction finished",
+            tone: "copper",
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
-    useStore.getState().handleRpcFrame(TAB, { type: "auto_compaction_end" });
-    await flushMicrotasks();
-    const state = sent.find((s) => s.cmd.type === "get_state");
-    const stats = sent.find((s) => s.cmd.type === "get_session_stats");
-    expect(state).toBeDefined();
-    expect(stats).toBeDefined();
-    respond(TAB, state!.cmd, {
-      contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
+
+    it("applies a reduced first snapshot without scheduling a retry", async () => {
+      vi.useFakeTimers();
+      try {
+        seedUsage();
+        emitSuccessfulEnd();
+        await flushMicrotasks();
+        respond(TAB, stateRequests()[0]!.cmd, {
+          contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
+        });
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 2);
+        expect(stateRequests()).toHaveLength(1);
+        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(47247);
+      } finally {
+        vi.useRealTimers();
+      }
     });
-    respond(TAB, stats!.cmd, {});
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.items).toContainEqual(
-      expect.objectContaining({
-        kind: "marker",
-        label: "auto-compaction finished",
-        tone: "copper",
-      }),
-    );
-    expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(
-      47247,
-    );
+
+    it("bounds stale and failed snapshots to the configured attempt count", async () => {
+      vi.useFakeTimers();
+      try {
+        seedUsage();
+        emitSuccessfulEnd();
+        await flushMicrotasks();
+        for (let attempt = 0; attempt < COMPACTION_USAGE_MAX_ATTEMPTS; attempt++) {
+          const request = stateRequests()[attempt]!;
+          respond(
+            TAB,
+            request.cmd,
+            attempt % 2 === 0
+              ? { contextUsage: { tokens: 210049, contextWindow: 256000, percent: 82.1 } }
+              : "not ready",
+            attempt % 2 === 0,
+          );
+          await flushMicrotasks();
+          await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS);
+        }
+        expect(stateRequests()).toHaveLength(COMPACTION_USAGE_MAX_ATTEMPTS);
+        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 10);
+        expect(stateRequests()).toHaveLength(COMPACTION_USAGE_MAX_ATTEMPTS);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not apply a response from a superseded compaction", async () => {
+      vi.useFakeTimers();
+      try {
+        seedUsage();
+        emitSuccessfulEnd();
+        await flushMicrotasks();
+        emitSuccessfulEnd(180000);
+        await flushMicrotasks();
+        const [older, newer] = stateRequests();
+        respond(TAB, newer!.cmd, {
+          contextUsage: { tokens: 50000, contextWindow: 256000, percent: 19.5 },
+        });
+        await flushMicrotasks();
+        respond(TAB, older!.cmd, {
+          contextUsage: { tokens: 40000, contextWindow: 256000, percent: 15.6 },
+        });
+        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 2);
+        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(50000);
+        expect(stateRequests()).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps one-shot behavior for aborted or malformed ends", async () => {
+      vi.useFakeTimers();
+      try {
+        for (const frame of [
+          { type: "auto_compaction_end", aborted: true, result: { tokensBefore: 210049 } },
+          { type: "auto_compaction_end" },
+        ]) {
+          sent.length = 0;
+          seedUsage();
+          useStore.getState().handleRpcFrame(TAB, frame);
+          await flushMicrotasks();
+          expect(stateRequests()).toHaveLength(1);
+          expect(sent.filter((request) => request.cmd.type === "get_session_stats")).toHaveLength(1);
+          respond(TAB, stateRequests()[0]!.cmd, {});
+          await flushMicrotasks();
+          await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 10);
+          expect(stateRequests()).toHaveLength(1);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("branchSession forks the transcript into a new tab and leaves the source untouched (issue #83)", async () => {

@@ -323,8 +323,12 @@ const rpcBooting = new Set<string>();
  * several per-turn message_ends in quick succession — throttle to one
  * authoritative snapshot per boundary window instead of one rpc call per frame.
  */
-const USAGE_REFRESH_MS = 500;
+export const USAGE_REFRESH_MS = 500;
+export const COMPACTION_USAGE_RETRY_MS = 100;
+export const COMPACTION_USAGE_MAX_ATTEMPTS = 6;
 const lastUsageRefresh = new Map<string, number>();
+const compactionUsageGenerations = new Map<string, number>();
+let nextCompactionUsageGeneration = 0;
 
 /**
  * One-shot delayed get_state after a turn ends with a nonzero queue count.
@@ -660,6 +664,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (!tab) return;
     // A flush queued by the dying process must not land in the fresh state.
     cancelTranscriptBatch(tabId);
+    compactionUsageGenerations.delete(tabId);
     // No frames will come from the dying process: stop the stall clock now
     // rather than waiting for its next tick (issue #228).
     stopStreamStallTimer(tabId);
@@ -1103,6 +1108,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     stallContinueWatcher.cancel(tabId);
     cancelTranscriptBatch(tabId);
     slashCommandItems.delete(tabId);
+    compactionUsageGenerations.delete(tabId);
     if (tab) {
       for (const pending of tab.pendingCommands.values()) {
         clearTimeout(pending.timer);
@@ -1266,6 +1272,74 @@ export const useStore = create<UiStore>()((set, get, api) => {
         )
         .catch(() => {}),
     ]);
+  };
+
+  const refreshCompactionUsage = (tabId: string, tokensBefore: number): void => {
+    const generation = ++nextCompactionUsageGeneration;
+    compactionUsageGenerations.set(tabId, generation);
+
+    const isCurrent = (): boolean =>
+      get().rpc[tabId] !== undefined &&
+      compactionUsageGenerations.get(tabId) === generation;
+    const finish = (): void => {
+      if (compactionUsageGenerations.get(tabId) === generation)
+        compactionUsageGenerations.delete(tabId);
+    };
+
+    void get()
+      .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
+      .then((resp) => {
+        if (isCurrent())
+          patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+      })
+      .catch(() => {});
+
+    const attempt = (attempts: number): void => {
+      if (!isCurrent()) return;
+      void get()
+        .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
+        .then((resp) => {
+          if (!isCurrent()) return;
+          const tab = get().rpc[tabId];
+          const payload = respData(resp);
+          const session =
+            tab && payload !== null && typeof payload === "object"
+              ? parseSessionRuntime(payload, tab.session)
+              : null;
+          const tokens = session?.contextUsage?.tokens;
+          if (
+            typeof tokens === "number" &&
+            Number.isFinite(tokens) &&
+            tokens < tokensBefore
+          ) {
+            if (!isCurrent()) return;
+            applyRpcState(tabId, resp);
+            finish();
+            return;
+          }
+          if (attempts >= COMPACTION_USAGE_MAX_ATTEMPTS) {
+            finish();
+            return;
+          }
+          window.setTimeout(
+            () => attempt(attempts + 1),
+            COMPACTION_USAGE_RETRY_MS,
+          );
+        })
+        .catch(() => {
+          if (!isCurrent()) return;
+          if (attempts >= COMPACTION_USAGE_MAX_ATTEMPTS) {
+            finish();
+            return;
+          }
+          window.setTimeout(
+            () => attempt(attempts + 1),
+            COMPACTION_USAGE_RETRY_MS,
+          );
+        });
+    };
+
+    attempt(1);
   };
 
   /**
@@ -1474,6 +1548,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           ? settleRunningTools(effectiveItems(tabId), "aborted")
           : undefined;
         cancelTranscriptBatch(tabId);
+        compactionUsageGenerations.delete(tabId);
         // No frame may ever come again: stop the stall clock now instead of
         // letting the next tick re-arm on the leftover open-assistant flag
         // (issue #228).
@@ -1511,6 +1586,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         const before = get().rpc[tabId];
         const settled = before ? settleRunningTools(effectiveItems(tabId), "aborted") : undefined;
         cancelTranscriptBatch(tabId);
+        compactionUsageGenerations.delete(tabId);
         stopStreamStallTimer(tabId);
         set((s) => {
           const clearStall = before?.streamStallMs !== undefined;
@@ -1872,6 +1948,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         advisorReplyWatcher.cancel(tabId);
         stallContinueWatcher.cancel(tabId);
         cancelTranscriptBatch(tabId);
+        compactionUsageGenerations.delete(tabId);
         // A re-boot must not slam the Agents pane's drill-down shut: the open
         // detail view and the retained buffers behind it survive the process
         // restart, and the subscription re-escalates after boot (issue #63).
@@ -2330,6 +2407,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // batch are part of the transcript up to the failure (issue #187).
           const settledItems = settleRunningTools(effectiveItems(tabId), "aborted");
           cancelTranscriptBatch(tabId);
+          compactionUsageGenerations.delete(tabId);
           patchRpc(tabId, {
             status: "error",
             failure: {
@@ -2380,7 +2458,21 @@ export const useStore = create<UiStore>()((set, get, api) => {
           const stall =
             type === "auto_retry_start" ? stallNotice(tab, frame) : null;
           queueTranscriptFrame(tabId, frame, stall);
-          if (type === "auto_compaction_end") void refreshUsage(tabId);
+          if (type === "auto_compaction_start")
+            compactionUsageGenerations.delete(tabId);
+          if (type === "auto_compaction_end") {
+            const result = field(frame, "result");
+            const tokensBefore = numField(result, "tokensBefore");
+            const aborted = boolField(frame, "aborted") === true;
+            if (
+              !aborted &&
+              tokensBefore !== undefined &&
+              Number.isFinite(tokensBefore) &&
+              tokensBefore > 0
+            )
+              refreshCompactionUsage(tabId, tokensBefore);
+            else void refreshUsage(tabId);
+          }
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
           concernWatcher.feed(tabId);
