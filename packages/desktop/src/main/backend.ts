@@ -316,6 +316,12 @@ export class MainBackend {
           this.registry.moveProject(projectPath, beforePath ?? null);
           await this.broadcast();
         },
+        // Reordering never touches process state, so like moveProject there
+        // is no live-session guard (#274).
+        [CH.moveSession]: async (tabId: string, beforeTabId: string | null) => {
+          this.registry.moveSession(tabId, beforeTabId ?? null);
+          await this.broadcast();
+        },
         [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
           this.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
           await this.broadcast();
@@ -724,14 +730,12 @@ export class MainBackend {
       for (const record of records.filter((r) => r.projectCwd === project.path)) {
         sessions.push(await this.summarize(record));
       }
-      sessions.sort((a, b) =>
-        (b.cachedModified ?? b.launchedAt).localeCompare(a.cachedModified ?? a.launchedAt),
-      );
       groups.push({ project, sessions });
     }
-    // The registry array is the sidebar order (issue #115): `addProject`
-    // appends, `moveProject` reorders, and nothing re-sorts here — otherwise a
-    // drag would be silently undone for projects added at different times.
+    // The registry arrays are the sidebar orders (issues #115, #274): projects
+    // append via `addProject` and reorder via `moveProject`; sessions insert
+    // at their project's top via `addSession` and reorder via `moveSession`.
+    // Nothing re-sorts here — otherwise a drag would be silently undone.
     return {
       projects: groups,
       defaultMode: this.registry.defaultMode,

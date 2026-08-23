@@ -290,6 +290,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   addProject(path: string): Promise<void>;
   removeProject(path: string): Promise<void>;
   moveProject(projectPath: string, beforePath: string | null): Promise<void>;
+  moveSession(tabId: string, beforeTabId: string | null): Promise<void>;
   setProjectDefaultModel(projectPath: string, model: string | null): Promise<void>;
   setProjectDefaultAdvisorModel(projectPath: string, model: string | null): Promise<void>;
   toggleFavorite(key: string): Promise<void>;

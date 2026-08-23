@@ -30,6 +30,8 @@ export interface RegistrySettings {
   defaultAdvisor: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
+  /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
+  sessionOrderFrozen: boolean;
   /** Release version whose update card the user dismissed ("Later"). */
   dismissedAppUpdateVersion: string | null;
   /** omp version whose update/install card the user dismissed ("Later"). */
@@ -132,6 +134,10 @@ export const SETTINGS: SettingDescriptors = {
     };
   })(),
   skipDeleteConfirmation: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  sessionOrderFrozen: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -373,6 +379,33 @@ function deepFreeze<T>(value: T): T {
 }
 
 /**
+ * One-time freeze (#274): legacy registries ordered `sessions` by insertion,
+ * and buildState re-sorted by recency. Before the first ordered write, rewrite
+ * the persisted array to that same recency order and mark it frozen, so the
+ * upgrade is invisible and no later load ever re-sorts a user's arrangement.
+ */
+function seedSessionOrder(file: string, data: RegistryData): void {
+  if (data.settings.sessionOrderFrozen || data.sessions.length === 0) return;
+  const recencyDesc = (a: OwnedSessionRecord, b: OwnedSessionRecord): number =>
+    (b.cachedModified ?? b.launchedAt).localeCompare(a.cachedModified ?? a.launchedAt);
+  const ordered: OwnedSessionRecord[] = [];
+  for (const project of data.projects) {
+    // Array.prototype.sort is stable, so equal timestamps keep file order.
+    ordered.push(...data.sessions.filter((s) => s.projectCwd === project.path).sort(recencyDesc));
+  }
+  // Records naming an unregistered project (hand-edited registries) keep
+  // their slots too, recency-ordered, after the registered buckets.
+  const known = new Set(data.projects.map((p) => p.path));
+  ordered.push(...data.sessions.filter((s) => !known.has(s.projectCwd)).sort(recencyDesc));
+  data.sessions = ordered;
+  data.settings.sessionOrderFrozen = true;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+}
+
+/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -400,7 +433,10 @@ export class Registry {
       parsed = undefined;
     }
     const data = parseRegistryData(parsed);
-    if (data) return new Registry(file, data);
+    if (data) {
+      seedSessionOrder(file, data);
+      return new Registry(file, data);
+    }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.
     try {
       fs.renameSync(file, `${file}.corrupt-${Date.now()}`);
@@ -447,8 +483,12 @@ export class Registry {
     return this.#getSetting("defaultCompactionMethod");
   }
 
-  get skipDeleteConfirmation(): boolean {
-    return this.#getSetting("skipDeleteConfirmation");
+   get skipDeleteConfirmation(): boolean {
+     return this.#getSetting("skipDeleteConfirmation");
+   }
+
+  get sessionOrderFrozen(): boolean {
+    return this.#getSetting("sessionOrderFrozen");
   }
 
   addProject(projectPath: string): ProjectRecord {
@@ -564,13 +604,46 @@ export class Registry {
   }
 
   addSession(record: OwnedSessionRecord): OwnedSessionRecord {
-    this.#data.sessions.push(structuredClone(record));
+    // New sessions take the TOP of their project (#274): splice ahead of the
+    // first record of the same project; a project's first session just appends.
+    // Cross-project interleaving in the array is irrelevant — grouping filters
+    // per project — but within-project order is the persisted sidebar order.
+    const first = this.#data.sessions.findIndex((s) => s.projectCwd === record.projectCwd);
+    if (first === -1) this.#data.sessions.push(structuredClone(record));
+    else this.#data.sessions.splice(first, 0, structuredClone(record));
     this.#save();
     return structuredClone(record);
   }
 
   removeSession(tabId: string): void {
     this.#data.sessions = this.#data.sessions.filter((s) => s.tabId !== tabId);
+    this.#save();
+  }
+
+  /**
+   * Moves `tabId` to sit immediately before `beforeTabId`'s record in the
+   * persisted sidebar order (#274); a null or vanished `beforeTabId` appends
+   * the record — the bottom of its project, since grouping filters per
+   * project. An unknown `tabId`, and a `beforeTabId` equal to `tabId`, are
+   * no-ops (no save). Moving a handoff tree's root moves the tree: rows render
+   * by their root's position regardless of array adjacency.
+   */
+  moveSession(tabId: string, beforeTabId: string | null): void {
+    // Same "leave it put" guard as moveProject: the splice below would hide
+    // the record from the beforeTabId lookup and the miss would append it.
+    if (beforeTabId === tabId) return;
+    const from = this.#data.sessions.findIndex((s) => s.tabId === tabId);
+    if (from === -1) return; // unknown source: no-op, no write
+    const [moved] = this.#data.sessions.splice(from, 1);
+    if (beforeTabId !== null) {
+      const to = this.#data.sessions.findIndex((s) => s.tabId === beforeTabId);
+      if (to !== -1) {
+        this.#data.sessions.splice(to, 0, moved);
+        this.#save();
+        return;
+      }
+    }
+    this.#data.sessions.push(moved);
     this.#save();
   }
 

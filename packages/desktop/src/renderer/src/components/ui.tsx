@@ -86,6 +86,25 @@ export function IconClose({ className }: { className?: string }) {
   );
 }
 
+/** Drag handle and keyboard reorder control for a project or session row (issues #115, #120, #274). */
+export function IconGrip() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="currentColor"
+    >
+      <circle cx="5.5" cy="4" r="0.9" />
+      <circle cx="10.5" cy="4" r="0.9" />
+      <circle cx="5.5" cy="8" r="0.9" />
+      <circle cx="10.5" cy="8" r="0.9" />
+      <circle cx="5.5" cy="12" r="0.9" />
+      <circle cx="10.5" cy="12" r="0.9" />
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------------ Button */
 
 type ButtonVariant = "solid" | "ghost" | "outline";

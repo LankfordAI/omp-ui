@@ -1699,6 +1699,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
       }
     },
 
+    // No optimistic update: the `stateChanged` broadcast replaces `state`
+    // authoritatively, exactly like moveProject.
+    async moveSession(tabId, beforeTabId) {
+      try {
+        await backend.moveSession(tabId, beforeTabId);
+      } catch (err) {
+        alertError(err);
+      }
+    },
+
     async toggleFavorite(key) {
       await backend.toggleFavorite(key);
     },

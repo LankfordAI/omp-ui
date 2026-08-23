@@ -56,6 +56,7 @@ describe("SETTINGS", () => {
       "defaultAdvisor",
       "modelFavorites",
       "skipDeleteConfirmation",
+      "sessionOrderFrozen",
       "dismissedAppUpdateVersion",
       "dismissedOmpUpdateVersion",
       "themeId",
@@ -826,6 +827,131 @@ describe("Registry mutations", () => {
     reg.addSession(sessionRecord({ tabId: "t-2" }));
     reg.removeSession("t-1");
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-2"]);
+  });
+});
+
+describe("Session sidebar order (#274)", () => {
+  it("moveSession inserts before a sibling in either direction", () => {
+    const reg = Registry.load(tmpFile());
+    for (const tabId of ["s-1", "s-2", "s-3"]) reg.addSession(sessionRecord({ tabId }));
+    // Top insertion (#274): the newest record leads.
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-3", "s-2", "s-1"]);
+    // One step up: before its predecessor.
+    reg.moveSession("s-1", "s-2");
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-3", "s-1", "s-2"]);
+    // One step down from the top: before the successor's successor.
+    reg.moveSession("s-3", "s-2");
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-3", "s-2"]);
+  });
+
+  it("moveSession appends when beforeTabId is null or no longer present", () => {
+    const reg = Registry.load(tmpFile());
+    for (const tabId of ["s-1", "s-2", "s-3"]) reg.addSession(sessionRecord({ tabId }));
+    reg.moveSession("s-3", null);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-2", "s-1", "s-3"]);
+    reg.moveSession("s-2", "s-gone");
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-3", "s-2"]);
+  });
+
+  it("moveSession leaves the order alone when the target is the session itself", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    for (const tabId of ["s-1", "s-2", "s-3", "s-4"]) reg.addSession(sessionRecord({ tabId }));
+    // Four sessions, not three: with three, appending happens to land the
+    // moved record back where it started, which hides the bug entirely.
+    reg.moveSession("s-2", "s-2");
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-4", "s-3", "s-2", "s-1"]);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { sessions: { tabId: string }[] };
+    expect(raw.sessions.map((s) => s.tabId)).toEqual(["s-4", "s-3", "s-2", "s-1"]);
+  });
+
+  it("moveSession with an unknown source is a no-op and writes nothing", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    for (const tabId of ["s-1", "s-2"]) reg.addSession(sessionRecord({ tabId }));
+    fs.writeFileSync(file, "unchanged-marker");
+    reg.moveSession("s-zzz", "s-1");
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-2", "s-1"]);
+    expect(fs.readFileSync(file, "utf8")).toBe("unchanged-marker");
+  });
+
+  it("moveSession persists the new order across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    for (const tabId of ["s-1", "s-2", "s-3"]) reg.addSession(sessionRecord({ tabId }));
+    reg.moveSession("s-1", "s-3");
+    expect(Registry.load(file).sessions.map((s) => s.tabId)).toEqual(["s-1", "s-3", "s-2"]);
+  });
+
+  it("addSession splices ahead of its project's first record in an interleaved array", () => {
+    const reg = Registry.load(tmpFile());
+    reg.addProject("/abs/a");
+    reg.addProject("/abs/b");
+    reg.addSession(sessionRecord({ tabId: "t-a1", projectCwd: "/abs/a" }));
+    reg.addSession(sessionRecord({ tabId: "t-b1", projectCwd: "/abs/b" }));
+    reg.addSession(sessionRecord({ tabId: "t-a2", projectCwd: "/abs/a" }));
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-a2", "t-a1", "t-b1"]);
+  });
+
+  it("seeds the frozen order from recency once and never re-sorts again", () => {
+    const file = tmpFile();
+    // Legacy format: insertion-ordered sessions, no freeze marker.
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [{ path: "/abs/p", name: "p", addedAt: "t" }],
+        sessions: [
+          sessionRecord({ tabId: "old", launchedAt: "2026-01-01T00:00:00.000Z" }),
+          sessionRecord({ tabId: "new", launchedAt: "2026-02-01T00:00:00.000Z" }),
+        ],
+      }),
+    );
+
+    const reg = Registry.load(file);
+    // The upgrade is invisible: today's recency sort becomes the frozen order.
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["new", "old"]);
+    expect(reg.sessionOrderFrozen).toBe(true);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: { sessionOrderFrozen?: boolean };
+      sessions: { tabId: string }[];
+    };
+    expect(raw.settings.sessionOrderFrozen).toBe(true);
+    expect(raw.sessions.map((s) => s.tabId)).toEqual(["new", "old"]);
+
+    // A user drag after the upgrade survives every later load.
+    reg.moveSession("old", "new");
+    expect(Registry.load(file).sessions.map((s) => s.tabId)).toEqual(["old", "new"]);
+  });
+
+  it("seeding keeps records naming an unregistered project after the known buckets", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [{ path: "/abs/proj", name: "p", addedAt: "t" }],
+        sessions: [
+          sessionRecord({ tabId: "orphan", projectCwd: "/abs/elsewhere" }),
+          sessionRecord({ tabId: "owned-old", launchedAt: "2026-01-01T00:00:00.000Z" }),
+          sessionRecord({ tabId: "owned-new", launchedAt: "2026-02-01T00:00:00.000Z" }),
+        ],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["owned-new", "owned-old", "orphan"]);
+  });
+
+  it("loading a missing or corrupt file never seeds a write", () => {
+    const missing = tmpFile();
+    const reg = Registry.load(missing);
+    expect(fs.existsSync(missing)).toBe(false);
+    expect(reg.sessionOrderFrozen).toBe(false);
+
+    const corrupt = tmpFile();
+    fs.writeFileSync(corrupt, "{not json");
+    Registry.load(corrupt);
+    expect(fs.existsSync(corrupt)).toBe(false);
   });
 });
 

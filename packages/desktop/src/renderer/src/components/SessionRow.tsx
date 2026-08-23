@@ -1,7 +1,8 @@
+import type { DragEvent as ReactDragEvent } from "react";
 import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
-import { Button, Dot, IconButton, type Tone } from "./ui";
+import { Button, Dot, IconButton, IconGrip, type Tone } from "./ui";
 
 const MISSING_HINT = "session files are gone from disk — delete the record";
 
@@ -179,10 +180,30 @@ export function SessionRow({
   s,
   onActivate,
   handoff,
+  canReorder = false,
+  dragging = false,
+  dropIndicator = null,
+  registerGrip,
+  onReorder,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   s: SessionSummary;
   onActivate?: () => void;
   handoff?: SessionRowHandoff;
+  // Issues #115/#120 pattern applied to sessions (#274). Only tree-root rows
+  // receive these from ProjectSection.
+  canReorder?: boolean;
+  dragging?: boolean;
+  dropIndicator?: "before" | "after" | null;
+  registerGrip?: (tabId: string, el: HTMLButtonElement | null) => void;
+  onReorder?: (delta: -1 | 1) => void;
+  onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
+  onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
+  onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd?: () => void;
 }) {
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
@@ -216,12 +237,46 @@ export function SessionRow({
 
   return (
     <div
+      draggable={canReorder}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       className={cn(
         "group/row animate-slide-in relative flex items-center rounded-md",
         "transition-colors duration-150",
         selected ? "bg-raised" : "hover:bg-raised/60",
+        canReorder && "cursor-grab active:cursor-grabbing",
+        dragging && "opacity-60",
+        // Insertion line, mirroring ProjectSection's neutral emphasis (ADR-0004).
+        dropIndicator === "before" && "border-t-2 border-line-strong",
+        dropIndicator === "after" && "border-b-2 border-line-strong",
       )}
+      data-drop-indicator={dropIndicator ?? undefined}
     >
+      {canReorder && (
+        <span className="proj-reveal proj-reveal-r mt-px shrink-0 self-center overflow-hidden max-w-0 transition-all duration-200 group-hover/row:ml-1 group-hover/row:mr-1.5 focus-within:mr-1.5 focus-within:max-w-11 pl-1">
+          <button
+            type="button"
+            ref={(el) => {
+              registerGrip?.(s.tabId, el);
+            }}
+            aria-label={`reorder ${s.title}`}
+            aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+            title={`reorder ${s.title} — drag, or Alt+↑ / Alt+↓`}
+            onKeyDown={(e) => {
+              if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+              // Ours: neither scroll the list nor wake Electron's
+              // auto-hidden menu bar.
+              e.preventDefault();
+              onReorder?.(e.key === "ArrowUp" ? -1 : 1);
+            }}
+            className="shrink-0 rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+          >
+            <IconGrip />
+          </button>
+        </span>
+      )}
       {selected && (
         <span
           aria-hidden

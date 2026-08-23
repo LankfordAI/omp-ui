@@ -16,7 +16,7 @@ import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
 import { ProjectDefaultsSheet } from "./ProjectDefaultsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -80,25 +80,6 @@ function IconGear() {
     >
       <circle cx="8" cy="8" r="2" />
       <path d="M6.89 1.7A6.4 6.4 0 0 1 9.11 1.7L8.93 3.8A4.3 4.3 0 0 1 10.31 4.37L11.67 2.76A6.4 6.4 0 0 1 13.24 4.33L11.63 5.69A4.3 4.3 0 0 1 12.2 7.07L14.3 6.89A6.4 6.4 0 0 1 14.3 9.11L12.2 8.93A4.3 4.3 0 0 1 11.63 10.31L13.24 11.67A6.4 6.4 0 0 1 11.67 13.24L10.31 11.63A4.3 4.3 0 0 1 8.93 12.2L9.11 14.3A6.4 6.4 0 0 1 6.89 14.3L7.07 12.2A4.3 4.3 0 0 1 5.69 11.63L4.33 13.24A6.4 6.4 0 0 1 2.76 11.67L4.37 10.31A4.3 4.3 0 0 1 3.8 8.93L1.7 9.11A6.4 6.4 0 0 1 1.7 6.89L3.8 7.07A4.3 4.3 0 0 1 4.37 5.69L2.76 4.33A6.4 6.4 0 0 1 4.33 2.76L5.69 4.37A4.3 4.3 0 0 1 7.07 3.8L6.89 1.7Z" />
-    </svg>
-  );
-}
-
-/** Drag handle and keyboard reorder control for a project (issues #115, #120). */
-function IconGrip() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="currentColor"
-    >
-      <circle cx="5.5" cy="4" r="0.9" />
-      <circle cx="10.5" cy="4" r="0.9" />
-      <circle cx="5.5" cy="8" r="0.9" />
-      <circle cx="10.5" cy="8" r="0.9" />
-      <circle cx="5.5" cy="12" r="0.9" />
-      <circle cx="10.5" cy="12" r="0.9" />
     </svg>
   );
 }
@@ -240,6 +221,8 @@ interface ProjectSectionProps {
   onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
   onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
   onDragEnd?: () => void;
+  /** Live-region sink shared with the project reorder (issue #120). */
+  onAnnounce?: (text: string) => void;
 }
 
 /* --------------------------------------------------------- project section */
@@ -264,9 +247,11 @@ function ProjectSection({
   onDragOver,
   onDrop,
   onDragEnd,
+  onAnnounce,
 }: ProjectSectionProps) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
+  const moveSession = useStore((st) => st.moveSession);
   const focusedTabId = useStore((st) => st.focusedTabByProject[group.project.path]);
   const openMcpManager = useStore((st) => st.openMcpManager);
   const [open, setOpen] = useState(true);
@@ -294,6 +279,70 @@ function ProjectSection({
     visible,
     focusedTabId,
   );
+
+
+  // Issues #115/#120 machinery applied to session rows (#274). Trees reorder
+  // as units: grips render on depth-0 rows only, and drops resolve against
+  // tree roots.
+  const canReorderSessions = !compact && query.trim() === "" && group.sessions.length > 1;
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
+  const [sessionDrop, setSessionDrop] = useState<{ index: number; indicator: "before" | "after" } | null>(null);
+  const sessionGripRefs = useRef(new Map<string, HTMLButtonElement>());
+  const registerSessionGrip = useCallback((tabId: string, el: HTMLButtonElement | null) => {
+    if (el === null) sessionGripRefs.current.delete(tabId);
+    else sessionGripRefs.current.set(tabId, el);
+  }, []);
+  const pendingSessionMove = useRef<{ tabId: string; title: string; index: number; total: number } | null>(null);
+
+  // Roots in visible order — the units a session reorder moves between.
+  const roots = useMemo(() => entries.filter((e) => e.depth === 0), [entries]);
+
+  // Confirm a keyboard move only on the broadcast that actually moved the row
+  // (same rationale as the project effect in Sidebar), then restore grip
+  // focus — React moved DOM nodes, which blurs them.
+  useEffect(() => {
+    const pending = pendingSessionMove.current;
+    if (pending === null || roots[pending.index]?.session.tabId !== pending.tabId) return;
+    pendingSessionMove.current = null;
+    sessionGripRefs.current.get(pending.tabId)?.focus();
+    onAnnounce?.(`${pending.title} moved to position ${pending.index + 1} of ${pending.total}`);
+  }, [roots, onAnnounce]);
+
+  const reorderSession = (index: number, delta: -1 | 1): void => {
+    const root = roots[index];
+    if (!root) return;
+    const target = index + delta;
+    if (target < 0 || target >= roots.length) {
+      onAnnounce?.(`${root.session.title} is already ${delta < 0 ? "first" : "last"}`);
+      return;
+    }
+    // moveSession inserts *before* a sibling root: one step up is "before the
+    // predecessor"; one step down is "before the successor's successor", null
+    // past the end (identical math to reorderProject).
+    const beforeTabId = delta < 0 ? roots[index - 1]!.session.tabId : (roots[index + 2]?.session.tabId ?? null);
+    pendingSessionMove.current = { tabId: root.session.tabId, title: root.session.title, index: target, total: roots.length };
+    void moveSession(root.session.tabId, beforeTabId);
+  };
+
+  const handleSessionDragStart = (tabId: string) => (e: ReactDragEvent<HTMLElement>) => {
+    e.dataTransfer?.setData("text/plain", tabId); // required for Firefox
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    setDragTabId(tabId);
+  };
+
+  // Which root a drop lands before, given the pointer over visible entry
+  // `index`: hovering ANY row of a tree targets that tree — top half = before
+  // its root, bottom half = before the next distinct tree's root (or null =
+  // bottom of the project). treeId IS the root's tabId, so the resolution is
+  // a scan for the next changed treeId.
+  const beforeRootOf = (index: number, clientY: number, rectTop: number, rectBottom: number): string | null => {
+    const after = clientY >= (rectTop + rectBottom) / 2;
+    if (!after) return entries[index]!.treeId;
+    for (let i = index + 1; i < entries.length; i += 1) {
+      if (entries[i]!.treeId !== entries[index]!.treeId) return entries[i]!.treeId;
+    }
+    return null;
+  };
 
   const { project } = group;
   // Chips describe the project itself, so they count raw sessions — filtering
@@ -454,7 +503,10 @@ function ProjectSection({
 
       {open && (
         <div className="space-y-px px-1.5">
-          {entries.map((entry) => (
+          {entries.map((entry, index) => {
+            const isRoot = entry.depth === 0;
+            const dropHere = sessionDrop?.index === index ? sessionDrop.indicator : null;
+            return (
             <div
               key={entry.session.tabId}
               className={cn(
@@ -484,9 +536,55 @@ function ProjectSection({
                   orphanSource: entry.orphanSource,
                   hasDescendants: entry.hasDescendants,
                 }}
+                canReorder={canReorderSessions && isRoot}
+                dragging={dragTabId === entry.session.tabId}
+                dropIndicator={dropHere}
+                registerGrip={canReorderSessions && isRoot ? registerSessionGrip : undefined}
+                onReorder={
+                  canReorderSessions && isRoot
+                    ? (delta) =>
+                        reorderSession(
+                          roots.findIndex((r) => r.session.tabId === entry.session.tabId),
+                          delta,
+                        )
+                    : undefined
+                }
+                onDragStart={
+                  canReorderSessions && isRoot ? handleSessionDragStart(entry.session.tabId) : undefined
+                }
+                onDragOver={(e) => {
+                  if (dragTabId === null) return; // project drag: bubble to the section
+                  // Session drags only; never let a row drop bubble to the
+                  // section's project-drop handlers.
+                  e.stopPropagation();
+                  if (dragTabId === entry.treeId) return; // own tree: no indicator
+                  e.preventDefault();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const after = e.clientY >= (rect.top + rect.bottom) / 2;
+                  setSessionDrop({ index, indicator: after ? "after" : "before" });
+                }}
+                onDrop={(e) => {
+                  if (dragTabId === null) return; // project drag: bubble to the section
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (dragTabId !== entry.treeId) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const beforeTabId = beforeRootOf(index, e.clientY, rect.top, rect.bottom);
+                    // Dropping onto the dragged tree resolves to a no-op;
+                    // skipping the call spares a save + broadcast.
+                    if (beforeTabId !== dragTabId) void moveSession(dragTabId, beforeTabId);
+                  }
+                  setDragTabId(null);
+                  setSessionDrop(null);
+                }}
+                onDragEnd={() => {
+                  setDragTabId(null);
+                  setSessionDrop(null);
+                }}
               />
             </div>
-          ))}
+            );
+          })}
           {total === 0 && (
             <p className="px-3 py-1 text-[11px] text-ink-faint italic">no sessions yet</p>
           )}
@@ -891,6 +989,7 @@ export function Sidebar() {
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   onDragEnd={handleDragEnd}
+                  onAnnounce={setReorderNote}
                 />
               );
             })}

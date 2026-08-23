@@ -135,6 +135,17 @@ export const BACKEND_CHANNELS = {
     channel: "project:setDefaultAdvisorModel",
     ...request<[projectPath: string, model: string | null], void>(),
   },
+  /**
+   * Moves an owned session to sit immediately before `beforeTabId` in its
+   * project's sidebar order (#274); a null or unknown `beforeTabId` appends
+   * it. The order is the persisted registry array order, so the change
+   * survives a restart. An unknown `tabId`, and a `beforeTabId` equal to
+   * `tabId`, are no-ops. Never touches process state, live or otherwise.
+   */
+  moveSession: {
+    channel: "session:move",
+    ...request<[tabId: string, beforeTabId: string | null], void>(),
+  },
   setDefaultMode: {
     channel: "settings:setDefaultMode",
     ...request<[mode: SessionMode], void>(),

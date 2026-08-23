@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OmpUpdateState } from "@omp-ui/core/types";
+import type { OmpUpdateState, SessionSummary } from "@omp-ui/core/types";
 import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,6 +33,7 @@ const backendMock = {
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   moveProject: vi.fn(async () => {}),
+  moveSession: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -1208,7 +1209,9 @@ describe("Sidebar project drag-and-drop (issue #115)", () => {
 
   it("offers no drag affordance while the filter hides rows", async () => {
     renderSidebar();
-    expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(3);
+    // Project headers (3) and their reorderable tree roots (2 sessions each,
+    // issue #274) all carry the drag affordance.
+    expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(9);
     const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
     expect(filter).not.toBeNull();
     // React reads the value off its own descriptor, so a bare `.value =` write
@@ -1294,10 +1297,328 @@ describe("Sidebar keyboard project reorder (issue #120)", () => {
     expect(backendMock.moveProject).not.toHaveBeenCalled();
   });
 
-  it("offers no reorder handle when there is only one project", () => {
+  it("offers no project reorder handle when there is only one project", () => {
     useStore.setState({ state: { ...threeProjectState, projects: [threeProjectState.projects[0]!] } });
     renderSidebar();
-    expect(document.body.querySelector('button[aria-label^="reorder "]')).toBeNull();
+    // Scoped to the header: session rows own their own grips (#274), and this
+    // lone project still has two reorderable sessions.
+    expect(document.body.querySelector('button[aria-label="reorder Alpha"]')).toBeNull();
+  });
+});
+
+describe("Sidebar session drag-and-drop (issue #274)", () => {
+  /** Deterministic geometry: every element spans y 0–100, so clientY 40 = top half. */
+  const mockRects = (): void => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 100,
+      height: 100,
+      left: 0,
+      right: 200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+  };
+
+  const dragEvent = (type: string, clientY: number, dataTransfer: object): MouseEvent => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
+    Object.defineProperty(event, "dataTransfer", { value: dataTransfer, configurable: true });
+    return event;
+  };
+
+  const makeDataTransfer = (): { setData: (...args: unknown[]) => void; effectAllowed: string } => ({
+    setData: vi.fn(),
+    effectAllowed: "",
+  });
+
+  const treePath = "/projects/tree";
+  const plainPath = "/projects/plain";
+
+  const sess = (
+    tabId: string,
+    title: string,
+    patch: Partial<SessionSummary> = {},
+  ): SessionSummary => ({
+    tabId,
+    sessionId: null,
+    lineageDir: `omp-ui--tree--${tabId}`,
+    projectCwd: treePath,
+    launchedAt: "2026-08-20T00:00:00.000Z",
+    mode: "rpc-ui",
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: title,
+    cachedModified: "2026-08-20T00:00:00.000Z",
+    title,
+    status: null,
+    live: "dormant",
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+    ...patch,
+  });
+
+  const src = (sourceTabId: string) => ({
+    sourceTabId,
+    planTitle: `Plan from ${sourceTabId}`,
+    planFilePath: `local://${sourceTabId}-plan.html`,
+  });
+
+  // Registry (frozen) order. The implementation rows sit ABOVE their roots —
+  // exactly what the recency seed can produce — yet display nested beneath
+  // them: trees render by their root's position (#274).
+  const treeState = backendState({
+    projects: [
+      {
+        project: { path: treePath, name: "Tree", addedAt: "2026-08-19T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+        sessions: [
+          sess("tree-impl", "Tree Impl", { projectCwd: treePath, planImplementationSource: src("tree-root") }),
+          sess("tree-root", "Tree Root"),
+          sess("later-root", "Later Root"),
+          sess("other-impl", "Other Impl", { planImplementationSource: src("other-root") }),
+          sess("other-root", "Other Root"),
+        ],
+      },
+      {
+        project: { path: plainPath, name: "Plain", addedAt: "2026-08-18T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+        sessions: [sess("plain-a", "Plain A"), sess("plain-b", "Plain B")],
+      },
+    ].map((g) => ({
+      ...g,
+      sessions: g.sessions.map((s) => ({ ...s, projectCwd: g.project.path })),
+    })),
+  });
+
+  beforeEach(() => {
+    backendMock.moveSession.mockClear();
+    backendMock.moveProject.mockClear();
+    useStore.setState({ state: treeState });
+    mockRects();
+  });
+  /** The drag surface of the row whose main button carries a `title` starting with `title`. */
+  function rowFor(title: string): HTMLElement {
+    const found = [...document.querySelectorAll<HTMLElement>("[draggable]")].find((el) =>
+      el.querySelector(`button[title^="${title}"]`),
+    );
+    if (found === undefined) throw new Error(`draggable session row not found: ${title}`);
+    return found;
+  }
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("moves a root before another tree when dropped on its top half", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      rowFor("Tree Root").dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    await act(async () => {
+      rowFor("Later Root").dispatchEvent(dragEvent("dragover", 40, dt));
+    });
+    expect(rowFor("Later Root").getAttribute("data-drop-indicator")).toBe("before");
+    await act(async () => {
+      rowFor("Later Root").dispatchEvent(dragEvent("drop", 40, dt));
+    });
+    expect(backendMock.moveSession).toHaveBeenCalledWith("tree-root", "later-root");
+    expect(rowFor("Later Root").getAttribute("data-drop-indicator")).toBeNull();
+  });
+
+  it("resolves a drop on a child row to that child's tree root", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      rowFor("Tree Root").dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    await act(async () => {
+      rowFor("Other Impl").dispatchEvent(dragEvent("dragover", 40, dt));
+    });
+    // The insertion line lands on the hovered row, but the drop target is the
+    // whole tree — its root.
+    expect(rowFor("Other Impl").getAttribute("data-drop-indicator")).toBe("before");
+    await act(async () => {
+      rowFor("Other Impl").dispatchEvent(dragEvent("drop", 40, dt));
+    });
+    expect(backendMock.moveSession).toHaveBeenCalledWith("tree-root", "other-root");
+  });
+
+  it("is a no-op when dropped anywhere inside its own tree", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    await act(async () => {
+      rowFor("Tree Root").dispatchEvent(dragEvent("dragstart", 0, dt));
+      rowFor("Tree Impl").dispatchEvent(dragEvent("dragover", 40, dt));
+      rowFor("Tree Impl").dispatchEvent(dragEvent("drop", 40, dt));
+    });
+    expect(backendMock.moveSession).not.toHaveBeenCalled();
+    expect(rowFor("Tree Impl").getAttribute("data-drop-indicator")).toBeNull();
+  });
+
+  it("lets a project drag pass through rows and still move the project", async () => {
+    renderSidebar();
+    const dt = makeDataTransfer();
+    // Start the project drag from Plain's header, then hover a session row of
+    // the other project.
+    const plainHeader = [...document.querySelectorAll<HTMLElement>("section")]
+      .find((el) => el.textContent?.includes("Plain"))!
+      .querySelector<HTMLElement>("[draggable]");
+    await act(async () => {
+      plainHeader!.dispatchEvent(dragEvent("dragstart", 0, dt));
+    });
+    await act(async () => {
+      rowFor("Later Root").dispatchEvent(dragEvent("dragover", 40, dt));
+    });
+    // The row must not swallow the event: the Tree SECTION shows the line.
+    const treeSection = [...document.querySelectorAll<HTMLElement>("section")].find((el) =>
+      el.textContent?.includes("Tree"),
+    )!;
+    expect(treeSection.getAttribute("data-drop-indicator")).toBe("before");
+    await act(async () => {
+      rowFor("Later Root").dispatchEvent(dragEvent("drop", 40, dt));
+    });
+    expect(backendMock.moveSession).not.toHaveBeenCalled();
+    expect(backendMock.moveProject).toHaveBeenCalledWith(plainPath, treePath);
+  });
+});
+
+describe("Sidebar keyboard session reorder (issue #274)", () => {
+  const treeStateSolo = backendState({
+    projects: [
+      {
+        project: {
+          path: "/projects/tree",
+          name: "Tree",
+          addedAt: "2026-08-19T00:00:00.000Z",
+          lastModel: null,
+          lastAdvisorModel: null,
+        },
+        sessions: [
+          {
+            tabId: "tree-impl",
+            sessionId: null,
+            lineageDir: "l1",
+            projectCwd: "/projects/tree",
+            planImplementationSource: { sourceTabId: "tree-root", planTitle: "P", planFilePath: "local://p.html" },
+            launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
+            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
+          },
+          {
+            tabId: "tree-root", sessionId: null, lineageDir: "l2", projectCwd: "/projects/tree",
+            launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
+            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
+          },
+          {
+            tabId: "mid-root", sessionId: null, lineageDir: "l3", projectCwd: "/projects/tree",
+            launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
+            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
+          },
+          {
+            tabId: "last-root", sessionId: null, lineageDir: "l4", projectCwd: "/projects/tree",
+            launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
+            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
+          },
+        ],
+      },
+    ],
+  });
+
+  const grip = (title: string): HTMLButtonElement =>
+    document.body.querySelector<HTMLButtonElement>(`button[aria-label="reorder ${title}"]`)!;
+  const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
+  const press = async (el: HTMLElement, key: string): Promise<void> => {
+    await act(async () => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
+    });
+  };
+
+  beforeEach(() => {
+    backendMock.moveSession.mockClear();
+    useStore.setState({ state: treeStateSolo });
+  });
+
+
+  it("moves a root down by inserting before the successor's successor, then announces and refocuses", async () => {
+    renderSidebar();
+    await press(grip("Tree Root"), "ArrowDown");
+    expect(backendMock.moveSession).toHaveBeenCalledWith("tree-root", "last-root");
+    expect(note()).toBe("");
+
+    // The broadcast that actually moves the row: Tree Root now displays
+    // second, between Mid Root and Last Root.
+    const moved = structuredClone(treeStateSolo);
+    const sessions = moved.projects[0]!.sessions;
+    const rootIdx = sessions.findIndex((s) => s.tabId === "tree-root");
+    const [root] = sessions.splice(rootIdx, 1);
+    sessions.splice(sessions.findIndex((s) => s.tabId === "last-root"), 0, root);
+    await act(async () => {
+      useStore.setState({ state: moved });
+    });
+    expect(note()).toBe("Tree Root moved to position 2 of 3");
+    expect(document.activeElement).toBe(grip("Tree Root"));
+  });
+
+  it("moves a root up by inserting before its predecessor", async () => {
+    renderSidebar();
+    await press(grip("Last Root"), "ArrowUp");
+    expect(backendMock.moveSession).toHaveBeenCalledWith("last-root", "mid-root");
+  });
+
+  it("refuses to move past either end and says so instead", async () => {
+    renderSidebar();
+    await press(grip("Tree Root"), "ArrowUp");
+    expect(backendMock.moveSession).not.toHaveBeenCalled();
+    expect(note()).toBe("Tree Root is already first");
+    await press(grip("Last Root"), "ArrowDown");
+    expect(backendMock.moveSession).not.toHaveBeenCalled();
+    expect(note()).toBe("Last Root is already last");
+  });
+
+  it("hides grips while the filter is active", async () => {
+    renderSidebar();
+    expect(document.body.querySelectorAll('button[aria-label^="reorder "]').length).toBeGreaterThan(0);
+    const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setValue.call(filter!, "Tree");
+      filter!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(document.body.querySelectorAll('button[aria-label^="reorder "]')).toHaveLength(0);
+  });
+
+  it("offers no grip in a single-session project", () => {
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            project: { path: "/projects/solo", name: "Solo", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+            sessions: [
+              {
+                tabId: "only", sessionId: null, lineageDir: "l", projectCwd: "/projects/solo",
+                launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+                cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
+                status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    renderSidebar();
+    expect(document.body.querySelectorAll('button[aria-label^="reorder "]')).toHaveLength(0);
+  });
+
+  it("exposes no grip on depth-1 handoff rows", () => {
+    renderSidebar();
+    expect(document.body.querySelector('button[aria-label="reorder Tree Impl"]')).toBeNull();
+    expect(document.body.querySelector('button[aria-label="reorder Tree Root"]')).not.toBeNull();
   });
 });
 

@@ -20,6 +20,7 @@ interface RegistrySettings {
   defaultAdvisor: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
+  sessionOrderFrozen: boolean;
   dismissedAppUpdateVersion: string | null;
   dismissedOmpUpdateVersion: string | null;
   themeId: string;
@@ -80,6 +81,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    // Default false so seeds without the marker exercise the one-time
+    // recency freeze exactly like pre-#274 registries do.
+    sessionOrderFrozen: false,
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
     themeId: "graphite",

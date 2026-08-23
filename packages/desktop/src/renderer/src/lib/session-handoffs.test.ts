@@ -81,7 +81,7 @@ describe("arrangeSessionHandoffs", () => {
     expect(result).toMatchObject({ shown: 2, remaining: 0, total: 2 });
   });
 
-  it("supports multiple children and orders sibling subtrees by their newest member", () => {
+  it("orders siblings by their own input positions", () => {
     const newestGrandchild = session("newest-grandchild", {
       planImplementationSource: source("older-child"),
     });
@@ -93,6 +93,9 @@ describe("arrangeSessionHandoffs", () => {
     });
     const plan = session("plan");
 
+    // Input order is the sidebar's positional authority (#274): the earlier
+    // child keeps its slot even though its subtree holds the newest member —
+    // running activity must not reshuffle the list.
     const result = arrangeSessionHandoffs(
       [newestGrandchild, newerChild, olderChild, plan],
       "",
@@ -101,7 +104,7 @@ describe("arrangeSessionHandoffs", () => {
       null,
     );
 
-    expect(ids(result)).toEqual(["plan", "older-child", "newest-grandchild", "newer-child"]);
+    expect(ids(result)).toEqual(["plan", "newer-child", "older-child", "newest-grandchild"]);
   });
 
   it("keeps immediate sources through a chain and caps only visual depth", () => {
@@ -124,7 +127,11 @@ describe("arrangeSessionHandoffs", () => {
     ]);
   });
 
-  it("sorts whole trees by their newest member rather than their root", () => {
+  it("does not lift a tree whose implementation row sits above its root", () => {
+    // Regression for the deleted recency fold (#274): an implementation row
+    // positioned before its planning session (e.g. seeded from legacy
+    // recency order) renders nested under that root, wherever the root
+    // sits — it never drags the whole tree upward.
     const newestImplementation = session("implementation", {
       planImplementationSource: source("old-plan"),
     });
@@ -139,7 +146,12 @@ describe("arrangeSessionHandoffs", () => {
       null,
     );
 
-    expect(ids(result)).toEqual(["old-plan", "implementation", "standalone"]);
+    expect(ids(result)).toEqual(["standalone", "old-plan", "implementation"]);
+    expect(result.entries[2]).toMatchObject({
+      depth: 1,
+      source: { tabId: "old-plan" },
+      treeId: "old-plan",
+    });
   });
 
   it("leaves missing and cross-project sources orphaned with their saved metadata", () => {

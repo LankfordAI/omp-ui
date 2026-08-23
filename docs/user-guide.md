@@ -23,7 +23,7 @@ Switching a live session between native and terminal mode kills its process and 
 
 ### Register and organize projects
 
-Use **Add project** in the title bar or sidebar, choose a directory, and add the resolved path. The sidebar groups owned sessions under each project. Filter by session title or project name, collapse a project, drag project headers to reorder them, or focus a header's grip and press `Alt+Up` or `Alt+Down`.
+Use **Add project** in the title bar or sidebar, choose a directory, and add the resolved path. The sidebar groups owned sessions under each project. Sessions keep their position until you move them: new sessions enter at their project's top, and running activity never reshuffles the list. Drag a session row's grip, or focus it and press `Alt+Up` or `Alt+Down`, to reorder; a plan-handoff tree moves with its planning row. Filter by session title or project name, collapse a project, drag project headers to reorder them, or focus a header's grip and press `Alt+Up` or `Alt+Down`.
 
 On a desktop-sized window, a project header exposes open, MCP, new-session, and remove actions. Right-click the new-session control to choose a terminal or worktree session. In the compact shell, use the project's ellipsis button to open the [project actions sheet](#command-palette-and-compact-shell).
 
@@ -172,7 +172,7 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Mod+-` | Decrease native transcript text size. |
 | `Mod+0` | Reset native transcript text size. |
 | `Mod+,` | Open Settings. |
-| `Alt+Up` / `Alt+Down` | Move a focused project header when desktop project reordering is available. |
+| `Alt+Up` / `Alt+Down` | Move a focused project header or session row when desktop reordering is available (session rows move their whole handoff tree). |
 
 ### Composer shortcuts
 

@@ -50,7 +50,11 @@ _Avoid_: repo, folder, workspace
 A session whose file lives in an omp-ui lineage dir (ADR-0003) — launched by
 omp-ui or produced in-process by such a session (`/new`, `/branch`). The only
 sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
-to omp-ui, even under registered projects.
+to omp-ui, even under registered projects. Its sidebar position is explicit:
+the registry's persisted session order (issue #274); activity refreshes
+titles and statuses in place, new owned sessions enter at their project's
+top, and reordering is a user action (drag or keyboard), never a side effect
+of running.
 _Avoid_: tracked session, managed session
 
 **Lineage**:

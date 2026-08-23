@@ -30,7 +30,6 @@ interface HandoffNode {
   savedSource: PlanImplementationSource | null;
   parent: HandoffNode | null;
   children: HandoffNode[];
-  subtreeNewest: number;
 }
 
 function savedSourceOf(session: SessionSummary): PlanImplementationSource | null {
@@ -92,12 +91,13 @@ function matchesTree(nodes: HandoffNode[], query: string): boolean {
 }
 
 /**
- * Arrange one project's newest-first session input into handoff trees.
- *
- * Input position is the recency authority. A source always renders before its
- * descendants, while trees and sibling subtrees inherit the newest position
- * of any member. Filtering and pagination operate on whole trees so neither
- * can strand half of a visible handoff.
+ * Arrange one project's sessions in sidebar (registry) order into handoff
+ * trees. The caller's input position is the positional authority: a tree ranks
+ * by its root's own index and siblings by theirs — running activity never
+ * moves a tree (issue #274). A source always renders before its descendants,
+ * an ordinal-independent invariant of the parent links. Filtering and
+ * pagination operate on whole trees so neither can strand half of a visible
+ * handoff.
  */
 export function arrangeSessionHandoffs(
   sessions: readonly SessionSummary[],
@@ -112,7 +112,6 @@ export function arrangeSessionHandoffs(
     savedSource: savedSourceOf(session),
     parent: null,
     children: [],
-    subtreeNewest: index,
   }));
 
   // Duplicate ids make a source ambiguous. Treat them like any other
@@ -146,28 +145,9 @@ export function arrangeSessionHandoffs(
   for (const node of cycleMembers(nodes)) node.parent = null;
   for (const node of nodes) node.parent?.children.push(node);
 
-  // Fold each descendant's newest input position into its ancestors. The
-  // forest is acyclic now, so processing leaves upward visits every node once.
-  const childrenRemaining = new Map<HandoffNode, number>();
-  const leaves: HandoffNode[] = [];
-  for (const node of nodes) {
-    childrenRemaining.set(node, node.children.length);
-    if (node.children.length === 0) leaves.push(node);
-  }
-  for (let i = 0; i < leaves.length; i += 1) {
-    const node = leaves[i]!;
-    const parent = node.parent;
-    if (parent === null) continue;
-    parent.subtreeNewest = Math.min(parent.subtreeNewest, node.subtreeNewest);
-    const remaining = childrenRemaining.get(parent)! - 1;
-    childrenRemaining.set(parent, remaining);
-    if (remaining === 0) leaves.push(parent);
-  }
-
-  const byNewestMember = (a: HandoffNode, b: HandoffNode): number =>
-    a.subtreeNewest - b.subtreeNewest;
-  for (const node of nodes) node.children.sort(byNewestMember);
-  const roots = nodes.filter((node) => node.parent === null).sort(byNewestMember);
+  const byInputIndex = (a: HandoffNode, b: HandoffNode): number => a.index - b.index;
+  for (const node of nodes) node.children.sort(byInputIndex);
+  const roots = nodes.filter((node) => node.parent === null).sort(byInputIndex);
 
   const normalizedQuery = query.trim().toLowerCase();
   const allEntries: SessionHandoffEntry[] = [];
