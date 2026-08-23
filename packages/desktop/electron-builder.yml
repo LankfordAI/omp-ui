@@ -9,6 +9,8 @@ files:
 asarUnpack:
   - "**/node_modules/node-pty/**"
 npmRebuild: false
+toolsets:
+  appimage: "1.0.3"
 linux:
   icon: build/icon.png
   target:

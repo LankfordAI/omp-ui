@@ -16,6 +16,8 @@ Linux AppImage is the supported release. Windows and macOS builds are previews.
 
 The download flow needs `bash`, `curl`, and `sha256sum`. It runs without root, verifies the AppImage against the release's `SHA256SUMS.txt`, installs it as `~/.local/bin/omp-ui.AppImage`, and adds an application-menu entry.
 
+**Prerequisites.** Linux x64 is required: the Linux build is x64-only, and the installer refuses any other architecture before downloading. No FUSE setup is required for the application-menu launch: the AppImage uses the static AppImage runtime (no FUSE2/libfuse2 dependency), and the menu entry the installer writes falls back to the runtime's extract-and-run mode automatically when the system provides no FUSE mount support. omp-ui links standard desktop GUI libraries (GTK, NSS, audio, X11/Wayland) that come from the distribution. The installer verifies them and, if any are missing, stops *before changing anything* and prints the exact `sudo apt install …` command to run first.
+
 Install the latest release:
 
 ```bash

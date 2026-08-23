@@ -132,6 +132,47 @@ Focus a session from the affected project before checking omp, Memory, Providers
 
 See [Settings](settings.md) for layer and timing details and [User guide](user-guide.md) for live session controls.
 
+## omp-ui won't start (Linux)
+
+### Cause
+
+An app-menu launch runs the AppImage with `Terminal=false`, so a failure before Electron starts — the AppImage runtime, or shared-library loading — shows no error. The window also never appears if a previous omp-ui process is still alive: omp-ui is single-instance, and a second launch exits silently while the first instance keeps the single-instance lock.
+
+### Check
+
+Run the AppImage from a terminal so the error is visible:
+
+```bash
+~/.local/bin/omp-ui.AppImage
+```
+
+Anything stuck holding the single-instance lock:
+
+```bash
+pgrep -a omp-ui
+```
+
+If a process is listed, it is the previous instance; a new launch exits while it lives. Architecture sanity (the Linux build is x64-only):
+
+```bash
+uname -m
+```
+
+If a process runs but no window appears:
+
+```bash
+tail -50 ~/.config/@omp-ui/desktop/logs/main.log
+```
+
+### Fix
+
+| Terminal signature | Fix |
+| --- | --- |
+| FUSE mount error text (`dlopen(): error loading libfuse.so.2`, `No suitable fusermount binary found`, `Cannot mount AppImage`) | Applies to direct launches only (terminal or file manager) — the application-menu entry avoids FUSE entirely. Re-run the installer to get the current static-runtime AppImage. For direct launches, `sudo apt install fuse3`, or run `APPIMAGE_EXTRACT_AND_RUN=1 ~/.local/bin/omp-ui.AppImage`. |
+| `error while loading shared libraries: …` | Re-run the installer; it verifies the Electron binary's system libraries and prints the exact `sudo apt install …` command. Older installers: install the package that provides the named library. |
+| `Exec format error` | The machine is not x64. The Linux build is x64-only. |
+| Silent immediate exit | A previous omp-ui instance is still alive and holds the single-instance lock. Find it with `pgrep -a omp-ui`, kill it, then relaunch. |
+
 ## A release download needs verification
 
 ### Cause

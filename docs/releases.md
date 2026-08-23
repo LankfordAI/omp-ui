@@ -25,7 +25,7 @@ Install or repair the supported Linux release without root:
 curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash
 ```
 
-The installer verifies the AppImage against `SHA256SUMS.txt`, writes it to `~/.local/bin/omp-ui.AppImage`, and creates the per-user desktop entry and icons.
+The installer verifies the AppImage against `SHA256SUMS.txt`, writes it to `~/.local/bin/omp-ui.AppImage`, and creates the per-user desktop entry and icons. Before touching an existing install it verifies the Electron binary's system shared-library dependencies on the staged AppImage and, if any are unresolvable, stops with the exact `sudo apt install …` command to run first. The AppImage is built with the static AppImage runtime (no FUSE2 dependency), and the installer's menu entry falls back to the runtime's extract-and-run mode when the system provides no FUSE mount support.
 
 ## Understand the release files
 

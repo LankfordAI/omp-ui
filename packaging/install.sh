@@ -11,6 +11,7 @@ APP_ID="ai.lankford.omp-ui"
 
 BIN_DIR="$HOME/.local/bin"
 TARGET="$BIN_DIR/omp-ui.AppImage"
+LAUNCHER="$BIN_DIR/omp-ui"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 APPLICATIONS_DIR="$DATA_HOME/applications"
 DESKTOP_FILE="$APPLICATIONS_DIR/$APP_ID.desktop"
@@ -122,19 +123,153 @@ install_appimage() {
     mv -f -- "$staged" "$TARGET"
 }
 
-# Extracts icons from the installed AppImage via --appimage-extract (works
-# without FUSE) into the per-user hicolor tree. Icon failure is not fatal:
-# the desktop entry is the hard requirement.
-install_icons() {
-    local extract_dir="$WORKDIR/extract"
-    mkdir -p "$extract_dir"
-    if ! (cd "$extract_dir" && "$TARGET" --appimage-extract >/dev/null 2>&1); then
-        err "warning: could not extract icons from the AppImage; skipping icon install"
+# The Linux release is x64-only (docs/releases.md). Fail before downloading.
+require_x64() {
+    local arch
+    arch="$(uname -m)"
+    [ "$arch" = "x86_64" ] \
+        || die "this release only ships an x64 AppImage (this machine is $arch)"
+}
+
+# The Electron binary inside the AppImage links system GUI libraries the
+# AppImage does not bundle. A no-root installer cannot install them, so verify
+# resolution and fail with the exact fix command BEFORE touching the install.
+check_prerequisites() {
+    local root="$1"
+    local bin="$root/omp-ui"          # executableName from electron-builder.yml
+    if [ ! -f "$bin" ]; then
+        err "warning: electron binary not found inside the AppImage; skipping prerequisite check"
         return 0
     fi
-    local root="$extract_dir/squashfs-root"
-    if [ ! -d "$root" ]; then
-        err "warning: AppImage extraction produced no squashfs-root; skipping icon install"
+    if ! command -v ldd >/dev/null 2>&1; then
+        err "warning: ldd not available; skipping prerequisite check"
+        return 0
+    fi
+
+    local so pkg mapped=() unmapped=()
+    while IFS= read -r so; do
+        [ -n "$so" ] || continue
+        pkg="$(so_to_package "$so")"
+        if [ -n "$pkg" ]; then mapped+=("$pkg"); else unmapped+=("$so"); fi
+    done < <(ldd "$bin" 2>/dev/null | awk '/not found/ {print $1}')
+
+    if [ ${#mapped[@]} -eq 0 ] && [ ${#unmapped[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    local pkgs
+    pkgs="$(printf '%s\n' "${mapped[@]}" 2>/dev/null | sort -u)"
+    if command -v dpkg >/dev/null 2>&1; then
+        die "omp-ui is missing system libraries this machine must provide.
+Install them with your admin user, then re-run this installer:
+
+  sudo apt install $(printf '%s\n' "$pkgs" | tr '\n' ' ' | sed 's/ $//')
+
+Libraries: $(ldd "$bin" 2>/dev/null | awk '/not found/ {print $1}' | sort -u | tr '\n' ' ')"
+    else
+        die "omp-ui is missing system libraries this machine must provide
+(install the package that provides each, then re-run this installer):
+
+$(printf '%s\n' "${mapped[@]}" "${unmapped[@]}" 2>/dev/null | sort -u | sed 's/^/  /')"
+    fi
+}
+
+# .so name -> Debian/Ubuntu package. Table derived from ldd of the shipped
+# Electron binary (packages/desktop devDependency). Targets Ubuntu 24.04+
+# (t64 names); on older releases the same packages exist without the t64 suffix.
+so_to_package() {
+    case "$1" in
+        libnss3.so|libnssutil3.so|libsmime3.so|libplc4.so|libplds4.so) echo libnss3 ;;
+        libnspr4.so) echo libnspr4 ;;
+        libatk-1.0.so.0) echo libatk1.0-0t64 ;;
+        libatk-bridge-2.0.so.0) echo libatk-bridge2.0-0t64 ;;
+        libatspi.so.0) echo libatspi2.0-0t64 ;;
+        libcups.so.2) echo libcups2t64 ;;
+        libdbus-1.so.3) echo libdbus-1-3 ;;
+        libcairo.so.2|libcairo-gobject.so.2) echo libcairo2 ;;
+        libgdk-3.so.0|libgtk-3.so.0) echo libgtk-3-0t64 ;;
+        libgdk_pixbuf-2.0.so.0) echo libgdk-pixbuf-2.0-0 ;;
+        libpango-1.0.so.0) echo libpango-1.0-0 ;;
+        libpangocairo-1.0.so.0) echo libpangocairo-1.0-0 ;;
+        libpangoft2-1.0.so.0) echo libpangoft2-1.0-0 ;;
+        libglib-2.0.so.0|libgobject-2.0.so.0|libgio-2.0.so.0|libgmodule-2.0.so.0) echo libglib2.0-0t64 ;;
+        libX11.so.6) echo libx11-6 ;;
+        libXext.so.6) echo libxext6 ;;
+        libXfixes.so.3) echo libxfixes3 ;;
+        libXcomposite.so.1) echo libxcomposite1 ;;
+        libXdamage.so.1) echo libxdamage1 ;;
+        libXrandr.so.2) echo libxrandr2 ;;
+        libXrender.so.1) echo libxrender1 ;;
+        libXi.so.6) echo libxi6 ;;
+        libXcursor.so.1) echo libxcursor1 ;;
+        libXinerama.so.1) echo libxinerama1 ;;
+        libXau.so.6) echo libxau6 ;;
+        libxcb.so.1) echo libxcb1 ;;
+        libxcb-render.so.0) echo libxcb-render0 ;;
+        libxcb-shm.so.0) echo libxcb-shm0 ;;
+        libgbm.so.1) echo libgbm1 ;;
+        libxkbcommon.so.0) echo libxkbcommon0 ;;
+        libasound.so.2) echo libasound2t64 ;;
+        libwayland-client.so.0) echo libwayland-client0 ;;
+        libwayland-cursor.so.0) echo libwayland-cursor0 ;;
+        libwayland-egl.so.1) echo libwayland-egl1 ;;
+        libepoxy.so.0) echo libepoxy0 ;;
+        libdrm.so.2) echo libdrm2 ;;
+        libudev.so.1) echo libudev1 ;;
+        libexpat.so.1) echo libexpat1 ;;
+        libfontconfig.so.1) echo libfontconfig1 ;;
+        libfreetype.so.6) echo libfreetype6 ;;
+        libpixman-1.so.0) echo libpixman-1-0 ;;
+        libharfbuzz.so.0) echo libharfbuzz0b ;;
+        libfribidi.so.0) echo libfribidi0 ;;
+        libthai.so.0) echo libthai0 ;;
+        libdatrie.so.1) echo libdatrie1 ;;
+        libgraphite2.so.3) echo libgraphite2-3 ;;
+        liblcms2.so.2) echo liblcms2-2 ;;
+        libpng16.so.16) echo libpng16-16 ;;
+        libxml2.so.2) echo libxml2 ;;
+        libselinux.so.1) echo libselinux1 ;;
+        libseccomp.so.2) echo libseccomp2 ;;
+        libsystemd.so.0) echo libsystemd0 ;;
+        libavahi-common.so.3) echo libavahi-common3 ;;
+        libavahi-client.so.3) echo libavahi-client3 ;;
+        libgnutls.so.30) echo libgnutls30t64 ;;
+        libp11-kit.so.0) echo libp11-kit0 ;;
+        libidn2.so.0) echo libidn2-0 ;;
+        libunistring.so.5) echo libunistring5 ;;
+        libtasn1.so.6) echo libtasn1-6 ;;
+        libnettle.so.8) echo libnettle8 ;;
+        libhogweed.so.6) echo libhogweed6 ;;
+        libgmp.so.10) echo libgmp10 ;;
+        libcrypto.so.3|libssl.so.3) echo libssl3t64 ;;
+        libkrb5.so.3|libk5crypto.so.3|libkrb5support.so.0|libgssapi_krb5.so.2) echo libkrb5-3 ;;
+        libcom_err.so.2) echo libcom-err2 ;;
+        libkeyutils.so.1) echo libkeyutils1 ;;
+        libjson-glib-1.0.so.0) echo libjson-glib-1.0-0 ;;
+        libtinysparql-3.0.so.0) echo libtinysparql-3.0-0 ;;
+        libcloudproviders.so.0) echo libcloudproviders0 ;;
+        libglycin-2.so.0) echo libglycin2 ;;
+        libsqlite3.so.0) echo libsqlite3-0 ;;
+        libffi.so.8) echo libffi8 ;;
+        libpcre2-8.so.0) echo libpcre2-8-0 ;;
+        libcap.so.2) echo libcap2 ;;
+        libmount.so.1) echo libmount1 ;;
+        libblkid.so.1) echo libblkid1 ;;
+        libz.so.1) echo zlib1g ;;
+        libbz2.so.1) echo libbz2-1.0 ;;
+        liblzma.so.5) echo liblzma5 ;;
+        libbrotlidec.so.1|libbrotlicommon.so.1) echo libbrotli1 ;;
+        *) echo "" ;;
+    esac
+}
+
+# Copies icons from $1 (the AppImage extraction root) into the per-user
+# hicolor tree. Icon failure is not fatal: the desktop entry is the hard
+# requirement. An empty or missing root skips the install with a warning.
+install_icons() {
+    local root="$1"
+    if [ -z "$root" ] || [ ! -d "$root" ]; then
+        err "warning: no AppImage extraction root; skipping icon install"
         return 0
     fi
 
@@ -190,6 +325,35 @@ install_icons() {
     fi
 }
 
+# The menu entry execs a per-user launcher rather than the AppImage
+# directly: the AppImage's static runtime mounts via FUSE when the system
+# provides /dev/fuse and a fusermount binary, and the launcher otherwise
+# forces the runtime's extract-and-run mode, so the menu launch needs no
+# FUSE setup at all.
+write_launcher() {
+    mkdir -p "$BIN_DIR"
+    cat >"$LAUNCHER" <<'EOF'
+#!/usr/bin/env bash
+# omp-ui launcher, installed by packaging/install.sh.
+# Launches the omp-ui AppImage that sits beside this launcher, using a
+# FUSE mount when the system provides /dev/fuse and a fusermount binary.
+# Otherwise it forces the AppImage runtime's extract-and-run mode, so
+# omp-ui launches without any FUSE setup.
+set -euo pipefail
+APPIMAGE="$(dirname "$(readlink -f "$0")")/omp-ui.AppImage"
+if [ ! -f "$APPIMAGE" ]; then
+    echo "omp-ui: $APPIMAGE not found; re-run the installer" >&2
+    exit 1
+fi
+if [ -e /dev/fuse ] && { command -v fusermount3 >/dev/null 2>&1 || command -v fusermount >/dev/null 2>&1; }; then
+    exec "$APPIMAGE" "$@"
+else
+    exec env APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" "$@"
+fi
+EOF
+    chmod 0755 "$LAUNCHER"
+}
+
 # The desktop spec does not expand ~, so Exec carries the absolute path.
 write_desktop_entry() {
     mkdir -p "$APPLICATIONS_DIR"
@@ -197,7 +361,7 @@ write_desktop_entry() {
 [Desktop Entry]
 Name=omp-ui
 Comment=Desktop GUI for the omp coding agent
-Exec="$TARGET" %U
+Exec=$LAUNCHER %U
 Icon=$APP_ID
 Type=Application
 Categories=Development;
@@ -219,6 +383,7 @@ refresh_caches() {
 
 do_install() {
     local version="$1" binary="$2"
+    require_x64
 
     WORKDIR="$(mktemp -d)"
 
@@ -234,12 +399,34 @@ do_install() {
         staged_appimage="$(download_and_verify "$tag")"
     fi
 
+    # Extract once from the staged file so the prerequisite check and the
+    # icon install share a single extraction. Tolerate failure (pre-existing
+    # behavior for icon extraction): skip the dependent steps with a warning
+    # rather than abort.
+    local extract_root=""
+    local extract_dir="$WORKDIR/extract"
+    mkdir -p "$extract_dir"
+    if (cd "$extract_dir" && "$staged_appimage" --appimage-extract >/dev/null 2>&1) \
+        && [ -d "$extract_dir/squashfs-root" ]; then
+        extract_root="$extract_dir/squashfs-root"
+    else
+        err "warning: could not extract the AppImage for the prerequisite check and icons"
+    fi
+
+    [ -z "$extract_root" ] || check_prerequisites "$extract_root"
+
     install_appimage "$staged_appimage"
-    install_icons
+    write_launcher
+    if [ -n "$extract_root" ]; then
+        install_icons "$extract_root"
+    else
+        install_icons ""
+    fi
     write_desktop_entry
     refresh_caches
 
     printf 'omp-ui installed: %s\n' "$TARGET"
+    printf 'Launch omp-ui from the application menu, or run: %s\n' "$LAUNCHER"
 }
 
 do_uninstall() {
@@ -248,6 +435,10 @@ do_uninstall() {
 
     if [ -e "$TARGET" ]; then
         rm -f -- "$TARGET"
+        found=1
+    fi
+    if [ -e "$LAUNCHER" ]; then
+        rm -f -- "$LAUNCHER"
         found=1
     fi
     if [ -e "$DESKTOP_FILE" ]; then

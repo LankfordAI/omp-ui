@@ -84,3 +84,17 @@ check downloads and verifies the AppImage before showing the update card, so
 Restart now has no download wait. The hardcoded `autoInstallOnAppQuit = false`
 became an explicit per-process opt-in: "Install when I quit" arms the staged
 update for the next natural quit, while the default remains no silent install.
+
+**Amended 2026-08-22 (#267):** shipped AppImages now use the static runtime
+(`toolsets.appimage: "1.0.3"`, the runtime the cutover gate smoke-tested),
+removing the FUSE2 (libfuse2) dependency the legacy runtime requires and
+modern distributions no longer ship. The runtime still mounts via FUSE when
+the system provides `/dev/fuse` and a `fusermount` binary (or falls back to
+CUSE); it does not auto-extract otherwise. The installer's desktop entry
+therefore carries a probe: it launches the AppImage normally when FUSE mount
+support is present and forces the runtime's extract-and-run mode
+(`APPIMAGE_EXTRACT_AND_RUN=1`) when it is not, so the application-menu launch
+works without any FUSE setup. `packaging/install.sh` additionally verifies
+the Electron binary's system shared-library dependencies on the staged
+AppImage and fails with the exact distribution install command before
+modifying an existing install.
