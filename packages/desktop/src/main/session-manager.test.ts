@@ -18,6 +18,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     spawnOmp: vi.fn(),
     spawnShell: vi.fn(),
     watchLineageDir: vi.fn(),
+    readOmpCompactionMethods: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     RpcClient: vi.fn(),
   };
@@ -29,6 +30,7 @@ const resolveSessionLocationMock = vi.mocked(Core.resolveSessionLocation);
 const spawnOmpMock = vi.mocked(Core.spawnOmp);
 const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
+const readOmpCompactionMethodsMock = vi.mocked(Core.readOmpCompactionMethods);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const RpcClientMock = vi.mocked(Core.RpcClient);
 const execFileP = promisify(execFile);
@@ -215,6 +217,11 @@ beforeEach(() => {
     watcherDisposes.push(dispose);
     return dispose;
   });
+  readOmpCompactionMethodsMock.mockReset();
+  readOmpCompactionMethodsMock.mockResolvedValue({
+    supported: ["remote", "soft", "shake"],
+    configuredOrder: ["remote", "soft", "shake"],
+  });
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
@@ -307,6 +314,47 @@ describe("MCP runtime status bridge", () => {
       expect.any(Error),
     );
     warning.mockRestore();
+  });
+});
+
+describe("default compaction method (issue #268)", () => {
+  it("captures a fresh native preference and promotes it in the lineage overlay", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setDefaultCompactionMethod("soft");
+    const { tabId } = await manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    const record = registry.sessions.find((session) => session.tabId === tabId)!;
+    expect(record.compactionMethod).toBe("soft");
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    const overlay = options?.configOverlays?.find(
+      (file: string) => path.basename(file) === "omp-ui-compaction.yml",
+    );
+    expect(overlay).toBe(Core.compactionMethodOverlayPath(path.join(sessionsRoot, record.lineageDir)));
+    expect(fs.readFileSync(overlay!, "utf8")).toBe(
+      'compaction:\n  methodOrder:\n    - "soft"\n    - "remote"\n    - "shake"\n',
+    );
+  });
+
+  it("never captures or supplies the overlay for a fresh terminal session", async () => {
+    const { manager, registry } = setup();
+    registry.setDefaultCompactionMethod("soft");
+    const { tabId } = await manager.spawn({
+      projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    expect(registry.sessions.find((session) => session.tabId === tabId)?.compactionMethod).toBeNull();
+    expect(readOmpCompactionMethodsMock).not.toHaveBeenCalled();
+    expect(spawnCalls.at(-1)?.configOverlays).not.toContainEqual(
+      expect.stringMatching(/omp-ui-compaction\.yml$/),
+    );
   });
 });
 

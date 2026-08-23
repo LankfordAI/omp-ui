@@ -7,6 +7,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     projects: [],
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
+    defaultCompactionMethod: null,
     planFormat: "html",
     hibernateIdleMinutes: 30,
     streamStallAbortSeconds: 180,

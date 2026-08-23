@@ -53,6 +53,8 @@ const backendMock = {
   moveProject: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
   setDefaultAgentMode: vi.fn(async () => {}),
+  listCompactionMethods: vi.fn(async () => ["remote", "soft"]),
+  setDefaultCompactionMethod: vi.fn(async () => {}),
   setPlanFormat: vi.fn(async () => {}),
   setHibernateIdleMinutes: vi.fn(async () => {}),
   setStreamStallAbortSeconds: vi.fn(async () => {}),
@@ -430,6 +432,58 @@ describe("Settings General page default agent mode (issue #143)", () => {
     expect(buttonWithText("plan")!.getAttribute("aria-pressed")).toBe("true");
     click(buttonWithText("build")!);
     expect(backendMock.setDefaultAgentMode).toHaveBeenCalledWith("build");
+  });
+});
+
+describe("Settings General page default compaction method (issue #268)", () => {
+  it("loads installed methods in order and persists selection and clear", async () => {
+    backendMock.listCompactionMethods.mockResolvedValueOnce(["soft", "remote", "future"]);
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState(),
+      compactionMethods: { status: "unloaded" },
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="default compaction method"]',
+    )!;
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "",
+      "soft",
+      "remote",
+      "future",
+    ]);
+    act(() => {
+      select.value = "soft";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith("soft");
+    act(() => {
+      select.value = "";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);
+  });
+
+  it("shows an unavailable persisted value honestly", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ defaultCompactionMethod: "removed" }),
+      compactionMethods: { status: "loaded", methods: ["remote"] },
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    const selected = document.querySelector<HTMLOptionElement>("option:checked")!;
+    expect(selected.value).toBe("removed");
+    expect(selected.textContent).toContain("unavailable");
+    expect(selected.disabled).toBe(true);
   });
 });
 

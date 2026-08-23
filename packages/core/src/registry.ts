@@ -14,6 +14,8 @@ export interface RegistrySettings {
   defaultMode: SessionMode;
   /** Initial Plan/Build posture for newly created native sessions. */
   defaultAgentMode: AgentMode;
+  /** Preferred first compaction method captured by fresh native sessions; null defers to omp. */
+  defaultCompactionMethod: string | null;
   /** How the agent authors plans for review (see core/plan-extension.ts). */
   planFormat: PlanFormat;
   /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
@@ -83,6 +85,11 @@ export const SETTINGS: SettingDescriptors = {
   defaultAgentMode: validatedSetting<AgentMode>(
     () => "plan",
     (value): value is AgentMode => value === "build",
+  ),
+  defaultCompactionMethod: validatedSetting<string | null>(
+    () => null,
+    (value): value is string | null =>
+      value === null || (typeof value === "string" && value.length > 0),
   ),
   // HTML is the default review rendition (issue #109); the canonical
   // markdown plan is written either way.
@@ -291,6 +298,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     typeof value.launchedAt === "string" &&
     "mode" in value &&
     isSessionMode(value.mode) &&
+    (!("compactionMethod" in value) ||
+      typeof value.compactionMethod === "string" ||
+      value.compactionMethod === null) &&
     (!("model" in value) || typeof value.model === "string" || value.model === null) &&
     (!("thinkingLevel" in value) ||
       typeof value.thinkingLevel === "string" ||
@@ -340,6 +350,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
+      compactionMethod: s.compactionMethod ?? null,
       worktree: s.worktree
         ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
         : null,
@@ -430,6 +441,10 @@ export class Registry {
 
   get defaultAgentMode(): AgentMode {
     return this.#getSetting("defaultAgentMode");
+  }
+
+  get defaultCompactionMethod(): string | null {
+    return this.#getSetting("defaultCompactionMethod");
   }
 
   get skipDeleteConfirmation(): boolean {
@@ -576,6 +591,10 @@ export class Registry {
 
   setDefaultAgentMode(mode: AgentMode): void {
     this.#setSetting("defaultAgentMode", mode);
+  }
+
+  setDefaultCompactionMethod(method: string | null): void {
+    this.#setSetting("defaultCompactionMethod", method);
   }
 
   get planFormat(): PlanFormat {

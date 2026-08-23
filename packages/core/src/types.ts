@@ -111,6 +111,8 @@ export interface OwnedSessionRecord {
   planImplementationSource?: PlanImplementationSource | null;
   launchedAt: string;
   mode: SessionMode;
+  /** Compaction method captured for a fresh native session; null for terminal-origin sessions. */
+  compactionMethod?: string | null;
   /** Main model selected for this session, as omp's `provider/id` selector. */
   model?: string | null;
   /** Main-model thinking level selected for this session. */
@@ -166,6 +168,8 @@ export interface BackendState {
   defaultMode: SessionMode;
   /** Initial Plan/Build posture for newly created native sessions. */
   defaultAgentMode: AgentMode;
+  /** Preferred first compaction method captured by future native sessions; null defers to omp. */
+  defaultCompactionMethod: string | null;
   /** Plan authoring format the next plan-mode toggle asks the agent for. */
   planFormat: PlanFormat;
   /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */

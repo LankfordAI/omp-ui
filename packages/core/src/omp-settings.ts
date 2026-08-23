@@ -284,6 +284,56 @@ export async function readOmpSettings(
   }
 }
 
+export interface OmpCompactionMethods {
+  supported: string[];
+  configuredOrder: string[];
+}
+
+function uniqueStrings(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.length === 0) return null;
+    if (!seen.has(item)) {
+      seen.add(item);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+/** Reads compaction method capability from the installed omp, never from an omp-ui allowlist. */
+export async function readOmpCompactionMethods(
+  { ompPath, projectCwd }: { ompPath: string | null; projectCwd: string | null },
+  run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
+): Promise<OmpCompactionMethods> {
+  if (ompPath === null) throw new Error("omp binary not found");
+  let neutralCwd: string | null = null;
+  let pristineHome: string | null = null;
+  try {
+    neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-compaction-"));
+    pristineHome = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-compaction-"));
+    const args = ["config", "list", "--json"];
+    const [effectiveText, pristineText] = await Promise.all([
+      run(args, { cwd: projectCwd ?? neutralCwd, env: process.env }),
+      run(args, { cwd: neutralCwd, env: pristineEnvironment(pristineHome) }),
+    ]);
+    const effective = parseListJson(effectiveText);
+    const pristine = parseListJson(pristineText);
+    if (effective === null || pristine === null) throw new Error("could not parse omp config output");
+    const supported = uniqueStrings(rawSetting(pristine, "compaction.methodOrder")?.value);
+    const configured = uniqueStrings(rawSetting(effective, "compaction.methodOrder")?.value);
+    if (supported === null || configured === null) {
+      throw new Error("omp did not publish a valid compaction.methodOrder");
+    }
+    const supportedSet = new Set(supported);
+    return { supported, configuredOrder: configured.filter((id) => supportedSet.has(id)) };
+  } finally {
+    removeTempDirs(neutralCwd, pristineHome);
+  }
+}
+
 function isSettingType(value: unknown): value is OmpSettingType {
   return typeof value === "string" && SETTING_TYPES[value as OmpSettingType] === true;
 }

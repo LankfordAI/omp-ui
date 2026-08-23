@@ -118,6 +118,7 @@ Use the timing category for the control you changed:
 | Advisor auto-reply | Immediately in open native transcript tabs | This controls replies to late advisor findings, not whether the advisor is enabled. |
 | Plan format | The next time a native session enters Plan mode | It does not rewrite a plan already in progress. |
 | Default agent mode | A new native session | It does not change a live or resumed session or a terminal tab. |
+| Default compaction method | A fresh native session captures it; later resumes reuse that capture | It does not change a live session or any terminal-origin session. “omp configured default” defers to omp's global/project `compaction.methodOrder`. |
 | Default advisor | A new session with no remembered advisor state for that project | A project's last-used advisor setting wins. |
 | Live Plan or advisor control | The current session | Change it in the session controls. An advisor change respawns that session so `omp` can bind it at process start. |
 | omp model roles, omp advisor configuration, and Memory settings | The next session spawn | Settings writes the global layer. A `project` chip means the focused project's layer is still effective. Follow the installed omp description for other omp settings. |

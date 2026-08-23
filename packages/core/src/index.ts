@@ -35,6 +35,10 @@ export { batched } from "./pty-batch";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
+export {
+  compactionMethodOverlayPath,
+  writeCompactionMethodOverlay,
+} from "./compaction-overlay";
 export { planExtensionPath, writePlanExtension } from "./plan-extension";
 export {
   advisorStatsExtensionPath,
@@ -100,8 +104,10 @@ export {
   OMP_SETTING_GROUPS,
   OMP_SETTING_KEYS,
   parseEnumOptions,
+  readOmpCompactionMethods,
   readOmpSettings,
   writeOmpSetting,
+  type OmpCompactionMethods,
   type OmpConfigRunner,
 } from "./omp-settings";
 export {

@@ -25,6 +25,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     projectCwd: "/abs/proj",
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "pty",
+    compactionMethod: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: null,
@@ -46,6 +47,7 @@ describe("SETTINGS", () => {
     expect(Object.keys(SETTINGS)).toEqual([
       "defaultMode",
       "defaultAgentMode",
+      "defaultCompactionMethod",
       "planFormat",
       "hibernateIdleMinutes",
       "streamStallAbortSeconds",

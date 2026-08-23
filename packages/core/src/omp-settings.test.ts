@@ -3,6 +3,7 @@ import {
   OMP_MODEL_ROLES_KEY,
   parseEnumOptions,
   readOmpSettings,
+  readOmpCompactionMethods,
   pristineEnvironment,
   writeOmpSetting,
   type OmpConfigRunner,
@@ -65,6 +66,39 @@ function fakeRunner(
   run.calls = 0;
   return run;
 }
+
+describe("readOmpCompactionMethods", () => {
+  it("uses pristine capability and preserves the effective configured subset", async () => {
+    const methods = await readOmpCompactionMethods(
+      { ompPath: OMP, projectCwd: "/repo" },
+      fakeRunner(
+        {
+          effective: {
+            "compaction.methodOrder": entry(["soft", "remote", "soft", "removed"]),
+          },
+          global: {},
+          pristine: {
+            "compaction.methodOrder": entry(["remote", "snapcompact", "soft"]),
+          },
+        },
+        "/repo",
+      ),
+    );
+    expect(methods).toEqual({
+      supported: ["remote", "snapcompact", "soft"],
+      configuredOrder: ["soft", "remote"],
+    });
+  });
+
+  it("rejects malformed or missing method arrays", async () => {
+    await expect(
+      readOmpCompactionMethods(
+        { ompPath: OMP, projectCwd: null },
+        fakeRunner({ global: {}, pristine: {} }, null),
+      ),
+    ).rejects.toThrow("compaction.methodOrder");
+  });
+});
 
 describe("readOmpSettings", () => {
   it("marks a value the project layer overrides as project", async () => {

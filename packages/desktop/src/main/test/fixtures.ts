@@ -12,6 +12,7 @@ import type {
 interface RegistrySettings {
   defaultMode: SessionMode;
   defaultAgentMode: AgentMode;
+  defaultCompactionMethod: string | null;
   planFormat: PlanFormat;
   streamStallAbortSeconds: number;
   advisorAutoReply: boolean;
@@ -56,6 +57,7 @@ export function ownedSessionRecord(
     planImplementationSource: null,
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "rpc-ui",
+    compactionMethod: null,
     model: null,
     thinkingLevel: null,
     advisor: false,
@@ -71,6 +73,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
     planFormat: "html",
+    defaultCompactionMethod: null,
     streamStallAbortSeconds: 180,
     advisorAutoReply: true,
     stallAutoContinue: true,

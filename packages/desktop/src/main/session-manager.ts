@@ -27,11 +27,13 @@ import {
   spawnShell,
   unarchiveSession,
   watchLineageDir,
+  readOmpCompactionMethods,
   writeAdvisorOverlay,
   writeAdvisorStatsExtension,
   writeMcpStatusExtension,
   writeDefaultModelOverlay,
   writeImageToScratch,
+  writeCompactionMethodOverlay,
   writePlanExtension,
   PLAN_EXECUTE,
   MAX_IMAGE_BYTES,
@@ -402,6 +404,8 @@ export class SessionManager {
           planImplementationSource,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
+          compactionMethod:
+            req.mode === "rpc-ui" ? this.deps.registry.defaultCompactionMethod : null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
           thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
@@ -429,7 +433,7 @@ export class SessionManager {
         req.startInPlanMode ??
         (req.resumeTabId === undefined && this.deps.registry.defaultAgentMode === "plan");
       return req.mode === "rpc-ui"
-        ? this.spawnRpc(record, startInPlanMode, ompPath)
+        ? await this.spawnRpc(record, startInPlanMode, ompPath)
         : await this.spawnPty(record, req, ompPath);
     } finally {
       if (req.resumeTabId) {
@@ -477,11 +481,11 @@ export class SessionManager {
     return { tabId: record.tabId };
   }
 
-  private spawnRpc(
+  private async spawnRpc(
     record: OwnedSessionRecord,
     startInPlanMode: boolean,
     ompPath: string,
-  ): { tabId: string } {
+  ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     // Exactly like PTY (ADR-0003) — and the dir must exist for the watcher.
     fs.mkdirSync(absLineageDir, { recursive: true });
@@ -503,13 +507,14 @@ export class SessionManager {
       id: `omp-ui-initial-mode-${randomUUID()}`,
       message: planMessage(startInPlanMode, this.deps.registry.planFormat),
     });
+    const configOverlays = await this.rpcConfigOverlays(record, absLineageDir, ompPath);
     entry.rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
       advisor: record.advisor,
-      configOverlays: this.configOverlays(record, absLineageDir),
+      configOverlays,
       extensions,
       initialCommands,
       onFrame: (frame) => {
@@ -572,6 +577,45 @@ export class SessionManager {
       } catch (err) {
         console.warn("[model] could not write the default-model overlay:", err);
       }
+    }
+    return overlays;
+  }
+
+  private async rpcConfigOverlays(
+    record: OwnedSessionRecord,
+    absLineageDir: string,
+    ompPath: string,
+  ): Promise<string[]> {
+    const overlays = this.configOverlays(record, absLineageDir);
+    const preferred = record.compactionMethod ?? null;
+    if (preferred === null) {
+      writeCompactionMethodOverlay(absLineageDir, null, []);
+      return overlays;
+    }
+    try {
+      const methods = await readOmpCompactionMethods({
+        ompPath,
+        projectCwd: record.worktree?.path ?? record.projectCwd,
+      });
+      if (!methods.supported.includes(preferred)) {
+        writeCompactionMethodOverlay(absLineageDir, null, []);
+        console.warn(
+          `[compaction] tab ${record.tabId} captured unavailable method ${preferred}; using omp configuration`,
+        );
+        return overlays;
+      }
+      const overlay = writeCompactionMethodOverlay(
+        absLineageDir,
+        preferred,
+        methods.configuredOrder,
+      );
+      if (overlay !== null) overlays.push(overlay);
+    } catch (err) {
+      writeCompactionMethodOverlay(absLineageDir, null, []);
+      console.warn(
+        `[compaction] tab ${record.tabId} could not apply captured method ${preferred}; using omp configuration:`,
+        err,
+      );
     }
     return overlays;
   }

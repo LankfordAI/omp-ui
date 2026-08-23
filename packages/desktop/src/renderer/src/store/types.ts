@@ -167,10 +167,17 @@ export type SettingsPage =
 export type CompactSurface =
   "sessions" | "inspector" | "session-actions" | "composer-options";
 
+export type CompactionMethodsLoad =
+  | { status: "unloaded" }
+  | { status: "loading" }
+  | { status: "loaded"; methods: string[] }
+  | { status: "failed"; message: string };
+
 export interface SettingsSlice {
   /** The settings modal's open page, or null while closed. */
   settingsPage: SettingsPage | null;
   remote: RemoteState;
+  compactionMethods: CompactionMethodsLoad;
   /**
    * Effective compaction threshold keys per project, from the settings read.
    * `null` = the read failed (no notch); absent key = not read yet (no notch).
@@ -181,6 +188,8 @@ export interface SettingsSlice {
   replaceRemote(remote: RemoteState): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setDefaultAgentMode(mode: AgentMode): Promise<void>;
+  ensureCompactionMethods(): Promise<void>;
+  setDefaultCompactionMethod(method: string | null): Promise<void>;
   setPlanFormat(format: PlanFormat): Promise<void>;
   setHibernateIdleMinutes(minutes: number): Promise<void>;
   setStreamStallAbortSeconds(seconds: number): Promise<void>;

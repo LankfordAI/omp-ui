@@ -143,6 +143,14 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setDefaultAgentMode",
     ...request<[mode: AgentMode], void>(),
   },
+  listCompactionMethods: {
+    channel: "settings:listCompactionMethods",
+    ...request<[], string[]>(),
+  },
+  setDefaultCompactionMethod: {
+    channel: "settings:setDefaultCompactionMethod",
+    ...request<[method: string | null], void>(),
+  },
   setPlanFormat: {
     channel: "settings:setPlanFormat",
     ...request<[format: PlanFormat], void>(),

@@ -115,6 +115,7 @@ const stateWith = (
   ],
   defaultMode: "rpc-ui",
   defaultAgentMode: "build",
+  defaultCompactionMethod: null,
   planFormat: "md",
   hibernateIdleMinutes: 30,
   streamStallAbortSeconds: 180,

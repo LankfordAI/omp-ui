@@ -199,6 +199,14 @@ in the Session HUD when active. It never controls plan implementation: every
 execution context of an approved plan begins in Build (issue #165).
 _Avoid_: default session mode, startup plan mode
 
+**Default compaction method**:
+The Settings → General preference that chooses the first compaction method omp
+attempts for a fresh native session. The installed omp binary supplies the
+available methods. Null defers entirely to omp. A fresh native session captures
+the preference on its owned-session record and reuses it on later resumes;
+terminal-origin sessions never capture or apply it. The per-lineage overlay
+keeps omp's effective configured fallback order after the selected method.
+
 **Plan review**:
 The gate between drafting and implementing, rendered as a non-modal panel
 docked in the session's tab so it never locks the rest of the app. The agent

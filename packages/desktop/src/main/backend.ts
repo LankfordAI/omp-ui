@@ -17,6 +17,7 @@ import {
   readOmpAdvisorDefaults,
   readOmpModelRole,
   readOmpSettings,
+  readOmpCompactionMethods,
   readBranchDiff,
   listBranches,
   listMemories,
@@ -329,6 +330,19 @@ export class MainBackend {
         },
         [CH.setDefaultAgentMode]: async (mode: AgentMode) => {
           this.registry.setDefaultAgentMode(mode);
+          await this.broadcast();
+        },
+        [CH.listCompactionMethods]: async () =>
+          (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null })).supported,
+        [CH.setDefaultCompactionMethod]: async (method: string | null) => {
+          if (method !== null) {
+            const { supported } = await readOmpCompactionMethods({
+              ompPath: this.ompPath,
+              projectCwd: null,
+            });
+            if (!supported.includes(method)) throw new Error(`Unsupported compaction method: ${method}`);
+          }
+          this.registry.setDefaultCompactionMethod(method);
           await this.broadcast();
         },
         [CH.setPlanFormat]: async (format: PlanFormat) => {
@@ -725,6 +739,7 @@ export class MainBackend {
       hibernateIdleMinutes: this.registry.hibernateIdleMinutes,
       streamStallAbortSeconds: this.registry.streamStallAbortSeconds,
       defaultAgentMode: this.registry.defaultAgentMode,
+      defaultCompactionMethod: this.registry.defaultCompactionMethod,
       advisorAutoReply: this.registry.advisorAutoReply,
       stallAutoContinue: this.registry.stallAutoContinue,
       defaultAdvisor: this.registry.defaultAdvisor,

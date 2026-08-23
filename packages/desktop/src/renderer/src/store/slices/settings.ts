@@ -41,10 +41,12 @@ const compactionInflight = new Map<string, Promise<void>>();
  * not land over the cleared cache (the notch would show a stale threshold).
  */
 let compactionGeneration = 0;
+let compactionMethodsInflight: Promise<void> | null = null;
 export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> = (set, get) => ({
   settingsPage: null,
   remote: DEFAULT_REMOTE,
   compactionSettings: {},
+  compactionMethods: { status: "unloaded" },
 
   openSettings(page) {
     set({ settingsPage: page ?? "general" });
@@ -69,6 +71,38 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
   async setDefaultAgentMode(mode) {
     try {
       await backend.setDefaultAgentMode(mode);
+    } catch (err) {
+      alertError(err);
+    }
+  },
+
+  async ensureCompactionMethods() {
+    if (get().compactionMethods.status === "loaded") return;
+    if (compactionMethodsInflight !== null) return compactionMethodsInflight;
+    set({ compactionMethods: { status: "loading" } });
+    compactionMethodsInflight = (async () => {
+      try {
+        const methods = await backend.listCompactionMethods();
+        set({ compactionMethods: { status: "loaded", methods } });
+      } catch (err) {
+        set({
+          compactionMethods: {
+            status: "failed",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        });
+      }
+    })();
+    try {
+      await compactionMethodsInflight;
+    } finally {
+      compactionMethodsInflight = null;
+    }
+  },
+
+  async setDefaultCompactionMethod(method) {
+    try {
+      await backend.setDefaultCompactionMethod(method);
     } catch (err) {
       alertError(err);
     }

@@ -212,11 +212,22 @@ const HIBERNATE_IDLE_OPTIONS = [
   { value: 240, label: "4 hours" },
 ] as const;
 
+const COMPACTION_METHOD_LABELS: Record<string, string> = {
+  remote: "Remote",
+  snapcompact: "Snapcompact",
+  handoff: "Handoff",
+  shake: "Shake",
+  soft: "Soft",
+};
+
 function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
+  const compactionMethods = useStore((s) => s.compactionMethods);
+  const ensureCompactionMethods = useStore((s) => s.ensureCompactionMethods);
+  const setDefaultCompactionMethod = useStore((s) => s.setDefaultCompactionMethod);
   const setHibernateIdleMinutes = useStore((s) => s.setHibernateIdleMinutes);
   const setStreamStallAbortSeconds = useStore(
     (s) => s.setStreamStallAbortSeconds,
@@ -231,6 +242,10 @@ function GeneralPage() {
   const mode = state?.defaultMode ?? "pty";
   const agentMode = state?.defaultAgentMode ?? "plan";
   const planFormat = state?.planFormat ?? "html";
+  const defaultCompactionMethod = state?.defaultCompactionMethod ?? null;
+  useEffect(() => {
+    void ensureCompactionMethods();
+  }, [ensureCompactionMethods]);
 
   return (
     <div className="divide-y divide-line-soft px-4">
@@ -257,6 +272,39 @@ function GeneralPage() {
           onChange={(value) => void setDefaultAgentMode(value)}
           optionClassName="px-2 text-[11px]"
         />
+      </Row>
+      <Row
+        title="Default compaction method"
+        hint="Captured by new native sessions. omp configured default removes the override."
+      >
+        <div className="flex min-w-0 flex-col items-end gap-1">
+          <select
+            aria-label="default compaction method"
+            value={defaultCompactionMethod ?? ""}
+            onChange={(e) => void setDefaultCompactionMethod(e.target.value || null)}
+            className={FIELD}
+          >
+            <option value="">omp configured default</option>
+            {compactionMethods.status === "loaded" &&
+              defaultCompactionMethod !== null &&
+              !compactionMethods.methods.includes(defaultCompactionMethod) && (
+                <option value={defaultCompactionMethod} disabled>
+                  {defaultCompactionMethod} (unavailable)
+                </option>
+              )}
+            {compactionMethods.status === "loaded" &&
+              compactionMethods.methods.map((method) => (
+                <option key={method} value={method}>
+                  {COMPACTION_METHOD_LABELS[method] ?? method}
+                </option>
+              ))}
+          </select>
+          {compactionMethods.status === "failed" && (
+            <span className="max-w-64 text-right text-[10px] text-ink-faint">
+              Methods unavailable: {compactionMethods.message}
+            </span>
+          )}
+        </div>
       </Row>
       <Row
         title="Plan format"
