@@ -97,6 +97,9 @@ download_and_verify() {
     curl -fsSL -H "User-Agent: omp-ui-installer" \
         -o "$WORKDIR/$asset" "$DOWNLOAD_BASE/$tag/$asset" \
         || die "failed to download $DOWNLOAD_BASE/$tag/$asset"
+    # curl creates files without the execute bit; the prerequisite check
+    # and icon install exec the staged AppImage for --appimage-extract.
+    chmod 0755 "$WORKDIR/$asset"
     curl -fsSL -H "User-Agent: omp-ui-installer" \
         -o "$WORKDIR/$sums" "$DOWNLOAD_BASE/$tag/$sums" \
         || die "failed to download $DOWNLOAD_BASE/$tag/$sums (cannot verify checksum)"
@@ -392,6 +395,7 @@ do_install() {
         [ -f "$binary" ] && [ -r "$binary" ] \
             || die "binary not found or not readable: $binary"
         cp -- "$binary" "$WORKDIR/omp-ui.AppImage"
+        chmod 0755 "$WORKDIR/omp-ui.AppImage"
         staged_appimage="$WORKDIR/omp-ui.AppImage"
     else
         local tag
