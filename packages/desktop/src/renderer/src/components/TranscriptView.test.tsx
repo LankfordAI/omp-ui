@@ -329,7 +329,7 @@ describe("PlanCard (issue #93)", () => {
     act(() => root.unmount());
   });
 
-  it("renders a loaded html plan through the guarded empty-sandbox iframe", () => {
+  it("renders a loaded html plan through the guarded empty-sandbox iframe", async () => {
     const html = "<h1>Auth refresh</h1><p>html-plan-body</p>";
     const item = {
       ...planProposalItem("Auth refresh", "local://auth-plan.html", null),
@@ -346,6 +346,8 @@ describe("PlanCard (issue #93)", () => {
     const frame = el.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
     expect(frame).not.toBeNull();
     expect(frame!.getAttribute("sandbox")).toBe("");
+    // preparePlanDocument is async now (issue #285): flush the effect chain.
+    await act(async () => {});
     expect(frame!.getAttribute("srcdoc")).toContain(html);
     expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
     act(() => root.unmount());

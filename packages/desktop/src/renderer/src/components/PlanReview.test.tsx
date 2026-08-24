@@ -723,7 +723,7 @@ describe("PlanReview plan rendering (issue #109)", () => {
   const planFrame = (): HTMLIFrameElement | null =>
     document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
 
-  it("renders the html rendition in an empty-sandbox iframe, markdown suppressed", () => {
+  it("renders the html rendition in an empty-sandbox iframe, markdown suppressed", async () => {
     useStore.setState({
       rpc: {
         [TAB]: tabState({
@@ -739,6 +739,8 @@ describe("PlanReview plan rendering (issue #109)", () => {
     // The empty token list is the whole security story: no scripts, no
     // same-origin access, no forms, no popups, no navigation.
     expect(frame!.getAttribute("sandbox")).toBe("");
+    // Diagram substitution + guardrail injection resolve asynchronously.
+    await act(async () => {});
     expect(frame!.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
     expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
     expect(document.body.textContent).not.toContain("markdown-only-body");
@@ -768,6 +770,47 @@ describe("PlanReview plan rendering (issue #109)", () => {
 
     expect(planFrame()).toBeNull();
     expect(document.body.textContent).toContain("The plan file could not be read");
+  });
+});
+describe("PlanReview mermaid diagrams (issue #285)", () => {
+  const planFrame = (): HTMLIFrameElement | null =>
+    document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
+
+  it("renders a mermaid block to contained SVG inside the guardrailed document", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          planText: null,
+          planHtml:
+            '<h1>Fix</h1><pre class="mermaid">flowchart TD; A--&gt;B</pre><p>after the diagram</p>',
+        }),
+      },
+    });
+    render();
+
+    const frame = planFrame()!;
+    // The real mermaid renderer measures text, which jsdom does not implement;
+    // the smoke test covers real rendering. Here the block must be substituted
+    // — rendered or failed — never left as raw source, and the guardrails must
+    // still wrap the document with the diagram carve-out.
+    await act(async () => {});
+    // The hook resolves after a real dynamic import, so one microtask flush is
+    // not enough — pump macrotasks until srcdoc populates.
+    let srcdoc = frame.getAttribute("srcdoc")!;
+    for (let i = 0; i < 50 && srcdoc === ""; i += 1) {
+      await act(async () => {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 10);
+        await promise;
+      });
+      srcdoc = frame.getAttribute("srcdoc")!;
+    }
+    expect(srcdoc).not.toContain('<pre class="mermaid">');
+    expect(srcdoc).toContain("<p>after the diagram</p>");
+    expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
+    expect(srcdoc).toContain(".omp-ui-diagram svg {");
+    expect(srcdoc).toContain("max-width: 100% !important;");
+    expect(srcdoc).toContain("height: auto !important;");
   });
 });
 

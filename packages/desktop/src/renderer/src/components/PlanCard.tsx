@@ -1,5 +1,5 @@
 import { isHtmlPlanPath } from "@omp-ui/core/plan";
-import { preparePlanDocument } from "../lib/plan-document";
+import { usePreparedPlanDocument } from "../lib/plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
 import { Chip, Disclosure, Label, Panel } from "./ui";
@@ -10,6 +10,9 @@ import { Chip, Disclosure, Label, Panel } from "./ui";
  * this card is the chronological trace, collapsed by default.
  */
 export function PlanCard({ item }: { item: PlanItem }) {
+  const preparedHtml = usePreparedPlanDocument(
+    item.text !== null && isHtmlPlanPath(item.planFilePath) ? item.text : null,
+  );
   return (
     <Panel className="animate-rise">
       <div className="flex items-center gap-2 px-2.5 py-1.5">
@@ -31,7 +34,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
                 <iframe
                   title="proposed plan"
                   sandbox=""
-                  srcDoc={preparePlanDocument(item.text)}
+                  srcDoc={preparedHtml ?? ""}
                   className="h-[28rem] w-full rounded-md border border-line bg-white"
                 />
               ) : (

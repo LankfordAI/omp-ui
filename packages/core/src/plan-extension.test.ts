@@ -97,9 +97,23 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain("wrap long code and paths");
     expect(instruction).toContain("fit tables within the viewport without overflow");
     expect(instruction).toContain("may overlap or clip");
+    expect(instruction).toContain("Choose the diagram tool by what the figure represents");
+    expect(instruction).toContain('<pre class="mermaid">');
+    expect(instruction).toContain("mermaid source");
+    expect(instruction).toContain("error callout");
+    expect(instruction).toContain("classDef");
+    expect(instruction).toContain("fill, stroke, and text color");
+    // Spatial figures may be hand-drawn, but only with the layout recipe that
+    // prevents the overlap/clipping that made us ban freehand SVG (#287).
+    // Direction is a deliberate choice, not a TD default (#289): LR for
+    // pipelines/timelines, BT for funnels, organic flows go to hand-drawn SVG.
+    expect(instruction).toContain("flowchart LR");
+    expect(instruction).toContain("flowchart BT");
+    expect(instruction).toContain("Do not default every chart to a tall TD stack");
+    expect(instruction).toContain("Hand-drawn inline SVG is the right tool");
     expect(instruction).toContain("never straddling an edge");
-    expect(instruction).toContain("budget its width by character count");
-    expect(instruction).toContain("non-overlapping box");
+    expect(instruction).toContain("0.6 times font-size");
+    expect(instruction).toContain("coarse grid");
   });
 
   it("never quietly reverts to asking the agent for both plan files", () => {

@@ -5,7 +5,7 @@ import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
-import { preparePlanDocument } from "../lib/plan-document";
+import { usePreparedPlanDocument } from "../lib/plan-document";
 import { useCompactShell } from "../lib/responsive";
 import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
@@ -80,6 +80,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const planText = useStore((s) => s.rpc[tabId]?.planText);
   /** Present only when the session planned in html format and the file read. */
   const planHtml = useStore((s) => s.rpc[tabId]?.planHtml);
+  const preparedPlanHtml = usePreparedPlanDocument(planHtml ?? null);
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
@@ -414,7 +415,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   <iframe
                     title="proposed plan"
                     sandbox=""
-                    srcDoc={preparePlanDocument(planHtml)}
+                    srcDoc={preparedPlanHtml ?? ""}
                     className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
                   />
                 ) : planText ? (
