@@ -26,7 +26,9 @@ _Avoid_: open session, active session, running session
 **Hibernated session**:
 An owned session whose `omp` process omp-ui stopped itself after the session
 sat idle beyond the *Hibernate idle sessions* window while no renderer was
-viewing its tab (issue #246; viewed-tab exemption #266).
+viewing its tab (issue #246; viewed-tab exemption #266), or after it handed an
+approved plan to a fresh implementation session and passed the same live-work
+safety probe (issue #283).
 A hibernated session is dormant — transcript and worktree on disk, no process — and wakes
 through the ordinary resume path; the sidebar shows it as dormant and its tab
 offers resume. The distinction from a plain dormant session is causal: dormant
@@ -65,7 +67,11 @@ _Avoid_: tab history
 
 **Plan handoff**:
 A persistent, one-way relation from a fresh implementation session to the
-planning session whose approved plan seeded it. The sessions stay independent:
+planning session whose approved plan seeded it. After the fresh session
+acknowledges that seed, the renderer suppresses automatic prompts on the source
+and main hibernates it only when a safety probe finds no turn, queue, stream, or
+blocking human-answer request. A declined reap leaves the source live but still
+handed off until a human prompts or resumes it. The sessions stay independent:
 deleting either one never deletes the other, and an implementation session
 keeps the plan's provenance if the planning session is later deleted.
 _Avoid_: lineage, parent session

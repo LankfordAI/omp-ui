@@ -135,6 +135,7 @@ const mockBackend = {
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
+  hibernatePlanSource: vi.fn(async () => true),
   restartSession: vi.fn(),
   convertToWorktree: vi.fn(async () => {}),
   switchMode: vi.fn(),
@@ -2120,7 +2121,30 @@ describe("handleRpcFrame routing", () => {
     );
     expect(prompt).toBeDefined();
     expect(prompt!.cmd.message).toContain("Implement it now");
+    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(
+      useStore
+        .getState()
+        .rpc[TAB]!.items.some(
+          (item) =>
+            item.kind === "notice" && item.text.includes("implementation dispatched"),
+        ),
+    ).toBe(false);
+
+    respond("fresh-tab", prompt!.cmd, {});
     await flushMicrotasks();
+
+    expect(mockBackend.hibernatePlanSource).toHaveBeenCalledOnce();
+    expect(mockBackend.hibernatePlanSource).toHaveBeenCalledWith(TAB, "fresh-tab");
+    expect(
+      useStore
+        .getState()
+        .rpc[TAB]!.items.some(
+          (item) =>
+            item.kind === "notice" && item.text.includes("implementation dispatched"),
+        ),
+    ).toBe(true);
+    await rearmHandoffSource();
   });
 
   it("seeds a fresh session with an html plan's spec, not its stylesheet", async () => {
@@ -2196,6 +2220,319 @@ describe("handleRpcFrame routing", () => {
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
   };
+
+  const dispatchFreshSeed = async (id: string): Promise<(typeof sent)[number]> => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    openReview(id);
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    await flushMicrotasks();
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+      },
+    }));
+    await flushMicrotasks();
+    const prompt = sent.find(
+      (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt",
+    );
+    if (prompt === undefined) throw new Error("fresh implementation seed was not sent");
+    return prompt;
+  };
+
+  const rearmHandoffSource = async (): Promise<void> => {
+    const prompt = useStore.getState().sendPrompt(TAB, "test handoff cleanup", "prompt");
+    const command = sent.at(-1);
+    if (command?.tabId === TAB && command.cmd.type === "prompt") {
+      respond(TAB, command.cmd, {});
+    }
+    await prompt;
+  };
+
+  it("does not hibernate after a fresh spawn failure or readiness timeout (issue #283)", async () => {
+    mockBackend.spawnSession.mockRejectedValueOnce(new Error("spawn failed"));
+    useStore.setState({ state: stateWithRecord(null) });
+    openReview("handoff-spawn-failure");
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh");
+    await flushMicrotasks();
+    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    try {
+      mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "never-ready" });
+      openReview("handoff-ready-timeout");
+      await flushMicrotasks();
+      useStore.getState().executePlan(TAB, "fresh");
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flushMicrotasks();
+      expect(
+        sent.some((entry) => entry.tabId === "never-ready" && entry.cmd.type === "prompt"),
+      ).toBe(false);
+      expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["set_model", { model: { id: "new", name: "New", provider: "provider" } }],
+    ["set_thinking_level", { thinkingLevel: "high" }],
+  ])("does not seed or hibernate after %s setup fails (issue #283)", async (command, options) => {
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    useStore.setState({ state: stateWithRecord(null) });
+    openReview(`handoff-${command}`);
+    await flushMicrotasks();
+    useStore.getState().executePlan(TAB, "fresh", options);
+    await flushMicrotasks();
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+      },
+    }));
+    await flushMicrotasks();
+    const setupCommand = sent.find(
+      (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === command,
+    );
+    expect(setupCommand).toBeDefined();
+    respond("fresh-tab", setupCommand!.cmd, "setup failed", false);
+    await flushMicrotasks();
+
+    expect(
+      sent.some((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
+    ).toBe(false);
+    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+  });
+
+  it("does not hibernate or claim dispatch when the seed command fails (issue #283)", async () => {
+    const prompt = await dispatchFreshSeed("handoff-seed-failure");
+    respond("fresh-tab", prompt.cmd, "seed rejected", false);
+    await flushMicrotasks();
+
+    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(
+      useStore
+        .getState()
+        .rpc[TAB]!.items.some(
+          (item) =>
+            item.kind === "notice" && item.text.includes("implementation dispatched"),
+        ),
+    ).toBe(false);
+  });
+
+  it("suppresses a second advisor reply while source hibernation is unresolved (issue #283)", async () => {
+    vi.useFakeTimers();
+    const hibernation = deferred<boolean>();
+    mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
+    try {
+      useStore.setState({
+        state: stateWithRecord(null),
+        rpc: {
+          [TAB]: rpcTabState({
+            advisorStats: {
+              available: true,
+              configured: true,
+              active: true,
+              model: "advisor",
+              subscription: false,
+              contextWindow: 200_000,
+              contextTokens: 0,
+              cost: 0,
+              totalTokens: 0,
+            },
+          }),
+        },
+      });
+      mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+      openReview("handoff-advisor-race");
+      useStore.getState().executePlan(TAB, "fresh");
+      useStore
+        .getState()
+        .handleRpcFrame(TAB, advisorReviewFrame("first finding", "concern", "advisor"));
+      await flushMicrotasks();
+      useStore.setState((state) => ({
+        rpc: {
+          ...state.rpc,
+          "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+        },
+      }));
+      await flushMicrotasks();
+      const seed = sent.find(
+        (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt",
+      );
+      expect(seed).toBeDefined();
+      respond("fresh-tab", seed!.cmd, {});
+      await flushMicrotasks();
+      expect(mockBackend.hibernatePlanSource).toHaveBeenCalledWith(TAB, "fresh-tab");
+
+      useStore
+        .getState()
+        .handleRpcFrame(TAB, advisorReviewFrame("late finding", "concern", "advisor"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
+      await flushMicrotasks();
+      expect(sent.some((entry) => entry.tabId === TAB && entry.cmd.type === "prompt")).toBe(
+        false,
+      );
+    } finally {
+      hibernation.resolve(false);
+      await rearmHandoffSource();
+      vi.useRealTimers();
+    }
+  });
+
+  it("suppresses stall auto-continue after a successful fresh seed (issue #283)", async () => {
+    vi.useFakeTimers();
+    const hibernation = deferred<boolean>();
+    mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
+    try {
+      const seed = await dispatchFreshSeed("handoff-stall");
+      respond("fresh-tab", seed.cmd, {});
+      await flushMicrotasks();
+      useStore.setState((state) => ({
+        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      }));
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "partial" }],
+          stopReason: "error",
+          errorMessage: "OpenAI responses stream stalled while waiting for the next event",
+          errorId: 397312,
+        },
+      });
+      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+      await flushMicrotasks();
+
+      expect(
+        sent.some(
+          (entry) => entry.tabId === TAB && entry.cmd.message === STALL_CONTINUE_LEAD,
+        ),
+      ).toBe(false);
+    } finally {
+      hibernation.resolve(false);
+      await rearmHandoffSource();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["false result", async () => false],
+    ["rejection", async () => Promise.reject(new Error("transport failed"))],
+  ])("keeps source automation suppressed after backend %s (issue #283)", async (_case, result) => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockBackend.hibernatePlanSource.mockImplementationOnce(result);
+    try {
+      const seed = await dispatchFreshSeed(`handoff-${_case}`);
+      respond("fresh-tab", seed.cmd, {});
+      await flushMicrotasks();
+      useStore.setState((state) => ({
+        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      }));
+      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      useStore
+        .getState()
+        .handleRpcFrame(TAB, advisorReviewFrame("late", "concern", "advisor"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
+      await flushMicrotasks();
+
+      expect(
+        sent.filter((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
+      ).toHaveLength(1);
+      expect(sent.some((entry) => entry.tabId === TAB && entry.cmd.type === "prompt")).toBe(
+        false,
+      );
+      expect(mockBackend.terminateSession).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      await rearmHandoffSource();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a manual source prompt re-enables advisor replies after handoff (issue #283)", async () => {
+    vi.useFakeTimers();
+    mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
+    try {
+      const seed = await dispatchFreshSeed("handoff-manual-resume");
+      respond("fresh-tab", seed.cmd, {});
+      await flushMicrotasks();
+      const manual = useStore.getState().sendPrompt(TAB, "new human direction", "prompt");
+      const manualCommand = sent.find(
+        (entry) => entry.tabId === TAB && entry.cmd.message === "new human direction",
+      );
+      respond(TAB, manualCommand!.cmd, {});
+      await expect(manual).resolves.toBe(true);
+      useStore.setState((state) => ({
+        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      }));
+      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      useStore
+        .getState()
+        .handleRpcFrame(TAB, advisorReviewFrame("review human work", "concern", "advisor"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+      await flushMicrotasks();
+
+      expect(
+        sent.some(
+          (entry) =>
+            entry.tabId === TAB &&
+            entry.cmd.type === "prompt" &&
+            String(entry.cmd.message).includes("review human work"),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("booting the source re-enables advisor replies after handoff (issue #283)", async () => {
+    vi.useFakeTimers();
+    mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
+    try {
+      const seed = await dispatchFreshSeed("handoff-boot-resume");
+      respond("fresh-tab", seed.cmd, {});
+      await flushMicrotasks();
+      sent.length = 0;
+      await driveBoot(TAB);
+      useStore.setState((state) => ({
+        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      }));
+      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      useStore
+        .getState()
+        .handleRpcFrame(TAB, advisorReviewFrame("review resumed work", "concern", "advisor"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+      await flushMicrotasks();
+
+      expect(
+        sent.some(
+          (entry) =>
+            entry.tabId === TAB &&
+            entry.cmd.type === "prompt" &&
+            String(entry.cmd.message).includes("review resumed work"),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never requests source hibernation for existing or compacted execution (issue #283)", async () => {
+    openReview("handoff-existing");
+    useStore.getState().executePlan(TAB, "existing");
+    openReview("handoff-compacted");
+    useStore.getState().executePlan(TAB, "compacted");
+    await flushMicrotasks();
+
+    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+  });
 
   it("holds execute for the drafting turn's advisor review, then folds its concerns", async () => {
     // Fake timers for the whole test: the same review that feeds the fold also
@@ -3775,7 +4112,7 @@ describe("prompting, slash commands, and session ops", () => {
       streamingBehavior: "steer",
     });
     await settleAll();
-    await ready;
+    await expect(ready).resolves.toBe(true);
 
     useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
     const steering = useStore.getState().sendPrompt(TAB, "actually, wait");
@@ -3785,7 +4122,22 @@ describe("prompting, slash commands, and session ops", () => {
       streamingBehavior: "steer",
     });
     await settleAll();
-    await steering;
+    await expect(steering).resolves.toBe(true);
+  });
+
+  it("sendPrompt returns false when no command is accepted (issue #283)", async () => {
+    useStore.setState({ rpc: {} });
+    await expect(useStore.getState().sendPrompt(TAB, "missing")).resolves.toBe(false);
+    expect(sent).toHaveLength(0);
+
+    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "starting" }) } });
+    await expect(useStore.getState().sendPrompt(TAB, "starting")).resolves.toBe(false);
+    expect(sent).toHaveLength(0);
+
+    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "ready" }) } });
+    const failed = useStore.getState().sendPrompt(TAB, "rejected");
+    respond(TAB, sent[0]!.cmd, "prompt rejected", false);
+    await expect(failed).resolves.toBe(false);
   });
 
   it("sendPrompt honours an explicit follow_up route while running", async () => {

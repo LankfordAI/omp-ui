@@ -81,6 +81,7 @@ const mockBackend = {
   setDesktopNotifications: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
+  hibernatePlanSource: vi.fn(async () => true),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
   forkSession: vi.fn(),

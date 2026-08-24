@@ -215,7 +215,7 @@ export class SessionManager {
    * `spawning`): a resume issued mid-reap waits for the entry to leave
    * `live` instead of deduping against the dying process.
    */
-  private readonly hibernating = new Map<string, Promise<void>>();
+  private readonly hibernating = new Map<string, Promise<boolean>>();
   /** Unanswered extension_ui_request ids per tab (plan reviews included). */
   private readonly openExtensionRequests = new Map<string, Set<string>>();
   /**
@@ -1169,12 +1169,17 @@ export class SessionManager {
   }
 
   /** True when a kill cannot lose work or an in-flight exchange. */
-  private hibernable(entry: LiveEntry, tabId: string): boolean {
+  private hibernable(
+    entry: LiveEntry,
+    tabId: string,
+    policy: "idle" | "plan-handoff",
+  ): boolean {
     if (entry.kind !== "rpc-ui") return false;
     if (!entry.hibernateArmed) return false; // still booting
     if (entry.turnsRunning > 0) return false; // mid-turn
-    if (this.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
     if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
+    if (policy === "plan-handoff") return true;
+    if (this.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
     const until = entry.settleSuspendedUntil;
     if (until !== null) {
       if (Date.now() < until) return false; // post-verdict window
@@ -1243,7 +1248,7 @@ export class SessionManager {
     if (this.deps.registry.hibernateIdleMinutes <= 0) return;
     const entry = this.live.get(tabId);
     if (!entry || entry.kind !== "rpc-ui") return;
-    if (!this.hibernable(entry, tabId)) {
+    if (!this.hibernable(entry, tabId, "idle")) {
       this.armHibernateTimer(tabId); // guard in force: re-examine next window
       return;
     }
@@ -1261,7 +1266,7 @@ export class SessionManager {
     }
     // Re-check after the probe round-trip: a prompt that landed while we
     // probed starts a turn the probe's snapshot cannot see.
-    if (!this.hibernable(entry, tabId)) {
+    if (!this.hibernable(entry, tabId, "idle")) {
       this.armHibernateTimer(tabId);
       return;
     }
@@ -1275,27 +1280,77 @@ export class SessionManager {
   }
 
   /**
+   * Hibernates an idle planning source after a fresh implementation prompt was
+   * accepted. The persisted handoff relation is the authorization boundary;
+   * viewed-tab and post-verdict guards apply only to ordinary idle hibernation.
+   */
+  async hibernatePlanSource(
+    sourceTabId: string,
+    implementationTabId: string,
+  ): Promise<boolean> {
+    const source = this.deps.registry.sessions.find((record) => record.tabId === sourceTabId);
+    if (source === undefined) throw new Error(`unknown plan source tab ${sourceTabId}`);
+    const implementation = this.deps.registry.sessions.find(
+      (record) => record.tabId === implementationTabId,
+    );
+    if (implementation === undefined) {
+      throw new Error(`unknown plan implementation tab ${implementationTabId}`);
+    }
+    if (implementation.planImplementationSource?.sourceTabId !== sourceTabId) {
+      throw new Error("plan implementation does not belong to the requested source");
+    }
+    if (source.projectCwd !== implementation.projectCwd) {
+      throw new Error("plan source and implementation must belong to the same project");
+    }
+    if (source.mode !== "rpc-ui" || implementation.mode !== "rpc-ui") {
+      throw new Error("plan source and implementation must use rpc-ui mode");
+    }
+
+    const entry = this.live.get(sourceTabId);
+    if (entry === undefined) return true;
+    if (this.deps.registry.hibernateIdleMinutes <= 0) return false;
+    const pending = this.hibernating.get(sourceTabId);
+    if (pending !== undefined) return pending;
+    if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
+
+    const state = await this.probeState(entry);
+    if (this.deps.registry.hibernateIdleMinutes <= 0) return false;
+    if (this.live.get(sourceTabId) !== entry) return !this.live.has(sourceTabId);
+    if (state === null || state.parked > 0 || state.streaming) return false;
+    if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
+
+    const reap = this.hibernate(sourceTabId, entry);
+    this.hibernating.set(sourceTabId, reap);
+    try {
+      return await reap;
+    } finally {
+      this.hibernating.delete(sourceTabId);
+    }
+  }
+
+  /**
    * SIGTERM → grace → SIGKILL. Emits `session:hibernated` only after the reap
    * succeeds, so a renderer that sees it never races a live process. If the
    * child outlives SIGKILL the outcome goes back to the normal exit path.
    */
-  private async hibernate(tabId: string, entry: LiveEntry): Promise<void> {
+  private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {
     entry.suppressExit = true;
     this.killLive(entry);
     if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) {
       this.deps.send(CH.onSessionHibernated, tabId);
       void this.deps.broadcast();
-      return;
+      return this.live.get(tabId) !== entry;
     }
     entry.pty?.kill("SIGKILL");
     entry.rpc?.kill("SIGKILL");
     if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) {
       this.deps.send(CH.onSessionHibernated, tabId);
       void this.deps.broadcast();
-      return;
+      return this.live.get(tabId) !== entry;
     }
     entry.suppressExit = false;
     console.warn(`[sessions] ${tabId}: hibernation kill ignored by child; leaving it live`);
+    return false;
   }
 
   rpcSend(tabId: string, cmd: object): void {

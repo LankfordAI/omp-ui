@@ -351,7 +351,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     message: string,
     route?: PromptRoute,
     images?: ImageAttachment[],
-  ): Promise<void>;
+  ): Promise<boolean>;
   abortAgent(tabId: string): Promise<void>;
   abortAndPrompt(
     tabId: string,

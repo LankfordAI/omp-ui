@@ -57,7 +57,7 @@ const { RpcTab } = await import("./RpcTab");
 const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" };
 const IMAGE_TWO = { type: "image" as const, data: "two", mimeType: "image/jpeg" };
 const TAB = "tab-compose";
-const sendPrompt = vi.fn(async () => {});
+const sendPrompt = vi.fn(async () => true);
 const abortAndPrompt = vi.fn(async () => {});
 const abortAgent = vi.fn(async () => {});
 const runSlashCommand = vi.fn(async () => {});

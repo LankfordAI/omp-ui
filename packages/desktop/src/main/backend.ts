@@ -436,6 +436,8 @@ export class MainBackend {
         },
         [CH.spawnSession]: (req: SpawnRequest) => this.sessions.spawn(req),
         [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
+        [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
+          this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
         [CH.switchMode]: (tabId: string, mode: SessionMode) =>
           this.sessions.switchMode(tabId, mode),
         [CH.deleteSession]: (tabId: string) => this.sessions.deleteSession(tabId),

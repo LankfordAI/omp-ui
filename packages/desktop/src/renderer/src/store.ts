@@ -318,6 +318,9 @@ let initialized = false;
 /** A new rpc process emits exactly one ready frame — that's the boot signal. */
 const rpcBooting = new Set<string>();
 
+/** Planning sources whose accepted fresh handoff disables automatic prompts. */
+const handedOffPlanSources = new Set<string>();
+
 /**
  * Minimum gap between mid-run get_state/get_session_stats refreshes, keyed by
  * tab. Context and spend only grow at turn boundaries, and an agent run fires
@@ -1045,6 +1048,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const advisorReplyWatcher = new AdvisorReplyWatcher({
     getItems: effectiveItems,
     canReply: (tabId) => {
+      if (handedOffPlanSources.has(tabId)) return false;
       const tab = get().rpc[tabId];
       if (!tab) return false;
       if (!tab.advisorReply) return false;
@@ -1075,6 +1079,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
    */
   const stallContinueWatcher = new StallContinueWatcher({
     canContinue: (tabId) => {
+      if (handedOffPlanSources.has(tabId)) return false;
       const tab = get().rpc[tabId];
       if (!tab) return false;
       if (get().state?.stallAutoContinue === false) return false;
@@ -1111,6 +1116,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     cancelTranscriptBatch(tabId);
     slashCommandItems.delete(tabId);
     compactionUsageGenerations.delete(tabId);
+    handedOffPlanSources.delete(tabId);
     if (tab) {
       for (const pending of tab.pendingCommands.values()) {
         clearTimeout(pending.timer);
@@ -1194,14 +1200,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       ...focusOn(s, freshId, projectCwd),
       exited: dropExited(s.exited, freshId),
     }));
-    appendItem(
-      srcTabId,
-      noticeItem(
-        "plan approved — implementation dispatched to a fresh session",
-        "info",
-      ),
-    );
     await pollUntil(freshId, (t) => t?.status === "ready");
+    if (get().rpc[freshId]?.status !== "ready") return;
     // Staged main-model parameters ride the composer's own actions, so they
     // persist into session parameter memory exactly like a composer change.
     const stagedModel = options?.model ?? null;
@@ -1212,6 +1212,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         (cur ? `${cur.provider}/${cur.id}` : null)
       ) {
         await get().setModel(freshId, stagedModel);
+        if (get().rpc[freshId]?.failure?.command === "set_model") return;
       }
     }
     if (
@@ -1220,13 +1221,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
         (get().rpc[freshId]?.session.thinkingLevel ?? null)
     ) {
       await get().setThinkingLevel(freshId, options.thinkingLevel);
+      if (get().rpc[freshId]?.failure?.command === "set_thinking_level") return;
     }
     const lead = "A plan was approved for this project. Implement it now.";
     const body = planSeedText(planText);
     const seed = body
       ? `${lead}\n\n${body}\n\nProceed with the implementation.`
       : lead;
-    await get().sendPrompt(
+    const accepted = await get().sendPrompt(
       freshId,
       withKeywords(
         withConcerns(seed, concerns),
@@ -1234,6 +1236,26 @@ export const useStore = create<UiStore>()((set, get, api) => {
       ),
       "prompt",
     );
+    if (!accepted) return;
+
+    handedOffPlanSources.add(srcTabId);
+    advisorReplyWatcher.cancel(srcTabId);
+    stallContinueWatcher.cancel(srcTabId);
+    appendItem(
+      srcTabId,
+      noticeItem(
+        "plan approved — implementation dispatched to a fresh session",
+        "info",
+      ),
+    );
+    try {
+      await backend.hibernatePlanSource(srcTabId, freshId);
+    } catch (err) {
+      console.warn(
+        `[plan-handoff] failed to hibernate source ${srcTabId} for implementation ${freshId}:`,
+        err,
+      );
+    }
   };
 
   const applyRpcState = (tabId: string, resp: unknown): void => {
@@ -1962,6 +1984,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async bootRpcTab(tabId) {
+      handedOffPlanSources.delete(tabId);
       if (rpcBooting.has(tabId)) return;
       rpcBooting.add(tabId);
       try {
@@ -2707,12 +2730,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     async sendPrompt(tabId, message, route = "steer", images) {
       const tab = get().rpc[tabId];
-      if (!tab || tab.status === "starting") return;
+      if (!tab || tab.status === "starting") return false;
       if (route === "advisor_reply" || route === "stall_continue") {
         // omp-ui's own prompt (a late-review answer, a stall continue): it
         // must not title the session and must not re-arm either loop guard —
         // an auto-prompt is not human direction.
       } else {
+        // Human direction makes a previously handed-off source active again,
+        // even when its immediate hibernation was declined.
+        handedOffPlanSources.delete(tabId);
         // Titling reads the first substantive prompt, whichever route it took.
         get().setInitialPrompt(tabId, message);
         advisorReplyWatcher.reset(tabId);
@@ -2732,7 +2758,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const cmd = { type: "prompt", message, streamingBehavior };
       // `images` is omitted entirely when empty: omp's own client sends no key
       // rather than an empty array, and every byte here is on one JSON line.
-      await runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
+      const response = await runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
+      return response !== null;
     },
 
     async abortAgent(tabId) {
@@ -2741,6 +2768,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     async abortAndPrompt(tabId, message, images) {
       if (get().rpc[tabId]?.status === "starting") return;
+      handedOffPlanSources.delete(tabId);
       get().setInitialPrompt(tabId, message);
       advisorReplyWatcher.reset(tabId);
       stallContinueWatcher.reset(tabId);

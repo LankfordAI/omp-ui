@@ -270,6 +270,15 @@ export const BACKEND_CHANNELS = {
     channel: "session:terminate",
     ...request<[tabId: string], void>(),
   },
+  /**
+   * Hibernates a planning source after its fresh implementation session has
+   * accepted the seed prompt (issue #283). Main validates the persisted
+   * handoff relation and refuses to reap live or uncertain work.
+   */
+  hibernatePlanSource: {
+    channel: "session:hibernatePlanSource",
+    ...request<[sourceTabId: string, implementationTabId: string], boolean>(),
+  },
   switchMode: {
     channel: "session:switchMode",
     ...request<[tabId: string, mode: SessionMode], void>(),

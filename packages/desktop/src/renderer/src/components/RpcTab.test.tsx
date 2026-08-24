@@ -82,7 +82,7 @@ function seed(selectedSubagent: string | null): void {
       }),
     },
     compactSurface: null,
-    sendPrompt: vi.fn(async () => {}),
+    sendPrompt: vi.fn(async () => true),
     abortAndPrompt: vi.fn(async () => {}),
     abortAgent: vi.fn(async () => {}),
   });
