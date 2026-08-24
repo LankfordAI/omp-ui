@@ -26,6 +26,9 @@ async function tmpRepo(): Promise<string> {
   await git(dir, ["init", "-q", "-b", "main"]);
   await git(dir, ["config", "user.email", "test@example.com"]);
   await git(dir, ["config", "user.name", "test"]);
+  // Windows runners default to core.autocrlf=true, which checks files out as
+  // CRLF and breaks assertions on committed LF content (issue #291).
+  await git(dir, ["config", "core.autocrlf", "false"]);
   fs.writeFileSync(path.join(dir, ".seed"), "seed\n");
   await git(dir, ["add", "."]);
   await git(dir, ["commit", "-q", "-m", "init"]);
