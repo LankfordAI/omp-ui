@@ -140,9 +140,23 @@ function Row({
   );
 }
 
-export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; tabId?: string }) {
-  const closeMcpManager = useStore((s) => s.closeMcpManager);
-  const restartSession = useStore((s) => s.restartSession);
+/**
+ * Resolved MCP servers for one scope, with per-server toggles. The
+ * presentational core of McpManager: load/error/empty states, per-file config
+ * errors, the toggle pipeline, and per-row failure/reauth affordances.
+ * Session-scoped extras (restart, reauth handoff) engage only when a live
+ * native `tabId` is pinned; the handoff reports back through `onAuthenticated`
+ * so the owning dialog decides what to close.
+ */
+export function McpServersPanel({
+  projectCwd,
+  tabId,
+  onAuthenticated,
+}: {
+  projectCwd: string | null;
+  tabId?: string;
+  onAuthenticated?: () => void;
+}) {
   const startTuiHandoff = useStore((s) => s.startTuiHandoff);
   const live = useStore((s) =>
     tabId === undefined ? false : findRecord(s.state, tabId)?.live === "live",
@@ -161,7 +175,6 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
   const [toggleError, setToggleError] = useState<string | null>(null);
   /** Name of the server with a toggle in flight; its switch stays disabled. */
   const [pendingName, setPendingName] = useState<string | null>(null);
-  const [restarting, setRestarting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const gen = useRef(0);
 
@@ -199,14 +212,92 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
 
   // omp refuses `/mcp reauth` outside its TUI, so the row hands the errand to
   // a real omp TUI in the tab's console drawer — undefined (and the button
-  // absent) without a live native tab to host it.
+  // absent) without a live native tab to host it. The panel owns no dialog:
+  // the handoff reports back through onAuthenticated.
   const authenticate =
     tabId !== undefined && live && native
       ? (entry: McpServerEntry): void => {
           startTuiHandoff(tabId, `/mcp reauth ${entry.name}`);
-          closeMcpManager();
+          onAuthenticated?.();
         }
       : undefined;
+
+  const result = load.status === "loaded" ? load.result : null;
+  const failures = new Map(
+    (mcpStatus?.failedServers ?? []).map((failure) => [failure.serverName, failure]),
+  );
+
+  return (
+    <>
+      {load.status === "loading" && (
+        <Empty title="Resolving MCP servers…" hint="Reading omp's config sources." />
+      )}
+      {load.status === "error" && (
+        <Empty
+          title="Could not resolve MCP servers"
+          hint={load.message}
+          action={
+            <Button size="xs" onClick={() => setReloadKey((k) => k + 1)}>
+              retry
+            </Button>
+          }
+        />
+      )}
+      {result !== null && (
+        <div className="py-1.5">
+          {result.errors.length > 0 && (
+            <Panel tone="rose" className="mx-4 my-2 px-3 py-2">
+              <p className="mb-1 text-[11px] font-medium">
+                {result.errors.length === 1
+                  ? "One config file could not be read:"
+                  : `${result.errors.length} config files could not be read:`}
+              </p>
+              {result.errors.map((e) => (
+                <p key={e.path} className="truncate font-mono text-[10px]" title={e.path}>
+                  {e.path}: {e.message}
+                </p>
+              ))}
+            </Panel>
+          )}
+          {toggleError !== null && (
+            <p className="mx-4 my-2 rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 text-xs text-rose">
+              {toggleError}
+            </p>
+          )}
+          {result.servers.length === 0 ? (
+            <Empty
+              title={projectCwd === null ? "No global MCP servers configured." : "No MCP servers configured for this project."}
+              hint="omp resolves native .omp/mcp.json files plus translated cursor, claude, gemini, opencode, windsurf, and vscode configs."
+            />
+          ) : (
+            <ul className="divide-y divide-line-soft">
+              {result.servers.map((entry) => (
+                <Row
+                  key={`${entry.source}:${entry.sourcePath}:${entry.name}`}
+                  entry={entry}
+                  projectScoped={projectCwd !== null}
+                  pending={pendingName === entry.name}
+                  failure={failures.get(entry.name)}
+                  onToggle={toggle}
+                  onAuthenticate={authenticate}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; tabId?: string }) {
+  const closeMcpManager = useStore((s) => s.closeMcpManager);
+  const restartSession = useStore((s) => s.restartSession);
+  const live = useStore((s) =>
+    tabId === undefined ? false : findRecord(s.state, tabId)?.live === "live",
+  );
+
+  const [restarting, setRestarting] = useState(false);
 
   const restart = (): void => {
     if (tabId === undefined) return;
@@ -218,11 +309,6 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
       if (ok) closeMcpManager();
     });
   };
-
-  const result = load.status === "loaded" ? load.result : null;
-  const failures = new Map(
-    (mcpStatus?.failedServers ?? []).map((failure) => [failure.serverName, failure]),
-  );
 
   return (
     <Modal onClose={closeMcpManager} width="w-[40rem]">
@@ -243,63 +329,11 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
         </header>
 
         <div className="max-h-[24rem] overflow-y-auto">
-          {load.status === "loading" && (
-            <Empty title="Resolving MCP servers…" hint="Reading omp's config sources." />
-          )}
-          {load.status === "error" && (
-            <Empty
-              title="Could not resolve MCP servers"
-              hint={load.message}
-              action={
-                <Button size="xs" onClick={() => setReloadKey((k) => k + 1)}>
-                  retry
-                </Button>
-              }
-            />
-          )}
-          {result !== null && (
-            <div className="py-1.5">
-              {result.errors.length > 0 && (
-                <Panel tone="rose" className="mx-4 my-2 px-3 py-2">
-                  <p className="mb-1 text-[11px] font-medium">
-                    {result.errors.length === 1
-                      ? "One config file could not be read:"
-                      : `${result.errors.length} config files could not be read:`}
-                  </p>
-                  {result.errors.map((e) => (
-                    <p key={e.path} className="truncate font-mono text-[10px]" title={e.path}>
-                      {e.path}: {e.message}
-                    </p>
-                  ))}
-                </Panel>
-              )}
-              {toggleError !== null && (
-                <p className="mx-4 my-2 rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 text-xs text-rose">
-                  {toggleError}
-                </p>
-              )}
-              {result.servers.length === 0 ? (
-                <Empty
-                  title={projectCwd === null ? "No global MCP servers configured." : "No MCP servers configured for this project."}
-                  hint="omp resolves native .omp/mcp.json files plus translated cursor, claude, gemini, opencode, windsurf, and vscode configs."
-                />
-              ) : (
-                <ul className="divide-y divide-line-soft">
-                  {result.servers.map((entry) => (
-                    <Row
-                      key={`${entry.source}:${entry.sourcePath}:${entry.name}`}
-                      entry={entry}
-                      projectScoped={projectCwd !== null}
-                      pending={pendingName === entry.name}
-                      failure={failures.get(entry.name)}
-                      onToggle={toggle}
-                      onAuthenticate={authenticate}
-                    />
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+          <McpServersPanel
+            projectCwd={projectCwd}
+            tabId={tabId}
+            onAuthenticated={closeMcpManager}
+          />
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">

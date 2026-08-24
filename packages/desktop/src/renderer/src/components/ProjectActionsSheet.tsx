@@ -5,10 +5,11 @@ import { Sheet } from "./ui";
 
 /**
  * The compact project header's `⋯` bottom sheet (issue #205): the project's
- * name and full path, then session creation and removal. The desktop header's
- * open targets (VS Code / file manager) are deliberately absent — a compact
- * shell is usually a phone talking to a remote omp-ui, where "open on the
- * host" answers a question nobody asked.
+ * name and full path, then New session, New terminal session, New worktree
+ * session, Project settings, and Remove project. The desktop header's open
+ * targets (VS Code / file manager) are deliberately absent — a compact shell
+ * is usually a phone talking to a remote omp-ui, where "open on the host"
+ * answers a question nobody asked.
  *
  * These are native buttons inside a dialog, deliberately not `role="menuitem"`:
  * `useOverlay` carves Escape out for menus (ui.tsx), and the Sheet's Tab trap
@@ -24,18 +25,15 @@ export function ProjectActionsSheet({
   project,
   onClose,
   onActivate,
-  onOpenDefaults,
 }: {
   /** `null` renders a closed Sheet. */
   project: Pick<ProjectRecord, "name" | "path"> | null;
   onClose: () => void;
   onActivate: () => void;
-  /** Opens the project's default-models sheet (issue #257); omit to hide the row. */
-  onOpenDefaults?: () => void;
 }) {
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
-  const openMcpManager = useStore((st) => st.openMcpManager);
+  const openProjectSettings = useStore((st) => st.openProjectSettings);
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
 
   return (
@@ -82,24 +80,12 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
-                openMcpManager(project.path);
+                openProjectSettings(project.path);
                 onClose();
               }}
             >
-              MCP servers…
+              Project settings…
             </button>
-            {onOpenDefaults !== undefined && (
-              <button
-                type="button"
-                className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
-                onClick={() => {
-                  onOpenDefaults();
-                  onClose();
-                }}
-              >
-                Default models…
-              </button>
-            )}
             <button
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-rose hover:text-rose focus-visible:text-rose")}

@@ -15,7 +15,6 @@ import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { ProjectDefaultsSheet } from "./ProjectDefaultsSheet";
 import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
@@ -55,17 +54,6 @@ function IconPlus() {
   );
 }
 
-function IconMcp() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="currentColor">
-      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1" />
-      <rect x="2.5" y="9" width="11" height="4.5" rx="1" />
-      <rect x="4.5" y="4.25" width="1" height="1" />
-      <rect x="4.5" y="10.75" width="1" height="1" />
-    </svg>
-  );
-}
-
 function IconGear() {
   return (
     <svg
@@ -95,7 +83,7 @@ function IconEllipsis() {
   );
 }
 
-/** Slider mark for the project default-models sheet (issue #257), matching the composer's options icon. */
+/** Slider mark for the project settings dialog (issue #281), matching the composer's options icon. */
 function IconTune() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
@@ -210,7 +198,6 @@ interface ProjectSectionProps {
   vsCodeAvailable: boolean | null;
   refreshAvailability: () => Promise<boolean>;
   onOpenActions?: () => void;
-  onOpenDefaults?: () => void;
   // issue #115 pointer reorder, issue #120 keyboard reorder — one gate for both
   canReorder?: boolean;
   registerGrip?: (path: string, el: HTMLButtonElement | null) => void;
@@ -237,7 +224,6 @@ function ProjectSection({
   refreshAvailability,
   onActivate,
   onOpenActions,
-  onOpenDefaults,
   canReorder = false,
   registerGrip,
   onReorder,
@@ -253,7 +239,7 @@ function ProjectSection({
   const removeProject = useStore((st) => st.removeProject);
   const moveSession = useStore((st) => st.moveSession);
   const focusedTabId = useStore((st) => st.focusedTabByProject[group.project.path]);
-  const openMcpManager = useStore((st) => st.openMcpManager);
+  const openProjectSettings = useStore((st) => st.openProjectSettings);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
 
@@ -476,10 +462,7 @@ function ProjectSection({
                 vsCodeAvailable={vsCodeAvailable}
                 refreshAvailability={refreshAvailability}
               />
-              <IconButton label={`MCP servers for ${project.name}`} onClick={() => openMcpManager(project.path)}>
-                <IconMcp />
-              </IconButton>
-              <IconButton label={`default models for ${project.name}`} onClick={() => onOpenDefaults?.()}>
+              <IconButton label={`project settings for ${project.name}`} onClick={() => openProjectSettings(project.path)}>
                 <IconTune />
               </IconButton>
               <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
@@ -686,8 +669,6 @@ export function Sidebar() {
   // The project whose compact actions sheet is open (issue #205), by path.
   // Sidebar-local UI state, like `terminalMenu` — never in the store.
   const [actionsFor, setActionsFor] = useState<string | null>(null);
-  // The project whose default-models sheet is open (issue #257), by path.
-  const [defaultsFor, setDefaultsFor] = useState<string | null>(null);
   const [vsCodeAvailable, setVsCodeAvailable] = useState<boolean | null>(null);
   const availabilityMounted = useRef(false);
   const availabilityGeneration = useRef(0);
@@ -979,7 +960,6 @@ export function Sidebar() {
                   refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
                   onOpenActions={() => setActionsFor(path)}
-                  onOpenDefaults={() => setDefaultsFor(path)}
                   canReorder={canReorder}
                   registerGrip={registerGrip}
                   onReorder={(delta) => reorderProject(index, delta)}
@@ -1048,14 +1028,8 @@ export function Sidebar() {
           project={actionsProject}
           onClose={() => setActionsFor(null)}
           onActivate={closeCompactSurface}
-          onOpenDefaults={actionsProject !== null ? () => setDefaultsFor(actionsProject.path) : undefined}
         />
       )}
-
-      <ProjectDefaultsSheet
-        project={defaultsFor === null ? null : state?.projects.find((g) => g.project.path === defaultsFor)?.project ?? null}
-        onClose={() => setDefaultsFor(null)}
-      />
 
       {/* -------- footer -------- */}
       <footer

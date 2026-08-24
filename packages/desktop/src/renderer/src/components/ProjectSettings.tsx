@@ -3,8 +3,9 @@ import { parseModelRole } from "@omp-ui/core/model-role";
 import type { ProjectRecord } from "@omp-ui/core/types";
 import type { ModelInfo } from "../lib/rpc-types";
 import { useStore } from "../store";
-import { Button, Label, Sheet } from "./ui";
+import { McpServersPanel } from "./McpManager";
 import { ModelPalette } from "./ModelSelector";
+import { Button, Label, Modal } from "./ui";
 
 /**
  * The project's standing model pins (issue #257): the default main model and
@@ -14,7 +15,7 @@ import { ModelPalette } from "./ModelSelector";
  * A pin is a standing choice, not memory — composer changes keep writing
  * `lastModel`/`lastAdvisorModel` and never move a pin. The advisor pin is a
  * model value only: advisor on/off keeps its own chain (issue #174), so a pin
- * is dormant while that chain resolves off, and the sheet says so instead of
+ * is dormant while that chain resolves off, and the section says so instead of
  * hiding it.
  *
  * Catalog: there is no global model list — `get_available_models` is an RPC
@@ -131,14 +132,13 @@ function PinField({
   );
 }
 
-export function ProjectDefaultsSheet({
-  project,
-  onClose,
-}: {
-  /** `null` renders a closed Sheet. */
-  project: ProjectRecord | null;
-  onClose: () => void;
-}) {
+/**
+ * The project's standing model pins (issue #257): default main + advisor model
+ * with pickers and Clear. Extracted from the project defaults sheet into the
+ * merged Project settings dialog (issue #281). Catalog behavior unchanged:
+ * fed from a live session's availableModels, typed input is the fallback.
+ */
+export function ProjectModelPins({ project }: { project: ProjectRecord }) {
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
   const advisorDefaults = useStore((s) => s.advisorDefaults);
@@ -146,15 +146,15 @@ export function ProjectDefaultsSheet({
   const setProjectDefaultModel = useStore((s) => s.setProjectDefaultModel);
   const setProjectDefaultAdvisorModel = useStore((s) => s.setProjectDefaultAdvisorModel);
 
-  const projectPath = project?.path ?? null;
+  const projectPath = project.path;
 
   // omp's config supplies the advisor fallback and the effective on/off state.
   useEffect(() => {
-    if (projectPath !== null) void loadAdvisorDefaults(projectPath);
+    void loadAdvisorDefaults(projectPath);
   }, [projectPath, loadAdvisorDefaults]);
 
-  // Transient UI dies with the sheet (or the project — a removed project
-  // closes it via the lookup at the call site).
+  // Transient UI dies with the dialog (or the project — a removed project
+  // unmounts it via App's lookup).
   const [picking, setPicking] = useState<Field | null>(null);
   const [editing, setEditing] = useState<Field | null>(null);
   const [draft, setDraft] = useState("");
@@ -169,10 +169,7 @@ export function ProjectDefaultsSheet({
   // A live session's catalog is all the model list that exists; the first
   // non-empty one wins.
   const models = useMemo(() => {
-    const group =
-      projectPath === null
-        ? null
-        : state?.projects.find((g) => g.project.path === projectPath) ?? null;
+    const group = state?.projects.find((g) => g.project.path === projectPath) ?? null;
     if (group === null) return EMPTY;
     for (const session of group.sessions) {
       if (session.live !== "live") continue;
@@ -182,17 +179,9 @@ export function ProjectDefaultsSheet({
     return EMPTY;
   }, [state, rpc, projectPath]);
 
-  if (project === null) {
-    return (
-      <Sheet open={false} placement="right" label="default models" onClose={onClose}>
-        {null}
-      </Sheet>
-    );
-  }
-
   const mainPin = project.defaultModel ?? null;
   const advisorPin = project.defaultAdvisorModel ?? null;
-  const defaults = projectPath === null ? undefined : advisorDefaults[projectPath];
+  const defaults = advisorDefaults[projectPath];
   const configuredAdvisor = defaults?.model ?? null;
   // The advisor on/off chain, untouched by the pin (issue #174): last-used →
   // app default → omp config.
@@ -212,7 +201,7 @@ export function ProjectDefaultsSheet({
   };
 
   const submitDraft = () => {
-    if (projectPath === null || editing === null) return;
+    if (editing === null) return;
     const trimmed = draft.trim();
     if (trimmed !== "") {
       const problem =
@@ -235,84 +224,72 @@ export function ProjectDefaultsSheet({
 
   return (
     <>
-      <Sheet
-        open
-        placement="right"
-        label={`default models — ${project.name}`}
-        onClose={onClose}
-      >
-        <div className="space-y-5 px-4 py-4">
-          <div>
-            <p className="font-display text-sm font-semibold text-ink">{project.name}</p>
-            <p className="break-all font-mono text-[11px] text-ink-faint">{project.path}</p>
-          </div>
+      <div className="space-y-5">
+        <PinField
+          label="Default model"
+          pin={mainPin}
+          notSet={
+            <>
+              not set — new sessions use the last-used model, then omp&apos;s default
+            </>
+          }
+          editing={editing === "main"}
+          draft={draft}
+          draftError={draftError}
+          placeholder="provider/model-id"
+          onDraftChange={(value) => {
+            setDraft(value);
+            setDraftError(null);
+          }}
+          onBeginChange={() => beginChange("main")}
+          onSubmit={submitDraft}
+          onCancel={() => setEditing(null)}
+          onClear={() => void setProjectDefaultModel(project.path, null)}
+        />
 
-          <PinField
-            label="Default model"
-            pin={mainPin}
-            notSet={
-              <>
-                not set — new sessions use the last-used model, then omp&apos;s default
-              </>
-            }
-            editing={editing === "main"}
-            draft={draft}
-            draftError={draftError}
-            placeholder="provider/model-id"
-            onDraftChange={(value) => {
-              setDraft(value);
-              setDraftError(null);
-            }}
-            onBeginChange={() => beginChange("main")}
-            onSubmit={submitDraft}
-            onCancel={() => setEditing(null)}
-            onClear={() => void setProjectDefaultModel(project.path, null)}
-          />
+        <PinField
+          label="Default advisor model"
+          pin={advisorPin}
+          notSet={
+            <>
+              not set — last-used, then omp&apos;s{" "}
+              <span className="font-mono">modelRoles.advisor</span>
+              {project.lastAdvisorModel === null && configuredAdvisor !== null && (
+                <>
+                  {" "}
+                  (<span className="font-mono">{configuredAdvisor}</span>)
+                </>
+              )}
+            </>
+          }
+          editing={editing === "advisor"}
+          draft={draft}
+          draftError={draftError}
+          placeholder="provider/model-id[:level]"
+          onDraftChange={(value) => {
+            setDraft(value);
+            setDraftError(null);
+          }}
+          onBeginChange={() => beginChange("advisor")}
+          onSubmit={submitDraft}
+          onCancel={() => setEditing(null)}
+          onClear={() => void setProjectDefaultAdvisorModel(project.path, null)}
+        />
 
-          <PinField
-            label="Default advisor model"
-            pin={advisorPin}
-            notSet={
-              <>
-                not set — last-used, then omp&apos;s{" "}
-                <span className="font-mono">modelRoles.advisor</span>
-                {project.lastAdvisorModel === null && configuredAdvisor !== null && (
-                  <>
-                    {" "}
-                    (<span className="font-mono">{configuredAdvisor}</span>)
-                  </>
-                )}
-              </>
-            }
-            editing={editing === "advisor"}
-            draft={draft}
-            draftError={draftError}
-            placeholder="provider/model-id[:level]"
-            onDraftChange={(value) => {
-              setDraft(value);
-              setDraftError(null);
-            }}
-            onBeginChange={() => beginChange("advisor")}
-            onSubmit={submitDraft}
-            onCancel={() => setEditing(null)}
-            onClear={() => void setProjectDefaultAdvisorModel(project.path, null)}
-          />
-
-          {/* The pin is a model value only: while the on/off chain resolves
-              off, the pin is dormant — say so, never hide it. */}
-          {advisorPin !== null && advisorStartsOn === false && (
-            <p className="rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] leading-snug text-copper">
-              The advisor starts off for new sessions (last-used off / app
-              default) — the pinned model applies whenever the advisor is on.
-            </p>
-          )}
-
-          <p className="text-[11px] leading-snug text-ink-faint">
-            Pins seed new sessions only. Switching models in a running session
-            updates the last-used memory, never the pin.
+        {/* The pin is a model value only: while the on/off chain resolves
+            off, the pin is dormant — say so, never hide it. */}
+        {advisorPin !== null && advisorStartsOn === false && (
+          <p className="rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] leading-snug text-copper">
+            The advisor starts off for new sessions (last-used off / app
+            default) — the pinned model applies whenever the advisor is on.
           </p>
-        </div>
-      </Sheet>
+        )}
+
+        <p className="text-[11px] leading-snug text-ink-faint">
+          Pins seed new sessions only. Switching models in a running session
+          updates the last-used memory, never the pin.
+        </p>
+      </div>
 
       {picking === "main" && models.length > 0 && (
         <ModelPalette
@@ -343,5 +320,60 @@ export function ProjectDefaultsSheet({
         />
       )}
     </>
+  );
+}
+
+/**
+ * The per-project settings dialog (issue #281): one modal for a project's MCP
+ * servers and its default-model pins, opened from the desktop project header
+ * and the compact actions sheet. Session-scoped MCP behavior (in-place
+ * restart, TUI reauth handoff) stays in McpManager; this dialog pins no tab,
+ * so McpServersPanel gets only the project scope.
+ */
+export function ProjectSettings({
+  project,
+  onClose,
+}: {
+  /** `null` renders nothing — removal auto-close is enforced by App's lookup. */
+  project: ProjectRecord | null;
+  onClose: () => void;
+}) {
+  if (project === null) return null;
+
+  return (
+    <Modal onClose={onClose} width="w-[40rem]">
+      <section role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
+        <header className="border-b border-line px-4 py-3.5">
+          <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+            Project settings
+          </p>
+          <h2 id="project-settings-title" className="font-display text-base font-semibold text-ink">
+            {project.name}
+          </h2>
+          <p title={project.path} className="mt-1 truncate font-mono text-[11px] text-ink-dim">
+            {project.path}
+          </p>
+        </header>
+
+        <div className="max-h-[60dvh] overflow-y-auto">
+          <section aria-labelledby="project-settings-mcp" className="border-b border-line pb-3">
+            <h3 id="project-settings-mcp" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              MCP servers
+            </h3>
+            <McpServersPanel projectCwd={project.path} />
+            <p className="px-4 pt-2 text-[11px] text-ink-faint">
+              Changes apply to new sessions in this project.
+            </p>
+          </section>
+
+          <section aria-labelledby="project-settings-models" className="px-4 py-4">
+            <h3 id="project-settings-models" className="mb-4 font-display text-sm font-semibold text-ink">
+              Default models
+            </h3>
+            <ProjectModelPins project={project} />
+          </section>
+        </div>
+      </section>
+    </Modal>
   );
 }

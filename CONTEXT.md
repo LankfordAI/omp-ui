@@ -106,7 +106,7 @@ _Avoid_: right sidebar, panel, drawer
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the
 project's name and full path, then New session, New terminal session,
-New worktree session, MCP servers, Default models, and Remove project. It
+*New worktree session, Project settings, and Remove project. It
 replaces the cluster below 900px. The desktop open targets (VS Code, Files) are
 deliberately absent: a compact shell is usually a phone talking to a
 remote omp-ui, where opening on the host answers a question nobody asked.
@@ -361,13 +361,30 @@ session record.
 _Avoid_: sandbox session, isolated session, branch session
 
 **MCP manager**:
-The modal listing every MCP server omp resolves for one scope — a project
-(the focused session's project, or the sidebar's project) or global
-(user-level sources only) — with toggles that run omp's own enable/disable
-write algorithm in core. Toggles take effect on the next session spawn; the
-modal offers an in-place restart only while opened from a live tab. The DTO
-is redacted at the core boundary (issue #17, #36, #220).
+The modal listing every MCP server omp resolves for one scope — a session's
+project (from its Session HUD, the command palette, the /mcp command, or
+Settings → MCP) or global (user-level sources only) — with toggles that run
+omp's own enable/disable write algorithm in core. Toggles take effect on the
+next session spawn; the modal offers an in-place restart only while opened
+from a live tab; http/sse rows in a live native tab hand http/sse reauth to
+omp's own TUI. The DTO is redacted at the core boundary (issue #17, #36,
+#220).
 _Avoid_: MCP settings page, integrations panel, server browser
+
+**Project settings**:
+The modal the project header's settings button (desktop cluster) and the
+compact sheet's "Project settings…" row open: one dialog for the project with
+two stacked sections — the project's MCP servers (the same resolved list,
+per-server toggles, per-source provenance, and per-file errors the MCP manager
+renders, project-scoped with no pinned tab) and the project's default-model
+pins (main-model and advisor-model with their pickers and Clear actions).
+Toggles write through core's mcp-config module; pins through
+setProjectDefaultModel / setProjectDefaultAdvisorModel; both take effect on
+the next session spawn. Session-scoped surfaces keep the MCP manager itself:
+the Session HUD's per-tab MCP button (with in-place restart and TUI reauth
+handoff), the command palette, /mcp, and Settings → MCP including Global MCP
+servers.
+_Avoid_: project preferences, per-project settings page, project options
 
 **Memory settings**:
 The Settings → Memory surface configures omp's memory backend and recall

@@ -622,21 +622,16 @@ describe("Sidebar project open control (issue #169)", () => {
   });
 
 
-  it("opens project defaults from the desktop project header", () => {
-    useStore.setState({
-      advisorDefaults: { [projectPath]: { enabled: false, model: null } },
-    });
+  it("opens project settings from the desktop project header", () => {
     renderSidebar();
 
-    act(() => button("default models for Project One").click());
-    expect(
-      document.body.querySelector(
-        '[role="dialog"][aria-label="default models — Project One"]',
-      ),
-    ).not.toBeNull();
+    act(() => button("project settings for Project One").click());
+    // The dialog mounts in App, not in this tree — the store flag is the
+    // contract the header commits to.
+    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath });
   });
 
-  it("replaces the compact actions sheet with project defaults", () => {
+  it("replaces the compact actions sheet with project settings", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({
@@ -645,27 +640,20 @@ describe("Sidebar project open control (issue #169)", () => {
         removeEventListener: vi.fn(),
       })),
     });
-    useStore.setState({
-      compactSurface: "sessions",
-      advisorDefaults: { [projectPath]: { enabled: false, model: null } },
-    });
+    useStore.setState({ compactSurface: "sessions" });
     renderSidebar();
 
     act(() => button("actions for Project One").click());
     const actions = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Project One"]',
     )!;
-    const defaults = [...actions.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) => candidate.textContent?.trim() === "Default models…",
+    const settings = [...actions.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "Project settings…",
     )!;
-    act(() => defaults.click());
+    act(() => settings.click());
 
     expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
-    expect(
-      document.body.querySelector(
-        '[role="dialog"][aria-label="default models — Project One"]',
-      ),
-    ).not.toBeNull();
+    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath });
   });
   it("layers the actions sheet over the sessions sheet and isolates Escape (issue #205)", () => {
     Object.defineProperty(window, "matchMedia", {
@@ -691,7 +679,7 @@ describe("Sidebar project open control (issue #169)", () => {
     const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
       .map((row) => row.textContent?.trim())
       .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual(["New session", "New terminal session", "New worktree session…", "MCP servers…", "Default models…", "Remove project…"]);
+    expect(rows).toEqual(["New session", "New terminal session", "New worktree session…", "Project settings…", "Remove project…"]);
 
     const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',
@@ -905,15 +893,15 @@ describe("Compact project actions sheet (issue #205)", () => {
     expect(actionsSheet()!.textContent).toContain(projectPath);
   });
 
-  it("opens the project-scoped MCP manager from the sheet", async () => {
+  it("opens project settings from the sheet", async () => {
     enableCompact();
     useStore.setState({ compactSurface: "sessions" });
     renderSidebar();
 
     act(() => button("actions for Project One").click());
-    await act(async () => sheetRow("MCP servers…").click());
+    await act(async () => sheetRow("Project settings…").click());
     expect(actionsSheet()).toBeNull();
-    expect(useStore.getState().mcpManager).toEqual({ projectCwd: projectPath });
+    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath });
   });
 });
 

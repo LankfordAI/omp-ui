@@ -32,6 +32,7 @@ export interface ViewSlice {
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
   mcpManager: { projectCwd: string | null; tabId?: string } | null;
+	projectSettings: { projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -41,6 +42,8 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openMcpManager(projectCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
+	openProjectSettings(projectCwd: string): void;
+	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
   toggleSidebarCollapsed(): void;
@@ -253,6 +256,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   projectPickerOpen: false,
   worktreeDialogProject: null,
   mcpManager: null,
+	projectSettings: null,
   compactSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
@@ -271,6 +275,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   closeMcpManager() {
     set({ mcpManager: null });
   },
+	openProjectSettings(projectCwd) {
+		set({ projectSettings: { projectCwd } });
+	},
+	closeProjectSettings() {
+		set({ projectSettings: null });
+	},
   showCompactSurface(surface) {
     set({ compactSurface: surface });
   },

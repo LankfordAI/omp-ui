@@ -276,6 +276,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
   mcpManager: { projectCwd: string | null; tabId?: string } | null;
+	projectSettings: { projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -286,6 +287,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   closeProjectPicker(): void;
   openMcpManager(projectCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
+	openProjectSettings(projectCwd: string): void;
+	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
   toggleSidebarCollapsed(): void;

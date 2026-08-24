@@ -5,6 +5,7 @@ import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { inspectorBadges } from "./components/InspectorRail";
 import { McpManager } from "./components/McpManager";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
+import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
@@ -269,6 +270,9 @@ export default function App() {
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const mcpManager = useStore((s) => s.mcpManager);
+	const projectSettings = useStore((s) => s.projectSettings);
+	const closeProjectSettings = useStore((s) => s.closeProjectSettings);
+	const state = useStore((s) => s.state);
   const worktreeDialogProject = useStore((s) => s.worktreeDialogProject);
   const newSession = useStore((s) => s.newSession);
   const settingsPage = useStore((s) => s.settingsPage);
@@ -281,6 +285,10 @@ export default function App() {
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const compact = useCompactShell();
   useAppViewport();
+	const projectSettingsProject =
+		projectSettings === null
+			? null
+			: state?.projects.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
@@ -462,6 +470,9 @@ export default function App() {
       )}
       {projectPickerOpen && <ProjectPicker />}
       {mcpManager && <McpManager projectCwd={mcpManager.projectCwd} tabId={mcpManager.tabId} />}
+			{projectSettingsProject !== null && (
+				<ProjectSettings project={projectSettingsProject} onClose={closeProjectSettings} />
+			)}
       {worktreeDialogProject !== null && <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} />}
       {settingsPage && <Settings />}
     </div>
