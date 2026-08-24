@@ -345,7 +345,12 @@ export function PlanReview({ tabId }: { tabId: string }) {
       role="region"
       aria-labelledby="plan-review-title"
       className={cn(
-        "animate-rise mx-auto mb-2 w-full shrink-0 overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
+        // A flex column, not a plain block: the inner .plan-review column must
+        // shrink inside the max-height (min-h-0 + flex-shrink) so the actions
+        // footer stays visible and the plan/setup panes scroll internally. A
+        // block child would render at natural height and overflow-hidden would
+        // clip the footer away.
+        "animate-rise mx-auto mb-2 flex w-full shrink-0 flex-col overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
         compact
           ? "max-h-[min(70dvh,var(--app-viewport-height,70dvh))]"
           : "max-h-[min(52dvh,var(--app-viewport-height,52dvh))]",
