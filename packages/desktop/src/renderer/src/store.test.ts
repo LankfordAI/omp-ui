@@ -4,6 +4,8 @@ import type {
   BackendState,
   BranchList,
   LiveState,
+  MergeBackResult,
+  MergeBackStatus,
   OmpSettingsSnapshot,
   OmpUpdateState,
   PendingPlan,
@@ -121,6 +123,8 @@ const mockBackend = {
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   pullBranch: vi.fn(),
+  getMergeBackStatus: vi.fn(),
+  mergeWorktreeBranch: vi.fn(),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   setPlanFormat: vi.fn(async () => {}),
@@ -5426,6 +5430,184 @@ describe("branch switching (issue #35)", () => {
   });
 });
 
+describe("merge-back (issue #272)", () => {
+  const BR = "omp-ui/abcd1234";
+  const ff: MergeBackResult = { kind: "ff", destination: "main", commits: 2, files: [] };
+  const merged: MergeBackResult = {
+    kind: "merged",
+    destination: "main",
+    commits: 3,
+    files: [],
+  };
+  const alreadyMerged: MergeBackResult = {
+    kind: "already-merged",
+    destination: "main",
+    commits: 0,
+    files: [],
+  };
+  const conflicts: MergeBackResult = {
+    kind: "conflicts",
+    destination: "main",
+    commits: 1,
+    files: ["src/a.ts", "src/b.ts"],
+  };
+  const listing: BranchList = {
+    repoRoot: "/p",
+    current: "main",
+    branches: ["main", BR],
+    defaultBranch: "main",
+    upstreamRef: null,
+    upstreamRemote: null,
+    hasUpstream: false,
+    ahead: 0,
+    behind: 0,
+    upstreamFetchedAt: null,
+    upstreamRefreshError: null,
+  };
+
+  it("ff: calls the backend, locally refreshes the listing, and returns the result", async () => {
+    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(ff);
+    mockBackend.listBranches.mockResolvedValueOnce(listing);
+    useStore.setState({ branches: {}, branchActivity: {} });
+
+    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+
+    expect(result).toEqual(ff);
+    expect(mockBackend.mergeWorktreeBranch).toHaveBeenCalledWith("/p", BR, "main");
+    expect(mockBackend.listBranches).toHaveBeenCalledWith("/p", {
+      fetchUpstream: false,
+    });
+    expect(useStore.getState().branches["/p"]).toEqual(listing);
+    expect(useStore.getState().branchActivity["/p"]).toEqual({
+      refreshing: false,
+      pulling: false,
+    });
+  });
+
+  it("merged: refreshes locally without fetching upstream", async () => {
+    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(merged);
+    mockBackend.listBranches.mockResolvedValueOnce(listing);
+    useStore.setState({ branches: {}, branchActivity: {} });
+
+    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+
+    expect(result).toEqual(merged);
+    expect(mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    expect(mockBackend.listBranches).toHaveBeenCalledWith("/p", {
+      fetchUpstream: false,
+    });
+    expect(useStore.getState().branches["/p"]).toEqual(listing);
+  });
+
+  it("conflicts: keeps the result, leaves the listing untouched", async () => {
+    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(conflicts);
+    useStore.setState({ branches: { "/p": listing }, branchActivity: {} });
+
+    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+
+    expect(result).toEqual(conflicts);
+    expect(mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(useStore.getState().branches["/p"]).toEqual(listing);
+    expect(useStore.getState().branchActivity["/p"]).toBeUndefined();
+  });
+
+  it("already-merged: no refresh", async () => {
+    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(alreadyMerged);
+    useStore.setState({ branches: {}, branchActivity: {} });
+
+    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+
+    expect(result).toEqual(alreadyMerged);
+    expect(mockBackend.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("propagates git's rejection and does not refresh", async () => {
+    mockBackend.mergeWorktreeBranch.mockRejectedValueOnce(
+      new Error("error: refusing to merge into a branch that is not checked out"),
+    );
+    useStore.setState({ branches: {}, branchActivity: {} });
+
+    await expect(
+      useStore.getState().mergeWorktreeBranch("/p", BR, "main"),
+    ).rejects.toThrow("error: refusing to merge");
+    expect(mockBackend.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("readMergeBackStatus passes through to the backend with exact args", async () => {
+    const status: MergeBackStatus = {
+      destination: "main",
+      reason: null,
+      destinationCheckedOut: true,
+      branchExists: true,
+      mergeInProgress: false,
+      alreadyMerged: false,
+      ahead: 3,
+    };
+    mockBackend.getMergeBackStatus.mockResolvedValueOnce(status);
+
+    await expect(
+      useStore.getState().readMergeBackStatus("/p", BR, "main"),
+    ).resolves.toBe(status);
+    expect(mockBackend.getMergeBackStatus).toHaveBeenCalledWith("/p", BR, "main");
+
+    const unresolvable: MergeBackStatus = {
+      ...status,
+      destination: null,
+      reason: "base-gone",
+      destinationCheckedOut: false,
+    };
+    mockBackend.getMergeBackStatus.mockResolvedValueOnce(unresolvable);
+
+    // pre-field records pass a null base
+    await expect(
+      useStore.getState().readMergeBackStatus("/p", BR, null),
+    ).resolves.toBe(unresolvable);
+    expect(mockBackend.getMergeBackStatus).toHaveBeenLastCalledWith("/p", BR, null);
+  });
+
+  it("appendNotice appends a notice item to a live rpc tab", () => {
+    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+
+    useStore
+      .getState()
+      .appendNotice(TAB, `merged ${BR} into main — fast-forward, 2 commits`, "info");
+    useStore
+      .getState()
+      .appendNotice(TAB, `merge of ${BR} into main stopped — 2 file(s) conflict`, "warn");
+
+    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+      expect.objectContaining({
+        kind: "notice",
+        text: `merged ${BR} into main — fast-forward, 2 commits`,
+        level: "info",
+      }),
+      expect.objectContaining({
+        kind: "notice",
+        text: `merge of ${BR} into main stopped — 2 file(s) conflict`,
+        level: "warn",
+      }),
+    ]);
+  });
+
+  it("appendNotice omits a level when none is given", () => {
+    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+
+    useStore.getState().appendNotice(TAB, `merged ${BR} into main`);
+
+    const item = useStore.getState().rpc[TAB]!.items.at(-1);
+    expect(item).toMatchObject({ kind: "notice", text: `merged ${BR} into main` });
+    expect(item?.kind === "notice" ? item.level : undefined).toBeUndefined();
+  });
+
+  it("appendNotice no-ops for a tab without rpc state", () => {
+    useStore.setState({ rpc: {} });
+
+    useStore.getState().appendNotice("no-such-tab", "nothing to see", "warn");
+
+    expect(useStore.getState().rpc).toEqual({});
+  });
+});
+
 describe("deleteSession", () => {
   it("opens a warning that deleting a live session stops its agent", async () => {
     useStore.setState({
@@ -5450,6 +5632,7 @@ describe("deleteSession", () => {
       running: true,
       hasFiles: true,
       worktreeBranch: null,
+      worktreeBase: null,
     });
 
     await useStore.getState().confirmDeleteSession(false);
@@ -5529,6 +5712,54 @@ describe("deleteSession", () => {
     await useStore.getState().deleteSession(TAB);
 
     expect(useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
+  });
+
+  it("records the worktree branch and base on the confirmation", async () => {
+    const state = stateWithRecord("sess-1", "live");
+    state.projects[0]!.sessions[0]!.worktree = {
+      path: "/wt",
+      branch: "omp-ui/abcd1234",
+      base: "main",
+    };
+    useStore.setState({
+      state,
+      tabs: [
+        tabInfo({
+          tabId: TAB,
+          mode: "rpc-ui",
+          projectCwd: "/p",
+          hidden: false,
+        }),
+      ],
+      activeTabId: TAB,
+      rpc: { [TAB]: rpcTabState() },
+    });
+    await useStore.getState().deleteSession(TAB);
+
+    expect(useStore.getState().deleteConfirmation).toEqual({
+      tabId: TAB,
+      title: "New session",
+      running: true,
+      hasFiles: true,
+      worktreeBranch: "omp-ui/abcd1234",
+      worktreeBase: "main",
+    });
+  });
+
+  it("records a null base on a pre-field worktree record", async () => {
+    const state = stateWithRecord("sess-1", "dormant");
+    state.projects[0]!.sessions[0]!.worktree = {
+      path: "/wt",
+      branch: "omp-ui/abcd1234",
+      base: null,
+    };
+    useStore.setState({ state });
+    await useStore.getState().deleteSession(TAB);
+
+    expect(useStore.getState().deleteConfirmation).toMatchObject({
+      worktreeBranch: "omp-ui/abcd1234",
+      worktreeBase: null,
+    });
   });
 
   it("persists the opt-out only when deletion is confirmed", async () => {

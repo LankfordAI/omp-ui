@@ -348,11 +348,16 @@ worktrees root, sharing the repo's object store. `projectCwd` still names the
 project (sidebar grouping, MCP scope, parameter memory); the worktree is the
 session's effective working tree, so the branch diff pane, branch chip,
 @-picker and console shell all read it. The record also carries what the
-branch was cut from (`base`: the picked ref, or the resolved HEAD commit),
-which the branch diff pane and the HUD's worktree chip read; records from
-before this field show plain HEAD diffs. Deleting the session removes the
-checkout; the branch and its commits survive in the repo. Resume, restart and
-mode switches keep the worktree — it lives on the session record.
+branch was cut from (`base`: the picked ref, or the project checkout's
+branch at creation (its HEAD commit when detached)), which the branch diff
+pane and the HUD's worktree chip read; records from before this field show
+plain HEAD diffs. The HUD's worktree chip offers a merge-back into the
+recorded base — fast-forward when history allows, otherwise a merge commit
+— and the delete confirmation offers the same merge first; a conflicted
+merge is left for the user to resolve in the project checkout. Deleting the
+session removes the checkout; the branch and its commits survive in the
+repo. Resume, restart and mode switches keep the worktree — it lives on the
+session record.
 _Avoid_: sandbox session, isolated session, branch session
 
 **MCP manager**:

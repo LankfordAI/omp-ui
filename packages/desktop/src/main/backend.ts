@@ -21,7 +21,9 @@ import {
   readBranchDiff,
   listBranches,
   listMemories,
+  mergeWorktreeBranch,
   readMemoryOverview,
+  readMergeBackStatus,
   pullBranch,
   mintWorktreePath,
   isWithin,
@@ -473,6 +475,10 @@ export class MainBackend {
         [CH.checkoutBranch]: (projectCwd: string, name: string, opts?: { create?: boolean }) =>
           checkoutBranch(projectCwd, name, opts),
         [CH.pullBranch]: (projectCwd: string) => pullBranch(projectCwd),
+        [CH.getMergeBackStatus]: (projectCwd: string, branch: string, base: string | null) =>
+          readMergeBackStatus(projectCwd, branch, base),
+        [CH.mergeWorktreeBranch]: (projectCwd: string, branch: string, destination: string) =>
+          mergeWorktreeBranch(projectCwd, branch, destination),
         // Memory handlers are stateless core calls like getBranchDiff:
         // they touch no registry/BackendState field and never broadcast().
         [CH.memoryOverview]: (projectCwd: string) => readMemoryOverview(projectCwd),

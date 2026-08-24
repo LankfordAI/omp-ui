@@ -8,6 +8,8 @@ import type {
   BranchListOptions,
   ImageAttachment,
   LiveState,
+  MergeBackResult,
+  MergeBackStatus,
   OmpSettingsSnapshot,
   OmpSettingValue,
   OmpUpdateState,
@@ -152,6 +154,8 @@ export interface DeleteConfirmation {
   running: boolean;
   hasFiles: boolean;
   worktreeBranch: string | null;
+  /** The worktree record's base; null for non-worktree sessions and pre-field records. */
+  worktreeBase: string | null;
 }
 
 export type SettingsPage =
@@ -411,6 +415,18 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     opts?: { create?: boolean },
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string): Promise<string | null>;
+  readMergeBackStatus(
+    projectCwd: string,
+    branch: string,
+    base: string | null,
+  ): Promise<MergeBackStatus>;
+  mergeWorktreeBranch(
+    projectCwd: string,
+    branch: string,
+    destination: string,
+  ): Promise<MergeBackResult>;
+  /** Appends a transcript notice (issue #272); no-ops for tabs without rpc state. */
+  appendNotice(tabId: string, text: string, level?: "info" | "warn" | "error"): void;
   suggestBranchName(
     projectCwd: string,
     planContext: string,

@@ -3,9 +3,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
 import { projectSlug } from "./paths";
+import type { MergeBackResult, MergeBackStatus } from "./types";
 
 const ADD_TIMEOUT_MS = 60_000;
 const REMOVE_TIMEOUT_MS = 30_000;
+const MERGE_TIMEOUT_MS = 60_000;
 
 /**
  * Per-session git worktrees (issue #224): each worktree session runs in its
@@ -42,7 +44,7 @@ export function mintWorktreePath(
  * own message — e.g. when the branch already exists or the cwd is not a repo.
  * Resolves to what the branch was cut from: `baseRef` verbatim when given
  * (so merge-base semantics tolerate the base branch moving forward), else
- * the project checkout's HEAD commit resolved before the add.
+ * the project checkout's branch — its HEAD commit when detached.
  */
 export async function addWorktree(
   projectCwd: string,
@@ -50,7 +52,21 @@ export async function addWorktree(
   branch: string,
   baseRef: string | null,
 ): Promise<string> {
-  const base = baseRef ?? (await git(projectCwd, ["rev-parse", "HEAD"])).trim();
+  let base: string;
+  if (baseRef !== null) {
+    base = baseRef;
+  } else {
+    // The checkout's branch is the durable name for the cut point; only a
+    // detached checkout has no name, and records its HEAD commit.
+    let current: string;
+    try {
+      current = (await git(projectCwd, ["branch", "--show-current"])).trim();
+    } catch {
+      current = "";
+    }
+    base =
+      current !== "" ? current : (await git(projectCwd, ["rev-parse", "HEAD"])).trim();
+  }
   await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });
   await git(
     projectCwd,
@@ -142,4 +158,193 @@ export async function sweepOrphanWorktrees(
     }
   }
   return removed;
+}
+
+/** Probe: true when `ref` exists; a failed rev-parse is the answer false. */
+async function hasRef(cwd: string, ref: string): Promise<boolean> {
+  try {
+    await git(cwd, ["rev-parse", "--verify", "--quiet", ref]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Probe: true when `ancestor` is an ancestor of `descendant`. Both refs
+ * are verified to exist by the caller, so a non-zero exit is the boolean
+ * answer false, not an error.
+ */
+async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Merge-back feasibility (issue #272). Never throws: an unreadable repo
+ * resolves to destination null, reason "no-repo". Destination resolution:
+ * (1) a local branch named by `base`; (2) else, when `base` resolves to a
+ * commit — a unique local branch pointing at it, else the project's
+ * current branch when it contains that commit; (3) else null with
+ * "base-gone" (deleted name / unknown SHA) or "no-branch-match".
+ * All ref reads are local; `rev-list --count` is the only potentially slow one.
+ */
+export async function readMergeBackStatus(
+  projectCwd: string,
+  branch: string,
+  base: string | null,
+): Promise<MergeBackStatus> {
+  try {
+    await git(projectCwd, ["rev-parse", "--show-toplevel"]);
+  } catch {
+    return {
+      destination: null,
+      reason: "no-repo",
+      destinationCheckedOut: false,
+      branchExists: false,
+      mergeInProgress: false,
+      alreadyMerged: false,
+      ahead: 0,
+    };
+  }
+
+  const branchExists = await hasRef(projectCwd, `refs/heads/${branch}`);
+  const baseIsBranch =
+    base !== null &&
+    !/^[0-9a-f]{40}$/.test(base) &&
+    (await hasRef(projectCwd, `refs/heads/${base}`));
+  let current: string;
+  try {
+    current = (await git(projectCwd, ["branch", "--show-current"])).trim();
+  } catch {
+    current = "";
+  }
+  let mergeInProgress = false;
+  try {
+    await git(projectCwd, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+    mergeInProgress = true;
+  } catch {
+    // No merge in progress.
+  }
+
+  let destination: string | null = null;
+  let reason: MergeBackStatus["reason"] = "base-gone";
+  if (baseIsBranch) {
+    destination = base;
+    reason = null;
+  }
+  if (destination === null && base !== null) {
+    let sha: string;
+    try {
+      sha = (await git(projectCwd, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`]))
+        .trim();
+    } catch {
+      sha = "";
+    }
+    if (sha !== "") {
+      let pointsAt: string[];
+      try {
+        pointsAt = (await git(projectCwd, ["branch", "--points-at", sha]))
+          .split("\n")
+          .map((line) => line.replace(/^[* ]+/, "").trim())
+          .filter((line) => line !== "");
+      } catch {
+        pointsAt = [];
+      }
+      if (pointsAt.length === 1) {
+        destination = pointsAt[0];
+        reason = null;
+      } else if (current !== "" && (await isAncestor(projectCwd, sha, current))) {
+        destination = current;
+        reason = null;
+      } else {
+        reason = "no-branch-match";
+      }
+    }
+  }
+
+  let alreadyMerged = false;
+  let ahead = 0;
+  if (destination !== null && branchExists) {
+    alreadyMerged = await isAncestor(projectCwd, branch, destination);
+    if (!alreadyMerged) {
+      try {
+        ahead = Number(
+          (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
+        );
+      } catch {
+        ahead = 0;
+      }
+    }
+  }
+
+  return {
+    destination,
+    reason,
+    destinationCheckedOut: destination !== null && current === destination,
+    branchExists,
+    mergeInProgress,
+    alreadyMerged,
+    ahead,
+  };
+}
+
+/**
+ * Merges `branch` into `destination` in the project checkout (issue #272).
+ * Fast-forwards when history allows; otherwise a real `--no-ff --no-edit`
+ * merge commit. A conflicted merge stops with the conflicts left in the
+ * project checkout (kind "conflicts" + files) — never resolved, never
+ * aborted by omp-ui. Throws with git's own message when the branch or
+ * destination no longer exists, when destination is not the checkout's
+ * current branch, or when git refuses the merge (dirty overlap, identity, ...).
+ */
+export async function mergeWorktreeBranch(
+  projectCwd: string,
+  branch: string,
+  destination: string,
+): Promise<MergeBackResult> {
+  if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
+    throw new Error(`branch ${branch} no longer exists`);
+  }
+  if (!(await hasRef(projectCwd, `refs/heads/${destination}`))) {
+    throw new Error(`destination ${destination} no longer exists`);
+  }
+  const current = (await git(projectCwd, ["branch", "--show-current"])).trim();
+  if (current !== destination) {
+    throw new Error(`check out ${destination} in the project before merging`);
+  }
+  if (await isAncestor(projectCwd, branch, destination)) {
+    return { kind: "already-merged", destination, commits: 0, files: [] };
+  }
+  const commits = Number(
+    (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
+  );
+  if (await isAncestor(projectCwd, destination, branch)) {
+    await git(projectCwd, ["merge", "--ff-only", branch], { timeoutMs: MERGE_TIMEOUT_MS });
+    return { kind: "ff", destination, commits, files: [] };
+  }
+  try {
+    await git(projectCwd, ["merge", "--no-ff", "--no-edit", branch], {
+      timeoutMs: MERGE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    let conflicted: string[] = [];
+    try {
+      conflicted = (await git(projectCwd, ["diff", "--name-only", "--diff-filter=U"]))
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+    } catch {
+      // The probe itself failed — git's own message below is the better answer.
+    }
+    if (conflicted.length > 0) {
+      return { kind: "conflicts", destination, commits, files: conflicted };
+    }
+    throw error;
+  }
+  return { kind: "merged", destination, commits, files: [] };
 }

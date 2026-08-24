@@ -691,7 +691,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {exceptionalAgentMode}
         </Chip>
       )}
-      {worktree && <WorktreeChip worktree={worktree} className="[app-region:no-drag]" />}
+      {worktree && projectCwd !== undefined && (
+        <WorktreeChip
+          worktree={worktree}
+          tabId={tabId}
+          projectCwd={projectCwd}
+          className="[app-region:no-drag]"
+        />
+      )}
 
 
       <TitleField tabId={tabId} title={title ?? "untitled"} />

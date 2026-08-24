@@ -53,3 +53,26 @@ the user made.
   and is reclaimed on session delete.
 - **A vanished checkout (manual rm) fails resume loudly** — it never
   silently respawns at the project root.
+
+## Merge-back addendum (issue #272)
+
+- **The merge runs in the project checkout, on its current branch.** A
+  merge into the destination needs a worktree with it checked out; git
+  refuses to check out a branch held by another worktree, and the worktree
+  checkout belongs to the session — so the destination must be the project
+  checkout's current branch, otherwise the merge is unavailable.
+- **The destination resolves from the recorded `base`**: a local branch
+  named by it, else — when `base` resolves to a commit — the unique local
+  branch pointing at it, else the project's current branch when it
+  contains that cut commit. The merge fast-forwards when history allows,
+  otherwise creates a real merge commit; only committed work on the
+  branch is included.
+- **The metadata was refined to match**: `base` now records the project
+  checkout's branch name at creation, and a SHA only when the checkout is
+  detached (SHA bases resolve through the same rules).
+- **Conflicts are left in the project checkout for the user** — `git merge
+  --continue` to finish, `git merge --abort` to undo. omp-ui never
+  resolves or aborts a merge.
+- **The delete confirmation offers the same merge first.** Merging is
+  additive: "deletion is one-way on the checkout only" still stands — the
+  branch and its commits survive deletion either way.

@@ -1938,6 +1938,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           running: rec.live === "live",
           hasFiles: rec.live !== "missing",
           worktreeBranch: rec.worktree?.branch ?? null,
+          worktreeBase: rec.worktree?.base ?? null,
         },
       });
     },
@@ -3410,6 +3411,22 @@ export const useStore = create<UiStore>()((set, get, api) => {
         }
         patchBranchActivity(projectCwd, { pulling: false });
       }
+    },
+
+    async readMergeBackStatus(projectCwd, branch, base) {
+      return backend.getMergeBackStatus(projectCwd, branch, base);
+    },
+
+    async mergeWorktreeBranch(projectCwd, branch, destination) {
+      const result = await backend.mergeWorktreeBranch(projectCwd, branch, destination);
+      if (result.kind === "ff" || result.kind === "merged") {
+        await get().refreshBranches(projectCwd, { fetchUpstream: false });
+      }
+      return result;
+    },
+
+    appendNotice(tabId, text, level) {
+      appendItem(tabId, noticeItem(text, level));
     },
 
     async suggestBranchName(projectCwd, planContext) {

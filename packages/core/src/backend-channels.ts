@@ -18,6 +18,8 @@ import type {
   MemoryPage,
   MemoryRow,
   MemoryScope,
+  MergeBackResult,
+  MergeBackStatus,
   OmpSettingValue,
   OmpSettingsSnapshot,
   OmpUpdateState,
@@ -391,6 +393,16 @@ export const BACKEND_CHANNELS = {
   pullBranch: {
     channel: "branch:pull",
     ...request<[projectCwd: string], void>(),
+  },
+  /** Merge-back feasibility for a worktree session's recorded base (issue #272). */
+  getMergeBackStatus: {
+    channel: "branch:mergeStatus",
+    ...request<[projectCwd: string, branch: string, base: string | null], MergeBackStatus>(),
+  },
+  /** Merges the worktree branch into its destination in the project checkout (issue #272). */
+  mergeWorktreeBranch: {
+    channel: "branch:mergeBack",
+    ...request<[projectCwd: string, branch: string, destination: string], MergeBackResult>(),
   },
   /**
    * Resolved mnemopi memory overview for a project; never rejects — failures

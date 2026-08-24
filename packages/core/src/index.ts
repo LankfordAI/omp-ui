@@ -15,8 +15,10 @@ export {
 export {
   addWorktree,
   isWithin,
+  mergeWorktreeBranch,
   mintWorktreeBranch,
   mintWorktreePath,
+  readMergeBackStatus,
   removeWorktree,
   sweepOrphanWorktrees,
 } from "./worktree";

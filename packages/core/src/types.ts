@@ -75,10 +75,38 @@ export interface SessionWorktree {
   branch: string;
   /**
    * What the branch was cut from: the spawn request's baseRef verbatim, or
-   * the project checkout's HEAD commit resolved at creation when baseRef was
-   * null. Null only on records predating this field.
+   * the project checkout's branch at creation — its HEAD commit when the
+   * checkout is detached. Null only on records predating this field.
    */
   base: string | null;
+}
+
+/** Merge-back feasibility snapshot for a worktree session (issue #272). */
+export interface MergeBackStatus {
+  /** Destination branch in the project; null when unresolvable. */
+  destination: string | null;
+  /** Why destination is null; null when destination is set. */
+  reason: "no-repo" | "base-gone" | "no-branch-match" | null;
+  /** destination is the project checkout's current branch. */
+  destinationCheckedOut: boolean;
+  /** The worktree session's branch still exists as a local branch. */
+  branchExists: boolean;
+  /** A merge is already in progress in the project checkout (.MERGE_HEAD). */
+  mergeInProgress: boolean;
+  /** Every commit of the branch is already in destination. */
+  alreadyMerged: boolean;
+  /** Commits on the branch that destination lacks; 0 when alreadyMerged. */
+  ahead: number;
+}
+
+/** Outcome of a merge-back (issue #272). */
+export interface MergeBackResult {
+  kind: "ff" | "merged" | "already-merged" | "conflicts";
+  destination: string;
+  /** Commits folded into destination; 0 for already-merged. */
+  commits: number;
+  /** Conflicted paths when kind is "conflicts"; [] otherwise. */
+  files: string[];
 }
 
 /** Saved provenance for a fresh implementation session created from an accepted plan. */

@@ -1087,12 +1087,35 @@ describe("worktree sessions (issue #224)", () => {
     });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    // base is the project HEAD at spawn time (issue #259).
-    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
+    // base is the project's current branch at spawn time (issue #272; SHA when detached).
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: "main" });
     expect(fs.existsSync(worktreePath)).toBe(true);
     const call = spawnCalls[spawnCalls.length - 1]!;
     expect(call.id).toBe(tabId);
     expect(call.cwd).toBe(worktreePath);
+  });
+
+  it("records the detached HEAD commit as base when the project is detached (issue #272)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    await execFileP("git", ["checkout", "-q", "--detach"], { cwd: project });
+    registry.addProject(project);
+    const branch = "omp-ui/wt-detached";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+
+    // No current branch to record: the detached commit itself is the base.
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
+    expect(fs.existsSync(worktreePath)).toBe(true);
   });
 
   it("persists an explicit baseRef verbatim on the record (issue #259)", async () => {
@@ -1217,7 +1240,7 @@ describe("worktree sessions (issue #224)", () => {
 
     expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
     const fork = registry.sessions.find((s) => s.tabId === forkTabId)!;
-    expect(fork.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
+    expect(fork.worktree).toEqual({ path: worktreePath, branch, base: "main" });
     expect(fs.existsSync(worktreePath)).toBe(true);
 
     await manager.deleteSession(forkTabId);
@@ -1282,7 +1305,7 @@ describe("worktree sessions (issue #224)", () => {
     });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: "main" });
     const opts = RpcClientMock.mock.calls.at(-1)![0] as { cwd: string };
     expect(opts.cwd).toBe(worktreePath);
   });
@@ -1362,7 +1385,7 @@ describe("convert to worktree (issue #225)", () => {
     expect(predecessor.signals).toEqual(["default"]);
     // …the record carries the worktree…
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    expect(record.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: "main" });
     // …the checkout exists on disk…
     expect(fs.existsSync(worktreePath)).toBe(true);
     // …and the successor runs in it.
@@ -1414,7 +1437,7 @@ describe("convert to worktree (issue #225)", () => {
     await manager.convertToWorktree(record.tabId, branch, null);
 
     const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
-    expect(updated.worktree).toEqual({ path: worktreePath, branch, base: await headSha(project) });
+    expect(updated.worktree).toEqual({ path: worktreePath, branch, base: "main" });
     expect(fs.existsSync(worktreePath)).toBe(true);
     expect(spawnOmpMock).not.toHaveBeenCalled();
     expect(manager.isLive(record.tabId)).toBe(false);
