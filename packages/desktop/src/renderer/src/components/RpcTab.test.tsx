@@ -178,6 +178,12 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
       '[role="region"][aria-labelledby="plan-review-title"]',
     );
 
+  /** The session composer's prompt box, keyed by its placeholder. */
+  const composerBox = () =>
+    document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder^="message the agent"]',
+    );
+
   it("takes over the chat-history slot while the review is pending", () => {
     seedPendingReview();
     renderTab(true);
@@ -186,11 +192,9 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(document.body.querySelector(".transcript-scroll")).toBeNull();
     // The composer stays mounted but hidden: the only visible text input is
     // the dock's send-it-back box.
-    const composerBox = [...document.body.querySelectorAll("textarea")].find(
-      (t) => !t.closest(".plan-review"),
-    )!;
-    expect(composerBox).toBeDefined();
-    expect(composerBox.closest(".hidden")).not.toBeNull();
+    const box = composerBox();
+    expect(box).not.toBeNull();
+    expect(box!.closest(".hidden")).not.toBeNull();
   });
 
   it("restores the transcript when the review is deferred", () => {
@@ -202,28 +206,25 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(document.body.querySelector(".transcript-scroll")).not.toBeNull();
     expect(document.body.textContent).toContain("main transcript");
     // The composer comes back with the transcript, still mounted.
-    const composerBox = [...document.body.querySelectorAll("textarea")].find(
-      (t) => !t.closest(".plan-review"),
-    )!;
-    expect(composerBox.closest(".hidden")).toBeNull();
+    const box = composerBox();
+    expect(box).not.toBeNull();
+    expect(box!.closest(".hidden")).toBeNull();
   });
 
   it("keeps an active tab's composer draft while the review is on screen", () => {
     seedPendingReview();
     renderTab(true);
-    const composerBox = [...document.body.querySelectorAll("textarea")].find(
-      (t) => !t.closest(".plan-review"),
-    )!;
+    const box = composerBox()!;
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
     act(() => {
-      setValue.call(composerBox, "my draft");
-      composerBox.dispatchEvent(new Event("input", { bubbles: true }));
+      setValue.call(box, "my draft");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
     });
     act(() => useStore.getState().deferPlanReview(TAB));
     // The same mounted node — hidden, not unmounted — still holds the draft.
-    expect(composerBox.isConnected).toBe(true);
-    expect(composerBox.value).toBe("my draft");
-    expect(composerBox.closest(".hidden")).toBeNull();
+    expect(box.isConnected).toBe(true);
+    expect(box.value).toBe("my draft");
+    expect(box.closest(".hidden")).toBeNull();
   });
 
   it("keeps the transcript on an inactive tab, where the dock stays unmounted", () => {
@@ -232,9 +233,8 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(dock()).toBeNull();
     expect(document.body.querySelector(".transcript-scroll")).not.toBeNull();
     // The inactive tab keeps its composer mounted and unhidden (draft survives).
-    const box = document.body.querySelector("textarea");
+    const box = composerBox();
     expect(box).not.toBeNull();
-    expect(box!.closest(".plan-review")).toBeNull();
     expect(box!.closest(".hidden")).toBeNull();
   });
 });
