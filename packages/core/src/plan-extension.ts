@@ -134,7 +134,9 @@ const HTML_PLAN_BODY =
   "back, or spatial in two dimensions — use hand-drawn inline SVG instead, " +
   "because mermaid's rectilinear auto-layout cannot represent it. If a " +
   "diagram fails to render it is shown as an error callout, so keep the " +
-  "surrounding prose able to stand alone. " +
+  "surrounding prose able to stand alone. Put each mermaid statement on its own " +
+  "line — never chain classDef, class, or node statements together with " +
+  "semicolons, which the parser rejects. " +
   "Hand-drawn inline SVG is the right tool when mermaid's rectangles and " +
   "rectilinear auto-layout cannot represent the figure: a spatial or pictorial " +
   "subject (a cross-section, a physical layout, a schematic whose geometry is " +
