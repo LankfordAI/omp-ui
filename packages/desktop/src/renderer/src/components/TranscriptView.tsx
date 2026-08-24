@@ -502,14 +502,24 @@ const TranscriptRow = memo(function TranscriptRow({
 
 /* ------------------------------------------------------------------ view */
 
+export interface FindState {
+  ids: string[]; // matched item ids, transcript order
+  activeId: string; // the match to centre on
+  nonce: number; // jump counter: changing it re-runs the scroll
+}
+
 export function TranscriptView({
   items,
   tabId,
+  find = null,
 }: {
   items: RenderItem[];
   /** Owns the tab's stream-stall field (issue #228); omitted for the
    *  read-only subagent view, which never shows the live indicator. */
   tabId?: string;
+  /** In-session find (issue #270): matched ids, the active match, and a jump
+   *  nonce. Null closes the wash without touching follow mode. */
+  find?: FindState | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -573,6 +583,53 @@ export function TranscriptView({
     observer.observe(content); // content height changes: cards, images, markdown
     return () => observer.disconnect();
   }, []);
+  // Find wash classes per row (issue #270). Memoized from the find state so a
+  // stream tick that re-renders rows without a new find prop reuses the same
+  // strings.
+  const findClassById = useMemo(() => {
+    if (find === null) return null;
+    const map = new Map<string, string>();
+    for (const id of find.ids) {
+      map.set(id, id === find.activeId ? "find-hit find-hit-active" : "find-hit");
+    }
+    return map;
+  }, [find?.ids, find?.activeId, find?.nonce]);
+
+  // Jump to the active match. Keyed on the nonce (a ref guard keeps unrelated
+  // re-renders no-ops); a nonce bump is the only trigger.
+  const lastFindNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (find === null) return;
+    const nonce = find.nonce;
+    if (lastFindNonceRef.current === nonce) return;
+    lastFindNonceRef.current = nonce;
+
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    // A collapsed marker run renders only its first item: if the active id's
+    // wrapper is missing, walk backwards to the nearest rendered row.
+    const activeIndex = items.findIndex((item) => item.id === find.activeId);
+    const start = activeIndex === -1 ? items.length - 1 : activeIndex;
+    let target: Element | null = null;
+    for (let i = start; i >= 0; i -= 1) {
+      const id = items[i]?.id;
+      if (!id) continue;
+      target = scrollEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+      if (target !== null) break;
+    }
+    if (target === null) return;
+
+    // Follow-mode contract (issue #7): a target that is not the last row
+    // means the user is now reading mid-transcript — exit follow mode before
+    // scrolling so the "jump to latest" pill appears. The last row leaves
+    // the mode untouched.
+    const rows = scrollEl.querySelectorAll("[data-item-id]");
+    if (rows.length > 0 && rows[rows.length - 1] !== target) {
+      updateFollowing(false);
+    }
+    target.scrollIntoView({ block: "center" });
+  }, [find?.nonce]);
 
   return (
     <div className="ambient relative min-h-0 flex-1 bg-surface">
@@ -650,11 +707,16 @@ export function TranscriptView({
               {run.speaker === "assistant" && opensExchange(runs, runIndex) && (
                 <Label>assistant</Label>
               )}
-              {run.rows.map(({ item, count }, i) => (
-                <ErrorBoundary key={item.id} fallback={(error) => <BrokenRow error={error} />}>
-                  <TranscriptRow item={item} count={count} first={i === 0} tabId={tabId} />
-                </ErrorBoundary>
-              ))}
+              {run.rows.map(({ item, count }, i) => {
+                const findClass = findClassById?.get(item.id);
+                return (
+                  <div key={item.id} data-item-id={item.id} className={findClass}>
+                    <ErrorBoundary fallback={(error) => <BrokenRow error={error} />}>
+                      <TranscriptRow item={item} count={count} first={i === 0} tabId={tabId} />
+                    </ErrorBoundary>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

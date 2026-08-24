@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -13,7 +13,7 @@ import {
 import { backend } from "../backend";
 import { rpcTabState } from "../test/fixtures";
 import { useStore } from "../store";
-import { TranscriptView } from "./TranscriptView";
+import { TranscriptView, type FindState } from "./TranscriptView";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -539,6 +539,112 @@ describe("command rows (slash-command parity)", () => {
     const { el, root } = render([command("done", { output: TUI_REFUSAL })]);
     expect(el.textContent).toContain("the TUI client");
     expect(handoffButton(el)).toBeUndefined();
+    act(() => root.unmount());
+  });
+});
+
+describe("in-session find (issue #270)", () => {
+  // jsdom has no scrollIntoView; the jump effect centres the active row with
+  // it, exactly like the palettes do.
+  const scrollIntoViewSpy = vi.fn();
+  // jsdom leaves scrollIntoView undefined; restore whatever was there (if
+  // anything) after the suite.
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+
+  beforeEach(() => {
+    scrollIntoViewSpy.mockClear();
+    HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
+  });
+
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
+  function renderFind(items: RenderItem[], find?: FindState | null) {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    act(() => {
+      root.render(<TranscriptView items={items} find={find ?? null} />);
+    });
+    return { el, root };
+  }
+
+  function four() {
+    return [
+      assistant("a1", "one"),
+      assistant("a2", "two"),
+      assistant("a3", "three"),
+      assistant("a4", "four"),
+    ];
+  }
+
+  function wrapper(el: HTMLDivElement, id: string): HTMLElement {
+    const node = el.querySelector<HTMLElement>(`[data-item-id="${id}"]`);
+    if (!node) throw new Error(`row wrapper for ${id} not found`);
+    return node;
+  }
+
+  it("washes matched rows, centres the active match, and exits follow mode", () => {
+    const { el, root } = renderFind(four(), {
+      ids: ["a1", "a2", "a3"],
+      activeId: "a2",
+      nonce: 1,
+    });
+    // The active match is mid-list: centreing it leaves the tail behind.
+    expect(el.textContent).toContain("jump to latest");
+    expect(wrapper(el, "a2").className).toBe("find-hit find-hit-active");
+    expect(wrapper(el, "a1").className).toBe("find-hit");
+    expect(wrapper(el, "a3").className).toBe("find-hit");
+    // An unmatched row stays plain.
+    expect(wrapper(el, "a4").className).toBe("");
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "center" });
+    act(() => root.unmount());
+  });
+
+  it("leaves follow mode untouched when the active match is the last row", () => {
+    const { el, root } = renderFind(four(), {
+      ids: ["a1", "a2", "a3", "a4"],
+      activeId: "a4",
+      nonce: 1,
+    });
+    expect(el.textContent).not.toContain("jump to latest");
+    expect(wrapper(el, "a4").className).toBe("find-hit find-hit-active");
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "center" });
+    act(() => root.unmount());
+  });
+
+  it("re-fires the scroll on a nonce bump, and not on item churn without one", () => {
+    const { root } = renderFind(four(), {
+      ids: ["a1", "a2", "a3"],
+      activeId: "a2",
+      nonce: 5,
+    });
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
+
+    // Churn: a fresh items array with the same ids does not re-jump.
+    act(() => {
+      root.render(
+        <TranscriptView items={four()} find={{ ids: ["a1", "a2", "a3"], activeId: "a2", nonce: 5 }} />,
+      );
+    });
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
+
+    // A nonce bump does.
+    act(() => {
+      root.render(
+        <TranscriptView items={four()} find={{ ids: ["a1", "a2", "a3"], activeId: "a2", nonce: 6 }} />,
+      );
+    });
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+  });
+
+  it("renders plain rows with no find prop: no wash, no scroll, no follow change", () => {
+    const { el, root } = renderFind(four());
+    expect(el.querySelector(".find-hit")).toBeNull();
+    expect(el.textContent).not.toContain("jump to latest");
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 });

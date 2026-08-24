@@ -28,6 +28,16 @@
 .md-math-inline {
   color: inherit;
 }
+
+/* Find wash (issue #270): quiet copper on matched rows, a stronger ring on the
+   active match. The wrapper div carries the classes; rows inside keep their
+   own surfaces. */
+.find-hit { background: var(--color-copper-wash); border-radius: 4px; }
+.find-hit-active { background: var(--color-copper-wash); box-shadow: 0 0 0 1.5px var(--color-copper-dim); border-radius: 4px; }
+/* The bar's own width: the overlay positioning utilities on the element
+   can't spell the calc, so the width lives here. */
+.find-bar { width: min(28rem, calc(100% - 2rem)); }
+
 /*
  * omp-ui design system — "precision instrument".
  *

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
@@ -12,7 +13,24 @@ import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/c
 import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { registerTermWriter, useStore } from "../store";
+import { FindBar } from "./FindBar";
 import { Button, IconButton, IconClose } from "./ui";
+
+/**
+ * xterm paints search decorations onto its own canvas, so — like the `term`
+ * above — the copper wash is handed over as literal colours projected from
+ * the active theme's token map (issue #270).
+ */
+function searchDecorations(tokens: Record<string, string>) {
+  return {
+    matchBackground: tokens["--color-copper-wash"],
+    matchBorder: tokens["--color-copper-dim"],
+    matchOverviewRuler: tokens["--color-copper"],
+    activeMatchBackground: tokens["--color-copper-dim"],
+    activeMatchBorder: tokens["--color-copper"],
+    activeMatchColorOverviewRuler: tokens["--color-copper-dim"],
+  };
+}
 
 /**
  * xterm renders into a canvas, so it cannot read Tailwind classes — the
@@ -26,11 +44,13 @@ import { Button, IconButton, IconClose } from "./ui";
  */
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+  const termRef = useRef<{ term: Terminal; fit: FitAddon; search: SearchAddon } | null>(null);
   const imagePickerRef = useRef<HTMLInputElement>(null);
   const theme = useTheme();
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
+  const searchOpen = useStore((s) => s.searchOpen[tabId] === true);
+  const closeSearch = useStore((s) => s.closeSearch);
   /**
    * An image Attachment cannot ride the PTY as bytes, so main writes it to a scratch
    * file and delivers the *path* as a bracketed paste — omp's TUI editor
@@ -39,6 +59,13 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
    * a moment later and that is the real confirmation.
    */
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
+
+  // Find within the session (issue #270): the bar text and the addon's match
+  // position/count, which feed the FindBar readout. `resultIndex` is -1 when
+  // the highlight limit is exceeded — no active match.
+  const [query, setQuery] = useState("");
+  const [resultIndex, setResultIndex] = useState(0);
+  const [resultCount, setResultCount] = useState(0);
 
   const deliverImages = useCallback(
     async ({ images, rejected }: ClipboardImages) => {
@@ -109,6 +136,12 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     term.open(host);
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    const resultsSub = search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      setResultIndex(resultIndex);
+      setResultCount(resultCount);
+    });
     try {
       const webgl = new WebglAddon();
       // GPU process restart (driver reset, suspend, OOM) kills the WebGL
@@ -119,7 +152,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     } catch {
       // WebGL unavailable — silently stay on the DOM renderer.
     }
-    termRef.current = { term, fit };
+    termRef.current = { term, fit, search };
 
     // Spawn size is 80×24; immediately fit the real viewport and push it.
     fit.fit();
@@ -163,6 +196,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       host.removeEventListener("paste", onPaste, true);
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
+      resultsSub.dispose();
       term.dispose();
       termRef.current = null;
     };
@@ -177,6 +211,69 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     const term = termRef.current?.term;
     if (term) term.options.theme = { ...theme.term } as ITheme;
   }, [theme]);
+
+  // Find within the session (issue #270): re-issue the search as the query
+  // changes. A theme switch first clears the old-colour decorations so the
+  // re-issue restarts at the top instead of advancing the selection.
+  const lastSearchTheme = useRef<string | null>(null);
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t || !searchOpen) return;
+    const { term, search } = t;
+    if (query.trim() === "") {
+      search.clearDecorations();
+      search.clearActiveDecoration();
+      term.clearSelection();
+      setResultIndex(0);
+      setResultCount(0);
+      return;
+    }
+    if (lastSearchTheme.current !== theme.id) {
+      search.clearDecorations();
+      search.clearActiveDecoration();
+      lastSearchTheme.current = theme.id;
+    }
+    search.findNext(query, { caseSensitive: false, decorations: searchDecorations(theme.tokens) });
+  }, [query, searchOpen, theme]);
+
+  // Step through the matches; a blank query has nothing to step.
+  const findNext = useCallback(
+    () => {
+      const t = termRef.current;
+      if (!t || query.trim() === "") return;
+      t.search.findNext(query, { caseSensitive: false, decorations: searchDecorations(theme.tokens) });
+    },
+    [query, theme],
+  );
+  const findPrevious = useCallback(
+    () => {
+      const t = termRef.current;
+      if (!t || query.trim() === "") return;
+      t.search.findPrevious(query, { caseSensitive: false, decorations: searchDecorations(theme.tokens) });
+    },
+    [query, theme],
+  );
+
+  // A true→false flip (Escape or ✕) tears the search down and hands focus
+  // back to the xterm textarea; the query itself is preserved for the next
+  // open. The ref makes it fire on the flip, not on every re-render.
+  const wasSearchOpen = useRef(false);
+  useEffect(() => {
+    const wasOpen = wasSearchOpen.current;
+    wasSearchOpen.current = searchOpen;
+    if (wasOpen && !searchOpen) {
+      const t = termRef.current;
+      if (t) {
+        t.search.clearDecorations();
+        t.search.clearActiveDecoration();
+        t.term.clearSelection();
+        t.term.focus();
+      }
+      setResultIndex(0);
+      setResultCount(0);
+      lastSearchTheme.current = null;
+    }
+  }, [searchOpen]);
 
   // Re-fit when a hidden/inactive tab resurfaces (display:none → real box).
   // Focus follows the active terminal tab (issue #126): whenever a tab becomes
@@ -264,6 +361,17 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
             resume session
           </Button>
         </div>
+      )}
+      {searchOpen && exitCode === undefined && (
+        <FindBar
+          query={query}
+          onQueryChange={setQuery}
+          matchIndex={resultIndex >= 0 ? resultIndex : null}
+          matchCount={resultCount}
+          onPrev={findPrevious}
+          onNext={findNext}
+          onClose={() => closeSearch(tabId)}
+        />
       )}
     </div>
   );

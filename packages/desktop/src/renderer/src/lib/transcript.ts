@@ -162,6 +162,73 @@ export function preExchange(items: readonly RenderItem[]): boolean {
   return items.every((i) => i.kind === "notice" || i.kind === "marker" || i.kind === "command");
 }
 
+/** One huge bash result must not make the whole search quadratic. */
+const SEARCH_TEXT_LIMIT = 32_000;
+
+/**
+ * The text find-within searches inside one render item (issue #270) — the
+ * kind's searchable fields joined by newlines, undefined/empty fields skipped.
+ */
+export function itemSearchText(item: RenderItem): string {
+  const fields: (string | null | undefined)[] = [];
+  switch (item.kind) {
+    case "user":
+      fields.push(item.text);
+      break;
+    case "assistant":
+      fields.push(item.text, item.thinking);
+      break;
+    case "tool":
+      fields.push(
+        item.name,
+        item.intent,
+        typeof item.args === "string" ? item.args : JSON.stringify(item.args),
+        item.path,
+        item.op,
+        item.resultText,
+        item.partialText,
+      );
+      break;
+    case "advisory":
+      fields.push(...item.notes.flatMap((n) => [n.advisor, n.note]));
+      break;
+    case "notice":
+      fields.push(item.text);
+      break;
+    case "irc":
+      fields.push(item.from, item.text);
+      break;
+    case "marker":
+      fields.push(item.label);
+      break;
+    case "plan":
+      fields.push(item.title, item.text);
+      break;
+    case "command":
+      fields.push(item.name, item.args, item.output, item.error);
+      break;
+  }
+  const text = fields
+    .filter((f): f is string => typeof f === "string" && f !== "")
+    .join("\n");
+  return text.length <= SEARCH_TEXT_LIMIT ? text : text.slice(0, SEARCH_TEXT_LIMIT);
+}
+
+/**
+ * Find-within (issue #270): ids of the items holding `query` as a
+ * case-insensitive literal substring, in transcript order — one entry per
+ * matching item. A blank query matches nothing.
+ */
+export function findMatches(items: readonly RenderItem[], query: string): string[] {
+  if (query.trim() === "") return [];
+  const needle = query.toLowerCase();
+  const out: string[] = [];
+  for (const item of items) {
+    if (itemSearchText(item).toLowerCase().includes(needle)) out.push(item.id);
+  }
+  return out;
+}
+
 export function planProposalItem(
   title: string,
   planFilePath: string,

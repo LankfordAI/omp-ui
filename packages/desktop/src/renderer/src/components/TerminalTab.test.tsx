@@ -7,18 +7,34 @@ import { TerminalTab } from "./TerminalTab";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({
-  fit: vi.fn(),
-  focus: vi.fn(),
-  hasClipboardImage: vi.fn(() => false),
-  ptyPasteImage: vi.fn(),
-  ptyResize: vi.fn(),
-  ptyWrite: vi.fn(),
-  readClipboardImages: vi.fn(),
-  readImageFiles: vi.fn(),
-  registerTermWriter: vi.fn(() => vi.fn()),
-  resumeDead: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const resumeDead = vi.fn();
+  return {
+    clearActiveDecoration: vi.fn(),
+    clearDecorations: vi.fn(),
+    clearSelection: vi.fn(),
+    fit: vi.fn(),
+    findNext: vi.fn(),
+    findPrevious: vi.fn(),
+    focus: vi.fn(),
+    hasClipboardImage: vi.fn(() => false),
+    onDidChangeResults: vi.fn(() => ({ dispose: vi.fn() })),
+    ptyPasteImage: vi.fn(),
+    ptyResize: vi.fn(),
+    ptyWrite: vi.fn(),
+    readClipboardImages: vi.fn(),
+    readImageFiles: vi.fn(),
+    registerTermWriter: vi.fn(() => vi.fn()),
+    resumeDead,
+    // Mutable stub state: tests flip `searchOpen` and re-render.
+    store: {
+      exited: {} as Record<string, number>,
+      searchOpen: {} as Record<string, boolean>,
+      closeSearch: vi.fn(),
+      resumeDead,
+    },
+  };
+});
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class TerminalMock {
@@ -40,11 +56,24 @@ vi.mock("@xterm/xterm", () => ({
     focus() {
       mocks.focus();
     }
+    clearSelection() {
+      mocks.clearSelection();
+    }
   },
 }));
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class FitAddonMock {
     fit = mocks.fit;
+  },
+}));
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: class SearchAddonMock {
+    findNext = mocks.findNext;
+    findPrevious = mocks.findPrevious;
+    clearDecorations = mocks.clearDecorations;
+    clearActiveDecoration = mocks.clearActiveDecoration;
+    onDidChangeResults = mocks.onDidChangeResults;
+    dispose() {}
   },
 }));
 vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class WebLinksAddonMock {} }));
@@ -67,11 +96,26 @@ vi.mock("../lib/clipboard-image", () => ({
   readClipboardImages: mocks.readClipboardImages,
   readImageFiles: mocks.readImageFiles,
 }));
-vi.mock("../lib/themes", () => ({ useTheme: () => ({ term: {} }) }));
+const themeMock = vi.hoisted(() => ({
+  id: "graphite",
+  tokens: {
+    "--color-copper": "#8a5a2b",
+    "--color-copper-dim": "#6d4620",
+    "--color-copper-wash": "#2a1d10",
+  },
+  term: {},
+}));
+vi.mock("../lib/themes", () => ({ useTheme: () => themeMock }));
 vi.mock("../store", () => ({
   registerTermWriter: mocks.registerTermWriter,
-  useStore: (selector: (state: { exited: Record<string, number>; resumeDead: () => void }) => unknown) =>
-    selector({ exited: {}, resumeDead: mocks.resumeDead }),
+  useStore: (
+    selector: (state: {
+      exited: Record<string, number>;
+      searchOpen: Record<string, boolean>;
+      closeSearch: (tabId: string) => void;
+      resumeDead: () => void;
+    }) => unknown,
+  ) => selector(mocks.store),
 }));
 
 class ResizeObserverStub {
@@ -104,6 +148,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.hasClipboardImage.mockReturnValue(false);
   mocks.ptyPasteImage.mockResolvedValue(undefined);
+  mocks.store.exited = {};
+  mocks.store.searchOpen = {};
 });
 
 afterEach(() => {
@@ -205,5 +251,82 @@ describe("TerminalTab attachment picker", () => {
     expect(input.value).toBe("");
     expect(document.body.textContent).toContain("broken.png could not be read");
     expect(mocks.ptyPasteImage).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalTab find (issue #270)", () => {
+  function typeFindQuery(text: string): void {
+    const input = document.body.querySelector<HTMLInputElement>(".find-bar-input")!;
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      setValue.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("shows the find bar only while the store flag is set", () => {
+    renderTerminal();
+    expect(document.body.querySelector(".find-bar")).toBeNull();
+
+    act(() => {
+      mocks.store.searchOpen[TAB] = true;
+      root!.render(<TerminalTab tabId={TAB} active />);
+    });
+    const bar = document.body.querySelector(".find-bar");
+    expect(bar).not.toBeNull();
+    expect(bar!.querySelector(".find-bar-input")).not.toBeNull();
+  });
+
+  it("searches the terminal with theme-drawn decorations as the query is typed", () => {
+    renderTerminal();
+    act(() => {
+      mocks.store.searchOpen[TAB] = true;
+      root!.render(<TerminalTab tabId={TAB} active />);
+    });
+    expect(mocks.findNext).not.toHaveBeenCalled();
+
+    typeFindQuery("hello");
+    expect(mocks.findNext).toHaveBeenCalledTimes(1);
+    expect(mocks.findNext).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        caseSensitive: false,
+        decorations: {
+          matchBackground: "#2a1d10",
+          matchBorder: "#6d4620",
+          matchOverviewRuler: "#8a5a2b",
+          activeMatchBackground: "#6d4620",
+          activeMatchBorder: "#8a5a2b",
+          activeMatchColorOverviewRuler: "#6d4620",
+        },
+      }),
+    );
+  });
+
+  it("clears the search and refocuses the terminal when the bar closes", () => {
+    renderTerminal();
+    act(() => {
+      mocks.store.searchOpen[TAB] = true;
+      root!.render(<TerminalTab tabId={TAB} active />);
+    });
+    typeFindQuery("abc");
+    expect(mocks.findNext).toHaveBeenCalled();
+
+    mocks.clearDecorations.mockClear();
+    mocks.clearActiveDecoration.mockClear();
+    mocks.clearSelection.mockClear();
+    mocks.focus.mockClear();
+    act(() => {
+      mocks.store.searchOpen[TAB] = false;
+      root!.render(<TerminalTab tabId={TAB} active />);
+    });
+    expect(mocks.clearDecorations).toHaveBeenCalled();
+    expect(mocks.clearActiveDecoration).toHaveBeenCalled();
+    expect(mocks.clearSelection).toHaveBeenCalled();
+    expect(mocks.focus).toHaveBeenCalled();
+    expect(document.body.querySelector(".find-bar")).toBeNull();
   });
 });

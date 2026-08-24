@@ -1,11 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
-import { preExchange, type RenderItem } from "../lib/transcript";
+import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
 import { findRecord, useStore, type RpcFailure } from "../store";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
+import { FindBar } from "./FindBar";
 import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
 import { SessionHud } from "./SessionHud";
@@ -208,9 +209,65 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
     return () => window.removeEventListener("resize", capture);
   }, [centered]);
 
+  // In-session find (issue #270). The open flag lives in the store so App's
+  // mod+f can open it from anywhere; the query and match index are local.
+  const searchOpen = useStore((s) => s.searchOpen[tabId] === true);
+  const closeSearch = useStore((s) => s.closeSearch);
+  const [query, setQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [nonce, setNonce] = useState(0);
+  const matches = useMemo(
+    () => (query.trim() === "" ? [] : findMatches(items, query)),
+    [items, query],
+  );
+  const activeId = query.trim() !== "" ? matches[matchIndex] ?? null : null;
+
+  // When the match list shifts (stream tick, new items), keep the active
+  // match if it survived — no jump; otherwise jump to the first match.
+  const prevMatchesRef = useRef<string[]>(matches);
+  const matchIndexRef = useRef(0);
+  matchIndexRef.current = matchIndex;
+  useEffect(() => {
+    const prevActive = prevMatchesRef.current[matchIndexRef.current];
+    prevMatchesRef.current = matches;
+    if (matches.length === 0) {
+      setMatchIndex(0); // empty query: reset, no jump
+      return;
+    }
+    const prevIndex = prevActive !== undefined ? matches.indexOf(prevActive) : -1;
+    if (prevIndex !== -1) {
+      setMatchIndex(prevIndex);
+      return;
+    }
+    setMatchIndex(0);
+    setNonce((n) => n + 1);
+  }, [matches]);
+
+  function stepMatch(delta: 1 | -1) {
+    if (matches.length === 0) return;
+    setMatchIndex((i) => (i + delta + matches.length) % matches.length);
+    setNonce((n) => n + 1);
+  }
+
   return (
     <div className="ambient relative flex h-full flex-col bg-surface">
       {compact && <SessionHud tabId={tabId} />}
+
+      {/* The find bar (issue #270) rides the tab's top edge. While the
+          subagent view or plan-review dock owns the surface — or the tab has
+          exited — it is hidden but the session (query, index, store flag) is
+          preserved. */}
+      {searchOpen && viewingSubagent === null && !planReviewOpen && exitCode === undefined && (
+        <FindBar
+          query={query}
+          onQueryChange={setQuery}
+          matchIndex={activeId === null ? null : matchIndex}
+          matchCount={matches.length}
+          onPrev={() => stepMatch(-1)}
+          onNext={() => stepMatch(1)}
+          onClose={() => closeSearch(tabId)}
+        />
+      )}
 
       {/* Flush with the tab pane's top edge, never in flow: a 1px bar that
           mounts/unmounts in flow shifts the whole transcript and jitters it.
@@ -290,7 +347,15 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     ) : status === "starting" && items.length === 0 ? (
                       <TranscriptSkeleton />
                     ) : (
-                      <TranscriptView items={items} tabId={tabId} />
+                      <TranscriptView
+                        items={items}
+                        tabId={tabId}
+                        find={
+                          searchOpen && activeId !== null
+                            ? { ids: matches, activeId, nonce }
+                            : null
+                        }
+                      />
                     )}
                   </>
                 )}

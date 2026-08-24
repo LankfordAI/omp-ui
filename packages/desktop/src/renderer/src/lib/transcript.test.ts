@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  findMatches,
   historyToItems,
   isAdvisorMessage,
+  itemSearchText,
   markerItem,
   noticeItem,
   preExchange,
@@ -796,5 +798,68 @@ describe("preExchange", () => {
 
   it.each(exchangeItems)("is false once a %s item is present", (_kind, item) => {
     expect(preExchange([noticeItem("n"), item])).toBe(false);
+  });
+});
+
+describe("itemSearchText", () => {
+  it("includes the assistant's thinking beside its text", () => {
+    const item: RenderItem = { kind: "assistant", id: "a1", text: "Ship it", thinking: "hmm, let me check", streaming: false };
+
+    const text = itemSearchText(item);
+    expect(text).toContain("Ship it");
+    expect(text).toContain("hmm, let me check");
+  });
+
+  it("includes a tool's intent, args and resultText", () => {
+    const item: RenderItem = {
+      kind: "tool",
+      id: "t1",
+      toolCallId: "c1",
+      name: "bash",
+      args: { command: "deploy.sh --env staging" },
+      status: "done",
+      intent: "Running the deploy script",
+      resultText: "Deployed to staging",
+    };
+    const text = itemSearchText(item);
+    expect(text).toContain("Running the deploy script");
+    expect(text).toContain("deploy.sh --env staging");
+    expect(text).toContain("Deployed to staging");
+  });
+
+  it("includes a command's output", () => {
+    const item: RenderItem = { kind: "command", id: "c1", name: "mcp", args: "", status: "done", output: "3 servers online" };
+    expect(itemSearchText(item)).toContain("3 servers online");
+  });
+
+  it("is a marker's label", () => {
+    expect(itemSearchText(markerItem("THINKING LEVEL"))).toBe("THINKING LEVEL");
+  });
+});
+
+describe("findMatches", () => {
+  const items: RenderItem[] = [
+    { kind: "user", id: "u1", text: "Ship the FIND bar" },
+    { kind: "assistant", id: "a1", text: "Find is Find, the bar is small", thinking: "", streaming: false },
+    { kind: "user", id: "u2", text: "unrelated" },
+    { kind: "user", id: "u3", text: "then ship find" },
+  ];
+
+  it("matches case-insensitively as a literal substring", () => {
+    expect(findMatches(items, "FIND")).toEqual(["u1", "a1", "u3"]);
+  });
+
+  it("transcript order, one id per matching item", () => {
+    expect(findMatches(items, "find")).toEqual(["u1", "a1", "u3"]);
+  });
+
+  it("excludes non-matching items", () => {
+    expect(findMatches(items, "the FIND bar")).toEqual(["u1"]);
+    expect(findMatches(items, "no-such-token")).toEqual([]);
+  });
+
+  it("returns [] for an empty or whitespace query", () => {
+    expect(findMatches(items, "")).toEqual([]);
+    expect(findMatches(items, "   ")).toEqual([]);
   });
 });

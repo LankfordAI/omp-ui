@@ -261,6 +261,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   hibernated: Record<string, boolean>;
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
+  searchOpen: Record<string, boolean>;
   tuiHandoff: Record<string, TuiHandoff>;
   branches: Record<string, BranchList>;
   branchActivity: Record<string, BranchActivity>;
@@ -394,6 +395,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   closeSubagent(tabId: string): void;
   clearShellExited(tabId: string): void;
   toggleConsole(tabId: string): void;
+  openSearch(tabId: string): void;
+  closeSearch(tabId: string): void;
   /** Opens the console on an omp TUI and stages `line` for the user to send. */
   startTuiHandoff(tabId: string, line: string): void;
   /** Types the staged line into the running TUI; no-op once it has exited. */

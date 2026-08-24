@@ -26,6 +26,7 @@ const HINTS: [combo: string, what: string][] = [
   ["mod+shift+n", "new session in the current project"],
   ["mod+shift+p", "switch Build / Plan mode"],
   ["mod+j", "toggle console"],
+  ["mod+f", "search within a session"],
   ["mod+=", "larger transcript text"],
 ];
 
@@ -310,6 +311,31 @@ export default function App() {
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab?.mode === "rpc-ui") toggleConsole(tab.tabId);
     },
+    // In-session search (issue #270): one find bar per tab — the
+    // transcript items of an rpc-ui tab, the xterm scrollback of a
+    // terminal tab. No-op where there is no surface behind the bar
+    // (subagent view, plan-review dock, exited session); refocuses
+    // its input when the bar is already open. A mod combo, so it
+    // fires from the composer or the xterm textarea alike.
+    "mod+f": (e) => {
+      e.preventDefault();
+      if (activeTabId === null) return;
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      const s = useStore.getState();
+      if (!tab || s.exited[activeTabId] !== undefined) return;
+      if (tab.mode === "rpc-ui") {
+        const rpc = s.rpc[activeTabId];
+        if (rpc?.selectedSubagent) return;
+        if (rpc?.planReview != null && rpc.planDeferred !== true) return;
+      }
+      if (s.searchOpen[activeTabId]) {
+        document
+          .querySelector<HTMLInputElement>(`[data-tab-id="${CSS.escape(activeTabId)}"] .find-bar-input`)
+          ?.focus();
+        return;
+      }
+      s.openSearch(activeTabId);
+    },
     // Transcript text scale (issue #30). Registered app-wide: the combos are
     // free because Electron zoom is disabled, and a scale keystroke with no
     // transcript visible is harmless.
@@ -408,6 +434,7 @@ export default function App() {
               return (
                 <div
                   key={t.tabId}
+                  data-tab-id={t.tabId}
                   className="absolute inset-0"
                   style={{ display: shown ? "block" : "none" }}
                 >

@@ -4813,6 +4813,16 @@ describe("prompting, slash commands, and session ops", () => {
     useStore.getState().toggleConsole(TAB);
     expect(useStore.getState().consoleOpen[TAB]).toBe(false);
   });
+
+  it("openSearch/closeSearch set and clear one tab's find bar without touching another's (issue #270)", () => {
+    useStore.setState({ searchOpen: {} });
+    useStore.getState().openSearch(TAB);
+    expect(useStore.getState().searchOpen[TAB]).toBe(true);
+    expect(useStore.getState().searchOpen[`${TAB}-other`]).toBeUndefined();
+    useStore.getState().closeSearch(TAB);
+    expect(useStore.getState().searchOpen[TAB]).toBe(false);
+    expect(useStore.getState().searchOpen[`${TAB}-other`]).toBeUndefined();
+  });
 });
 
 describe("project default models (issue #257)", () => {

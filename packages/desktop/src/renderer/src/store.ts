@@ -1514,6 +1514,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     hibernated: {},
     rpc: {},
     consoleOpen: {},
+    searchOpen: {},
     tuiHandoff: {},
     branches: {},
     branchActivity: {},
@@ -3284,6 +3285,18 @@ export const useStore = create<UiStore>()((set, get, api) => {
     toggleConsole(tabId) {
       set((s) => ({
         consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] },
+      }));
+    },
+
+    openSearch(tabId) {
+      set((s) => ({
+        searchOpen: { ...s.searchOpen, [tabId]: true },
+      }));
+    },
+
+    closeSearch(tabId) {
+      set((s) => ({
+        searchOpen: { ...s.searchOpen, [tabId]: false },
       }));
     },
 
