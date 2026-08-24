@@ -115,8 +115,22 @@ a:active {
    viewBox and inline styles. The :not(svg, svg *) negation above is not
    honored by every CSS parser, so the substitution gets an explicit
    carve-out — scale to the column, preserve aspect, never clip. */
+/* Rendered mermaid diagrams (issues #285, #288): self-contained SVG with its
+   own viewBox. mermaid emits width:100%, so without a height cap a tall
+   flowchart stretches to column width and balloons in height (a 5-node TD
+   chart reached ~850×1570 px). Constrain by height too and keep the intrinsic
+   aspect ratio: width/height auto lets the SVG scale down to whichever limit
+   binds, centered by the flex container. Wide diagrams still fill the column;
+   tall ones shrink to the cap instead of forcing a multi-screen scroll. */
+.omp-ui-diagram {
+  display: flex;
+  justify-content: center;
+}
+
 .omp-ui-diagram svg {
   max-width: 100% !important;
+  max-height: 28rem !important;
+  width: auto !important;
   height: auto !important;
   display: block;
 }

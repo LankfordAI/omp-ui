@@ -234,8 +234,16 @@ describe("preparePlanDocument diagram substitution", () => {
 
     expect(css).toContain(`.omp-ui-diagram svg {
   max-width: 100% !important;
+  max-height: 28rem !important;
+  width: auto !important;
   height: auto !important;
   display: block;
+}`);
+    // Tall diagrams shrink to the height cap instead of stretching to column
+    // width and ballooning (issue #288).
+    expect(css).toContain(`.omp-ui-diagram {
+  display: flex;
+  justify-content: center;
 }`);
   });
 });
