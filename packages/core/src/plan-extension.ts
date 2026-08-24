@@ -120,6 +120,17 @@ const HTML_PLAN_BODY =
   "labels short and quote any label containing punctuation. Escape literal < > & " +
   "inside diagram source as HTML entities. If a diagram fails to render it is " +
   "shown as an error callout, so keep the surrounding prose able to stand alone. " +
+  "Color the diagram to match what it depicts — a cross-section, a pipeline, a " +
+  "data flow reads far better when each node's fill matches the thing it names. " +
+  "Use classDef for groups and style for one-offs (fill, stroke, and text color " +
+  "only; both work under the renderer's strict security). Example, a layered " +
+  "cross-section: flowchart TD; A[Top bread]:::bread --> B[Peanut butter]:::pb " +
+  "--> C[Jelly]:::jelly --> D[Bottom bread]:::bread, with classDef bread " +
+  "fill:#e8c47a,stroke:#a8783a,color:#3a2a10, classDef pb " +
+  "fill:#c98f4e,stroke:#8a5a24,color:#fff, and classDef jelly " +
+  "fill:#a13360,stroke:#5e1f36,color:#fff. Keep fills muted and every label " +
+  "readable against its fill (WCAG AA 4.5:1). If a diagram fails to render it is " +
+  "shown as an error callout, so keep the surrounding prose able to stand alone. " +
   "Use the expressiveness HTML gives you — layout, tables, " +
   "callouts, mermaid diagrams — to make the plan easier to review, and keep " +
   "the styling modest so the document stays mostly content. ";

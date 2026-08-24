@@ -101,6 +101,9 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain('<pre class="mermaid">');
     expect(instruction).toContain("mermaid source");
     expect(instruction).toContain("error callout");
+    expect(instruction).toContain("classDef");
+    expect(instruction).toContain("fill:#");
+    expect(instruction).toContain("Color the diagram to match what it depicts");
     expect(instruction).not.toContain("never straddling an edge");
     expect(instruction).not.toContain("budget its width by character count");
     expect(instruction).not.toContain("non-overlapping box");

@@ -84,7 +84,22 @@ let ready: Promise<unknown> | null = null;
 function ensureMermaid(): Promise<unknown> {
   return (ready ??= import("mermaid").then(({ default: mermaid }) => {
     // strict: no HTML labels, no click handlers — plan content is untrusted.
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+    // theme:"base" + themeVariables gives a warm, legible default on the plan's
+    // light canvas; the agent can still override per node with classDef/style
+    // (pure fill/stroke/color, allowed under strict — issue #286).
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#fef3c7",
+        primaryBorderColor: "#b45309",
+        primaryTextColor: "#1c1917",
+        lineColor: "#57534e",
+        secondaryColor: "#e0f2fe",
+        tertiaryColor: "#f5f5f4",
+      },
+    });
   }));
 }
 
