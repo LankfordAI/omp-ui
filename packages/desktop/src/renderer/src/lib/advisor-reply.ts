@@ -33,7 +33,11 @@ export const ADVISOR_REPLY_MAX = 2;
 export const ADVISOR_REPLY_LEAD =
   "The advisor reviewed the turn that just ended; its findings landed after the turn closed, " +
   "so nothing has answered them yet. Address each one now — fix what needs fixing, or state " +
-  "explicitly why no change is warranted:";
+  "explicitly why no change is warranted. Then make your final message a self-contained " +
+  "restatement of the turn's final message, updated with the changes you made — what the turn " +
+  "did, what the advisor found, and the resulting state of the work — so it stands alone in " +
+  "the transcript. If no change was warranted, restate the original final message and add a " +
+  "short note that the advisor's findings were reviewed and no change was made:";
 
 export const ADVISOR_REPLY_CAP_NOTICE =
   `advisor auto-reply paused after ${ADVISOR_REPLY_MAX} consecutive replies — send a prompt to re-arm`;

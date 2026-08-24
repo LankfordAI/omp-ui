@@ -71,6 +71,11 @@ describe("AdvisorReplyWatcher", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(replies).toHaveLength(1);
     expect(replies[0]!.message).toContain(ADVISOR_REPLY_LEAD);
+    // Pin the issue #280 restatement instruction so "answer only" wording cannot
+    // silently return.
+    expect(replies[0]!.message).toContain(
+      "self-contained restatement of the turn's final message",
+    );
     expect(replies[0]!.message).toContain("- [blocker] (security) Hardcoded key");
     expect(replies[0]!.notes).toHaveLength(1);
     expect(notices).toHaveLength(1);
