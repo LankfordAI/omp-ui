@@ -75,7 +75,7 @@ function KeywordLabel({ keyword }: { keyword: MagicKeyword }) {
   );
 }
 
-export function PlanReview({ tabId }: { tabId: string }) {
+export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: boolean }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
   const planText = useStore((s) => s.rpc[tabId]?.planText);
   /** Present only when the session planned in html format and the file read. */
@@ -346,18 +346,22 @@ export function PlanReview({ tabId }: { tabId: string }) {
       aria-labelledby="plan-review-title"
       className={cn(
         // A flex column, not a plain block: the inner .plan-review column must
-        // shrink inside the max-height (min-h-0 + flex-shrink) so the actions
+        // shrink inside the wrapper (min-h-0 + flex-shrink) so the actions
         // footer stays visible and the plan/setup panes scroll internally. A
         // block child would render at natural height and overflow-hidden would
         // clip the footer away.
-        "animate-rise mx-auto mb-2 flex w-full shrink-0 flex-col overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
-        compact
-          ? "max-h-[min(70dvh,var(--app-viewport-height,70dvh))]"
-          : "max-h-[min(52dvh,var(--app-viewport-height,52dvh))]",
+        "animate-rise mx-auto mb-2 flex w-full flex-col overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
+        fill
+          ? "min-h-0 flex-1" // issue #277: owns the chat-history slot, uncapped
+          : "shrink-0",
+        !fill &&
+          (compact
+            ? "max-h-[min(70dvh,var(--app-viewport-height,70dvh))]"
+            : "max-h-[min(52dvh,var(--app-viewport-height,52dvh))]"),
       )}
     >
       <div
-        className="plan-review flex min-h-0 flex-col"
+        className={cn("plan-review flex min-h-0 flex-col", fill && "flex-1")}
         data-plan-review-step={compact ? compactStep : undefined}
       >
         <header className="plan-review-header flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-3.5">

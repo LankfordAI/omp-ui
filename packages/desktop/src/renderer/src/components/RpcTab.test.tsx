@@ -101,11 +101,11 @@ function seedExited(failure?: RpcFailure): void {
   });
 }
 
-function renderTab(): void {
+function renderTab(active = false): void {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  act(() => root!.render(<RpcTab tabId={TAB} active={false} />));
+  act(() => root!.render(<RpcTab tabId={TAB} active={active} />));
 }
 
 beforeEach(() => {
@@ -148,6 +148,61 @@ describe("RpcTab subagent view", () => {
     renderTab();
     expect(document.body.textContent).toContain("main transcript");
     expect(document.body.textContent).not.toContain("read-only subagent view");
+  });
+});
+
+describe("RpcTab plan-review takeover (issue #277)", () => {
+  function seedPendingReview(): void {
+    seed(null);
+    useStore.setState((current) => ({
+      rpc: {
+        ...current.rpc,
+        [TAB]: {
+          ...current.rpc[TAB]!,
+          planReview: {
+            request: {
+              title: "Fix the login race",
+              planFilePath: "local://fix-login-race-plan.md",
+              planAbsPath: "/x/fix-login-race-plan.md",
+            },
+            frame: { id: "p1" },
+          },
+          planText: "# Fix\n\nsteps",
+        },
+      },
+    }));
+  }
+
+  const dock = () =>
+    document.body.querySelector<HTMLElement>(
+      '[role="region"][aria-labelledby="plan-review-title"]',
+    );
+
+  it("takes over the chat-history slot while the review is pending", () => {
+    seedPendingReview();
+    renderTab(true);
+    expect(dock()).not.toBeNull();
+    expect(dock()!.className).toContain("flex-1");
+    expect(document.body.querySelector(".transcript-scroll")).toBeNull();
+    // The composer stays in flow.
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("restores the transcript when the review is deferred", () => {
+    seedPendingReview();
+    renderTab(true);
+    expect(document.body.querySelector(".transcript-scroll")).toBeNull();
+    act(() => useStore.getState().deferPlanReview(TAB));
+    expect(dock()).toBeNull();
+    expect(document.body.querySelector(".transcript-scroll")).not.toBeNull();
+    expect(document.body.textContent).toContain("main transcript");
+  });
+
+  it("keeps the transcript on an inactive tab, where the dock stays unmounted", () => {
+    seedPendingReview();
+    renderTab();
+    expect(dock()).toBeNull();
+    expect(document.body.querySelector(".transcript-scroll")).not.toBeNull();
   });
 });
 

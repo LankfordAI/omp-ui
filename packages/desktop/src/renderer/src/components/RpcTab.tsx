@@ -141,6 +141,11 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   // `busy` is ref-counted off in-flight rpc commands, so the sweep is honest for
   // any blocking round-trip (compact, export, branch), not just boot.
   const working = status === "starting" || (rpc?.busy ?? false);
+  // While the review dock is on screen it owns the column's chat-history slot
+  // (issue #277). Mirrors PlanReview's own visibility guard (`!review ||
+  // deferred` -> null), so every path that closes the dock — defer, answer,
+  // refine-submitted, gate clear — restores the transcript for free.
+  const planReviewOpen = rpc?.planReview != null && rpc.planDeferred !== true;
   const items = rpc?.items ?? NO_ITEMS;
   const viewingSubagent = rpc?.selectedSubagent ?? null;
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
@@ -268,20 +273,27 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
               </>
             ) : (
               <>
-                {centered ? (
-                  hero ? (
-                    <HeroGreeting projectCwd={projectCwd} />
-                  ) : (
-                    <TranscriptSkeleton centered />
-                  )
-                ) : status === "starting" && items.length === 0 ? (
-                  <TranscriptSkeleton />
+                {planReviewOpen && active ? (
+                  // The pending review owns the chat-history slot at full
+                  // column height (issue #277): the agent is gate-paused, so
+                  // the transcript behind it is static. Inactive tabs keep the
+                  // transcript — the dock stays unmounted there, as before.
+                  <PlanReview tabId={tabId} fill />
                 ) : (
-                  <TranscriptView items={items} tabId={tabId} />
+                  <>
+                    {centered ? (
+                      hero ? (
+                        <HeroGreeting projectCwd={projectCwd} />
+                      ) : (
+                        <TranscriptSkeleton centered />
+                      )
+                    ) : status === "starting" && items.length === 0 ? (
+                      <TranscriptSkeleton />
+                    ) : (
+                      <TranscriptView items={items} tabId={tabId} />
+                    )}
+                  </>
                 )}
-                {/* Docked, not modal: the user may need to scroll the transcript to
-                    answer, so the question must not cover it. */}
-                {active && <PlanReview tabId={tabId} />}
                 <ExtensionDialogHost tabId={tabId} />
                 <div ref={slotRef} className={cn(centered && "pb-2")}>
                   <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />

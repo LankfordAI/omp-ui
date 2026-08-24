@@ -121,11 +121,11 @@ function seed(): void {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
-function render(): void {
+function render(fill = false): void {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root!.render(<PlanReview tabId={TAB} />));
+  act(() => root!.render(<PlanReview tabId={TAB} fill={fill} />));
 }
 
 const buttonByText = (text: string): HTMLButtonElement => {
@@ -404,6 +404,29 @@ describe("PlanReview git branch section (issue #25)", () => {
     render();
     expect(host!.querySelector("[data-overlay-root]")).toBeNull();
     expect(document.body.style.overflow).toBe("");
+  });
+});
+
+describe("PlanReview dock height (issue #277)", () => {
+  it("stays a capped dock by default", () => {
+    render();
+    const wrapper = host!.querySelector<HTMLElement>("[role=region]")!;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper.className).toContain("shrink-0");
+    expect(wrapper.className).toContain("max-h-[min(52dvh,var(--app-viewport-height,52dvh))]");
+    const inner = host!.querySelector<HTMLElement>(".plan-review")!;
+    expect(inner.className).not.toContain("flex-1");
+  });
+
+  it("fills the chat-history slot in fill mode: uncapped, inner column grows", () => {
+    render(true);
+    const wrapper = host!.querySelector<HTMLElement>("[role=region]")!;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper.className).toContain("flex-1");
+    expect(wrapper.className).toContain("min-h-0");
+    expect(wrapper.className).not.toContain("max-h-[");
+    const inner = host!.querySelector<HTMLElement>(".plan-review")!;
+    expect(inner.className).toContain("flex-1");
   });
 });
 
