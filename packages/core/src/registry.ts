@@ -304,6 +304,11 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     typeof value.launchedAt === "string" &&
     "mode" in value &&
     isSessionMode(value.mode) &&
+    // agentMode post-dates existing records, so absent is legal and
+    // normalized to "build" by `parseRegistryData`.
+    (!("agentMode" in value) ||
+      value.agentMode === "plan" ||
+      value.agentMode === "build") &&
     (!("compactionMethod" in value) ||
       typeof value.compactionMethod === "string" ||
       value.compactionMethod === null) &&
@@ -357,6 +362,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
       compactionMethod: s.compactionMethod ?? null,
+      agentMode: s.agentMode ?? "build",
       worktree: s.worktree
         ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
         : null,

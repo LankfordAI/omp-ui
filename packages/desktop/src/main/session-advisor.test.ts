@@ -280,7 +280,9 @@ describe("session:setAdvisor", () => {
     );
   });
 
-  it("starts an omitted resume in Build even when the app default is Plan", async () => {
+  it("starts an omitted resume in Build when the record carries no persisted agent mode", async () => {
+    // The seeded record is legacy (no agentMode field), so the load-time
+    // default of "build" governs the resume — not the app default (issue #263).
     setup({ materialized: true, defaultAgentMode: "plan" });
     await resume();
     expect(rpcOptions.at(-1)?.initialCommands).toEqual(

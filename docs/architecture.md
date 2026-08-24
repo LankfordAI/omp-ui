@@ -74,7 +74,7 @@ The physical-frame limit applies to each newline-delimited stdout frame: 1 MiB u
 
 ## Session ownership and storage
 
-OMP's JSONL files are authoritative for session identity, transcript content, title, status, and lineage changes. omp-ui's `registry.json` is authoritative for application preferences, registered projects, owned-session membership, `tabId`, current mode, model and advisor choices, the compaction method captured by a fresh native session, worktree metadata, and cached display fields. Cached registry fields are fallback display data, not a replacement transcript.
+OMP's JSONL files are authoritative for session identity, transcript content, title, status, and lineage changes. omp-ui's `registry.json` is authoritative for application preferences, registered projects, owned-session membership, `tabId`, current mode, agent mode, model and advisor choices, the compaction method captured by a fresh native session, worktree metadata, and cached display fields. Cached registry fields are fallback display data, not a replacement transcript.
 
 - **Registry.** One `OwnedSessionRecord` represents one spawned lineage. Registry writes replace the JSON file atomically. An unknown or corrupt registry schema is quarantined rather than partially trusted.
 - **Sidebar order.** The registry's persisted arrays are the sidebar orders (issues #115, #274): projects append via `addProject`, sessions insert at their project's top via `addSession`, and `moveProject`/`moveSession` reorder on user action only. Nothing re-sorts during state builds — activity refreshes cached fields in place. A one-time `sessionOrderFrozen` seed converts legacy registries from recency order on first load.

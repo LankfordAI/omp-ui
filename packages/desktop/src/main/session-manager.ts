@@ -15,8 +15,10 @@ import {
   isWithin,
   parseModelRole,
   parsePlanReviewTitle,
+  parsePlanStatus,
   mcpRuntimeStatusMessage,
   planMessage,
+  PLAN_STATUS_KEY,
   type ProviderKeys,
   type Registry,
   removeWorktree,
@@ -37,6 +39,7 @@ import {
   writePlanExtension,
   PLAN_EXECUTE,
   MAX_IMAGE_BYTES,
+  type AgentMode,
   type ConsoleProgram,
   type ImageAttachment,
   type OwnedSessionRecord,
@@ -431,7 +434,9 @@ export class SessionManager {
 
       const startInPlanMode =
         req.startInPlanMode ??
-        (req.resumeTabId === undefined && this.deps.registry.defaultAgentMode === "plan");
+        (req.resumeTabId === undefined
+          ? this.deps.registry.defaultAgentMode === "plan"
+          : record.agentMode === "plan");
       return req.mode === "rpc-ui"
         ? await this.spawnRpc(record, startInPlanMode, ompPath)
         : await this.spawnPty(record, req, ompPath);
@@ -524,6 +529,8 @@ export class SessionManager {
         // Recording precedes fan-out: the gate must be set before the first
         // broadcast can read it (issue #215).
         this.seePlanFrame(record.tabId, frame);
+        // Persist the mode the extension reports so a respawn restores it (issue #263).
+        this.observePlanStatus(record.tabId, frame);
         // Stall watchdog (issue #248): arm the sweep on the first turn and
         // timestamp model-stream activity.
         if (
@@ -821,6 +828,21 @@ export class SessionManager {
       },
       settle: null, // a fresh gate replaces the last cycle's verdict
     });
+    void this.deps.broadcast();
+  }
+
+  /** Persists the agent mode the plan extension publishes so a respawn restores it (issue #263). */
+  private observePlanStatus(tabId: string, frame: unknown): void {
+    if (typeof frame !== "object" || frame === null) return;
+    const f = frame as Record<string, unknown>;
+    if (f.type !== "extension_ui_request" || f.method !== "setStatus") return;
+    if (f.statusKey !== PLAN_STATUS_KEY) return;
+    const status = parsePlanStatus(typeof f.statusText === "string" ? f.statusText : undefined);
+    if (status === null) return; // malformed payload — never trusted over the record
+    const next: AgentMode = status.enabled ? "plan" : "build";
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (record === undefined || record.agentMode === next) return; // no-op: no write, no broadcast
+    this.deps.registry.updateSession(tabId, { agentMode: next });
     void this.deps.broadcast();
   }
 

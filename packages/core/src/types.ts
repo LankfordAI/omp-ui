@@ -111,6 +111,9 @@ export interface OwnedSessionRecord {
   planImplementationSource?: PlanImplementationSource | null;
   launchedAt: string;
   mode: SessionMode;
+  /** Agent mode (plan/build) of the last rpc-ui incarnation the plan extension reported.
+   *  Post-dates existing records: absent is legal and normalized to "build" on load. */
+  agentMode?: AgentMode;
   /** Compaction method captured for a fresh native session; null for terminal-origin sessions. */
   compactionMethod?: string | null;
   /** Main model selected for this session, as omp's `provider/id` selector. */

@@ -1754,6 +1754,105 @@ describe("stream-stall watchdog (issue #248)", () => {
   });
 });
 
+describe("agent mode persistence (issue #263)", () => {
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB,
+    });
+
+  const planStatusFrame = (id: string, enabled: boolean) => ({
+    type: "extension_ui_request",
+    id,
+    method: "setStatus",
+    statusKey: Core.PLAN_STATUS_KEY,
+    statusText: JSON.stringify({ enabled, planFilePath: null, planAbsPath: null, approved: false }),
+  });
+
+  const lastSpawnMessages = (): unknown[] =>
+    (
+      RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands as
+        | Array<{ message?: unknown }>
+        | undefined
+    )?.map((command) => command.message) ?? [];
+
+  it("persists the Plan mode the extension publishes", async () => {
+    const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    broadcast.mockClear();
+    rpcInstances[0]!.frame(planStatusFrame("p1", true));
+    for (let i = 0; i < 3; i += 1) await Promise.resolve();
+    expect(registry.sessions[0]?.agentMode).toBe("plan");
+    expect(broadcast).toHaveBeenCalled();
+  });
+
+  it("persists the Build mode on a disabled frame", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    registry.updateSession(TAB, { agentMode: "plan" });
+    rpcInstances[0]!.frame(planStatusFrame("p2", false));
+    for (let i = 0; i < 3; i += 1) await Promise.resolve();
+    expect(registry.sessions[0]?.agentMode).toBe("build");
+  });
+
+  it("writes nothing when the mode is unchanged", async () => {
+    const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    registry.updateSession(TAB, { agentMode: "plan" });
+    broadcast.mockClear();
+    rpcInstances[0]!.frame(planStatusFrame("p3", true));
+    for (let i = 0; i < 3; i += 1) await Promise.resolve();
+    expect(broadcast).toHaveBeenCalledTimes(0);
+  });
+
+  it("ignores a malformed status payload", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    registry.updateSession(TAB, { agentMode: "plan" });
+    rpcInstances[0]!.frame({
+      type: "extension_ui_request",
+      id: "p4",
+      method: "setStatus",
+      statusKey: Core.PLAN_STATUS_KEY,
+      statusText: "not-json",
+    });
+    for (let i = 0; i < 3; i += 1) await Promise.resolve();
+    expect(registry.sessions[0]?.agentMode).toBe("plan");
+  });
+
+  it("restores the persisted Plan mode on an ordinary resume", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.updateSession(TAB, { agentMode: "plan" });
+    await resumeRpc(manager);
+    expect(lastSpawnMessages()).toContain(Core.planMessage(true, "html"));
+  });
+
+  it("lets an explicit startInPlanMode override the persisted record", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.updateSession(TAB, { agentMode: "plan" });
+    await manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB,
+      startInPlanMode: false,
+    });
+    expect(lastSpawnMessages()).toContain(Core.planMessage(false, "html"));
+  });
+
+  it("keeps a legacy record (no persisted mode) in Build on resume", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    expect(lastSpawnMessages()).toContain(Core.planMessage(false, "html"));
+  });
+});
+
 describe("hibernation (issue #246)", () => {
   /** The default hibernateIdleMinutes is 30; the harness registry keeps it. */
   const WINDOW = 30 * 60_000;
@@ -1770,6 +1869,14 @@ describe("hibernation (issue #246)", () => {
       rows: 24,
       resumeTabId: TAB,
     });
+
+  const planStatusFrame = (id: string, enabled: boolean) => ({
+    type: "extension_ui_request",
+    id,
+    method: "setStatus",
+    statusKey: Core.PLAN_STATUS_KEY,
+    statusText: JSON.stringify({ enabled, planFilePath: null, planAbsPath: null, approved: false }),
+  });
 
   /** Microtask drain: probe settle → guard re-check → SIGTERM → reap. */
   const flush = async (): Promise<void> => {
@@ -2272,6 +2379,69 @@ describe("hibernation (issue #246)", () => {
 
       expect(rpc.kill).toHaveBeenCalledTimes(1);
       expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the persisted Plan mode after a hibernate (issue #263)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      // The status frame re-arms the idle clock, so one full window after the
+      // last frame covers the check (issue #246).
+      rpc.frame(planStatusFrame("p263", true));
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(registry.sessions[0]?.agentMode).toBe("plan");
+      expect(rpc.send).toHaveBeenCalledTimes(1);
+      expect(rpc.send.mock.calls[0]![0]).toMatchObject({ type: "get_state" });
+
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(manager.isLive(TAB)).toBe(false);
+      expect(sent.filter((s) => s.channel === CH.onSessionHibernated)).toHaveLength(1);
+
+      await resumeRpc(manager);
+      const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands as
+        | Array<{ message?: unknown }>
+        | undefined;
+      expect(commands?.map((command) => command.message)).toContain(Core.planMessage(true, "html"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a Build session in Build after a hibernate (issue #263)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(rpc.send).toHaveBeenCalledTimes(1);
+      expect(rpc.send.mock.calls[0]![0]).toMatchObject({ type: "get_state" });
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(manager.isLive(TAB)).toBe(false);
+      expect(sent.filter((s) => s.channel === CH.onSessionHibernated)).toHaveLength(1);
+
+      await resumeRpc(manager);
+      const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands as
+        | Array<{ message?: unknown }>
+        | undefined;
+      expect(commands?.map((command) => command.message)).toContain(Core.planMessage(false, "html"));
     } finally {
       vi.useRealTimers();
     }

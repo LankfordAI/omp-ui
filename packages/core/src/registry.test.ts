@@ -972,6 +972,7 @@ describe("Registry worktree field", () => {
       thinkingLevel: null,
       advisorModel: null,
       planImplementationSource: null,
+      agentMode: "build",
     });
   });
 
@@ -1025,6 +1026,46 @@ describe("Registry worktree field", () => {
     const file = tmpFile();
     const good = sessionRecord({ tabId: "good" });
     const bad = { ...sessionRecord({ tabId: "bad" }), worktree: { path: "x" } };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [good, bad] }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "good" });
+    expect(fs.existsSync(file)).toBe(true);
+  });
+});
+
+describe("Registry agentMode field", () => {
+  it("round-trips agentMode through save and load", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.updateSession("tab-1", { agentMode: "plan" });
+    reg.addSession(sessionRecord({ tabId: "tab-2" }));
+    reg.updateSession("tab-2", { agentMode: "build" });
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions).toHaveLength(2);
+    // New sessions take the top of their project, so tab-2 persisted first.
+    expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-2", agentMode: "build" });
+    expect(reloaded.sessions[1]).toMatchObject({ tabId: "tab-1", agentMode: "plan" });
+  });
+
+  it("normalizes a legacy session without an agentMode to build on load", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.agentMode;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "tab-1", agentMode: "build" });
+  });
+
+  it("drops a session whose agentMode is not plan or build, keeping the rest of the registry", () => {
+    const file = tmpFile();
+    const good = sessionRecord({ tabId: "good" });
+    const bad = { ...sessionRecord({ tabId: "bad" }), agentMode: "PLAN" };
     fs.writeFileSync(
       file,
       JSON.stringify({ schemaVersion: 1, projects: [], sessions: [good, bad] }),
