@@ -116,21 +116,22 @@ a:active {
    honored by every CSS parser, so the substitution gets an explicit
    carve-out — scale to the column, preserve aspect, never clip. */
 /* Rendered mermaid diagrams (issues #285, #288): self-contained SVG with its
-   own viewBox. mermaid emits width:100%, so without a height cap a tall
-   flowchart stretches to column width and balloons in height (a 5-node TD
-   chart reached ~850×1570 px). Constrain by height too and keep the intrinsic
-   aspect ratio: width/height auto lets the SVG scale down to whichever limit
-   binds, centered by the flex container. Wide diagrams still fill the column;
-   tall ones shrink to the cap instead of forcing a multi-screen scroll. */
+   own viewBox. mermaid emits width="100%", which stretches a tall flowchart to
+   the column width and balloons its height (a 5-node TD chart reached
+   ~850×1570 px with ~46px labels). The fix is to render at the intrinsic
+   layout size mermaid computed — width/height:auto overrides the width="100%"
+   attribute — and cap only the width so nothing overflows the column. Node
+   size then stays consistent and readable regardless of node count: a tall
+   diagram shows at natural size and scrolls modestly; a wide diagram still
+   fills the column. Centered by the flex container. */
 .omp-ui-diagram {
   display: flex;
   justify-content: center;
 }
 
 .omp-ui-diagram svg {
-  max-width: 100% !important;
-  max-height: 28rem !important;
   width: auto !important;
+  max-width: 100% !important;
   height: auto !important;
   display: block;
 }

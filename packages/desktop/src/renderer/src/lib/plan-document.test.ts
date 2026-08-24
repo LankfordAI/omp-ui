@@ -233,14 +233,14 @@ describe("preparePlanDocument diagram substitution", () => {
     const css = guardrailCss(await preparePlanDocument("<p>plan</p>"));
 
     expect(css).toContain(`.omp-ui-diagram svg {
-  max-width: 100% !important;
-  max-height: 28rem !important;
   width: auto !important;
+  max-width: 100% !important;
   height: auto !important;
   display: block;
 }`);
-    // Tall diagrams shrink to the height cap instead of stretching to column
-    // width and ballooning (issue #288).
+    // Diagrams render at intrinsic layout size (useMaxWidth:false in mermaid),
+    // capped only by column width — node size stays consistent regardless of
+    // node count, so tall charts no longer balloon (issue #288).
     expect(css).toContain(`.omp-ui-diagram {
   display: flex;
   justify-content: center;

@@ -99,6 +99,11 @@ function ensureMermaid(): Promise<unknown> {
         secondaryColor: "#e0f2fe",
         tertiaryColor: "#f5f5f4",
       },
+      // Emit an explicit pixel width equal to the laid-out viewBox instead of
+      // width="100%". Combined with the guardrail's max-width cap this renders
+      // every diagram at its natural, readable size (issue #288) — node size
+      // no longer scales with the column, so tall charts stop ballooning.
+      flowchart: { useMaxWidth: false },
     });
   }));
 }
