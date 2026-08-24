@@ -105,7 +105,12 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain("fill, stroke, and text color");
     // Spatial figures may be hand-drawn, but only with the layout recipe that
     // prevents the overlap/clipping that made us ban freehand SVG (#287).
-    expect(instruction).toContain("hand-drawn inline SVG is allowed");
+    // Direction is a deliberate choice, not a TD default (#289): LR for
+    // pipelines/timelines, BT for funnels, organic flows go to hand-drawn SVG.
+    expect(instruction).toContain("flowchart LR");
+    expect(instruction).toContain("flowchart BT");
+    expect(instruction).toContain("Do not default every chart to a tall TD stack");
+    expect(instruction).toContain("Hand-drawn inline SVG is the right tool");
     expect(instruction).toContain("never straddling an edge");
     expect(instruction).toContain("0.6 times font-size");
     expect(instruction).toContain("coarse grid");

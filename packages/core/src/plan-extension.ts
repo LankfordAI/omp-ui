@@ -123,12 +123,23 @@ const HTML_PLAN_BODY =
   "inside diagram source as HTML entities. Color a mermaid diagram to match what " +
   "it depicts: use classDef for groups and style for one-offs (fill, stroke, and " +
   "text color only; both work under the renderer's strict security), keep fills " +
-  "muted, and keep every label readable against its fill (WCAG AA 4.5:1). If a " +
+  "muted, and keep every label readable against its fill (WCAG AA 4.5:1). Pick " +
+  "the flowchart direction to fit the content and the space, not by habit: " +
+  "flowchart LR (or RL) for pipelines, timelines, and sequences so the chart " +
+  "uses the column's width and stays short; flowchart TD for hierarchies and " +
+  "strict top-down dependency; flowchart BT for a funnel converging on a root. " +
+  "Do not default every chart to a tall TD stack — that wastes the width and " +
+  "forces scrolling. Use subgraphs to group related nodes and labeled edges " +
+  "(-->|text|) for branches. For a genuinely organic flow — branching, looping " +
+  "back, or spatial in two dimensions — use hand-drawn inline SVG instead, " +
+  "because mermaid's rectilinear auto-layout cannot represent it. If a " +
   "diagram fails to render it is shown as an error callout, so keep the " +
   "surrounding prose able to stand alone. " +
-  "For a spatial or pictorial figure — a cross-section, a physical layout, a " +
-  "schematic of a thing whose geometry is the content — hand-drawn inline SVG is " +
-  "allowed, because rectangles cannot represent it faithfully. When you hand-draw, " +
+  "Hand-drawn inline SVG is the right tool when mermaid's rectangles and " +
+  "rectilinear auto-layout cannot represent the figure: a spatial or pictorial " +
+  "subject (a cross-section, a physical layout, a schematic whose geometry is " +
+  "the content) or an organic flow that branches, loops back, or uses two " +
+  "dimensions. When you hand-draw, " +
   "prevent overlap and clipping with a layout recipe, not eyeballing: pick a " +
   "viewBox and place every element on a coarse grid (10-unit cells); give every " +
   "label its own reserved cell, fully inside or fully outside a shape, never " +
