@@ -1231,7 +1231,7 @@ describe("OwnedSessionRecord.lastViewedAt (issue #273)", () => {
   it("drops a record whose lastViewedAt is not a string or null (not fatal)", () => {
     const file = tmpFile();
     const bad = sessionRecord();
-    (bad as Record<string, unknown>).lastViewedAt = 12345;
+    (bad as unknown as Record<string, unknown>).lastViewedAt = 12345;
     fs.writeFileSync(
       file,
       JSON.stringify({
