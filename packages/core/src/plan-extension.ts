@@ -111,7 +111,15 @@ const HTML_PLAN_BODY =
   "responsively fit any iframe with no horizontal page scrolling: include a " +
   "viewport meta tag, apply border-box sizing, use fluid widths capped by " +
   "max-width, wrap long code and paths, and fit tables within the viewport " +
-  "without overflow. Use the expressiveness HTML gives you — layout, tables, " +
+  "without overflow. " +
+  "Nothing in the document may overlap or clip: every heading, label, and caption " +
+  "gets its own fully visible space, clear of every shape and every other text run. " +
+  "Inline SVG text never wraps, so budget its width by character count, keep each " +
+  "label entirely inside or entirely outside a shape with visible margin — never " +
+  "straddling an edge — and size the viewBox so no text is cut off when the iframe " +
+  "is narrow. Prefer flow layout over absolute positioning; where absolute " +
+  "positioning is unavoidable, each element gets a reserved, non-overlapping box. " +
+  "Use the expressiveness HTML gives you — layout, tables, " +
   "callouts, inline SVG diagrams — to make the plan easier to review, and keep " +
   "the styling modest so the document stays mostly content. ";
 

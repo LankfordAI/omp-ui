@@ -96,6 +96,10 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain("fluid widths capped by max-width");
     expect(instruction).toContain("wrap long code and paths");
     expect(instruction).toContain("fit tables within the viewport without overflow");
+    expect(instruction).toContain("may overlap or clip");
+    expect(instruction).toContain("never straddling an edge");
+    expect(instruction).toContain("budget its width by character count");
+    expect(instruction).toContain("non-overlapping box");
   });
 
   it("never quietly reverts to asking the agent for both plan files", () => {
