@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { renderMermaidBlocks } from "./plan-diagrams";
+
 const GUARDRAIL_ID = "omp-ui-plan-guardrails";
 
 // This stylesheet must remain the final stylesheet in an existing head so its
@@ -108,6 +111,15 @@ a:active {
   color: #0645ad !important;
   text-decoration: underline !important;
 }
+/* Rendered mermaid diagrams (issue #285): self-contained SVG with its own
+   viewBox and inline styles. The :not(svg, svg *) negation above is not
+   honored by every CSS parser, so the substitution gets an explicit
+   carve-out — scale to the column, preserve aspect, never clip. */
+.omp-ui-diagram svg {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+}
 </style>`;
 
 const GUARDRAIL_MARKER = new RegExp(
@@ -118,11 +130,15 @@ const CLOSING_HEAD = /<\/head\s*>/i;
 const OPENING_HTML = /<html(?:\s[^>]*)?>/i;
 
 /**
- * Adds non-destructive readability and horizontal-containment guardrails to an
- * authored HTML plan. Apart from the stylesheet insertion, source bytes are
- * retained exactly.
+ * Prepares an authored HTML plan for the sandboxed review iframe: renders any
+ * `<pre class="mermaid">` diagram blocks to SVG (issue #285), then adds
+ * non-destructive readability and horizontal-containment guardrails. Apart
+ * from the diagram substitution and stylesheet insertion, source bytes are
+ * retained exactly. Async because mermaid loads behind a dynamic import;
+ * documents without diagrams resolve in the same microtask.
  */
-export function preparePlanDocument(html: string): string {
+export async function preparePlanDocument(html: string): Promise<string> {
+  html = await renderMermaidBlocks(html);
   if (GUARDRAIL_MARKER.test(html)) return html;
 
   if (CLOSING_HEAD.test(html)) {
@@ -134,4 +150,28 @@ export function preparePlanDocument(html: string): string {
   }
 
   return `${PLAN_GUARDRAIL_STYLESHEET}${html}`;
+}
+/**
+ * Prepared-document state for the two plan surfaces (PlanReview dock and the
+ * transcript PlanCard): runs `preparePlanDocument` whenever the input changes
+ * and returns the last resolved document — `null` while the first render is
+ * in flight, the previous document while a re-render is in flight, so the
+ * iframe never blanks mid-review.
+ */
+export function usePreparedPlanDocument(html: string | null): string | null {
+  const [doc, setDoc] = useState<string | null>(null);
+  useEffect(() => {
+    if (html === null) {
+      setDoc(null);
+      return;
+    }
+    let alive = true;
+    void preparePlanDocument(html).then((prepared) => {
+      if (alive) setDoc(prepared);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [html]);
+  return doc;
 }

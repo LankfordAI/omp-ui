@@ -114,13 +114,14 @@ const HTML_PLAN_BODY =
   "without overflow. " +
   "Nothing in the document may overlap or clip: every heading, label, and caption " +
   "gets its own fully visible space, clear of every shape and every other text run. " +
-  "Inline SVG text never wraps, so budget its width by character count, keep each " +
-  "label entirely inside or entirely outside a shape with visible margin — never " +
-  "straddling an edge — and size the viewBox so no text is cut off when the iframe " +
-  "is narrow. Prefer flow layout over absolute positioning; where absolute " +
-  "positioning is unavoidable, each element gets a reserved, non-overlapping box. " +
+  "For diagrams, NEVER hand-place SVG: write mermaid source inside " +
+  '<pre class="mermaid"> and omp-ui renders it to SVG at review time. Supported ' +
+  "diagram types: flowchart, sequenceDiagram, stateDiagram-v2, erDiagram. Keep " +
+  "labels short and quote any label containing punctuation. Escape literal < > & " +
+  "inside diagram source as HTML entities. If a diagram fails to render it is " +
+  "shown as an error callout, so keep the surrounding prose able to stand alone. " +
   "Use the expressiveness HTML gives you — layout, tables, " +
-  "callouts, inline SVG diagrams — to make the plan easier to review, and keep " +
+  "callouts, mermaid diagrams — to make the plan easier to review, and keep " +
   "the styling modest so the document stays mostly content. ";
 
 const PLAN_SPEC_SUFFIX =

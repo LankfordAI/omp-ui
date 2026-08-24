@@ -97,9 +97,13 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain("wrap long code and paths");
     expect(instruction).toContain("fit tables within the viewport without overflow");
     expect(instruction).toContain("may overlap or clip");
-    expect(instruction).toContain("never straddling an edge");
-    expect(instruction).toContain("budget its width by character count");
-    expect(instruction).toContain("non-overlapping box");
+    expect(instruction).toContain("NEVER hand-place SVG");
+    expect(instruction).toContain('<pre class="mermaid">');
+    expect(instruction).toContain("mermaid source");
+    expect(instruction).toContain("error callout");
+    expect(instruction).not.toContain("never straddling an edge");
+    expect(instruction).not.toContain("budget its width by character count");
+    expect(instruction).not.toContain("non-overlapping box");
   });
 
   it("never quietly reverts to asking the agent for both plan files", () => {
