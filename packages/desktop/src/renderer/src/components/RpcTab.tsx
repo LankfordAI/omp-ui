@@ -295,7 +295,15 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                   </>
                 )}
                 <ExtensionDialogHost tabId={tabId} />
-                <div ref={slotRef} className={cn(centered && "pb-2")}>
+                {/* While the review owns the column, its send-it-back input is
+                    the only free-text control: the composer is hidden — not
+                    unmounted, so any half-typed draft survives — for the
+                    review's duration, and returns with the transcript
+                    (issue #277). */}
+                <div
+                  ref={slotRef}
+                  className={cn(centered && "pb-2", planReviewOpen && active && "hidden")}
+                >
                   <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
                 </div>
                 {centered && <HeroFooter items={items} tabId={tabId} />}
