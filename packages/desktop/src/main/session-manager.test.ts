@@ -2838,3 +2838,86 @@ describe("hibernation (issue #246)", () => {
     }
   });
 });
+
+describe("lastViewedAt viewed baseline (issue #273)", () => {
+  const record = (registry: Core.Registry, tabId: string): Core.OwnedSessionRecord =>
+    registry.sessions.find((s) => s.tabId === tabId)!;
+
+  it("stamps the viewed record and dedupes re-reports within 30s", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-24T10:00:00.000Z"));
+      const { manager, registry } = setup();
+      manager.setViewedTab("c1", TAB);
+      const first = record(registry, TAB).lastViewedAt;
+      expect(first).toBe("2026-08-24T10:00:00.000Z");
+
+      vi.advanceTimersByTime(29_000);
+      manager.setViewedTab("c1", TAB);
+      expect(record(registry, TAB).lastViewedAt).toBe(first);
+
+      vi.advanceTimersByTime(2_000);
+      manager.setViewedTab("c1", TAB);
+      expect(record(registry, TAB).lastViewedAt).toBe("2026-08-24T10:00:31.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stamps the leaving and the entering tab on a switch", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-24T10:00:00.000Z"));
+      const { manager, registry } = setup();
+      registry.addSession(
+        ownedSessionRecord({
+          tabId: "tab-2",
+          sessionId: null,
+          lineageDir: LINEAGE,
+          projectCwd: "/proj",
+          mode: "pty",
+        }),
+      );
+      manager.setViewedTab("c1", TAB);
+      vi.advanceTimersByTime(60_000);
+      manager.setViewedTab("c1", "tab-2");
+      expect(record(registry, TAB).lastViewedAt).toBe("2026-08-24T10:01:00.000Z");
+      expect(record(registry, "tab-2").lastViewedAt).toBe("2026-08-24T10:01:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("writes nothing for null or unknown tab ids", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-24T10:00:00.000Z"));
+      const { manager, registry } = setup();
+      manager.setViewedTab("c1", null);
+      manager.setViewedTab("c1", "no-such-tab");
+      manager.setViewedTab("c1", null);
+      expect(record(registry, TAB).lastViewedAt).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-client baselines: a second renderer's report is a fresh stamp", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-24T10:00:00.000Z"));
+      const { manager, registry } = setup();
+      manager.setViewedTab("c1", TAB);
+      // A different client viewing the same tab immediately is within the
+      // dedup window for the stored value, so it writes nothing.
+      manager.setViewedTab("c2", TAB);
+      expect(record(registry, TAB).lastViewedAt).toBe("2026-08-24T10:00:00.000Z");
+      // But after the window, any client's report refreshes the baseline.
+      vi.advanceTimersByTime(31_000);
+      manager.setViewedTab("c2", TAB);
+      expect(record(registry, TAB).lastViewedAt).toBe("2026-08-24T10:00:31.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

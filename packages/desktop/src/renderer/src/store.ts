@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import type {
   BackendState,
   PlanImplementationSource,
@@ -26,6 +26,7 @@ import {
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { backend } from "./backend";
 import { AdvisorReplyWatcher } from "./lib/advisor-reply";
+import { buildCatchupDigest, CATCHUP_THRESHOLD_MS } from "./lib/catchup";
 import { formatDuration } from "./lib/duration";
 import {
   extensionCancelResponse,
@@ -115,6 +116,8 @@ import {
 } from "./lib/transcript";
 
 const RPC_COMMAND_TIMEOUT_MS = 30_000;
+/** Monotonic re-arm counter for staged catch-up entries (issue #273). */
+let catchupNonce = 0;
 
 /**
  * Per-item ceiling for accumulated command_output text. Unbounded growth is
@@ -1131,6 +1134,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
         s.activeTabId === tabId
           ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
           : s.activeTabId;
+      const catchup = { ...s.catchup };
+      delete catchup[tabId];
+      const lastActiveAt = { ...s.lastActiveAt };
+      delete lastActiveAt[tabId];
       return {
         rpc,
         tabs,
@@ -1138,6 +1145,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
         focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
         exited: dropExited(s.exited, tabId),
         tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId),
+        catchup,
+        lastActiveAt,
       };
     });
   };
@@ -1482,6 +1491,80 @@ export const useStore = create<UiStore>()((set, get, api) => {
   };
 
   /**
+   * Takes the one catch-up snapshot for a staged resurface (issue #273).
+   * No-op unless an unsettled entry is pending — an arm-time settle must
+   * survive a later re-boot of the same tab, whose ready path settles again.
+   */
+  const settleCatchup = (tabId: string): void => {
+    const entry = get().catchup[tabId];
+    if (entry === undefined || entry.settled) return;
+    const digest = buildCatchupDigest({
+      items: effectiveItems(tabId), // batch-safe: includes unflushed stream commits
+      advisor: get().rpc[tabId]?.advisorStats ?? null,
+      since: entry.since,
+      now: Date.now(),
+      live: get().rpc[tabId]?.status === "running",
+      pendingPlanTitle: findRecord(get().state, tabId)?.pendingPlan?.title ?? null,
+    });
+    set((s) => ({ catchup: { ...s.catchup, [tabId]: { ...entry, settled: true, digest } } }));
+  };
+
+  /**
+   * Records the moment `tabId` became this renderer's active tab (issue
+   * #273) and stages a pending catch-up digest when its last-viewed baseline
+   * is older than CATCHUP_THRESHOLD_MS. A mounted, non-booting tab settles
+   * immediately; a booting tab — or a restored one whose rpc slot is not
+   * created yet — settles from the boot ready path instead, where the
+   * backfilled items are complete.
+   */
+  const armCatchup = (tabId: string | null): void => {
+    const state = get();
+    if (tabId === null) return;
+    const tab = state.tabs.find((t) => t.tabId === tabId);
+    if (tab === undefined || tab.mode !== "rpc-ui") return;
+    const now = Date.now();
+    let since = state.lastActiveAt[tabId];
+    if (since === undefined) {
+      // No in-memory history (app restart, first open in this renderer):
+      // fall back to the persisted baseline, then launch time.
+      const rec = findRecord(state.state, tabId);
+      if (rec !== undefined) {
+        since = rec.lastViewedAt ? Date.parse(rec.lastViewedAt) : Date.parse(rec.launchedAt);
+      }
+    }
+    const due = since !== undefined && Number.isFinite(since) && now - since > CATCHUP_THRESHOLD_MS;
+    set((s) => ({
+      lastActiveAt: { ...s.lastActiveAt, [tabId]: now },
+      ...(due
+        ? { catchup: { ...s.catchup, [tabId]: { since: since as number, nonce: ++catchupNonce, settled: false, digest: null } } }
+        : {}),
+    }));
+    const status = get().rpc[tabId]?.status;
+    if (due && status !== undefined && status !== "starting") settleCatchup(tabId);
+  };
+
+  /**
+   * Watches activation (issue #273): every activeTabId transition records
+   * the leaving tab's last-viewed moment (its baseline is now, not its entry
+   * time — a tab watched for hours then hidden for one minute must not read
+   * as 15 minutes away on an immediate resurface), then arms the new tab.
+   * Installs after restoreDesktopView has settled focus, and arms the
+   * restored active tab immediately — a subscription alone would miss the
+   * restore, which transitioned before this existed.
+   */
+  const installCatchupWatcher = (api: StoreApi<UiStore>): void => {
+    armCatchup(api.getState().activeTabId);
+    api.subscribe((state, previous) => {
+      if (state.activeTabId === previous.activeTabId) return;
+      const left = previous.activeTabId;
+      if (left !== null && state.tabs.some((t) => t.tabId === left)) {
+        set((s) => ({ lastActiveAt: { ...s.lastActiveAt, [left]: Date.now() } }));
+      }
+      armCatchup(state.activeTabId);
+    });
+  };
+
+  /**
    * Repaints the document to match the registry's persisted themeId. The
    * registry stays authoritative; lib/themes.ts keeps only a localStorage
    * mirror so the first frame paints before this runs. The id guard is what
@@ -1535,6 +1618,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     exited: {},
     shellExited: {},
     hibernated: {},
+    lastActiveAt: {},
+    catchup: {},
     rpc: {},
     consoleOpen: {},
     searchOpen: {},
@@ -1680,6 +1765,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
+      installCatchupWatcher(api);
     },
 
     async restartSession(tabId) {
@@ -2093,6 +2179,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // gate on the record hydrates now instead of being clobbered.
           const bootedState = get().state;
           if (bootedState !== null) reconcilePlanGates(bootedState);
+          // Backfill (loadHistory) completed before status flipped: a staged
+          // resurface settles from the complete transcript (issue #273).
+          settleCatchup(tabId);
         }
       } catch (err) {
         const liveState = findRecord(get().state, tabId)?.live;
@@ -2336,6 +2425,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
             return;
           }
           if (entry?.key === ADVISOR_STATS_KEY) {
+            // Included in a catch-up snapshot only when the frame has
+            // arrived by settle time; a later frame never re-settles a
+            // taken snapshot (issue #273).
             patchRpc(tabId, { advisorStats: parseAdvisorStats(entry.text) });
             return;
           }
@@ -3106,6 +3198,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     showPlanReview(tabId) {
       patchRpc(tabId, { planDeferred: false });
+    },
+
+    dismissCatchup(tabId) {
+      set((s) => {
+        if (!(tabId in s.catchup)) return s;
+        const catchup = { ...s.catchup };
+        delete catchup[tabId];
+        return { catchup };
+      });
     },
 
     async loadPlanText(tabId, absPath, itemId) {

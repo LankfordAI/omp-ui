@@ -863,3 +863,101 @@ describe("findMatches", () => {
     expect(findMatches(items, "   ")).toEqual([]);
   });
 });
+
+describe("item timestamps (issue #273)", () => {
+  const FIXED = Date.parse("2026-08-24T12:00:00.000Z");
+
+  it("stamps a live user item off the message timestamp, falling back to Date.now", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(FIXED));
+      const stamped = reduceEvent([], {
+        type: "message_start",
+        message: { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1234 },
+      });
+      expect(stamped[0]).toMatchObject({ kind: "user", timestamp: 1234 });
+      const fallback = reduceEvent([], {
+        type: "message_start",
+        message: { role: "user", content: [{ type: "text", text: "hi" }] },
+      });
+      expect(fallback[0]).toMatchObject({ kind: "user", timestamp: FIXED });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stamps live tool cards at creation in both branches; later updates do not re-stamp", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(FIXED));
+      const streamed = reduceEvent([], {
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "toolcall_start",
+          contentIndex: 0,
+          partial: {
+            content: [{ type: "toolCall", id: "c1", name: "write", arguments: {} }],
+          },
+        },
+      });
+      expect(tool(streamed, "c1")).toMatchObject({ timestamp: FIXED });
+
+      const exec = reduceEvent([], {
+        type: "tool_execution_start",
+        toolCallId: "c2",
+        toolName: "edit",
+      });
+      expect(tool(exec, "c2")).toMatchObject({ timestamp: FIXED });
+
+      vi.setSystemTime(new Date(FIXED + 1000));
+      const again = reduceEvent(streamed, {
+        type: "tool_execution_start",
+        toolCallId: "c1",
+        toolName: "write",
+      });
+      expect(tool(again, "c1")).toMatchObject({ timestamp: FIXED });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backfills user and tool timestamps from entry fields; toolResult never overwrites", () => {
+    const items = historyToItems([
+      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 111 },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "c9", name: "write", arguments: {} }],
+        timestamp: 222,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "c9",
+        content: [{ type: "text", text: "ok" }],
+        details: { path: "/a.txt", op: "write", timestamp: 333 },
+      },
+    ]);
+    const u = items.find((i) => i.kind === "user");
+    expect(u).toMatchObject({ timestamp: 111 });
+    expect(tool(items, "c9")).toMatchObject({ timestamp: 222, path: "/a.txt", op: "write" });
+  });
+
+  it("markerItem stamps Date.now() by default and honors an explicit timestamp", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(FIXED));
+      expect(markerItem("auto-compaction started")).toMatchObject({ timestamp: FIXED });
+      expect(markerItem("auto-retry 1/3 started", "copper", 42)).toMatchObject({ timestamp: 42 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backfill synthesizes no markers", () => {
+    const items = historyToItems([
+      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 },
+      { role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: 2 },
+      { role: "custom", customType: "advisor", content: "note", timestamp: 3 },
+    ]);
+    expect(items.some((i) => i.kind === "marker")).toBe(false);
+  });
+});

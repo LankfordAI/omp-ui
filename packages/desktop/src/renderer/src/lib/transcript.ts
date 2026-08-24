@@ -17,6 +17,8 @@ export interface UserItem {
    * webp), so the mime type here is omp's, not the clipboard's.
    */
   images?: { data: string; mimeType: string }[];
+  /** Epoch ms the prompt was sent (live) or written (backfill); the catch-up digest windows off it (issue #273). */
+  timestamp?: number;
 }
 export interface AssistantItem {
   kind: "assistant";
@@ -65,6 +67,8 @@ export interface ToolItem {
   argsStreaming?: boolean;
   /** assistantMessageEvent.contentIndex, correlating stream deltas within one message. */
   streamIndex?: number;
+  /** Epoch ms the card was created (live) or the carrying message was written (backfill); the catch-up digest windows off it (issue #273). */
+  timestamp?: number;
 }
 export interface AdvisoryItem {
   kind: "advisory";
@@ -95,6 +99,8 @@ export interface MarkerItem {
   id: string;
   label: string;
   tone?: "neutral" | "signal" | "copper" | "rose";
+  /** Epoch ms the marker fired; live markers only (backfill synthesizes none). The catch-up digest windows off it (issue #273). */
+  timestamp?: number;
 }
 export interface PlanItem {
   kind: "plan";
@@ -138,8 +144,8 @@ function truncateLabel(s: string, max = 120): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-export function markerItem(label: string, tone?: MarkerItem["tone"]): MarkerItem {
-  return { kind: "marker", id: `marker-${++counter}`, label, tone };
+export function markerItem(label: string, tone?: MarkerItem["tone"], timestamp = Date.now()): MarkerItem {
+  return { kind: "marker", id: `marker-${++counter}`, label, tone, timestamp };
 }
 
 export function noticeItem(text: string, level?: NoticeItem["level"]): NoticeItem {
@@ -435,6 +441,7 @@ function reduceToolcallStream(
         status: "running",
         argsStreaming: type !== "toolcall_end",
         streamIndex: contentIndex,
+        timestamp: Date.now(),
       },
     ];
   }
@@ -470,6 +477,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
             id: `user-${++counter}`,
             text: textFromContent(message.content),
             images: imagesFromContent(message.content),
+            timestamp: numField(message, "timestamp") ?? Date.now(),
           },
         ];
       }
@@ -570,6 +578,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           args: event.args,
           status: "running",
           intent: str(event.intent),
+          timestamp: Date.now(),
         },
       ];
     }
@@ -752,6 +761,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         id: `user-${++counter}`,
         text: textFromContent(raw.content),
         images: imagesFromContent(raw.content),
+        timestamp: numField(raw, "timestamp"),
       });
       continue;
     }
@@ -775,6 +785,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
             name: str(block.name) ?? "tool",
             args: block.arguments,
             status: "done",
+            timestamp: numField(raw, "timestamp"),
           });
         }
       }

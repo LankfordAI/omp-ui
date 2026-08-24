@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
 import { findRecord, useStore, type RpcFailure } from "../store";
+import { CatchupCard } from "./CatchupCard";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
@@ -338,6 +339,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                   <PlanReview tabId={tabId} fill />
                 ) : (
                   <>
+                    <CatchupCard tabId={tabId} />
                     {centered ? (
                       hero ? (
                         <HeroGreeting projectCwd={projectCwd} />

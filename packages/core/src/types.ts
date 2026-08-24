@@ -157,6 +157,13 @@ export interface OwnedSessionRecord {
   advisorModel: string | null;
   cachedTitle: string | null;
   cachedModified: string | null;
+  /**
+   * Last moment any renderer reported this session as in view (issue #273).
+   * Main writes it from tab:viewed reports; the catch-up digest reads it as
+   * its fallback baseline. Post-dates existing records: absent is legal and
+   * normalized to null on load.
+   */
+  lastViewedAt?: string | null;
 }
 
 /** Plan-review gate the session's agent is blocked on right now. Main-process owned. */

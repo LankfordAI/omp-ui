@@ -151,6 +151,8 @@ const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
 const VIEWED_STALE_MS = 15 * 60 * 1_000;
 /** Reports older than this are swept on the next write. */
 const VIEWED_SWEEP_MS = 60 * 60 * 1_000;
+/** At most one lastViewedAt registry write per tab per window (issue #273). */
+const VIEWED_DEDUP_MS = 30_000;
 /**
  * Renderer-routed dialogs whose unanswered requests suppress hibernation and
  * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
@@ -420,6 +422,7 @@ export class SessionManager {
           advisorModel: req.advisorModel ?? null,
           cachedTitle: null,
           cachedModified: null,
+          lastViewedAt: null,
         });
         // The launched values are now the project's last session parameters,
         // even when they originated in omp config rather than an explicit click.
@@ -891,7 +894,30 @@ export class SessionManager {
     for (const [id, entry] of this.viewedTabs) {
       if (now - entry.at > VIEWED_SWEEP_MS) this.viewedTabs.delete(id);
     }
+    const previous = this.viewedTabs.get(clientId)?.tabId ?? null;
     this.viewedTabs.set(clientId, { tabId, at: now });
+    // The tab just left (if any) has its last-viewed moment now; the tab just
+    // entered — or re-heartbeated — is being viewed right now (issue #273).
+    if (previous !== null && previous !== tabId) this.noteLastViewed(previous, now);
+    this.noteLastViewed(tabId, now);
+  }
+
+  /**
+   * Persists a viewed report to the record (issue #273). Deduped: a report
+   * that leaves the stored value within VIEWED_DEDUP_MS writes nothing. The
+   * 5-min heartbeats therefore keep a continuously-viewed tab fresh within
+   * ~5 min, a tab switch records the leaving tab exactly, and unreported
+   * leaves (window close, dead socket) stay within one heartbeat.
+   */
+  private noteLastViewed(tabId: string | null, now: number): void {
+    if (tabId === null) return;
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (record === undefined) return;
+    const stored = record.lastViewedAt ?? null;
+    const last = stored === null ? null : Date.parse(stored);
+    if (last !== null && Number.isFinite(last) && now - last < VIEWED_DEDUP_MS) return;
+    this.deps.registry.updateSession(tabId, { lastViewedAt: new Date(now).toISOString() });
+    this.broadcastWatcherPatch(false);
   }
 
   /** Marks the clientId the desktop renderer reports under (issue #271). */
@@ -1528,6 +1554,9 @@ export class SessionManager {
       advisorModel: source.advisorModel,
       cachedTitle: source.cachedTitle,
       cachedModified: new Date().toISOString(),
+      // The forked transcript is the source's: its away window starts where
+      // the source's viewing left off (issue #273).
+      lastViewedAt: source.lastViewedAt ?? null,
     });
     await this.deps.broadcast();
     return { tabId: fork.tabId };

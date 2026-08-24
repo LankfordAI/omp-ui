@@ -1000,6 +1000,7 @@ describe("Registry worktree field", () => {
       advisorModel: null,
       planImplementationSource: null,
       agentMode: "build",
+      lastViewedAt: null,
     });
   });
 
@@ -1200,5 +1201,48 @@ describe("Model favorites", () => {
     );
     const reg = Registry.load(file);
     expect(reg.getFavorites()).toEqual(["anthropic/claude-opus-5", "openai/gpt-4o"]);
+  });
+});
+
+describe("OwnedSessionRecord.lastViewedAt (issue #273)", () => {
+  it("normalizes an absent lastViewedAt to null on load", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [sessionRecord()],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]!.lastViewedAt).toBeNull();
+  });
+
+  it("preserves a valid ISO string and keeps it across save/load", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord({ lastViewedAt: "2026-08-24T10:00:00.000Z" }));
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions[0]!.lastViewedAt).toBe("2026-08-24T10:00:00.000Z");
+  });
+
+  it("drops a record whose lastViewedAt is not a string or null (not fatal)", () => {
+    const file = tmpFile();
+    const bad = sessionRecord();
+    (bad as Record<string, unknown>).lastViewedAt = 12345;
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [bad, sessionRecord({ tabId: "good" })],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]!.tabId).toBe("good");
+    expect(fs.existsSync(file)).toBe(true);
   });
 });

@@ -144,6 +144,19 @@ still leaves each descendant's own opt-in authoritative. A generated `-e`
 extension delivers the values (ADR-0008), never a text parse.
 _Avoid_: toolbar, header, status bar
 
+**Catch-up digest**:
+When a native tab is resurfaced after being unseen beyond 15 minutes, a
+dismissible, non-modal card above the transcript summarizes what happened
+once per resurface: the turns that ran and their outcomes, files touched,
+spend and tokens since last viewed, compaction and retry markers, and a
+prominent plan-review action when the record carries a pending plan. It is
+suppressed when nothing happened in the window, and terminal tabs never
+digest. The unseen window is measured per renderer from the moment the tab
+last held this renderer's active focus (refreshed when it loses focus),
+falling back to the shared last-viewed baseline on the owned-session record,
+then the launch time.
+_Avoid_: recap, away summary, absence report
+
 **Session parameter memory**:
 The five composer parameters — main model, main thinking level, advisor on/off,
 advisor model, and advisor thinking level — are remembered per project and
