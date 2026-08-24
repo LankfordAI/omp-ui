@@ -114,25 +114,31 @@ const HTML_PLAN_BODY =
   "without overflow. " +
   "Nothing in the document may overlap or clip: every heading, label, and caption " +
   "gets its own fully visible space, clear of every shape and every other text run. " +
-  "For diagrams, NEVER hand-place SVG: write mermaid source inside " +
+  "Choose the diagram tool by what the figure represents. For a structured, " +
+  "topological diagram — a flow, sequence, state machine, or ER model — write " +
+  "mermaid source inside " +
   '<pre class="mermaid"> and omp-ui renders it to SVG at review time. Supported ' +
   "diagram types: flowchart, sequenceDiagram, stateDiagram-v2, erDiagram. Keep " +
   "labels short and quote any label containing punctuation. Escape literal < > & " +
-  "inside diagram source as HTML entities. If a diagram fails to render it is " +
-  "shown as an error callout, so keep the surrounding prose able to stand alone. " +
-  "Color the diagram to match what it depicts — a cross-section, a pipeline, a " +
-  "data flow reads far better when each node's fill matches the thing it names. " +
-  "Use classDef for groups and style for one-offs (fill, stroke, and text color " +
-  "only; both work under the renderer's strict security). Example, a layered " +
-  "cross-section: flowchart TD; A[Top bread]:::bread --> B[Peanut butter]:::pb " +
-  "--> C[Jelly]:::jelly --> D[Bottom bread]:::bread, with classDef bread " +
-  "fill:#e8c47a,stroke:#a8783a,color:#3a2a10, classDef pb " +
-  "fill:#c98f4e,stroke:#8a5a24,color:#fff, and classDef jelly " +
-  "fill:#a13360,stroke:#5e1f36,color:#fff. Keep fills muted and every label " +
-  "readable against its fill (WCAG AA 4.5:1). If a diagram fails to render it is " +
-  "shown as an error callout, so keep the surrounding prose able to stand alone. " +
+  "inside diagram source as HTML entities. Color a mermaid diagram to match what " +
+  "it depicts: use classDef for groups and style for one-offs (fill, stroke, and " +
+  "text color only; both work under the renderer's strict security), keep fills " +
+  "muted, and keep every label readable against its fill (WCAG AA 4.5:1). If a " +
+  "diagram fails to render it is shown as an error callout, so keep the " +
+  "surrounding prose able to stand alone. " +
+  "For a spatial or pictorial figure — a cross-section, a physical layout, a " +
+  "schematic of a thing whose geometry is the content — hand-drawn inline SVG is " +
+  "allowed, because rectangles cannot represent it faithfully. When you hand-draw, " +
+  "prevent overlap and clipping with a layout recipe, not eyeballing: pick a " +
+  "viewBox and place every element on a coarse grid (10-unit cells); give every " +
+  "label its own reserved cell, fully inside or fully outside a shape, never " +
+  "straddling an edge; size the viewBox so the widest label fits at its font size " +
+  "(estimate text width as 0.6 times font-size times character count); and keep " +
+  "text out of rotated or clipped regions. The renderer passes hand-drawn SVG " +
+  "through unchanged and the guardrail stylesheet scales it to the column, so a " +
+  "well-formed viewBox is all you must get right. " +
   "Use the expressiveness HTML gives you — layout, tables, " +
-  "callouts, mermaid diagrams — to make the plan easier to review, and keep " +
+  "callouts, diagrams — to make the plan easier to review, and keep " +
   "the styling modest so the document stays mostly content. ";
 
 const PLAN_SPEC_SUFFIX =

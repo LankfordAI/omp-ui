@@ -97,16 +97,18 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain("wrap long code and paths");
     expect(instruction).toContain("fit tables within the viewport without overflow");
     expect(instruction).toContain("may overlap or clip");
-    expect(instruction).toContain("NEVER hand-place SVG");
+    expect(instruction).toContain("Choose the diagram tool by what the figure represents");
     expect(instruction).toContain('<pre class="mermaid">');
     expect(instruction).toContain("mermaid source");
     expect(instruction).toContain("error callout");
     expect(instruction).toContain("classDef");
-    expect(instruction).toContain("fill:#");
-    expect(instruction).toContain("Color the diagram to match what it depicts");
-    expect(instruction).not.toContain("never straddling an edge");
-    expect(instruction).not.toContain("budget its width by character count");
-    expect(instruction).not.toContain("non-overlapping box");
+    expect(instruction).toContain("fill, stroke, and text color");
+    // Spatial figures may be hand-drawn, but only with the layout recipe that
+    // prevents the overlap/clipping that made us ban freehand SVG (#287).
+    expect(instruction).toContain("hand-drawn inline SVG is allowed");
+    expect(instruction).toContain("never straddling an edge");
+    expect(instruction).toContain("0.6 times font-size");
+    expect(instruction).toContain("coarse grid");
   });
 
   it("never quietly reverts to asking the agent for both plan files", () => {
