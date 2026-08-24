@@ -110,10 +110,29 @@ jobs:
           fi
       - name: Rebuild node-pty
         run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
-      - name: Package signed macOS release (notarization deferred to next step)
-        run: >-
-          npm run package:mac --workspace @omp-ui/desktop --
-          --${{ matrix.arch }} --publish never --config.mac.notarize=false
+      - name: Package signed macOS release (with retries, notarization deferred to next step)
+        shell: bash
+        run: |
+          # Retry the DMG build: dmgbuild's own 5-attempt hdiutil-detach loop
+          # (~20 s backoff) can exhaust while the runner still holds the fresh
+          # volume (hdiutil EBUSY). electron-builder 26.15.3 passes no
+          # --detach-retries to the bundled dmgbuild, so the in-repo mitigation
+          # is this bounded step retry. A no-change rerun recovers (issue #278).
+          status=0
+          for attempt in 1 2 3; do
+            if npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never --config.mac.notarize=false; then
+              status=0
+              break
+            else
+              status=$?
+            fi
+            if (( attempt >= 3 )); then
+              break
+            fi
+            echo "::warning::package:mac attempt $attempt failed (exit $status); retrying in 15s"
+            sleep 15
+          done
+          exit "$status"
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
