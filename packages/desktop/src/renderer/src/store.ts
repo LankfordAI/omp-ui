@@ -87,6 +87,7 @@ import type {
 export type {
   BranchActivity,
   CompactSurface,
+  CompactionMethodsLoad,
   DeleteConfirmation,
   PendingCommand,
   PlanRecord,

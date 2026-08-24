@@ -435,12 +435,20 @@ describe("Settings General page default agent mode (issue #143)", () => {
   });
 });
 
-describe("Settings General page default compaction method (issue #268)", () => {
-  it("loads installed methods in order and persists selection and clear", async () => {
+describe("Settings General page default compaction method (issue #275)", () => {
+  const pickerButtons = (): HTMLButtonElement[] => [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[role="group"][aria-label="default compaction method"] button',
+    ),
+  ];
+  const labelOf = (button: HTMLButtonElement): string =>
+    (button.children[0] as HTMLElement).textContent ?? "";
+
+  it("lists every installed method with its description and persists selection and clear", async () => {
     backendMock.listCompactionMethods.mockResolvedValueOnce(["soft", "remote", "future"]);
     useStore.setState({
       settingsPage: "general",
-      state: backendState(),
+      state: backendState({ defaultCompactionMethod: "soft" }),
       compactionMethods: { status: "unloaded" },
       tabs: [],
       activeTabId: null,
@@ -448,28 +456,31 @@ describe("Settings General page default compaction method (issue #268)", () => {
       ompUpdate: idleOmpUpdate,
     });
     await renderSettings();
-    const select = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="default compaction method"]',
-    )!;
-    expect([...select.options].map((option) => option.value)).toEqual([
-      "",
-      "soft",
-      "remote",
+    expect(pickerButtons().map(labelOf)).toEqual([
+      "omp configured default",
+      "Soft compaction",
+      "OpenAI server compaction",
       "future",
     ]);
-    act(() => {
-      select.value = "soft";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith("soft");
-    act(() => {
-      select.value = "";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    // The persisted method is pressed; the unknown id "future" got the raw
+    // label and no invented description (one child instead of two).
+    expect(pickerButtons()[1].getAttribute("aria-pressed")).toBe("true");
+    expect(pickerButtons()[3].children).toHaveLength(1);
+    expect(document.body.textContent).toContain(
+      "Summarize in place with a compaction model without using server compaction",
+    );
+    expect(document.body.textContent).toContain(
+      "Use provider-native OpenAI-compatible server compaction when the active route supports it",
+    );
+    click(pickerButtons()[0]);
     expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);
+    // Mirror what the real backend round-trip does, then pick another method.
+    useStore.setState((s) => ({ state: { ...s.state!, defaultCompactionMethod: null } }));
+    click(pickerButtons()[2]);
+    expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith("remote");
   });
 
-  it("shows an unavailable persisted value honestly", async () => {
+  it("shows an unavailable persisted value as a disabled, pressed row", async () => {
     useStore.setState({
       settingsPage: "general",
       state: backendState({ defaultCompactionMethod: "removed" }),
@@ -480,10 +491,30 @@ describe("Settings General page default compaction method (issue #268)", () => {
       ompUpdate: idleOmpUpdate,
     });
     await renderSettings();
-    const selected = document.querySelector<HTMLOptionElement>("option:checked")!;
-    expect(selected.value).toBe("removed");
-    expect(selected.textContent).toContain("unavailable");
-    expect(selected.disabled).toBe(true);
+    const unavailable = pickerButtons().find((button) =>
+      labelOf(button).includes("removed (unavailable)"),
+    )!;
+    expect(unavailable.disabled).toBe(true);
+    expect(unavailable.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps the omp configured default selectable when the method read fails", async () => {
+    backendMock.listCompactionMethods.mockRejectedValueOnce(new Error("omp binary not found"));
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ defaultCompactionMethod: "soft" }),
+      compactionMethods: { status: "unloaded" },
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(pickerButtons()).toHaveLength(1);
+    expect(labelOf(pickerButtons()[0])).toBe("omp configured default");
+    expect(document.body.textContent).toContain("Methods unavailable: omp binary not found");
+    click(pickerButtons()[0]);
+    expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);
   });
 });
 

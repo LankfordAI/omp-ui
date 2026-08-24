@@ -27,7 +27,7 @@ import {
   useTranscriptScale,
 } from "../lib/text-scale";
 import { resolveTheme, THEMES } from "../lib/themes";
-import { useStore, type SettingsPage } from "../store";
+import { useStore, type CompactionMethodsLoad, type SettingsPage } from "../store";
 import {
   Button,
   ChoiceCapsule,
@@ -97,12 +97,29 @@ function Row({
   hint,
   badge,
   children,
+  stacked,
 }: {
   title: string;
   hint?: string;
   badge?: ReactNode;
   children: ReactNode;
+  /** Full-width children below the title block, for controls too wide for the right column. */
+  stacked?: boolean;
 }) {
+  if (stacked) {
+    return (
+      <div className="py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-ink">{title}</span>
+          {badge}
+        </div>
+        {hint !== undefined && hint !== "" && (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{hint}</p>
+        )}
+        <div className="mt-1.5">{children}</div>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-3 py-2.5">
       <div className="min-w-0 flex-1">
@@ -212,13 +229,134 @@ const HIBERNATE_IDLE_OPTIONS = [
   { value: 240, label: "4 hours" },
 ] as const;
 
-const COMPACTION_METHOD_LABELS: Record<string, string> = {
-  remote: "Remote",
-  snapcompact: "Snapcompact",
-  handoff: "Handoff",
-  shake: "Shake",
-  soft: "Soft",
+/**
+ * Display metadata for compaction methods, keyed by the method id omp
+ * publishes in `compaction.methodOrder`. Labels and descriptions are
+ * verbatim from the `compaction.methodOrder` schema options embedded in
+ * the omp 18.0.3 binary - re-verify this table when the omp binary is
+ * upgraded. Unknown ids fall back to the raw id with no description;
+ * never invent text for a method omp does not document.
+ */
+const COMPACTION_METHOD_META: Record<string, { label: string; description: string }> = {
+  remote: {
+    label: "OpenAI server compaction",
+    description:
+      "Use provider-native OpenAI-compatible server compaction when the active route supports it",
+  },
+  snapcompact: {
+    label: "Snapcompact",
+    description:
+      "Archive history onto dense bitmap images the active vision model reads back; no LLM call",
+  },
+  handoff: {
+    label: "Handoff",
+    description: "Generate a handoff document and continue from it as the compaction summary",
+  },
+  soft: {
+    label: "Soft compaction",
+    description: "Summarize in place with a compaction model without using server compaction",
+  },
+  shake: {
+    label: "Shake",
+    description: "Drop recoverable heavy content in place without an LLM call",
+  },
 };
+
+/** Verbatim from the installed omp's `compaction.methodOrder` setting description. */
+const COMPACTION_DEFAULT_DESCRIPTION =
+  "Preferred fallback order for automatic context maintenance; unavailable or failed methods advance to the next choice";
+
+/**
+ * One visible row per compaction method, so every method's description is
+ * readable without opening a dropdown. Follows the ChoiceCapsule a11y
+ * pattern: a labelled group of aria-pressed buttons.
+ */
+function CompactionMethodPicker({
+  value,
+  load,
+  onSelect,
+}: {
+  value: string | null;
+  load: CompactionMethodsLoad;
+  onSelect: (method: string | null) => void;
+}) {
+  type Option = {
+    id: string | null;
+    label: string;
+    description?: string;
+    disabled?: boolean;
+  };
+  const options: Option[] = [
+    { id: null, label: "omp configured default", description: COMPACTION_DEFAULT_DESCRIPTION },
+  ];
+  if (load.status === "loaded") {
+    // A persisted method the installed omp no longer publishes: show it,
+    // pressed but inert, exactly as the previous select did.
+    if (value !== null && !load.methods.includes(value)) {
+      const meta = COMPACTION_METHOD_META[value];
+      options.push({
+        id: value,
+        label: `${meta?.label ?? value} (unavailable)`,
+        description: meta?.description,
+        disabled: true,
+      });
+    }
+    for (const method of load.methods) {
+      const meta = COMPACTION_METHOD_META[method];
+      options.push({
+        id: method,
+        label: meta?.label ?? method,
+        description: meta?.description,
+      });
+    }
+  }
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <div
+        role="group"
+        aria-label="default compaction method"
+        className="divide-y divide-line-soft rounded-md border border-line bg-raised"
+      >
+        {options.map((option) => {
+          const selected = option.id === value;
+          return (
+            <button
+              key={option.id ?? "default"}
+              type="button"
+              aria-pressed={selected}
+              disabled={option.disabled}
+              onClick={() => {
+                if (option.id !== value) onSelect(option.id);
+              }}
+              className={cn(
+                "flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors duration-150",
+                option.disabled
+                  ? "cursor-not-allowed opacity-45"
+                  : selected
+                    ? "bg-hover text-ink"
+                    : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
+              )}
+            >
+              <span className={cn("w-40 shrink-0 text-xs", selected && "font-medium")}>
+                {option.label}
+              </span>
+              {option.description !== undefined && (
+                <span className="min-w-0 flex-1 text-[11px] leading-snug text-ink-faint">
+                  {option.description}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {load.status === "failed" && (
+        <p className="text-[10px] text-ink-faint">
+          Methods unavailable: {load.message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function GeneralPage() {
   const state = useStore((s) => s.state);
@@ -276,35 +414,13 @@ function GeneralPage() {
       <Row
         title="Default compaction method"
         hint="Captured by new native sessions. omp configured default removes the override."
+        stacked
       >
-        <div className="flex min-w-0 flex-col items-end gap-1">
-          <select
-            aria-label="default compaction method"
-            value={defaultCompactionMethod ?? ""}
-            onChange={(e) => void setDefaultCompactionMethod(e.target.value || null)}
-            className={FIELD}
-          >
-            <option value="">omp configured default</option>
-            {compactionMethods.status === "loaded" &&
-              defaultCompactionMethod !== null &&
-              !compactionMethods.methods.includes(defaultCompactionMethod) && (
-                <option value={defaultCompactionMethod} disabled>
-                  {defaultCompactionMethod} (unavailable)
-                </option>
-              )}
-            {compactionMethods.status === "loaded" &&
-              compactionMethods.methods.map((method) => (
-                <option key={method} value={method}>
-                  {COMPACTION_METHOD_LABELS[method] ?? method}
-                </option>
-              ))}
-          </select>
-          {compactionMethods.status === "failed" && (
-            <span className="max-w-64 text-right text-[10px] text-ink-faint">
-              Methods unavailable: {compactionMethods.message}
-            </span>
-          )}
-        </div>
+        <CompactionMethodPicker
+          value={defaultCompactionMethod}
+          load={compactionMethods}
+          onSelect={(method) => void setDefaultCompactionMethod(method)}
+        />
       </Row>
       <Row
         title="Plan format"
