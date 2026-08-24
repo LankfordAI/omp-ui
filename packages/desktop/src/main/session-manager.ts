@@ -51,6 +51,7 @@ import {
   type SessionWorktree,
   type SpawnRequest,
 } from "@omp-ui/core";
+import type { Attention } from "./desktop-notifier";
 
 interface LiveEntry {
   kind: SessionMode;
@@ -180,6 +181,8 @@ export interface SessionManagerDependencies {
   getWorktreesRoot: () => string;
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
+  /** OS-attention hooks for background sessions (issue #271); omitted in tests. */
+  attention?: Attention;
 }
 
 /** One session's plan-review gate state, as observed from its frames. */
@@ -222,6 +225,8 @@ export class SessionManager {
    * close, dead remote socket) — no disconnect hook is needed.
    */
   private readonly viewedTabs = new Map<string, { tabId: string | null; at: number }>();
+  /** clientId the desktop renderer reports under; only the IPC transport marks it (issue #271). */
+  private desktopViewedClientId: string | null = null;
   /** Turn-stall watchdog sweep; one interval for all live tabs (issue #248). */
   private stallWatchInterval: NodeJS.Timeout | undefined;
   /** Throttle state for mtime-only watcher broadcasts (issue #187). */
@@ -477,6 +482,7 @@ export class SessionManager {
       if (this.live.get(record.tabId) === entry) {
         this.live.delete(record.tabId);
         this.clearHibernateState(record.tabId);
+        this.deps.attention?.sessionExit(record.tabId);
       }
       if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, exitCode);
       void this.deps.broadcast();
@@ -549,6 +555,7 @@ export class SessionManager {
         if (this.live.get(record.tabId) === entry) {
           this.live.delete(record.tabId);
           this.clearHibernateState(record.tabId);
+          this.deps.attention?.sessionExit(record.tabId);
         }
         if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, code ?? -1);
         void this.deps.broadcast();
@@ -828,6 +835,7 @@ export class SessionManager {
       },
       settle: null, // a fresh gate replaces the last cycle's verdict
     });
+    this.deps.attention?.planProposed(tabId, review.title);
     void this.deps.broadcast();
   }
 
@@ -857,6 +865,7 @@ export class SessionManager {
       pending: null,
       settle: { frameId: id, verdict: c.value === PLAN_EXECUTE ? "executed" : "refined" },
     });
+    this.deps.attention?.planSettled(tabId);
     // Between the verdict and the implementation prompt the process is
     // momentarily quiet; suspend hibernation until the next agent_end (or
     // the window lapses) (issue #246).
@@ -883,6 +892,23 @@ export class SessionManager {
       if (now - entry.at > VIEWED_SWEEP_MS) this.viewedTabs.delete(id);
     }
     this.viewedTabs.set(clientId, { tabId, at: now });
+  }
+
+  /** Marks the clientId the desktop renderer reports under (issue #271). */
+  noteDesktopClientId(clientId: string): void {
+    this.desktopViewedClientId = clientId;
+  }
+
+  /** True while the desktop renderer's fresh viewed report names this tab (issue #271). */
+  isViewedInDesktop(tabId: string): boolean {
+    const clientId = this.desktopViewedClientId;
+    if (clientId === null) return false;
+    const report = this.viewedTabs.get(clientId);
+    return (
+      report !== undefined &&
+      report.tabId === tabId &&
+      Date.now() - report.at <= VIEWED_STALE_MS
+    );
   }
 
   // --- Hibernation: idle rpc-ui sessions are killed and left dormant, then
@@ -1094,6 +1120,8 @@ export class SessionManager {
     switch (f.type) {
       case "agent_start":
         entry.turnsRunning++;
+        // A new turn is activity: it answers every pending attention (issue #271).
+        this.deps.attention?.turnStarted(tabId);
         // The stalled badge is a call-to-action ("prompt to continue"); a
         // new turn is that continuation, whoever sent it (issue #255).
         if (this.streamStalledTabs.delete(tabId)) void this.deps.broadcast();
@@ -1101,6 +1129,10 @@ export class SessionManager {
       case "agent_end":
         entry.turnsRunning = Math.max(0, entry.turnsRunning - 1);
         if (entry.settleSuspendedUntil !== null) entry.settleSuspendedUntil = null;
+        // The idle crossing announces the finished turn (issue #271); a
+        // pending plan gate or blocking answer owns the attention instead.
+        if (entry.turnsRunning === 0 && !this.awaitingHumanAnswer(tabId))
+          this.deps.attention?.turnEnded(tabId);
         break;
       case "extension_ui_request":
         // Only user-answer dialogs block hibernation; the other methods are

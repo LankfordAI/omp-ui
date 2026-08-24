@@ -53,6 +53,7 @@ describe("SETTINGS", () => {
       "streamStallAbortSeconds",
       "advisorAutoReply",
       "stallAutoContinue",
+      "desktopNotifications",
       "defaultAdvisor",
       "modelFavorites",
       "skipDeleteConfirmation",
@@ -92,6 +93,8 @@ describe("Registry.load", () => {
     expect(reg.advisorAutoReply).toBe(true);
     // Issue #251: stall auto-continue defaults on.
     expect(reg.stallAutoContinue).toBe(true);
+    // Issue #271: desktop notifications default on.
+    expect(reg.desktopNotifications).toBe(true);
     // Issue #174: the advisor does not default on.
     expect(reg.defaultAdvisor).toBe(false);
   });
@@ -218,6 +221,7 @@ describe("Registry.load", () => {
           hibernateIdleMinutes: 30.5,
           advisorAutoReply: "true",
           stallAutoContinue: "no",
+          desktopNotifications: "yes",
           defaultAdvisor: "yes",
           modelFavorites: [42, "kept", null, "also-kept"],
           skipDeleteConfirmation: 1,
@@ -245,6 +249,7 @@ describe("Registry.load", () => {
     expect(reg.hibernateIdleMinutes).toBe(30);
     expect(reg.advisorAutoReply).toBe(true);
     expect(reg.stallAutoContinue).toBe(true);
+    expect(reg.desktopNotifications).toBe(true);
     expect(reg.defaultAdvisor).toBe(false);
     expect(reg.getFavorites()).toEqual(["kept", "also-kept"]);
     expect(reg.skipDeleteConfirmation).toBe(false);
@@ -452,6 +457,27 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).stallAutoContinue).toBe(true);
   });
 
+  it("round-trips desktop notifications and defaults to on for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setDesktopNotifications(false);
+    expect(Registry.load(file).desktopNotifications).toBe(false);
+    reg.setDesktopNotifications(true);
+    expect(Registry.load(file).desktopNotifications).toBe(true);
+
+    for (const junk of ["yes", 0, null, {}]) {
+      const f = tmpFile();
+      fs.writeFileSync(
+        f,
+        JSON.stringify({ schemaVersion: 1, settings: { desktopNotifications: junk } }),
+      );
+      expect(Registry.load(f).desktopNotifications).toBe(true);
+    }
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).desktopNotifications).toBe(true);
+  });
+
   it("round-trips default advisor and falls back to off for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -502,6 +528,7 @@ describe("Registry persistence", () => {
       ["streamStallAbortSeconds", (registry) => registry.setStreamStallAbortSeconds(180)],
       ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
       ["stallAutoContinue", (registry) => registry.setStallAutoContinue(true)],
+      ["desktopNotifications", (registry) => registry.setDesktopNotifications(true)],
       ["defaultAdvisor", (registry) => registry.setDefaultAdvisor(false)],
       ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],
       ["themeId", (registry) => registry.setThemeId("graphite")],

@@ -60,6 +60,7 @@ const backendMock = {
   setStreamStallAbortSeconds: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
   setStallAutoContinue: vi.fn(async () => {}),
+  setDesktopNotifications: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
   spawnSession: vi.fn(),
@@ -579,6 +580,38 @@ describe("Settings General page stall auto-continue (issue #251)", () => {
     seedAutoContinue(false);
     await renderSettings();
     expect(autoContinueSwitch().getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("Settings General page desktop notifications (issue #271)", () => {
+  const seedNotifications = (desktopNotifications: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ desktopNotifications }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const notificationsSwitch = (): HTMLElement =>
+    document.querySelector(
+      '[role="switch"][aria-label="Desktop notifications"]',
+    ) as HTMLElement;
+
+  it("shows the setting on and persists switching it off", async () => {
+    seedNotifications(true);
+    await renderSettings();
+    expect(notificationsSwitch().getAttribute("aria-checked")).toBe("true");
+    click(notificationsSwitch());
+    expect(backendMock.setDesktopNotifications).toHaveBeenCalledWith(false);
+  });
+
+  it("reflects a persisted off setting", async () => {
+    seedNotifications(false);
+    await renderSettings();
+    expect(notificationsSwitch().getAttribute("aria-checked")).toBe("false");
   });
 });
 

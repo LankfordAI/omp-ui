@@ -182,6 +182,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setStallAutoContinue",
     ...request<[on: boolean], void>(),
   },
+  /** OS notifications for background-session attention states (issue #271); default on. */
+  setDesktopNotifications: {
+    channel: "settings:setDesktopNotifications",
+    ...request<[on: boolean], void>(),
+  },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
     ...request<[on: boolean], void>(),
@@ -520,6 +525,15 @@ export const BACKEND_CHANNELS = {
    * protecting on its own (issue #266).
    */
   tabViewed: { channel: "tab:viewed", ...notify<[clientId: string, tabId: string | null]>() },
+  /**
+   * Reports this renderer's stall auto-continue guard for a tab (issue #271):
+   * true when it pauses at its cap, false when it re-arms (user prompt / plan
+   * execute) or the tab is erased or re-booted.
+   */
+  reportStallCap: {
+    channel: "stall:cap",
+    ...notify<[tabId: string, paused: boolean]>(),
+  },
   onPtyData: { channel: "pty:data", ...event<[tabId: string, data: Uint8Array]>() },
   onPtyExit: {
     channel: "pty:exit",
@@ -528,6 +542,14 @@ export const BACKEND_CHANNELS = {
   /** The session's process was hibernated after an idle window (issue #246). */
   onSessionHibernated: {
     channel: "session:hibernated",
+    ...event<[tabId: string]>(),
+  },
+  /**
+   * A desktop OS notification for this tab was clicked: every renderer
+   * resurfaces (or resumes) the session's tab through openSession (issue #271).
+   */
+  onFocusSession: {
+    channel: "session:focus",
     ...event<[tabId: string]>(),
   },
   onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: object]>() },

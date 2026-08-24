@@ -13,6 +13,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     streamStallAbortSeconds: 180,
     advisorAutoReply: true,
     stallAutoContinue: true,
+    desktopNotifications: true,
     defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,

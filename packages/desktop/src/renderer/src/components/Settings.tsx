@@ -375,6 +375,7 @@ function GeneralPage() {
   );
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
+  const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
@@ -466,6 +467,16 @@ function GeneralPage() {
           on={state?.stallAutoContinue ?? true}
           onChange={(next) => void setStallAutoContinue(next)}
           label="Stall auto-continue"
+        />
+      </Row>
+      <Row
+        title="Desktop notifications"
+        hint="Post an OS notification when a background native session needs attention — its turn finished, a plan review is waiting for an answer, or stall auto-continue paused at its cap. The banner appears while the window is unfocused or a different tab is in view; clicking it focuses the window and resurfaces the session. Terminal sessions are not announced, and remote browser clients are unaffected."
+      >
+        <Switch
+          on={state?.desktopNotifications ?? true}
+          onChange={(next) => void setDesktopNotifications(next)}
+          label="Desktop notifications"
         />
       </Row>
       <Row

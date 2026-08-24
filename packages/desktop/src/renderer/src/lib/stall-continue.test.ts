@@ -14,6 +14,7 @@ describe("StallContinueWatcher", () => {
   let dispatches: string[];
   /** Stands in for the session being promptable; the store predicate gates on it. */
   let continuable: boolean;
+  let capChanges: Array<[string, boolean]>;
   let watcher: StallContinueWatcher;
 
   beforeEach(() => {
@@ -21,6 +22,7 @@ describe("StallContinueWatcher", () => {
     notices = [];
     dispatches = [];
     continuable = true;
+    capChanges = [];
     watcher = new StallContinueWatcher({
       canContinue: () => continuable,
       onDispatch: (tabId) => {
@@ -28,6 +30,9 @@ describe("StallContinueWatcher", () => {
       },
       onNotice: (_tabId, text, level) => {
         notices.push({ text, level });
+      },
+      onCapChange: (tabId, paused) => {
+        capChanges.push([tabId, paused]);
       },
     });
   });
@@ -77,6 +82,42 @@ describe("StallContinueWatcher", () => {
     watcher.trigger(TAB);
     await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
     expect(dispatches).toHaveLength(STALL_CONTINUE_MAX + 1);
+  });
+
+  it("reports the cap transition: true once at the cap, false on re-arm, never before", async () => {
+    // Before the cap, continues dispatch but the guard never reports.
+    watcher.trigger(TAB);
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    watcher.trigger(TAB);
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    expect(dispatches).toHaveLength(2);
+    expect(capChanges).toHaveLength(0);
+
+    // The first stall past the cap latches the pause — exactly one true.
+    watcher.trigger(TAB);
+    expect(capChanges).toEqual([[TAB, true]]);
+
+    // Further stalls past the cap must not re-fire (capPosted latch).
+    watcher.trigger(TAB);
+    expect(capChanges).toEqual([[TAB, true]]);
+
+    // A user prompt re-arms: exactly one false; a second reset is a no-op.
+    watcher.reset(TAB);
+    expect(capChanges).toEqual([[TAB, true], [TAB, false]]);
+    watcher.reset(TAB);
+    expect(capChanges).toEqual([[TAB, true], [TAB, false]]);
+
+    // Erasing the tab reports false as well; cancelling a clean tab does not.
+    watcher.trigger(TAB);
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    watcher.trigger(TAB);
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    watcher.trigger(TAB);
+    expect(capChanges).toEqual([[TAB, true], [TAB, false], [TAB, true]]);
+    watcher.cancel(TAB);
+    expect(capChanges).toEqual([[TAB, true], [TAB, false], [TAB, true], [TAB, false]]);
+    watcher.cancel(TAB);
+    expect(capChanges).toEqual([[TAB, true], [TAB, false], [TAB, true], [TAB, false]]);
   });
 
   it("drops the dispatch when the tab is no longer continuable at fire time", async () => {

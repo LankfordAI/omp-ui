@@ -52,6 +52,12 @@ export interface StallContinueCallbacks {
   canContinue(tabId: string): boolean;
   onDispatch(tabId: string): void;
   onNotice(tabId: string, text: string, level: "info" | "warn"): void;
+  /**
+   * The cap transition, for main's OS notifier (issue #271): true when the
+   * guard pauses at its cap, false when it re-arms (reset) or the tab is
+   * erased / re-booted (cancel).
+   */
+  onCapChange?: (tabId: string, paused: boolean) => void;
 }
 
 interface ContinueState {
@@ -81,6 +87,7 @@ export class StallContinueWatcher {
     if (st.count >= STALL_CONTINUE_MAX) {
       if (!st.capPosted) {
         st.capPosted = true;
+        this.callbacks.onCapChange?.(tabId, true);
         this.callbacks.onNotice(tabId, STALL_CONTINUE_CAP_NOTICE, "warn");
       }
       return;
@@ -98,6 +105,7 @@ export class StallContinueWatcher {
   reset(tabId: string): void {
     const st = this.states.get(tabId);
     if (!st) return;
+    if (st.capPosted) this.callbacks.onCapChange?.(tabId, false);
     st.count = 0;
     st.capPosted = false;
     if (st.timer !== undefined) {
@@ -110,6 +118,7 @@ export class StallContinueWatcher {
   cancel(tabId: string): void {
     const st = this.states.get(tabId);
     if (!st) return;
+    if (st.capPosted) this.callbacks.onCapChange?.(tabId, false);
     if (st.timer !== undefined) clearTimeout(st.timer);
     this.states.delete(tabId);
   }

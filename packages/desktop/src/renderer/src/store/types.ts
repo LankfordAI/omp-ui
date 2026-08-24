@@ -195,6 +195,7 @@ export interface SettingsSlice {
   setStreamStallAbortSeconds(seconds: number): Promise<void>;
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setStallAutoContinue(on: boolean): Promise<void>;
+  setDesktopNotifications(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;

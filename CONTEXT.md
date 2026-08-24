@@ -291,6 +291,21 @@ channel. The stall diagnostic notice (issue #100) posts at the error turn-end
 whether or not the continue fires (ADR-0019).
 _Avoid_: auto-resume, session revive, stream retry
 
+**Desktop notification**:
+The OS notification the main process posts (Electron `Notification`) when an
+owned native session reaches an attention state while the user is not looking
+at that tab in the desktop window — the window is unfocused, or it is focused
+but showing a different tab (issue #271): a turn finished, a plan review is
+pending, or stall auto-continue paused at its cap. One per tab, replaced
+rather than stacked; the post is delayed 3 s and re-gated at fire time so a
+turn that auto-resumes never blinks. A remote renderer's viewed tab never
+suppresses or acknowledges the banner — it is a different screen. Clicking
+focuses the window and resurfaces the session through the ordinary openSession
+path. A Settings → General switch, default on. Terminal sessions are never
+announced — main has no turn signal in a PTY — and remote browser clients
+receive none; their story is web push and stays a separate feature.
+_Avoid_: toast, system alert, reminder, popup
+
 **Parked message**:
 A queued item omp still holds while the live session is idle. omp's
 `queuedMessageCount` counts all displayable queued work — user follow-ups and

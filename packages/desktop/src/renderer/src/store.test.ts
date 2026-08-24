@@ -88,11 +88,13 @@ const mockBackend = {
     sent.push({ tabId, cmd });
   }),
   tabViewed: vi.fn(),
+  reportStallCap: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
   onSessionHibernated: vi.fn(),
+  onFocusSession: vi.fn(),
   onShellData: vi.fn(),
   onShellExit: vi.fn((cb: (tabId: string, code: number) => void) => {
     shellExitCb = cb;
@@ -124,6 +126,7 @@ const mockBackend = {
   setPlanFormat: vi.fn(async () => {}),
   setAdvisorAutoReply: vi.fn(async () => {}),
   setStallAutoContinue: vi.fn(async () => {}),
+  setDesktopNotifications: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
   spawnSession: vi.fn(),
@@ -3393,6 +3396,11 @@ describe("stall auto-continue (issue #251)", () => {
         );
       expect(capped).toHaveLength(1);
 
+      // The OS-notification cap report latched exactly once, and clears on the
+      // user prompt that re-arms the guard.
+      expect(mockBackend.reportStallCap).toHaveBeenCalledTimes(1);
+      expect(mockBackend.reportStallCap).toHaveBeenCalledWith(T, true);
+
       // The per-session stall counter (issue #100 numbering) advanced across
       // stalls — stallNotice must mutate the live tab, not the frame-start
       // capture the ready patch above it replaced.
@@ -3412,6 +3420,8 @@ describe("stall auto-continue (issue #251)", () => {
       void useStore.getState().sendPrompt(T, "carry on");
       await stalledTurn();
       expect(continuePrompts()).toHaveLength(3);
+      expect(mockBackend.reportStallCap).toHaveBeenCalledTimes(2);
+      expect(mockBackend.reportStallCap).toHaveBeenLastCalledWith(T, false);
     } finally {
       vi.useRealTimers();
     }
@@ -6998,5 +7008,92 @@ describe("viewed-tab reporter (issue #266)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("notification click focus (issue #271)", () => {
+  // A fresh module evaluation per test: init() latches per evaluation, and the
+  // earlier suites already own the shared module's listener capture.
+  const projectState = (
+    sessions: BackendState["projects"][0]["sessions"],
+  ): BackendState =>
+    makeBackendState({
+      projects: [
+        {
+          project: {
+            path: "/p",
+            name: "p",
+            addedAt: "t",
+            lastModel: null,
+            lastAdvisorModel: null,
+          },
+          sessions,
+        },
+      ],
+    });
+  const rec = (tabId: string, live: LiveState = "live") => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--p--${tabId}`,
+    projectCwd: "/p",
+    launchedAt: "t",
+    mode: "rpc-ui" as const,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: null,
+    cachedModified: null,
+    title: "New session",
+    status: null,
+    live,
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+  });
+  it("a notification click resurfaces and focuses a hidden tab", async () => {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    backendState = projectState([rec(TAB)]);
+    fresh.setState({
+      state: backendState,
+      tabs: [
+        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+      ],
+      activeTabId: null,
+    });
+
+    const init = fresh.getState().init();
+    await init;
+    const cb = mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
+
+    void cb(TAB);
+    await flushMicrotasks();
+
+    const st = fresh.getState();
+    expect(st.tabs.find((t) => t.tabId === TAB)?.hidden).toBe(false);
+    expect(st.activeTabId).toBe(TAB);
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it("a notification click resumes a session the store has no tab for", async () => {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    backendState = projectState([rec(TAB, "dormant")]);
+    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
+    fresh.setState({ state: backendState });
+
+    const init = fresh.getState().init();
+    await init;
+    const cb = mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
+
+    void cb(TAB);
+    await flushMicrotasks();
+
+    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeTabId: TAB,
+        projectCwd: "/p",
+        mode: "rpc-ui",
+      }),
+    );
   });
 });

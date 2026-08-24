@@ -121,6 +121,7 @@ const stateWith = (
   streamStallAbortSeconds: 180,
   advisorAutoReply: false,
   stallAutoContinue: true,
+  desktopNotifications: true,
   defaultAdvisor: false,
   modelFavorites: [],
   skipDeleteConfirmation,

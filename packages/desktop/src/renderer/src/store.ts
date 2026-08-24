@@ -1093,6 +1093,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       void get().sendPrompt(tabId, STALL_CONTINUE_LEAD, "stall_continue");
     },
     onNotice: (tabId, text, level) => appendItem(tabId, noticeItem(text, level)),
+    onCapChange: (tabId, paused) => backend.reportStallCap(tabId, paused),
   });
 
   const eraseSession = async (tabId: string): Promise<void> => {
@@ -1613,6 +1614,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
             rpc,
           };
         });
+      });
+      // OS notification click (issue #271): resurface the session's tab —
+      // openSession is the hide/resurface path; main dedupes the resume
+      // against a live process, so a late-joining renderer never
+      // double-spawns. The event fans out to every renderer, so a click
+      // resurfaces the tab in all of them.
+      backend.onFocusSession((tabId) => {
+        void get().openSession(tabId);
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
       backend.onShellExit((tabId, code) => {

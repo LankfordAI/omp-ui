@@ -26,6 +26,8 @@ export interface RegistrySettings {
   advisorAutoReply: boolean;
   /** Bounded auto-continue after a turn dies to a stream stall (issue #251); app-level, default on. */
   stallAutoContinue: boolean;
+  /** OS notifications for background-session attention states (issue #271); default on. */
+  desktopNotifications: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   modelFavorites: string[];
@@ -114,6 +116,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   stallAutoContinue: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  desktopNotifications: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -714,6 +720,14 @@ export class Registry {
 
   setStallAutoContinue(on: boolean): void {
     this.#setSetting("stallAutoContinue", on);
+  }
+
+  get desktopNotifications(): boolean {
+    return this.#getSetting("desktopNotifications");
+  }
+
+  setDesktopNotifications(on: boolean): void {
+    this.#setSetting("desktopNotifications", on);
   }
 
   get defaultAdvisor(): boolean {

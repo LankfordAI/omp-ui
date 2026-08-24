@@ -148,6 +148,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     }
   },
 
+  async setDesktopNotifications(on) {
+    try {
+      await backend.setDesktopNotifications(on);
+    } catch (err) {
+      alertError(err);
+    }
+  },
+
   async setDefaultAdvisor(on) {
     try {
       await backend.setDefaultAdvisor(on);

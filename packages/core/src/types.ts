@@ -183,6 +183,8 @@ export interface BackendState {
   advisorAutoReply: boolean;
   /** Bounded auto-continue after a turn dies to a stream stall (issue #251); app-level, default on. */
   stallAutoContinue: boolean;
+  /** OS notifications for background-session attention (issue #271); app-level, default on. */
+  desktopNotifications: boolean;
   /** Seeds the advisor on/off for new sessions, default off (issue #174). */
   defaultAdvisor: boolean;
   modelFavorites: string[];

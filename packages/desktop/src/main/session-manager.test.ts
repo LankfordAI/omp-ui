@@ -8,6 +8,7 @@ import type { KeyCipher, PtyHandle } from "@omp-ui/core";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
 import { SessionManager } from "./session-manager";
+import type { Attention } from "./desktop-notifier";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 vi.mock("@omp-ui/core", async (importOriginal) => {
@@ -117,7 +118,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -173,6 +174,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string } = {}): {
     getWorktreesRoot: () => path.join(base, "worktrees"),
     send: (channel, ...args) => sent.push({ channel, args }),
     broadcast,
+    attention: opts.attention,
   });
   return { manager, registry, broadcast, sent, sessionsRoot };
 }
@@ -921,6 +923,147 @@ describe("plan-review gate (issue #215)", () => {
     rpcInstances[0]!.exit(0);
 
     expect(manager.planGate(TAB)).toBeUndefined();
+  });
+});
+
+describe("OS attention hooks (issue #271)", () => {
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      resumeTabId: TAB,
+    });
+
+  const attention = (): Attention =>
+    ({
+      turnStarted: vi.fn(),
+      turnEnded: vi.fn(),
+      planProposed: vi.fn(),
+      planSettled: vi.fn(),
+      viewedChanged: vi.fn(),
+      sessionExit: vi.fn(),
+    }) as Attention;
+
+  it("turnStarted on agent_start; turnEnded only on the idle crossing", async () => {
+    const att = attention();
+    const { manager } = setup({ mode: "rpc-ui", attention: att });
+    await resumeRpc(manager);
+
+    rpcInstances[0]!.frame({ type: "agent_start" });
+    expect(att.turnStarted).toHaveBeenCalledWith(TAB);
+    expect(att.turnEnded).not.toHaveBeenCalled();
+
+    rpcInstances[0]!.frame({ type: "agent_end" });
+    expect(att.turnEnded).toHaveBeenCalledTimes(1);
+    expect(att.turnEnded).toHaveBeenCalledWith(TAB);
+  });
+
+  it("a nested start/end pair does not announce the turn end", async () => {
+    const att = attention();
+    const { manager } = setup({ mode: "rpc-ui", attention: att });
+    await resumeRpc(manager);
+
+    rpcInstances[0]!.frame({ type: "agent_start" });
+    rpcInstances[0]!.frame({ type: "agent_start" });
+    rpcInstances[0]!.frame({ type: "agent_end" });
+    expect(att.turnEnded).not.toHaveBeenCalled();
+
+    rpcInstances[0]!.frame({ type: "agent_end" });
+    expect(att.turnEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it("planProposed on a proposal, turn end suppressed while the gate awaits, planSettled on the verdict", async () => {
+    const att = attention();
+    const { manager } = setup({ mode: "rpc-ui", attention: att });
+    await resumeRpc(manager);
+
+    rpcInstances[0]!.frame({ type: "agent_start" });
+    rpcInstances[0]!.frame({
+      type: "extension_ui_request",
+      id: "p1",
+      method: "select",
+      title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "add auth",
+        planFilePath: "local://auth-plan.html",
+        planAbsPath: "/l/auth-plan.html",
+      })}`,
+    });
+    expect(att.planProposed).toHaveBeenCalledWith(TAB, "add auth");
+
+    // The turn ends with the gate pending: the plan owns the attention.
+    rpcInstances[0]!.frame({ type: "agent_end" });
+    expect(att.turnEnded).not.toHaveBeenCalled();
+
+    // The verdict settles the gate; the next idle crossing announces again.
+    manager.rpcSend(TAB, {
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_EXECUTE,
+    });
+    expect(att.planSettled).toHaveBeenCalledWith(TAB);
+    rpcInstances[0]!.frame({ type: "agent_start" });
+    rpcInstances[0]!.frame({ type: "agent_end" });
+    expect(att.turnEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it("isViewedInDesktop counts only the desktop client's fresh report", () => {
+    const { manager } = setup();
+
+    // A remote renderer's viewed report never claims the desktop.
+    manager.setViewedTab("phone", TAB);
+    expect(manager.isViewedInDesktop(TAB)).toBe(false);
+
+    manager.noteDesktopClientId("desktop");
+    manager.setViewedTab("desktop", TAB);
+    expect(manager.isViewedInDesktop(TAB)).toBe(true);
+
+    manager.setViewedTab("desktop", "other");
+    expect(manager.isViewedInDesktop(TAB)).toBe(false);
+  });
+
+  it("a stale desktop viewed report stops counting", () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup();
+      manager.noteDesktopClientId("desktop");
+      manager.setViewedTab("desktop", TAB);
+      expect(manager.isViewedInDesktop(TAB)).toBe(true);
+
+      vi.advanceTimersByTime(15 * 60_000 + 1);
+      manager.setViewedTab("phone", "other");
+      expect(manager.isViewedInDesktop(TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sessionExit on process exit, once per real death across a relaunch", async () => {
+    const att = attention();
+    const { manager } = setup({ mode: "rpc-ui", attention: att });
+    await resumeRpc(manager);
+    const predecessor = rpcInstances[0]!;
+    predecessor.kill.mockImplementation(() => predecessor.exit(0));
+
+    await manager.restart(TAB);
+    expect(att.sessionExit).toHaveBeenCalledTimes(1);
+    expect(att.sessionExit).toHaveBeenCalledWith(TAB);
+    expect(manager.isLive(TAB)).toBe(true);
+
+    rpcInstances[1]!.exit(0);
+    expect(att.sessionExit).toHaveBeenCalledTimes(2);
+  });
+
+  it("sessionExit on pty exit", async () => {
+    const att = attention();
+    const { manager } = setup({ attention: att });
+    await resume(manager);
+
+    fakePtys[0]!.exit(0);
+    expect(att.sessionExit).toHaveBeenCalledTimes(1);
+    expect(att.sessionExit).toHaveBeenCalledWith(TAB);
   });
 });
 

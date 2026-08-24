@@ -70,6 +70,7 @@ import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
 import { SessionManager } from "./session-manager";
+import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 
@@ -95,6 +96,8 @@ export class MainBackend {
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   readonly sessions: SessionManager;
+  /** OS notifications for background sessions (issue #271). */
+  private readonly notifier: DesktopNotifier;
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
@@ -137,6 +140,21 @@ export class MainBackend {
     this.providerKeys.applyToProcessEnv();
     this.worktreesRoot =
       opts.worktreesRoot ?? path.join(path.dirname(registryFile), "worktrees");
+    // OS notifications for background sessions (issue #271). The icon path
+    // mirrors index.ts's BrowserWindow icon: one main bundle, so __dirname is
+    // out/main in dev and packaged alike.
+    const iconPath = path.join(__dirname, "../../build/icon.png");
+    this.notifier = new DesktopNotifier({
+      win,
+      isEnabled: () => this.registry.desktopNotifications,
+      isViewedByDesktop: (tabId) => this.sessions.isViewedInDesktop(tabId),
+      titleOf: (tabId) => {
+        const record = this.registry.sessions.find((s) => s.tabId === tabId);
+        return record?.cachedTitle?.trim() || "New session";
+      },
+      icon: () => (fs.existsSync(iconPath) ? iconPath : null),
+      send: (channel, ...args) => this.send(channel, ...args),
+    });
     this.sessions =
       opts.sessions ??
       new SessionManager({
@@ -148,6 +166,7 @@ export class MainBackend {
         getWorktreesRoot: () => this.worktreesRoot,
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
+        attention: this.notifier,
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
@@ -371,6 +390,10 @@ export class MainBackend {
           this.registry.setStallAutoContinue(on);
           await this.broadcast();
         },
+        [CH.setDesktopNotifications]: async (on: boolean) => {
+          this.registry.setDesktopNotifications(on);
+          await this.broadcast();
+        },
         [CH.setDefaultAdvisor]: async (on: boolean) => {
           this.registry.setDefaultAdvisor(on);
           await this.broadcast();
@@ -567,6 +590,8 @@ export class MainBackend {
         [CH.rpcSend]: (tabId: string, cmd: object) => this.sessions.rpcSend(tabId, cmd),
         [CH.tabViewed]: (clientId: string, tabId: string | null) =>
           this.sessions.setViewedTab(clientId, tabId),
+        [CH.reportStallCap]: (tabId: string, paused: boolean) =>
+          this.notifier.stallCap(tabId, paused),
       },
     } satisfies ChannelTable;
   }
@@ -584,7 +609,20 @@ export class MainBackend {
       ipcMain.handle(channel, (_event, ...args: unknown[]) => handle(...args));
     }
     for (const [channel, handle] of Object.entries(notifyHandlers)) {
-      ipcMain.on(channel, (_event, ...args: unknown[]) => handle(...args));
+      if (channel === CH.tabViewed) {
+        // The IPC transport is the desktop: its viewed reports name the tab
+        // the desktop window is showing, the only view state that may
+        // suppress or acknowledge an OS notification (issue #271). Remote
+        // renderers reach the same handler through the WebSocket transport
+        // and never mark the desktop.
+        ipcMain.on(channel, (_event, clientId: string, tabId: string | null) => {
+          handle(clientId, tabId);
+          this.sessions.noteDesktopClientId(clientId);
+          if (tabId !== null) this.notifier.viewedChanged(tabId);
+        });
+      } else {
+        ipcMain.on(channel, (_event, ...args: unknown[]) => handle(...args));
+      }
     }
   }
 
@@ -638,6 +676,7 @@ export class MainBackend {
   }
 
   killAll(): void {
+    this.notifier.dispose();
     this.sessions.killAll();
     void this.remote.stop();
   }
@@ -746,6 +785,7 @@ export class MainBackend {
       defaultCompactionMethod: this.registry.defaultCompactionMethod,
       advisorAutoReply: this.registry.advisorAutoReply,
       stallAutoContinue: this.registry.stallAutoContinue,
+      desktopNotifications: this.registry.desktopNotifications,
       defaultAdvisor: this.registry.defaultAdvisor,
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
