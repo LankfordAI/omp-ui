@@ -806,6 +806,44 @@ describe("Composer width refit", () => {
     expect(el.style.height).toBe("256px");     // 12 * 20 + 16: capped
     expect(el.style.overflowY).toBe("auto");   // now scrollable
   });
+
+  it("keeps the mirror's width equal to the box's live width across the scroll threshold", () => {
+    let ro: (() => void) | null = null;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: ResizeObserverCallback) {
+        ro = () => cb([], this as unknown as ResizeObserver);
+      }
+      observe() {}
+      disconnect() {}
+    });
+    seed("ready"); renderComposer();
+    const el = document.body.querySelector("textarea")!;
+    const mirror = el.previousElementSibling as HTMLDivElement;
+    // jsdom has no layout; supply the metrics fit() reads.
+    el.style.lineHeight = "20px";
+    el.style.paddingTop = "8px";
+    el.style.paddingBottom = "8px";
+    let width = 200;
+    let scroll = 3 * 20 + 16; // three rows of content
+    Object.defineProperty(el, "clientWidth", { configurable: true, get: () => width });
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => scroll });
+    act(() => ro!());
+    expect(el.style.overflowY).toBe("hidden");
+    expect(mirror.style.width).toBe("");       // no scrollbar: full width
+    // The same draft re-wraps far past the 12-row cap after a width change.
+    width = 100;
+    scroll = 30 * 20 + 16;
+    act(() => ro!());
+    expect(el.style.overflowY).toBe("auto");
+    expect(mirror.style.width).toBe("100px");  // synced to the box's live width
+    // The box widens again and the draft re-wraps back below the cap:
+    // full width is restored.
+    width = 200;
+    scroll = 3 * 20 + 16;
+    act(() => ro!());
+    expect(el.style.overflowY).toBe("hidden");
+    expect(mirror.style.width).toBe("");
+  });
 });
 
 describe("Composer onPrompt", () => {

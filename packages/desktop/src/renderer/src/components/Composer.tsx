@@ -289,10 +289,21 @@ export function Composer({
     const wanted = el.scrollHeight + border;
     const desktopMax = line * MAX_ROWS + padding + border;
     const max = compact ? Math.min(desktopMax, (window.visualViewport?.height ?? window.innerHeight) * 0.35) : desktopMax;
+    const scrollable = wanted > max;
     el.style.height = `${Math.min(wanted, max)}px`;
-    el.style.overflowY = wanted > max ? "auto" : "hidden";
-    // Resizing fires no scroll event, so the mirror has to be told.
-    if (mirror.current !== null) mirror.current.scrollTop = el.scrollTop;
+    el.style.overflowY = scrollable ? "auto" : "hidden";
+    // The instrument scrollbar (style.css ::-webkit-scrollbar, 10px classic on
+    // Linux) shrinks the box's content width when it appears, but not the
+    // mirror's — past the first divergent wrap the underline, caret, and
+    // selection drift off the visible glyphs (issue #282). Narrow the mirror
+    // to the box's live width; reading clientWidth after the overflowY change
+    // forces the reflow, so the scrollbar is already accounted for.
+    if (mirror.current !== null) {
+      mirror.current.style.width =
+        scrollable && el.clientWidth > 0 ? `${el.clientWidth}px` : "";
+      // Resizing fires no scroll event, so the mirror has to be told.
+      mirror.current.scrollTop = el.scrollTop;
+    }
   }, [compact]);
 
   useLayoutEffect(() => fit(), [text, fit]);
