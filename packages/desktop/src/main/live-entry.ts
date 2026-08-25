@@ -33,15 +33,6 @@ export interface LiveEntry {
   /** In-flight pre-kill probe; matched against the response frame's id. */
   probeId: string | null;
   probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
-  // --- stream-stall watchdog bookkeeping (issue #248, reworked in #253) ---
-  /** Start of the currently eligible model-stream silence interval. */
-  stallSilenceSince: number | null;
-  /** Open local tool executions; the silence clock is suspended while > 0. */
-  openToolCount: number;
-  /** Label of the last model-stream checkpoint, for the abort notice. */
-  stallCheckpointLabel: string | null;
-  /** Turns this live process has had aborted as stalled; appears in the notice. */
-  stallAbortCount: number;
 }
 
 export function liveEntry(
@@ -53,10 +44,6 @@ export function liveEntry(
     | "settleSuspendedUntil"
     | "probeId"
     | "probeResolve"
-    | "stallSilenceSince"
-    | "openToolCount"
-    | "stallCheckpointLabel"
-    | "stallAbortCount"
   >,
 ): LiveEntry {
   // Executor form (not Promise.withResolvers): the node tsconfig lib is
@@ -73,9 +60,5 @@ export function liveEntry(
     settleSuspendedUntil: null,
     probeId: null,
     probeResolve: null,
-    stallSilenceSince: null,
-    openToolCount: 0,
-    stallCheckpointLabel: null,
-    stallAbortCount: 0,
   };
 }

@@ -11,7 +11,6 @@ import {
   hydrateSessionFile,
   mintLineageDirName,
   mintWorktreePath,
-  modelStreamCheckpointLabel,
   isObject,
   isWithin,
   parseModelRole,
@@ -49,6 +48,7 @@ import type { Attention } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
 import { liveEntry, type LiveEntry } from "./live-entry";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
+import { StallWatchdog } from "./stall-watchdog";
 import { TurnCounter } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
@@ -69,8 +69,6 @@ const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
 /** Pre-kill get_state probe bound; a wedged child is left to the stall UX, not killed. */
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
-/** Stream-stall watchdog sweep cadence (issue #248). */
-const STALL_WATCH_TICK_MS = 15_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
 /**
@@ -150,8 +148,8 @@ export class SessionManager {
   private readonly hibernating = new Map<string, Promise<boolean>>();
   /** Unanswered extension_ui_request ids per tab (plan reviews included). */
   private readonly openExtensionRequests = new Map<string, Set<string>>();
-  /** Turn-stall watchdog sweep; one interval for all live tabs (issue #248). */
-  private stallWatchInterval: NodeJS.Timeout | undefined;
+  /** Model-stream stall watchdog (issue #248): the sweep and the per-tab silence records. */
+  private readonly stallWatchdog: StallWatchdog;
 
   constructor(private readonly deps: SessionManagerDependencies) {
     this.watcherHub = new WatcherHub({
@@ -169,7 +167,16 @@ export class SessionManager {
       attention: deps.attention,
       suspendForVerdict: (tabId) => this.suspendForVerdict(tabId),
     });
-    this.frameObservers = [this.planGates];
+    this.stallWatchdog = new StallWatchdog({
+      registry: deps.registry,
+      send: deps.send,
+      broadcast: () => deps.broadcast(),
+      turns: this.turns,
+      getLive: (tabId) => this.live.get(tabId),
+      liveEntries: () => this.live,
+      awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
+    });
+    this.frameObservers = [this.planGates, this.stallWatchdog];
   }
 
   get liveCount(): number {
@@ -207,11 +214,7 @@ export class SessionManager {
     for (const timer of this.hibernateTimers.values()) clearTimeout(timer);
     this.hibernateTimers.clear();
     this.openExtensionRequests.clear();
-    if (this.stallWatchInterval !== undefined) {
-      clearInterval(this.stallWatchInterval);
-      this.stallWatchInterval = undefined;
-    }
-    this.streamStalledTabs.clear();
+    this.stallWatchdog.disposeAll();
     // Quit must not block on a hibernation reap: the child is already dying.
     this.hibernating.clear();
   }
@@ -488,10 +491,6 @@ export class SessionManager {
         // every frame, probe responses included (issue #246).
         this.observeHibernation(record.tabId, frame);
         for (const obs of this.frameObservers) obs.onFrame(record.tabId, frame, entry);
-        // Stall watchdog (issue #248): arm the sweep on the first turn and
-        // timestamp model-stream activity.
-        if (frame.type === "agent_start") this.ensureStallWatch();
-        this.observeStallActivity(entry, frame);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
       },
       onExit: (code) => this.handleExit(record.tabId, entry, code ?? -1),
@@ -499,8 +498,6 @@ export class SessionManager {
         this.deps.send(CH.onRpcFrame, record.tabId, { type: "omp_ui_error", message: msg }),
     });
     this.live.set(record.tabId, entry);
-    // A fresh process owes no stall badge: the wedge died with the old one.
-    this.streamStalledTabs.delete(record.tabId);
     this.watcherHub.start(record);
     void this.deps.broadcast();
     return { tabId: record.tabId };
@@ -789,166 +786,11 @@ export class SessionManager {
     clearTimeout(this.hibernateTimers.get(tabId));
     this.hibernateTimers.delete(tabId);
     this.openExtensionRequests.delete(tabId);
-    this.streamStalledTabs.delete(tabId);
   }
-
-  // --- Stream-stall watchdog: abort a turn whose model stream has gone
-  // --- silently dead (issue #248). Display-only detection (#228) assumed
-  // --- omp's idle watchdog recovers stalls; OpenRouter's SSE keep-alives
-  // --- defeat it, so main carries the backstop. ---
-
-  /** Tabs whose current live process had a turn aborted as stalled; sidebar
-   * badge state. Lasts until the next turn starts (issue #255), a respawn,
-   * or exit. */
-  private readonly streamStalledTabs = new Set<string>();
 
   /** Whether the stall watchdog has aborted a turn on this live process. */
   isStreamStalled(tabId: string): boolean {
-    return this.streamStalledTabs.has(tabId);
-  }
-
-  /**
-   * Tracks whether a model request is in flight on the live entry, and the
-   * start of the currently eligible silence interval. Called from the rpc
-   * onFrame path after hibernation observation; model-stream classification
-   * is shared with the renderer's stall indicator (core/stream-activity) so
-   * both watchdogs judge "stream activity" identically. Local tool
-   * execution suspends the clock outright (issue #253): omp owns tool
-   * deadlines, and a build or hub wait is legitimately quiet on the
-   * provider stream for as long as it runs.
-   */
-  private observeStallActivity(entry: LiveEntry, frame: RpcFrame): void {
-    if (typeof frame !== "object" || frame === null) return;
-    const type = frame.type;
-    switch (type) {
-      // No tool execution survives a turn boundary. An abort's teardown can
-      // skip end frames for refused tools; a leaked count would suppress
-      // the watchdog for the whole next turn.
-      case "agent_start":
-      case "agent_end":
-        entry.openToolCount = 0;
-        return;
-      case "tool_execution_start":
-        entry.openToolCount++;
-        return;
-      case "tool_execution_update":
-        // A lost start frame must not leave the clock running against a
-        // live tool; an update proves one is open.
-        if (entry.openToolCount === 0) entry.openToolCount = 1;
-        return;
-      case "tool_execution_end":
-        // Ghost ends (no matching start) exist; the transcript reducer
-        // tolerates them too. Never let one underflow or rebase.
-        if (entry.openToolCount === 0) return;
-        entry.openToolCount--;
-        if (entry.openToolCount === 0) {
-          // The next model request starts here: give it a full window,
-          // exactly like the "human answer received" rebase in rpcSend.
-          entry.stallSilenceSince = Date.now();
-          entry.stallCheckpointLabel = "tool execution finished";
-        }
-        return;
-      // omp is legitimately quiet during compaction and retry backoff.
-      // Rebase — never suspend: a wedged compaction/retried stream is a
-      // real stall and must still trip the watchdog one window later.
-      case "auto_compaction_start":
-        entry.stallSilenceSince = Date.now();
-        entry.stallCheckpointLabel = "compaction started";
-        return;
-      case "auto_compaction_end":
-        entry.stallSilenceSince = Date.now();
-        entry.stallCheckpointLabel = "compaction finished";
-        return;
-      case "auto_retry_start":
-        entry.stallSilenceSince = Date.now();
-        entry.stallCheckpointLabel = "retry scheduled";
-        return;
-      case "auto_retry_end":
-        entry.stallSilenceSince = Date.now();
-        entry.stallCheckpointLabel = "retry settled";
-        return;
-    }
-    const label = modelStreamCheckpointLabel(frame);
-    if (label !== null) {
-      entry.stallSilenceSince = Date.now();
-      entry.stallCheckpointLabel = label;
-    }
-  }
-
-  /**
-   * One ticking sweep for every live rpc tab. Arms lazily on the first turn
-   * and unrefs: housekeeping must never hold the process open. Every sweep
-   * re-reads the setting, so a Settings change applies at the next tick.
-   */
-  private ensureStallWatch(): void {
-    if (this.stallWatchInterval !== undefined) return;
-    this.stallWatchInterval = setInterval(() => this.checkStreamStalls(), STALL_WATCH_TICK_MS);
-    if (typeof this.stallWatchInterval.unref === "function") this.stallWatchInterval.unref();
-  }
-
-  /**
-   * Aborts turns whose model stream has been silent past the configured
-   * window. Guards: only a running turn with no pending human answer can
-   * stall, and open tool executions suspend the check outright.
-   */
-  private checkStreamStalls(): void {
-    const thresholdSeconds = this.deps.registry.getSetting("streamStallAbortSeconds");
-    if (thresholdSeconds <= 0) return;
-    for (const [tabId, entry] of this.live) {
-      if (entry.kind !== "rpc-ui") continue;
-      if (this.turns.running(tabId) === 0) continue;
-      if (this.awaitingHumanAnswer(tabId)) continue;
-      // A running local tool is legitimately quiet on the provider stream —
-      // a build, a test suite, a hub wait. While one is open the model owes
-      // nothing, however long it runs (issue #253).
-      if (entry.openToolCount > 0) continue;
-      const silenceSince = entry.stallSilenceSince;
-      if (silenceSince === null) continue;
-      const now = Date.now();
-      const quietMs = now - silenceSince;
-      if (quietMs < thresholdSeconds * 1_000) continue;
-      this.abortStalledTurn(tabId, entry, quietMs, thresholdSeconds);
-    }
-  }
-
-  /**
-   * Sends the abort and surfaces the notice. The turn's agent_end (or the
-   * child's refusal) settles the transcript's own status; the watchdog does
-   * not touch hibernation state — agent_end already drops the running count.
-   */
-  private abortStalledTurn(
-    tabId: string,
-    entry: LiveEntry,
-    quietMs: number,
-    thresholdSeconds: number,
-  ): void {
-    const rpc = entry.rpc;
-    if (rpc === undefined) return;
-    // First fire wins: the notice quotes the silence observed at abort time.
-    // Resetting the clock now is also what stops a refused abort from
-    // re-firing every tick.
-    entry.stallSilenceSince = null;
-    entry.stallAbortCount += 1;
-    this.streamStalledTabs.add(tabId);
-    rpc.send({ type: "abort" });
-    const minutes = Math.floor(thresholdSeconds / 60);
-    const since = entry.stallCheckpointLabel ?? "unknown";
-    this.deps.send(CH.onRpcFrame, tabId, {
-      type: "omp_ui_notice",
-      level: "warn",
-      source: "omp-ui",
-      // Machine-readable: the renderer feeds this abort into stall
-      // auto-continue (issue #254) — the turn end it produces reads
-      // "aborted", which isStreamStallEnd can never classify.
-      reason: "stall-abort",
-      message:
-        `omp-ui aborted a stalled turn #${entry.stallAbortCount} — no model-stream activity ` +
-        `for ${Math.round(quietMs / 1_000)}s (last: ${since}; window ${minutes}m). ` +
-        `omp's provider watchdog never fired — OpenRouter's stream keep-alives can defeat it. ` +
-        `Stall auto-continue resumes the turn if enabled; any prompt also continues it. ` +
-        `Tune or disable under Settings → General → stall watchdog.`,
-    });
-    void this.deps.broadcast();
+    return this.stallWatchdog.isStreamStalled(tabId);
   }
 
   /**
@@ -988,9 +830,6 @@ export class SessionManager {
         this.turns.start(tabId);
         // A new turn is activity: it answers every pending attention (issue #271).
         this.deps.attention?.turnStarted(tabId);
-        // The stalled badge is a call-to-action ("prompt to continue"); a
-        // new turn is that continuation, whoever sent it (issue #255).
-        if (this.streamStalledTabs.delete(tabId)) void this.deps.broadcast();
         break;
       case "agent_end": {
         const running = this.turns.end(tabId);
@@ -1229,17 +1068,9 @@ export class SessionManager {
     if (cmd.type === "extension_ui_response" && typeof cmd.id === "string") {
       this.openExtensionRequests.get(tabId)?.delete(cmd.id);
     }
-    const entry = this.live.get(tabId);
-    if (
-      wasAwaitingHuman &&
-      !this.awaitingHumanAnswer(tabId) &&
-      entry?.kind === "rpc-ui" &&
-      this.turns.running(tabId) > 0
-    ) {
-      entry.stallSilenceSince = Date.now();
-      entry.stallCheckpointLabel = "human answer received";
-    }
-    entry?.rpc?.send(cmd);
+    if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId))
+      this.stallWatchdog.humanAnswered(tabId);
+    this.live.get(tabId)?.rpc?.send(cmd);
   }
 
   killShell(tabId: string): void {
@@ -1328,6 +1159,7 @@ export class SessionManager {
     if (!record) return;
     const entry = this.live.get(tabId);
     if (entry) await this.killAndReap(tabId, entry);
+    this.stallWatchdog.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     // Files first: a failed delete must leave the record so the row stays
