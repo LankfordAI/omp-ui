@@ -26,12 +26,13 @@ import { useImageDraft } from "../lib/use-image-draft";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
+import { ComposerSheet } from "./ComposerSheet";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
-import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep, Sheet } from "./ui";
+import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -896,40 +897,15 @@ export function Composer({
           </div>
         )}
       </div>
-      <Sheet open={compactSurface === "composer-options"} placement="bottom" label="prompt options" onClose={closeCompactSurface}>
-        <div className="prompt-options space-y-5 px-[max(1rem,var(--safe-left))] py-4 pr-[max(1rem,var(--safe-right))]">
-          <section className="rounded-xl border border-line bg-raised/60 p-3">
-            <Label>model &amp; effort</Label>
-            <div className="mt-2 flex min-h-11 items-center rounded-lg border border-line bg-void/35 px-2">
-              <ModelSelector tabId={tabId} disabled={unavailable} />
-            </div>
-            {efforts.length > 0 && (
-              <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(5rem,1fr))] gap-2">
-                {efforts.map((effort) => <Button key={effort} disabled={unavailable} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
-              </div>
-            )}
-          </section>
-          <section className="rounded-xl border border-line bg-raised/60 p-3">
-            <Label>session</Label>
-            <div className="mt-2 space-y-2">
-              <AdvisorControl tabId={tabId} disabled={unavailable} layout="sheet" />
-              <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
-              <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">branch</span>
-                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={cwd} />{queueChip && <Chip mono tone="copper" title={queueChip.title}>{queueChip.label}</Chip>}</span>
-              </div>
-            </div>
-          </section>
-          <ComposerActions
-            layout="sheet"
-            running={running}
-            isSlash={false}
-            canSend={canSend}
-            onSubmit={(route) => void submit(route)}
-            onAbort={() => void abortAgent(tabId)}
-          />
-        </div>
-      </Sheet>
+      <ComposerSheet
+        open={compactSurface === "composer-options"}
+        onClose={closeCompactSurface}
+        tabId={tabId}
+        projectCwd={cwd}
+        unavailable={unavailable}
+        canSend={canSend}
+        onSubmit={(route) => void submit(route)}
+      />
     </div>
   );
 }
