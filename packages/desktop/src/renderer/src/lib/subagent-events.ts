@@ -4,7 +4,7 @@
  * contract as the transcript reducer — unknown or empty shapes add NOTHING,
  * so new upstream shapes never break the pane.
  */
-import { field, strField } from "./fields";
+import { field, isObj, strField } from "./fields";
 import { markerItem, reduceEvent, type RenderItem } from "./transcript";
 
 /**
@@ -32,10 +32,6 @@ export function subagentKey(frame: unknown): string {
 }
 
 let counter = 0;
-
-function isObj(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
 
 /** Entry equality ignoring the generated id — heartbeat dedupe compares content. */
 function sameEntry(a: RenderItem | undefined, b: RenderItem | undefined): boolean {

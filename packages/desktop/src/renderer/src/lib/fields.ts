@@ -26,3 +26,13 @@ export function arrField(obj: unknown, key: string): unknown[] {
   const value = field(obj, key);
   return Array.isArray(value) ? value : [];
 }
+
+/** Payloads may carry objects at any depth — the one shape test for them. */
+export function isObj(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+/** Single-value string coercion for bare payload values (`strField` reads a key). */
+export function str(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}

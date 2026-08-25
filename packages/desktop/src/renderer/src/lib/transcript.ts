@@ -1,5 +1,5 @@
 import { formatDuration } from "./duration";
-import { boolField, field, numField, strField } from "./fields";
+import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 
 export interface AdvisorNote {
@@ -267,14 +267,6 @@ export function settleRunningTools(
   );
 }
 
-function isObj(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
-
-function str(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 function contentBlocks(content: unknown): Record<string, unknown>[] {
   return Array.isArray(content) ? content.filter(isObj) : [];
 }
@@ -382,6 +374,22 @@ function replaceAt(items: RenderItem[], index: number, item: RenderItem): Render
   return [...items.slice(0, index), item, ...items.slice(index + 1)];
 }
 
+/**
+ * Read the item at `index` with its kind proven: the caller's findIndex or
+ * lastStreamingAssistant already matched it; this accessor is the proof the
+ * type system needs, so no `as Item` cast stands between the lookup and the
+ * update. `null` is the unreachable arm.
+ */
+function kindAt<K extends RenderItem["kind"]>(
+  items: RenderItem[],
+  index: number,
+  kind: K,
+): Extract<RenderItem, { kind: K }> | null {
+  const item = items[index];
+  if (item === undefined || item.kind !== kind) return null;
+  return item as Extract<RenderItem, { kind: K }>;
+}
+
 function lastStreamingAssistant(items: RenderItem[]): number {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]!;
@@ -445,7 +453,8 @@ function reduceToolcallStream(
       },
     ];
   }
-  const item = items[idx] as ToolItem;
+  const item = kindAt(items, idx, "tool");
+  if (item === null) return items;
   return replaceAt(items, idx, {
     ...item,
     // Some providers only deliver the real id/name in later frames.
@@ -509,13 +518,15 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
             },
           ];
         }
-        const item = items[idx] as AssistantItem;
+        const item = kindAt(items, idx, "assistant");
+        if (item === null) return items;
         return replaceAt(items, idx, { ...item, text: item.text + delta });
       }
       if (type === "thinking_delta") {
         const idx = lastStreamingAssistant(items);
         if (idx === -1) return items;
-        const item = items[idx] as AssistantItem;
+        const item = kindAt(items, idx, "assistant");
+        if (item === null) return items;
         return replaceAt(items, idx, { ...item, thinking: item.thinking + delta });
       }
       if (type === "toolcall_start" || type === "toolcall_delta" || type === "toolcall_end") {
@@ -532,7 +543,8 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const meta = message && str(message.role) === "assistant" ? assistantMeta(message) : {};
       const idx = lastStreamingAssistant(items);
       if (idx !== -1) {
-        const item = items[idx] as AssistantItem;
+        const item = kindAt(items, idx, "assistant");
+        if (item === null) return items;
         return replaceAt(items, idx, { ...item, ...meta, streaming: false });
       }
       // No streaming item (resumed mid-stream) — render the final message.
@@ -558,7 +570,8 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // into it so the transcript shows one card per call, in stream order.
       const idx = items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId);
       if (idx !== -1) {
-        const item = items[idx] as ToolItem;
+        const item = kindAt(items, idx, "tool");
+        if (item === null) return items;
         return replaceAt(items, idx, {
           ...item,
           name: str(event.toolName) ?? item.name,
@@ -589,7 +602,8 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
         : -1;
       if (idx === -1) return items;
-      const item = items[idx] as ToolItem;
+      const item = kindAt(items, idx, "tool");
+      if (item === null) return items;
       const partial = isObj(event.partialResult) ? event.partialResult : null;
       const partialText = partial ? textFromContent(partial.content) : "";
       // Status stays `running` — an update is progress, never completion.
@@ -627,7 +641,8 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           },
         ];
       }
-      const item = items[idx] as ToolItem;
+      const item = kindAt(items, idx, "tool");
+      if (item === null) return items;
       return replaceAt(items, idx, { ...item, ...patch });
     }
 
