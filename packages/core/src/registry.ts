@@ -226,6 +226,21 @@ function isSessionMode(value: unknown): value is SessionMode {
   return value === "pty" || value === "rpc-ui";
 }
 
+/**
+ * Absent, or the present value passes `check`. For the rare field that
+ * rejects null (agentMode) — everything else wants `optNullable`.
+ */
+function optional(value: object, key: string, check: (v: unknown) => boolean): boolean {
+  return !(key in value) || check((value as Record<string, unknown>)[key]);
+}
+
+/** Absent, null, or the present value passes `check`. The legacy-field standard. */
+function optNullable(value: object, key: string, check: (v: unknown) => boolean): boolean {
+  return optional(value, key, (v) => v === null || check(v));
+}
+
+const isStr = (v: unknown): boolean => typeof v === "string";
+
 function isProjectRecord(value: unknown): value is ProjectRecord {
   return (
     value !== null &&
@@ -237,23 +252,13 @@ function isProjectRecord(value: unknown): value is ProjectRecord {
     "addedAt" in value &&
     typeof value.addedAt === "string" &&
     // Preference fields post-date the first schema-1 records. Missing values
-    // are legal and normalized by `parseRegistryData`.
-    (!("lastModel" in value) || value.lastModel === null || typeof value.lastModel === "string") &&
-    (!("lastThinkingLevel" in value) ||
-      value.lastThinkingLevel === null ||
-      typeof value.lastThinkingLevel === "string") &&
-    (!("lastAdvisor" in value) ||
-      value.lastAdvisor === null ||
-      typeof value.lastAdvisor === "boolean") &&
-    (!("lastAdvisorModel" in value) ||
-      value.lastAdvisorModel === null ||
-      typeof value.lastAdvisorModel === "string") &&
-    (!("defaultModel" in value) ||
-      value.defaultModel === null ||
-      typeof value.defaultModel === "string") &&
-    (!("defaultAdvisorModel" in value) ||
-      value.defaultAdvisorModel === null ||
-      typeof value.defaultAdvisorModel === "string")
+    // are legal and normalized to null by `parseRegistryData`.
+    optNullable(value, "lastModel", isStr) &&
+    optNullable(value, "lastThinkingLevel", isStr) &&
+    optNullable(value, "lastAdvisor", (v) => typeof v === "boolean") &&
+    optNullable(value, "lastAdvisorModel", isStr) &&
+    optNullable(value, "defaultModel", isStr) &&
+    optNullable(value, "defaultAdvisorModel", isStr)
   );
 }
 
@@ -273,72 +278,62 @@ function isPlanImplementationSource(value: unknown): value is PlanImplementation
   );
 }
 
+function isWorktreeShape(v: unknown): boolean {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "path" in v &&
+    typeof v.path === "string" &&
+    "branch" in v &&
+    typeof v.branch === "string" &&
+    // base post-dates the first worktree records: absent is legal and
+    // normalized to null on load; a present value must be a string.
+    optNullable(v, "base", isStr)
+  );
+}
+
 function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
   return (
     value !== null &&
     typeof value === "object" &&
     "tabId" in value &&
     typeof value.tabId === "string" &&
+    // Required-nullable: absence drops the record; only null means "none yet".
     "sessionId" in value &&
     (typeof value.sessionId === "string" || value.sessionId === null) &&
     "lineageDir" in value &&
     typeof value.lineageDir === "string" &&
     "projectCwd" in value &&
     typeof value.projectCwd === "string" &&
-    // worktree post-dates the first schema-1 records, so absent or null is
-    // legal and normalized to null by `parseRegistryData` — a present value
-    // must carry both the checkout path and its branch, not just one.
-    (!("worktree" in value) ||
-      value.worktree === null ||
-      (typeof value.worktree === "object" &&
-        value.worktree !== null &&
-        "path" in value.worktree &&
-        typeof value.worktree.path === "string" &&
-        "branch" in value.worktree &&
-        typeof value.worktree.branch === "string" &&
-        // base post-dates the first worktree records: absent is legal and
-        // normalized to null on load; a present value must be a string.
-        (!("base" in value.worktree) ||
-          typeof value.worktree.base === "string" ||
-          value.worktree.base === null))) &&
+    // Worktree post-dates the first schema-1 records: absent or null is legal
+    // and normalized to null by `parseRegistryData` — a present value must
+    // carry both the checkout path and its branch, not just one.
+    optNullable(value, "worktree", isWorktreeShape) &&
     // Handoff provenance also post-dates the first schema-1 records. When
     // present it must be complete: partial metadata cannot identify a plan.
-    (!("planImplementationSource" in value) ||
-      value.planImplementationSource === null ||
-      isPlanImplementationSource(value.planImplementationSource)) &&
+    optNullable(value, "planImplementationSource", isPlanImplementationSource) &&
     "launchedAt" in value &&
     typeof value.launchedAt === "string" &&
     "mode" in value &&
     isSessionMode(value.mode) &&
-    // agentMode post-dates existing records, so absent is legal and
-    // normalized to "build" by `parseRegistryData`.
-    (!("agentMode" in value) ||
-      value.agentMode === "plan" ||
-      value.agentMode === "build") &&
-    (!("compactionMethod" in value) ||
-      typeof value.compactionMethod === "string" ||
-      value.compactionMethod === null) &&
-    (!("model" in value) || typeof value.model === "string" || value.model === null) &&
-    (!("thinkingLevel" in value) ||
-      typeof value.thinkingLevel === "string" ||
-      value.thinkingLevel === null) &&
-    "advisor" in value &&
-    typeof value.advisor === "boolean" &&
-    // advisorModel post-dates the first schema-1 records, so absent is legal
-    // and normalized to null by `parseRegistryData` — requiring it here would
-    // silently drop every session written before the advisor picker shipped.
-    (!("advisorModel" in value) ||
-      typeof value.advisorModel === "string" ||
-      value.advisorModel === null) &&
+    // agentMode post-dates existing records and normalizes to "build". A
+    // PRESENT null must still drop the record, so this is `optional`, not
+    // `optNullable` (the parser would have coerced it, but this filter runs
+    // first).
+    optional(value, "agentMode", (v) => v === "plan" || v === "build") &&
+    optNullable(value, "compactionMethod", isStr) &&
+    optNullable(value, "model", isStr) &&
+    optNullable(value, "thinkingLevel", isStr) &&
+    // advisorModel post-dates the first schema-1 records: requiring it here
+    // would silently drop every session written before the advisor picker
+    // shipped.
+    optNullable(value, "advisorModel", isStr) &&
+    // Required-nullable pair: absence drops; null is the legal empty value.
     "cachedTitle" in value &&
     (typeof value.cachedTitle === "string" || value.cachedTitle === null) &&
     "cachedModified" in value &&
     (typeof value.cachedModified === "string" || value.cachedModified === null) &&
-    // lastViewedAt post-dates existing records, so absent is legal and
-    // normalized to null by `parseRegistryData`.
-    (!("lastViewedAt" in value) ||
-      typeof value.lastViewedAt === "string" ||
-      value.lastViewedAt === null)
+    optNullable(value, "lastViewedAt", isStr)
   );
 }
 
@@ -397,6 +392,47 @@ function deepFreeze<T>(value: T): T {
 }
 
 /**
+ * mkdir → tmp-write → rename: a crash mid-write leaves the tmp beside the
+ * registry instead of a truncated registry behind the reader.
+ */
+function writeAtomically(file: string, data: RegistryData): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+}
+
+/**
+ * Splices `key`'s element to sit immediately before `beforeKey`'s; a null or
+ * vanished `beforeKey` moves it to the end. "Before itself" is the caller's
+ * "leave it put": handled here because the splice would hide the element from
+ * the beforeKey lookup and the miss would append it. Returns whether the
+ * array changed (unknown source key: false, no mutation).
+ */
+function moveBefore<T>(
+  list: T[],
+  keyOf: (item: T) => string,
+  key: string,
+  beforeKey: string | null,
+): boolean {
+  if (beforeKey === key) return false;
+  const from = list.findIndex((item) => keyOf(item) === key);
+  if (from === -1) return false;
+  const [moved] = list.splice(from, 1);
+  // `to` is looked up after the splice, so indices have already shifted —
+  // "insert before the removed element's neighbour" stays correct.
+  if (beforeKey !== null) {
+    const to = list.findIndex((item) => keyOf(item) === beforeKey);
+    if (to !== -1) {
+      list.splice(to, 0, moved);
+      return true;
+    }
+  }
+  list.push(moved);
+  return true;
+}
+
+/**
  * One-time freeze (#274): legacy registries ordered `sessions` by insertion,
  * and buildState re-sorted by recency. Before the first ordered write, rewrite
  * the persisted array to that same recency order and mark it frozen, so the
@@ -417,10 +453,7 @@ function seedSessionOrder(file: string, data: RegistryData): void {
   ordered.push(...data.sessions.filter((s) => !known.has(s.projectCwd)).sort(recencyDesc));
   data.sessions = ordered;
   data.settings.sessionOrderFrozen = true;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
-  fs.renameSync(tmp, file);
+  writeAtomically(file, data);
 }
 
 /**
@@ -465,17 +498,26 @@ export class Registry {
   }
 
   #save(): void {
-    fs.mkdirSync(path.dirname(this.#file), { recursive: true });
-    const tmp = `${this.#file}.tmp-${process.pid}`;
-    fs.writeFileSync(tmp, `${JSON.stringify(this.#data, null, 2)}\n`);
-    fs.renameSync(tmp, this.#file);
+    writeAtomically(this.#file, this.#data);
   }
 
-  #getSetting<K extends SettingKey>(key: K): RegistrySettings[K] {
+  /**
+   * Reads a persisted preference. `modelFavorites` is the only reference-typed
+   * setting, and this hands out the live internal array — favorites access
+   * must go through `getFavorites()`/`toggleFavorite()`. Cloning every read
+   * was rejected: hot paths (the hibernate timer arms read
+   * `hibernateIdleMinutes` per event) would allocate for nothing, and every
+   * other setting is a primitive.
+   */
+  getSetting<K extends SettingKey>(key: K): RegistrySettings[K] {
     return this.#data.settings[key];
   }
 
-  #setSetting<K extends SettingKey>(key: K, value: RegistrySettings[K]): void {
+  /**
+   * Writes a persisted preference and saves. An Object.is-equal value is a
+   * no-op: nothing is written.
+   */
+  setSetting<K extends SettingKey>(key: K, value: RegistrySettings[K]): void {
     if (Object.is(this.#data.settings[key], value)) return;
     this.#data.settings[key] = value;
     this.#save();
@@ -489,25 +531,6 @@ export class Registry {
     return deepFreeze(structuredClone(this.#data.sessions));
   }
 
-  get defaultMode(): SessionMode {
-    return this.#getSetting("defaultMode");
-  }
-
-  get defaultAgentMode(): AgentMode {
-    return this.#getSetting("defaultAgentMode");
-  }
-
-  get defaultCompactionMethod(): string | null {
-    return this.#getSetting("defaultCompactionMethod");
-  }
-
-   get skipDeleteConfirmation(): boolean {
-     return this.#getSetting("skipDeleteConfirmation");
-   }
-
-  get sessionOrderFrozen(): boolean {
-    return this.#getSetting("sessionOrderFrozen");
-  }
 
   addProject(projectPath: string): ProjectRecord {
     const existing = this.#data.projects.find((p) => p.path === projectPath);
@@ -543,26 +566,7 @@ export class Registry {
    * equal to it, are no-ops (no save).
    */
   moveProject(projectPath: string, beforePath: string | null): void {
-    // "Before itself" is the sidebar's own "leave it put" drop (it derives
-    // beforePath from the row below the pointer). It must return here: the
-    // splice below would hide the project from the beforePath lookup, and the
-    // miss would append it to the end.
-    if (beforePath === projectPath) return;
-    const from = this.#data.projects.findIndex((p) => p.path === projectPath);
-    if (from === -1) return; // unknown source: no-op, no write
-    const [moved] = this.#data.projects.splice(from, 1);
-    // `to` is looked up after the splice, so indices have already shifted —
-    // "insert before the removed element's neighbour" stays correct.
-    if (beforePath !== null) {
-      const to = this.#data.projects.findIndex((p) => p.path === beforePath);
-      if (to !== -1) {
-        this.#data.projects.splice(to, 0, moved);
-        this.#save();
-        return;
-      }
-    }
-    this.#data.projects.push(moved);
-    this.#save();
+    if (moveBefore(this.#data.projects, (p) => p.path, projectPath, beforePath)) this.#save();
   }
 
   /** Records an advisor choice for this session and the next one in its project. */
@@ -647,22 +651,7 @@ export class Registry {
    * by their root's position regardless of array adjacency.
    */
   moveSession(tabId: string, beforeTabId: string | null): void {
-    // Same "leave it put" guard as moveProject: the splice below would hide
-    // the record from the beforeTabId lookup and the miss would append it.
-    if (beforeTabId === tabId) return;
-    const from = this.#data.sessions.findIndex((s) => s.tabId === tabId);
-    if (from === -1) return; // unknown source: no-op, no write
-    const [moved] = this.#data.sessions.splice(from, 1);
-    if (beforeTabId !== null) {
-      const to = this.#data.sessions.findIndex((s) => s.tabId === beforeTabId);
-      if (to !== -1) {
-        this.#data.sessions.splice(to, 0, moved);
-        this.#save();
-        return;
-      }
-    }
-    this.#data.sessions.push(moved);
-    this.#save();
+    if (moveBefore(this.#data.sessions, (s) => s.tabId, tabId, beforeTabId)) this.#save();
   }
 
   updateSession(
@@ -676,168 +665,8 @@ export class Registry {
     return structuredClone(record);
   }
 
-  setDefaultMode(mode: SessionMode): void {
-    this.#setSetting("defaultMode", mode);
-  }
-
-  setDefaultAgentMode(mode: AgentMode): void {
-    this.#setSetting("defaultAgentMode", mode);
-  }
-
-  setDefaultCompactionMethod(method: string | null): void {
-    this.#setSetting("defaultCompactionMethod", method);
-  }
-
-  get planFormat(): PlanFormat {
-    return this.#getSetting("planFormat");
-  }
-
-  setPlanFormat(format: PlanFormat): void {
-    this.#setSetting("planFormat", format);
-  }
-
-  get hibernateIdleMinutes(): number {
-    return this.#getSetting("hibernateIdleMinutes");
-  }
-
-  setHibernateIdleMinutes(minutes: number): void {
-    this.#setSetting("hibernateIdleMinutes", minutes);
-  }
-
-  get streamStallAbortSeconds(): number {
-    return this.#getSetting("streamStallAbortSeconds");
-  }
-
-  setStreamStallAbortSeconds(seconds: number): void {
-    this.#setSetting("streamStallAbortSeconds", seconds);
-  }
-
-  get advisorAutoReply(): boolean {
-    return this.#getSetting("advisorAutoReply");
-  }
-
-  setAdvisorAutoReply(on: boolean): void {
-    this.#setSetting("advisorAutoReply", on);
-  }
-
-  get stallAutoContinue(): boolean {
-    return this.#getSetting("stallAutoContinue");
-  }
-
-  setStallAutoContinue(on: boolean): void {
-    this.#setSetting("stallAutoContinue", on);
-  }
-
-  get desktopNotifications(): boolean {
-    return this.#getSetting("desktopNotifications");
-  }
-
-  setDesktopNotifications(on: boolean): void {
-    this.#setSetting("desktopNotifications", on);
-  }
-
-  get defaultAdvisor(): boolean {
-    return this.#getSetting("defaultAdvisor");
-  }
-
-  setDefaultAdvisor(on: boolean): void {
-    this.#setSetting("defaultAdvisor", on);
-  }
-
-  setSkipDeleteConfirmation(skip: boolean): void {
-    this.#setSetting("skipDeleteConfirmation", skip);
-  }
-
-  get themeId(): string {
-    return this.#getSetting("themeId");
-  }
-
-  setThemeId(id: string): void {
-    this.#setSetting("themeId", id);
-  }
-
-  get appUpdateCheckOnLaunch(): boolean {
-    return this.#getSetting("appUpdateCheckOnLaunch");
-  }
-
-  setAppUpdateCheckOnLaunch(on: boolean): void {
-    this.#setSetting("appUpdateCheckOnLaunch", on);
-  }
-
-  get ompUpdateCheckOnLaunch(): boolean {
-    return this.#getSetting("ompUpdateCheckOnLaunch");
-  }
-
-  setOmpUpdateCheckOnLaunch(on: boolean): void {
-    this.#setSetting("ompUpdateCheckOnLaunch", on);
-  }
-
-  get remoteEnabled(): boolean {
-    return this.#getSetting("remoteEnabled");
-  }
-
-  setRemoteEnabled(on: boolean): void {
-    this.#setSetting("remoteEnabled", on);
-  }
-
-  get remoteBind(): RemoteBind {
-    return this.#getSetting("remoteBind");
-  }
-
-  setRemoteBind(bind: RemoteBind): void {
-    this.#setSetting("remoteBind", bind);
-  }
-
-  get remotePort(): number {
-    return this.#getSetting("remotePort");
-  }
-
-  setRemotePort(port: number): void {
-    this.#setSetting("remotePort", port);
-  }
-
-  get remoteToken(): string {
-    return this.#getSetting("remoteToken");
-  }
-
-  setRemoteToken(token: string): void {
-    this.#setSetting("remoteToken", token);
-  }
-
-  get remotePasswordHash(): string {
-    return this.#getSetting("remotePasswordHash");
-  }
-
-  setRemotePasswordHash(hash: string): void {
-    this.#setSetting("remotePasswordHash", hash);
-  }
-
-  get remotePasswordSalt(): string {
-    return this.#getSetting("remotePasswordSalt");
-  }
-
-  setRemotePasswordSalt(salt: string): void {
-    this.#setSetting("remotePasswordSalt", salt);
-  }
-
-  get dismissedAppUpdateVersion(): string | null {
-    return this.#getSetting("dismissedAppUpdateVersion");
-  }
-
-  setDismissedAppUpdateVersion(version: string | null): void {
-    this.#setSetting("dismissedAppUpdateVersion", version);
-  }
-
-  get dismissedOmpUpdateVersion(): string | null {
-    return this.#getSetting("dismissedOmpUpdateVersion");
-  }
-
-  setDismissedOmpUpdateVersion(version: string | null): void {
-    this.#setSetting("dismissedOmpUpdateVersion", version);
-  }
-
   getFavorites(): string[] {
-    return [...this.#getSetting("modelFavorites")];
+    return [...this.getSetting("modelFavorites")];
   }
 
   toggleFavorite(key: string): void {

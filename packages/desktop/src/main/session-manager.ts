@@ -415,7 +415,7 @@ export class SessionManager {
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           compactionMethod:
-            req.mode === "rpc-ui" ? this.deps.registry.defaultCompactionMethod : null,
+            req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
           thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
@@ -443,7 +443,7 @@ export class SessionManager {
       const startInPlanMode =
         req.startInPlanMode ??
         (req.resumeTabId === undefined
-          ? this.deps.registry.defaultAgentMode === "plan"
+          ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
           : record.agentMode === "plan");
       return req.mode === "rpc-ui"
         ? await this.spawnRpc(record, startInPlanMode, ompPath)
@@ -519,7 +519,7 @@ export class SessionManager {
     initialCommands.push({
       type: "prompt",
       id: `omp-ui-initial-mode-${randomUUID()}`,
-      message: planMessage(startInPlanMode, this.deps.registry.planFormat),
+      message: planMessage(startInPlanMode, this.deps.registry.getSetting("planFormat")),
     });
     const configOverlays = await this.rpcConfigOverlays(record, absLineageDir, ompPath);
     entry.rpc = new RpcClient({
@@ -1048,7 +1048,7 @@ export class SessionManager {
    * stall, and open tool executions suspend the check outright.
    */
   private checkStreamStalls(): void {
-    const thresholdSeconds = this.deps.registry.streamStallAbortSeconds;
+    const thresholdSeconds = this.deps.registry.getSetting("streamStallAbortSeconds");
     if (thresholdSeconds <= 0) return;
     for (const [tabId, entry] of this.live) {
       if (entry.kind !== "rpc-ui") continue;
@@ -1222,7 +1222,7 @@ export class SessionManager {
    * session produces none.
    */
   private armHibernateTimer(tabId: string): void {
-    this.scheduleHibernateCheck(tabId, this.deps.registry.hibernateIdleMinutes * 60_000);
+    this.scheduleHibernateCheck(tabId, this.deps.registry.getSetting("hibernateIdleMinutes") * 60_000);
   }
 
   /**
@@ -1233,7 +1233,7 @@ export class SessionManager {
    */
   private scheduleHibernateCheck(tabId: string, delayMs: number): void {
     clearTimeout(this.hibernateTimers.get(tabId));
-    if (this.deps.registry.hibernateIdleMinutes <= 0) return;
+    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
     const timer = setTimeout(() => void this.tryHibernate(tabId), delayMs);
     if (typeof timer.unref === "function") timer.unref();
     this.hibernateTimers.set(tabId, timer);
@@ -1271,7 +1271,7 @@ export class SessionManager {
   private async tryHibernate(tabId: string): Promise<void> {
     this.hibernateTimers.delete(tabId);
     // The setting may have flipped to off since the timer armed.
-    if (this.deps.registry.hibernateIdleMinutes <= 0) return;
+    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
     const entry = this.live.get(tabId);
     if (!entry || entry.kind !== "rpc-ui") return;
     if (!this.hibernable(entry, tabId, "idle")) {
@@ -1282,7 +1282,7 @@ export class SessionManager {
     // The tab may have died or been replaced while the probe was out, and
     // the setting may have flipped off — kill only what the current config
     // wants, and never hibernate a stale entry (its exit path already ran).
-    if (this.deps.registry.hibernateIdleMinutes <= 0) return;
+    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
     if (this.live.get(tabId) !== entry) return; // its own paths arm fresh
     if (state === null || state.parked > 0 || state.streaming) {
       // Probe hiccup or not really idle: never kill on uncertainty (#246),
@@ -1334,13 +1334,13 @@ export class SessionManager {
 
     const entry = this.live.get(sourceTabId);
     if (entry === undefined) return true;
-    if (this.deps.registry.hibernateIdleMinutes <= 0) return false;
+    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return false;
     const pending = this.hibernating.get(sourceTabId);
     if (pending !== undefined) return pending;
     if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
 
     const state = await this.probeState(entry);
-    if (this.deps.registry.hibernateIdleMinutes <= 0) return false;
+    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return false;
     if (this.live.get(sourceTabId) !== entry) return !this.live.has(sourceTabId);
     if (state === null || state.parked > 0 || state.streaming) return false;
     if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;

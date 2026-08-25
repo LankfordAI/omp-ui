@@ -322,7 +322,7 @@ describe("MCP runtime status bridge", () => {
 describe("default compaction method (issue #268)", () => {
   it("captures a fresh native preference and promotes it in the lineage overlay", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    registry.setDefaultCompactionMethod("soft");
+    registry.setSetting("defaultCompactionMethod", "soft");
     const { tabId } = await manager.spawn({
       projectCwd: "/proj",
       mode: "rpc-ui",
@@ -344,7 +344,7 @@ describe("default compaction method (issue #268)", () => {
 
   it("never captures or supplies the overlay for a fresh terminal session", async () => {
     const { manager, registry } = setup();
-    registry.setDefaultCompactionMethod("soft");
+    registry.setSetting("defaultCompactionMethod", "soft");
     const { tabId } = await manager.spawn({
       projectCwd: "/proj",
       mode: "pty",
@@ -1904,7 +1904,7 @@ describe("stream-stall watchdog (issue #248)", () => {
     vi.useFakeTimers();
     try {
       const { manager, registry } = setup({ mode: "rpc-ui" });
-      registry.setStreamStallAbortSeconds(0);
+      registry.setSetting("streamStallAbortSeconds", 0);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
 
@@ -2307,7 +2307,7 @@ describe("hibernation (issue #246)", () => {
       // Window shorter than SETTLE, so the lapse falls off the re-arm
       // chain's grid: the verdict's one-shot is the only check that can
       // land exactly there (issue #247).
-      registry.setHibernateIdleMinutes(8);
+      registry.setSetting("hibernateIdleMinutes", 8);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2421,7 +2421,7 @@ describe("hibernation (issue #246)", () => {
     vi.useFakeTimers();
     try {
       const { manager, registry } = setup({ mode: "rpc-ui" });
-      registry.setHibernateIdleMinutes(0);
+      registry.setSetting("hibernateIdleMinutes", 0);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
 
@@ -2786,7 +2786,7 @@ describe("hibernation (issue #246)", () => {
 
   it("honors disabled hibernation without probing the handed-off source (issue #283)", async () => {
     const { manager, registry, rpc } = await readyHandoff();
-    registry.setHibernateIdleMinutes(0);
+    registry.setSetting("hibernateIdleMinutes", 0);
 
     await expect(
       manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),

@@ -148,7 +148,7 @@ export class MainBackend {
     const iconPath = path.join(__dirname, "../../build/icon.png");
     this.notifier = new DesktopNotifier({
       win,
-      isEnabled: () => this.registry.desktopNotifications,
+      isEnabled: () => this.registry.getSetting("desktopNotifications"),
       isViewedByDesktop: (tabId) => this.sessions.isViewedInDesktop(tabId),
       titleOf: (tabId) => {
         const record = this.registry.sessions.find((s) => s.tabId === tabId);
@@ -191,35 +191,35 @@ export class MainBackend {
       currentVersion: opts.appVersion ?? app.getVersion(),
       env: opts.appUpdateEnv,
       downloadsDir: app.getPath("downloads"),
-      getDismissed: () => this.registry.dismissedAppUpdateVersion,
-      setDismissed: (v) => this.registry.setDismissedAppUpdateVersion(v),
+      getDismissed: () => this.registry.getSetting("dismissedAppUpdateVersion"),
+      setDismissed: (v) => this.registry.setSetting("dismissedAppUpdateVersion", v),
       hasLiveSessions: () => this.sessions.liveCount > 0,
       setQuitAuthorized: opts.setAppUpdateQuitAuthorized ?? (() => {}),
       send: (ch, s) => this.send(ch, s),
       channel: CH.onAppUpdateState,
     });
     this.ompUpdater = new OmpUpdater({
-      getDismissed: () => this.registry.dismissedOmpUpdateVersion,
-      setDismissed: (v) => this.registry.setDismissedOmpUpdateVersion(v),
+      getDismissed: () => this.registry.getSetting("dismissedOmpUpdateVersion"),
+      setDismissed: (v) => this.registry.setSetting("dismissedOmpUpdateVersion", v),
       onApplied: () => this.refreshOmpPath(),
       send: (ch, s) => this.send(ch, s),
       channel: CH.onOmpUpdateState,
     });
     // Mint at construction so the settings page always has a token to reveal, even before the
     // server is first enabled.
-    if (this.registry.remoteToken === "") this.registry.setRemoteToken(mintRemoteToken());
+    if (this.registry.getSetting("remoteToken") === "") this.registry.setSetting("remoteToken", mintRemoteToken());
     this.remote = new RemoteServerManager({
       host: { handlers: () => this.handlers(), addSink: (s) => this.addSink(s) },
       webRoot: opts.webRoot ?? "",
       getSettings: () => ({
-        enabled: this.registry.remoteEnabled,
-        bind: this.registry.remoteBind,
-        port: this.registry.remotePort,
-        token: this.registry.remoteToken,
-        passwordHash: this.registry.remotePasswordHash,
-        passwordSalt: this.registry.remotePasswordSalt,
+        enabled: this.registry.getSetting("remoteEnabled"),
+        bind: this.registry.getSetting("remoteBind"),
+        port: this.registry.getSetting("remotePort"),
+        token: this.registry.getSetting("remoteToken"),
+        passwordHash: this.registry.getSetting("remotePasswordHash"),
+        passwordSalt: this.registry.getSetting("remotePasswordSalt"),
       }),
-      setToken: (token) => this.registry.setRemoteToken(token),
+      setToken: (token) => this.registry.setSetting("remoteToken", token),
       send: (state) => this.send(CH.onRemoteState, state),
     });
     // Startup hygiene (issue #262): a crash between `git worktree add` and
@@ -352,11 +352,11 @@ export class MainBackend {
           await this.broadcast();
         },
         [CH.setDefaultMode]: async (mode: SessionMode) => {
-          this.registry.setDefaultMode(mode);
+          this.registry.setSetting("defaultMode", mode);
           await this.broadcast();
         },
         [CH.setDefaultAgentMode]: async (mode: AgentMode) => {
-          this.registry.setDefaultAgentMode(mode);
+          this.registry.setSetting("defaultAgentMode", mode);
           await this.broadcast();
         },
         [CH.listCompactionMethods]: async () =>
@@ -369,61 +369,61 @@ export class MainBackend {
             });
             if (!supported.includes(method)) throw new Error(`Unsupported compaction method: ${method}`);
           }
-          this.registry.setDefaultCompactionMethod(method);
+          this.registry.setSetting("defaultCompactionMethod", method);
           await this.broadcast();
         },
         [CH.setPlanFormat]: async (format: PlanFormat) => {
-          this.registry.setPlanFormat(format);
+          this.registry.setSetting("planFormat", format);
           await this.broadcast();
         },
         [CH.setHibernateIdleMinutes]: async (minutes: number) => {
-          this.registry.setHibernateIdleMinutes(minutes);
+          this.registry.setSetting("hibernateIdleMinutes", minutes);
           await this.broadcast();
         },
         [CH.setStreamStallAbortSeconds]: async (seconds: number) => {
-          this.registry.setStreamStallAbortSeconds(seconds);
+          this.registry.setSetting("streamStallAbortSeconds", seconds);
           await this.broadcast();
         },
         [CH.setAdvisorAutoReply]: async (on: boolean) => {
-          this.registry.setAdvisorAutoReply(on);
+          this.registry.setSetting("advisorAutoReply", on);
           await this.broadcast();
         },
         [CH.setStallAutoContinue]: async (on: boolean) => {
-          this.registry.setStallAutoContinue(on);
+          this.registry.setSetting("stallAutoContinue", on);
           await this.broadcast();
         },
         [CH.setDesktopNotifications]: async (on: boolean) => {
-          this.registry.setDesktopNotifications(on);
+          this.registry.setSetting("desktopNotifications", on);
           await this.broadcast();
         },
         [CH.setDefaultAdvisor]: async (on: boolean) => {
-          this.registry.setDefaultAdvisor(on);
+          this.registry.setSetting("defaultAdvisor", on);
           await this.broadcast();
         },
         [CH.setSkipDeleteConfirmation]: async (skip: boolean) => {
-          this.registry.setSkipDeleteConfirmation(skip);
+          this.registry.setSetting("skipDeleteConfirmation", skip);
           await this.broadcast();
         },
         [CH.setThemeId]: async (id: string) => {
-          this.registry.setThemeId(id);
+          this.registry.setSetting("themeId", id);
           await this.broadcast();
         },
         [CH.setAppUpdateCheckOnLaunch]: async (on: boolean) => {
-          this.registry.setAppUpdateCheckOnLaunch(on);
+          this.registry.setSetting("appUpdateCheckOnLaunch", on);
           await this.broadcast();
         },
         [CH.setOmpUpdateCheckOnLaunch]: async (on: boolean) => {
-          this.registry.setOmpUpdateCheckOnLaunch(on);
+          this.registry.setSetting("ompUpdateCheckOnLaunch", on);
           await this.broadcast();
         },
         // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
         // re-arming a dismissed card from Settings needs its own pair.
         [CH.clearDismissedAppUpdate]: async () => {
-          this.registry.setDismissedAppUpdateVersion(null);
+          this.registry.setSetting("dismissedAppUpdateVersion", null);
           await this.broadcast();
         },
         [CH.clearDismissedOmpUpdate]: async () => {
-          this.registry.setDismissedOmpUpdateVersion(null);
+          this.registry.setSetting("dismissedOmpUpdateVersion", null);
           await this.broadcast();
         },
         [CH.toggleFavorite]: async (key: string) => {
@@ -554,36 +554,36 @@ export class MainBackend {
           this.appUpdater.dismiss(version, remember),
         [CH.getRemoteState]: () => this.remote.state,
         [CH.setRemoteEnabled]: async (on: boolean) => {
-          this.registry.setRemoteEnabled(on);
+          this.registry.setSetting("remoteEnabled", on);
           await this.remote.apply();
         },
         [CH.setRemoteBind]: async (bind: RemoteBind) => {
-          this.registry.setRemoteBind(bind);
+          this.registry.setSetting("remoteBind", bind);
           await this.remote.apply();
         },
         [CH.setRemotePort]: async (port: number) => {
           if (!Number.isInteger(port) || port < 1024 || port > 65535) {
             throw new Error("port must be a whole number between 1024 and 65535");
           }
-          this.registry.setRemotePort(port);
+          this.registry.setSetting("remotePort", port);
           await this.remote.apply();
         },
         [CH.regenerateRemoteToken]: async () => {
-          this.registry.setRemoteToken(mintRemoteToken());
+          this.registry.setSetting("remoteToken", mintRemoteToken());
           await this.remote.restart();
         },
         [CH.setRemotePassword]: async (password: string) => {
           const problem = validateRemotePassword(password);
           if (problem !== null) throw new Error(problem);
           const { salt, hash } = hashRemotePassword(password);
-          this.registry.setRemotePasswordHash(hash);
-          this.registry.setRemotePasswordSalt(salt);
+          this.registry.setSetting("remotePasswordHash", hash);
+          this.registry.setSetting("remotePasswordSalt", salt);
           // apply(), not restart(): the new hash/salt already makes sameTarget false.
           await this.remote.apply();
         },
         [CH.clearRemotePassword]: async () => {
-          this.registry.setRemotePasswordHash("");
-          this.registry.setRemotePasswordSalt("");
+          this.registry.setSetting("remotePasswordHash", "");
+          this.registry.setSetting("remotePasswordSalt", "");
           await this.remote.apply();
         },
       },
@@ -640,7 +640,7 @@ export class MainBackend {
    * the palette's manual check goes through checkNow(true) and stays live.
    */
   checkAppUpdateBackground(): void {
-    if (!this.registry.appUpdateCheckOnLaunch) return;
+    if (!this.registry.getSetting("appUpdateCheckOnLaunch")) return;
     void this.appUpdater.checkNow(false);
   }
 
@@ -649,7 +649,7 @@ export class MainBackend {
    * exists. Gated by the same launch preference as its app-update twin.
    */
   checkOmpUpdateBackground(): void {
-    if (!this.registry.ompUpdateCheckOnLaunch) return;
+    if (!this.registry.getSetting("ompUpdateCheckOnLaunch")) return;
     void this.ompUpdater.checkNow(false);
   }
 
@@ -785,23 +785,23 @@ export class MainBackend {
     // Nothing re-sorts here — otherwise a drag would be silently undone.
     return {
       projects: groups,
-      defaultMode: this.registry.defaultMode,
-      planFormat: this.registry.planFormat,
-      hibernateIdleMinutes: this.registry.hibernateIdleMinutes,
-      streamStallAbortSeconds: this.registry.streamStallAbortSeconds,
-      defaultAgentMode: this.registry.defaultAgentMode,
-      defaultCompactionMethod: this.registry.defaultCompactionMethod,
-      advisorAutoReply: this.registry.advisorAutoReply,
-      stallAutoContinue: this.registry.stallAutoContinue,
-      desktopNotifications: this.registry.desktopNotifications,
-      defaultAdvisor: this.registry.defaultAdvisor,
+      defaultMode: this.registry.getSetting("defaultMode"),
+      planFormat: this.registry.getSetting("planFormat"),
+      hibernateIdleMinutes: this.registry.getSetting("hibernateIdleMinutes"),
+      streamStallAbortSeconds: this.registry.getSetting("streamStallAbortSeconds"),
+      defaultAgentMode: this.registry.getSetting("defaultAgentMode"),
+      defaultCompactionMethod: this.registry.getSetting("defaultCompactionMethod"),
+      advisorAutoReply: this.registry.getSetting("advisorAutoReply"),
+      stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
+      desktopNotifications: this.registry.getSetting("desktopNotifications"),
+      defaultAdvisor: this.registry.getSetting("defaultAdvisor"),
       modelFavorites: this.registry.getFavorites(),
-      skipDeleteConfirmation: this.registry.skipDeleteConfirmation,
-      themeId: this.registry.themeId,
-      appUpdateCheckOnLaunch: this.registry.appUpdateCheckOnLaunch,
-      ompUpdateCheckOnLaunch: this.registry.ompUpdateCheckOnLaunch,
-      dismissedAppUpdateVersion: this.registry.dismissedAppUpdateVersion,
-      dismissedOmpUpdateVersion: this.registry.dismissedOmpUpdateVersion,
+      skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
+      themeId: this.registry.getSetting("themeId"),
+      appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
+      ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
+      dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
+      dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),
     };
   }
 

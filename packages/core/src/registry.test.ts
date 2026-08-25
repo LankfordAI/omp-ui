@@ -82,21 +82,21 @@ describe("Registry.load", () => {
     const reg = Registry.load(tmpFile());
     expect(reg.projects).toEqual([]);
     expect(reg.sessions).toEqual([]);
-    expect(reg.defaultMode).toBe("rpc-ui");
-    expect(reg.defaultAgentMode).toBe("plan");
-    expect(reg.skipDeleteConfirmation).toBe(false);
+    expect(reg.getSetting("defaultMode")).toBe("rpc-ui");
+    expect(reg.getSetting("defaultAgentMode")).toBe("plan");
+    expect(reg.getSetting("skipDeleteConfirmation")).toBe(false);
     // Issue #109: HTML is the default plan review rendition.
-    expect(reg.planFormat).toBe("html");
+    expect(reg.getSetting("planFormat")).toBe("html");
     // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
-    expect(reg.hibernateIdleMinutes).toBe(30);
+    expect(reg.getSetting("hibernateIdleMinutes")).toBe(30);
     // Issue #111: auto-reply defaults on.
-    expect(reg.advisorAutoReply).toBe(true);
+    expect(reg.getSetting("advisorAutoReply")).toBe(true);
     // Issue #251: stall auto-continue defaults on.
-    expect(reg.stallAutoContinue).toBe(true);
+    expect(reg.getSetting("stallAutoContinue")).toBe(true);
     // Issue #271: desktop notifications default on.
-    expect(reg.desktopNotifications).toBe(true);
+    expect(reg.getSetting("desktopNotifications")).toBe(true);
     // Issue #174: the advisor does not default on.
-    expect(reg.defaultAdvisor).toBe(false);
+    expect(reg.getSetting("defaultAdvisor")).toBe(false);
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -184,12 +184,12 @@ describe("Registry.load", () => {
       }),
     );
     const reg = Registry.load(file);
-    expect(reg.remoteEnabled).toBe(false);
-    expect(reg.remoteBind).toBe("localhost");
-    expect(reg.remotePort).toBe(4677);
-    expect(reg.remoteToken).toBe("");
-    expect(reg.remotePasswordHash).toBe("");
-    expect(reg.remotePasswordSalt).toBe("");
+    expect(reg.getSetting("remoteEnabled")).toBe(false);
+    expect(reg.getSetting("remoteBind")).toBe("localhost");
+    expect(reg.getSetting("remotePort")).toBe(4677);
+    expect(reg.getSetting("remoteToken")).toBe("");
+    expect(reg.getSetting("remotePasswordHash")).toBe("");
+    expect(reg.getSetting("remotePasswordSalt")).toBe("");
     expect(fs.existsSync(file)).toBe(true); // absent remote* keys are legal, not corrupt
   });
 
@@ -205,7 +205,7 @@ describe("Registry.load", () => {
       }),
     );
 
-    expect(Registry.load(file).defaultAgentMode).toBe("plan");
+    expect(Registry.load(file).getSetting("defaultAgentMode")).toBe("plan");
   });
 
   it("falls back independently across malformed setting families", () => {
@@ -243,27 +243,27 @@ describe("Registry.load", () => {
     );
 
     const reg = Registry.load(file);
-    expect(reg.defaultMode).toBe("rpc-ui");
-    expect(reg.defaultAgentMode).toBe("plan");
-    expect(reg.planFormat).toBe("html");
-    expect(reg.hibernateIdleMinutes).toBe(30);
-    expect(reg.advisorAutoReply).toBe(true);
-    expect(reg.stallAutoContinue).toBe(true);
-    expect(reg.desktopNotifications).toBe(true);
-    expect(reg.defaultAdvisor).toBe(false);
+    expect(reg.getSetting("defaultMode")).toBe("rpc-ui");
+    expect(reg.getSetting("defaultAgentMode")).toBe("plan");
+    expect(reg.getSetting("planFormat")).toBe("html");
+    expect(reg.getSetting("hibernateIdleMinutes")).toBe(30);
+    expect(reg.getSetting("advisorAutoReply")).toBe(true);
+    expect(reg.getSetting("stallAutoContinue")).toBe(true);
+    expect(reg.getSetting("desktopNotifications")).toBe(true);
+    expect(reg.getSetting("defaultAdvisor")).toBe(false);
     expect(reg.getFavorites()).toEqual(["kept", "also-kept"]);
-    expect(reg.skipDeleteConfirmation).toBe(false);
-    expect(reg.dismissedAppUpdateVersion).toBeNull();
-    expect(reg.dismissedOmpUpdateVersion).toBeNull();
-    expect(reg.themeId).toBe("graphite");
-    expect(reg.appUpdateCheckOnLaunch).toBe(true);
-    expect(reg.ompUpdateCheckOnLaunch).toBe(true);
-    expect(reg.remoteEnabled).toBe(false);
-    expect(reg.remoteBind).toBe("localhost");
-    expect(reg.remotePort).toBe(4677);
-    expect(reg.remoteToken).toBe("");
-    expect(reg.remotePasswordHash).toBe("");
-    expect(reg.remotePasswordSalt).toBe("");
+    expect(reg.getSetting("skipDeleteConfirmation")).toBe(false);
+    expect(reg.getSetting("dismissedAppUpdateVersion")).toBeNull();
+    expect(reg.getSetting("dismissedOmpUpdateVersion")).toBeNull();
+    expect(reg.getSetting("themeId")).toBe("graphite");
+    expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("remoteEnabled")).toBe(false);
+    expect(reg.getSetting("remoteBind")).toBe("localhost");
+    expect(reg.getSetting("remotePort")).toBe(4677);
+    expect(reg.getSetting("remoteToken")).toBe("");
+    expect(reg.getSetting("remotePasswordHash")).toBe("");
+    expect(reg.getSetting("remotePasswordSalt")).toBe("");
   });
 
   it("accepts only bounded integer remote ports", () => {
@@ -280,7 +280,7 @@ describe("Registry.load", () => {
         file,
         JSON.stringify({ schemaVersion: 1, settings: { remotePort: value } }),
       );
-      expect(Registry.load(file).remotePort).toBe(expected);
+      expect(Registry.load(file).getSetting("remotePort")).toBe(expected);
     }
   });
 });
@@ -291,18 +291,18 @@ describe("Registry persistence", () => {
     const reg = Registry.load(file);
     reg.addProject("/abs/proj");
     reg.addSession(sessionRecord());
-    reg.setDefaultMode("rpc-ui");
-    reg.setDefaultAgentMode("build");
-    reg.setSkipDeleteConfirmation(true);
+    reg.setSetting("defaultMode", "rpc-ui");
+    reg.setSetting("defaultAgentMode", "build");
+    reg.setSetting("skipDeleteConfirmation", true);
 
     const reloaded = Registry.load(file);
     expect(reloaded.projects).toHaveLength(1);
     expect(reloaded.projects[0]).toMatchObject({ path: "/abs/proj", name: "proj" });
     expect(reloaded.sessions).toHaveLength(1);
     expect(reloaded.sessions[0]).toMatchObject({ tabId: "tab-1", sessionId: null });
-    expect(reloaded.defaultMode).toBe("rpc-ui");
-    expect(reloaded.defaultAgentMode).toBe("build");
-    expect(reloaded.skipDeleteConfirmation).toBe(true);
+    expect(reloaded.getSetting("defaultMode")).toBe("rpc-ui");
+    expect(reloaded.getSetting("defaultAgentMode")).toBe("build");
+    expect(reloaded.getSetting("skipDeleteConfirmation")).toBe(true);
   });
 
   it("round-trips persisted plan handoff metadata", () => {
@@ -326,18 +326,18 @@ describe("Registry persistence", () => {
       file,
       JSON.stringify({ schemaVersion: 1, settings: { skipDeleteConfirmation: true } }),
     );
-    expect(Registry.load(file).dismissedAppUpdateVersion).toBeNull();
+    expect(Registry.load(file).getSetting("dismissedAppUpdateVersion")).toBeNull();
   });
 
   it("round-trips the dismissed app-update version across a reload", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    expect(reg.dismissedAppUpdateVersion).toBeNull();
-    reg.setDismissedAppUpdateVersion("1.2.0");
-    expect(reg.dismissedAppUpdateVersion).toBe("1.2.0");
-    expect(Registry.load(file).dismissedAppUpdateVersion).toBe("1.2.0");
-    reg.setDismissedAppUpdateVersion(null);
-    expect(Registry.load(file).dismissedAppUpdateVersion).toBeNull();
+    expect(reg.getSetting("dismissedAppUpdateVersion")).toBeNull();
+    reg.setSetting("dismissedAppUpdateVersion", "1.2.0");
+    expect(reg.getSetting("dismissedAppUpdateVersion")).toBe("1.2.0");
+    expect(Registry.load(file).getSetting("dismissedAppUpdateVersion")).toBe("1.2.0");
+    reg.setSetting("dismissedAppUpdateVersion", null);
+    expect(Registry.load(file).getSetting("dismissedAppUpdateVersion")).toBeNull();
   });
 
   it("defaults dismissedOmpUpdateVersion to null when the field is absent", () => {
@@ -346,45 +346,45 @@ describe("Registry persistence", () => {
       file,
       JSON.stringify({ schemaVersion: 1, settings: { skipDeleteConfirmation: true } }),
     );
-    expect(Registry.load(file).dismissedOmpUpdateVersion).toBeNull();
+    expect(Registry.load(file).getSetting("dismissedOmpUpdateVersion")).toBeNull();
   });
 
   it("round-trips the dismissed omp-update version across a reload", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    expect(reg.dismissedOmpUpdateVersion).toBeNull();
-    reg.setDismissedOmpUpdateVersion("1.2.0");
-    expect(reg.dismissedOmpUpdateVersion).toBe("1.2.0");
-    expect(Registry.load(file).dismissedOmpUpdateVersion).toBe("1.2.0");
-    reg.setDismissedOmpUpdateVersion(null);
-    expect(Registry.load(file).dismissedOmpUpdateVersion).toBeNull();
+    expect(reg.getSetting("dismissedOmpUpdateVersion")).toBeNull();
+    reg.setSetting("dismissedOmpUpdateVersion", "1.2.0");
+    expect(reg.getSetting("dismissedOmpUpdateVersion")).toBe("1.2.0");
+    expect(Registry.load(file).getSetting("dismissedOmpUpdateVersion")).toBe("1.2.0");
+    reg.setSetting("dismissedOmpUpdateVersion", null);
+    expect(Registry.load(file).getSetting("dismissedOmpUpdateVersion")).toBeNull();
   });
 
   it("round-trips the plan format and falls back to html for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setPlanFormat("md");
-    expect(Registry.load(file).planFormat).toBe("md");
-    reg.setPlanFormat("html");
-    expect(Registry.load(file).planFormat).toBe("html");
+    reg.setSetting("planFormat", "md");
+    expect(Registry.load(file).getSetting("planFormat")).toBe("md");
+    reg.setSetting("planFormat", "html");
+    expect(Registry.load(file).getSetting("planFormat")).toBe("html");
 
     const junk = tmpFile();
     fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { planFormat: "pdf" } }));
-    expect(Registry.load(junk).planFormat).toBe("html");
+    expect(Registry.load(junk).getSetting("planFormat")).toBe("html");
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).planFormat).toBe("html");
+    expect(Registry.load(absent).getSetting("planFormat")).toBe("html");
   });
 
   it("round-trips the hibernate idle window and falls back to 30 for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setHibernateIdleMinutes(0);
-    expect(Registry.load(file).hibernateIdleMinutes).toBe(0);
-    reg.setHibernateIdleMinutes(1440);
-    expect(Registry.load(file).hibernateIdleMinutes).toBe(1440);
-    reg.setHibernateIdleMinutes(30);
-    expect(Registry.load(file).hibernateIdleMinutes).toBe(30);
+    reg.setSetting("hibernateIdleMinutes", 0);
+    expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(0);
+    reg.setSetting("hibernateIdleMinutes", 1440);
+    expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(1440);
+    reg.setSetting("hibernateIdleMinutes", 30);
+    expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(30);
 
     for (const junk of [-1, 30.5, 1441, "30", null, true]) {
       const f = tmpFile();
@@ -392,20 +392,20 @@ describe("Registry persistence", () => {
         f,
         JSON.stringify({ schemaVersion: 1, settings: { hibernateIdleMinutes: junk } }),
       );
-      expect(Registry.load(f).hibernateIdleMinutes).toBe(30);
+      expect(Registry.load(f).getSetting("hibernateIdleMinutes")).toBe(30);
     }
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).hibernateIdleMinutes).toBe(30);
+    expect(Registry.load(absent).getSetting("hibernateIdleMinutes")).toBe(30);
   });
 
   it("round-trips the stall watchdog window and falls back to 180 for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setStreamStallAbortSeconds(0);
-    expect(Registry.load(file).streamStallAbortSeconds).toBe(0);
-    reg.setStreamStallAbortSeconds(600);
-    expect(Registry.load(file).streamStallAbortSeconds).toBe(600);
+    reg.setSetting("streamStallAbortSeconds", 0);
+    expect(Registry.load(file).getSetting("streamStallAbortSeconds")).toBe(0);
+    reg.setSetting("streamStallAbortSeconds", 600);
+    expect(Registry.load(file).getSetting("streamStallAbortSeconds")).toBe(600);
 
     for (const junk of [-1, 180.5, 3601, "180", null, true]) {
       const f = tmpFile();
@@ -413,36 +413,36 @@ describe("Registry persistence", () => {
         f,
         JSON.stringify({ schemaVersion: 1, settings: { streamStallAbortSeconds: junk } }),
       );
-      expect(Registry.load(f).streamStallAbortSeconds).toBe(180);
+      expect(Registry.load(f).getSetting("streamStallAbortSeconds")).toBe(180);
     }
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).streamStallAbortSeconds).toBe(180);
+    expect(Registry.load(absent).getSetting("streamStallAbortSeconds")).toBe(180);
   });
 
   it("round-trips advisor auto-reply and defaults to on for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setAdvisorAutoReply(false);
-    expect(Registry.load(file).advisorAutoReply).toBe(false);
-    reg.setAdvisorAutoReply(true);
-    expect(Registry.load(file).advisorAutoReply).toBe(true);
+    reg.setSetting("advisorAutoReply", false);
+    expect(Registry.load(file).getSetting("advisorAutoReply")).toBe(false);
+    reg.setSetting("advisorAutoReply", true);
+    expect(Registry.load(file).getSetting("advisorAutoReply")).toBe(true);
 
     const junk = tmpFile();
     fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { advisorAutoReply: "no" } }));
-    expect(Registry.load(junk).advisorAutoReply).toBe(true);
+    expect(Registry.load(junk).getSetting("advisorAutoReply")).toBe(true);
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).advisorAutoReply).toBe(true);
+    expect(Registry.load(absent).getSetting("advisorAutoReply")).toBe(true);
   });
 
   it("round-trips stall auto-continue and defaults to on for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setStallAutoContinue(false);
-    expect(Registry.load(file).stallAutoContinue).toBe(false);
-    reg.setStallAutoContinue(true);
-    expect(Registry.load(file).stallAutoContinue).toBe(true);
+    reg.setSetting("stallAutoContinue", false);
+    expect(Registry.load(file).getSetting("stallAutoContinue")).toBe(false);
+    reg.setSetting("stallAutoContinue", true);
+    expect(Registry.load(file).getSetting("stallAutoContinue")).toBe(true);
 
     for (const junk of ["no", 1, null, {}]) {
       const f = tmpFile();
@@ -450,20 +450,20 @@ describe("Registry persistence", () => {
         f,
         JSON.stringify({ schemaVersion: 1, settings: { stallAutoContinue: junk } }),
       );
-      expect(Registry.load(f).stallAutoContinue).toBe(true);
+      expect(Registry.load(f).getSetting("stallAutoContinue")).toBe(true);
     }
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).stallAutoContinue).toBe(true);
+    expect(Registry.load(absent).getSetting("stallAutoContinue")).toBe(true);
   });
 
   it("round-trips desktop notifications and defaults to on for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setDesktopNotifications(false);
-    expect(Registry.load(file).desktopNotifications).toBe(false);
-    reg.setDesktopNotifications(true);
-    expect(Registry.load(file).desktopNotifications).toBe(true);
+    reg.setSetting("desktopNotifications", false);
+    expect(Registry.load(file).getSetting("desktopNotifications")).toBe(false);
+    reg.setSetting("desktopNotifications", true);
+    expect(Registry.load(file).getSetting("desktopNotifications")).toBe(true);
 
     for (const junk of ["yes", 0, null, {}]) {
       const f = tmpFile();
@@ -471,27 +471,27 @@ describe("Registry persistence", () => {
         f,
         JSON.stringify({ schemaVersion: 1, settings: { desktopNotifications: junk } }),
       );
-      expect(Registry.load(f).desktopNotifications).toBe(true);
+      expect(Registry.load(f).getSetting("desktopNotifications")).toBe(true);
     }
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).desktopNotifications).toBe(true);
+    expect(Registry.load(absent).getSetting("desktopNotifications")).toBe(true);
   });
 
   it("round-trips default advisor and falls back to off for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setDefaultAdvisor(true);
-    expect(Registry.load(file).defaultAdvisor).toBe(true);
-    reg.setDefaultAdvisor(false);
-    expect(Registry.load(file).defaultAdvisor).toBe(false);
+    reg.setSetting("defaultAdvisor", true);
+    expect(Registry.load(file).getSetting("defaultAdvisor")).toBe(true);
+    reg.setSetting("defaultAdvisor", false);
+    expect(Registry.load(file).getSetting("defaultAdvisor")).toBe(false);
 
     const junk = tmpFile();
     fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { defaultAdvisor: "no" } }));
-    expect(Registry.load(junk).defaultAdvisor).toBe(false);
+    expect(Registry.load(junk).getSetting("defaultAdvisor")).toBe(false);
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).defaultAdvisor).toBe(false);
+    expect(Registry.load(absent).getSetting("defaultAdvisor")).toBe(false);
   });
 
   it("defaults theme and launch update checks when the settings fields are absent", () => {
@@ -501,47 +501,47 @@ describe("Registry persistence", () => {
       JSON.stringify({ schemaVersion: 1, settings: { skipDeleteConfirmation: true } }),
     );
     const reg = Registry.load(file);
-    expect(reg.themeId).toBe("graphite");
-    expect(reg.appUpdateCheckOnLaunch).toBe(true);
-    expect(reg.ompUpdateCheckOnLaunch).toBe(true);
+    expect(reg.getSetting("themeId")).toBe("graphite");
+    expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
   });
 
   it("round-trips a non-default theme and launch update checks across a reload", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setThemeId("theme-from-a-newer-build");
-    reg.setAppUpdateCheckOnLaunch(false);
-    reg.setOmpUpdateCheckOnLaunch(false);
+    reg.setSetting("themeId", "theme-from-a-newer-build");
+    reg.setSetting("appUpdateCheckOnLaunch", false);
+    reg.setSetting("ompUpdateCheckOnLaunch", false);
 
     const reloaded = Registry.load(file);
-    expect(reloaded.themeId).toBe("theme-from-a-newer-build");
-    expect(reloaded.appUpdateCheckOnLaunch).toBe(false);
-    expect(reloaded.ompUpdateCheckOnLaunch).toBe(false);
+    expect(reloaded.getSetting("themeId")).toBe("theme-from-a-newer-build");
+    expect(reloaded.getSetting("appUpdateCheckOnLaunch")).toBe(false);
+    expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
   });
 
   it("does not write when a public setting setter receives the current value", () => {
     const sameValueSetters: Array<[string, (registry: Registry) => void]> = [
-      ["defaultMode", (registry) => registry.setDefaultMode("rpc-ui")],
-      ["defaultAgentMode", (registry) => registry.setDefaultAgentMode("plan")],
-      ["planFormat", (registry) => registry.setPlanFormat("html")],
-      ["hibernateIdleMinutes", (registry) => registry.setHibernateIdleMinutes(30)],
-      ["streamStallAbortSeconds", (registry) => registry.setStreamStallAbortSeconds(180)],
-      ["advisorAutoReply", (registry) => registry.setAdvisorAutoReply(true)],
-      ["stallAutoContinue", (registry) => registry.setStallAutoContinue(true)],
-      ["desktopNotifications", (registry) => registry.setDesktopNotifications(true)],
-      ["defaultAdvisor", (registry) => registry.setDefaultAdvisor(false)],
-      ["skipDeleteConfirmation", (registry) => registry.setSkipDeleteConfirmation(false)],
-      ["themeId", (registry) => registry.setThemeId("graphite")],
-      ["appUpdateCheckOnLaunch", (registry) => registry.setAppUpdateCheckOnLaunch(true)],
-      ["ompUpdateCheckOnLaunch", (registry) => registry.setOmpUpdateCheckOnLaunch(true)],
-      ["remoteEnabled", (registry) => registry.setRemoteEnabled(false)],
-      ["remoteBind", (registry) => registry.setRemoteBind("localhost")],
-      ["remotePort", (registry) => registry.setRemotePort(4677)],
-      ["remoteToken", (registry) => registry.setRemoteToken("")],
-      ["remotePasswordHash", (registry) => registry.setRemotePasswordHash("")],
-      ["remotePasswordSalt", (registry) => registry.setRemotePasswordSalt("")],
-      ["dismissedAppUpdateVersion", (registry) => registry.setDismissedAppUpdateVersion(null)],
-      ["dismissedOmpUpdateVersion", (registry) => registry.setDismissedOmpUpdateVersion(null)],
+      ["defaultMode", (registry) => registry.setSetting("defaultMode", "rpc-ui")],
+      ["defaultAgentMode", (registry) => registry.setSetting("defaultAgentMode", "plan")],
+      ["planFormat", (registry) => registry.setSetting("planFormat", "html")],
+      ["hibernateIdleMinutes", (registry) => registry.setSetting("hibernateIdleMinutes", 30)],
+      ["streamStallAbortSeconds", (registry) => registry.setSetting("streamStallAbortSeconds", 180)],
+      ["advisorAutoReply", (registry) => registry.setSetting("advisorAutoReply", true)],
+      ["stallAutoContinue", (registry) => registry.setSetting("stallAutoContinue", true)],
+      ["desktopNotifications", (registry) => registry.setSetting("desktopNotifications", true)],
+      ["defaultAdvisor", (registry) => registry.setSetting("defaultAdvisor", false)],
+      ["skipDeleteConfirmation", (registry) => registry.setSetting("skipDeleteConfirmation", false)],
+      ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
+      ["appUpdateCheckOnLaunch", (registry) => registry.setSetting("appUpdateCheckOnLaunch", true)],
+      ["ompUpdateCheckOnLaunch", (registry) => registry.setSetting("ompUpdateCheckOnLaunch", true)],
+      ["remoteEnabled", (registry) => registry.setSetting("remoteEnabled", false)],
+      ["remoteBind", (registry) => registry.setSetting("remoteBind", "localhost")],
+      ["remotePort", (registry) => registry.setSetting("remotePort", 4677)],
+      ["remoteToken", (registry) => registry.setSetting("remoteToken", "")],
+      ["remotePasswordHash", (registry) => registry.setSetting("remotePasswordHash", "")],
+      ["remotePasswordSalt", (registry) => registry.setSetting("remotePasswordSalt", "")],
+      ["dismissedAppUpdateVersion", (registry) => registry.setSetting("dismissedAppUpdateVersion", null)],
+      ["dismissedOmpUpdateVersion", (registry) => registry.setSetting("dismissedOmpUpdateVersion", null)],
     ];
 
     for (const [name, setSameValue] of sameValueSetters) {
@@ -557,21 +557,21 @@ describe("Registry persistence", () => {
   it("round-trips the remote password hash and salt across a reload", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setRemotePasswordHash("deadbeef");
-    reg.setRemotePasswordSalt("0011");
-    expect(reg.remotePasswordHash).toBe("deadbeef");
-    expect(reg.remotePasswordSalt).toBe("0011");
+    reg.setSetting("remotePasswordHash", "deadbeef");
+    reg.setSetting("remotePasswordSalt", "0011");
+    expect(reg.getSetting("remotePasswordHash")).toBe("deadbeef");
+    expect(reg.getSetting("remotePasswordSalt")).toBe("0011");
     const reloaded = Registry.load(file);
-    expect(reloaded.remotePasswordHash).toBe("deadbeef");
-    expect(reloaded.remotePasswordSalt).toBe("0011");
+    expect(reloaded.getSetting("remotePasswordHash")).toBe("deadbeef");
+    expect(reloaded.getSetting("remotePasswordSalt")).toBe("0011");
   });
 
   it("uses Object.is when comparing setting values", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setRemotePort(Number.NaN);
+    reg.setSetting("remotePort", Number.NaN);
     fs.writeFileSync(file, "unchanged-NaN");
-    reg.setRemotePort(Number.NaN);
+    reg.setSetting("remotePort", Number.NaN);
     expect(fs.readFileSync(file, "utf8")).toBe("unchanged-NaN");
   });
 
@@ -938,7 +938,7 @@ describe("Session sidebar order (#274)", () => {
     const reg = Registry.load(file);
     // The upgrade is invisible: today's recency sort becomes the frozen order.
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["new", "old"]);
-    expect(reg.sessionOrderFrozen).toBe(true);
+    expect(reg.getSetting("sessionOrderFrozen")).toBe(true);
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
       settings: { sessionOrderFrozen?: boolean };
       sessions: { tabId: string }[];
@@ -973,7 +973,7 @@ describe("Session sidebar order (#274)", () => {
     const missing = tmpFile();
     const reg = Registry.load(missing);
     expect(fs.existsSync(missing)).toBe(false);
-    expect(reg.sessionOrderFrozen).toBe(false);
+    expect(reg.getSetting("sessionOrderFrozen")).toBe(false);
 
     const corrupt = tmpFile();
     fs.writeFileSync(corrupt, "{not json");
