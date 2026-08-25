@@ -3,7 +3,6 @@ import type {
   BackendState,
   PlanImplementationSource,
   SessionMode,
-  SessionSummary,
 } from "@omp-ui/core/types";
 import {
   isHtmlPlanPath,
@@ -51,7 +50,6 @@ import {
   parseSessionStats,
   parseSubagents,
   parseTodoPhases,
-  type SessionRuntime,
 } from "./lib/rpc-types";
 import {
   generateTitleFromPrompt,
@@ -76,13 +74,30 @@ import {
   pruneFocus,
   restoreDesktopView,
 } from "./store/slices/view";
+import {
+  RPC_COMMAND_TIMEOUT_MS,
+  RpcCommandTimeoutError,
+  alertError,
+  bumpCompactionUsageGeneration,
+  compactionUsageGenerations,
+  createMachinery,
+  dropExited,
+  dropHibernated,
+  dropTuiHandoff,
+  handedOffPlanSources,
+  quietWedgeNotified,
+  respData,
+  retireTimedOutCommand,
+  retireTimedOutEarlierThan,
+  shellWriters,
+  termWriters,
+  timedOutCommands,
+} from "./store/slices/shared";
 import type {
   BranchActivity,
   LastTurnMeta,
   PlanRecord,
   RpcTabState,
-  SidebarSessionState,
-  TuiHandoff,
   UiStore,
 } from "./store/types";
 export type {
@@ -102,20 +117,26 @@ export type {
   UiStore,
 } from "./store/types";
 export { findRecord, runningSessionTitleOnCheckout, sessionCwd } from "./store/slices/view";
+export {
+  RpcCommandTimeoutError,
+  STREAM_STALL_THRESHOLD_MS,
+  STREAM_STALL_TICK_MS,
+  deriveSidebarSessionState,
+  registerShellWriter,
+  registerTermWriter,
+} from "./store/slices/shared";
 import {
   commandItem,
   historyToItems,
   markerItem,
   noticeItem,
   planProposalItem,
-  reduceEvent,
   settleRunningTools,
   type CommandItem,
   type NoticeItem,
   type RenderItem,
 } from "./lib/transcript";
 
-const RPC_COMMAND_TIMEOUT_MS = 30_000;
 /** Monotonic re-arm counter for staged catch-up entries (issue #273). */
 let catchupNonce = 0;
 
@@ -125,23 +146,6 @@ let catchupNonce = 0;
  * per-item buffer is not that.
  */
 const COMMAND_OUTPUT_CAP = 64 * 1024;
-
-/** A renderer-side RPC wait expired; the process may still finish the command. */
-export class RpcCommandTimeoutError extends Error {
-  readonly command: string;
-  readonly timeoutMs: number;
-  readonly startedAt: number;
-
-  constructor(command: string, timeoutMs: number, startedAt: number) {
-    super(
-      `RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`,
-    );
-    this.name = "RpcCommandTimeoutError";
-    this.command = command;
-    this.timeoutMs = timeoutMs;
-    this.startedAt = startedAt;
-  }
-}
 
 function freshRpcTabState(advisorReply: boolean): RpcTabState {
   return {
@@ -179,59 +183,6 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     advisorStats: null,
     mcpStatus: null,
     advisorReply,
-  };
-}
-
-export function deriveSidebarSessionState(
-  summary: SessionSummary,
-  rpc: RpcTabState | undefined,
-  exitCode: number | undefined,
-): SidebarSessionState {
-  if (summary.live !== "live") return summary.live;
-  if (exitCode !== undefined) return "dormant";
-  // A pending gate is main-process state (issue #215) — the record alone
-  // marks the session awaiting-answer, even before its tab is booted.
-  if (summary.pendingPlan !== null) return "awaiting-answer";
-  if (summary.mode === "pty" || !rpc) return "live";
-  if (rpc.status === "error") return "error";
-  // A watchdog-aborted turn outranks awaiting-answer: the user must prompt to
-  // continue the session, which also clears the queue (issue #248).
-  if (summary.streamStalled) return "stalled";
-  if (rpc.planReview !== null || rpc.extensionQueue.length > 0)
-    return "awaiting-answer";
-  switch (rpc.status) {
-    case "running":
-      return "working";
-    case "ready":
-      return "ready";
-    case "starting":
-      return "starting";
-    default:
-      return "live";
-  }
-}
-
-// One IPC data listener total; each TerminalTab registers its writer here.
-const termWriters = new Map<string, (data: Uint8Array) => void>();
-export function registerTermWriter(
-  tabId: string,
-  cb: (data: Uint8Array) => void,
-): () => void {
-  termWriters.set(tabId, cb);
-  return () => {
-    termWriters.delete(tabId);
-  };
-}
-
-// One IPC data listener total; each ShellDrawer registers its writer here.
-const shellWriters = new Map<string, (data: Uint8Array) => void>();
-export function registerShellWriter(
-  tabId: string,
-  cb: (data: Uint8Array) => void,
-): () => void {
-  shellWriters.set(tabId, cb);
-  return () => {
-    shellWriters.delete(tabId);
   };
 }
 
@@ -286,46 +237,12 @@ function isStreamStallEnd(lt: LastTurnMeta): boolean {
   );
 }
 
-function dropExited(
-  exited: Record<string, number>,
-  tabId: string,
-): Record<string, number> {
-  const next = { ...exited };
-  delete next[tabId];
-  return next;
-}
-
-function dropHibernated(
-  hibernated: Record<string, boolean>,
-  tabId: string,
-): Record<string, boolean> {
-  const next = { ...hibernated };
-  delete next[tabId];
-  return next;
-}
-
-function dropTuiHandoff(
-  tuiHandoff: Record<string, TuiHandoff>,
-  tabId: string,
-): Record<string, TuiHandoff> {
-  const next = { ...tuiHandoff };
-  delete next[tabId];
-  return next;
-}
-
-function alertError(err: unknown): void {
-  window.alert(err instanceof Error ? err.message : String(err));
-}
-
 // StrictMode double-invokes effects in dev, and the preload listener API has
 // no unsubscribe — init must be idempotent or every listener registers twice.
 let initialized = false;
 
 /** A new rpc process emits exactly one ready frame — that's the boot signal. */
 const rpcBooting = new Set<string>();
-
-/** Planning sources whose accepted fresh handoff disables automatic prompts. */
-const handedOffPlanSources = new Set<string>();
 
 /**
  * Minimum gap between mid-run get_state/get_session_stats refreshes, keyed by
@@ -337,9 +254,6 @@ export const USAGE_REFRESH_MS = 500;
 export const COMPACTION_USAGE_RETRY_MS = 100;
 export const COMPACTION_USAGE_MAX_ATTEMPTS = 6;
 const lastUsageRefresh = new Map<string, number>();
-const compactionUsageGenerations = new Map<string, number>();
-let nextCompactionUsageGeneration = 0;
-
 /**
  * One-shot delayed get_state after a turn ends with a nonzero queue count.
  * omp reclaims parked advice and flushes deferred messages on settle, which
@@ -350,16 +264,6 @@ let nextCompactionUsageGeneration = 0;
  */
 export const QUEUE_SETTLE_REFRESH_MS = 1500;
 const queueSettleTimers = new Map<string, number>();
-
-/**
- * Live stream-stall detection (issue #228). Clock: the renderer-observed
- * checkpoint (never reset by local tool execution). Gate: the transcript's
- * own "assistant response open" flag. The label claims observation only —
- * "no stream activity", never a cause (issue #179).
- */
-export const STREAM_STALL_THRESHOLD_MS = 30_000;
-export const STREAM_STALL_TICK_MS = 1_000;
-const streamStallTimers = new Map<string, number>();
 
 /**
  * Heartbeat-driven roster refresh (issue #62): every subagent_* frame wants a
@@ -377,52 +281,6 @@ interface SubagentRefresh {
   timer: number | undefined;
 }
 const subagentRefresh = new Map<string, SubagentRefresh>();
-/**
- * Quiet-failure notice coalescing (issue #302): one dim transcript notice per
- * wedge episode per tab. Set by the first quiet failure (timeout or error),
- * re-armed by any quiet success, reset on relaunch. Tabs hide rather than
- * close, so the map is bounded by tab count and needs no teardown (same
- * posture as `subagentRefresh`).
- */
-const quietWedgeNotified = new Map<string, boolean>();
-/**
- * Renderer-side timed-out commands whose completion response has not yet
- * been observed (issue #302). A command ahead of a victim in omp's serial
- * chain cannot still be in `pendingCommands` — it shares the same response
- * budget, so its entry left at its own, earlier timeout. The holder is the
- * earliest such command started before the victim: in a FIFO chain it is
- * the one executing while the rest merely queue behind it. Entries retire
- * when a late response for the command arrives, when any non-`bash` success
- * proves the chain drained past them, or on relaunch/erase.
- */
-interface TimedOutCommand {
-  id: string;
-  command: string;
-  startedAt: number;
-  timedOutAt: number;
-}
-const timedOutCommands = new Map<string, TimedOutCommand[]>();
-
-/** A late response for a timed-out command: the chain provably moved past it (issue #302). */
-const retireTimedOutCommand = (tabId: string, id: string): void => {
-  const list = timedOutCommands.get(tabId);
-  if (!list) return;
-  const at = list.findIndex((e) => e.id === id);
-  if (at === -1) return;
-  list.splice(at, 1);
-  if (list.length === 0) timedOutCommands.delete(tabId);
-};
-
-/** A non-bash completion proves the FIFO chain drained past every earlier-started command (issue #302). */
-const retireTimedOutEarlierThan = (tabId: string, startedAt: number): void => {
-  const list = timedOutCommands.get(tabId);
-  if (!list) return;
-  const kept = list.filter((e) => e.startedAt >= startedAt);
-  if (kept.length === list.length) return;
-  if (kept.length === 0) timedOutCommands.delete(tabId);
-  else timedOutCommands.set(tabId, kept);
-};
-
 /** Whole parameter actions, including their authoritative registry write. */
 const pendingSessionParameterActions = new Map<string, Set<Promise<void>>>();
 
@@ -443,32 +301,6 @@ const EMPTY_BUFFER: RenderItem[] = [];
 const EXECUTION_PROMPT =
   "The plan review is complete — execute the approved plan now. It is set as this " +
   "session's reference.";
-
-/** Polls `rpc[tabId]` until `pred` holds (or the bounded deadline passes). */
-function pollUntil(
-  tabId: string,
-  pred: (tab: RpcTabState | undefined) => boolean,
-  timeoutMs = 15_000,
-): Promise<void> {
-  const read = (): RpcTabState | undefined => useStore.getState().rpc[tabId];
-  if (pred(read())) return Promise.resolve();
-  // A subscription — not a timer loop — so readiness resolves the moment state
-  // changes, with no wall-clock sampling. (new Promise, not withResolvers: the
-  // web lib here is ES2022 and the rest of the file builds resolvers this way.)
-  return new Promise<void>((resolve) => {
-    const timer = window.setTimeout(() => {
-      unsubscribe();
-      resolve();
-    }, timeoutMs);
-    const unsubscribe = useStore.subscribe(() => {
-      if (pred(read())) {
-        window.clearTimeout(timer);
-        unsubscribe();
-        resolve();
-      }
-    });
-  });
-}
 
 /**
  * Records a freshly proposed plan in the session's history. Keyed by the plan
@@ -535,14 +367,7 @@ function extensionStatusEntry(
 }
 
 export const useStore = create<UiStore>()((set, get, api) => {
-  const patchRpc = (tabId: string, patch: Partial<RpcTabState>): void => {
-    set((s) => {
-      const tab = s.rpc[tabId];
-      if (!tab) return s;
-      return { rpc: { ...s.rpc, [tabId]: { ...tab, ...patch } } };
-    });
-  };
-
+  const m = createMachinery(set, get, api);
   /**
    * Reconciles each open rpc tab's plan-review gate against the
    * main-process-owned record on the session summary (issue #215). The
@@ -565,7 +390,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             ? strField(review.frame, "id")
             : null;
         if (frameId !== pending.frameId) {
-          patchRpc(tabId, {
+          m.patchRpc(tabId, {
             planReview: {
               request: {
                 title: pending.title,
@@ -593,7 +418,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const settle = rec.planSettle;
       if (settle !== null && settle.frameId === localId) {
         const key = review.request.planFilePath;
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           plans: settlePlan(tab.plans, key, settle.verdict),
           planReview: null,
           planText: null,
@@ -601,7 +426,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           planDeferred: false,
         });
         // The same item settle executePlan/refinePlan perform locally.
-        patchItems(tabId, (i) =>
+        m.patchItems(tabId, (i) =>
           i.kind === "plan" && i.planFilePath === key && i.status === "pending"
             ? { ...i, status: settle.verdict }
             : i,
@@ -609,90 +434,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
       } else {
         // Gate lost without an observed verdict (process died, mode switch):
         // close the pane; the plan row stays a dimmed pending record.
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           planReview: null,
           planText: null,
           planHtml: null,
           planDeferred: false,
         });
       }
-    }
-  };
-
-  /**
-   * Per-tab pending transcript commit (issue #187). AgentSessionEvent frames
-   * are reduced eagerly onto the batch's `items` — the reduce is cheap and the
-   * watchers (plan concerns, advisor reply) read through {@link effectiveItems},
-   * so semantics stay frame-exact — but the Zustand commit that re-renders the
-   * transcript is coalesced to one per animation frame, with a timer fallback
-   * so a hidden window (rAF paused) still converges. One commit per burst
-   * instead of one per frame is what keeps the renderer able to service input.
-   */
-  const TRANSCRIPT_FLUSH_MS = 50;
-  interface TranscriptBatch {
-    items: RenderItem[];
-    raf?: number;
-    timer?: number;
-  }
-  const transcriptBatches = new Map<string, TranscriptBatch>();
-
-  /**
-   * Slash-command echo correlation: request id → CommandItem id, per tab.
-   * Entries live only while the item may still settle off a late
-   * `prompt_result`/`agent_start` (the response carried no `agentInvoked`).
-   */
-  const slashCommandItems = new Map<string, Map<string, string>>();
-
-  /** Committed items plus anything reduced but not yet flushed. */
-  const effectiveItems = (tabId: string): RenderItem[] =>
-    transcriptBatches.get(tabId)?.items ?? get().rpc[tabId]?.items ?? [];
-
-  const cancelTranscriptBatch = (tabId: string): void => {
-    const batch = transcriptBatches.get(tabId);
-    if (!batch) return;
-    transcriptBatches.delete(tabId);
-    if (
-      batch.raf !== undefined &&
-      typeof window.cancelAnimationFrame === "function"
-    ) {
-      window.cancelAnimationFrame(batch.raf);
-    }
-    if (batch.timer !== undefined) window.clearTimeout(batch.timer);
-  };
-
-  const flushTranscriptBatch = (tabId: string): void => {
-    const batch = transcriptBatches.get(tabId);
-    if (!batch) return;
-    cancelTranscriptBatch(tabId);
-    const tab = get().rpc[tabId];
-    if (!tab || tab.items === batch.items) return;
-    patchRpc(tabId, { items: batch.items });
-  };
-
-  const queueTranscriptFrame = (
-    tabId: string,
-    frame: unknown,
-    stall: NoticeItem | null,
-  ): void => {
-    if (!get().rpc[tabId]) return;
-    const reduced = reduceEvent(effectiveItems(tabId), frame);
-    const items = stall ? [...reduced, stall] : reduced;
-    let batch = transcriptBatches.get(tabId);
-    if (batch) {
-      batch.items = items;
-      return;
-    }
-    batch = { items };
-    transcriptBatches.set(tabId, batch);
-    if (typeof window.requestAnimationFrame === "function") {
-      batch.raf = window.requestAnimationFrame(() =>
-        flushTranscriptBatch(tabId),
-      );
-    } else {
-      batch.timer = window.setTimeout(
-        () => flushTranscriptBatch(tabId),
-        TRANSCRIPT_FLUSH_MS,
-      );
     }
   };
 
@@ -718,16 +466,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const tab = get().rpc[tabId];
     if (!tab) return;
     // A flush queued by the dying process must not land in the fresh state.
-    cancelTranscriptBatch(tabId);
+    m.cancelTranscriptBatch(tabId);
     compactionUsageGenerations.delete(tabId);
     // No frames will come from the dying process: stop the stall clock now
     // rather than waiting for its next tick (issue #228).
-    stopStreamStallTimer(tabId);
+    m.stopStreamStallTimer(tabId);
     // A fresh process has no wedge memory: re-arm the quiet-failure notice
     // and drop the attribution memory (issue #302).
     quietWedgeNotified.delete(tabId);
     timedOutCommands.delete(tabId);
-    patchRpc(tabId, {
+    m.patchRpc(tabId, {
       status: "starting",
       plan: null,
       session: { ...tab.session, isStreaming: false },
@@ -755,166 +503,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     };
     void action.then(remove, remove);
     return action;
-  };
-
-  // Command responses nest their payload under `data`.
-  const respData = (resp: unknown): unknown =>
-    resp !== null &&
-    typeof resp === "object" &&
-    "data" in resp &&
-    resp.data !== null &&
-    typeof resp.data === "object"
-      ? resp.data
-      : resp;
-
-  /**
-   * Every store method routes failures here: the tab keeps its status (a
-   * rejected `set_model` must not wedge a live session into "error") but the
-   * structured failure surfaces instead of vanishing into a swallowed catch.
-   * Resolves to the response frame, or `null` — which a real response never is
-   * — on failure.
-   */
-  const runCommand = async (
-    tabId: string,
-    cmd: Record<string, unknown>,
-    opts?: { quiet?: boolean; captureId?: (id: string) => void },
-  ): Promise<unknown> => {
-    const command = typeof cmd.type === "string" ? cmd.type : "unknown";
-    try {
-      const resp = await get().rpcCommand(tabId, cmd, opts);
-      // Only an explicit, user-visible success retires a transient failure.
-      // Background refreshes must not make a diagnostic disappear, and no
-      // command response may hide a fatal boot/process failure.
-      const tab = get().rpc[tabId];
-      if (
-        opts?.quiet !== true &&
-        tab?.failure !== undefined &&
-        !tab.failure.fatal
-      ) {
-        patchRpc(tabId, { failure: undefined });
-      }
-      // Any quiet success proves the queue is draining: re-arm the
-      // wedge-episode notice for the next episode (issue #302).
-      if (opts?.quiet === true) quietWedgeNotified.delete(tabId);
-      return resp;
-    } catch (err) {
-      const tab = get().rpc[tabId];
-      if (tab?.failure?.fatal) return null;
-      // Background sync never paints the session-level failure: one dim,
-      // coalesced notice per wedge episode instead (issue #302).
-      if (opts?.quiet === true) {
-        noteQuietWedge(tabId, command, err);
-        return null;
-      }
-      const timedOut = err instanceof RpcCommandTimeoutError;
-      const message = err instanceof Error ? err.message : String(err);
-      const liveState = findRecord(get().state, tabId)?.live;
-      patchRpc(tabId, {
-        failure: {
-          message: timedOut
-            ? message
-            : `RPC command "${command}" failed: ${message}`,
-          kind: "command",
-          fatal: false,
-          command,
-          ...(timedOut ? { timeoutMs: err.timeoutMs } : {}),
-          ...(tab ? { sessionStatus: tab.status } : {}),
-          ...(liveState !== undefined ? { liveState } : {}),
-          recovery: timedOut
-            ? "Prompt-like commands may still complete in the live session. Refresh state before continuing; resending can duplicate work."
-            : "Refresh state to confirm the live session before retrying.",
-        },
-      });
-      return null;
-    }
-  };
-
-  const appendItem = (tabId: string, item: RenderItem): void => {
-    const tab = get().rpc[tabId];
-    if (!tab) return;
-    // A pending transcript batch owns the next commit — append onto it so the
-    // item keeps its arrival position instead of being overwritten by the flush.
-    const batch = transcriptBatches.get(tabId);
-    if (batch) {
-      batch.items = [...batch.items, item];
-      return;
-    }
-    patchRpc(tabId, { items: [...tab.items, item] });
-  };
-  /**
-   * Quiet commands are background sync (heartbeats, usage ticks): their
-   * failure means the session is congested, not that it failed. Never paint
-   * the session-level failure — one dim, coalesced transcript notice per
-   * wedge episode, naming the command still holding the chain when the
-   * attribution memory has one (issue #302).
-   */
-  const noteQuietWedge = (tabId: string, command: string, err: unknown): void => {
-    if (quietWedgeNotified.get(tabId)) return;
-    quietWedgeNotified.set(tabId, true);
-    const text =
-      err instanceof RpcCommandTimeoutError
-        ? (() => {
-            const budget = formatDuration(err.timeoutMs);
-            // Entries are appended in send order (one shared budget), so the
-            // first started before the victim is the chain's current holder;
-            // the rest merely queue behind it (issue #302).
-            const holder = (timedOutCommands.get(tabId) ?? []).find(
-              (e) => e.startedAt < err.startedAt,
-            );
-            if (holder)
-              return `background "${command}" timed out after ${budget} — queued behind ${holder.command} (timed out ${formatDuration(
-                Date.now() - holder.timedOutAt,
-              )} ago, response not yet observed)`;
-            const pending = get().rpc[tabId]?.pendingCommands;
-            const inFlight = pending
-              ? [...pending.values()].map((p) =>
-                  p.quiet
-                    ? `${p.command} (bg, ${formatDuration(Date.now() - p.startedAt)})`
-                    : `${p.command} (${formatDuration(Date.now() - p.startedAt)})`,
-                )
-              : [];
-            return inFlight.length > 0
-              ? `background "${command}" timed out after ${budget} — other commands still in flight: ${inFlight.join(", ")}`
-              : `background "${command}" timed out after ${budget} — no other command in flight`;
-          })()
-        : `background "${command}" failed: ${err instanceof Error ? err.message : String(err)}`;
-    appendItem(tabId, noticeItem(text, "info"));
-  };
-
-  /** Maps every item; patches only when at least one item actually changed. */
-  const patchItems = (
-    tabId: string,
-    map: (item: RenderItem) => RenderItem,
-  ): void => {
-    const tab = get().rpc[tabId];
-    if (!tab) return;
-    const base = transcriptBatches.get(tabId)?.items ?? tab.items;
-    const items = base.map(map);
-    if (!items.some((item, i) => item !== base[i])) return;
-    const batch = transcriptBatches.get(tabId);
-    if (batch) {
-      batch.items = items;
-      return;
-    }
-    patchRpc(tabId, { items });
-  };
-
-  /**
-   * Sends set_subagent_subscription when — and only when — the tab's desired
-   * level differs from what the process last heard: "events" while an Agents
-   * pane detail view is open, "progress" otherwise (issue #63).
-   */
-  const syncSubagentSubscription = (tabId: string): void => {
-    const tab = get().rpc[tabId];
-    if (!tab) return;
-    const level = tab.selectedSubagent ? "events" : "progress";
-    if (tab.subagentLevel === level) return;
-    tab.subagentLevel = level;
-    void runCommand(
-      tabId,
-      { type: "set_subagent_subscription", level },
-      { quiet: true },
-    );
   };
 
   /** Trailing-throttled roster refresh for the subagent_* heartbeat path. */
@@ -954,15 +542,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }, wait);
   };
 
-  const patchSession = (
-    tabId: string,
-    patch: Partial<SessionRuntime>,
-  ): void => {
-    const tab = get().rpc[tabId];
-    if (!tab) return;
-    patchRpc(tabId, { session: { ...tab.session, ...patch } });
-  };
-
   /**
    * Answers the blocked plan-review `select` and clears the pane. Returns
    * false when there is no pending review to answer, so callers skip dispatch.
@@ -981,7 +560,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       id,
       value,
     });
-    patchRpc(tabId, {
+    m.patchRpc(tabId, {
       planReview: null,
       planText: null,
       planHtml: null,
@@ -1005,7 +584,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       t?.plan == null ||
       t?.plan.enabled === false ||
       get().exited[tabId] !== undefined;
-    await pollUntil(tabId, build);
+    await m.pollUntil(tabId, build);
     if (get().rpc[tabId]?.plan?.enabled !== true) return;
     // The verdict's in-process exit never surfaced — force it. Fire-and-forget:
     // the extension's status frame releases the wait, and a failed command must
@@ -1013,7 +592,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     void get()
       .setPlanMode(tabId, false)
       .catch(() => {});
-    await pollUntil(tabId, build, 5_000);
+    await m.pollUntil(tabId, build, 5_000);
   };
 
   /** Sends the implementation prompt for a settled execute verdict. */
@@ -1063,7 +642,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // follow-up would die with the old process. The plan turn ends first so
       // the kill cannot orphan the verdict's tool result.
       void (async () => {
-        await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
+        await m.pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
         if (modelChanged) await get().setModel(tabId, stagedModel!);
         if (thinkingChanged)
           await get().setThinkingLevel(tabId, options!.thinkingLevel!);
@@ -1074,7 +653,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           false,
         );
         // A failed relaunch alerts and leaves the tab dead — never prompt it.
-        await pollUntil(
+        await m.pollUntil(
           tabId,
           (t) =>
             t?.status === "ready" ||
@@ -1096,7 +675,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (context === "compacted") {
         // `compact` runs between turns, so the just-accepted plan turn must end
         // before compacting, then prompt the implementer.
-        await pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
+        await m.pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
         await get().compactSession(tabId);
         await ensureBuildMode(tabId);
         await get().sendPrompt(tabId, message, "prompt");
@@ -1121,8 +700,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
    * for the timing and the card/tool-note dedup.
    */
   const concernWatcher = new PlanConcernWatcher({
-    getItems: effectiveItems,
-    onNotice: (tabId, text) => appendItem(tabId, noticeItem(text, "info")),
+    getItems: m.effectiveItems,
+    onNotice: (tabId, text) => m.appendItem(tabId, noticeItem(text, "info")),
     onDispatch: (tabId, intent, concerns) => {
       // The no-double-dispatch guarantee. concernWatcher.feed settles
       // synchronously inside the frame handler, so by the time
@@ -1149,7 +728,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
    * transcript baseline, and the consecutive-reply guard.
    */
   const advisorReplyWatcher = new AdvisorReplyWatcher({
-    getItems: effectiveItems,
+    getItems: m.effectiveItems,
     canReply: (tabId) => {
       if (handedOffPlanSources.has(tabId)) return false;
       const tab = get().rpc[tabId];
@@ -1167,7 +746,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       return true;
     },
     onNotice: (tabId, text, level) =>
-      appendItem(tabId, noticeItem(text, level)),
+      m.appendItem(tabId, noticeItem(text, level)),
     onReply: (tabId, message) => {
       void get().sendPrompt(tabId, message, "advisor_reply");
     },
@@ -1200,7 +779,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     onDispatch: (tabId) => {
       void get().sendPrompt(tabId, STALL_CONTINUE_LEAD, "stall_continue");
     },
-    onNotice: (tabId, text, level) => appendItem(tabId, noticeItem(text, level)),
+    onNotice: (tabId, text, level) => m.appendItem(tabId, noticeItem(text, level)),
     onCapChange: (tabId, paused) => backend.reportStallCap(tabId, paused),
   });
 
@@ -1216,8 +795,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     concernWatcher.cancel(tabId);
     advisorReplyWatcher.cancel(tabId);
     stallContinueWatcher.cancel(tabId);
-    cancelTranscriptBatch(tabId);
-    slashCommandItems.delete(tabId);
+    m.cancelTranscriptBatch(tabId);
+    m.slashCommandItems.delete(tabId);
     compactionUsageGenerations.delete(tabId);
     handedOffPlanSources.delete(tabId);
     quietWedgeNotified.delete(tabId);
@@ -1311,7 +890,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       ...focusOn(s, freshId, projectCwd),
       exited: dropExited(s.exited, freshId),
     }));
-    await pollUntil(freshId, (t) => t?.status === "ready");
+    await m.pollUntil(freshId, (t) => t?.status === "ready");
     if (get().rpc[freshId]?.status !== "ready") return;
     // Staged main-model parameters ride the composer's own actions, so they
     // persist into session parameter memory exactly like a composer change.
@@ -1352,7 +931,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     handedOffPlanSources.add(srcTabId);
     advisorReplyWatcher.cancel(srcTabId);
     stallContinueWatcher.cancel(srcTabId);
-    appendItem(
+    m.appendItem(
       srcTabId,
       noticeItem(
         "plan approved — implementation dispatched to a fresh session",
@@ -1369,49 +948,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }
   };
 
-  const applyRpcState = (tabId: string, resp: unknown): void => {
-    const tab = get().rpc[tabId];
-    const payload = respData(resp);
-    if (!tab || payload === null || typeof payload !== "object") return;
-    const model = parseModelInfo(field(payload, "model")) ?? tab.model;
-    const session = parseSessionRuntime(payload, tab.session);
-    patchRpc(tabId, {
-      todos:
-        "todoPhases" in payload
-          ? parseTodoPhases(field(payload, "todoPhases"))
-          : tab.todos,
-      model,
-      session,
-    });
-    if (model) {
-      void backend
-        .setSessionModel(
-          tabId,
-          `${model.provider}/${model.id}`,
-          session.thinkingLevel,
-        )
-        .catch(() => {});
-    }
-  };
-
-  const refreshUsage = async (tabId: string): Promise<void> => {
-    await Promise.all([
-      get()
-        .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-        .then((resp) => applyRpcState(tabId, resp))
-        .catch(() => {}),
-      get()
-        .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
-        .then((resp) =>
-          patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
-        )
-        .catch(() => {}),
-    ]);
-  };
-
   const refreshCompactionUsage = (tabId: string, tokensBefore: number): void => {
-    const generation = ++nextCompactionUsageGeneration;
-    compactionUsageGenerations.set(tabId, generation);
+    const generation = bumpCompactionUsageGeneration(tabId);
 
     const isCurrent = (): boolean =>
       get().rpc[tabId] !== undefined &&
@@ -1425,7 +963,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
       .then((resp) => {
         if (isCurrent())
-          patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+          m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
       })
       .catch(() => {});
 
@@ -1448,7 +986,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             tokens < tokensBefore
           ) {
             if (!isCurrent()) return;
-            applyRpcState(tabId, resp);
+            m.applyRpcState(tabId, resp);
             finish();
             return;
           }
@@ -1493,12 +1031,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
     lastUsageRefresh.set(tabId, now);
     void get()
       .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-      .then((resp) => applyRpcState(tabId, resp))
+      .then((resp) => m.applyRpcState(tabId, resp))
       .catch(() => {});
     void get()
       .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
       .then((resp) =>
-        patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
+        m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
       )
       .catch(() => {});
   };
@@ -1518,61 +1056,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
         if (!current || current.status === "running") return;
         void get()
           .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-          .then((resp) => applyRpcState(tabId, resp))
+          .then((resp) => m.applyRpcState(tabId, resp))
           .catch(() => {});
       }, QUEUE_SETTLE_REFRESH_MS),
-    );
-  };
-
-  /** Stops the armed tab's interval, if any; idempotent. */
-  const stopStreamStallTimer = (tabId: string): void => {
-    const id = streamStallTimers.get(tabId);
-    if (id !== undefined) window.clearInterval(id);
-    streamStallTimers.delete(tabId);
-  };
-
-  /**
-   * One second, per armed tab (issue #228). Self-terminating: a gone tab,
-   * a non-"running" status, a closed response, or a missing checkpoint
-   * stops the clock and clears the field; the next frame while "running"
-   * re-arms it, so callers only ever arm it.
-   */
-  const streamStallTick = (tabId: string): void => {
-    const tab = get().rpc[tabId];
-    // The gate is the transcript's own streaming flag: while it is set,
-    // deltas would still be routed to that item, so the model owes us
-    // frames. A closed response (tool execution, between turns,
-    // compaction) is silent by design, and a missing checkpoint means
-    // there is no silence to measure (a late joiner cannot time what it
-    // never saw) — both stop the clock.
-    const streamingOpen =
-      tab !== undefined &&
-      effectiveItems(tabId).some((i) => i.kind === "assistant" && i.streaming);
-    const checkpoint = tab?.streamCheckpoint;
-    if (
-      tab === undefined ||
-      tab.status !== "running" ||
-      !streamingOpen ||
-      checkpoint === undefined
-    ) {
-      stopStreamStallTimer(tabId);
-      if (tab !== undefined && tab.streamStallMs !== undefined)
-        patchRpc(tabId, { streamStallMs: undefined });
-      return;
-    }
-    const silence = Date.now() - checkpoint.at;
-    const next =
-      silence >= STREAM_STALL_THRESHOLD_MS
-        ? Math.floor(silence / 1000) * 1000
-        : undefined;
-    if (next !== tab.streamStallMs) patchRpc(tabId, { streamStallMs: next });
-  };
-
-  const ensureStreamStallTimer = (tabId: string): void => {
-    if (streamStallTimers.has(tabId)) return;
-    streamStallTimers.set(
-      tabId,
-      window.setInterval(() => streamStallTick(tabId), STREAM_STALL_TICK_MS),
     );
   };
 
@@ -1581,9 +1067,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // History replaces the transcript wholesale — a batch reduced from the
     // pre-history items would clobber it on the next flush. Per-agent marker
     // memory must not outlive the render items it was deduping against.
-    cancelTranscriptBatch(tabId);
+    m.cancelTranscriptBatch(tabId);
     get().rpc[tabId]?.subagentMarkers?.clear();
-    patchRpc(tabId, {
+    m.patchRpc(tabId, {
       items: historyToItems(arrField(respData(resp), "messages")),
     });
     // A resumed transcript's advisories are history, not a live review: the
@@ -1601,7 +1087,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const entry = get().catchup[tabId];
     if (entry === undefined || entry.settled) return;
     const digest = buildCatchupDigest({
-      items: effectiveItems(tabId), // batch-safe: includes unflushed stream commits
+      items: m.effectiveItems(tabId), // batch-safe: includes unflushed stream commits
       advisor: get().rpc[tabId]?.advisorStats ?? null,
       since: entry.since,
       now: Date.now(),
@@ -1749,81 +1235,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
         reconcilePlanGates(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
-      backend.onPtyExit((tabId, code) => {
-        // An rpc-mode omp that dies mid-tool sends no agent_end or
-        // omp_ui_error frame — this exit is the only signal, so running
-        // tool cards are settled here (issue #93). Settle from the effective
-        // items: a batched stream commit may still be pending, and the dead
-        // process's final frames must not be lost (issue #187).
-        const before = get().rpc[tabId];
-        const settled = before
-          ? settleRunningTools(effectiveItems(tabId), "aborted")
-          : undefined;
-        cancelTranscriptBatch(tabId);
-        compactionUsageGenerations.delete(tabId);
-        // No frame may ever come again: stop the stall clock now instead of
-        // letting the next tick re-arm on the leftover open-assistant flag
-        // (issue #228).
-        stopStreamStallTimer(tabId);
-        set((s) => {
-          // The stall field must clear even when no tool cards were running
-          // — a pure-text stall settles to `settled === before.items`.
-          const clearStall = before?.streamStallMs !== undefined;
-          const rpc =
-            before &&
-            (clearStall ||
-              (settled !== undefined && settled !== before.items))
-              ? {
-                  ...s.rpc,
-                  [tabId]: {
-                    ...before,
-                    ...(clearStall ? { streamStallMs: undefined } : {}),
-                    ...(settled !== undefined && settled !== before.items
-                      ? { items: settled }
-                      : {}),
-                  },
-                }
-              : s.rpc;
-          return { exited: { ...s.exited, [tabId]: code }, rpc };
-        });
-      });
-      // Hibernation: the process was stopped on purpose after an idle window
-      // (issue #246). Same teardown as a process exit — no frame may ever
-      // come again, so settle running tools and stop the stall clock — but
-      // the framing is "stopped to free memory", not a crash. `exited` is
-      // set on purpose: every dead gate (composer, canReply, HUD) keys off
-      // it; `hibernated` only changes what the overlay and HUD say.
-      // Keep this teardown in sync with the onPtyExit handler above.
-      backend.onSessionHibernated((tabId) => {
-        const before = get().rpc[tabId];
-        const settled = before ? settleRunningTools(effectiveItems(tabId), "aborted") : undefined;
-        cancelTranscriptBatch(tabId);
-        compactionUsageGenerations.delete(tabId);
-        stopStreamStallTimer(tabId);
-        set((s) => {
-          const clearStall = before?.streamStallMs !== undefined;
-          const rpc =
-            before &&
-            (clearStall ||
-              (settled !== undefined && settled !== before.items))
-              ? {
-                  ...s.rpc,
-                  [tabId]: {
-                    ...before,
-                    ...(clearStall ? { streamStallMs: undefined } : {}),
-                    ...(settled !== undefined && settled !== before.items
-                      ? { items: settled }
-                      : {}),
-                  },
-                }
-              : s.rpc;
-          return {
-            exited: { ...s.exited, [tabId]: 0 },
-            hibernated: { ...s.hibernated, [tabId]: true },
-            rpc,
-          };
-        });
-      });
+      backend.onPtyExit((tabId, code) => m.teardownExited(tabId, code));
+      backend.onSessionHibernated((tabId) => m.teardownHibernated(tabId));
       // OS notification click (issue #271): resurface the session's tab —
       // openSession is the hide/resurface path; main dedupes the resume
       // against a live process, so a late-joining renderer never
@@ -2180,13 +1593,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
         concernWatcher.cancel(tabId);
         advisorReplyWatcher.cancel(tabId);
         stallContinueWatcher.cancel(tabId);
-        cancelTranscriptBatch(tabId);
+        m.cancelTranscriptBatch(tabId);
         compactionUsageGenerations.delete(tabId);
         // A re-boot must not slam the Agents pane's drill-down shut: the open
         // detail view and the retained buffers behind it survive the process
         // restart, and the subscription re-escalates after boot (issue #63).
         const prior = get().rpc[tabId];
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           ...freshRpcTabState(get().state?.advisorAutoReply ?? true),
           selectedSubagent: prior?.selectedSubagent ?? null,
           subagentItems: prior?.subagentItems ?? {},
@@ -2209,7 +1622,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           .rpcCommand(tabId, { type: "get_state" })
           .then(
             (resp) => {
-              applyRpcState(tabId, resp);
+              m.applyRpcState(tabId, resp);
               return null;
             },
             (err: unknown) =>
@@ -2221,19 +1634,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
           get()
             .rpcCommand(tabId, { type: "get_available_models" })
             .then((resp) => {
-              patchRpc(tabId, {
+              m.patchRpc(tabId, {
                 availableModels: parseModelList(respData(resp)),
               });
             }),
           get()
             .rpcCommand(tabId, { type: "get_available_commands" })
             .then((resp) => {
-              patchRpc(tabId, { commands: parseCommandList(respData(resp)) });
+              m.patchRpc(tabId, { commands: parseCommandList(respData(resp)) });
             }),
           get()
             .rpcCommand(tabId, { type: "get_session_stats" })
             .then((resp) => {
-              patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+              m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
             }),
           // "progress" | "events" are the only legal levels; progress is the
           // cheap one — per-agent status, not every subagent token.
@@ -2249,7 +1662,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         const runtime = get().rpc[tabId];
         if (runtime) {
           runtime.subagentLevel = "progress";
-          syncSubagentSubscription(tabId);
+          m.syncSubagentSubscription(tabId);
         }
         // Arm the advisor-stats extension (its first slash run sets its `ui`
         // channel, after which it auto-publishes at each turn end). Armed for
@@ -2260,7 +1673,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // advisor-toggle relaunch) skip the arm and starve the readout forever.
         void get().refreshAdvisorStats(tabId);
         if (stateFailure) {
-          patchRpc(tabId, {
+          m.patchRpc(tabId, {
             status: "error",
             failure: {
               message: `RPC boot failed while running "get_state": ${stateFailure.message}`,
@@ -2276,7 +1689,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             },
           });
         } else {
-          patchRpc(tabId, { status: "ready" });
+          m.patchRpc(tabId, { status: "ready" });
           // Boot reset the tab to fresh state before this ran, so a pending
           // gate on the record hydrates now instead of being clobbered.
           const bootedState = get().state;
@@ -2287,7 +1700,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         }
       } catch (err) {
         const liveState = findRecord(get().state, tabId)?.live;
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           status: "error",
           failure: {
             message: `RPC boot failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -2360,7 +1773,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           timeoutMs,
         });
       });
-      if (!quiet) patchRpc(tabId, { busy: true });
+      if (!quiet) m.patchRpc(tabId, { busy: true });
       // Callers correlating async frames (prompt_result) with this command
       // learn the wire id before the first byte leaves.
       opts?.captureId?.(id);
@@ -2374,7 +1787,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         let loud = 0;
         if (pending) for (const p of pending.values()) if (!p.quiet) loud++;
         if (loud === 0 && get().rpc[tabId]?.busy) {
-          patchRpc(tabId, { busy: false });
+          m.patchRpc(tabId, { busy: false });
         }
       });
     },
@@ -2421,12 +1834,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
         case "rpc_chunk":
           return; // reassembled in main — never expected here
         case "session_info_update":
-          patchRpc(tabId, { session: parseSessionRuntime(frame, tab.session) });
+          m.patchRpc(tabId, { session: parseSessionRuntime(frame, tab.session) });
           return;
         case "config_update": {
           const model = parseModelInfo(field(frame, "model")) ?? tab.model;
           const session = parseSessionRuntime(frame, tab.session);
-          patchRpc(tabId, { model, session });
+          m.patchRpc(tabId, { model, session });
           if (model) {
             void backend
               .setSessionModel(
@@ -2439,7 +1852,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           return;
         }
         case "available_commands_update":
-          patchRpc(tabId, { commands: parseCommandList(frame) });
+          m.patchRpc(tabId, { commands: parseCommandList(frame) });
           return;
         case "subagent_lifecycle":
         case "subagent_progress":
@@ -2466,7 +1879,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           const markers = (tab.subagentMarkers ??= new Map());
           if (markers.get(key) !== label) {
             markers.set(key, label);
-            appendItem(tabId, markerItem(label, "copper"));
+            m.appendItem(tabId, markerItem(label, "copper"));
           }
           // Per-agent buffer for the subagent view and the Agents pane
           // roster (issue #63). Identity return means the frame added
@@ -2481,14 +1894,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
             tab.selectedSubagent === key ? false : SUBAGENT_BUFFER_CAP,
           );
           if (next !== prev) {
-            patchRpc(tabId, { subagentItems: { ...buffers, [key]: next } });
+            m.patchRpc(tabId, { subagentItems: { ...buffers, [key]: next } });
           }
           pulseSubagents(tabId);
           return;
         }
         case "extension_error": {
           const text = strField(frame, "error") ?? "extension error";
-          appendItem(tabId, {
+          m.appendItem(tabId, {
             ...noticeItem(text, "error"),
             source: strField(frame, "extensionPath"),
           });
@@ -2501,11 +1914,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // native sessions; the hard cap means a verbose reply can never
           // regrow the drawer pane issue #43 removed.
           const text = strField(frame, "text") ?? "";
-          const running = effectiveItems(tabId)
+          const running = m.effectiveItems(tabId)
             .filter((i): i is CommandItem => i.kind === "command" && i.status === "running")
             .at(-1);
           if (running === undefined) {
-            appendItem(tabId, noticeItem(text, "info"));
+            m.appendItem(tabId, noticeItem(text, "info"));
             return;
           }
           const joined =
@@ -2514,7 +1927,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             joined.length <= COMMAND_OUTPUT_CAP
               ? joined
               : `${joined.slice(0, COMMAND_OUTPUT_CAP)}\n… output truncated`;
-          patchItems(tabId, (i) =>
+          m.patchItems(tabId, (i) =>
             i.kind === "command" && i.id === running.id ? { ...i, output } : i,
           );
           return;
@@ -2525,7 +1938,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // than the raw select dialog, and the status frame is state, not text.
           const review = parsePlanReviewTitle(strField(frame, "title"));
           if (review) {
-            patchRpc(tabId, {
+            m.patchRpc(tabId, {
               planReview: { request: review, frame },
               // A fresh proposal is never deferred — it demands its verdict.
               planDeferred: false,
@@ -2536,20 +1949,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
               review.planFilePath,
               review.planAbsPath,
             );
-            appendItem(tabId, planItem);
+            m.appendItem(tabId, planItem);
             void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
             return;
           }
           const entry = extensionStatusEntry(frame);
           if (entry?.key === PLAN_STATUS_KEY) {
-            patchRpc(tabId, { plan: parsePlanStatus(entry.text) });
+            m.patchRpc(tabId, { plan: parsePlanStatus(entry.text) });
             return;
           }
           if (entry?.key === ADVISOR_STATS_KEY) {
             // Included in a catch-up snapshot only when the frame has
             // arrived by settle time; a later frame never re-settles a
             // taken snapshot (issue #273).
-            patchRpc(tabId, { advisorStats: parseAdvisorStats(entry.text) });
+            m.patchRpc(tabId, { advisorStats: parseAdvisorStats(entry.text) });
             return;
           }
           if (entry?.key === MCP_RUNTIME_STATUS_KEY) {
@@ -2567,14 +1980,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
               const text = failure.kind === "auth"
                 ? `MCP server “${failure.serverName}” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then restart the session.`
                 : `MCP server “${failure.serverName}” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then restart the session.`;
-              appendItem(tabId, noticeItem(text, "warn"));
+              m.appendItem(tabId, noticeItem(text, "warn"));
             }
-            patchRpc(tabId, { mcpStatus });
+            m.patchRpc(tabId, { mcpStatus });
             return;
           }
           const action = routeExtensionRequest(frame);
           if (action.action === "dialog") {
-            patchRpc(tabId, { extensionQueue: [...tab.extensionQueue, frame] });
+            m.patchRpc(tabId, { extensionQueue: [...tab.extensionQueue, frame] });
             return;
           }
           if (action.action === "open-url") {
@@ -2600,7 +2013,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             } catch {
               // Not parseable as a URL — the marker carries the raw string.
             }
-            appendItem(tabId, markerItem(`opened browser: ${origin}`));
+            m.appendItem(tabId, markerItem(`opened browser: ${origin}`));
             return;
           }
           // Every non-dialog method is answered immediately — omp blocks on the
@@ -2611,7 +2024,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             if (entry.text === undefined || entry.text === "")
               delete extensionStatus[entry.key];
             else extensionStatus[entry.key] = entry.text;
-            patchRpc(tabId, { extensionStatus });
+            m.patchRpc(tabId, { extensionStatus });
           }
           backend.rpcSend(
             tabId,
@@ -2619,7 +2032,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           );
           if (!entry) {
             const method = strField(frame, "method") ?? "?";
-            appendItem(tabId, markerItem(`extension ${method} auto-cancelled`));
+            m.appendItem(tabId, markerItem(`extension ${method} auto-cancelled`));
           }
           return;
         }
@@ -2627,26 +2040,26 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // Settles a slash-command row whose response carried no
           // `agentInvoked` (older runtime): the wire id maps back to the item.
           const id = "id" in frame && typeof frame.id === "string" ? frame.id : null;
-          const byRequest = slashCommandItems.get(tabId);
+          const byRequest = m.slashCommandItems.get(tabId);
           const itemId = id !== null ? byRequest?.get(id) : undefined;
           if (byRequest !== undefined && id !== null && itemId !== undefined) {
             byRequest.delete(id);
             const invoked =
               boolField(frame, "agentInvoked") ??
               boolField(field(frame, "data"), "agentInvoked");
-            patchItems(tabId, (i) =>
+            m.patchItems(tabId, (i) =>
               i.kind === "command" && i.id === itemId && i.status === "running"
                 ? { ...i, status: invoked === true ? "agent" : "done" }
                 : i,
             );
           }
-          patchRpc(tabId, { status: "ready" });
+          m.patchRpc(tabId, { status: "ready" });
           return;
         }
         case "omp_ui_notice": {
           // Main-process notice frame (issue #248: the stall watchdog's abort
           // report). Appended verbatim, never answered.
-          appendItem(
+          m.appendItem(
             tabId,
             noticeItem(strField(frame, "message") ?? "omp-ui notice", "warn"),
           );
@@ -2654,7 +2067,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // isStreamStallEnd can never classify — the tagged notice is what
           // feeds auto-continue instead (issue #254).
           if (strField(frame, "reason") === "stall-abort")
-            patchRpc(tabId, { stallAbortPending: true });
+            m.patchRpc(tabId, { stallAbortPending: true });
           return;
         }
         case "omp_ui_error": {
@@ -2663,10 +2076,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // The process died mid-tool, so no agent_end will settle running
           // cards. Settle the effective items — frames still pending in the
           // batch are part of the transcript up to the failure (issue #187).
-          const settledItems = settleRunningTools(effectiveItems(tabId), "aborted");
-          cancelTranscriptBatch(tabId);
+          const settledItems = settleRunningTools(m.effectiveItems(tabId), "aborted");
+          m.cancelTranscriptBatch(tabId);
           compactionUsageGenerations.delete(tabId);
-          patchRpc(tabId, {
+          m.patchRpc(tabId, {
             status: "error",
             failure: {
               message,
@@ -2708,14 +2121,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
           }
           // Late-joining clients see frames while "running" without an
           // agent_start — arm the stall clock on any such frame (issue #228).
-          if (tab.status === "running") ensureStreamStallTimer(tabId);
+          if (tab.status === "running") m.ensureStreamStallTimer(tabId);
           // The AgentSessionEvent stream — the actual transcript. Reduction is
           // eager (frame-exact for the watchers below) but the render commit is
           // coalesced — one Zustand set per burst instead of per frame, so the
           // renderer keeps servicing input mid-stream (issue #187).
           const stall =
             type === "auto_retry_start" ? stallNotice(tab, frame) : null;
-          queueTranscriptFrame(tabId, frame, stall);
+          m.queueTranscriptFrame(tabId, frame, stall);
           if (type === "auto_compaction_start")
             compactionUsageGenerations.delete(tabId);
           if (type === "auto_compaction_end") {
@@ -2729,7 +2142,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
               tokensBefore > 0
             )
               refreshCompactionUsage(tabId, tokensBefore);
-            else void refreshUsage(tabId);
+            else void m.refreshUsage(tabId);
           }
           // A pending plan-concerns wait settles the moment a fresh advisor
           // finding lands after the verdict (or its bounded deadline fires).
@@ -2747,7 +2160,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           if (type === "thinking_level_changed") {
             const level = strField(frame, "thinkingLevel");
             if (level) {
-              patchSession(tabId, { thinkingLevel: level });
+              m.patchSession(tabId, { thinkingLevel: level });
               const model = get().rpc[tabId]?.model;
               if (model) {
                 void backend
@@ -2761,11 +2174,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
             }
           }
           if (type === "agent_start") {
-            patchRpc(tabId, { status: "running", lastTurn: undefined });
+            m.patchRpc(tabId, { status: "running", lastTurn: undefined });
             // A stale entry from a prior run (its tick has not fired yet)
             // must not block the fresh arm.
-            stopStreamStallTimer(tabId);
-            ensureStreamStallTimer(tabId);
+            m.stopStreamStallTimer(tabId);
+            m.ensureStreamStallTimer(tabId);
             const pending = queueSettleTimers.get(tabId);
             if (pending !== undefined) {
               window.clearTimeout(pending);
@@ -2773,11 +2186,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
             }
             // A slash command still awaiting its verdict (response carried no
             // `agentInvoked`) is what started this turn — mark it so.
-            const byRequest = slashCommandItems.get(tabId);
+            const byRequest = m.slashCommandItems.get(tabId);
             if (byRequest !== undefined && byRequest.size > 0) {
               const tracked = new Set(byRequest.values());
               byRequest.clear();
-              patchItems(tabId, (i) =>
+              m.patchItems(tabId, (i) =>
                 i.kind === "command" && i.status === "running" && tracked.has(i.id)
                   ? { ...i, status: "agent" }
                   : i,
@@ -2796,7 +2209,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             ) {
               // The turn's terminal message end: drives the agent_end settle
               // target and the stall classification below.
-              patchRpc(tabId, {
+              m.patchRpc(tabId, {
                 lastTurn: {
                   stopReason: strField(message, "stopReason"),
                   errorMessage: strField(message, "errorMessage"),
@@ -2810,7 +2223,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             // The tick self-terminates on the next pass; the explicit clear
             // keeps the field from lingering up to a second after the run.
             if (tab.status === "running")
-              patchRpc(tabId, { status: "ready", streamStallMs: undefined });
+              m.patchRpc(tabId, { status: "ready", streamStallMs: undefined });
 
             // Retry net: a rename that failed at prompt time (hasRenamed was
             // released) gets another shot at the next turn boundary.
@@ -2821,7 +2234,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             void get()
               .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
               .then((resp) => {
-                applyRpcState(tabId, resp);
+                m.applyRpcState(tabId, resp);
                 scheduleQueueSettleRefresh(tabId);
               })
               // The refresh itself was lost — if the last-known count is
@@ -2850,11 +2263,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
                   errorMessage: lastTurn.errorMessage,
                   errorId: lastTurn.errorId,
                 });
-                if (notice) appendItem(tabId, notice);
+                if (notice) m.appendItem(tabId, notice);
               }
             }
             const watchdogAbort = get().rpc[tabId]?.stallAbortPending === true;
-            if (watchdogAbort) patchRpc(tabId, { stallAbortPending: false });
+            if (watchdogAbort) m.patchRpc(tabId, { stallAbortPending: false });
             if (
               (providerStall || watchdogAbort) &&
               get().rpc[tabId] !== undefined &&
@@ -2878,7 +2291,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         id,
         ...response,
       });
-      patchRpc(tabId, {
+      m.patchRpc(tabId, {
         extensionQueue: tab.extensionQueue.filter((q) => q !== request),
       });
     },
@@ -2890,13 +2303,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // Decided here, at prompt time, because `set_session_name` writes with
       // source "user" and omp then refuses every later auto title.
       if (!isUntitled(findRecord(get().state, tabId)?.title)) {
-        patchRpc(tabId, { hasRenamed: true });
+        m.patchRpc(tabId, { hasRenamed: true });
         return;
       }
       // A greeting or bare ack would latch permanently — defer to the next
       // prompt instead (same policy as omp's own titling).
       if (isLowSignalTitleInput(prompt)) return;
-      patchRpc(tabId, { initialPrompt: prompt });
+      m.patchRpc(tabId, { initialPrompt: prompt });
       // Two-phase titling starts here: the derived name goes out immediately
       // (renameSession phase 1) and the model title is a background upgrade
       // (phase 2). `renameSession` guards on hasRenamed so the concurrent
@@ -2909,7 +2322,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (!tab || !tab.initialPrompt || tab.hasRenamed) return;
       const prompt = tab.initialPrompt;
       // Latch before the first await so a second agent_end can't double-rename.
-      patchRpc(tabId, { hasRenamed: true });
+      m.patchRpc(tabId, { hasRenamed: true });
       const record = findRecord(get().state, tabId);
       const projectCwd = record?.projectCwd;
       const sessionId = record?.sessionId ?? null;
@@ -2925,12 +2338,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
           );
           const current = get().rpc[tabId];
           if (!current || current.initialPrompt !== prompt) return;
-          patchRpc(tabId, { autoTitleSent: derived });
+          m.patchRpc(tabId, { autoTitleSent: derived });
           // No model path: the derived name is final.
-          if (!projectCwd) patchRpc(tabId, { initialPrompt: null });
+          if (!projectCwd) m.patchRpc(tabId, { initialPrompt: null });
         } catch (err) {
           // Release the latch so the next agent_end retries the whole titling.
-          patchRpc(tabId, { hasRenamed: false });
+          m.patchRpc(tabId, { hasRenamed: false });
           console.warn("[session-rename] set_session_name failed:", err);
         }
       })();
@@ -2964,7 +2377,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         // The record shows a name we did not set: leave it alone.
         if (!isUntitled(title) && title !== derived) return;
         if (!modelTitle || modelTitle === derived || modelTitle === title) {
-          patchRpc(tabId, { initialPrompt: null });
+          m.patchRpc(tabId, { initialPrompt: null });
           return;
         }
         try {
@@ -2978,9 +2391,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
             { type: "set_session_name", name: modelTitle },
             { quiet: true },
           );
-          patchRpc(tabId, { autoTitleSent: modelTitle, initialPrompt: null });
+          m.patchRpc(tabId, { autoTitleSent: modelTitle, initialPrompt: null });
         } catch (err) {
-          patchRpc(tabId, { initialPrompt: null });
+          m.patchRpc(tabId, { initialPrompt: null });
           console.warn("[session-rename] title upgrade failed:", err);
         }
       })();
@@ -3016,12 +2429,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const cmd = { type: "prompt", message, streamingBehavior };
       // `images` is omitted entirely when empty: omp's own client sends no key
       // rather than an empty array, and every byte here is on one JSON line.
-      const response = await runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
+      const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
       return response !== null;
     },
 
     async abortAgent(tabId) {
-      await runCommand(tabId, { type: "abort" });
+      await m.runCommand(tabId, { type: "abort" });
     },
 
     async abortAndPrompt(tabId, message, images) {
@@ -3031,7 +2444,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       advisorReplyWatcher.reset(tabId);
       stallContinueWatcher.reset(tabId);
       const type = "abort_and_prompt";
-      await runCommand(
+      await m.runCommand(
         tabId,
         images?.length ? { type, message, images } : { type, message },
       );
@@ -3072,7 +2485,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         ];
         const deadline = Date.now() + RPC_COMMAND_TIMEOUT_MS + 1_000;
         prepareRpcRelaunch(tabId);
-        await pollUntil(
+        await m.pollUntil(
           tabId,
           (current) =>
             current !== undefined &&
@@ -3095,7 +2508,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         );
         if (commandsRemain || parametersRemain) {
           if (current) {
-            patchRpc(tabId, {
+            m.patchRpc(tabId, {
               status: previousStatus,
               session: { ...current.session, isStreaming: previousStreaming },
               plan: previousPlan,
@@ -3135,14 +2548,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async setModel(tabId, model) {
       if (get().rpc[tabId]?.status === "starting") return;
       const action = (async (): Promise<void> => {
-        const resp = await runCommand(tabId, {
+        const resp = await m.runCommand(tabId, {
           type: "set_model",
           provider: model.provider,
           modelId: model.id,
         });
         if (resp === null) return;
         const selected = parseModelInfo(respData(resp)) ?? model;
-        patchRpc(tabId, { model: selected });
+        m.patchRpc(tabId, { model: selected });
         const thinkingLevel = get().rpc[tabId]?.session.thinkingLevel ?? null;
         await backend.setSessionModel(
           tabId,
@@ -3156,12 +2569,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async setThinkingLevel(tabId, level) {
       if (get().rpc[tabId]?.status === "starting") return;
       const action = (async (): Promise<void> => {
-        const resp = await runCommand(tabId, {
+        const resp = await m.runCommand(tabId, {
           type: "set_thinking_level",
           level,
         });
         if (resp === null) return;
-        patchSession(tabId, { thinkingLevel: level });
+        m.patchSession(tabId, { thinkingLevel: level });
         const model = get().rpc[tabId]?.model;
         await backend.setSessionModel(
           tabId,
@@ -3173,62 +2586,62 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async setSteeringMode(tabId, mode) {
-      const resp = await runCommand(tabId, { type: "set_steering_mode", mode });
+      const resp = await m.runCommand(tabId, { type: "set_steering_mode", mode });
       if (resp === null) return;
-      patchSession(tabId, { steeringMode: mode });
+      m.patchSession(tabId, { steeringMode: mode });
     },
 
     async setFollowUpMode(tabId, mode) {
-      const resp = await runCommand(tabId, {
+      const resp = await m.runCommand(tabId, {
         type: "set_follow_up_mode",
         mode,
       });
       if (resp === null) return;
-      patchSession(tabId, { followUpMode: mode });
+      m.patchSession(tabId, { followUpMode: mode });
     },
 
     async setInterruptMode(tabId, mode) {
-      const resp = await runCommand(tabId, {
+      const resp = await m.runCommand(tabId, {
         type: "set_interrupt_mode",
         mode,
       });
       if (resp === null) return;
-      patchSession(tabId, { interruptMode: mode });
+      m.patchSession(tabId, { interruptMode: mode });
     },
 
     async setAutoCompaction(tabId, enabled) {
-      const resp = await runCommand(tabId, {
+      const resp = await m.runCommand(tabId, {
         type: "set_auto_compaction",
         enabled,
       });
       if (resp === null) return;
-      patchSession(tabId, { autoCompactionEnabled: enabled });
+      m.patchSession(tabId, { autoCompactionEnabled: enabled });
     },
 
     async setAutoRetry(tabId, enabled) {
-      await runCommand(tabId, { type: "set_auto_retry", enabled });
+      await m.runCommand(tabId, { type: "set_auto_retry", enabled });
     },
 
     async abortRetry(tabId) {
-      await runCommand(tabId, { type: "abort_retry" });
+      await m.runCommand(tabId, { type: "abort_retry" });
     },
 
     async compactSession(tabId) {
-      appendItem(tabId, markerItem("compacting context", "copper"));
-      const resp = await runCommand(tabId, { type: "compact" });
+      m.appendItem(tabId, markerItem("compacting context", "copper"));
+      const resp = await m.runCommand(tabId, { type: "compact" });
       if (resp === null) return;
       // `data.summary` is the entire compacted history — noted, never rendered.
-      appendItem(tabId, markerItem("context compacted", "copper"));
-      await refreshUsage(tabId);
+      m.appendItem(tabId, markerItem("context compacted", "copper"));
+      await m.refreshUsage(tabId);
     },
 
     async exportHtml(tabId) {
-      const resp = await runCommand(tabId, { type: "export_html" });
+      const resp = await m.runCommand(tabId, { type: "export_html" });
       if (resp === null) return;
       const path = strField(respData(resp), "path");
       // The path rides the notice as data so the transcript can offer
       // open/reveal without parsing it back out of the text (issue #84).
-      appendItem(tabId, {
+      m.appendItem(tabId, {
         ...noticeItem(path ? `exported to ${path}` : "export finished", "info"),
         ...(path === undefined ? {} : { path }),
       });
@@ -3253,10 +2666,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     async renameSessionTo(tabId, name) {
-      const resp = await runCommand(tabId, { type: "set_session_name", name });
+      const resp = await m.runCommand(tabId, { type: "set_session_name", name });
       if (resp === null) return;
       // A user-chosen name is final — the auto-titler must not overwrite it.
-      patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
+      m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
     },
 
     async setPlanMode(tabId, enabled) {
@@ -3266,7 +2679,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // The format rides the `on` command, so the extension — not a later
       // Settings flip — decides what this session's plans are authored as.
       const format = get().state?.planFormat ?? "html";
-      await runCommand(tabId, {
+      await m.runCommand(tabId, {
         type: "prompt",
         message: planMessage(enabled, format),
       });
@@ -3295,10 +2708,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
         return;
       }
       if (planKey) {
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "executed"),
         });
-        patchItems(tabId, (i) =>
+        m.patchItems(tabId, (i) =>
           i.kind === "plan" &&
           i.planFilePath === planKey &&
           i.status === "pending"
@@ -3336,10 +2749,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const planKey = get().rpc[tabId]?.planReview?.request.planFilePath;
       if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
       if (planKey) {
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "refined"),
         });
-        patchItems(tabId, (i) =>
+        m.patchItems(tabId, (i) =>
           i.kind === "plan" &&
           i.planFilePath === planKey &&
           i.status === "pending"
@@ -3359,11 +2772,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     deferPlanReview(tabId) {
-      patchRpc(tabId, { planDeferred: true });
+      m.patchRpc(tabId, { planDeferred: true });
     },
 
     showPlanReview(tabId) {
-      patchRpc(tabId, { planDeferred: false });
+      m.patchRpc(tabId, { planDeferred: false });
     },
 
     dismissCatchup(tabId) {
@@ -3377,26 +2790,26 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     async loadPlanText(tabId, absPath, itemId) {
       if (!absPath) {
-        patchRpc(tabId, { planText: null, planHtml: null });
+        m.patchRpc(tabId, { planText: null, planHtml: null });
         return;
       }
       try {
         const text = await backend.readPlanFile(tabId, absPath);
         // One file, one read: the html plan IS the plan, so `planHtml` is the
         // render-mode flag rather than a second document (ADR-0014).
-        patchRpc(tabId, {
+        m.patchRpc(tabId, {
           planText: text,
           planHtml: isHtmlPlanPath(absPath) ? text : null,
         });
         if (itemId !== undefined) {
-          patchItems(tabId, (i) =>
+          m.patchItems(tabId, (i) =>
             i.kind === "plan" && i.id === itemId ? { ...i, text } : i,
           );
         }
       } catch {
         // The pane falls back to the plan's path — a failed read must never
         // strand the review, because the agent is waiting on the verdict.
-        patchRpc(tabId, { planText: null, planHtml: null });
+        m.patchRpc(tabId, { planText: null, planHtml: null });
       }
     },
 
@@ -3453,19 +2866,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
         (c) => c.name === name || (c.aliases?.includes(name) ?? false),
       );
       if (command === undefined) {
-        await runCommand(tabId, { type: "prompt", message });
+        await m.runCommand(tabId, { type: "prompt", message });
         return;
       }
       // The acknowledgement row: makes the command visibly run - and settle -
       // while the reply itself rides command_output frames (omp 17.3.8+
       // emits them for builtin replies too).
       const item = commandItem(name, args);
-      appendItem(tabId, item);
+      m.appendItem(tabId, item);
       const byRequest =
-        slashCommandItems.get(tabId) ?? new Map<string, string>();
-      slashCommandItems.set(tabId, byRequest);
+        m.slashCommandItems.get(tabId) ?? new Map<string, string>();
+      m.slashCommandItems.set(tabId, byRequest);
       let requestId: string | undefined;
-      const resp = await runCommand(
+      const resp = await m.runCommand(
         tabId,
         { type: "prompt", message },
         {
@@ -3477,7 +2890,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       );
       const settle = (patch: Partial<CommandItem>): void => {
         if (requestId !== undefined) byRequest.delete(requestId);
-        patchItems(tabId, (i) =>
+        m.patchItems(tabId, (i) =>
           i.kind === "command" && i.id === item.id ? { ...i, ...patch } : i,
         );
       };
@@ -3492,44 +2905,44 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const invoked = boolField(respData(resp), "agentInvoked");
       if (invoked === false) settle({ status: "done" });
       else if (invoked === true) settle({ status: "agent" });
-      if (command.name === "compact") await refreshUsage(tabId);
+      if (command.name === "compact") await m.refreshUsage(tabId);
       // `agentInvoked` absent (older runtime): stay running — prompt_result's
       // id mapping or the next agent_start settles it.
     },
 
     async setTodos(tabId, phases) {
-      const resp = await runCommand(tabId, { type: "set_todos", phases });
+      const resp = await m.runCommand(tabId, { type: "set_todos", phases });
       if (resp === null) return;
-      patchRpc(tabId, {
+      m.patchRpc(tabId, {
         todos: parseTodoPhases(field(respData(resp), "todoPhases")),
       });
     },
 
     async refreshState(tabId) {
-      const resp = await runCommand(
+      const resp = await m.runCommand(
         tabId,
         { type: "get_state" },
         { quiet: true },
       );
       if (resp === null) return;
-      applyRpcState(tabId, resp);
+      m.applyRpcState(tabId, resp);
     },
 
     async refreshStats(tabId) {
-      const resp = await runCommand(
+      const resp = await m.runCommand(
         tabId,
         { type: "get_session_stats" },
         { quiet: true },
       );
       if (resp === null) return;
-      patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
+      m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
     },
 
     async refreshAdvisorStats(tabId) {
       // The extension answers by publishing over setStatus. Until omp has run a
       // turn the session is uncaptured, so it reports a live-session wait which
       // the HUD treats as "not yet" rather than an error.
-      await runCommand(tabId, {
+      await m.runCommand(tabId, {
         type: "prompt",
         message: `/${ADVISOR_STATS_COMMAND}`,
       });
@@ -3538,20 +2951,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async refreshSubagents(tabId) {
       // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
       // strobe for the lifetime of every spawned subagent.
-      const resp = await runCommand(
+      const resp = await m.runCommand(
         tabId,
         { type: "get_subagents" },
         { quiet: true },
       );
       if (resp === null) return;
-      patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
+      m.patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
     },
 
     openSubagent(tabId, key) {
       const tab = get().rpc[tabId];
       if (!tab || tab.selectedSubagent === key) return;
-      patchRpc(tabId, { selectedSubagent: key });
-      syncSubagentSubscription(tabId);
+      m.patchRpc(tabId, { selectedSubagent: key });
+      m.syncSubagentSubscription(tabId);
       // Backfill the run's full history from the subagent's own transcript
       // file, so the view shows the whole run — not just what streamed
       // since the click. Wholesale replace, the same contract as
@@ -3571,7 +2984,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           if (get().rpc[tabId]?.selectedSubagent !== key) return;
           const messages = arrField(respData(resp), "messages");
           const buffers = get().rpc[tabId]?.subagentItems ?? {};
-          patchRpc(tabId, {
+          m.patchRpc(tabId, {
             subagentItems: { ...buffers, [key]: historyToItems(messages) },
           });
         })
@@ -3579,8 +2992,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     closeSubagent(tabId) {
-      patchRpc(tabId, { selectedSubagent: null });
-      syncSubagentSubscription(tabId);
+      m.patchRpc(tabId, { selectedSubagent: null });
+      m.syncSubagentSubscription(tabId);
     },
 
     clearShellExited(tabId) {
@@ -3721,7 +3134,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     appendNotice(tabId, text, level) {
-      appendItem(tabId, noticeItem(text, level));
+      m.appendItem(tabId, noticeItem(text, level));
     },
 
     async suggestBranchName(projectCwd, planContext) {
