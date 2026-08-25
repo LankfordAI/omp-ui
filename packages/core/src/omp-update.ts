@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { downloadFileAtomically } from "./download";
-import type { DownloadFetchLike, FetchLike } from "./fetch";
+import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
 import { resolveOmpBinary } from "./paths";
 import type { OmpUpdateInfo } from "./types";
 
@@ -63,8 +63,6 @@ export function ompAssetName(
   return `omp-${p}-${a}${p === "windows" ? ".exe" : ""}`;
 }
 
-const globalFetch = fetch as unknown as FetchLike;
-
 
 /** Runs `omp --version` and resolves with its stdout. Inject for tests. */
 export type VersionRunner = (ompPath: string) => Promise<string>;
@@ -91,7 +89,7 @@ export async function readInstalledOmpVersion(
 
 /** Latest published omp version from the npm registry, or null on failure. */
 export async function fetchLatestOmpVersion(
-  fetchImpl: FetchLike = globalFetch,
+  fetchImpl: FetchLike = defaultFetch,
 ): Promise<string | null> {
   try {
     const res = await fetchImpl(OMP_NPM_LATEST_URL);

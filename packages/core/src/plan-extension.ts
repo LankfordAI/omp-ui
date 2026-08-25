@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeLineageArtifact } from "./lineage-artifact";
 import {
   PLAN_COMMAND,
   PLAN_EXECUTE,
@@ -324,15 +324,14 @@ export default function (pi: PlanExtensionApi) {
     "preparePlanForReview",
     "setActiveToolsByName",
     "getEnabledToolNames",
-  ];
+  ] as const;
 
   /** Null when the session is usable; otherwise the reason it is not. */
   function unusable(): string | undefined {
     if (unavailable) return unavailable;
     const active = session;
     if (!active) return "no active omp session";
-    const record = active as unknown as Record<string, unknown>;
-    const missing = REQUIRED.filter(name => typeof record[name] !== "function");
+    const missing = REQUIRED.filter(name => typeof active[name] !== "function");
     return missing.length > 0 ? "omp session is missing: " + missing.join(", ") : undefined;
   }
 
@@ -720,8 +719,5 @@ export default function (pi: PlanExtensionApi) {
  * omp-ui build can never outvote the current wire contract.
  */
 export function writePlanExtension(lineageDir: string): string {
-  const file = planExtensionPath(lineageDir);
-  fs.mkdirSync(lineageDir, { recursive: true });
-  fs.writeFileSync(file, extensionSource(), "utf8");
-  return file;
+  return writeLineageArtifact(lineageDir, planExtensionPath(lineageDir), extensionSource());
 }

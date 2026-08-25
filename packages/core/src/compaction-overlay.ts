@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { removeLineageArtifact, writeLineageArtifact, yamlQuote } from "./lineage-artifact";
 
 const OVERLAY_NAME = "omp-ui-compaction.yml";
 
@@ -14,23 +14,14 @@ export function writeCompactionMethodOverlay(
 ): string | null {
   const file = compactionMethodOverlayPath(lineageDir);
   if (preferred === null) {
-    try {
-      fs.rmSync(file);
-    } catch {
-      // Absent is the requested state.
-    }
+    removeLineageArtifact(file);
     return null;
   }
   const order = [preferred, ...configuredOrder.filter((id) => id !== preferred)];
-  fs.mkdirSync(lineageDir, { recursive: true });
-  fs.writeFileSync(
+  return writeLineageArtifact(
+    lineageDir,
     file,
-    `compaction:\n  methodOrder:\n${order.map((id) => `    - ${quote(id)}\n`).join("")}`,
-    "utf8",
+    `compaction:\n  methodOrder:\n${order.map((id) => `    - ${yamlQuote(id)}\n`).join("")}`,
   );
-  return file;
 }
 
-function quote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}

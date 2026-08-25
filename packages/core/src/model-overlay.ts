@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { removeLineageArtifact, writeLineageArtifact, yamlQuote } from "./lineage-artifact";
 import { formatModelRole, type ModelRole } from "./omp-config";
 
 /**
@@ -34,32 +34,15 @@ export function writeDefaultModelOverlay(
   lineageDir: string,
   role: ModelRole | null,
 ): string | null {
+  const file = modelOverlayPath(lineageDir);
   if (role === null) {
-    try {
-      fs.rmSync(modelOverlayPath(lineageDir));
-    } catch {
-      // Never written, or already gone — either way there is no overlay.
-    }
+    removeLineageArtifact(file);
     return null;
   }
-  const file = modelOverlayPath(lineageDir);
-  // `--config` is a strict loader in omp: a malformed or missing overlay is a
-  // hard startup error, so the write must land before spawn, not lazily.
-  fs.mkdirSync(lineageDir, { recursive: true });
-  fs.writeFileSync(
+  return writeLineageArtifact(
+    lineageDir,
     file,
-    `modelRoles:\n  default: ${quote(formatModelRole(role))}\n`,
-    "utf8",
+    `modelRoles:\n  default: ${yamlQuote(formatModelRole(role))}\n`,
   );
-  return file;
 }
 
-/**
- * Model ids are `provider/model[:level]` — no YAML metacharacters in practice,
- * but the value is user-selected, so it is quoted rather than trusted. Double
- * quotes with backslash escaping is the one YAML string form that can carry
- * anything.
- */
-function quote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}

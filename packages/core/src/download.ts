@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { DownloadFetchLike } from "./fetch";
+import { defaultDownloadFetch, type DownloadFetchLike } from "./fetch";
 
 export const MAX_UPDATE_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 
@@ -16,8 +16,6 @@ export interface AtomicDownloadOptions {
   validateTemp?: (tempPath: string) => Promise<void>;
   onProgress?: (percent: number | null) => void;
 }
-
-const defaultDownloadFetch = fetch as unknown as DownloadFetchLike;
 
 function tempPathFor(targetPath: string): string {
   const extension = path.extname(targetPath);

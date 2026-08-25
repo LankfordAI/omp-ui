@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeLineageArtifact } from "./lineage-artifact";
 import {
   MCP_CONNECTION_STATUS_CHANNEL,
   MCP_RUNTIME_STATUS_COMMAND,
@@ -117,8 +117,5 @@ export default function (pi: ExtensionApi) {
 
 /** Writes a fresh status bridge and returns the path passed to omp as `-e`. */
 export function writeMcpStatusExtension(lineageDir: string): string {
-  const file = mcpStatusExtensionPath(lineageDir);
-  fs.mkdirSync(lineageDir, { recursive: true });
-  fs.writeFileSync(file, extensionSource(), "utf8");
-  return file;
+  return writeLineageArtifact(lineageDir, mcpStatusExtensionPath(lineageDir), extensionSource());
 }

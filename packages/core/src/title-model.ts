@@ -116,23 +116,33 @@ export function parseTitleOutput(stdout: string): string | null {
  * because titling is best-effort: the caller owns the fallback and this must
  * never take a session down with it.
  */
-export async function generateTitleWithOmp(req: TitleRequest): Promise<string | null> {
+/**
+ * The shared skeleton for a small-model one-shot: stateless, tool-less, run
+ * in the project's cwd, with the prompt as argv data after `--`. Resolves to
+ * stdout, or null on every failure path (missing model, non-zero exit,
+ * timeout) — the caller owns the parse and the fallback.
+ */
+async function runSmallModelCompletion(req: TitleRequest, systemPrompt: string): Promise<string | null> {
   const argv = ["-p", "--no-session", "--cwd", req.projectCwd];
   // Omitted when unset, so omp resolves the same default chain it uses itself.
   if (req.model !== null) argv.push("--model", req.model);
-  // Everything a title run has no use for. `--no-session` also keeps this out
+  // Everything a one-shot has no use for. `--no-session` also keeps this out
   // of the sessions root, so it can never be mistaken for an owned session.
   argv.push("--no-tools", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules");
-  argv.push("--system-prompt", TITLE_SYSTEM_PROMPT);
+  argv.push("--system-prompt", systemPrompt);
   // `--` so a prompt starting with `-` or `@` is argv data, not flags/file refs.
   argv.push("--", `<user>${req.prompt}</user>`);
 
-  const stdout = await runOmpOnce({
+  return runOmpOnce({
     ompPath: req.ompPath,
     argv,
     timeout: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     spawn: req.spawn,
   });
+}
+
+export async function generateTitleWithOmp(req: TitleRequest): Promise<string | null> {
+  const stdout = await runSmallModelCompletion(req, TITLE_SYSTEM_PROMPT);
   return stdout === null ? null : parseTitleOutput(stdout);
 }
 
@@ -205,21 +215,6 @@ export function parseBranchNameOutput(stdout: string): string | null {
  * the caller owns the mechanical fallback.
  */
 export async function generateBranchNameWithOmp(req: TitleRequest): Promise<string | null> {
-  const argv = ["-p", "--no-session", "--cwd", req.projectCwd];
-  // Omitted when unset, so omp resolves the same default chain it uses itself.
-  if (req.model !== null) argv.push("--model", req.model);
-  // Everything a naming run has no use for. `--no-session` also keeps this out
-  // of the sessions root, so it can never be mistaken for an owned session.
-  argv.push("--no-tools", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules");
-  argv.push("--system-prompt", BRANCH_NAME_SYSTEM_PROMPT);
-  // `--` so a prompt starting with `-` or `@` is argv data, not flags/file refs.
-  argv.push("--", `<user>${req.prompt}</user>`);
-
-  const stdout = await runOmpOnce({
-    ompPath: req.ompPath,
-    argv,
-    timeout: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    spawn: req.spawn,
-  });
+  const stdout = await runSmallModelCompletion(req, BRANCH_NAME_SYSTEM_PROMPT);
   return stdout === null ? null : parseBranchNameOutput(stdout);
 }

@@ -379,27 +379,6 @@ function readStringList(config: McpConfigFile, key: "disabledServers" | "enabled
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
-/**
- * Adds/removes `name` in one of the user-level override lists, mirroring omp:
- * the array is written sorted, and the key is deleted when it empties.
- */
-async function setServerListed(
-  userPath: string,
-  key: "disabledServers" | "enabledServers",
-  name: string,
-  listed: boolean,
-): Promise<void> {
-  const config = await readMcpConfigFile(userPath);
-  const current = new Set(readStringList(config, key));
-  if (listed) current.add(name);
-  else current.delete(name);
-  const updated: McpConfigFile = {
-    ...config,
-    [key]: current.size > 0 ? Array.from(current).sort() : undefined,
-  };
-  if (!updated[key]) delete updated[key];
-  await writeMcpConfigFile(userPath, updated);
-}
 
 /**
  * Flips one server's enabled state and resolves with the refreshed server
@@ -428,7 +407,7 @@ export async function setMcpServerEnabled(
 /**
  * Global-scope toggle — omp's own write algorithm:
  *
- * - First candidate file (writable `sourcePath`, then user mcp.json) that
+ * - The first candidate file (writable `sourcePath`, then user mcp.json) that
  *   actually defines `name` gets `{ ...entry, enabled }` written back; the
  *   search stops there.
  * - Enable: clears any user denylist entry; adds a user allowlist entry only
@@ -437,6 +416,13 @@ export async function setMcpServerEnabled(
  *   `enabled: true` (redundant override).
  * - Disable: clears any user allowlist entry; adds a user denylist entry when
  *   no file was updated.
+ *
+ * The user mcp.json is read exactly once and written at most once per
+ * toggle: the previous shape re-read it before every list operation, so one
+ * toggle could interleave up to 5 reads and 3 partial rewrites with omp's own
+ * writer. The lists are computed in memory from that single snapshot; the one
+ * final write carries the list state and (when the user file was itself the
+ * updated candidate) the entry flip together.
  */
 async function setGlobalServerEnabled(
   name: string,
@@ -445,42 +431,50 @@ async function setGlobalServerEnabled(
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
   const userPath = path.join(getOmpAgentDir(env), "mcp.json");
+  // Read the user file once up front: it always supplies the deny/allow
+  // lists, and it may be the winning candidate below.
+  let userConfig = await readMcpConfigFile(userPath);
   const candidatePaths = [...new Set([sourcePath, userPath].filter((p) => p !== undefined))];
   let updatedInConfig = false;
 
   for (const filePath of candidatePaths) {
-    const config = await readMcpConfigFile(filePath);
+    const config = filePath === userPath ? userConfig : await readMcpConfigFile(filePath);
     const server = config.mcpServers?.[name];
     if (server === undefined) continue;
-    await writeMcpConfigFile(filePath, {
+    const written: McpConfigFile = {
       ...config,
       mcpServers: { ...config.mcpServers, [name]: { ...server, enabled } },
-    });
+    };
+    await writeMcpConfigFile(filePath, written);
+    if (filePath === userPath) userConfig = written; // keep the snapshot current
     updatedInConfig = true;
     break;
   }
 
+  const deny = new Set(readStringList(userConfig, "disabledServers"));
+  const allow = new Set(readStringList(userConfig, "enabledServers"));
   if (enabled) {
-    const denied = readStringList(await readMcpConfigFile(userPath), "disabledServers");
-    if (denied.includes(name)) {
-      await setServerListed(userPath, "disabledServers", name, false);
-    }
-    const forced = readStringList(await readMcpConfigFile(userPath), "enabledServers").includes(
-      name,
-    );
-    if (!updatedInConfig && !forced) {
-      await setServerListed(userPath, "enabledServers", name, true);
-    } else if (updatedInConfig && forced) {
-      await setServerListed(userPath, "enabledServers", name, false);
-    }
+    deny.delete(name);
+    if (!updatedInConfig && !allow.has(name)) allow.add(name);
+    else if (updatedInConfig && allow.has(name)) allow.delete(name);
   } else {
-    const forced = readStringList(await readMcpConfigFile(userPath), "enabledServers");
-    if (forced.includes(name)) {
-      await setServerListed(userPath, "enabledServers", name, false);
-    }
-    if (!updatedInConfig) {
-      await setServerListed(userPath, "disabledServers", name, true);
-    }
+    allow.delete(name);
+    if (!updatedInConfig) deny.add(name);
+  }
+
+  const denyList = [...deny].sort();
+  const allowList = [...allow].sort();
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+  if (
+    !same(denyList, readStringList(userConfig, "disabledServers").sort()) ||
+    !same(allowList, readStringList(userConfig, "enabledServers").sort())
+  ) {
+    const updated: McpConfigFile = { ...userConfig };
+    if (denyList.length > 0) updated.disabledServers = denyList;
+    else delete updated.disabledServers;
+    if (allowList.length > 0) updated.enabledServers = allowList;
+    else delete updated.enabledServers;
+    await writeMcpConfigFile(userPath, updated);
   }
 }
 

@@ -25,3 +25,9 @@ export interface DownloadFetchLike {
     arrayBuffer(): Promise<ArrayBuffer>;
   }>;
 }
+
+/** The process's global fetch, narrowed to the JSON/checksum surface. */
+export const defaultFetch: FetchLike = fetch as unknown as FetchLike;
+
+/** The process's global fetch, narrowed to the streaming download surface. */
+export const defaultDownloadFetch: DownloadFetchLike = fetch as unknown as DownloadFetchLike;

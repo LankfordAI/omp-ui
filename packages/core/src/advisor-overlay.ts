@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { removeLineageArtifact, writeLineageArtifact, yamlQuote } from "./lineage-artifact";
 import { formatModelRole, type ModelRole } from "./omp-config";
 
 /**
@@ -52,28 +52,11 @@ export function writeAdvisorOverlay(
   // A model pin is pointless with the advisor off, and omp would resolve it
   // anyway — but it is harmless and keeps the file a faithful mirror of the
   // record, so a later "on" needs no second write.
-  if (role !== null) lines.push("modelRoles:", `  advisor: ${quote(formatModelRole(role))}`);
+  if (role !== null) lines.push("modelRoles:", `  advisor: ${yamlQuote(formatModelRole(role))}`);
   if (lines.length === 0) {
-    try {
-      fs.rmSync(file);
-    } catch {
-      // Never written, or already gone — either way there is no overlay.
-    }
+    removeLineageArtifact(file);
     return null;
   }
-  // `--config` is a strict loader in omp: a malformed or missing overlay is a
-  // hard startup error, so the write must land before spawn, not lazily.
-  fs.mkdirSync(lineageDir, { recursive: true });
-  fs.writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
-  return file;
+  return writeLineageArtifact(lineageDir, file, `${lines.join("\n")}\n`);
 }
 
-/**
- * Model ids are `provider/model[:level]` — no YAML metacharacters in practice,
- * but the value is user-selected, so it is quoted rather than trusted. Double
- * quotes with backslash escaping is the one YAML string form that can carry
- * anything.
- */
-function quote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}

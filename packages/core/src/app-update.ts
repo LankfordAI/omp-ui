@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { downloadFileAtomically } from "./download";
-import type { DownloadFetchLike, FetchLike } from "./fetch";
+import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
 import { parseSemver } from "./omp-update";
 import type { AppPackageFormat } from "./types";
 
@@ -31,7 +31,6 @@ export interface AppReleaseInfo {
   assets: string[];
 }
 
-const defaultFetch = fetch as unknown as FetchLike;
 
 /**
  * Validated parse of GET /releases/latest. Null on malformed, draft, or

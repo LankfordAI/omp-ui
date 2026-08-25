@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { ADVISOR_STATS_COMMAND, ADVISOR_STATS_KEY } from "./advisor-stats";
+import { writeLineageArtifact } from "./lineage-artifact";
 
 /**
  * OMP's rpc surface has no advisor accounting. The public methods on each live
@@ -395,8 +395,5 @@ export default function (pi: ExtensionApi) {
  * older omp-ui build can never outvote the current wire contract.
  */
 export function writeAdvisorStatsExtension(lineageDir: string): string {
-  const file = advisorStatsExtensionPath(lineageDir);
-  fs.mkdirSync(lineageDir, { recursive: true });
-  fs.writeFileSync(file, extensionSource(), "utf8");
-  return file;
+  return writeLineageArtifact(lineageDir, advisorStatsExtensionPath(lineageDir), extensionSource());
 }
