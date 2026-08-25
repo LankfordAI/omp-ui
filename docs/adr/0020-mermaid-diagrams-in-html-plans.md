@@ -40,6 +40,12 @@ a custom mini-DSL (we would own layout quality *and* a private syntax), and
 mermaid inside the plan iframe at runtime (violates the no-scripts plan rule
 and ADR-0007's empty sandbox).
 
+> **Correction (2026-08-25):** `securityLevel: "strict"` sanitizes HTML-label
+> content; it does not disable HTML labels. Under strict alone, diagrams still
+> emit `<foreignObject>` labels, which re-wrap at the column-scaled width and
+> clip. Root-level `htmlLabels: false` (issue #303) is what renders labels as
+> pure SVG text, making this ADR's original "no HTML labels" intent true.
+
 ## Consequences
 
 - **`preparePlanDocument` is async.** The one callsite-visible change; both

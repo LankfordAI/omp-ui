@@ -83,7 +83,13 @@ let ready: Promise<unknown> | null = null;
 
 function ensureMermaid(): Promise<unknown> {
   return (ready ??= import("mermaid").then(({ default: mermaid }) => {
-    // strict: no HTML labels, no click handlers — plan content is untrusted.
+    // strict: sanitized labels, no click handlers — plan content is untrusted.
+    // htmlLabels:false (root level) renders labels as SVG <text> instead of
+    // <foreignObject> HTML. strict does NOT disable HTML labels (it only
+    // sanitizes them); FO labels re-wrap at the column-scaled SVG width and
+    // clip at the FO's fixed height, and plan/guardrail CSS reaches into them
+    // (issue #303). Root level is required: flowchart.htmlLabels is deprecated
+    // and the root default overrides it (mermaid 11.17 config precedence).
     // theme:"base" + themeVariables gives a warm, legible default on the plan's
     // light canvas; the agent can still override per node with classDef/style
     // (pure fill/stroke/color, allowed under strict — issue #286).
@@ -91,6 +97,7 @@ function ensureMermaid(): Promise<unknown> {
       startOnLoad: false,
       securityLevel: "strict",
       theme: "base",
+      htmlLabels: false,
       themeVariables: {
         primaryColor: "#fef3c7",
         primaryBorderColor: "#b45309",
