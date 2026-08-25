@@ -94,12 +94,12 @@ import {
 } from "./store/slices/shared";
 import { createCatchupSlice } from "./store/slices/catchup";
 import type {
-  BranchActivity,
   LastTurnMeta,
   PlanRecord,
   RpcTabState,
   UiStore,
 } from "./store/types";
+import { createBranchesSlice } from "./store/slices/branches";
 export type {
   BranchActivity,
   CompactSurface,
@@ -281,16 +281,6 @@ const subagentRefresh = new Map<string, SubagentRefresh>();
 /** Whole parameter actions, including their authoritative registry write. */
 const pendingSessionParameterActions = new Map<string, Set<Promise<void>>>();
 
-interface BranchRefreshRuntime {
-  state: {
-    fetchUpstream: boolean;
-    pendingNetwork: boolean;
-  };
-  promise: Promise<void>;
-}
-
-const branchRefreshes = new Map<string, BranchRefreshRuntime>();
-
 /** Shared empty buffer so identity comparison detects "no items yet". */
 const EMPTY_BUFFER: RenderItem[] = [];
 
@@ -366,6 +356,7 @@ function extensionStatusEntry(
 export const useStore = create<UiStore>()((set, get, api) => {
   const m = createMachinery(set, get, api);
   const catchup = createCatchupSlice(set, get, m);
+  const branchesSlice = createBranchesSlice(set, get);
   /**
    * Reconciles each open rpc tab's plan-review gate against the
    * main-process-owned record on the session summary (issue #215). The
@@ -440,24 +431,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
         });
       }
     }
-  };
-
-  const patchBranchActivity = (
-    projectCwd: string,
-    patch: Partial<BranchActivity>,
-  ): void => {
-    set((s) => {
-      const current = s.branchActivity[projectCwd];
-      return {
-        branchActivity: {
-          ...s.branchActivity,
-          [projectCwd]: {
-            refreshing: patch.refreshing ?? current?.refreshing ?? false,
-            pulling: patch.pulling ?? current?.pulling ?? false,
-          },
-        },
-      };
-    });
   };
 
   const prepareRpcRelaunch = (tabId: string): void => {
@@ -1136,9 +1109,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
     consoleOpen: {},
     searchOpen: {},
     tuiHandoff: {},
-    branches: {},
-    branchActivity: {},
-    branchDiffRevision: {},
+    branches: branchesSlice.branches,
+    branchActivity: branchesSlice.branchActivity,
+    branchDiffRevision: branchesSlice.branchDiffRevision,
+    refreshBranches: branchesSlice.refreshBranches,
+    checkoutGitBranch: branchesSlice.checkoutGitBranch,
+    pullGitBranch: branchesSlice.pullGitBranch,
+    readMergeBackStatus: branchesSlice.readMergeBackStatus,
+    mergeWorktreeBranch: branchesSlice.mergeWorktreeBranch,
+    suggestBranchName: branchesSlice.suggestBranchName,
     advisorDefaults: {},
     deleteConfirmation: null,
 
@@ -2967,99 +2946,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
     },
 
-    async refreshBranches(projectCwd, opts) {
-      const fetchUpstream = opts?.fetchUpstream === true;
-      const active = branchRefreshes.get(projectCwd);
-      if (active !== undefined) {
-        if (fetchUpstream && !active.state.fetchUpstream)
-          active.state.pendingNetwork = true;
-        return active.promise;
-      }
-
-      patchBranchActivity(projectCwd, { refreshing: true });
-      const state = { fetchUpstream, pendingNetwork: false };
-      let nextOptions = opts;
-      const promise = Promise.resolve().then(async () => {
-        try {
-          while (true) {
-            try {
-              const list = await backend.listBranches(projectCwd, nextOptions);
-              set((s) => ({ branches: { ...s.branches, [projectCwd]: list } }));
-            } catch {
-              // Keep the last known snapshot when listing fails.
-            }
-
-            if (!state.pendingNetwork) return;
-            state.pendingNetwork = false;
-            state.fetchUpstream = true;
-            nextOptions = { fetchUpstream: true };
-          }
-        } finally {
-          branchRefreshes.delete(projectCwd);
-          patchBranchActivity(projectCwd, { refreshing: false });
-        }
-      });
-      branchRefreshes.set(projectCwd, { state, promise });
-      return promise;
-    },
-
-    async checkoutGitBranch(projectCwd, name, opts) {
-      try {
-        await backend.checkoutBranch(projectCwd, name, opts);
-      } catch (err) {
-        return err instanceof Error ? err.message : String(err);
-      }
-      await get().refreshBranches(projectCwd, { fetchUpstream: false });
-      return null;
-    },
-
-    async pullGitBranch(projectCwd) {
-      if (get().branchActivity[projectCwd]?.pulling === true) return null;
-
-      patchBranchActivity(projectCwd, { pulling: true });
-      let pulled = false;
-      try {
-        await backend.pullBranch(projectCwd);
-        pulled = true;
-        await get().refreshBranches(projectCwd, { fetchUpstream: false });
-        return null;
-      } catch (err) {
-        return err instanceof Error ? err.message : String(err);
-      } finally {
-        if (pulled) {
-          set((s) => ({
-            branchDiffRevision: {
-              ...s.branchDiffRevision,
-              [projectCwd]: (s.branchDiffRevision[projectCwd] ?? 0) + 1,
-            },
-          }));
-        }
-        patchBranchActivity(projectCwd, { pulling: false });
-      }
-    },
-
-    async readMergeBackStatus(projectCwd, branch, base) {
-      return backend.getMergeBackStatus(projectCwd, branch, base);
-    },
-
-    async mergeWorktreeBranch(projectCwd, branch, destination) {
-      const result = await backend.mergeWorktreeBranch(projectCwd, branch, destination);
-      if (result.kind === "ff" || result.kind === "merged") {
-        await get().refreshBranches(projectCwd, { fetchUpstream: false });
-      }
-      return result;
-    },
-
     appendNotice(tabId, text, level) {
       m.appendItem(tabId, noticeItem(text, level));
     },
 
-    async suggestBranchName(projectCwd, planContext) {
-      // Best-effort like titling: never throw into the review modal.
-      return backend
-        .suggestBranchName(projectCwd, planContext)
-        .catch(() => null);
-    },
   };
 });
 
