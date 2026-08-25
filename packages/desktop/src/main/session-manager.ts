@@ -1197,6 +1197,28 @@ export class SessionManager {
     return false;
   }
 
+  /**
+   * True while `tabId` is its project's most recently active owned session.
+   * The last active session in each project never idle-hibernates (issue #304):
+   * recency mirrors the sidebar order — `cachedModified ?? launchedAt`, ties
+   * to the earlier registry record. Dormant and terminal sessions count; a
+   * dormant newest session already satisfies the guarantee.
+   */
+  private isLastActiveInProject(tabId: string): boolean {
+    const sessions = this.deps.registry.sessions;
+    const record = sessions.find((s) => s.tabId === tabId);
+    if (!record) return false;
+    const recency = (s: OwnedSessionRecord): string => s.cachedModified ?? s.launchedAt;
+    const mine = recency(record);
+    const myIndex = sessions.indexOf(record);
+    return !sessions.some(
+      (other, i) =>
+        i !== myIndex &&
+        other.projectCwd === record.projectCwd &&
+        (recency(other) > mine || (recency(other) === mine && i < myIndex)),
+    );
+  }
+
   /** True when a kill cannot lose work or an in-flight exchange. */
   private hibernable(
     entry: LiveEntry,
@@ -1209,6 +1231,7 @@ export class SessionManager {
     if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
     if (policy === "plan-handoff") return true;
     if (this.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
+    if (this.isLastActiveInProject(tabId)) return false; // the project's last active session stays warm (issue #304)
     const until = entry.settleSuspendedUntil;
     if (until !== null) {
       if (Date.now() < until) return false; // post-verdict window

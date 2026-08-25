@@ -370,6 +370,7 @@ describe("Settings General page hibernate idle sessions (issue #246)", () => {
     seedGeneral(30);
     await renderSettings();
     expect(document.body.textContent).toContain("Hibernate idle sessions");
+    expect(document.body.textContent).toContain("each project's most recently active session");
     expect(buttonWithText("30 min")!.getAttribute("aria-pressed")).toBe("true");
     expect(buttonWithText("1 hour")!.getAttribute("aria-pressed")).toBe("false");
 

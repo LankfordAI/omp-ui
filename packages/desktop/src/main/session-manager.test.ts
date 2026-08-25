@@ -2125,6 +2125,29 @@ describe("hibernation (issue #246)", () => {
     );
   };
 
+  /**
+   * Adds a dormant same-project session that is more recently active than TAB
+   * (cachedModified 12:00 > TAB's launchedAt fallback 10:00), so TAB is not the
+   * project's last active session and ordinary idle hibernation can proceed
+   * (issue #304). `addSession` splices it to the top of the project's records.
+   */
+  const addNewerSibling = (
+    registry: Core.Registry,
+    patch: Partial<Core.OwnedSessionRecord> = {},
+  ): void => {
+    registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-newer",
+        sessionId: null,
+        lineageDir: "omp-ui--proj--99999999-8888-7777-6666-555555555555",
+        projectCwd: "/proj",
+        mode: "rpc-ui",
+        cachedModified: "2026-07-29T12:00:00.000Z",
+        ...patch,
+      }),
+    );
+  };
+
   const readyHandoff = async (): Promise<{
     manager: SessionManager;
     registry: Core.Registry;
@@ -2143,7 +2166,8 @@ describe("hibernation (issue #246)", () => {
   it("arms on the first frame and hibernates after the quiet window", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, broadcast, sent } = setup({ mode: "rpc-ui" });
+      const { manager, broadcast, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2192,7 +2216,8 @@ describe("hibernation (issue #246)", () => {
   it("defers hibernation while messages are parked, and hibernates after they drain", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2225,7 +2250,8 @@ describe("hibernation (issue #246)", () => {
   it("re-probes a quiet session every window when the probe never answers, never killing on silence", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
 
@@ -2252,7 +2278,8 @@ describe("hibernation (issue #246)", () => {
   it("hibernates a quiet session on the re-probe after a transient probe failure (issue #247)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2276,7 +2303,8 @@ describe("hibernation (issue #246)", () => {
   it("holds hibernation across a plan review and the post-verdict settle window", async () => {
     vi.useFakeTimers();
     try {
-      const { manager } = setup({ mode: "rpc-ui" });
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2312,6 +2340,7 @@ describe("hibernation (issue #246)", () => {
       // chain's grid: the verdict's one-shot is the only check that can
       // land exactly there (issue #247).
       registry.setSetting("hibernateIdleMinutes", 8);
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2350,7 +2379,8 @@ describe("hibernation (issue #246)", () => {
   it("holds hibernation while an extension dialog awaits an answer", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2382,7 +2412,8 @@ describe("hibernation (issue #246)", () => {
   it("does not hold hibernation on fire-and-forget extension requests", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2443,7 +2474,8 @@ describe("hibernation (issue #246)", () => {
   it("hands back to the normal exit path when the child ignores both signals", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!; // kill is a no-op: the child ignores signals
 
@@ -2470,7 +2502,8 @@ describe("hibernation (issue #246)", () => {
   it("makes a concurrent resume wait for an in-flight reap instead of deduping", async () => {
     vi.useFakeTimers();
     try {
-      const { manager } = setup({ mode: "rpc-ui" });
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       // SIGTERM acknowledged but the process lingers: the reap is observable.
@@ -2498,7 +2531,8 @@ describe("hibernation (issue #246)", () => {
   it("never hibernates the tab being viewed (issue #266)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2520,7 +2554,8 @@ describe("hibernation (issue #246)", () => {
   it("hibernates a previously viewed tab once no renderer views it (issue #266)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2543,7 +2578,8 @@ describe("hibernation (issue #246)", () => {
   it("hibernates once the viewed report goes stale (issue #266)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2566,7 +2602,8 @@ describe("hibernation (issue #246)", () => {
   it("keeps protecting while any of several renderers views the tab (issue #266)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2595,6 +2632,7 @@ describe("hibernation (issue #246)", () => {
     vi.useFakeTimers();
     try {
       const { manager, registry, sent } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2604,7 +2642,7 @@ describe("hibernation (issue #246)", () => {
       // last frame covers the check (issue #246).
       rpc.frame(planStatusFrame("p263", true));
       await vi.advanceTimersByTimeAsync(WINDOW);
-      expect(registry.sessions[0]?.agentMode).toBe("plan");
+      expect(registry.sessions.find((s) => s.tabId === TAB)?.agentMode).toBe("plan");
       expect(rpc.send).toHaveBeenCalledTimes(1);
       expect(rpc.send.mock.calls[0]![0]).toMatchObject({ type: "get_state" });
 
@@ -2628,7 +2666,8 @@ describe("hibernation (issue #246)", () => {
   it("keeps a Build session in Build after a hibernate (issue #263)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager, sent } = setup({ mode: "rpc-ui" });
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -2840,6 +2879,139 @@ describe("hibernation (issue #246)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("never idle-hibernates the project's last active session (issue #304)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW * 3);
+
+      // The exemption precedes the probe: no get_state, no kill, still live.
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hibernates an idle session once a dormant sibling is more recently active (issue #304)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+      expect(manager.liveCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores more recently active sessions in other projects (issue #304)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      registry.addSession(
+        ownedSessionRecord({
+          tabId: "tab-other",
+          sessionId: null,
+          lineageDir: "omp-ui--other--99999999-8888-7777-6666-555555555555",
+          projectCwd: "/other",
+          mode: "rpc-ui",
+          cachedModified: "2026-07-29T12:00:00.000Z",
+        }),
+      );
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW * 2);
+
+      expect(rpc.send).not.toHaveBeenCalled();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("breaks recency ties to the earlier registry record (issue #304)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      // Same recency key as TAB (cachedModified null, equal launchedAt);
+      // addSession splices the sibling ahead of TAB, so it wins the tie.
+      addNewerSibling(registry, { cachedModified: null });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hibernates on the next window after a newer session appears (issue #304)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW); // last active: guard re-arms
+      expect(rpc.send).not.toHaveBeenCalled();
+
+      addNewerSibling(registry); // a more recently active session joins the project
+      await vi.advanceTimersByTimeAsync(WINDOW); // re-check drops the exemption
+      cleanProbe(rpc);
+      await flush();
+
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still hibernates a handed-off source that is the project's last active session (issue #304)", async () => {
+    const { manager, registry, rpc } = await readyHandoff();
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    // Make TAB strictly the most recently active session in /proj.
+    registry.updateSession(TAB, { cachedModified: "2026-08-01T00:00:00.000Z" });
+
+    const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+    cleanProbe(rpc);
+
+    await expect(result).resolves.toBe(true);
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
   });
 });
 

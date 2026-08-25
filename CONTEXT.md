@@ -26,13 +26,18 @@ _Avoid_: open session, active session, running session
 **Hibernated session**:
 An owned session whose `omp` process omp-ui stopped itself after the session
 sat idle beyond the *Hibernate idle sessions* window while no renderer was
-viewing its tab (issue #246; viewed-tab exemption #266), or after it handed an
-approved plan to a fresh implementation session and passed the same live-work
-safety probe (issue #283).
+viewing its tab and it was not its project's most recently active session
+(issue #246; viewed-tab exemption #266; last-active exemption #304), or after
+it handed an approved plan to a fresh implementation session and passed the
+same live-work safety probe (issue #283).
 A hibernated session is dormant — transcript and worktree on disk, no process — and wakes
 through the ordinary resume path; the sidebar shows it as dormant and its tab
 offers resume. The distinction from a plain dormant session is causal: dormant
 lost its process because the app quit, hibernated lost it on purpose while idle.
+The last-active exemption uses the sidebar recency key
+(`cachedModified ?? launchedAt`, ties to the earlier registry record) across
+all of a project's owned sessions, and like the viewed-tab exemption it
+applies to idle hibernation only, never to a plan handoff.
 _Avoid_: suspended session, parked session, sleeping session
 
 **Tab**:

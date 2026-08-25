@@ -437,7 +437,7 @@ function GeneralPage() {
       </Row>
       <Row
         title="Hibernate idle sessions"
-        hint="Stop the agent process of a native session after it has been quiet this long. The tab you are looking at and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it."
+        hint="Stop the agent process of a native session after it has been quiet this long. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it."
       >
         <ChoiceCapsule
           label="hibernate idle sessions"
