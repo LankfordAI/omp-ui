@@ -23,16 +23,6 @@ export interface LiveEntry {
   readonly exited: Promise<void>;
   /** Resolver for `exited`, called from the exit handler. */
   readonly markExited: () => void;
-  // --- hibernation bookkeeping (issue #246) ---
-  /** True once the first frame has arrived; the idle clock arms only then. */
-  hibernateArmed: boolean;
-  /** Set by notePlanVerdict; cleared by the next agent_end or (lazily) once
-   * lapsed — a check is scheduled at the lapse so quiet sessions lapse too
-   * (issue #247). */
-  settleSuspendedUntil: number | null;
-  /** In-flight pre-kill probe; matched against the response frame's id. */
-  probeId: string | null;
-  probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
 }
 
 export function liveEntry(
@@ -40,10 +30,6 @@ export function liveEntry(
     LiveEntry,
     | "exited"
     | "markExited"
-    | "hibernateArmed"
-    | "settleSuspendedUntil"
-    | "probeId"
-    | "probeResolve"
   >,
 ): LiveEntry {
   // Executor form (not Promise.withResolvers): the node tsconfig lib is
@@ -56,9 +42,5 @@ export function liveEntry(
     ...fields,
     exited,
     markExited,
-    hibernateArmed: false,
-    settleSuspendedUntil: null,
-    probeId: null,
-    probeResolve: null,
   };
 }

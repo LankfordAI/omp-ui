@@ -11,7 +11,6 @@ import {
   hydrateSessionFile,
   mintLineageDirName,
   mintWorktreePath,
-  isObject,
   isWithin,
   parseModelRole,
   mcpRuntimeStatusMessage,
@@ -47,6 +46,7 @@ import {
 import type { Attention } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
 import { liveEntry, type LiveEntry } from "./live-entry";
+import { HibernationTracker } from "./hibernation-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnCounter } from "./turns";
@@ -67,23 +67,6 @@ function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
 /** How long omp gets to exit on its own before the delete escalates. */
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
-/** Pre-kill get_state probe bound; a wedged child is left to the stall UX, not killed. */
-const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
-/** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
-const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
-/**
- * Renderer-routed dialogs whose unanswered requests suppress hibernation and
- * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
- * other method (notify, setStatus, setWidget, ...) is fire-and-forget state
- * the renderer consumes without a reply, so tracking it would suppress both
- * lifecycle guards forever.
- */
-const BLOCKING_DIALOG_METHODS: Record<string, true> = {
-  select: true,
-  confirm: true,
-  input: true,
-  editor: true,
-};
 
 export interface SessionManagerDependencies {
   registry: Registry;
@@ -97,18 +80,6 @@ export interface SessionManagerDependencies {
   /** OS-attention hooks for background sessions (issue #271); omitted in tests. */
   attention?: Attention;
 }
-
-/**
- * The no-kill verdicts of the shared hibernation attempt. `rearm`: a guard is
- * in force or the probe said "not idle" — re-examine next window (issue #247).
- * The invalidating verdicts let the caller decide its own contract.
- */
-type HibernateOutcome =
-  | { reaped: boolean }
-  | "rearm"
-  | "setting-off"
-  | "replaced"
-  | "gone";
 
 /** The sole owner of live session children and their supporting process state. */
 export class SessionManager {
@@ -138,16 +109,8 @@ export class SessionManager {
    * every frame and acts on a frame before any later tracker or the broadcast does.
    */
   private readonly frameObservers: FrameObserver[] = [];
-  /** Idle-kill timers, keyed by tabId (issue #246). */
-  private readonly hibernateTimers = new Map<string, NodeJS.Timeout>();
-  /**
-   * In-flight hibernation reaps, keyed by tabId (same race pattern as
-   * `spawning`): a resume issued mid-reap waits for the entry to leave
-   * `live` instead of deduping against the dying process.
-   */
-  private readonly hibernating = new Map<string, Promise<boolean>>();
-  /** Unanswered extension_ui_request ids per tab (plan reviews included). */
-  private readonly openExtensionRequests = new Map<string, Set<string>>();
+  /** Idle hibernation, owned by the tracker (issue #246). */
+  private readonly hibernation: HibernationTracker;
   /** Model-stream stall watchdog (issue #248): the sweep and the per-tab silence records. */
   private readonly stallWatchdog: StallWatchdog;
 
@@ -161,11 +124,22 @@ export class SessionManager {
       registry: deps.registry,
       broadcastPatch: (immediate) => this.watcherHub.broadcastPatch(immediate),
     });
+    this.hibernation = new HibernationTracker({
+      registry: deps.registry,
+      send: deps.send,
+      broadcast: () => deps.broadcast(),
+      attention: deps.attention,
+      turns: this.turns,
+      getLive: (tabId) => this.live.get(tabId),
+      awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
+      isViewed: (tabId) => this.viewTracker.isViewed(tabId),
+      hibernate: (tabId, entry) => this.hibernate(tabId, entry),
+    });
     this.planGates = new PlanGateTracker({
       registry: deps.registry,
       broadcast: () => deps.broadcast(),
       attention: deps.attention,
-      suspendForVerdict: (tabId) => this.suspendForVerdict(tabId),
+      suspendForVerdict: (tabId) => this.hibernation.suspendForVerdict(tabId),
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -176,7 +150,7 @@ export class SessionManager {
       liveEntries: () => this.live,
       awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
     });
-    this.frameObservers = [this.planGates, this.stallWatchdog];
+    this.frameObservers = [this.hibernation, this.planGates, this.stallWatchdog];
   }
 
   get liveCount(): number {
@@ -211,12 +185,8 @@ export class SessionManager {
     // Lineage watchers hold inotify fds; quit is the one path that must not
     // leave them to the OS — a cancelled quit keeps the app alive without them.
     this.watcherHub.disposeAll();
-    for (const timer of this.hibernateTimers.values()) clearTimeout(timer);
-    this.hibernateTimers.clear();
-    this.openExtensionRequests.clear();
+    this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
-    // Quit must not block on a hibernation reap: the child is already dying.
-    this.hibernating.clear();
   }
 
   /**
@@ -246,7 +216,6 @@ export class SessionManager {
       this.live.delete(tabId);
       this.turns.clear(tabId);
       for (const obs of this.frameObservers) obs.onExit(tabId);
-      this.clearHibernateState(tabId);
       this.deps.attention?.sessionExit(tabId);
     }
     if (!entry.suppressExit) this.deps.send(CH.onPtyExit, tabId, exitCode);
@@ -331,7 +300,7 @@ export class SessionManager {
       // A resume issued while a hibernation reap is in flight must wait for
       // the dying entry to leave `live`, or it dedupes and the user clicks
       // twice (issue #246).
-      const pendingHibernate = this.hibernating.get(req.resumeTabId);
+      const pendingHibernate = this.hibernation.pendingReap(req.resumeTabId);
       if (pendingHibernate !== undefined) await pendingHibernate;
       if (this.live.has(req.resumeTabId) || this.spawning.has(req.resumeTabId)) {
         return { tabId: req.resumeTabId };
@@ -487,9 +456,6 @@ export class SessionManager {
       extensions,
       initialCommands,
       onFrame: (frame) => {
-        // Hibernation observation precedes the fan-out: the idle clock sees
-        // every frame, probe responses included (issue #246).
-        this.observeHibernation(record.tabId, frame);
         for (const obs of this.frameObservers) obs.onFrame(record.tabId, frame, entry);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
       },
@@ -746,23 +712,6 @@ export class SessionManager {
     return this.planGates.gate(tabId);
   }
 
-  /**
-   * Post-verdict hibernation suspension (issue #246): between the verdict
-   * and the implementation prompt the process is momentarily quiet. Stays
-   * in the manager until the hibernation tracker owns the settle state
-   * (issue #297).
-   */
-  private suspendForVerdict(tabId: string): void {
-    const entry = this.live.get(tabId);
-    if (entry !== undefined) {
-      entry.settleSuspendedUntil = Date.now() + SETTLE_WINDOW_MS;
-      // A rejected plan leaves the session silent — no frame would re-arm
-      // the check, so schedule one at the window's lapse (issue #247). Any
-      // real frame re-arms over it and resets the clock.
-      this.scheduleHibernateCheck(tabId, SETTLE_WINDOW_MS);
-    }
-  }
-
   /** Renderer reports the tab it currently has in view, or null (issue #266). */
   setViewedTab(clientId: string, tabId: string | null): void {
     this.viewTracker.setViewedTab(clientId, tabId);
@@ -781,268 +730,25 @@ export class SessionManager {
   // --- Hibernation: idle rpc-ui sessions are killed and left dormant, then
   // --- woken through the ordinary resume path (issue #246). ---
 
-  /** Clears hibernation bookkeeping on every path where a tab leaves `live`. */
-  private clearHibernateState(tabId: string): void {
-    clearTimeout(this.hibernateTimers.get(tabId));
-    this.hibernateTimers.delete(tabId);
-    this.openExtensionRequests.delete(tabId);
-  }
-
   /** Whether the stall watchdog has aborted a turn on this live process. */
   isStreamStalled(tabId: string): boolean {
     return this.stallWatchdog.isStreamStalled(tabId);
   }
 
-  /**
-   * Every rpc frame updates hibernation state in one place and re-arms the
-   * idle clock. The setting is re-read on every arm, so a Settings change
-   * takes effect at the next activity — no separate re-arm path.
-   */
-  private observeHibernation(tabId: string, frame: RpcFrame): void {
-    const entry = this.live.get(tabId);
-    if (!entry || entry.kind !== "rpc-ui") return;
-    if (typeof frame !== "object" || frame === null) return;
-    // The probe's own response: settle it and do NOT reset the idle clock —
-    // probe traffic is our own, and resetting would postpone every hibernation
-    // attempt by its own probe.
-    if (frame.type === "response" && entry.probeId !== null && frame.id === entry.probeId) {
-      entry.probeId = null;
-      const resolve = entry.probeResolve;
-      entry.probeResolve = null;
-      if (resolve === null) return;
-      if (frame.success === false) {
-        resolve(null);
-        return;
-      }
-      // Command responses nest their payload under `data` (same tolerant
-      // unwrap as the renderer's respData).
-      const data = isObject(frame.data) ? frame.data : frame;
-      const parked =
-        typeof data.queuedMessageCount === "number" &&
-        Number.isFinite(data.queuedMessageCount)
-          ? data.queuedMessageCount
-          : 0;
-      resolve({ parked, streaming: data.isStreaming === true });
-      return;
-    }
-    switch (frame.type) {
-      case "agent_start":
-        this.turns.start(tabId);
-        // A new turn is activity: it answers every pending attention (issue #271).
-        this.deps.attention?.turnStarted(tabId);
-        break;
-      case "agent_end": {
-        const running = this.turns.end(tabId);
-        if (entry.settleSuspendedUntil !== null) entry.settleSuspendedUntil = null;
-        // The idle crossing announces the finished turn (issue #271); a
-        // pending plan gate or blocking answer owns the attention instead.
-        if (running === 0 && !this.awaitingHumanAnswer(tabId))
-          this.deps.attention?.turnEnded(tabId);
-        break;
-      }
-      case "extension_ui_request":
-        // Only user-answer dialogs block hibernation; the other methods are
-        // fire-and-forget state frames the renderer never replies to.
-        if (typeof frame.id === "string" && BLOCKING_DIALOG_METHODS[String(frame.method)] === true) {
-          let open = this.openExtensionRequests.get(tabId);
-          if (open === undefined) {
-            open = new Set<string>();
-            this.openExtensionRequests.set(tabId, open);
-          }
-          open.add(frame.id);
-        }
-        break;
-    }
-    // Responses to dialogs are commands (rpcSend), not frames: they clear
-    // `openExtensionRequests` there. Any real frame re-arms the clock.
-    entry.hibernateArmed = true;
-    this.armHibernateTimer(tabId);
-  }
-
   /** True while plan review or a renderer-routed dialog awaits the user. */
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
-    return (this.openExtensionRequests.get(tabId)?.size ?? 0) > 0;
+    return this.hibernation.hasOpenRequests(tabId);
   }
 
   /**
-   * True while `tabId` is its project's most recently active owned session.
-   * The last active session in each project never idle-hibernates (issue #304):
-   * recency mirrors the sidebar order — `cachedModified ?? launchedAt`, ties
-   * to the earlier registry record. Dormant and terminal sessions count; a
-   * dormant newest session already satisfies the guarantee.
+   * Hibernates an idle planning source after a fresh implementation prompt
+   * was accepted. The persisted handoff relation is the authorization
+   * boundary; viewed-tab and post-verdict guards apply only to ordinary
+   * idle hibernation.
    */
-  private isLastActiveInProject(tabId: string): boolean {
-    const sessions = this.deps.registry.sessions;
-    const record = sessions.find((s) => s.tabId === tabId);
-    if (!record) return false;
-    const recency = (s: OwnedSessionRecord): string => s.cachedModified ?? s.launchedAt;
-    const mine = recency(record);
-    const myIndex = sessions.indexOf(record);
-    return !sessions.some(
-      (other, i) =>
-        i !== myIndex &&
-        other.projectCwd === record.projectCwd &&
-        (recency(other) > mine || (recency(other) === mine && i < myIndex)),
-    );
-  }
-
-  /** True when a kill cannot lose work or an in-flight exchange. */
-  private hibernable(
-    entry: LiveEntry,
-    tabId: string,
-    policy: "idle" | "plan-handoff",
-  ): boolean {
-    if (entry.kind !== "rpc-ui") return false;
-    if (!entry.hibernateArmed) return false; // still booting
-    if (this.turns.running(tabId) > 0) return false; // mid-turn
-    if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
-    if (policy === "plan-handoff") return true;
-    if (this.viewTracker.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
-    if (this.isLastActiveInProject(tabId)) return false; // the project's last active session stays warm (issue #304)
-    const until = entry.settleSuspendedUntil;
-    if (until !== null) {
-      if (Date.now() < until) return false; // post-verdict window
-      entry.settleSuspendedUntil = null; // window lapsed
-    }
-    return true;
-  }
-
-  /**
-   * Resets the idle clock. Arms regardless of guards (issue #247): the check
-   * re-verifies every guard itself, so a guard that lapses while the session
-   * is quiet is re-examined one window later. Arming only while hibernable
-   * was the silent stick: nothing but a child frame arms, and a quiet
-   * session produces none.
-   */
-  private armHibernateTimer(tabId: string): void {
-    this.scheduleHibernateCheck(tabId, this.deps.registry.getSetting("hibernateIdleMinutes") * 60_000);
-  }
-
-  /**
-   * One pending check per tab; a 0 setting means no check at all. Unref'd:
-   * a housekeeping timer must never hold the process open (quit clears them
-   * anyway via killAll), and tests that verdict/arm without fake timers must
-   * not leak a 30-minute real timer into the worker teardown.
-   */
-  private scheduleHibernateCheck(tabId: string, delayMs: number): void {
-    clearTimeout(this.hibernateTimers.get(tabId));
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
-    const timer = setTimeout(() => void this.tryHibernate(tabId), delayMs);
-    if (typeof timer.unref === "function") timer.unref();
-    this.hibernateTimers.set(tabId, timer);
-  }
-
-  /**
-   * Live check right before the kill: parked work or streaming means "not
-   * really idle". Settled by the matching response frame in
-   * observeHibernation; null on timeout or failure — never kill on our own
-   * uncertainty (a wedged session stays with the renderer's stall UX).
-   */
-  private probeState(entry: LiveEntry): Promise<{ parked: number; streaming: boolean } | null> {
-    const rpc = entry.rpc;
-    if (rpc === undefined) return Promise.resolve(null);
-    // Executor form (not Promise.withResolvers): the node tsconfig lib is
-    // ES2022.
-    const id = randomUUID();
-    return new Promise((resolve) => {
-      entry.probeId = id;
-      entry.probeResolve = resolve;
-      setTimeout(() => {
-        if (entry.probeId !== id) return; // settled in the meantime
-        entry.probeId = null;
-        entry.probeResolve = null;
-        resolve(null);
-      }, HIBERNATE_PROBE_TIMEOUT_MS);
-      rpc.send({ type: "get_state", id });
-    });
-  }
-
-  /**
-   * The shared guard→probe→recheck→reap sequence. Callers own their entry
-   * gates (timer, dedupe) and map the no-kill verdicts to their own policy.
-   * The reap is registered in `hibernating` for its full duration so a
-   * delete or resume for the same tab can wait it out (issue #246, #296).
-   */
-  private async attemptHibernate(
-    tabId: string,
-    entry: LiveEntry,
-    policy: "idle" | "plan-handoff",
-  ): Promise<HibernateOutcome> {
-    if (!this.hibernable(entry, tabId, policy)) return "rearm";
-    const state = await this.probeState(entry);
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return "setting-off";
-    if (this.live.get(tabId) !== entry) return this.live.has(tabId) ? "replaced" : "gone";
-    if (state === null || state.parked > 0 || state.streaming) return "rearm";
-    if (!this.hibernable(entry, tabId, policy)) return "rearm";
-    const reap = this.hibernate(tabId, entry);
-    this.hibernating.set(tabId, reap);
-    try {
-      return { reaped: await reap };
-    } finally {
-      this.hibernating.delete(tabId);
-    }
-  }
-
-  /**
-   * Idle window elapsed: run the shared attempt. Re-arm only on the
-   * re-examination verdicts (issue #247) — guards lapse on their own clocks,
-   * and a quiet session has no frames to re-arm the check.
-   */
-  private async tryHibernate(tabId: string): Promise<void> {
-    this.hibernateTimers.delete(tabId);
-    // The setting may have flipped to off since the timer armed.
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
-    const entry = this.live.get(tabId);
-    if (!entry || entry.kind !== "rpc-ui") return;
-    // Guard-in-force and not-idle verdicts re-arm (issue #247): guards lapse
-    // on their own clocks, and a quiet session has no frames to re-arm. The
-    // invalidating verdicts (setting off, entry stale) do not: the current
-    // config or the successor's own paths own the next check.
-    if ((await this.attemptHibernate(tabId, entry, "idle")) === "rearm") {
-      this.armHibernateTimer(tabId);
-    }
-  }
-
-  /**
-   * Hibernates an idle planning source after a fresh implementation prompt was
-   * accepted. The persisted handoff relation is the authorization boundary;
-   * viewed-tab and post-verdict guards apply only to ordinary idle hibernation.
-   */
-  async hibernatePlanSource(
-    sourceTabId: string,
-    implementationTabId: string,
-  ): Promise<boolean> {
-    const source = this.deps.registry.sessions.find((record) => record.tabId === sourceTabId);
-    if (source === undefined) throw new Error(`unknown plan source tab ${sourceTabId}`);
-    const implementation = this.deps.registry.sessions.find(
-      (record) => record.tabId === implementationTabId,
-    );
-    if (implementation === undefined) {
-      throw new Error(`unknown plan implementation tab ${implementationTabId}`);
-    }
-    if (implementation.planImplementationSource?.sourceTabId !== sourceTabId) {
-      throw new Error("plan implementation does not belong to the requested source");
-    }
-    if (source.projectCwd !== implementation.projectCwd) {
-      throw new Error("plan source and implementation must belong to the same project");
-    }
-    if (source.mode !== "rpc-ui" || implementation.mode !== "rpc-ui") {
-      throw new Error("plan source and implementation must use rpc-ui mode");
-    }
-
-    const entry = this.live.get(sourceTabId);
-    if (entry === undefined) return true;
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return false;
-    const pending = this.hibernating.get(sourceTabId);
-    if (pending !== undefined) return pending;
-    if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
-
-    // `gone` (the source already exited) reads as hibernated for the handoff;
-    // every other no-kill verdict — including a survived SIGKILL — is false.
-    const outcome = await this.attemptHibernate(sourceTabId, entry, "plan-handoff");
-    if (outcome === "gone") return true;
-    return typeof outcome === "object" ? outcome.reaped : false;
+  hibernatePlanSource(sourceTabId: string, implementationTabId: string): Promise<boolean> {
+    return this.hibernation.attemptHandoff(sourceTabId, implementationTabId);
   }
 
   /**
@@ -1065,9 +771,6 @@ export class SessionManager {
   rpcSend(tabId: string, cmd: RpcFrame): void {
     const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
     for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
-    if (cmd.type === "extension_ui_response" && typeof cmd.id === "string") {
-      this.openExtensionRequests.get(tabId)?.delete(cmd.id);
-    }
     if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId))
       this.stallWatchdog.humanAnswered(tabId);
     this.live.get(tabId)?.rpc?.send(cmd);
@@ -1153,13 +856,14 @@ export class SessionManager {
     // reap's `session:hibernated` (if any) lands while the record and files
     // still exist, then proceed with an entry already gone from `live`
     // (mirrors spawn's pending-hibernate wait; issue #296).
-    const pendingHibernate = this.hibernating.get(tabId);
+    const pendingHibernate = this.hibernation.pendingReap(tabId);
     if (pendingHibernate !== undefined) await pendingHibernate;
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
     const entry = this.live.get(tabId);
     if (entry) await this.killAndReap(tabId, entry);
     this.stallWatchdog.dispose(tabId);
+    this.hibernation.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     // Files first: a failed delete must leave the record so the row stays
