@@ -40,6 +40,8 @@ export interface ViewSlice {
   inspectorOpen: boolean;
   openProjectPicker(): void;
   closeProjectPicker(): void;
+  openWorktreeDialog(projectCwd: string): void;
+  closeWorktreeDialog(): void;
   openMcpManager(projectCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
 	openProjectSettings(projectCwd: string): void;
@@ -268,6 +270,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   closeProjectPicker() {
     set({ projectPickerOpen: false });
+  },
+  openWorktreeDialog(projectCwd) {
+    set({ worktreeDialogProject: projectCwd });
+  },
+  closeWorktreeDialog() {
+    set({ worktreeDialogProject: null });
   },
   openMcpManager(projectCwd, tabId) {
     set({ mcpManager: tabId === undefined ? { projectCwd } : { projectCwd, tabId } });

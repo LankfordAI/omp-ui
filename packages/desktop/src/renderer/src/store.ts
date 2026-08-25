@@ -2,7 +2,6 @@ import { create } from "zustand";
 import type {
   BackendState,
   PlanImplementationSource,
-  SessionMode,
 } from "@omp-ui/core/types";
 import {
   parsePlanReviewTitle,
@@ -29,13 +28,7 @@ import {
   routeExtensionRequest,
 } from "./lib/extension-router";
 import { arrField, boolField, field, numField, strField } from "./lib/fields";
-import {
-  withConcerns,
-  withKeywords,
-
-  type PlanExecutionOptions,
-} from "./lib/plan-concerns";
-import { planSeedText } from "./lib/plan-seed";
+import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { randomId } from "./lib/random-id";
 import {
   emptySessionRuntime,
@@ -59,8 +52,6 @@ import { createUpdatesSlice } from "./store/slices/updates";
 import {
   createViewSlice,
   findRecord,
-  focusOn,
-  forgetFocus,
   installDesktopViewPersistence,
   installViewedTabReporter,
   pruneFocus,
@@ -73,11 +64,7 @@ import {
   bumpCompactionUsageGeneration,
   compactionUsageGenerations,
   createMachinery,
-  dropExited,
-  dropHibernated,
-  dropTuiHandoff,
   handedOffPlanSources,
-  quietWedgeNotified,
   respData,
   retireTimedOutCommand,
   retireTimedOutEarlierThan,
@@ -93,6 +80,7 @@ import type {
 } from "./store/types";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createPlanExecutionSlice, upsertPlan } from "./store/slices/plan-execution";
+import { createLifecycleSlice } from "./store/slices/lifecycle";
 export type {
   BranchActivity,
   CompactSurface,
@@ -323,7 +311,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       concerns: string | null,
       options?: PlanExecutionOptions,
     ) =>
-      spawnFreshImplementation(tabId, planText, planImplementationSource, concerns, options),
+      lifecycle.spawnFreshImplementation(tabId, planText, planImplementationSource, concerns, options),
   });
   const {
     concern: concernWatcher,
@@ -331,36 +319,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
     stall: stallContinueWatcher,
     reconcilePlanGates,
   } = plan;
-  const prepareRpcRelaunch = (tabId: string): void => {
-    const tab = get().rpc[tabId];
-    if (!tab) return;
-    // A flush queued by the dying process must not land in the fresh state.
-    m.cancelTranscriptBatch(tabId);
-    compactionUsageGenerations.delete(tabId);
-    // No frames will come from the dying process: stop the stall clock now
-    // rather than waiting for its next tick (issue #228).
-    m.stopStreamStallTimer(tabId);
-    // A fresh process has no wedge memory: re-arm the quiet-failure notice
-    // and drop the attribution memory (issue #302).
-    quietWedgeNotified.delete(tabId);
-    timedOutCommands.delete(tabId);
-    m.patchRpc(tabId, {
-      status: "starting",
-      plan: null,
-      session: { ...tab.session, isStreaming: false },
-      extensionQueue: [],
-      planReview: null,
-      planText: null,
-      planHtml: null,
-      planDeferred: false,
-      failure: undefined,
-      // A fresh process has no renderer-observed checkpoint: resetting it
-      // also stops the #100 notice from citing the dead process's
-      // "since turn started" (issue #228, #179).
-      streamCheckpoint: undefined,
-      streamStallMs: undefined,
-    });
-  };
+  const lifecycle = createLifecycleSlice(set, get, m, {
+    concern: concernWatcher,
+    advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
+  });
 
   const trackSessionParameterAction = (tabId: string, action: Promise<void>): Promise<void> => {
     const actions = pendingSessionParameterActions.get(tabId) ?? new Set<Promise<void>>();
@@ -409,171 +372,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
       state.timer = undefined;
       fire();
     }, wait);
-  };
-
-  const eraseSession = async (tabId: string): Promise<void> => {
-    try {
-      await backend.deleteSession(tabId);
-    } catch (err) {
-      alertError(err);
-      return;
-    }
-    const tab = get().rpc[tabId];
-    // A dangling concern-wait timer must not fire into the dead tab's slot.
-    concernWatcher.cancel(tabId);
-    advisorReplyWatcher.cancel(tabId);
-    stallContinueWatcher.cancel(tabId);
-    m.cancelTranscriptBatch(tabId);
-    m.slashCommandItems.delete(tabId);
-    compactionUsageGenerations.delete(tabId);
-    handedOffPlanSources.delete(tabId);
-    quietWedgeNotified.delete(tabId);
-    timedOutCommands.delete(tabId);
-    if (tab) {
-      for (const pending of tab.pendingCommands.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error("session deleted"));
-      }
-    }
-    set((s) => {
-      const rpc = { ...s.rpc };
-      delete rpc[tabId];
-      const tabs = s.tabs.filter((t) => t.tabId !== tabId);
-      const activeTabId =
-        s.activeTabId === tabId
-          ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
-          : s.activeTabId;
-      const catchup = { ...s.catchup };
-      delete catchup[tabId];
-      const lastActiveAt = { ...s.lastActiveAt };
-      delete lastActiveAt[tabId];
-      return {
-        rpc,
-        tabs,
-        activeTabId,
-        focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
-        exited: dropExited(s.exited, tabId),
-        tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId),
-        catchup,
-        lastActiveAt,
-      };
-    });
-  };
-
-  /**
-   * Spawns a fresh rpc-ui session in the plan's project, seeds it with the
-   * plan text as its first prompt, and surfaces it as the active tab.
-   */
-  const spawnFreshImplementation = async (
-    srcTabId: string,
-    planText: string | null,
-    planImplementationSource: Readonly<PlanImplementationSource>,
-    concerns: string | null = null,
-    options?: PlanExecutionOptions,
-  ): Promise<void> => {
-    const rec = findRecord(get().state, srcTabId);
-    if (!rec) return;
-    const projectCwd = rec.projectCwd;
-    // A staged tuple (the modal always sends one) wins over the project's
-    // last-used defaults; legacy callers keep the fallback chain.
-    await get().loadAdvisorDefaults(projectCwd);
-    const defaults = get().advisorDefaults[projectCwd];
-    const project = get().state?.projects.find(
-      (g) => g.project.path === projectCwd,
-    )?.project;
-    const advisor =
-      options?.advisor ??
-      project?.lastAdvisor ??
-      get().state?.defaultAdvisor ??
-      defaults?.enabled ??
-      false;
-    const advisorModel =
-      options?.advisor !== undefined
-        ? (options.advisorModel ?? null)
-        : (project?.defaultAdvisorModel ??
-          project?.lastAdvisorModel ??
-          defaults?.model ??
-          null);
-    let freshId: string;
-    try {
-      ({ tabId: freshId } = await backend.spawnSession({
-        projectCwd,
-        mode: "rpc-ui",
-        advisor,
-        advisorModel,
-        cols: 80,
-        rows: 24,
-        startInPlanMode: false,
-        planImplementationSource,
-      }));
-    } catch (err) {
-      alertError(err);
-      return;
-    }
-    set((s) => ({
-      tabs: [
-        ...s.tabs,
-        { tabId: freshId, mode: "rpc-ui", projectCwd, hidden: false },
-      ],
-      ...focusOn(s, freshId, projectCwd),
-      exited: dropExited(s.exited, freshId),
-    }));
-    await m.pollUntil(freshId, (t) => t?.status === "ready");
-    if (get().rpc[freshId]?.status !== "ready") return;
-    // Staged main-model parameters ride the composer's own actions, so they
-    // persist into session parameter memory exactly like a composer change.
-    const stagedModel = options?.model ?? null;
-    if (stagedModel !== null) {
-      const cur = get().rpc[freshId]?.model;
-      if (
-        `${stagedModel.provider}/${stagedModel.id}` !==
-        (cur ? `${cur.provider}/${cur.id}` : null)
-      ) {
-        await get().setModel(freshId, stagedModel);
-        if (get().rpc[freshId]?.failure?.command === "set_model") return;
-      }
-    }
-    if (
-      options?.thinkingLevel != null &&
-      options.thinkingLevel !==
-        (get().rpc[freshId]?.session.thinkingLevel ?? null)
-    ) {
-      await get().setThinkingLevel(freshId, options.thinkingLevel);
-      if (get().rpc[freshId]?.failure?.command === "set_thinking_level") return;
-    }
-    const lead = "A plan was approved for this project. Implement it now.";
-    const body = planSeedText(planText);
-    const seed = body
-      ? `${lead}\n\n${body}\n\nProceed with the implementation.`
-      : lead;
-    const accepted = await get().sendPrompt(
-      freshId,
-      withKeywords(
-        withConcerns(seed, concerns),
-        options ?? {},
-      ),
-      "prompt",
-    );
-    if (!accepted) return;
-
-    handedOffPlanSources.add(srcTabId);
-    advisorReplyWatcher.cancel(srcTabId);
-    stallContinueWatcher.cancel(srcTabId);
-    m.appendItem(
-      srcTabId,
-      noticeItem(
-        "plan approved — implementation dispatched to a fresh session",
-        "info",
-      ),
-    );
-    try {
-      await backend.hibernatePlanSource(srcTabId, freshId);
-    } catch (err) {
-      console.warn(
-        `[plan-handoff] failed to hibernate source ${srcTabId} for implementation ${freshId}:`,
-        err,
-      );
-    }
   };
 
   const refreshCompactionUsage = (tabId: string, tokensBefore: number): void => {
@@ -718,54 +516,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (t.id !== currentThemeId()) applyTheme(t);
   };
 
-  /**
-   * Resolves the parameters every fresh session is spawned with: the default
-   * mode plus the project's complete last-used advisor tuple.
-   */
-  const resolveSpawnParams = async (
-    projectCwd: string,
-  ): Promise<{
-    mode: SessionMode;
-    advisor: boolean;
-    advisorModel: string | null;
-  }> => {
-    const mode = get().state?.defaultMode ?? "pty";
-    // Carry the project's complete last-used advisor tuple into the new
-    // session. Before any explicit choice, the app's own default decides;
-    // omp's configured default only seeds while the app is not booted.
-    await get().loadAdvisorDefaults(projectCwd);
-    const defaults = get().advisorDefaults[projectCwd];
-    const project = get().state?.projects.find(
-      (g) => g.project.path === projectCwd,
-    )?.project;
-    // The pinned advisor model wins; on/off keeps its own chain (issue #257).
-    const advisorModel =
-      project?.defaultAdvisorModel ??
-      project?.lastAdvisorModel ??
-      defaults?.model ??
-      null;
-    const advisor =
-      project?.lastAdvisor ??
-      get().state?.defaultAdvisor ??
-      defaults?.enabled ??
-      false;
-    return { mode, advisor, advisorModel };
-  };
-
   return {
     ...createViewSlice(set, get, api),
     ...createSettingsSlice(set, get, api),
     ...createUpdatesSlice(set, get, api),
+    ...lifecycle,
     state: null,
     exited: {},
-    shellExited: {},
     hibernated: {},
     lastActiveAt: catchup.lastActiveAt,
     catchup: catchup.catchup,
     rpc: {},
-    consoleOpen: {},
-    searchOpen: {},
-    tuiHandoff: {},
     branches: branchesSlice.branches,
     branchActivity: branchesSlice.branchActivity,
     branchDiffRevision: branchesSlice.branchDiffRevision,
@@ -776,7 +537,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     mergeWorktreeBranch: branchesSlice.mergeWorktreeBranch,
     suggestBranchName: branchesSlice.suggestBranchName,
     advisorDefaults: {},
-    deleteConfirmation: null,
 
     async init() {
       if (initialized) return;
@@ -841,307 +601,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
       catchup.installCatchupWatcher(api);
-    },
-
-    async restartSession(tabId) {
-      const rec = findRecord(get().state, tabId);
-      try {
-        if (rec?.live === "live" && rec.mode === "rpc-ui")
-          prepareRpcRelaunch(tabId);
-        await backend.restartSession(tabId);
-        return true;
-      } catch (err) {
-        alertError(err);
-        return false;
-      }
-    },
-
-    async addProject(path) {
-      await backend.addProject(path);
-      set({ projectPickerOpen: false });
-    },
-
-    async setProjectDefaultModel(projectPath, model) {
-      await backend.setProjectDefaultModel(projectPath, model);
-    },
-
-    async setProjectDefaultAdvisorModel(projectPath, model) {
-      await backend.setProjectDefaultAdvisorModel(projectPath, model);
-    },
-
-    async removeProject(path) {
-      if (
-        !window.confirm(
-          `Remove project ${path} and its session records? Files on disk are kept.`,
-        )
-      )
-        return;
-      try {
-        await backend.removeProject(path);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    // No optimistic update: the `stateChanged` broadcast replaces `state`
-    // authoritatively, exactly like removeProject.
-    async moveProject(projectPath, beforePath) {
-      try {
-        await backend.moveProject(projectPath, beforePath);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    // No optimistic update: the `stateChanged` broadcast replaces `state`
-    // authoritatively, exactly like moveProject.
-    async moveSession(tabId, beforeTabId) {
-      try {
-        await backend.moveSession(tabId, beforeTabId);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async toggleFavorite(key) {
-      await backend.toggleFavorite(key);
-    },
-
-    async newSession(projectCwd, modeOverride) {
-      const { mode: defaultMode, advisor, advisorModel } =
-        await resolveSpawnParams(projectCwd);
-      const mode = modeOverride ?? defaultMode;
-      try {
-        const { tabId } = await backend.spawnSession({
-          projectCwd,
-          mode,
-          advisor,
-          advisorModel,
-          cols: 80,
-          rows: 24,
-        });
-        set((s) => ({
-          tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
-          ...focusOn(s, tabId, projectCwd),
-          exited: dropExited(s.exited, tabId),
-        }));
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async newWorktreeSession(projectCwd, opts) {
-      const { mode, advisor, advisorModel } =
-        await resolveSpawnParams(projectCwd);
-      const { tabId } = await backend.spawnSession({
-        projectCwd,
-        mode,
-        advisor,
-        advisorModel,
-        cols: 80,
-        rows: 24,
-        worktree: opts,
-      });
-      set((s) => ({
-        tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
-        ...focusOn(s, tabId, projectCwd),
-        exited: dropExited(s.exited, tabId),
-      }));
-    },
-
-    /**
-     * Converts an unprompted session to a worktree session (issue #225): the
-     * main process mints the checkout, patches the record, and respawns in
-     * place, and its broadcasts drive the state here — no tab churn. Throws
-     * on failure; the composer renders the message inline.
-     */
-    async convertSessionToWorktree(tabId, opts) {
-      await backend.convertToWorktree(tabId, opts.branch, opts.baseRef);
-    },
-
-    openWorktreeDialog(projectCwd) {
-      set({ worktreeDialogProject: projectCwd });
-    },
-    closeWorktreeDialog() {
-      set({ worktreeDialogProject: null });
-    },
-
-    async openSession(tabId) {
-      const existing = get().tabs.find((t) => t.tabId === tabId);
-      if (existing) {
-        // Live session → resurface its tab, never respawn (omp has no
-        // cross-process session lock; two writers would corrupt the .jsonl).
-        set((s) => ({
-          tabs: s.tabs.map((t) =>
-            t.tabId === tabId ? { ...t, hidden: false } : t,
-          ),
-          ...focusOn(
-            s,
-            tabId,
-            s.tabs.find((t) => t.tabId === tabId)?.projectCwd,
-          ),
-        }));
-        return;
-      }
-      const rec = findRecord(get().state, tabId);
-      if (!rec) return;
-      try {
-        await backend.spawnSession({
-          projectCwd: rec.projectCwd,
-          mode: rec.mode,
-          advisor: rec.advisor,
-          cols: 80,
-          rows: 24,
-          resumeTabId: tabId,
-        });
-        set((s) => ({
-          tabs: [
-            ...s.tabs,
-            {
-              tabId,
-              mode: rec.mode,
-              projectCwd: rec.projectCwd,
-              hidden: false,
-            },
-          ],
-          ...focusOn(s, tabId, rec.projectCwd),
-          exited: dropExited(s.exited, tabId),
-          hibernated: dropHibernated(s.hibernated, tabId),
-        }));
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    focusTab(tabId) {
-      set((s) => ({
-        tabs: s.tabs.map((t) =>
-          t.tabId === tabId ? { ...t, hidden: false } : t,
-        ),
-        ...focusOn(s, tabId, s.tabs.find((t) => t.tabId === tabId)?.projectCwd),
-      }));
-    },
-
-    hideTab(tabId) {
-      set((s) => {
-        const tabs = s.tabs.map((t) =>
-          t.tabId === tabId ? { ...t, hidden: true } : t,
-        );
-        let activeTabId = s.activeTabId;
-        if (activeTabId === tabId) {
-          const visible = tabs.filter((t) => !t.hidden);
-          activeTabId =
-            visible.length > 0 ? visible[visible.length - 1]!.tabId : null;
-        }
-        return {
-          tabs,
-          activeTabId,
-          focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
-        };
-      });
-    },
-
-    async terminate(tabId) {
-      if (
-        !window.confirm(
-          "Terminate the running agent? The session stays resumable.",
-        )
-      )
-        return;
-      await backend.terminateSession(tabId);
-      // Terminating kills the drawer's program through killShell, which
-      // deliberately suppresses its exit event — so nothing would ever retire
-      // a staged handoff, and its banner would keep offering to send into a
-      // dead PTY. Drop it here, as eraseSession does for the same reason.
-      set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
-    },
-
-    async switchMode(tabId, mode) {
-      const rec = findRecord(get().state, tabId);
-      if (rec?.live === "live") {
-        const other = mode === "pty" ? "terminal" : "native";
-        if (
-          !window.confirm(
-            `Restart this session in ${other} mode? The process is killed and resumed.`,
-          )
-        )
-          return;
-      }
-      try {
-        if (
-          rec?.live === "live" &&
-          rec.mode !== mode &&
-          (rec.mode === "rpc-ui" || mode === "rpc-ui")
-        ) {
-          prepareRpcRelaunch(tabId);
-        }
-        await backend.switchMode(tabId, mode);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async resumeDead(tabId) {
-      const rec = findRecord(get().state, tabId);
-      if (!rec) return;
-      try {
-        if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
-        await backend.spawnSession({
-          projectCwd: rec.projectCwd,
-          mode: rec.mode,
-          advisor: rec.advisor,
-          cols: 80,
-          rows: 24,
-          resumeTabId: tabId,
-        });
-        set((s) => ({
-          tabs: s.tabs.map((t) =>
-            t.tabId === tabId ? { ...t, hidden: false } : t,
-          ),
-          ...focusOn(s, tabId, rec.projectCwd),
-          exited: dropExited(s.exited, tabId),
-          hibernated: dropHibernated(s.hibernated, tabId),
-        }));
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async deleteSession(tabId) {
-      const rec = findRecord(get().state, tabId);
-      if (!rec) return;
-      if (get().state?.skipDeleteConfirmation === true && !rec.worktree) {
-        await eraseSession(tabId);
-        return;
-      }
-      set({
-        deleteConfirmation: {
-          tabId,
-          title: rec.title,
-          running: rec.live === "live",
-          hasFiles: rec.live !== "missing",
-          worktreeBranch: rec.worktree?.branch ?? null,
-          worktreeBase: rec.worktree?.base ?? null,
-        },
-      });
-    },
-
-    async confirmDeleteSession(skipFuture) {
-      const pending = get().deleteConfirmation;
-      if (!pending) return;
-      set({ deleteConfirmation: null });
-      if (skipFuture) {
-        try {
-          await backend.setSkipDeleteConfirmation(true);
-        } catch (err) {
-          alertError(err);
-        }
-      }
-      await eraseSession(pending.tabId);
-    },
-
-    cancelDeleteSession() {
-      set({ deleteConfirmation: null });
     },
 
     async bootRpcTab(tabId) {
@@ -2044,7 +1503,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           ...(pendingSessionParameterActions.get(tabId) ?? []),
         ];
         const deadline = Date.now() + RPC_COMMAND_TIMEOUT_MS + 1_000;
-        prepareRpcRelaunch(tabId);
+        lifecycle.prepareRpcRelaunch(tabId);
         await m.pollUntil(
           tabId,
           (current) =>
@@ -2433,60 +1892,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     closeSubagent(tabId) {
       m.patchRpc(tabId, { selectedSubagent: null });
       m.syncSubagentSubscription(tabId);
-    },
-
-    clearShellExited(tabId) {
-      set((s) => ({ shellExited: dropExited(s.shellExited, tabId) }));
-    },
-
-    toggleConsole(tabId) {
-      set((s) => ({
-        consoleOpen: { ...s.consoleOpen, [tabId]: !s.consoleOpen[tabId] },
-      }));
-    },
-
-    openSearch(tabId) {
-      set((s) => ({
-        searchOpen: { ...s.searchOpen, [tabId]: true },
-      }));
-    },
-
-    closeSearch(tabId) {
-      set((s) => ({
-        searchOpen: { ...s.searchOpen, [tabId]: false },
-      }));
-    },
-
-    startTuiHandoff(tabId, line) {
-      set((s) => ({
-        consoleOpen: { ...s.consoleOpen, [tabId]: true },
-        // A previous shell's exit code would otherwise paint the drawer's
-        // "exited" notice over the omp TUI about to replace it.
-        shellExited: dropExited(s.shellExited, tabId),
-        tuiHandoff: {
-          ...s.tuiHandoff,
-          [tabId]: {
-            line,
-            // The drawer respawns on a changed key, so staging a second
-            // handoff into an open drawer restarts omp rather than typing
-            // into whatever is already running there.
-            key: (s.tuiHandoff[tabId]?.key ?? 0) + 1,
-            phase: "running",
-          },
-        },
-      }));
-    },
-
-    sendTuiHandoff(tabId) {
-      const staged = get().tuiHandoff[tabId];
-      if (staged?.phase !== "running") return;
-      // CR, not LF: omp's TUI editor submits on carriage return — the same
-      // byte xterm sends for Enter.
-      backend.shellWrite(tabId, `${staged.line}\r`);
-    },
-
-    dismissTuiHandoff(tabId) {
-      set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
     },
 
     appendNotice(tabId, text, level) {
