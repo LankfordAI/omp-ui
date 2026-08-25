@@ -5,16 +5,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
-  type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
-import type { ImageAttachment } from "@omp-ui/core/types";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
-import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import {
   keywordColors,
   keywordPalette,
@@ -26,6 +22,7 @@ import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
+import { useImageDraft } from "../lib/use-image-draft";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
@@ -131,13 +128,7 @@ export function Composer({
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [effortMenu, setEffortMenu] = useState(false);
-  /**
-   * Image Attachments in this draft, in the order they were pasted or picked.
-   * They ride the same frame as the text and are cleared with it.
-   */
-  const [images, setImages] = useState<ImageAttachment[]>([]);
-  /** Why an Attachment was refused (over omp's 20 MB ceiling, unreadable). */
-  const [pasteError, setPasteError] = useState<string | null>(null);
+  const { images, pasteError, onPaste, pickImages, dropImage, clearImages, dismissError } = useImageDraft();
   /** Whether the box has focus — omp shimmers a keyword only while it does. */
   const [focused, setFocused] = useState(false);
   /**
@@ -437,8 +428,7 @@ export function Composer({
       }
       recall.current = null;
       setText("");
-      setImages([]);
-      setPasteError(null);
+      clearImages();
       setDismissedFor(null);
       setMentionDismissedFor(null);
 
@@ -490,35 +480,6 @@ export function Composer({
     ],
   );
 
-  /**
-   * Intercepts an image paste. Text pastes are left entirely alone — the
-   * textarea's own handling is what the user expects, and a clipboard carrying
-   * both (copying an image out of a rich editor) should still paste its text.
-   */
-  const onPaste = useCallback(async (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!hasClipboardImage(e.clipboardData)) return;
-    // Chromium would otherwise insert the image's *filename* as text.
-    e.preventDefault();
-    const { images: pasted, rejected } = await readClipboardImages(e.clipboardData);
-    if (pasted.length > 0) setImages((prev) => [...prev, ...pasted]);
-    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
-  }, []);
-
-  /** Adds picker-selected Attachments through the same draft path as paste. */
-  const pickImages = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const files = Array.from(input.files ?? []);
-    // Clear before reading, including rejected selections, so selecting the
-    // same file again always produces another change event.
-    input.value = "";
-    const { images: picked, rejected } = await readImageFiles(files);
-    if (picked.length > 0) setImages((prev) => [...prev, ...picked]);
-    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
-  }, []);
-
-  const dropImage = useCallback((index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
 
   /** Applies a palette pick: run it now, or complete the line for its argument. */
   const pick = useCallback(
@@ -967,7 +928,7 @@ export function Composer({
             <span className="min-w-0 flex-1 break-words" data-selectable>
               {pasteError}
             </span>
-            <IconButton label="dismiss paste warning" onClick={() => setPasteError(null)}>
+            <IconButton label="dismiss paste warning" onClick={dismissError}>
               <IconClose className="size-3" />
             </IconButton>
           </div>

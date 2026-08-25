@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import type { ImageAttachment } from "@omp-ui/core/types";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
-import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { usePreparedPlanDocument } from "../lib/plan-document";
@@ -11,6 +9,7 @@ import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
+import { useImageDraft } from "../lib/use-image-draft";
 import { shortLabel, splitRole } from "./AdvisorControl";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
@@ -94,8 +93,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const [context, setContext] = useState<PlanExecutionContext>("existing");
   /** Change notes for the planner; text + optional images ride a steer prompt. */
   const [changes, setChanges] = useState("");
-  const [images, setImages] = useState<ImageAttachment[]>([]);
-  const [pasteError, setPasteError] = useState<string | null>(null);
+  const { images, pasteError, onPaste, pickImages, dropImage, clearImages } = useImageDraft();
   /**
    * Fold the advisor's review of the plan turn (it lands only after an execute
    * verdict lets the turn end) into the implementation prompt. Inert on
@@ -237,8 +235,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     // the next review, re-submittable by accident (issue #113). "Not now" keeps
     // its draft on purpose: deferring asks for no revision.
     setChanges("");
-    setImages([]);
-    setPasteError(null);
+    clearImages();
   };
   // Close (X) / "not now": defer without answering the gate with notes the
   // user did not finish writing. The plan stays pending in the plans tab.
@@ -299,25 +296,6 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     executePlan(tabId, context, options);
   };
 
-  const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!hasClipboardImage(e.clipboardData)) return;
-    e.preventDefault();
-    const { images: pasted, rejected } = await readClipboardImages(e.clipboardData);
-    if (pasted.length > 0) setImages((prev) => [...prev, ...pasted]);
-    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
-  };
-
-  /** Adds picker-selected Attachments through the same draft path as paste. */
-  const pickImages = async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const files = Array.from(input.files ?? []);
-    // Clear before reading, including rejected selections, so selecting the
-    // same file again always produces another change event.
-    input.value = "";
-    const { images: picked, rejected } = await readImageFiles(files);
-    if (picked.length > 0) setImages((prev) => [...prev, ...picked]);
-    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
-  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter in the notes box submits the refinement — the box feeds the
@@ -445,7 +423,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                           <IconButton
                             label={`remove change note ${i + 1}`}
                             tone="rose"
-                            onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                            onClick={() => dropImage(i)}
                             className="size-4 rounded-full border border-line-strong bg-overlay"
                           >
                             <IconClose />
