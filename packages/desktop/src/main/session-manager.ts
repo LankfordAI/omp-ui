@@ -12,7 +12,6 @@ import {
   mintLineageDirName,
   mintWorktreePath,
   isWithin,
-  parseModelRole,
   mcpRuntimeStatusMessage,
   planMessage,
   type ProviderKeys,
@@ -24,14 +23,7 @@ import {
   spawnOmpTui,
   spawnShell,
   unarchiveSession,
-  readOmpCompactionMethods,
-  writeAdvisorOverlay,
-  writeAdvisorStatsExtension,
-  writeMcpStatusExtension,
-  writeDefaultModelOverlay,
   writeImageToScratch,
-  writeCompactionMethodOverlay,
-  writePlanExtension,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
   type ImageAttachment,
@@ -48,6 +40,7 @@ import type { FrameObserver } from "./frame-observer";
 import { liveEntry, type LiveEntry } from "./live-entry";
 import { HibernationTracker } from "./hibernation-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
+import { writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnCounter } from "./turns";
 import { ViewTracker } from "./view-tracker";
@@ -408,7 +401,7 @@ export class SessionManager {
       cols: req.cols,
       rows: req.rows,
       advisor: record.advisor,
-      configOverlays: this.configOverlays(record, absLineageDir),
+      configOverlays: writeSessionOverlays(record, absLineageDir),
     });
     const entry = liveEntry({ kind: "pty", pty: ptyHandle, record });
     this.live.set(record.tabId, entry);
@@ -428,7 +421,7 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = liveEntry({ kind: "rpc-ui", record });
-    const { paths: extensions, mcpStatusLoaded } = this.rpcExtensions(absLineageDir);
+    const { paths: extensions, mcpStatusLoaded } = writeRpcExtensions(absLineageDir);
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
     if (mcpStatusLoaded) {
       initialCommands.push({
@@ -445,7 +438,7 @@ export class SessionManager {
       id: `omp-ui-initial-mode-${randomUUID()}`,
       message: planMessage(startInPlanMode, this.deps.registry.getSetting("planFormat")),
     });
-    const configOverlays = await this.rpcConfigOverlays(record, absLineageDir, ompPath);
+    const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath);
     entry.rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
@@ -467,92 +460,6 @@ export class SessionManager {
     this.watcherHub.start(record);
     void this.deps.broadcast();
     return { tabId: record.tabId };
-  }
-
-  /** Rewrites spawn overlays from the session record on every launch. */
-  private configOverlays(record: OwnedSessionRecord, absLineageDir: string): string[] {
-    const overlays: string[] = [];
-    const advisorRole = record.advisorModel === null ? null : parseModelRole(record.advisorModel);
-    try {
-      const overlay = writeAdvisorOverlay(absLineageDir, advisorRole, record.advisor);
-      if (overlay !== null) overlays.push(overlay);
-    } catch (err) {
-      console.warn("[advisor] could not write the overlay:", err);
-    }
-    const model = record.model;
-    if (model !== null) {
-      const selector =
-        record.thinkingLevel == null ? model : `${model}:${record.thinkingLevel}`;
-      try {
-        const overlay = writeDefaultModelOverlay(absLineageDir, parseModelRole(selector));
-        if (overlay !== null) overlays.push(overlay);
-      } catch (err) {
-        console.warn("[model] could not write the default-model overlay:", err);
-      }
-    }
-    return overlays;
-  }
-
-  private async rpcConfigOverlays(
-    record: OwnedSessionRecord,
-    absLineageDir: string,
-    ompPath: string,
-  ): Promise<string[]> {
-    const overlays = this.configOverlays(record, absLineageDir);
-    const preferred = record.compactionMethod;
-    if (preferred === null) {
-      writeCompactionMethodOverlay(absLineageDir, null, []);
-      return overlays;
-    }
-    try {
-      const methods = await readOmpCompactionMethods({
-        ompPath,
-        projectCwd: record.worktree?.path ?? record.projectCwd,
-      });
-      if (!methods.supported.includes(preferred)) {
-        writeCompactionMethodOverlay(absLineageDir, null, []);
-        console.warn(
-          `[compaction] tab ${record.tabId} captured unavailable method ${preferred}; using omp configuration`,
-        );
-        return overlays;
-      }
-      const overlay = writeCompactionMethodOverlay(
-        absLineageDir,
-        preferred,
-        methods.configuredOrder,
-      );
-      if (overlay !== null) overlays.push(overlay);
-    } catch (err) {
-      writeCompactionMethodOverlay(absLineageDir, null, []);
-      console.warn(
-        `[compaction] tab ${record.tabId} could not apply captured method ${preferred}; using omp configuration:`,
-        err,
-      );
-    }
-    return overlays;
-  }
-
-  /** The generated `-e` bridges an rpc-ui spawn needs. */
-  private rpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean } {
-    const paths: string[] = [];
-    try {
-      paths.push(writePlanExtension(absLineageDir));
-    } catch (err) {
-      console.warn("[plan] could not write the plan extension:", err);
-    }
-    try {
-      paths.push(writeAdvisorStatsExtension(absLineageDir));
-    } catch (err) {
-      console.warn("[advisor] could not write the advisor-stats extension:", err);
-    }
-    let mcpStatusLoaded = false;
-    try {
-      paths.push(writeMcpStatusExtension(absLineageDir));
-      mcpStatusLoaded = true;
-    } catch (err) {
-      console.warn("[mcp] could not write the MCP-status extension:", err);
-    }
-    return { paths, mcpStatusLoaded };
   }
 
   /** Re-pins a session's advisor, relaunching a live child to apply it. */
