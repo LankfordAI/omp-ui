@@ -198,7 +198,7 @@ export function SessionRow({
   canReorder?: boolean;
   dragging?: boolean;
   dropIndicator?: "before" | "after" | null;
-  registerGrip?: (tabId: string, el: HTMLButtonElement | null) => void;
+  registerGrip?: (el: HTMLButtonElement | null) => void;
   onReorder?: (delta: -1 | 1) => void;
   onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
   onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
@@ -258,9 +258,7 @@ export function SessionRow({
         <span className="proj-reveal proj-reveal-r mt-px shrink-0 self-center overflow-hidden max-w-0 transition-all duration-200 group-hover/row:ml-1 group-hover/row:mr-1.5 focus-within:mr-1.5 focus-within:max-w-11 pl-1">
           <button
             type="button"
-            ref={(el) => {
-              registerGrip?.(s.tabId, el);
-            }}
+            ref={registerGrip}
             aria-label={`reorder ${s.title}`}
             aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
             title={`reorder ${s.title} — drag, or Alt+↑ / Alt+↓`}

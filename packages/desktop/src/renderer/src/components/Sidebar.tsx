@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../backend";
@@ -12,6 +12,7 @@ import {
 } from "../lib/panel-layout";
 import { PAGE } from "../lib/session-window";
 import { arrangeSessionHandoffs } from "../lib/session-handoffs";
+import { useListReorder, type ListReorderRow } from "../lib/use-list-reorder";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
@@ -159,24 +160,6 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
   return out;
 }
 
-/**
- * Which registered path a dragged project should land *before*, given the
- * pointer over the section at `index`. Bottom half of any section means "after
- * this one", i.e. before its successor — or the end of the list when there is
- * none (null). Top half means before this section's project.
- */
-function beforePathOf(
-  paths: string[],
-  index: number,
-  clientY: number,
-  rectTop: number,
-  rectBottom: number,
-): string | null {
-  const mid = (rectTop + rectBottom) / 2;
-  const after = clientY >= mid;
-  return after ? (paths[index + 1] ?? null) : paths[index];
-}
-
 interface ProjectSectionProps {
   group: ProjectGroup;
   /** The project name matched the filter, so no tree is trimmed (issue #238). */
@@ -188,16 +171,8 @@ interface ProjectSectionProps {
   vsCodeAvailable: boolean | null;
   refreshAvailability: () => Promise<boolean>;
   onOpenActions?: () => void;
-  // issue #115 pointer reorder, issue #120 keyboard reorder — one gate for both
-  canReorder?: boolean;
-  registerGrip?: (path: string, el: HTMLButtonElement | null) => void;
-  onReorder?: (delta: -1 | 1) => void;
-  dragging?: boolean;
-  dropIndicator?: "before" | "after" | null;
-  onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
-  onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
-  onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
-  onDragEnd?: () => void;
+  /** The project row's drag/keyboard reorder wiring (issues #115/#120). */
+  reorder: ListReorderRow;
   /** Live-region sink shared with the project reorder (issue #120). */
   onAnnounce?: (text: string) => void;
 }
@@ -214,15 +189,7 @@ function ProjectSection({
   refreshAvailability,
   onActivate,
   onOpenActions,
-  canReorder = false,
-  registerGrip,
-  onReorder,
-  dragging = false,
-  dropIndicator = null,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  reorder,
   onAnnounce,
 }: ProjectSectionProps) {
   const newSession = useStore((st) => st.newSession);
@@ -261,64 +228,20 @@ function ProjectSection({
   // as units: grips render on depth-0 rows only, and drops resolve against
   // tree roots.
   const canReorderSessions = !compact && query.trim() === "" && group.sessions.length > 1;
-  const [dragTabId, setDragTabId] = useState<string | null>(null);
-  const [sessionDrop, setSessionDrop] = useState<{ index: number; indicator: "before" | "after" } | null>(null);
-  const sessionGripRefs = useRef(new Map<string, HTMLButtonElement>());
-  const registerSessionGrip = useCallback((tabId: string, el: HTMLButtonElement | null) => {
-    if (el === null) sessionGripRefs.current.delete(tabId);
-    else sessionGripRefs.current.set(tabId, el);
-  }, []);
-  const pendingSessionMove = useRef<{ tabId: string; title: string; index: number; total: number } | null>(null);
 
   // Roots in visible order — the units a session reorder moves between.
   const roots = useMemo(() => entries.filter((e) => e.depth === 0), [entries]);
+  const rootTabIds = useMemo(() => roots.map((r) => r.session.tabId), [roots]);
 
-  // Confirm a keyboard move only on the broadcast that actually moved the row
-  // (same rationale as the project effect in Sidebar), then restore grip
-  // focus — React moved DOM nodes, which blurs them.
-  useEffect(() => {
-    const pending = pendingSessionMove.current;
-    if (pending === null || roots[pending.index]?.session.tabId !== pending.tabId) return;
-    pendingSessionMove.current = null;
-    sessionGripRefs.current.get(pending.tabId)?.focus();
-    onAnnounce?.(`${pending.title} moved to position ${pending.index + 1} of ${pending.total}`);
-  }, [roots, onAnnounce]);
-
-  const reorderSession = (index: number, delta: -1 | 1): void => {
-    const root = roots[index];
-    if (!root) return;
-    const target = index + delta;
-    if (target < 0 || target >= roots.length) {
-      onAnnounce?.(`${root.session.title} is already ${delta < 0 ? "first" : "last"}`);
-      return;
-    }
-    // moveSession inserts *before* a sibling root: one step up is "before the
-    // predecessor"; one step down is "before the successor's successor", null
-    // past the end (identical math to reorderProject).
-    const beforeTabId = delta < 0 ? roots[index - 1]!.session.tabId : (roots[index + 2]?.session.tabId ?? null);
-    pendingSessionMove.current = { tabId: root.session.tabId, title: root.session.title, index: target, total: roots.length };
-    void moveSession(root.session.tabId, beforeTabId);
-  };
-
-  const handleSessionDragStart = (tabId: string) => (e: ReactDragEvent<HTMLElement>) => {
-    e.dataTransfer?.setData("text/plain", tabId); // required for Firefox
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    setDragTabId(tabId);
-  };
-
-  // Which root a drop lands before, given the pointer over visible entry
-  // `index`: hovering ANY row of a tree targets that tree — top half = before
-  // its root, bottom half = before the next distinct tree's root (or null =
-  // bottom of the project). treeId IS the root's tabId, so the resolution is
-  // a scan for the next changed treeId.
-  const beforeRootOf = (index: number, clientY: number, rectTop: number, rectBottom: number): string | null => {
-    const after = clientY >= (rectTop + rectBottom) / 2;
-    if (!after) return entries[index]!.treeId;
-    for (let i = index + 1; i < entries.length; i += 1) {
-      if (entries[i]!.treeId !== entries[index]!.treeId) return entries[i]!.treeId;
-    }
-    return null;
-  };
+  const sessionReorder = useListReorder({
+    rows: entries,
+    rootOf: (entry) => entry.treeId,
+    keys: rootTabIds,
+    nameOf: (tabId) => roots.find((r) => r.session.tabId === tabId)?.session.title,
+    move: moveSession,
+    enabled: canReorderSessions,
+    announce: (text) => onAnnounce?.(text),
+  });
 
   const { project } = group;
   // Chips describe the project itself, so they count raw sessions — filtering
@@ -329,32 +252,30 @@ function ProjectSection({
     <section
       className={cn(
         "pb-1",
-        dragging && "opacity-60",
+        reorder.dragging && "opacity-60",
         // The insertion line uses neutral emphasis — ADR-0004 reserves the
         // signal accent for liveness/success.
-        dropIndicator === "before" && "border-t-2 border-line-strong",
-        dropIndicator === "after" && "border-b-2 border-line-strong",
+        reorder.dropIndicator === "before" && "border-t-2 border-line-strong",
+        reorder.dropIndicator === "after" && "border-b-2 border-line-strong",
       )}
-      data-drop-indicator={dropIndicator ?? undefined}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      data-drop-indicator={reorder.dropIndicator ?? undefined}
+      onDragOver={reorder.onDragOver}
+      onDrop={reorder.onDrop}
     >
       <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
         <div
           // No gap in the non-compact layout: the reveals bring their own margin,
           // so the name owns the full row width at rest.
-          className={cn("group/proj flex items-start", compact && "gap-1.5", canReorder && "cursor-grab active:cursor-grabbing")}
-          draggable={canReorder}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
+          className={cn("group/proj flex items-start", compact && "gap-1.5", reorder.draggable && "cursor-grab active:cursor-grabbing")}
+          draggable={reorder.draggable}
+          onDragStart={reorder.onDragStart}
+          onDragEnd={reorder.onDragEnd}
         >
-          {canReorder && (
+          {reorder.draggable && (
             <span className="proj-reveal proj-reveal-r mt-px shrink-0 self-center overflow-hidden max-w-0 transition-all duration-200 group-hover/proj:mr-1.5 group-hover/proj:max-w-11 focus-within:mr-1.5 focus-within:max-w-11">
               <button
                 type="button"
-                ref={(el) => {
-                  registerGrip?.(project.path, el);
-                }}
+                ref={reorder.registerGrip}
                 aria-label={`reorder ${project.name}`}
                 aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                 title={`reorder ${project.name} — drag, or Alt+↑ / Alt+↓`}
@@ -363,7 +284,7 @@ function ProjectSection({
                   // Ours: neither scroll the list nor wake Electron's
                   // auto-hidden menu bar (main/index.ts: autoHideMenuBar).
                   e.preventDefault();
-                  onReorder?.(e.key === "ArrowUp" ? -1 : 1);
+                  reorder.onReorder(e.key === "ArrowUp" ? -1 : 1);
                 }}
                 className="shrink-0 rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/proj:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
@@ -478,7 +399,8 @@ function ProjectSection({
         <div className="space-y-px px-1.5">
           {entries.map((entry, index) => {
             const isRoot = entry.depth === 0;
-            const dropHere = sessionDrop?.index === index ? sessionDrop.indicator : null;
+            const reorderable = canReorderSessions && isRoot;
+            const row = sessionReorder.bindRow(entry.treeId, index);
             return (
             <div
               key={entry.session.tabId}
@@ -509,51 +431,25 @@ function ProjectSection({
                   orphanSource: entry.orphanSource,
                   hasDescendants: entry.hasDescendants,
                 }}
-                canReorder={canReorderSessions && isRoot}
-                dragging={dragTabId === entry.session.tabId}
-                dropIndicator={dropHere}
-                registerGrip={canReorderSessions && isRoot ? registerSessionGrip : undefined}
-                onReorder={
-                  canReorderSessions && isRoot
-                    ? (delta) =>
-                        reorderSession(
-                          roots.findIndex((r) => r.session.tabId === entry.session.tabId),
-                          delta,
-                        )
-                    : undefined
-                }
-                onDragStart={
-                  canReorderSessions && isRoot ? handleSessionDragStart(entry.session.tabId) : undefined
-                }
+                canReorder={reorderable}
+                dragging={row.dragging}
+                dropIndicator={row.dropIndicator}
+                registerGrip={reorderable ? row.registerGrip : undefined}
+                onReorder={reorderable ? row.onReorder : undefined}
+                onDragStart={row.onDragStart}
                 onDragOver={(e) => {
-                  if (dragTabId === null) return; // project drag: bubble to the section
+                  if (sessionReorder.dragKey === null) return; // project drag: bubble to the section
                   // Session drags only; never let a row drop bubble to the
                   // section's project-drop handlers.
                   e.stopPropagation();
-                  if (dragTabId === entry.treeId) return; // own tree: no indicator
-                  e.preventDefault();
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const after = e.clientY >= (rect.top + rect.bottom) / 2;
-                  setSessionDrop({ index, indicator: after ? "after" : "before" });
+                  row.onDragOver(e);
                 }}
                 onDrop={(e) => {
-                  if (dragTabId === null) return; // project drag: bubble to the section
+                  if (sessionReorder.dragKey === null) return; // project drag: bubble to the section
                   e.stopPropagation();
-                  e.preventDefault();
-                  if (dragTabId !== entry.treeId) {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const beforeTabId = beforeRootOf(index, e.clientY, rect.top, rect.bottom);
-                    // Dropping onto the dragged tree resolves to a no-op;
-                    // skipping the call spares a save + broadcast.
-                    if (beforeTabId !== dragTabId) void moveSession(dragTabId, beforeTabId);
-                  }
-                  setDragTabId(null);
-                  setSessionDrop(null);
+                  row.onDrop(e);
                 }}
-                onDragEnd={() => {
-                  setDragTabId(null);
-                  setSessionDrop(null);
-                }}
+                onDragEnd={row.onDragEnd}
               />
             </div>
             );
@@ -687,21 +583,6 @@ export function Sidebar() {
   }, [refreshAvailability]);
   const terminalMenuRef = useRef<HTMLDivElement>(null);
   const terminalMenuItemRef = useRef<HTMLButtonElement>(null);
-  // issue #115 drag-and-drop reorder. `dragPath` is the project being dragged;
-  // `dropIndicator`/`dropIndex` describe where the insertion line is drawn.
-  const [dragPath, setDragPath] = useState<string | null>(null);
-  const [dropIndicator, setDropIndicator] = useState<"before" | "after" | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
-  // issue #120 keyboard reorder. Grips are registered by path so focus can be
-  // restored to the moved project after the registry's broadcast re-renders the
-  // list (React reorders by moving the DOM subtree, which blurs it).
-  const gripRefs = useRef(new Map<string, HTMLButtonElement>());
-  const registerGrip = useCallback((path: string, el: HTMLButtonElement | null) => {
-    if (el === null) gripRefs.current.delete(path);
-    else gripRefs.current.set(path, el);
-  }, []);
-  /** The keyboard move in flight, and the slot it must land in. */
-  const pendingMove = useRef<{ path: string; name: string; index: number } | null>(null);
   /** Live-region text: the *result* of a reorder, never the request. */
   const [reorderNote, setReorderNote] = useState("");
 
@@ -745,18 +626,7 @@ export function Sidebar() {
   // recomputes from the live list, so a stale pointer resolves against the
   // current rows even when the filter changed mid-drag.
   const filteredPaths = useMemo(() => filtered.map((f) => f.group.project.path), [filtered]);
-  // The move is only real once the broadcast has replaced `state`. Waiting for
-  // the expected slot means a refused or coalesced move announces nothing, and
-  // focus is restored on the render that actually moved the row.
-  useEffect(() => {
-    const pending = pendingMove.current;
-    if (pending === null || filteredPaths[pending.index] !== pending.path) return;
-    pendingMove.current = null;
-    gripRefs.current.get(pending.path)?.focus();
-    setReorderNote(
-      `${pending.name} moved to position ${pending.index + 1} of ${filteredPaths.length}`,
-    );
-  }, [filteredPaths]);
+
   // A lone project can't be reordered; the compact sheet's touch surface gets
   // no drag affordances (issue #115 scoping). Filtering also disables the
   // reorder: positions resolve against the *visible* rows, so with neighbours
@@ -765,22 +635,15 @@ export function Sidebar() {
   // drag (issue #115) and the keyboard move (issue #120).
   const canReorder = !compact && query.trim() === "" && (groups?.length ?? 0) > 1;
 
-  const reorderProject = (index: number, delta: -1 | 1): void => {
-    const path = filteredPaths[index];
-    const name = filtered[index]?.group.project.name;
-    if (path === undefined || name === undefined) return;
-    const target = index + delta;
-    if (target < 0 || target >= filteredPaths.length) {
-      setReorderNote(`${name} is already ${delta < 0 ? "first" : "last"}`);
-      return;
-    }
-    // moveProject inserts *before* a sibling: one step up is "before the
-    // predecessor"; one step down is "before the successor's successor", and
-    // null past the end of the list.
-    const beforePath = delta < 0 ? filteredPaths[index - 1]! : (filteredPaths[index + 2] ?? null);
-    pendingMove.current = { path, name, index: target };
-    void moveProject(path, beforePath);
-  };
+  const reorder = useListReorder({
+    rows: filtered,
+    rootOf: (f) => f.group.project.path,
+    keys: filteredPaths,
+    nameOf: (path) => filtered.find((f) => f.group.project.path === path)?.group.project.name,
+    move: moveProject,
+    enabled: canReorder,
+    announce: setReorderNote,
+  });
 
   // Derived from the live broadcast so a removed project can never leave a
   // stale sheet: a lookup miss renders a closed Sheet (issue #205).
@@ -887,47 +750,6 @@ export function Sidebar() {
             )}
             {filtered.map((f, index) => {
               const path = f.group.project.path;
-
-              const handleDragStart = (e: ReactDragEvent<HTMLElement>) => {
-                e.dataTransfer?.setData("text/plain", path); // required for Firefox
-                if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-                setDragPath(path);
-              };
-
-              const handleDragOver = (e: ReactDragEvent<HTMLElement>) => {
-                if (dragPath === null || dragPath === path) return; // own row: no indicator
-                e.preventDefault(); // allow the drop
-                const rect = e.currentTarget.getBoundingClientRect();
-                const beforePath = beforePathOf(filteredPaths, index, e.clientY, rect.top, rect.bottom);
-                // "before" → insertion above this project (top half); "after" →
-                // below it (bottom half: before the next project, or the end of
-                // the list). Recomputed fresh on drop, so this is display only.
-                setDropIndicator(beforePath === path ? "before" : "after");
-                setDropIndex(index);
-              };
-
-              const handleDrop = (e: ReactDragEvent<HTMLElement>) => {
-                e.preventDefault();
-                if (dragPath !== null && dragPath !== path) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const beforePath = beforePathOf(filteredPaths, index, e.clientY, rect.top, rect.bottom);
-                  // Dropping just above itself resolves to "before itself" —
-                  // the "leave it put" gesture. The registry treats it as a
-                  // no-op regardless; skipping the call here also spares a
-                  // pointless save and state broadcast.
-                  if (beforePath !== dragPath) void moveProject(dragPath, beforePath);
-                }
-                setDragPath(null);
-                setDropIndicator(null);
-                setDropIndex(null);
-              };
-
-              const handleDragEnd = () => {
-                setDragPath(null);
-                setDropIndicator(null);
-                setDropIndex(null);
-              };
-
               return (
                 <ProjectSection
                   key={path}
@@ -940,15 +762,7 @@ export function Sidebar() {
                   refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
                   onOpenActions={() => setActionsFor(path)}
-                  canReorder={canReorder}
-                  registerGrip={registerGrip}
-                  onReorder={(delta) => reorderProject(index, delta)}
-                  dragging={dragPath === path}
-                  dropIndicator={dropIndex === index ? dropIndicator : null}
-                  onDragStart={handleDragStart}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  onDragEnd={handleDragEnd}
+                  reorder={reorder.bindRow(path, index)}
                   onAnnounce={setReorderNote}
                 />
               );
