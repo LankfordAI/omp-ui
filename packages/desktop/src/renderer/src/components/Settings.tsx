@@ -19,7 +19,7 @@ import {
   OMP_SETTING_GROUPS,
 } from "@omp-ui/core/omp-settings-keys";
 import QRCode from "qrcode";
-import { backend } from "../backend";
+import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import {
   SCALE_STEPS,
@@ -64,12 +64,6 @@ type OverviewLoad =
   | { status: "loading" }
   | { status: "loaded"; overview: MemoryOverview }
   | { status: "error"; message: string };
-
-/** ipcRenderer.invoke wraps main-process errors — unwrap for display (#16 precedent). */
-function displayMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  return raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
-}
 
 /** readOmpSettings never rejects with this — only a null ompPath produces it. */
 const OMP_MISSING = "omp binary not found";

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { McpServerEntry, McpServersResult } from "@omp-ui/core/types";
 import type { McpRuntimeFailure } from "@omp-ui/core/mcp-status";
-import { backend } from "../backend";
+import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { findRecord, useStore } from "../store";
 import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
@@ -34,12 +34,6 @@ type Load =
   | { status: "loading" }
   | { status: "loaded"; result: McpServersResult }
   | { status: "error"; message: string };
-
-/** ipcRenderer.invoke wraps main-process errors — unwrap for display (#16 precedent). */
-function displayMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  return raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
-}
 
 function Row({
   entry,

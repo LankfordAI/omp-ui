@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectOpenTarget, ProjectRecord } from "@omp-ui/core/types";
-import { backend } from "../backend";
+import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { Capsule, CAPSULE_SEGMENT, Chevron, IconButton, IconClose, Panel } from "./ui";
 
@@ -20,12 +20,6 @@ import { Capsule, CAPSULE_SEGMENT, Chevron, IconButton, IconClose, Panel } from 
  * never busy or blame another, and a failure belongs beside the project it
  * happened to.
  */
-
-/** Electron wraps handler rejections; the user wants the cause, not the plumbing. */
-function messageOf(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  return raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
-}
 
 /** Identical to the sidebar terminal menu's item — one menu convention. */
 const MENU_ITEM_CLASS =
@@ -111,7 +105,7 @@ export function ProjectOpenControl({
       try {
         await backend.openProject(project.path, target);
       } catch (err) {
-        if (mountedRef.current) setError(messageOf(err));
+        if (mountedRef.current) setError(displayMessage(err));
         // A failed VS Code launch is the one moment the cached answer is
         // suspect — re-ask so the control stops offering a dead destination.
         if (target === "vscode") {

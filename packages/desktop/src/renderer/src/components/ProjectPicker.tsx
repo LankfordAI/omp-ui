@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
-import { backend } from "../backend";
+import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
@@ -85,8 +85,7 @@ export function ProjectPicker() {
     void addProject(path)
       .then(() => (compact ? newSession(path) : undefined))
       .catch((err: unknown) => {
-        const raw = err instanceof Error ? err.message : String(err);
-        setSubmitError(raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ""));
+        setSubmitError(displayMessage(err));
       });
   };
 
