@@ -7,7 +7,15 @@ import type {
 import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
+import { createBranchesSlice } from "./store/slices/branches";
+import { createCatchupSlice } from "./store/slices/catchup";
+import { createFrameReductionSlice } from "./store/slices/frame-reduction";
+import { createLifecycleSlice } from "./store/slices/lifecycle";
+import { createPlanExecutionSlice } from "./store/slices/plan-execution";
+import { createRpcCommandSlice } from "./store/slices/rpc-command";
+import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSettingsSlice } from "./store/slices/settings";
+import { createMachinery, shellWriters, termWriters } from "./store/slices/shared";
 import { createUpdatesSlice } from "./store/slices/updates";
 import {
   createViewSlice,
@@ -17,19 +25,7 @@ import {
   pruneFocus,
   restoreDesktopView,
 } from "./store/slices/view";
-import {
-  createMachinery,
-  shellWriters,
-  termWriters,
-} from "./store/slices/shared";
-import { createCatchupSlice } from "./store/slices/catchup";
 import type { RpcTabState, UiStore } from "./store/types";
-import { createBranchesSlice } from "./store/slices/branches";
-import { createPlanExecutionSlice } from "./store/slices/plan-execution";
-import { createLifecycleSlice } from "./store/slices/lifecycle";
-import { createRpcCommandSlice } from "./store/slices/rpc-command";
-import { createFrameReductionSlice } from "./store/slices/frame-reduction";
-import { createSessionParamsSlice } from "./store/slices/session-params";
 export type {
   BranchActivity,
   CompactSurface,
