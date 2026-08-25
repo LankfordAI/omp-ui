@@ -304,7 +304,7 @@ describe("Composer advisor model palette", () => {
       (button) => button.textContent?.includes("use omp's configured advisor"),
     )!;
     await act(async () => configured.click());
-    expect(backendMock.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, null, false);
+    expect(backendMock.setSessionAdvisor).toHaveBeenCalledWith(TAB, true, null);
   });
 });
 

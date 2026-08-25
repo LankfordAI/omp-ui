@@ -2528,6 +2528,41 @@ describe("hibernation (issue #246)", () => {
       vi.useRealTimers();
     }
   });
+
+  it("makes a concurrent delete wait for an in-flight reap instead of re-killing", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry, sent } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      // SIGTERM acknowledged but the process lingers: the reap is observable.
+      rpc.kill.mockImplementation(() => {});
+
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(manager.isLive(TAB)).toBe(true); // kill in flight, entry not reaped
+
+      const deleting = manager.deleteSession(TAB); // must wait out the reap
+      await flush();
+      // Pre-fix, killAndReap had already re-killed the dying entry by here.
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(registry.sessions.some((s) => s.tabId === TAB)).toBe(true);
+
+      rpc.exit(0); // the reap completes: hibernated fires while the session exists
+      await deleting;
+
+      // One hibernated, emitted before the delete removed anything.
+      expect(sent.filter((s) => s.channel === CH.onSessionHibernated)).toHaveLength(1);
+      expect(manager.isLive(TAB)).toBe(false);
+      expect(registry.sessions.some((s) => s.tabId === TAB)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("never hibernates the tab being viewed (issue #266)", async () => {
     vi.useFakeTimers();
     try {

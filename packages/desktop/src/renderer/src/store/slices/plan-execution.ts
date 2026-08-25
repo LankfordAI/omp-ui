@@ -279,12 +279,7 @@ export function createPlanExecutionSlice(
         if (modelChanged) await get().setModel(tabId, stagedModel!);
         if (thinkingChanged)
           await get().setThinkingLevel(tabId, options!.thinkingLevel!);
-        await get().setSessionAdvisor(
-          tabId,
-          options!.advisor!,
-          options!.advisorModel ?? null,
-          false,
-        );
+        await get().setSessionAdvisor(tabId, options!.advisor!, options!.advisorModel ?? null);
         // A failed relaunch alerts and leaves the tab dead — never prompt it.
         await m.pollUntil(
           tabId,

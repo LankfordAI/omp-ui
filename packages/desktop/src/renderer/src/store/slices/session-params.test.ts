@@ -975,7 +975,6 @@ describe("prompting, slash commands, and session ops", () => {
       h.TAB,
       true,
       "openrouter/a/b:high",
-      false,
     );
   });
 

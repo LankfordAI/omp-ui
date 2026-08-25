@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import type { Readable, Writable } from "node:stream";
 import { ompChildEnv } from "../omp-process";
 import { withFdSweep } from "../fd-sweep";
-import { RpcChunkReassembler } from "./codec";
+import { RpcChunkReassembler, type RpcFrame } from "./codec";
 
 export interface RpcChildProcess {
   stdin: Writable;
@@ -21,7 +22,7 @@ export type RpcSpawnFn = (
 
 export interface RpcClientOpts {
   cwd: string;
-  /** Absolute lineage dir (ADR-0003), passed to omp as --session-dir. */
+  /** Absolute lineage dir (ADR-0003); created if missing, passed to omp as --session-dir. */
   lineageDir: string;
   ompPath: string;
   resumeSessionId?: string;
@@ -32,7 +33,7 @@ export interface RpcClientOpts {
   extensions?: string[];
   /** Commands sent once, immediately after protocol negotiation and before ready is forwarded. */
   initialCommands?: object[];
-  onFrame: (frame: unknown) => void;
+  onFrame: (frame: RpcFrame) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
   /** Test seam — defaults to child_process.spawn over pipes. */
@@ -82,6 +83,10 @@ export class RpcClient {
   #dead = false;
 
   constructor(opts: RpcClientOpts) {
+    // The lineage dir must exist before the child starts and before the
+    // caller's lineage watcher does (ADR-0003) — the same guarantee
+    // spawnOmp makes (pty.ts).
+    fs.mkdirSync(opts.lineageDir, { recursive: true });
     this.#opts = opts;
     this.#reassembler = new RpcChunkReassembler(
       (frame) => this.#onFrame(frame),
@@ -129,7 +134,7 @@ export class RpcClient {
     this.#proc.kill(signal);
   }
 
-  #onFrame(frame: unknown): void {
+  #onFrame(frame: RpcFrame): void {
     if (!this.#readySeen && isReadyFrame(frame)) {
       this.#readySeen = true;
       clearTimeout(this.#readyTimer);

@@ -150,7 +150,7 @@ describe("makeBackendClient", () => {
 
     await client.moveProject("/project/a", null);
     await client.openProject("/project/a", "files");
-    await client.setSessionAdvisor("tab-1", true, "openrouter/a/b:low", true);
+    await client.setSessionAdvisor("tab-1", true, "openrouter/a/b:low");
     client.ptyResize("tab-1", 120, 40);
     client.onPtyData(onData);
 
@@ -164,7 +164,7 @@ describe("makeBackendClient", () => {
     });
     expect(recorded.requests.at(-1)).toEqual({
       channel: "session:setAdvisor",
-      args: ["tab-1", true, "openrouter/a/b:low", true],
+      args: ["tab-1", true, "openrouter/a/b:low"],
     });
     expect(recorded.notifications.at(-1)).toEqual({
       channel: "pty:resize",

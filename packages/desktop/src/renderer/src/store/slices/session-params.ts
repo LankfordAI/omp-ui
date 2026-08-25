@@ -196,7 +196,6 @@ export function createSessionParamsSlice(
     tabId: string,
     advisor: boolean,
     advisorModel: string | null,
-    preservedPlanMode?: boolean,
   ): Promise<void> => {
     const tab = get().rpc[tabId];
     if (tab?.status === "starting") return;
@@ -254,13 +253,8 @@ export function createSessionParamsSlice(
         return;
       }
     }
-    const startInPlanMode =
-      preservedPlanMode ??
-      (changedLive
-        ? (get().rpc[tabId]?.plan?.enabled ?? tab?.plan?.enabled ?? false)
-        : false);
     try {
-      await backend.setSessionAdvisor(tabId, advisor, advisorModel, startInPlanMode);
+      await backend.setSessionAdvisor(tabId, advisor, advisorModel);
     } catch (err) {
       // Changing the advisor relaunches the agent, so a failure here means
       // the session is down, not merely that a setting did not stick. Say

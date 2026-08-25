@@ -166,7 +166,7 @@ export {
   type SessionLocation,
 } from "./archive";
 export { forkSessionFile } from "./fork";
-export { RpcChunkReassembler } from "./rpc/codec";
+export { RpcChunkReassembler, isObject, type RpcFrame } from "./rpc/codec";
 export { modelStreamCheckpointLabel } from "./stream-activity";
 export {
   RpcClient,

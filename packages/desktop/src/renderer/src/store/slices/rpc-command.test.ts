@@ -89,7 +89,6 @@ describe("native RPC relaunch preparation", () => {
       h.TAB,
       true,
       "openrouter/a/b:high",
-      true,
     );
   });
 
@@ -134,7 +133,6 @@ describe("native RPC relaunch preparation", () => {
       h.TAB,
       true,
       "openrouter/openai/gpt-5.6-sol:low",
-      true,
     );
     expect(h.mockBackend.setSessionModel.mock.invocationCallOrder[0]).toBeLessThan(
       h.mockBackend.setSessionAdvisor.mock.invocationCallOrder[0]!,
@@ -158,7 +156,6 @@ describe("native RPC relaunch preparation", () => {
       h.TAB,
       true,
       "openrouter/a/b:high",
-      false,
     );
   });
 

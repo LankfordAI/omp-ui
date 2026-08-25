@@ -385,8 +385,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     tabId: string,
     advisor: boolean,
     advisorModel: string | null,
-    /** Explicit successor posture; approved-plan execution passes Build. */
-    startInPlanMode?: boolean,
   ): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
   setModel(tabId: string, model: ModelInfo): Promise<void>;

@@ -333,11 +333,10 @@ export interface SpawnRequest {
   /** Provenance to persist on a fresh implementation session. */
   planImplementationSource?: PlanImplementationSource | null;
   /**
-   * Initial Plan/Build posture for any rpc-ui spawn. Explicit true/false always
-   * wins. Omitted new sessions follow Default agent mode; omitted resumes start
-   * in Build unless their caller explicitly preserves Plan. Plan execution
-   * passes false so the implementation session is never born read-only
-   * (issue #165).
+   * Initial Plan/Build posture for an rpc-ui spawn. Omitted new sessions follow
+   * Default agent mode; omitted resumes follow the record's persisted
+   * `agentMode` (issue #263). The fresh implementation spawn passes false so
+   * the implementation session is never born read-only (issue #165).
    */
   startInPlanMode?: boolean;
 }

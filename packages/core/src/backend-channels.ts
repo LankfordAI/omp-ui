@@ -34,6 +34,7 @@ import type {
   SessionMode,
   SpawnRequest,
 } from "./types";
+import type { RpcFrame } from "./rpc/codec";
 
 /** Type-only marker for a request/reply channel. */
 export interface RequestChannel<Args extends unknown[], Result> {
@@ -306,15 +307,7 @@ export const BACKEND_CHANNELS = {
    */
   setSessionAdvisor: {
     channel: "session:setAdvisor",
-    ...request<
-      [
-        tabId: string,
-        advisor: boolean,
-        advisorModel: string | null,
-        startInPlanMode: boolean,
-      ],
-      void
-    >(),
+    ...request<[tabId: string, advisor: boolean, advisorModel: string | null], void>(),
   },
   /** omp's advisor defaults for a project (global config plus project overlay). */
   getAdvisorDefaults: {
@@ -536,7 +529,7 @@ export const BACKEND_CHANNELS = {
     channel: "shell:exit",
     ...event<[tabId: string, exitCode: number]>(),
   },
-  rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: object]>() },
+  rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: RpcFrame]>() },
   /**
    * Reports the tab this renderer currently has in view, or null when none.
    * `clientId` is the renderer's stable report identity so a reload replaces

@@ -1996,7 +1996,6 @@ describe("handleRpcFrame routing", () => {
       h.TAB,
       true,
       "openrouter/a/b:high",
-      false,
     );
     const implementationPrompt = () =>
       h.sent.find(
@@ -2032,7 +2031,6 @@ describe("handleRpcFrame routing", () => {
       h.TAB,
       true,
       "openrouter/a/b:high",
-      false,
     );
     h.useStore.setState({
       rpc: { [h.TAB]: { ...h.useStore.getState().rpc[h.TAB]!, status: "error" } },

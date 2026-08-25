@@ -1,4 +1,7 @@
 import { PassThrough } from "node:stream";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { setImmediate as tick } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RpcClient, type RpcChildProcess } from "./client";
@@ -48,8 +51,10 @@ interface Harness {
   stdinText: () => string;
   spawnArgs: string[];
   spawnEnv: NodeJS.ProcessEnv;
+  lineageDir: string;
 }
 
+const lineageDirs: string[] = [];
 function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[] } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
@@ -57,9 +62,11 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
   const exits: (number | null)[] = [];
   let spawnArgs: string[] = [];
   let spawnEnv: NodeJS.ProcessEnv = {};
+  const lineageDir = fs.mkdtempSync(path.join(os.tmpdir(), "rpc-lineage-"));
+  lineageDirs.push(lineageDir);
   const client = new RpcClient({
     cwd: "/proj",
-    lineageDir: "/sessions/omp-ui--x--11111111-2222-3333-4444-555555555555",
+    lineageDir,
     ompPath: opts.ompPath ?? "/opt/bun/bin/omp",
     resumeSessionId: opts.resumeSessionId,
     initialCommands: opts.initialCommands,
@@ -81,6 +88,7 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
     stdinText: () => fake.stdin.read()?.toString() ?? "",
     spawnArgs,
     spawnEnv,
+    lineageDir,
   };
 }
 
@@ -90,6 +98,7 @@ function readyFrame(maxFrameBytes = 1_048_576): string {
 
 afterEach(() => {
   vi.useRealTimers();
+  for (const dir of lineageDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe("RpcClient spawn", () => {
@@ -100,7 +109,7 @@ describe("RpcClient spawn", () => {
       "--cwd",
       "/proj",
       "--session-dir",
-      "/sessions/omp-ui--x--11111111-2222-3333-4444-555555555555",
+      h.lineageDir,
     ]);
     expect(h.spawnEnv.PATH?.startsWith(`/opt/bun/bin`)).toBe(true);
   });
@@ -108,6 +117,23 @@ describe("RpcClient spawn", () => {
   it("appends --resume when a session id is given", () => {
     const h = harness({ resumeSessionId: "abc-123" });
     expect(h.spawnArgs.at(-1)).toBe("--resume=abc-123");
+  });
+
+  it("creates a missing lineage dir before spawning", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "rpc-lineage-"));
+    lineageDirs.push(base);
+    const lineageDir = path.join(base, "lineage", "omp-ui--x--11111111-2222-3333-4444-555555555555");
+    const fake = fakeProc();
+    new RpcClient({
+      cwd: "/proj",
+      lineageDir,
+      ompPath: "/opt/bun/bin/omp",
+      onFrame: () => {},
+      onExit: () => {},
+      onError: () => {},
+      spawnProcess: () => fake.proc,
+    });
+    expect(fs.existsSync(lineageDir)).toBe(true);
   });
 });
 

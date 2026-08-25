@@ -12,6 +12,7 @@ import {
   mintLineageDirName,
   mintWorktreePath,
   modelStreamCheckpointLabel,
+  isObject,
   isWithin,
   parseModelRole,
   parsePlanReviewTitle,
@@ -47,6 +48,7 @@ import {
   type PendingPlan,
   type PlanSettle,
   type PtyHandle,
+  type RpcFrame,
   type SessionMode,
   type SessionWorktree,
   type SpawnRequest,
@@ -193,6 +195,18 @@ interface PlanGate {
   settle: PlanSettle | null;
 }
 
+/**
+ * The no-kill verdicts of the shared hibernation attempt. `rearm`: a guard is
+ * in force or the probe said "not idle" — re-examine next window (issue #247).
+ * The invalidating verdicts let the caller decide its own contract.
+ */
+type HibernateOutcome =
+  | { reaped: boolean }
+  | "rearm"
+  | "setting-off"
+  | "replaced"
+  | "gone";
+
 /** The sole owner of live session children and their supporting process state. */
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -300,18 +314,29 @@ export class SessionManager {
   }
 
   /**
-   * Terminate's child gets the same SIGTERM→grace→SIGKILL treatment delete and
-   * relaunch get through killAndReap — a wedged omp that ignores SIGTERM must
-   * not hold its pipes/pty (and its MCP grandchildren) forever (issue #182,
-   * the #64 residual). Unlike killAndReap this never suppresses the exit and
-   * never throws: the renderer still learns the session ended via the normal
-   * onExit → broadcast.
+   * SIGTERM → grace → SIGKILL against a live entry. Resolves true once the
+   * child's exit has been observed; false if it outlived both signals. Owns
+   * the escalation timing alone: callers own `suppressExit` and their
+   * post-reap policy (warn / hibernated event / throw).
    */
-  private async escalateOnTerminate(tabId: string, entry: LiveEntry): Promise<void> {
-    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return;
+  private async reapWithEscalation(entry: LiveEntry): Promise<boolean> {
+    this.killLive(entry);
+    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return true;
     entry.pty?.kill("SIGKILL");
     entry.rpc?.kill("SIGKILL");
-    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) return;
+    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) return true;
+    return false;
+  }
+
+  /**
+   * Terminate shares killAndReap's escalation machine — a wedged omp that
+   * ignores SIGTERM must not hold its pipes/pty (and its MCP grandchildren)
+   * forever (issue #182, the #64 residual). Unlike killAndReap this never
+   * suppresses the exit and never throws: the renderer still learns the
+   * session ended via the normal onExit → broadcast.
+   */
+  private async escalateOnTerminate(tabId: string, entry: LiveEntry): Promise<void> {
+    if (await this.reapWithEscalation(entry)) return;
     console.warn(
       `[sessions] ${tabId}: child survived SIGKILL (uninterruptible sleep?) — ` +
         `its fds stay open until it dies`,
@@ -504,8 +529,6 @@ export class SessionManager {
     ompPath: string,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
-    // Exactly like PTY (ADR-0003) — and the dir must exist for the watcher.
-    fs.mkdirSync(absLineageDir, { recursive: true });
     const entry = liveEntry({ kind: "rpc-ui", record });
     const { paths: extensions, mcpStatusLoaded } = this.rpcExtensions(absLineageDir);
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
@@ -545,13 +568,7 @@ export class SessionManager {
         this.observePlanStatus(record.tabId, frame);
         // Stall watchdog (issue #248): arm the sweep on the first turn and
         // timestamp model-stream activity.
-        if (
-          typeof frame === "object" &&
-          frame !== null &&
-          (frame as Record<string, unknown>).type === "agent_start"
-        ) {
-          this.ensureStallWatch();
-        }
+        if (frame.type === "agent_start") this.ensureStallWatch();
         this.observeStallActivity(entry, frame);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
       },
@@ -668,7 +685,6 @@ export class SessionManager {
     tabId: string,
     advisor: boolean,
     advisorModel: string | null,
-    startInPlanMode: boolean,
   ): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
@@ -692,7 +708,6 @@ export class SessionManager {
       cols: 80,
       rows: 24,
       resumeTabId: tabId,
-      startInPlanMode,
     });
   }
 
@@ -759,7 +774,6 @@ export class SessionManager {
     pty.write(bracketedImagePaste(file));
     // The scratch file outlives this call on purpose: omp reads it after the
     // paste is delivered, and it also backs the transcript's image blob.
-    await Promise.resolve();
   }
 
   /**
@@ -824,13 +838,12 @@ export class SessionManager {
   }
 
   /** Records a proposal as soon as its frame passes through the session. */
-  private seePlanFrame(tabId: string, frame: unknown): void {
+  private seePlanFrame(tabId: string, frame: RpcFrame): void {
     if (typeof frame !== "object" || frame === null) return;
-    const f = frame as Record<string, unknown>;
-    if (f.type !== "extension_ui_request") return;
-    const review = parsePlanReviewTitle(typeof f.title === "string" ? f.title : undefined);
+    if (frame.type !== "extension_ui_request") return;
+    const review = parsePlanReviewTitle(typeof frame.title === "string" ? frame.title : undefined);
     if (review === null) return;
-    const frameId = typeof f.id === "string" ? f.id : "";
+    const frameId = typeof frame.id === "string" ? frame.id : "";
     this.planGates.set(tabId, {
       pending: {
         title: review.title,
@@ -846,12 +859,11 @@ export class SessionManager {
   }
 
   /** Persists the agent mode the plan extension publishes so a respawn restores it (issue #263). */
-  private observePlanStatus(tabId: string, frame: unknown): void {
+  private observePlanStatus(tabId: string, frame: RpcFrame): void {
     if (typeof frame !== "object" || frame === null) return;
-    const f = frame as Record<string, unknown>;
-    if (f.type !== "extension_ui_request" || f.method !== "setStatus") return;
-    if (f.statusKey !== PLAN_STATUS_KEY) return;
-    const status = parsePlanStatus(typeof f.statusText === "string" ? f.statusText : undefined);
+    if (frame.type !== "extension_ui_request" || frame.method !== "setStatus") return;
+    if (frame.statusKey !== PLAN_STATUS_KEY) return;
+    const status = parsePlanStatus(typeof frame.statusText === "string" ? frame.statusText : undefined);
     if (status === null) return; // malformed payload — never trusted over the record
     const next: AgentMode = status.enabled ? "plan" : "build";
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -861,15 +873,14 @@ export class SessionManager {
   }
 
   /** Settles the gate when its select answer comes back from any renderer. */
-  private notePlanVerdict(tabId: string, cmd: object): void {
-    const c = cmd as Record<string, unknown>;
-    if (c.type !== "extension_ui_response") return;
-    const id = typeof c.id === "string" ? c.id : null;
+  private notePlanVerdict(tabId: string, cmd: RpcFrame): void {
+    if (cmd.type !== "extension_ui_response") return;
+    const id = typeof cmd.id === "string" ? cmd.id : null;
     const gate = this.planGates.get(tabId);
     if (id === null || !gate || gate.pending === null || gate.pending.frameId !== id) return;
     this.planGates.set(tabId, {
       pending: null,
-      settle: { frameId: id, verdict: c.value === PLAN_EXECUTE ? "executed" : "refined" },
+      settle: { frameId: id, verdict: cmd.value === PLAN_EXECUTE ? "executed" : "refined" },
     });
     this.deps.attention?.planSettled(tabId);
     // Between the verdict and the implementation prompt the process is
@@ -976,9 +987,9 @@ export class SessionManager {
    * deadlines, and a build or hub wait is legitimately quiet on the
    * provider stream for as long as it runs.
    */
-  private observeStallActivity(entry: LiveEntry, frame: unknown): void {
+  private observeStallActivity(entry: LiveEntry, frame: RpcFrame): void {
     if (typeof frame !== "object" || frame === null) return;
-    const type = (frame as Record<string, unknown>).type;
+    const type = frame.type;
     switch (type) {
       // No tool execution survives a turn boundary. An abort's teardown can
       // skip end frames for refused tools; a leaked count would suppress
@@ -1115,29 +1126,25 @@ export class SessionManager {
    * idle clock. The setting is re-read on every arm, so a Settings change
    * takes effect at the next activity — no separate re-arm path.
    */
-  private observeHibernation(tabId: string, frame: unknown): void {
+  private observeHibernation(tabId: string, frame: RpcFrame): void {
     const entry = this.live.get(tabId);
     if (!entry || entry.kind !== "rpc-ui") return;
     if (typeof frame !== "object" || frame === null) return;
-    const f = frame as Record<string, unknown>;
     // The probe's own response: settle it and do NOT reset the idle clock —
     // probe traffic is our own, and resetting would postpone every hibernation
     // attempt by its own probe.
-    if (f.type === "response" && entry.probeId !== null && f.id === entry.probeId) {
+    if (frame.type === "response" && entry.probeId !== null && frame.id === entry.probeId) {
       entry.probeId = null;
       const resolve = entry.probeResolve;
       entry.probeResolve = null;
       if (resolve === null) return;
-      if (f.success === false) {
+      if (frame.success === false) {
         resolve(null);
         return;
       }
       // Command responses nest their payload under `data` (same tolerant
       // unwrap as the renderer's respData).
-      const data =
-        f.data !== null && typeof f.data === "object"
-          ? (f.data as Record<string, unknown>)
-          : f;
+      const data = isObject(frame.data) ? frame.data : frame;
       const parked =
         typeof data.queuedMessageCount === "number" &&
         Number.isFinite(data.queuedMessageCount)
@@ -1146,7 +1153,7 @@ export class SessionManager {
       resolve({ parked, streaming: data.isStreaming === true });
       return;
     }
-    switch (f.type) {
+    switch (frame.type) {
       case "agent_start":
         entry.turnsRunning++;
         // A new turn is activity: it answers every pending attention (issue #271).
@@ -1166,13 +1173,13 @@ export class SessionManager {
       case "extension_ui_request":
         // Only user-answer dialogs block hibernation; the other methods are
         // fire-and-forget state frames the renderer never replies to.
-        if (typeof f.id === "string" && BLOCKING_DIALOG_METHODS[String(f.method)] === true) {
+        if (typeof frame.id === "string" && BLOCKING_DIALOG_METHODS[String(frame.method)] === true) {
           let open = this.openExtensionRequests.get(tabId);
           if (open === undefined) {
             open = new Set<string>();
             this.openExtensionRequests.set(tabId, open);
           }
-          open.add(f.id);
+          open.add(frame.id);
         }
         break;
     }
@@ -1289,10 +1296,37 @@ export class SessionManager {
       rpc.send({ type: "get_state", id });
     });
   }
+
   /**
-   * Idle window elapsed: re-check every guard, probe, then kill and reap.
-   * Every no-kill exit re-arms (issue #247): guards lapse on their own
-   * clocks, and a quiet session has no frames to re-arm the check.
+   * The shared guard→probe→recheck→reap sequence. Callers own their entry
+   * gates (timer, dedupe) and map the no-kill verdicts to their own policy.
+   * The reap is registered in `hibernating` for its full duration so a
+   * delete or resume for the same tab can wait it out (issue #246, #296).
+   */
+  private async attemptHibernate(
+    tabId: string,
+    entry: LiveEntry,
+    policy: "idle" | "plan-handoff",
+  ): Promise<HibernateOutcome> {
+    if (!this.hibernable(entry, tabId, policy)) return "rearm";
+    const state = await this.probeState(entry);
+    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return "setting-off";
+    if (this.live.get(tabId) !== entry) return this.live.has(tabId) ? "replaced" : "gone";
+    if (state === null || state.parked > 0 || state.streaming) return "rearm";
+    if (!this.hibernable(entry, tabId, policy)) return "rearm";
+    const reap = this.hibernate(tabId, entry);
+    this.hibernating.set(tabId, reap);
+    try {
+      return { reaped: await reap };
+    } finally {
+      this.hibernating.delete(tabId);
+    }
+  }
+
+  /**
+   * Idle window elapsed: run the shared attempt. Re-arm only on the
+   * re-examination verdicts (issue #247) — guards lapse on their own clocks,
+   * and a quiet session has no frames to re-arm the check.
    */
   private async tryHibernate(tabId: string): Promise<void> {
     this.hibernateTimers.delete(tabId);
@@ -1300,34 +1334,12 @@ export class SessionManager {
     if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
     const entry = this.live.get(tabId);
     if (!entry || entry.kind !== "rpc-ui") return;
-    if (!this.hibernable(entry, tabId, "idle")) {
-      this.armHibernateTimer(tabId); // guard in force: re-examine next window
-      return;
-    }
-    const state = await this.probeState(entry);
-    // The tab may have died or been replaced while the probe was out, and
-    // the setting may have flipped off — kill only what the current config
-    // wants, and never hibernate a stale entry (its exit path already ran).
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
-    if (this.live.get(tabId) !== entry) return; // its own paths arm fresh
-    if (state === null || state.parked > 0 || state.streaming) {
-      // Probe hiccup or not really idle: never kill on uncertainty (#246),
-      // but do not drop the clock either (#247).
+    // Guard-in-force and not-idle verdicts re-arm (issue #247): guards lapse
+    // on their own clocks, and a quiet session has no frames to re-arm. The
+    // invalidating verdicts (setting off, entry stale) do not: the current
+    // config or the successor's own paths own the next check.
+    if ((await this.attemptHibernate(tabId, entry, "idle")) === "rearm") {
       this.armHibernateTimer(tabId);
-      return;
-    }
-    // Re-check after the probe round-trip: a prompt that landed while we
-    // probed starts a turn the probe's snapshot cannot see.
-    if (!this.hibernable(entry, tabId, "idle")) {
-      this.armHibernateTimer(tabId);
-      return;
-    }
-    const reap = this.hibernate(tabId, entry);
-    this.hibernating.set(tabId, reap);
-    try {
-      await reap;
-    } finally {
-      this.hibernating.delete(tabId);
     }
   }
 
@@ -1365,19 +1377,11 @@ export class SessionManager {
     if (pending !== undefined) return pending;
     if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
 
-    const state = await this.probeState(entry);
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return false;
-    if (this.live.get(sourceTabId) !== entry) return !this.live.has(sourceTabId);
-    if (state === null || state.parked > 0 || state.streaming) return false;
-    if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
-
-    const reap = this.hibernate(sourceTabId, entry);
-    this.hibernating.set(sourceTabId, reap);
-    try {
-      return await reap;
-    } finally {
-      this.hibernating.delete(sourceTabId);
-    }
+    // `gone` (the source already exited) reads as hibernated for the handoff;
+    // every other no-kill verdict — including a survived SIGKILL — is false.
+    const outcome = await this.attemptHibernate(sourceTabId, entry, "plan-handoff");
+    if (outcome === "gone") return true;
+    return typeof outcome === "object" ? outcome.reaped : false;
   }
 
   /**
@@ -1387,15 +1391,7 @@ export class SessionManager {
    */
   private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {
     entry.suppressExit = true;
-    this.killLive(entry);
-    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) {
-      this.deps.send(CH.onSessionHibernated, tabId);
-      void this.deps.broadcast();
-      return this.live.get(tabId) !== entry;
-    }
-    entry.pty?.kill("SIGKILL");
-    entry.rpc?.kill("SIGKILL");
-    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) {
+    if (await this.reapWithEscalation(entry)) {
       this.deps.send(CH.onSessionHibernated, tabId);
       void this.deps.broadcast();
       return this.live.get(tabId) !== entry;
@@ -1405,12 +1401,11 @@ export class SessionManager {
     return false;
   }
 
-  rpcSend(tabId: string, cmd: object): void {
+  rpcSend(tabId: string, cmd: RpcFrame): void {
     const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
     this.notePlanVerdict(tabId, cmd);
-    const c = cmd as Record<string, unknown>;
-    if (c.type === "extension_ui_response" && typeof c.id === "string") {
-      this.openExtensionRequests.get(tabId)?.delete(c.id);
+    if (cmd.type === "extension_ui_response" && typeof cmd.id === "string") {
+      this.openExtensionRequests.get(tabId)?.delete(cmd.id);
     }
     const entry = this.live.get(tabId);
     if (
@@ -1493,7 +1488,6 @@ export class SessionManager {
     this.killShell(tabId);
     const entry = this.live.get(tabId);
     if (!entry) return;
-    this.killLive(entry);
     void this.escalateOnTerminate(tabId, entry);
     // The record stays; the broadcast fires on process exit.
   }
@@ -1502,6 +1496,12 @@ export class SessionManager {
   async deleteSession(tabId: string): Promise<void> {
     const inFlight = this.spawning.get(tabId);
     if (inFlight) await inFlight;
+    // A mid-flight hibernation reap owns the same entry: wait it out so the
+    // reap's `session:hibernated` (if any) lands while the record and files
+    // still exist, then proceed with an entry already gone from `live`
+    // (mirrors spawn's pending-hibernate wait; issue #296).
+    const pendingHibernate = this.hibernating.get(tabId);
+    if (pendingHibernate !== undefined) await pendingHibernate;
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
     const entry = this.live.get(tabId);
@@ -1594,13 +1594,7 @@ export class SessionManager {
   /** Stops a live child and waits for it to be reaped, escalating once. */
   private async killAndReap(tabId: string, entry: LiveEntry): Promise<void> {
     entry.suppressExit = true;
-    this.killLive(entry);
-    if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return;
-    entry.pty?.kill("SIGKILL");
-    entry.rpc?.kill("SIGKILL");
-    if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) return;
-    // Un-suppress: the process outlived us, so the tab is still live and the
-    // renderer must keep showing it that way.
+    if (await this.reapWithEscalation(entry)) return;
     entry.suppressExit = false;
     throw new Error(`session ${tabId} did not exit — its files were left alone`);
   }

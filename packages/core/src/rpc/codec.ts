@@ -1,4 +1,17 @@
-function isObject(value: unknown): value is Record<string, unknown> {
+/**
+ * A parsed NDJSON frame. The protocol emits records; every field stays
+ * `unknown` — observers narrow per field and never re-cast the whole frame.
+ * A non-object JSON line is a protocol violation the client tolerates by
+ * treating it as inert (its frame handlers keep the record guards).
+ */
+export type RpcFrame = {
+  type?: unknown;
+  id?: unknown;
+  method?: unknown;
+  [key: string]: unknown;
+};
+
+export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
@@ -21,7 +34,7 @@ export class RpcChunkReassembler {
   readonly #maxReassembledBytes: number;
 
   constructor(
-    private readonly onFrame: (frame: unknown) => void,
+    private readonly onFrame: (frame: RpcFrame) => void,
     private readonly onProtocolError: (msg: string) => void,
     maxReassembledBytes = DEFAULT_MAX_REASSEMBLED_BYTES,
   ) {
@@ -29,7 +42,7 @@ export class RpcChunkReassembler {
   }
 
   pushLine(line: string): void {
-    let frame: unknown;
+    let frame: RpcFrame;
     try {
       frame = JSON.parse(line);
     } catch {

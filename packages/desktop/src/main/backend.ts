@@ -63,6 +63,7 @@ import {
   type ProviderKeysSnapshot,
   type RemoteBind,
   type ResolvedBank,
+  type RpcFrame,
   type SessionMode,
   type SessionSummary,
   type SpawnRequest,
@@ -448,8 +449,7 @@ export class MainBackend {
           tabId: string,
           advisor: boolean,
           advisorModel: string | null,
-          startInPlanMode: boolean,
-        ) => this.sessions.setSessionAdvisor(tabId, advisor, advisorModel, startInPlanMode),
+        ) => this.sessions.setSessionAdvisor(tabId, advisor, advisorModel),
         [CH.getAdvisorDefaults]: (projectCwd: string): AdvisorDefaults =>
           this.advisorDefaults(projectCwd),
         [CH.generateTitle]: (projectCwd: string, prompt: string) =>
@@ -595,7 +595,7 @@ export class MainBackend {
         [CH.shellWrite]: (tabId: string, data: string) => this.sessions.shellWrite(tabId, data),
         [CH.shellResize]: (tabId: string, cols: number, rows: number) =>
           this.sessions.shellResize(tabId, cols, rows),
-        [CH.rpcSend]: (tabId: string, cmd: object) => this.sessions.rpcSend(tabId, cmd),
+        [CH.rpcSend]: (tabId: string, cmd: RpcFrame) => this.sessions.rpcSend(tabId, cmd),
         [CH.tabViewed]: (clientId: string, tabId: string | null) =>
           this.sessions.setViewedTab(clientId, tabId),
         [CH.reportStallCap]: (tabId: string, paused: boolean) =>

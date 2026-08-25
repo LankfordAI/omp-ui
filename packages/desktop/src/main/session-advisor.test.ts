@@ -53,7 +53,7 @@ let base: string;
  * transcript lazily, on the first turn, so this is the state of every session
  * between "new session" and the first prompt.
  */
-function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build" }): { sessionsRoot: string } {
+function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build"; agentMode?: "plan" | "build" }): { sessionsRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-adv-"));
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -106,6 +106,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         thinkingLevel: "high",
         advisor: true,
         advisorModel: null,
+        ...(opts.agentMode !== undefined ? { agentMode: opts.agentMode } : {}),
       }),
     ],
   });
@@ -173,7 +174,7 @@ describe("session:setAdvisor", () => {
     setup({ materialized: false });
     await resume();
 
-    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null, false)).resolves.toBeUndefined();
+    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null)).resolves.toBeUndefined();
 
     expect(readRegistry().sessions[0]).toMatchObject({
       model: "openrouter/openai/gpt-5.6",
@@ -190,7 +191,7 @@ describe("session:setAdvisor", () => {
     await resume();
     fs.rmSync(path.join(sessionsRoot, LINEAGE), { recursive: true, force: true });
 
-    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null, false)).rejects.toThrow(
+    await expect(invoke(CH.setSessionAdvisor, "tab-1", false, null)).rejects.toThrow(
       /session files are gone/,
     );
     expect(relaunches()).toBe(0);
@@ -200,7 +201,7 @@ describe("session:setAdvisor", () => {
     setup({ materialized: false });
     await resume();
 
-    await invoke(CH.setSessionAdvisor, TAB, false, null, false);
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
 
     const overlays = rpcOptions.at(-1)?.configOverlays ?? [];
     const modelOverlay = overlays.find((file) => path.basename(file) === "omp-ui-model.yml");
@@ -219,7 +220,7 @@ describe("session:setAdvisor", () => {
     await resume();
     fs.rmSync(path.join(sessionsRoot, LINEAGE), { recursive: true, force: true });
 
-    await expect(invoke(CH.setSessionAdvisor, TAB, false, null, false)).rejects.toThrow();
+    await expect(invoke(CH.setSessionAdvisor, TAB, false, null)).rejects.toThrow();
     const exit = sent.filter((m) => m.channel === CH.onPtyExit).at(-1);
     expect(exit?.args[0]).toBe("tab-1");
   });
@@ -228,7 +229,7 @@ describe("session:setAdvisor", () => {
     setup({ materialized: true });
     await resume();
 
-    await invoke(CH.setSessionAdvisor, TAB, true, "openrouter/x-ai/grok-4-fast", false);
+    await invoke(CH.setSessionAdvisor, TAB, true, "openrouter/x-ai/grok-4-fast");
 
     expect(readRegistry().sessions[0]).toMatchObject({
       advisor: true,
@@ -240,7 +241,7 @@ describe("session:setAdvisor", () => {
   it("records the choice without relaunching a dormant session", async () => {
     setup({ materialized: true });
     // No live process: nothing to restart, the next launch reads the record.
-    await invoke(CH.setSessionAdvisor, TAB, false, null, false);
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
 
     expect(readRegistry().sessions[0]).toMatchObject({ advisor: false });
     expect(RpcClientMock).not.toHaveBeenCalled();
@@ -251,21 +252,21 @@ describe("session:setAdvisor", () => {
     await resume();
     // Already advisor: true / model: null — restarting would cost a relaunch
     // for no change at all.
-    await invoke(CH.setSessionAdvisor, TAB, true, null, false);
+    await invoke(CH.setSessionAdvisor, TAB, true, null);
     expect(relaunches()).toBe(0);
   });
 
-  it("preserves explicit Plan and Build posture across a live advisor relaunch", async () => {
-    setup({ materialized: false, defaultAgentMode: "build" });
+  it("derives the relaunch posture from the record's persisted agent mode", async () => {
+    setup({ materialized: false, agentMode: "plan" });
     await resume();
-    await invoke(CH.setSessionAdvisor, TAB, false, null, true);
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
     expect(rpcOptions.at(-1)?.initialCommands).toEqual(
       expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan on html" })]),
     );
 
-    setup({ materialized: false, defaultAgentMode: "plan" });
+    setup({ materialized: false, agentMode: "build" });
     await resume();
-    await invoke(CH.setSessionAdvisor, TAB, false, null, false);
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
     expect(rpcOptions.at(-1)?.initialCommands).toEqual(
       expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan off" })]),
     );
@@ -296,7 +297,7 @@ describe("session:setAdvisor", () => {
 
   it("is a no-op for an unknown tab", async () => {
     setup({ materialized: true });
-    await expect(invoke(CH.setSessionAdvisor, "nope", false, null, false)).resolves.toBeUndefined();
+    await expect(invoke(CH.setSessionAdvisor, "nope", false, null)).resolves.toBeUndefined();
     expect(RpcClientMock).not.toHaveBeenCalled();
   });
 });
