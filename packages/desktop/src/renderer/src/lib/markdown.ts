@@ -453,23 +453,26 @@ function startsBlock(line: string): boolean {
   );
 }
 
-/** Leading-space count when `line` starts a fence, else null. Unbounded lead:
-    deeper fence lines land in item content, shed their content indent, and then
-    either match FENCE_RE or degrade to literal text — the same cutoff as top
-    level (`{0,3}` on the dedented line). */
-function fenceLead(line: string): number | null {
+/**
+ * Leading-space count when the dedented remainder passes `test`, else null.
+ * Unbounded lead: over-indented fence/math lines land in item content, shed
+ * their indent, and are judged on the remainder — the same cutoff as top
+ * level (`{0,3}` on the dedented line).
+ */
+function leadOf(line: string, test: (rest: string) => boolean): number | null {
   const m = /^[ \t]*/.exec(line) ?? ["", ""];
   const rest = line.slice(m[0].length);
-  return FENCE_RE.test(rest) ? m[0].length : null;
+  return test(rest) ? m[0].length : null;
 }
 
-/** Leading-space count when `line` is a display math line, else null.
-    Mirrors fenceLead: unbounded lead, and the `{0,3}` cutoff is judged on the
-    dedented remainder — over-indented math degrades to literal item text. */
+/** Leading-space count when `line` starts a fence, else null. */
+function fenceLead(line: string): number | null {
+  return leadOf(line, (rest) => FENCE_RE.test(rest));
+}
+
+/** Leading-space count when `line` is a display math line, else null. */
 function mathLead(line: string): number | null {
-  const m = /^[ \t]*/.exec(line) ?? ["", ""];
-  const rest = line.slice(m[0].length);
-  return isDisplayMathLine(rest) ? m[0].length : null;
+  return leadOf(line, isDisplayMathLine);
 }
 
 /**
