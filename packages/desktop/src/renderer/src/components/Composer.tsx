@@ -25,6 +25,7 @@ import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
+import { ComposerActions } from "./ComposerActions";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -43,14 +44,6 @@ const MAX_ROWS = 12;
 /** A counter below this is noise; above it the user is writing something long. */
 const COUNTER_AT = 400;
 
-/** Arrow-up send glyph for the compact primary control. */
-function IconSend() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="size-4">
-      <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-    </svg>
-  );
-}
 
 export function Composer({
   tabId,
@@ -816,66 +809,14 @@ export function Composer({
               </span>
             )}
 
-            {running ? (
-              <>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={!canSend}
-                  title="abort the current turn, then send this as a fresh prompt (mod+shift+enter)"
-                  onClick={() => submit("interrupt")}
-                  className="min-w-0 shrink"
-                >
-                  <span className="min-w-0 truncate">interrupt & send</span>
-                </Button>
-                <Button
-                  size="xs"
-                  disabled={!canSend}
-                  title="queue this for after the current turn (mod+enter)"
-                  onClick={() => submit("follow_up")}
-                >
-                  queue
-                </Button>
-                <Button
-                  size="xs"
-                  tone="copper"
-                  disabled={!canSend}
-                  title="inject this into the running turn (enter)"
-                  onClick={() => submit("steer")}
-                >
-                  {isSlash ? "run" : "steer"}
-                </Button>
-                <IconButton
-                  label="abort the agent (esc)"
-                  tone="rose"
-                  onClick={() => void abortAgent(tabId)}
-                  // The one destructive control here: readable before hover.
-                  className="text-rose-dim"
-                >
-                  <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4">
-                    <rect
-                      x="4.75"
-                      y="4.75"
-                      width="6.5"
-                      height="6.5"
-                      rx="1.25"
-                      fill="currentColor"
-                      stroke="currentColor"
-                    />
-                  </svg>
-                </IconButton>
-              </>
-            ) : (
-              <Button
-                size="xs"
-                variant="solid"
-                disabled={!canSend}
-                title={isSlash ? "run this command (enter)" : "send (enter) · shift+enter for a newline"}
-                onClick={() => submit("prompt")}
-              >
-                {isSlash ? "run" : "send"}
-              </Button>
-            )}
+            <ComposerActions
+              layout="desktop"
+              running={running}
+              isSlash={isSlash}
+              canSend={canSend}
+              onSubmit={(route) => void submit(route)}
+              onAbort={() => void abortAgent(tabId)}
+            />
           </div>
           )}
           {compact && (
@@ -893,17 +834,14 @@ export function Composer({
                 <span className="sr-only">prompt options</span>
               </Button>
               {queueChip && <Chip mono tone="copper" title={queueChip.title}>{queued}</Chip>}
-              {running ? (
-                <>
-                  <Button tone="copper" variant="solid" disabled={!canSend} onClick={() => submit("steer")} className="h-11 rounded-lg px-4">{isSlash ? "Run" : "Steer"}</Button>
-                  <Button tone="rose" variant="outline" onClick={() => void abortAgent(tabId)} className="h-11 rounded-lg px-3">Abort</Button>
-                </>
-              ) : (
-                <Button variant="solid" disabled={!canSend} onClick={() => submit("prompt")} className="h-11 gap-1.5 rounded-lg px-4">
-                  <IconSend />
-                  {isSlash ? "Run" : "Send"}
-                </Button>
-              )}
+              <ComposerActions
+                layout="compact"
+                running={running}
+                isSlash={isSlash}
+                canSend={canSend}
+                onSubmit={(route) => void submit(route)}
+                onAbort={() => void abortAgent(tabId)}
+              />
             </div>
           )}
           <input
@@ -982,15 +920,14 @@ export function Composer({
               </div>
             </div>
           </section>
-          {running && (
-            <section className="rounded-xl border border-line bg-raised/60 p-3">
-              <Label>while running</Label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button disabled={!canSend} onClick={() => submit("follow_up")} className="min-h-11 justify-center">Queue</Button>
-                <Button disabled={!canSend} onClick={() => submit("interrupt")} className="min-h-11 min-w-0 justify-center px-2">Interrupt-and-send</Button>
-              </div>
-            </section>
-          )}
+          <ComposerActions
+            layout="sheet"
+            running={running}
+            isSlash={false}
+            canSend={canSend}
+            onSubmit={(route) => void submit(route)}
+            onAbort={() => void abortAgent(tabId)}
+          />
         </div>
       </Sheet>
     </div>
