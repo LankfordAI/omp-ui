@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { usePreparedPlanDocument } from "../lib/plan-document";
 import { useCompactShell } from "../lib/responsive";
-import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
+import { findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { shortLabel, splitRole } from "./AdvisorControl";
+import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
@@ -103,26 +102,12 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const [addressAdvisor, setAddressAdvisor] = useState(true);
 
   const projectCwd = useStore((s) => s.tabs.find((t) => t.tabId === tabId)?.projectCwd);
-  const branchInfo = useStore((s) => (projectCwd ? s.branches[projectCwd] : undefined));
   const planFilePath = useStore((s) => s.rpc[tabId]?.planReview?.request.planFilePath);
   const planTitle = useStore((s) => s.rpc[tabId]?.planReview?.request.title);
-  const refreshBranches = useStore((s) => s.refreshBranches);
-  const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
-  const suggestBranchName = useStore((s) => s.suggestBranchName);
-  // A session mid-turn on this checkout (other than this gate-blocked tab): a
-  // plain checkout would move the working tree out from under it.
-  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd, tabId));
 
   /** The paperclip's hidden file input; picked images ride the same draft path as paste. */
   const imagePicker = useRef<HTMLInputElement>(null);
-
-  const [branchChoice, setBranchChoice] = useState<"current" | "new" | "existing">("current");
-  const [newName, setNewName] = useState("");
-  const [existingName, setExistingName] = useState<string | null>(null);
-  const [branchFilter, setBranchFilter] = useState("");
-  const [branchError, setBranchError] = useState<string | null>(null);
-  const [confirmBusy, setConfirmBusy] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
+  const branch = useExecutionBranch({ tabId, projectCwd, planFilePath, planText: planText ?? null, planTitle: planTitle ?? null });
 
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const currentThinking = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
@@ -177,41 +162,6 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     onClose: () => setLevelMenu(null),
   });
 
-  const isRepo =
-    projectCwd !== undefined && branchInfo !== undefined && branchInfo.repoRoot !== null;
-
-  // Branch list on open — another client may have switched branches.
-  useEffect(() => {
-    if (projectCwd !== undefined && branchInfo === undefined) void refreshBranches(projectCwd);
-  }, [projectCwd, branchInfo, refreshBranches]);
-
-  // Mechanical prefill as soon as the review exists.
-  useEffect(() => {
-    if (planFilePath !== undefined) {
-      setNewName((cur) => (cur === "" ? branchNameFromPlanPath(planFilePath) : cur));
-    }
-  }, [planFilePath]);
-
-  // The model's suggestion replaces the fallback only while the field is
-  // untouched (the current value still IS the fallback) — it never overwrites
-  // typing. Fires only once planText has loaded; when the plan file is
-  // unreadable the fallback prefill alone carries the flow.
-  useEffect(() => {
-    if (!isRepo || projectCwd === undefined || planFilePath === undefined || planText == null) {
-      return;
-    }
-    const fallback = branchNameFromPlanPath(planFilePath);
-    const planContext = `${planTitle ?? planFilePath}\n\n${(planSeedText(planText) ?? "").slice(0, 2000)}`;
-    let live = true;
-    void suggestBranchName(projectCwd, planContext).then((suggested) => {
-      if (!live || suggested === null) return;
-      setNewName((cur) => (cur === fallback ? suggested : cur));
-    });
-    return () => {
-      live = false;
-    };
-  }, [isRepo, projectCwd, planFilePath, planText, planTitle, suggestBranchName]);
-
   if (!review || deferred) return null;
   const { request } = review;
 
@@ -244,11 +194,6 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     deferPlanReview(tabId);
   };
 
-  const branchInvalid =
-    isRepo &&
-    ((branchChoice === "new" && newName.trim() === "") ||
-      (branchChoice === "existing" && existingName === null));
-
   const execute = async (): Promise<void> => {
     // Staged parameters ride as one options bag; the store applies them to
     // whichever session receives the implementation.
@@ -262,37 +207,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
       advisor: stagedAdvisor,
       advisorModel: stagedAdvisorModel,
     };
-    if (!isRepo || branchChoice === "current") {
-      executePlan(tabId, context, options);
-      return;
-    }
-    const name = branchChoice === "new" ? newName.trim() : existingName;
-    if (name === null || name === "") return; // unreachable — the button is disabled
-    if (branchChoice === "existing" && name === branchInfo!.current) {
-      executePlan(tabId, context, options);
-      return;
-    }
-    // Switching branches moves the working tree — a session mid-turn on this
-    // project earns a confirm first (creating one does not move the tree).
-    if (branchChoice === "existing" && busyTitle !== null && !confirmBusy) {
-      setConfirmBusy(true);
-      return;
-    }
-    setCheckingOut(true);
-    setBranchError(null);
-    const err = await checkoutGitBranch(
-      projectCwd!,
-      name,
-      branchChoice === "new" ? { create: true } : undefined,
-    );
-    setCheckingOut(false);
-    // A refused checkout leaves the gate blocked — the agent must not execute
-    // on the wrong branch. git's stderr is the message (branches.ts contract).
-    if (err !== null) {
-      setBranchError(err);
-      setConfirmBusy(false);
-      return;
-    }
+    if (!(await branch.resolve())) return;
     executePlan(tabId, context, options);
   };
 
@@ -678,120 +593,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               )}
             </fieldset>
 
-            {isRepo && (
-              <fieldset className="mt-5 border-t border-line pt-4">
-                <legend className="text-[11px] font-medium text-ink">Git branch</legend>
-                <div className="mt-2 grid grid-cols-3 rounded-lg border border-line bg-void/40 p-1">
-                  {(
-                    [
-                      { id: "current", label: "current branch", shortLabel: "current" },
-                      { id: "new", label: "new branch", shortLabel: "new" },
-                      { id: "existing", label: "existing branch", shortLabel: "switch" },
-                    ] as const
-                  ).map((option) => {
-                    const active = branchChoice === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        aria-label={option.label}
-                        aria-pressed={active}
-                        onClick={() => {
-                          setBranchChoice(option.id);
-                          setBranchError(null);
-                          setConfirmBusy(false);
-                        }}
-                        className={cn(
-                          "rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors",
-                          active ? "bg-overlay text-ink edge-lit" : "text-ink-faint hover:text-ink-mid",
-                        )}
-                      >
-                        {option.shortLabel}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-2.5 rounded-lg border border-line bg-raised/70 p-3">
-                  {branchChoice === "current" && (
-                    <div>
-                      <span className="block text-[10px] text-ink-faint">Implement on</span>
-                      <span className="mt-1 block truncate font-mono text-xs text-ink" title={branchInfo!.current ?? "detached HEAD"}>
-                        {branchInfo!.current ?? "detached HEAD"}
-                      </span>
-                      <p className="mt-1.5 text-[10px] leading-relaxed text-ink-faint">No checkout. Existing working-tree changes stay in place.</p>
-                    </div>
-                  )}
-
-                  {branchChoice === "new" && (
-                    <div>
-                      <label htmlFor="plan-new-branch" className="block text-[10px] text-ink-faint">Create and switch to</label>
-                      <input
-                        id="plan-new-branch"
-                        value={newName}
-                        placeholder="new-branch-name"
-                        aria-label="new branch name"
-                        onChange={(e) => setNewName(e.target.value)}
-                        className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-                      />
-                      <p className="mt-1.5 text-[10px] leading-relaxed text-ink-faint">Uncommitted work carries into the new branch.</p>
-                    </div>
-                  )}
-
-                  {branchChoice === "existing" && (
-                    <div>
-                      <input
-                        value={branchFilter}
-                        placeholder="filter branches…"
-                        aria-label="filter branches"
-                        onChange={(e) => setBranchFilter(e.target.value)}
-                        className="w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-                      />
-                      <div className="mt-1.5 flex max-h-36 flex-col overflow-y-auto">
-                        {branchInfo!.branches
-                          .filter((b) => b.toLowerCase().includes(branchFilter.toLowerCase()))
-                          .map((branch) => (
-                            <button
-                              key={branch}
-                              type="button"
-                              disabled={branch === branchInfo!.current}
-                              onClick={() => setExistingName(branch)}
-                              className={cn(
-                                "flex items-center gap-2 rounded px-1.5 py-1 text-left font-mono text-[11px] hover:bg-hover",
-                                "disabled:pointer-events-none",
-                                branch === branchInfo!.current ? "text-iris" : "text-ink-mid",
-                                branch === existingName && "bg-hover text-ink",
-                              )}
-                            >
-                              <span className={cn("size-1 rounded-full", branch === existingName ? "bg-ink-mid" : "bg-line-strong")} />
-                              <span className="truncate">{branch}</span>
-                              {branch === branchInfo!.current && <span className="ml-auto font-sans text-[9px] text-ink-faint">current</span>}
-                            </button>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {confirmBusy && (
-                  <div className="mt-2 rounded-lg border border-copper-dim/50 bg-copper-wash px-3 py-2.5">
-                    <p className="text-[11px] leading-snug text-copper">
-                      “{busyTitle}” is mid-turn. Switching changes its working tree.
-                    </p>
-                    <div className="mt-2 flex gap-1.5">
-                      <Button size="xs" tone="copper" onClick={() => void execute()}>
-                        switch anyway
-                      </Button>
-                      <Button size="xs" variant="ghost" onClick={() => setConfirmBusy(false)}>
-                        cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {branchError !== null && <p className="mt-2 text-[11px] leading-snug text-rose">{branchError}</p>}
-              </fieldset>
-            )}
+            {branch.isRepo && <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />}
 
             <fieldset className="mt-5 border-t border-line pt-4">
               <legend className="text-[11px] font-medium text-ink">Magic keywords</legend>
@@ -872,10 +674,10 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   <Button
                     variant="solid"
                     tone="signal"
-                    disabled={checkingOut || branchInvalid}
+                    disabled={branch.checkingOut || branch.branchInvalid}
                     onClick={() => void execute()}
                   >
-                    {checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
+                    {branch.checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
                   </Button>
                 </>
               )}
@@ -891,14 +693,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 {ultrathink && " · ultrathink"}
                 {orchestrate && " · orchestrate"}
                 {workflowz && " · workflowz"}
-                {isRepo && <> {" · "}{branchChoice === "current" ? (branchInfo!.current ?? "detached HEAD") : branchChoice === "new" ? (newName.trim() || "new branch") : (existingName ?? "choose a branch")}</>}
+                {branch.summary !== null && <>{" · "}{branch.summary}</>}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>not now</Button>
               <Button onClick={() => void refine()}>refine</Button>
-              <Button variant="solid" tone="signal" disabled={checkingOut || branchInvalid} onClick={() => void execute()}>
-                {checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
+              <Button variant="solid" tone="signal" disabled={branch.checkingOut || branch.branchInvalid} onClick={() => void execute()}>
+                {branch.checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
               </Button>
             </div>
           </footer>
