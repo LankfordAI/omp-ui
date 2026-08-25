@@ -15,11 +15,8 @@ import {
   isObject,
   isWithin,
   parseModelRole,
-  parsePlanReviewTitle,
-  parsePlanStatus,
   mcpRuntimeStatusMessage,
   planMessage,
-  PLAN_STATUS_KEY,
   type ProviderKeys,
   type Registry,
   removeWorktree,
@@ -37,15 +34,11 @@ import {
   writeImageToScratch,
   writeCompactionMethodOverlay,
   writePlanExtension,
-  PLAN_EXECUTE,
   MAX_IMAGE_BYTES,
-  type AgentMode,
   type ConsoleProgram,
   type ImageAttachment,
   type OwnedSessionRecord,
   type PlanImplementationSource,
-  type PendingPlan,
-  type PlanSettle,
   type PtyHandle,
   type RpcFrame,
   type SessionMode,
@@ -53,7 +46,9 @@ import {
   type SpawnRequest,
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
+import type { FrameObserver } from "./frame-observer";
 import { liveEntry, type LiveEntry } from "./live-entry";
+import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { TurnCounter } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
@@ -105,12 +100,6 @@ export interface SessionManagerDependencies {
   attention?: Attention;
 }
 
-/** One session's plan-review gate state, as observed from its frames. */
-interface PlanGate {
-  pending: PendingPlan | null;
-  settle: PlanSettle | null;
-}
-
 /**
  * The no-kill verdicts of the shared hibernation attempt. `rearm`: a guard is
  * in force or the probe said "not idle" — re-examine next window (issue #247).
@@ -141,10 +130,16 @@ export class SessionManager {
    */
   private readonly spawning = new Map<string, Promise<void>>();
   /**
-   * Live plan-review gates, keyed by tabId (issue #215). In-memory: they die
-   * with the process, so a gate can never outlive its agent.
+   * Live plan-review gates, owned by the tracker (issue #215). In-memory:
+   * they die with the process, so a gate can never outlive its agent.
    */
-  private readonly planGates = new Map<string, PlanGate>();
+  private readonly planGates: PlanGateTracker;
+  /**
+   * Frame-dispatch observers, dispatched in array order before the renderer
+   * fan-out (issue #297). The order is the contract: each tracker sees
+   * every frame and acts on a frame before any later tracker or the broadcast does.
+   */
+  private readonly frameObservers: FrameObserver[] = [];
   /** Idle-kill timers, keyed by tabId (issue #246). */
   private readonly hibernateTimers = new Map<string, NodeJS.Timeout>();
   /**
@@ -168,6 +163,13 @@ export class SessionManager {
       registry: deps.registry,
       broadcastPatch: (immediate) => this.watcherHub.broadcastPatch(immediate),
     });
+    this.planGates = new PlanGateTracker({
+      registry: deps.registry,
+      broadcast: () => deps.broadcast(),
+      attention: deps.attention,
+      suspendForVerdict: (tabId) => this.suspendForVerdict(tabId),
+    });
+    this.frameObservers = [this.planGates];
   }
 
   get liveCount(): number {
@@ -240,7 +242,7 @@ export class SessionManager {
     if (this.live.get(tabId) === entry) {
       this.live.delete(tabId);
       this.turns.clear(tabId);
-      this.clearPlanGate(tabId); // rpc-only today; a pty tab never has a gate
+      for (const obs of this.frameObservers) obs.onExit(tabId);
       this.clearHibernateState(tabId);
       this.deps.attention?.sessionExit(tabId);
     }
@@ -485,11 +487,7 @@ export class SessionManager {
         // Hibernation observation precedes the fan-out: the idle clock sees
         // every frame, probe responses included (issue #246).
         this.observeHibernation(record.tabId, frame);
-        // Recording precedes fan-out: the gate must be set before the first
-        // broadcast can read it (issue #215).
-        this.seePlanFrame(record.tabId, frame);
-        // Persist the mode the extension reports so a respawn restores it (issue #263).
-        this.observePlanStatus(record.tabId, frame);
+        for (const obs of this.frameObservers) obs.onFrame(record.tabId, frame, entry);
         // Stall watchdog (issue #248): arm the sweep on the first turn and
         // timestamp model-stream activity.
         if (frame.type === "agent_start") this.ensureStallWatch();
@@ -748,58 +746,16 @@ export class SessionManager {
 
   /** Read by MainBackend.summarize; undefined when the tab never proposed. */
   planGate(tabId: string): PlanGate | undefined {
-    return this.planGates.get(tabId);
+    return this.planGates.gate(tabId);
   }
 
-  /** Records a proposal as soon as its frame passes through the session. */
-  private seePlanFrame(tabId: string, frame: RpcFrame): void {
-    if (typeof frame !== "object" || frame === null) return;
-    if (frame.type !== "extension_ui_request") return;
-    const review = parsePlanReviewTitle(typeof frame.title === "string" ? frame.title : undefined);
-    if (review === null) return;
-    const frameId = typeof frame.id === "string" ? frame.id : "";
-    this.planGates.set(tabId, {
-      pending: {
-        title: review.title,
-        planFilePath: review.planFilePath,
-        planAbsPath: review.planAbsPath,
-        frameId,
-        proposedAt: new Date().toISOString(),
-      },
-      settle: null, // a fresh gate replaces the last cycle's verdict
-    });
-    this.deps.attention?.planProposed(tabId, review.title);
-    void this.deps.broadcast();
-  }
-
-  /** Persists the agent mode the plan extension publishes so a respawn restores it (issue #263). */
-  private observePlanStatus(tabId: string, frame: RpcFrame): void {
-    if (typeof frame !== "object" || frame === null) return;
-    if (frame.type !== "extension_ui_request" || frame.method !== "setStatus") return;
-    if (frame.statusKey !== PLAN_STATUS_KEY) return;
-    const status = parsePlanStatus(typeof frame.statusText === "string" ? frame.statusText : undefined);
-    if (status === null) return; // malformed payload — never trusted over the record
-    const next: AgentMode = status.enabled ? "plan" : "build";
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (record === undefined || record.agentMode === next) return; // no-op: no write, no broadcast
-    this.deps.registry.updateSession(tabId, { agentMode: next });
-    void this.deps.broadcast();
-  }
-
-  /** Settles the gate when its select answer comes back from any renderer. */
-  private notePlanVerdict(tabId: string, cmd: RpcFrame): void {
-    if (cmd.type !== "extension_ui_response") return;
-    const id = typeof cmd.id === "string" ? cmd.id : null;
-    const gate = this.planGates.get(tabId);
-    if (id === null || !gate || gate.pending === null || gate.pending.frameId !== id) return;
-    this.planGates.set(tabId, {
-      pending: null,
-      settle: { frameId: id, verdict: cmd.value === PLAN_EXECUTE ? "executed" : "refined" },
-    });
-    this.deps.attention?.planSettled(tabId);
-    // Between the verdict and the implementation prompt the process is
-    // momentarily quiet; suspend hibernation until the next agent_end (or
-    // the window lapses) (issue #246).
+  /**
+   * Post-verdict hibernation suspension (issue #246): between the verdict
+   * and the implementation prompt the process is momentarily quiet. Stays
+   * in the manager until the hibernation tracker owns the settle state
+   * (issue #297).
+   */
+  private suspendForVerdict(tabId: string): void {
     const entry = this.live.get(tabId);
     if (entry !== undefined) {
       entry.settleSuspendedUntil = Date.now() + SETTLE_WINDOW_MS;
@@ -808,12 +764,6 @@ export class SessionManager {
       // real frame re-arms over it and resets the clock.
       this.scheduleHibernateCheck(tabId, SETTLE_WINDOW_MS);
     }
-    void this.deps.broadcast();
-  }
-
-  /** Drops the gate on every path where the live process ends. */
-  clearPlanGate(tabId: string): void {
-    if (this.planGates.delete(tabId)) void this.deps.broadcast();
   }
 
   /** Renderer reports the tab it currently has in view, or null (issue #266). */
@@ -1072,7 +1022,7 @@ export class SessionManager {
 
   /** True while plan review or a renderer-routed dialog awaits the user. */
   private awaitingHumanAnswer(tabId: string): boolean {
-    if (this.planGates.get(tabId)?.pending != null) return true;
+    if (this.planGates.pending(tabId)) return true;
     return (this.openExtensionRequests.get(tabId)?.size ?? 0) > 0;
   }
 
@@ -1275,7 +1225,7 @@ export class SessionManager {
 
   rpcSend(tabId: string, cmd: RpcFrame): void {
     const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
-    this.notePlanVerdict(tabId, cmd);
+    for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
     if (cmd.type === "extension_ui_response" && typeof cmd.id === "string") {
       this.openExtensionRequests.get(tabId)?.delete(cmd.id);
     }
