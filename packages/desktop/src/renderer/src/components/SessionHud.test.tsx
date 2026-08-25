@@ -121,10 +121,10 @@ describe("wide Session HUD", () => {
     // popover must portal out of the HUD subtree or it clips to invisibility.
     const steering = [...document.body.querySelectorAll("span")].find((s) => s.textContent === "steering")!;
     expect(host.contains(steering)).toBe(false);
-    // Fail closed still holds with the panel portaled: inside mousedown keeps
-    // it open, outside mousedown dismisses.
+    // Fail closed still holds with the panel portaled: inside pointerdown
+    // keeps it open, outside pointerdown dismisses.
     const abort = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === "abort retry")!;
-    act(() => { abort.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+    act(() => { abort.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
     expect(document.body.textContent).toContain("steering");
     // #79: the switch renders no visible text, so it must sit in the same
     // group as its "auto-retry" label — never beside the abort-retry button.
@@ -141,7 +141,7 @@ describe("wide Session HUD", () => {
     const waitOption = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "wait")!;
     expect(waitOption.title).toContain("let the current tool finish");
     expect([...document.body.querySelectorAll("button")].some((b) => b.textContent === "queue")).toBe(false);
-    act(() => { document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+    act(() => { document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
     expect(document.body.textContent).not.toContain("steering");
   });
 

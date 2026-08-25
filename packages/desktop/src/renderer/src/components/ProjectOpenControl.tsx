@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import type { ProjectOpenTarget, ProjectRecord } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
+import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
 import { Capsule, CAPSULE_SEGMENT, Chevron, IconButton, IconClose, Panel } from "./ui";
 
@@ -210,23 +211,13 @@ export function ProjectOpenControl({
     menuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, [menuOpen]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    // Outside pointerdown dismisses without touching focus: the user is already
-    // on their way somewhere else, and pulling focus back would fight them.
-    const dismissOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node) {
-        if (menuRef.current?.contains(event.target) === true) return;
-        if (wrapperRef.current?.contains(event.target) === true) return;
-      }
-      closeMenu(false);
-    };
-
-    window.addEventListener("pointerdown", dismissOutside);
-    return () => {
-      window.removeEventListener("pointerdown", dismissOutside);
-    };
-  }, [menuOpen, closeMenu]);
+  // Outside pointerdown dismisses without touching focus: the user is already
+  // on their way somewhere else, and pulling focus back would fight them.
+  useDismissal({
+    open: menuOpen,
+    refs: [menuRef, wrapperRef],
+    onClose: () => closeMenu(false),
+  });
 
   /** Roving arrow focus with wrap. Enter/Space stay native to the buttons. */
   const moveFocus = (delta: 1 | -1) => {

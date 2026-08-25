@@ -10,6 +10,7 @@ import { useCompactShell } from "../lib/responsive";
 import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
+import { useDismissal } from "../lib/use-dismissal";
 import { shortLabel, splitRole } from "./AdvisorControl";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
@@ -172,17 +173,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const advisorLevelAnchor = useRef<HTMLSpanElement | null>(null);
 
   // Outside pointerdown closes an open level menu (AdvisorControl's pattern).
-  useEffect(() => {
-    if (levelMenu === null) return;
-    const dismiss = (e: PointerEvent) => {
-      const target = e.target;
-      const anchors = [mainLevelAnchor.current, advisorLevelAnchor.current];
-      if (target instanceof Node && anchors.some((a) => a !== null && a.contains(target))) return;
-      setLevelMenu(null);
-    };
-    window.addEventListener("pointerdown", dismiss);
-    return () => window.removeEventListener("pointerdown", dismiss);
-  }, [levelMenu]);
+  useDismissal({
+    open: levelMenu !== null,
+    refs: [mainLevelAnchor, advisorLevelAnchor],
+    onClose: () => setLevelMenu(null),
+  });
 
   const isRepo =
     projectCwd !== undefined && branchInfo !== undefined && branchInfo.repoRoot !== null;

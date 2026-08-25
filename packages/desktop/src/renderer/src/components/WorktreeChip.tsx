@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { MergeBackStatus, SessionWorktree } from "@omp-ui/core/types";
 import { backend } from "../backend";
+import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
 import { shortBase } from "../lib/format";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
@@ -118,27 +119,14 @@ export function WorktreeChip({
   // onClick toggles, and the popover closes exactly once. A pointerdown on
   // the confirm modal (portaled outside rootRef) is not an outside click
   // either: it is this popover's own decision surface.
-  useEffect(() => {
-    if (!open) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const root = rootRef.current;
-      if (root !== null && event.target instanceof Node && root.contains(event.target)) return;
-      if (event.target instanceof Element && event.target.closest('[role="alertdialog"]') !== null) return;
-      close();
-    };
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      close();
-      triggerRef.current?.focus();
-    };
-    window.addEventListener("pointerdown", dismissOutside);
-    window.addEventListener("keydown", dismissOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", dismissOutside);
-      window.removeEventListener("keydown", dismissOnEscape);
-    };
-  }, [open]);
+  useDismissal({
+    open,
+    refs: rootRef,
+    onClose: close,
+    onEscape: close,
+    restoreFocus: () => triggerRef.current?.focus(),
+    exemptSelector: '[role="alertdialog"]',
+  });
 
   const openIn = (target: "vscode" | "files"): void => {
     setError(null);

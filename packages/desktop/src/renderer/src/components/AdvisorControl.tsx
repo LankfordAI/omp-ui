@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { Capsule, CAPSULE_SEGMENT, Dot, Label } from "./ui";
@@ -80,16 +81,11 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
       setLevelMenu(false);
     }
   }, [disabled]);
-  useEffect(() => {
-    if (!levelMenu) return;
-    const dismiss = (e: PointerEvent) => {
-      const anchor = levelAnchor.current;
-      if (anchor !== null && e.target instanceof Node && anchor.contains(e.target)) return;
-      setLevelMenu(false);
-    };
-    window.addEventListener("pointerdown", dismiss);
-    return () => window.removeEventListener("pointerdown", dismiss);
-  }, [levelMenu]);
+  useDismissal({
+    open: levelMenu,
+    refs: levelAnchor,
+    onClose: () => setLevelMenu(false),
+  });
 
   if (record === undefined) return null;
 

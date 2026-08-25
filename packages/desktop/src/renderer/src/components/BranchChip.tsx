@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
 import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
@@ -156,27 +157,15 @@ export function BranchChip({
   // Click-outside / Escape dismissal (issue #114), matching the terminal menu
   // in Sidebar.tsx. The trigger is *inside* rootRef, so a click on it is not an
   // outside click — its own onClick toggles, and the popover closes exactly once.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const root = rootRef.current;
-      if (root !== null && event.target instanceof Node && root.contains(event.target)) return;
-      closeMenu();
-    };
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      const closing = mode === "list" && confirm === null;
-      escapeStage();
-      if (closing) triggerRef.current?.focus();
-    };
-    window.addEventListener("pointerdown", dismissOutside);
-    window.addEventListener("keydown", dismissOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", dismissOutside);
-      window.removeEventListener("keydown", dismissOnEscape);
-    };
-  }, [menuOpen, mode, confirm]);
+  useDismissal({
+    open: menuOpen,
+    refs: rootRef,
+    onClose: closeMenu,
+    onEscape: escapeStage,
+    restoreFocus: () => {
+      if (mode === "list" && confirm === null) triggerRef.current?.focus();
+    },
+  });
 
   if (projectCwd === undefined || info === undefined || info.repoRoot === null) return null;
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { useDismissal } from "../lib/use-dismissal";
 import { Panel } from "./ui";
 
 /**
@@ -44,24 +45,7 @@ export function TranscriptContextMenu({
     menuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, []);
 
-  useEffect(() => {
-    const dismissOutside = (event: PointerEvent) => {
-      const menu = menuRef.current;
-      if (menu !== null && event.target instanceof Node && menu.contains(event.target)) return;
-      onClose();
-    };
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("pointerdown", dismissOutside);
-    window.addEventListener("keydown", dismissOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", dismissOutside);
-      window.removeEventListener("keydown", dismissOnEscape);
-    };
-  }, [onClose]);
+  useDismissal({ open: true, refs: menuRef, onClose, onEscape: onClose });
 
   const copyMarkdown = onCopyMarkdown;
   return createPortal(

@@ -25,6 +25,7 @@ import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { findRecord, sessionCwd, useStore } from "../store";
+import { useDismissal } from "../lib/use-dismissal";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
@@ -384,27 +385,20 @@ export function Composer({
   useEffect(() => {
     if (unavailable && compactSurface === "composer-options") closeCompactSurface();
   }, [unavailable, compactSurface, closeCompactSurface]);
-  useEffect(() => {
-    if (!effortMenu) return;
-    const dismiss = (e: PointerEvent) => {
-      const anchor = effortAnchor.current;
-      if (anchor !== null && e.target instanceof Node && anchor.contains(e.target)) return;
-      setEffortMenu(false);
-    };
-    window.addEventListener("pointerdown", dismiss);
-    return () => window.removeEventListener("pointerdown", dismiss);
-  }, [effortMenu]);
+  useDismissal({
+    open: effortMenu,
+    refs: effortAnchor,
+    onClose: () => setEffortMenu(false),
+  });
 
-  useEffect(() => {
-    if (!paletteOpen && !mentionOpen) return;
-    const dismiss = (event: PointerEvent) => {
-      if (event.target instanceof Node && composer.current?.contains(event.target)) return;
+  useDismissal({
+    open: paletteOpen || mentionOpen,
+    refs: composer,
+    onClose: () => {
       setDismissedFor(commandWord);
       setMentionDismissedFor(mentionKey);
-    };
-    window.addEventListener("pointerdown", dismiss);
-    return () => window.removeEventListener("pointerdown", dismiss);
-  }, [paletteOpen, mentionOpen, commandWord, mentionKey]);
+    },
+  });
 
   const submit = useCallback(
     async (route: PromptRoute | "interrupt") => {

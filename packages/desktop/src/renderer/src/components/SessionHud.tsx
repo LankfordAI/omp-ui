@@ -8,6 +8,7 @@ import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
+import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { WorktreeChip } from "./WorktreeChip";
@@ -379,24 +380,18 @@ function ModesPopover({ tabId }: { tabId: string }) {
       if (rect) setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
     };
     place();
-    const onDown = (e: MouseEvent) => {
-      // Fail closed: a click we cannot prove is inside the anchor or the
-      // portaled panel dismisses, so the popover can never get stuck open.
-      const t = e.target as Node;
-      if (!anchor.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
     window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", place);
-    };
+    return () => window.removeEventListener("resize", place);
   }, [open]);
+
+  // Fail closed: a click we cannot prove is inside the anchor or the
+  // portaled panel dismisses, so the popover can never get stuck open.
+  useDismissal({
+    open,
+    refs: [anchor, panelRef],
+    onClose: () => setOpen(false),
+    onEscape: () => setOpen(false),
+  });
 
   return (
     <div ref={anchor} className="relative shrink-0">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as Re
 import { createPortal } from "react-dom";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../backend";
+import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
@@ -727,26 +728,16 @@ export function Sidebar() {
     terminalMenuItemRef.current?.focus();
   }, [terminalMenu]);
 
-  useEffect(() => {
-    if (terminalMenu === null) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const menu = terminalMenuRef.current;
-      if (menu !== null && event.target instanceof Node && menu.contains(event.target)) return;
-      setTerminalMenu(null);
-    };
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setTerminalMenu(null);
-      terminalMenu.trigger.focus();
-    };
-    window.addEventListener("pointerdown", dismissOutside);
-    window.addEventListener("keydown", dismissOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", dismissOutside);
-      window.removeEventListener("keydown", dismissOnEscape);
-    };
-  }, [terminalMenu]);
+  useDismissal({
+    open: terminalMenu !== null,
+    refs: terminalMenuRef,
+    onClose: () => setTerminalMenu(null),
+    onEscape: () => setTerminalMenu(null),
+    restoreFocus: () => {
+      const m = terminalMenu;
+      if (m !== null) m.trigger.focus();
+    },
+  });
 
   const groups = state?.projects ?? null;
   const filtered = useMemo(() => applyFilter(groups ?? [], query), [groups, query]);
