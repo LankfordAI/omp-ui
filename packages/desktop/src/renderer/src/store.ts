@@ -101,7 +101,7 @@ export type {
   TuiHandoff,
   UiStore,
 } from "./store/types";
-export { findRecord, sessionCwd } from "./store/slices/view";
+export { findRecord, runningSessionTitleOnCheckout, sessionCwd } from "./store/slices/view";
 import {
   commandItem,
   historyToItems,

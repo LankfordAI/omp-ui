@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { MergeBackStatus } from "@omp-ui/core/types";
 import type { DeleteConfirmation } from "../store";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 import { shortBase } from "./WorktreeChip";
 /**
@@ -31,18 +31,10 @@ export function DeleteSessionDialog({
     (s) => findRecord(s.state, confirmation.tabId)?.projectCwd,
   );
   // A session mid-turn in the project checkout: merging moves the destination
-  // branch out from under it. Matched on the effective cwd, so the deleted
-  // worktree session's own tab never matches.
-  const busyTitle = useStore((s) => {
-    if (projectCwd === undefined) return null;
-    const tab = s.tabs.find(
-      (t) =>
-        t.tabId !== confirmation.tabId &&
-        sessionCwd(findRecord(s.state, t.tabId)) === projectCwd &&
-        s.rpc[t.tabId]?.status === "running",
-    );
-    return tab ? (findRecord(s.state, tab.tabId)?.title ?? "a session") : null;
-  });
+  // branch out from under it. The deleted session's own tab is excluded.
+  const busyTitle = useStore((s) =>
+    runningSessionTitleOnCheckout(s, projectCwd, confirmation.tabId),
+  );
 
   useEffect(() => {
     if (branch === null || base === null || projectCwd === undefined) return;

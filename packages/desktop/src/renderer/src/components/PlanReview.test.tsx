@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchList } from "@omp-ui/core/types";
+import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 
 const clipboardImageMock = vi.hoisted(() => ({
@@ -90,7 +90,10 @@ function sessionRecord(tabId: string, title: string) {
   };
 }
 
-function stateWithSessions(titles: Record<string, string>) {
+function stateWithSessions(
+  titles: Record<string, string>,
+  worktrees: Record<string, SessionWorktree> = {},
+) {
   return backendState({
     projects: [
       {
@@ -101,7 +104,10 @@ function stateWithSessions(titles: Record<string, string>) {
           lastModel: null,
           lastAdvisorModel: null,
         },
-        sessions: Object.entries(titles).map(([tabId, title]) => sessionRecord(tabId, title)),
+        sessions: Object.entries(titles).map(([tabId, title]) => ({
+          ...sessionRecord(tabId, title),
+          worktree: worktrees[tabId] ?? null,
+        })),
       },
     ],
   });
@@ -346,6 +352,33 @@ describe("PlanReview git branch section (issue #25)", () => {
     expect(verdictFrame()).toBeUndefined();
 
     await act(async () => buttonByText("switch anyway").click());
+    expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feature/y", undefined);
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+  });
+
+  it("does not confirm for a running worktree session of the project (issue #292)", async () => {
+    useStore.setState({
+      tabs: [
+        tabInfo({ tabId: TAB, projectCwd: "/p" }),
+        tabInfo({ tabId: "tab-2", projectCwd: "/p" }),
+      ],
+      rpc: {
+        [TAB]: tabState(),
+        "tab-2": tabState({ planReview: null, planText: null, status: "running" }),
+      },
+      state: stateWithSessions(
+        { [TAB]: "Planning session", "tab-2": "Busy work" },
+        { "tab-2": { path: "/wt/busy", branch: "feat/busy", base: null } },
+      ),
+    });
+    render();
+
+    await act(async () => branchOption("existing branch").click());
+    await act(async () => buttonByText("feature/y").click());
+    await act(async () => executeButton().click());
+
+    // The worktree session guards its own checkout, not the project root.
+    expect(document.body.textContent).not.toContain("is mid-turn");
     expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feature/y", undefined);
     expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
   });

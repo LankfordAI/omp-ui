@@ -318,3 +318,24 @@ export function sessionCwd(
 ): string | undefined {
   return rec ? (rec.worktree?.path ?? rec.projectCwd) : undefined;
 }
+
+/**
+ * The title of a session mid-turn on the given checkout, or null when none.
+ * Matched on the effective cwd, so a running worktree session guards its own
+ * checkout, not the project root its tab is registered under. `excludeTabId`
+ * drops one tab from consideration (the caller's own); absent, every tab counts.
+ */
+export function runningSessionTitleOnCheckout(
+  s: Pick<UiStore, "state" | "tabs" | "rpc">,
+  cwd: string | undefined,
+  excludeTabId?: string,
+): string | null {
+  if (cwd === undefined) return null;
+  const tab = s.tabs.find(
+    (t) =>
+      t.tabId !== excludeTabId &&
+      sessionCwd(findRecord(s.state, t.tabId)) === cwd &&
+      s.rpc[t.tabId]?.status === "running",
+  );
+  return tab ? (findRecord(s.state, tab.tabId)?.title ?? "a session") : null;
+}

@@ -9,7 +9,7 @@ import { usePreparedPlanDocument } from "../lib/plan-document";
 import { useCompactShell } from "../lib/responsive";
 import { planSeedText } from "../lib/plan-seed";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
 import { shortLabel, splitRole } from "./AdvisorControl";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
@@ -110,15 +110,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
   const suggestBranchName = useStore((s) => s.suggestBranchName);
-  // A session mid-turn on this project (other than this gate-blocked tab): a
+  // A session mid-turn on this checkout (other than this gate-blocked tab): a
   // plain checkout would move the working tree out from under it.
-  const busyTitle = useStore((s) => {
-    const other = s.tabs.find(
-      (t) =>
-        t.tabId !== tabId && t.projectCwd === projectCwd && s.rpc[t.tabId]?.status === "running",
-    );
-    return other ? (findRecord(s.state, other.tabId)?.title ?? "a session") : null;
-  });
+  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd, tabId));
 
   /** The paperclip's hidden file input; picked images ride the same draft path as paste. */
   const imagePicker = useRef<HTMLInputElement>(null);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button } from "./ui";
 import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
 
@@ -79,17 +79,7 @@ export function BranchChip({
   const pullGitBranch = useStore((s) => s.pullGitBranch);
   // A session mid-turn on this checkout: a plain checkout or a fast-forward
   // would move the working tree out from under it, so both earn a confirm.
-  // Matched on the effective cwd, so a running worktree session guards its
-  // own checkout — the tab's projectCwd would see every worktree of a
-  // project as the same place.
-  const busyTitle = useStore((s) => {
-    const tab = s.tabs.find(
-      (t) =>
-        sessionCwd(findRecord(s.state, t.tabId)) === projectCwd &&
-        s.rpc[t.tabId]?.status === "running",
-    );
-    return tab ? (findRecord(s.state, tab.tabId)?.title ?? "a session") : null;
-  });
+  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState("");

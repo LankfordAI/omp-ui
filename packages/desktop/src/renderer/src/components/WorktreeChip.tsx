@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { MergeBackStatus, SessionWorktree } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, Chip, ConfirmDialog, CopyButton, Panel } from "./ui";
 
 /**
@@ -69,19 +69,9 @@ export function WorktreeChip({
   const toggleConsole = useStore((s) => s.toggleConsole);
   const consoleIsOpen = useStore((s) => s.consoleOpen[tabId] === true);
 
-  // A session mid-turn in the project checkout (the BranchChip guard): the
-  // merge moves the destination branch out from under it. The self-tab drops
-  // out by construction — this session's effective cwd is its worktree
-  // checkout, never the project root.
-  const busyTitle = useStore((s) => {
-    const tab = s.tabs.find(
-      (t) =>
-        t.tabId !== tabId &&
-        sessionCwd(findRecord(s.state, t.tabId)) === projectCwd &&
-        s.rpc[t.tabId]?.status === "running",
-    );
-    return tab ? (findRecord(s.state, tab.tabId)?.title ?? "a session") : null;
-  });
+  // A session mid-turn in the project checkout: the merge moves the
+  // destination branch out from under it. The self tab is excluded.
+  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd, tabId));
 
   /** Wraps the trigger *and* the popover, so one containment test covers both. */
   const rootRef = useRef<HTMLSpanElement>(null);
