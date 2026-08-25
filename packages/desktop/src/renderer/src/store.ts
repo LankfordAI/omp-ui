@@ -6,14 +6,12 @@ import type {
 import {
   parsePlanReviewTitle,
   parsePlanStatus,
-  planMessage,
 
 
   PLAN_STATUS_KEY,
 } from "@omp-ui/core/plan";
 import {
   parseAdvisorStats,
-  ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,
 } from "@omp-ui/core/advisor-stats";
 import {
@@ -34,8 +32,6 @@ import {
   parseModelInfo,
   parseSessionRuntime,
   parseSessionStats,
-  parseSubagents,
-  parseTodoPhases,
 } from "./lib/rpc-types";
 import { reduceSubagentFrame, SUBAGENT_BUFFER_CAP, subagentKey } from "./lib/subagent-events";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
@@ -50,12 +46,9 @@ import {
   restoreDesktopView,
 } from "./store/slices/view";
 import {
-  RPC_COMMAND_TIMEOUT_MS,
-  alertError,
   bumpCompactionUsageGeneration,
   compactionUsageGenerations,
   createMachinery,
-  handedOffPlanSources,
   respData,
   retireTimedOutCommand,
   retireTimedOutEarlierThan,
@@ -72,6 +65,7 @@ import { createBranchesSlice } from "./store/slices/branches";
 import { createPlanExecutionSlice, upsertPlan } from "./store/slices/plan-execution";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
+import { createSessionParamsSlice } from "./store/slices/session-params";
 export type {
   BranchActivity,
   CompactSurface,
@@ -98,8 +92,6 @@ export {
   registerTermWriter,
 } from "./store/slices/shared";
 import {
-  commandItem,
-  historyToItems,
   markerItem,
   noticeItem,
   planProposalItem,
@@ -208,9 +200,6 @@ interface SubagentRefresh {
   timer: number | undefined;
 }
 const subagentRefresh = new Map<string, SubagentRefresh>();
-/** Whole parameter actions, including their authoritative registry write. */
-const pendingSessionParameterActions = new Map<string, Set<Promise<void>>>();
-
 /** Shared empty buffer so identity comparison detects "no items yet". */
 const EMPTY_BUFFER: RenderItem[] = [];
 
@@ -280,18 +269,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
     settleCatchup: catchup.settleCatchup,
     reconcilePlanGates,
   });
-
-  const trackSessionParameterAction = (tabId: string, action: Promise<void>): Promise<void> => {
-    const actions = pendingSessionParameterActions.get(tabId) ?? new Set<Promise<void>>();
-    actions.add(action);
-    pendingSessionParameterActions.set(tabId, actions);
-    const remove = (): void => {
-      actions.delete(action);
-      if (actions.size === 0) pendingSessionParameterActions.delete(tabId);
-    };
-    void action.then(remove, remove);
-    return action;
-  };
+  const sessionParams = createSessionParamsSlice(set, get, m, {
+    concern: concernWatcher,
+    advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
+    prepareRpcRelaunch: lifecycle.prepareRpcRelaunch,
+  });
 
   /** Trailing-throttled roster refresh for the subagent_* heartbeat path. */
   const pulseSubagents = (tabId: string): void => {
@@ -461,6 +444,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...createSettingsSlice(set, get, api),
     ...createUpdatesSlice(set, get, api),
     ...lifecycle,
+    ...sessionParams,
     state: null,
     exited: {},
     hibernated: {},
@@ -476,7 +460,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     readMergeBackStatus: branchesSlice.readMergeBackStatus,
     mergeWorktreeBranch: branchesSlice.mergeWorktreeBranch,
     suggestBranchName: branchesSlice.suggestBranchName,
-    advisorDefaults: {},
 
     async init() {
       if (initialized) return;
@@ -1032,500 +1015,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
       }
     },
 
-    answerExtension(tabId, request, response) {
-      const tab = get().rpc[tabId];
-      if (!tab) return;
-      const id =
-        request !== null && typeof request === "object" && "id" in request
-          ? request.id
-          : undefined;
-      backend.rpcSend(tabId, {
-        type: "extension_ui_response",
-        id,
-        ...response,
-      });
-      m.patchRpc(tabId, {
-        extensionQueue: tab.extensionQueue.filter((q) => q !== request),
-      });
-    },
-
     setInitialPrompt: rpcCommandSlice.setInitialPrompt,
     renameSession: rpcCommandSlice.renameSession,
-    async sendPrompt(tabId, message, route = "steer", images) {
-      const tab = get().rpc[tabId];
-      if (!tab || tab.status === "starting") return false;
-      if (route === "advisor_reply" || route === "stall_continue") {
-        // omp-ui's own prompt (a late-review answer, a stall continue): it
-        // must not title the session and must not re-arm either loop guard —
-        // an auto-prompt is not human direction.
-      } else {
-        // Human direction makes a previously handed-off source active again,
-        // even when its immediate hibernation was declined.
-        handedOffPlanSources.delete(tabId);
-        // Titling reads the first substantive prompt, whichever route it took.
-        get().setInitialPrompt(tabId, message);
-        advisorReplyWatcher.reset(tabId);
-        stallContinueWatcher.reset(tabId);
-      }
-      // Always the `prompt` frame, never `steer`/`follow_up`: only AgentSession.prompt
-      // builds the magic-keyword notices (orchestrate/ultrathink/workflowz), so those
-      // frames would silently drop the keyword mid-run. `streamingBehavior` is what
-      // omp's own TUI passes, and omp ignores it while the agent is idle.
-      //
-      // An advisor reply rides followUp, not steer: if a turn started between the
-      // settle and this send, the reply queues behind it instead of interrupting.
-      const streamingBehavior =
-        route === "follow_up" || route === "advisor_reply" || route === "stall_continue"
-          ? "followUp"
-          : "steer";
-      const cmd = { type: "prompt", message, streamingBehavior };
-      // `images` is omitted entirely when empty: omp's own client sends no key
-      // rather than an empty array, and every byte here is on one JSON line.
-      const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
-      return response !== null;
-    },
-
-    async abortAgent(tabId) {
-      await m.runCommand(tabId, { type: "abort" });
-    },
-
-    async abortAndPrompt(tabId, message, images) {
-      if (get().rpc[tabId]?.status === "starting") return;
-      handedOffPlanSources.delete(tabId);
-      get().setInitialPrompt(tabId, message);
-      advisorReplyWatcher.reset(tabId);
-      stallContinueWatcher.reset(tabId);
-      const type = "abort_and_prompt";
-      await m.runCommand(
-        tabId,
-        images?.length ? { type, message, images } : { type, message },
-      );
-    },
-
-    async loadAdvisorDefaults(projectCwd) {
-      if (get().advisorDefaults[projectCwd]) return;
-      try {
-        const defaults = await backend.getAdvisorDefaults(projectCwd);
-        set((s) => ({
-          advisorDefaults: { ...s.advisorDefaults, [projectCwd]: defaults },
-        }));
-      } catch {
-        // A missing or unreadable omp config is not an error worth a dialog —
-        // the toggle just shows no inherited default.
-      }
-    },
-
-    async setSessionAdvisor(tabId, advisor, advisorModel, preservedPlanMode) {
-      const tab = get().rpc[tabId];
-      if (tab?.status === "starting") return;
-      const rec = findRecord(get().state, tabId);
-      const changedLive =
-        rec?.live === "live" &&
-        rec.mode === "rpc-ui" &&
-        (rec.advisor !== advisor || rec.advisorModel !== advisorModel);
-      if (changedLive && tab) {
-        const previousStatus = tab.status;
-        const previousStreaming = tab.session.isStreaming;
-        const previousPlan = tab.plan;
-        const commandIds = new Set(
-          [...tab.pendingCommands.entries()]
-            .filter(([, pending]) => !pending.quiet)
-            .map(([id]) => id),
-        );
-        const parameterActions = [
-          ...(pendingSessionParameterActions.get(tabId) ?? []),
-        ];
-        const deadline = Date.now() + RPC_COMMAND_TIMEOUT_MS + 1_000;
-        lifecycle.prepareRpcRelaunch(tabId);
-        await m.pollUntil(
-          tabId,
-          (current) =>
-            current !== undefined &&
-            [...commandIds].every((id) => !current.pendingCommands.has(id)),
-          RPC_COMMAND_TIMEOUT_MS + 1_000,
-        );
-        const remainingMs = Math.max(0, deadline - Date.now());
-        if (parameterActions.length > 0 && remainingMs > 0) {
-          await Promise.race([
-            Promise.allSettled(parameterActions),
-            new Promise<void>((resolve) => window.setTimeout(resolve, remainingMs)),
-          ]);
-        }
-        const current = get().rpc[tabId];
-        const commandsRemain =
-          current === undefined ||
-          [...commandIds].some((id) => current.pendingCommands.has(id));
-        const parametersRemain = parameterActions.some((action) =>
-          pendingSessionParameterActions.get(tabId)?.has(action),
-        );
-        if (commandsRemain || parametersRemain) {
-          if (current) {
-            m.patchRpc(tabId, {
-              status: previousStatus,
-              session: { ...current.session, isStreaming: previousStreaming },
-              plan: previousPlan,
-            });
-          }
-          window.alert(
-            "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
-          );
-          return;
-        }
-      }
-      const startInPlanMode =
-        preservedPlanMode ??
-        (changedLive
-          ? (get().rpc[tabId]?.plan?.enabled ?? tab?.plan?.enabled ?? false)
-          : false);
-      try {
-        await backend.setSessionAdvisor(tabId, advisor, advisorModel, startInPlanMode);
-      } catch (err) {
-        // Changing the advisor relaunches the agent, so a failure here means
-        // the session is down, not merely that a setting did not stick. Say
-        // that, rather than surfacing the bare IPC error.
-        const reason = err instanceof Error ? err.message : String(err);
-        window.alert(
-          `Could not ${advisor ? "enable" : "disable"} the advisor: ${reason}\n\n` +
-            "The agent has stopped — resume the session to continue.",
-        );
-      }
-    },
-
-    async setAdvisorModel(tabId, selector) {
-      // setSessionAdvisor persists the complete advisor tuple for both this
-      // session and the next one; selecting a model also enables the advisor.
-      await get().setSessionAdvisor(tabId, true, selector);
-    },
-
-    async setModel(tabId, model) {
-      if (get().rpc[tabId]?.status === "starting") return;
-      const action = (async (): Promise<void> => {
-        const resp = await m.runCommand(tabId, {
-          type: "set_model",
-          provider: model.provider,
-          modelId: model.id,
-        });
-        if (resp === null) return;
-        const selected = parseModelInfo(respData(resp)) ?? model;
-        m.patchRpc(tabId, { model: selected });
-        const thinkingLevel = get().rpc[tabId]?.session.thinkingLevel ?? null;
-        await backend.setSessionModel(
-          tabId,
-          `${selected.provider}/${selected.id}`,
-          thinkingLevel,
-        );
-      })();
-      await trackSessionParameterAction(tabId, action);
-    },
-
-    async setThinkingLevel(tabId, level) {
-      if (get().rpc[tabId]?.status === "starting") return;
-      const action = (async (): Promise<void> => {
-        const resp = await m.runCommand(tabId, {
-          type: "set_thinking_level",
-          level,
-        });
-        if (resp === null) return;
-        m.patchSession(tabId, { thinkingLevel: level });
-        const model = get().rpc[tabId]?.model;
-        await backend.setSessionModel(
-          tabId,
-          model ? `${model.provider}/${model.id}` : null,
-          level,
-        );
-      })();
-      await trackSessionParameterAction(tabId, action);
-    },
-
-    async setSteeringMode(tabId, mode) {
-      const resp = await m.runCommand(tabId, { type: "set_steering_mode", mode });
-      if (resp === null) return;
-      m.patchSession(tabId, { steeringMode: mode });
-    },
-
-    async setFollowUpMode(tabId, mode) {
-      const resp = await m.runCommand(tabId, {
-        type: "set_follow_up_mode",
-        mode,
-      });
-      if (resp === null) return;
-      m.patchSession(tabId, { followUpMode: mode });
-    },
-
-    async setInterruptMode(tabId, mode) {
-      const resp = await m.runCommand(tabId, {
-        type: "set_interrupt_mode",
-        mode,
-      });
-      if (resp === null) return;
-      m.patchSession(tabId, { interruptMode: mode });
-    },
-
-    async setAutoCompaction(tabId, enabled) {
-      const resp = await m.runCommand(tabId, {
-        type: "set_auto_compaction",
-        enabled,
-      });
-      if (resp === null) return;
-      m.patchSession(tabId, { autoCompactionEnabled: enabled });
-    },
-
-    async setAutoRetry(tabId, enabled) {
-      await m.runCommand(tabId, { type: "set_auto_retry", enabled });
-    },
-
-    async abortRetry(tabId) {
-      await m.runCommand(tabId, { type: "abort_retry" });
-    },
-
-    async compactSession(tabId) {
-      m.appendItem(tabId, markerItem("compacting context", "copper"));
-      const resp = await m.runCommand(tabId, { type: "compact" });
-      if (resp === null) return;
-      // `data.summary` is the entire compacted history — noted, never rendered.
-      m.appendItem(tabId, markerItem("context compacted", "copper"));
-      await m.refreshUsage(tabId);
-    },
-
-    async exportHtml(tabId) {
-      const resp = await m.runCommand(tabId, { type: "export_html" });
-      if (resp === null) return;
-      const path = strField(respData(resp), "path");
-      // The path rides the notice as data so the transcript can offer
-      // open/reveal without parsing it back out of the text (issue #84).
-      m.appendItem(tabId, {
-        ...noticeItem(path ? `exported to ${path}` : "export finished", "info"),
-        ...(path === undefined ? {} : { path }),
-      });
-    },
-
-    async branchSession(tabId) {
-      // Full-fidelity branch (issue #83): the backend copies the transcript
-      // into a new lineage and registers it; the source session — this tab
-      // included — keeps running untouched. omp's `branch` RPC is the wrong
-      // tool here: it rewinds past the last user message in place.
-      if (!findRecord(get().state, tabId)) return;
-      try {
-        const { tabId: forked } = await backend.forkSession(tabId);
-        // The fork's record normally arrives by broadcast, but openSession
-        // reads it from state — pull state explicitly so a slow broadcast
-        // can't strand the new tab.
-        set({ state: await backend.getState() });
-        await get().openSession(forked);
-      } catch (err) {
-        alertError(err);
-      }
-    },
-
-    async renameSessionTo(tabId, name) {
-      const resp = await m.runCommand(tabId, { type: "set_session_name", name });
-      if (resp === null) return;
-      // A user-chosen name is final — the auto-titler must not overwrite it.
-      m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
-    },
-
-    async setPlanMode(tabId, enabled) {
-      if (get().rpc[tabId]?.status === "starting") return;
-      // The extension owns the state; the UI never assumes the toggle took —
-      // it re-renders when the extension publishes its status frame.
-      // The format rides the `on` command, so the extension — not a later
-      // Settings flip — decides what this session's plans are authored as.
-      const format = get().state?.planFormat ?? "html";
-      await m.runCommand(tabId, {
-        type: "prompt",
-        message: planMessage(enabled, format),
-      });
-    },
-
     executePlan: plan.executePlan,
     refinePlan: plan.refinePlan,
     deferPlanReview: plan.deferPlanReview,
     showPlanReview: plan.showPlanReview,
     dismissCatchup: catchup.dismissCatchup,
     loadPlanText: plan.loadPlanText,
-
-    async runSlashCommand(tabId, line) {
-      const message = line.startsWith("/") ? line : `/${line}`;
-      if (message.trim() === "/") return;
-      // omp-ui's own /new: a new live session in a new tab, not omp's in-process
-      // lineage switch (that stays on the HUD's new-session button and in terminal
-      // tabs' TUI). Bare command only — "/new …" still reaches omp verbatim.
-      if (message.trim() === "/new") {
-        const projectCwd = get().tabs.find(
-          (t) => t.tabId === tabId,
-        )?.projectCwd;
-        // A composer only exists for a mounted tab; without one, keep the old path.
-        if (projectCwd !== undefined) {
-          await get().newSession(projectCwd);
-          return;
-        }
-      }
-      // omp-ui's plan toggle: omp's /plan is TUI-only, so over rpc it would
-      // reach the model as literal prompt text and start an agent turn
-      // (ADR-0007). Bare forms only — "/plan …" with any other argument still
-      // reaches omp verbatim, and a pty tab's TUI owns its own /plan.
-      const trimmed = message.trim();
-      const planOn = /^\/plan(?:\s+on)?$/.test(trimmed);
-      const planOff = /^\/(?:plan\s+off|no-plan)$/.test(trimmed);
-      if (planOn || planOff) {
-        const tab = get().tabs.find((t) => t.tabId === tabId);
-        if (tab?.mode === "rpc-ui") {
-          await get().setPlanMode(tabId, planOn);
-          return;
-        }
-      }
-      // omp-ui's MCP manager already owns the /mcp list surface. Bare forms
-      // only — every other subcommand (reauth, add, …) works over rpc and
-      // reaches omp verbatim with the normal command lifecycle.
-      if (/^\/mcp(?:\s+list)?$/.test(trimmed)) {
-        const projectCwd = get().tabs.find(
-          (t) => t.tabId === tabId,
-        )?.projectCwd;
-        if (projectCwd !== undefined) {
-          get().openMcpManager(projectCwd, tabId);
-          return;
-        }
-      }
-      // A first word matching no advertised command is a literal model prompt
-      // (omp forwards it verbatim) — the user/assistant items tell that story;
-      // it gets no command row.
-      const body = trimmed.slice(1);
-      const spaceAt = body.search(/\s/);
-      const name = spaceAt === -1 ? body : body.slice(0, spaceAt);
-      const args = spaceAt === -1 ? "" : body.slice(spaceAt + 1).trim();
-      const command = get().rpc[tabId]?.commands.find(
-        (c) => c.name === name || (c.aliases?.includes(name) ?? false),
-      );
-      if (command === undefined) {
-        await m.runCommand(tabId, { type: "prompt", message });
-        return;
-      }
-      // The acknowledgement row: makes the command visibly run - and settle -
-      // while the reply itself rides command_output frames (omp 17.3.8+
-      // emits them for builtin replies too).
-      const item = commandItem(name, args);
-      m.appendItem(tabId, item);
-      const byRequest =
-        m.slashCommandItems.get(tabId) ?? new Map<string, string>();
-      m.slashCommandItems.set(tabId, byRequest);
-      let requestId: string | undefined;
-      const resp = await m.runCommand(
-        tabId,
-        { type: "prompt", message },
-        {
-          captureId: (id) => {
-            requestId = id;
-            byRequest.set(id, item.id);
-          },
-        },
-      );
-      const settle = (patch: Partial<CommandItem>): void => {
-        if (requestId !== undefined) byRequest.delete(requestId);
-        m.patchItems(tabId, (i) =>
-          i.kind === "command" && i.id === item.id ? { ...i, ...patch } : i,
-        );
-      };
-      if (resp === null) {
-        // runCommand recorded the RpcFailure — mirror its text onto the row.
-        settle({
-          status: "failed",
-          error: get().rpc[tabId]?.failure?.message ?? "command failed",
-        });
-        return;
-      }
-      const invoked = boolField(respData(resp), "agentInvoked");
-      if (invoked === false) settle({ status: "done" });
-      else if (invoked === true) settle({ status: "agent" });
-      if (command.name === "compact") await m.refreshUsage(tabId);
-      // `agentInvoked` absent (older runtime): stay running — prompt_result's
-      // id mapping or the next agent_start settles it.
-    },
-
-    async setTodos(tabId, phases) {
-      const resp = await m.runCommand(tabId, { type: "set_todos", phases });
-      if (resp === null) return;
-      m.patchRpc(tabId, {
-        todos: parseTodoPhases(field(respData(resp), "todoPhases")),
-      });
-    },
-
-    async refreshState(tabId) {
-      const resp = await m.runCommand(
-        tabId,
-        { type: "get_state" },
-        { quiet: true },
-      );
-      if (resp === null) return;
-      m.applyRpcState(tabId, resp);
-    },
-
-    async refreshStats(tabId) {
-      const resp = await m.runCommand(
-        tabId,
-        { type: "get_session_stats" },
-        { quiet: true },
-      );
-      if (resp === null) return;
-      m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
-    },
-
-    async refreshAdvisorStats(tabId) {
-      // The extension answers by publishing over setStatus. Until omp has run a
-      // turn the session is uncaptured, so it reports a live-session wait which
-      // the HUD treats as "not yet" rather than an error.
-      await m.runCommand(tabId, {
-        type: "prompt",
-        message: `/${ADVISOR_STATS_COMMAND}`,
-      });
-    },
-
-    async refreshSubagents(tabId) {
-      // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
-      // strobe for the lifetime of every spawned subagent.
-      const resp = await m.runCommand(
-        tabId,
-        { type: "get_subagents" },
-        { quiet: true },
-      );
-      if (resp === null) return;
-      m.patchRpc(tabId, { subagents: parseSubagents(respData(resp)) });
-    },
-
-    openSubagent(tabId, key) {
-      const tab = get().rpc[tabId];
-      if (!tab || tab.selectedSubagent === key) return;
-      m.patchRpc(tabId, { selectedSubagent: key });
-      m.syncSubagentSubscription(tabId);
-      // Backfill the run's full history from the subagent's own transcript
-      // file, so the view shows the whole run — not just what streamed
-      // since the click. Wholesale replace, the same contract as
-      // loadHistory; the live event stream keeps appending after.
-      // Direct rpcCommand, never runCommand: a failure (omp older than
-      // v17.1.8, or an id the process forgot across a respawn) degrades to
-      // the live buffer, not to a session-level failure panel.
-      void get()
-        .rpcCommand(
-          tabId,
-          { type: "get_subagent_messages", subagentId: key },
-          { quiet: true },
-        )
-        .then((resp) => {
-          // A switch or close while the read was in flight must not
-          // clobber the new selection's buffer.
-          if (get().rpc[tabId]?.selectedSubagent !== key) return;
-          const messages = arrField(respData(resp), "messages");
-          const buffers = get().rpc[tabId]?.subagentItems ?? {};
-          m.patchRpc(tabId, {
-            subagentItems: { ...buffers, [key]: historyToItems(messages) },
-          });
-        })
-        .catch(() => {});
-    },
-
-    closeSubagent(tabId) {
-      m.patchRpc(tabId, { selectedSubagent: null });
-      m.syncSubagentSubscription(tabId);
-    },
 
     appendNotice(tabId, text, level) {
       m.appendItem(tabId, noticeItem(text, level));
