@@ -627,10 +627,7 @@ export function Composer({
           {glowKeyword !== null && (
             <PerimeterGlow colors={keywordPalette(glowKeyword)} phase={phase} />
           )}
-          {compact && busy && (
-            <PerimeterSweep tone={running ? "copper" : "signal"} />
-          )}
-          {!compact && (busy || running) && (
+          {(compact ? busy : busy || running) && (
             <PerimeterSweep tone={running ? "copper" : "signal"} />
           )}
           {images.length > 0 && (
