@@ -55,6 +55,7 @@ import {
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
 import { liveEntry, type LiveEntry } from "./live-entry";
+import { TurnCounter } from "./turns";
 
 /** True when `p` settles inside `ms`. Bounded wait, no dangling timer. */
 function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
@@ -137,6 +138,8 @@ type HibernateOutcome =
 /** The sole owner of live session children and their supporting process state. */
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
+  /** Running turns per tab — the cross-concern datum (hibernation + stall). */
+  private readonly turns = new TurnCounter();
   /** Console-drawer shells keyed by tabId (issue #42) — outside `live` on purpose. */
   private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
   private readonly watchers = new Map<string, () => void>();
@@ -238,6 +241,29 @@ export class SessionManager {
     entry.detachPtyData = undefined;
     entry.pty?.kill();
     entry.rpc?.kill();
+  }
+
+  /**
+   * Both spawn paths' child-exit plumbing in one place. When this entry is
+   * still the tab's live one it is removed from `live` and the per-concern
+   * bookkeeping it owned is cleared; a successor that already replaced it
+   * (mode-switch respawn) keeps the tab. The exit is only reported when not
+   * suppressed (mode-switch kill, delete), and the sidebar rebuilds either
+   * way.
+   */
+  private handleExit(tabId: string, entry: LiveEntry, exitCode: number): void {
+    entry.markExited();
+    // Identity-checked: a mode-switch respawn may already have replaced
+    // this entry — deleting then would orphan the new live session.
+    if (this.live.get(tabId) === entry) {
+      this.live.delete(tabId);
+      this.turns.clear(tabId);
+      this.clearPlanGate(tabId); // rpc-only today; a pty tab never has a gate
+      this.clearHibernateState(tabId);
+      this.deps.attention?.sessionExit(tabId);
+    }
+    if (!entry.suppressExit) this.deps.send(CH.onPtyExit, tabId, exitCode);
+    void this.deps.broadcast();
   }
 
   /**
@@ -433,18 +459,7 @@ export class SessionManager {
     entry.detachPtyData = ptyHandle.onData((data) =>
       this.deps.send(CH.onPtyData, record.tabId, data),
     );
-    ptyHandle.onExit(({ exitCode }) => {
-      entry.markExited();
-      // Identity-checked: a mode-switch respawn may already have replaced
-      // this entry — deleting then would orphan the new live session.
-      if (this.live.get(record.tabId) === entry) {
-        this.live.delete(record.tabId);
-        this.clearHibernateState(record.tabId);
-        this.deps.attention?.sessionExit(record.tabId);
-      }
-      if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, exitCode);
-      void this.deps.broadcast();
-    });
+    ptyHandle.onExit(({ exitCode }) => this.handleExit(record.tabId, entry, exitCode));
     this.startWatcher(record);
     await this.deps.broadcast();
     return { tabId: record.tabId };
@@ -499,17 +514,7 @@ export class SessionManager {
         this.observeStallActivity(entry, frame);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
       },
-      onExit: (code) => {
-        this.clearPlanGate(record.tabId);
-        entry.markExited();
-        if (this.live.get(record.tabId) === entry) {
-          this.live.delete(record.tabId);
-          this.clearHibernateState(record.tabId);
-          this.deps.attention?.sessionExit(record.tabId);
-        }
-        if (!entry.suppressExit) this.deps.send(CH.onPtyExit, record.tabId, code ?? -1);
-        void this.deps.broadcast();
-      },
+      onExit: (code) => this.handleExit(record.tabId, entry, code ?? -1),
       onError: (msg) =>
         this.deps.send(CH.onRpcFrame, record.tabId, { type: "omp_ui_error", message: msg }),
     });
@@ -993,7 +998,7 @@ export class SessionManager {
     if (thresholdSeconds <= 0) return;
     for (const [tabId, entry] of this.live) {
       if (entry.kind !== "rpc-ui") continue;
-      if (entry.turnsRunning === 0) continue;
+      if (this.turns.running(tabId) === 0) continue;
       if (this.awaitingHumanAnswer(tabId)) continue;
       // A running local tool is legitimately quiet on the provider stream —
       // a build, a test suite, a hub wait. While one is open the model owes
@@ -1011,7 +1016,7 @@ export class SessionManager {
   /**
    * Sends the abort and surfaces the notice. The turn's agent_end (or the
    * child's refusal) settles the transcript's own status; the watchdog does
-   * not touch hibernation state — agent_end already clears turnsRunning.
+   * not touch hibernation state — agent_end already drops the running count.
    */
   private abortStalledTurn(
     tabId: string,
@@ -1082,21 +1087,22 @@ export class SessionManager {
     }
     switch (frame.type) {
       case "agent_start":
-        entry.turnsRunning++;
+        this.turns.start(tabId);
         // A new turn is activity: it answers every pending attention (issue #271).
         this.deps.attention?.turnStarted(tabId);
         // The stalled badge is a call-to-action ("prompt to continue"); a
         // new turn is that continuation, whoever sent it (issue #255).
         if (this.streamStalledTabs.delete(tabId)) void this.deps.broadcast();
         break;
-      case "agent_end":
-        entry.turnsRunning = Math.max(0, entry.turnsRunning - 1);
+      case "agent_end": {
+        const running = this.turns.end(tabId);
         if (entry.settleSuspendedUntil !== null) entry.settleSuspendedUntil = null;
         // The idle crossing announces the finished turn (issue #271); a
         // pending plan gate or blocking answer owns the attention instead.
-        if (entry.turnsRunning === 0 && !this.awaitingHumanAnswer(tabId))
+        if (running === 0 && !this.awaitingHumanAnswer(tabId))
           this.deps.attention?.turnEnded(tabId);
         break;
+      }
       case "extension_ui_request":
         // Only user-answer dialogs block hibernation; the other methods are
         // fire-and-forget state frames the renderer never replies to.
@@ -1161,7 +1167,7 @@ export class SessionManager {
   ): boolean {
     if (entry.kind !== "rpc-ui") return false;
     if (!entry.hibernateArmed) return false; // still booting
-    if (entry.turnsRunning > 0) return false; // mid-turn
+    if (this.turns.running(tabId) > 0) return false; // mid-turn
     if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
     if (policy === "plan-handoff") return true;
     if (this.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
@@ -1339,7 +1345,7 @@ export class SessionManager {
       wasAwaitingHuman &&
       !this.awaitingHumanAnswer(tabId) &&
       entry?.kind === "rpc-ui" &&
-      entry.turnsRunning > 0
+      this.turns.running(tabId) > 0
     ) {
       entry.stallSilenceSince = Date.now();
       entry.stallCheckpointLabel = "human answer received";

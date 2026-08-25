@@ -26,8 +26,6 @@ export interface LiveEntry {
   // --- hibernation bookkeeping (issue #246) ---
   /** True once the first frame has arrived; the idle clock arms only then. */
   hibernateArmed: boolean;
-  /** agent_start minus agent_end; >0 means a turn is running. */
-  turnsRunning: number;
   /** Set by notePlanVerdict; cleared by the next agent_end or (lazily) once
    * lapsed — a check is scheduled at the lapse so quiet sessions lapse too
    * (issue #247). */
@@ -52,7 +50,6 @@ export function liveEntry(
     | "exited"
     | "markExited"
     | "hibernateArmed"
-    | "turnsRunning"
     | "settleSuspendedUntil"
     | "probeId"
     | "probeResolve"
@@ -73,7 +70,6 @@ export function liveEntry(
     exited,
     markExited,
     hibernateArmed: false,
-    turnsRunning: 0,
     settleSuspendedUntil: null,
     probeId: null,
     probeResolve: null,
