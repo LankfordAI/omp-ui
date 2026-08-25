@@ -1,13 +1,15 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { copyFallback } from "../lib/clipboard";
+import type { Tone } from "../lib/tone";
 
 /**
  * The shared primitive vocabulary. Every feature component composes these —
  * a colour or radius decided here is never re-decided downstream.
  */
 
-export type Tone = "neutral" | "signal" | "copper" | "rose" | "iris";
+export type { Tone };
 
 const TONE_TEXT: Record<Tone, string> = {
   neutral: "text-ink-mid",
@@ -494,22 +496,6 @@ export function Dot({
     />
   );
 }
-
-/** Agent roster/subagent-view status → tone. Copper pulses while work
- *  happens; the signal accent stays reserved for genuine liveness/success
- *  (ADR-0004). */
-export const AGENT_TONE: Record<string, Tone> = {
-  running: "copper",
-  active: "copper",
-  pending: "neutral",
-  queued: "neutral",
-  completed: "signal",
-  done: "signal",
-  failed: "rose",
-  error: "rose",
-  cancelled: "rose",
-  settled: "neutral",
-};
 
 /**
  * Middle-ellipsis text: the head truncates, the tail always survives —
@@ -1264,30 +1250,6 @@ export function Meter({
       )}
     </div>
   );
-}
-
-/**
- * Copies `text` without the async Clipboard API, which is secure-context-only and therefore
- * absent over `http://<lan-ip>` — the origin remote clients use (issue #37). The detached
- * textarea + execCommand route is deprecated but universally available, and is the only thing
- * that works there.
- */
-export function copyFallback(text: string): boolean {
-  const el = document.createElement("textarea");
-  el.value = text;
-  el.setAttribute("readonly", "");
-  // Off-screen rather than hidden: execCommand("copy") ignores a display:none selection.
-  el.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0";
-  document.body.append(el);
-  try {
-    el.select();
-    el.setSelectionRange(0, text.length);
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    el.remove();
-  }
 }
 
 /** Copy-to-clipboard affordance that reports success in place. */

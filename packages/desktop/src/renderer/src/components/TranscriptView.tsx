@@ -8,6 +8,7 @@ import {
 } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
 import { formatCost, tokenCount } from "../lib/format";
 import { useTranscriptScale } from "../lib/text-scale";
@@ -26,7 +27,7 @@ import { Markdown } from "./Markdown";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { TranscriptContextMenu } from "./TranscriptContextMenu";
-import { Chip, Disclosure, Empty, Label, copyFallback, type Tone } from "./ui";
+import { Chip, Disclosure, Empty, Label, type Tone } from "./ui";
 
 /** Re-entry threshold: this close to the tail still counts as following. */
 const AT_BOTTOM_SLACK = 64;

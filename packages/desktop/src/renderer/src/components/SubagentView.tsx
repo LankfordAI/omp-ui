@@ -1,7 +1,8 @@
+import { AGENT_TONE } from "../lib/agent-tone";
 import type { RenderItem } from "../lib/transcript";
 import { useStore } from "../store";
 import { TranscriptView } from "./TranscriptView";
-import { AGENT_TONE, Chip, Dot } from "./ui";
+import { Chip, Dot } from "./ui";
 
 const NO_ITEMS: RenderItem[] = [];
 
