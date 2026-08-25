@@ -21,6 +21,12 @@ function summary(
     worktree,
     launchedAt: "t",
     mode: "rpc-ui",
+    planImplementationSource: null,
+    agentMode: "build",
+    compactionMethod: null,
+    model: null,
+    thinkingLevel: null,
+    lastViewedAt: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: null,
@@ -38,7 +44,7 @@ function stateWith(...sessions: SessionSummary[]): BackendState {
   return backendState({
     projects: [
       {
-        project: { path: PROJECT, name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+        project: { path: PROJECT, name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
         sessions,
       },
     ],

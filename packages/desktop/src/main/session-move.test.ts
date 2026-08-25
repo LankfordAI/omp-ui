@@ -50,8 +50,8 @@ function setup(): { registryFile: string } {
   const registryFile = path.join(base, "registry.json");
   seedRegistry(registryFile, {
     projects: [
-      { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
-      { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+      { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+      { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
     ],
     // Insertion order deliberately disagrees with recency within /p/a: the
     // persisted array order must win over either (issue #274).

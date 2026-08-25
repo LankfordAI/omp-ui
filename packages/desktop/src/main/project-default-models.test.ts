@@ -55,7 +55,11 @@ function setup(): { registryFile: string } {
         name: "A",
         addedAt: "2026-08-01T00:00:00.000Z",
         lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
         lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
       },
     ],
   });

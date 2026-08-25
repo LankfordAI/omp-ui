@@ -405,6 +405,8 @@ export class SessionManager {
           worktree = { path: worktreePath, branch: req.worktree.branch, base };
         }
         const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
+        // agentMode starts at the parse-time normalization default; the plan
+        // extension overwrites it when its first incarnation report lands.
         record = this.deps.registry.addSession({
           tabId: randomUUID(),
           sessionId: null,
@@ -414,6 +416,7 @@ export class SessionManager {
           planImplementationSource,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
+          agentMode: "build",
           compactionMethod:
             req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
@@ -584,7 +587,7 @@ export class SessionManager {
     } catch (err) {
       console.warn("[advisor] could not write the overlay:", err);
     }
-    const model = record.model ?? null;
+    const model = record.model;
     if (model !== null) {
       const selector =
         record.thinkingLevel == null ? model : `${model}:${record.thinkingLevel}`;
@@ -604,7 +607,7 @@ export class SessionManager {
     ompPath: string,
   ): Promise<string[]> {
     const overlays = this.configOverlays(record, absLineageDir);
-    const preferred = record.compactionMethod ?? null;
+    const preferred = record.compactionMethod;
     if (preferred === null) {
       writeCompactionMethodOverlay(absLineageDir, null, []);
       return overlays;
@@ -913,7 +916,7 @@ export class SessionManager {
     if (tabId === null) return;
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (record === undefined) return;
-    const stored = record.lastViewedAt ?? null;
+    const stored = record.lastViewedAt;
     const last = stored === null ? null : Date.parse(stored);
     if (last !== null && Number.isFinite(last) && now - last < VIEWED_DEDUP_MS) return;
     this.deps.registry.updateSession(tabId, { lastViewedAt: new Date(now).toISOString() });
@@ -1545,9 +1548,12 @@ export class SessionManager {
       sessionId,
       lineageDir,
       projectCwd: source.projectCwd,
-      worktree: source.worktree ?? null,
+      worktree: source.worktree,
+      planImplementationSource: source.planImplementationSource,
       launchedAt: new Date().toISOString(),
       mode: source.mode,
+      agentMode: source.agentMode,
+      compactionMethod: source.compactionMethod,
       model: source.model,
       thinkingLevel: source.thinkingLevel,
       advisor: source.advisor,
@@ -1556,7 +1562,7 @@ export class SessionManager {
       cachedModified: new Date().toISOString(),
       // The forked transcript is the source's: its away window starts where
       // the source's viewing left off (issue #273).
-      lastViewedAt: source.lastViewedAt ?? null,
+      lastViewedAt: source.lastViewedAt,
     });
     await this.deps.broadcast();
     return { tabId: fork.tabId };

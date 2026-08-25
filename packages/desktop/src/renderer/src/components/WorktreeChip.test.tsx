@@ -90,7 +90,7 @@ function seedBusy(): void {
     state: makeBackendState({
       projects: [
         {
-          project: { path: PROJECT_CWD, name: "project", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+          project: { path: PROJECT_CWD, name: "project", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
           sessions: [
             {
               tabId: "tab-busy",
@@ -99,6 +99,13 @@ function seedBusy(): void {
               projectCwd: PROJECT_CWD,
               launchedAt: "t",
               mode: "rpc-ui",
+              worktree: null,
+              planImplementationSource: null,
+              agentMode: "build",
+              compactionMethod: null,
+              model: null,
+              thinkingLevel: null,
+              lastViewedAt: null,
               advisor: false,
               advisorModel: null,
               cachedTitle: null,

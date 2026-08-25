@@ -44,25 +44,30 @@ export interface ProjectRecord {
   addedAt: string;
   /** Main model most recently used in this project. */
   lastModel: string | null;
-  /** Main-model thinking level most recently used in this project. */
-  lastThinkingLevel?: string | null;
-  /** Advisor state most recently used in this project; null defers to omp config. */
-  lastAdvisor?: boolean | null;
+  /** Main-model thinking level most recently used in this project; legacy
+   *  registries without the field are normalized to null at parse time. */
+  lastThinkingLevel: string | null;
+  /** Advisor state most recently used in this project; null defers to omp
+   *  config. Legacy registries without the field are normalized to null at
+   *  parse time. */
+  lastAdvisor: boolean | null;
   /** Advisor model most recently used, including its optional `:level` suffix. */
   lastAdvisorModel: string | null;
   /**
    * Pinned main model for new sessions, as omp's `provider/id` selector
-   * (issue #257). Consumed only at spawn; null/absent = no pin, the
-   * last-used memory and omp's config decide as before.
+   * (issue #257). Consumed only at spawn; null = no pin, the last-used memory
+   * and omp's config decide as before. Legacy registries without the field
+   * are normalized to null at parse time.
    */
-  defaultModel?: string | null;
+  defaultModel: string | null;
   /**
    * Pinned advisor model for new sessions, as omp's `model[:level]` selector
-   * (issue #257). Consumed only at spawn; null/absent = defer to the
-   * last-used advisor model, then omp config's `modelRoles.advisor`. A pin
-   * does not force the advisor on — on/off keeps its own chain (issue #174).
+   * (issue #257). Consumed only at spawn; null = defer to the last-used
+   * advisor model, then omp config's `modelRoles.advisor`. A pin does not
+   * force the advisor on — on/off keeps its own chain (issue #174). Legacy
+   * registries without the field are normalized to null at parse time.
    */
-  defaultAdvisorModel?: string | null;
+  defaultAdvisorModel: string | null;
 }
 
 /**
@@ -127,27 +132,32 @@ export interface OwnedSessionRecord {
   lineageDir: string;
   projectCwd: string;
   /**
-   * Dedicated git worktree this session runs in; null/absent = the session
-   * runs at projectCwd. Post-dates the first schema-1 records — absent is
-   * legal and normalized to null on load.
+   * Dedicated git worktree this session runs in; null = the session runs at
+   * projectCwd. Post-dates the first schema-1 records — legacy records
+   * without the field are normalized to null at parse time.
    */
-  worktree?: SessionWorktree | null;
+  worktree: SessionWorktree | null;
   /**
    * Planning-session provenance for a fresh implementation. Post-dates the
-   * first schema-1 records, so absent is legal and normalized to null on load.
+   * first schema-1 records — legacy records without the field are normalized
+   * to null at parse time.
    */
-  planImplementationSource?: PlanImplementationSource | null;
+  planImplementationSource: PlanImplementationSource | null;
   launchedAt: string;
   mode: SessionMode;
-  /** Agent mode (plan/build) of the last rpc-ui incarnation the plan extension reported.
-   *  Post-dates existing records: absent is legal and normalized to "build" on load. */
-  agentMode?: AgentMode;
-  /** Compaction method captured for a fresh native session; null for terminal-origin sessions. */
-  compactionMethod?: string | null;
-  /** Main model selected for this session, as omp's `provider/id` selector. */
-  model?: string | null;
-  /** Main-model thinking level selected for this session. */
-  thinkingLevel?: string | null;
+  /** Agent mode (plan/build) of the last rpc-ui incarnation the plan
+   *  extension reported. Post-dates existing records: legacy records without
+   *  the field are normalized to "build" at parse time. */
+  agentMode: AgentMode;
+  /** Compaction method captured for a fresh native session; null for
+   *  terminal-origin sessions. Normalized to null at parse time when absent. */
+  compactionMethod: string | null;
+  /** Main model selected for this session, as omp's `provider/id` selector.
+   *  Normalized to null at parse time when absent. */
+  model: string | null;
+  /** Main-model thinking level selected for this session. Normalized to null
+   *  at parse time when absent. */
+  thinkingLevel: string | null;
   advisor: boolean;
   /**
    * The `advisor` role this session pins, as omp's `model[:level]` selector.
@@ -160,10 +170,10 @@ export interface OwnedSessionRecord {
   /**
    * Last moment any renderer reported this session as in view (issue #273).
    * Main writes it from tab:viewed reports; the catch-up digest reads it as
-   * its fallback baseline. Post-dates existing records: absent is legal and
-   * normalized to null on load.
+   * its fallback baseline. Post-dates existing records: legacy records
+   * without the field are normalized to null at parse time.
    */
-  lastViewedAt?: string | null;
+  lastViewedAt: string | null;
 }
 
 /** Plan-review gate the session's agent is blocked on right now. Main-process owned. */

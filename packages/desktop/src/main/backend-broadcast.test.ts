@@ -106,14 +106,22 @@ beforeEach(() => {
         name: "A",
         addedAt: "2026-08-01T00:00:00.000Z",
         lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
         lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
       },
       {
         path: "/p/b",
         name: "B",
         addedAt: "2026-08-02T00:00:00.000Z",
         lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
         lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
       },
     ],
     sessions: [ownedSessionRecord({ projectCwd: "/p/a" })],
@@ -276,8 +284,8 @@ describe("plan-review gate on the wire (issue #215)", () => {
     const registryFile = path.join(base, "registry.json");
     seedRegistry(registryFile, {
       projects: [
-        { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
-        { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+        { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+        { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
       ],
       sessions: [
         ownedSessionRecord({ tabId: TAB_A, lineageDir: LINEAGE_A, projectCwd: "/p/a", mode: "rpc-ui" }),

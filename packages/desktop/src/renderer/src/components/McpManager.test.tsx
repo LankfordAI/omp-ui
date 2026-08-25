@@ -148,7 +148,7 @@ const userNativeRow: McpServerEntry = {
 const liveState = backendState({
   projects: [
     {
-      project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+      project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
       sessions: [
         {
           tabId: TAB,
@@ -157,6 +157,13 @@ const liveState = backendState({
           projectCwd: PROJECT,
           launchedAt: "t",
           mode: "rpc-ui",
+worktree: null,
+          planImplementationSource: null,
+          agentMode: "build",
+          compactionMethod: null,
+          model: null,
+          thinkingLevel: null,
+          lastViewedAt: null,
           advisor: false,
           advisorModel: null,
           cachedTitle: "T",

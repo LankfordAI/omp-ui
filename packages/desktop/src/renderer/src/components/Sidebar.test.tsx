@@ -90,7 +90,11 @@ const state = backendState({
         name: "Project One",
         addedAt: "2026-08-03T00:00:00.000Z",
         lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
         lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
       },
       sessions: [
         {
@@ -100,6 +104,13 @@ const state = backendState({
           projectCwd: projectPath,
           launchedAt: "2026-08-03T00:00:00.000Z",
           mode: "rpc-ui",
+          worktree: null,
+          planImplementationSource: null,
+          agentMode: "build",
+          compactionMethod: null,
+          model: null,
+          thinkingLevel: null,
+          lastViewedAt: null,
           advisor: false,
           advisorModel: null,
           cachedTitle: "Owned session",
@@ -118,6 +129,13 @@ const state = backendState({
           projectCwd: projectPath,
           launchedAt: "2026-08-03T01:00:00.000Z",
           mode: "rpc-ui",
+          worktree: null,
+          planImplementationSource: null,
+          agentMode: "build",
+          compactionMethod: null,
+          model: null,
+          thinkingLevel: null,
+          lastViewedAt: null,
           advisor: false,
           advisorModel: null,
           cachedTitle: "Second owned session",
@@ -923,7 +941,11 @@ describe("project name display", () => {
             name,
             addedAt: "2026-08-03T00:00:00.000Z",
             lastModel: null,
+            lastThinkingLevel: null,
+            lastAdvisor: null,
             lastAdvisorModel: null,
+            defaultModel: null,
+            defaultAdvisorModel: null,
           },
           sessions: lives.map((live, i) => ({
             tabId: `tab-${i + 1}`,
@@ -932,6 +954,13 @@ describe("project name display", () => {
             projectCwd: path,
             launchedAt: "2026-08-03T00:00:00.000Z",
             mode: "rpc-ui" as const,
+            worktree: null,
+            planImplementationSource: null,
+            agentMode: "build" as const,
+            compactionMethod: null,
+            model: null,
+            thinkingLevel: null,
+            lastViewedAt: null,
             advisor: false,
             advisorModel: null,
             cachedTitle: `Session ${i + 1}`,
@@ -1027,6 +1056,13 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     projectCwd,
     launchedAt: "2026-08-03T00:00:00.000Z",
     mode: "rpc-ui" as const,
+    worktree: null,
+    planImplementationSource: null,
+    agentMode: "build" as const,
+    compactionMethod: null,
+    model: null,
+    thinkingLevel: null,
+    lastViewedAt: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: title,
@@ -1039,7 +1075,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     streamStalled: false,
   });
   const project = (path: string, name: string) => ({
-    project: { path, name, addedAt: "t", lastModel: null, lastAdvisorModel: null },
+    project: { path, name, addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
     sessions: Array.from({ length: 9 }, (_, i) =>
       session(`${path === projA ? "a" : "b"}-session-${i + 1}`, path, `Project ${name} session ${i + 1}`),
     ),
@@ -1334,6 +1370,13 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
     projectCwd: treePath,
     launchedAt: "2026-08-20T00:00:00.000Z",
     mode: "rpc-ui",
+    worktree: null,
+    planImplementationSource: null,
+    agentMode: "build",
+    compactionMethod: null,
+    model: null,
+    thinkingLevel: null,
+    lastViewedAt: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: title,
@@ -1359,7 +1402,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
   const treeState = backendState({
     projects: [
       {
-        project: { path: treePath, name: "Tree", addedAt: "2026-08-19T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+        project: { path: treePath, name: "Tree", addedAt: "2026-08-19T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
         sessions: [
           sess("tree-impl", "Tree Impl", { projectCwd: treePath, planImplementationSource: src("tree-root") }),
           sess("tree-root", "Tree Root"),
@@ -1369,7 +1412,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
         ],
       },
       {
-        project: { path: plainPath, name: "Plain", addedAt: "2026-08-18T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+        project: { path: plainPath, name: "Plain", addedAt: "2026-08-18T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
         sessions: [sess("plain-a", "Plain A"), sess("plain-b", "Plain B")],
       },
     ].map((g) => ({
@@ -1479,7 +1522,11 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
           name: "Tree",
           addedAt: "2026-08-19T00:00:00.000Z",
           lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
           lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
         },
         sessions: [
           {
@@ -1488,25 +1535,25 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             lineageDir: "l1",
             projectCwd: "/projects/tree",
             planImplementationSource: { sourceTabId: "tree-root", planTitle: "P", planFilePath: "local://p.html" },
-            launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, lastViewedAt: null, advisor: false, advisorModel: null,
             cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
           {
             tabId: "tree-root", sessionId: null, lineageDir: "l2", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, lastViewedAt: null, advisor: false, advisorModel: null,
             cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
           {
             tabId: "mid-root", sessionId: null, lineageDir: "l3", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, lastViewedAt: null, advisor: false, advisorModel: null,
             cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
           {
             tabId: "last-root", sessionId: null, lineageDir: "l4", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, lastViewedAt: null, advisor: false, advisorModel: null,
             cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1586,11 +1633,11 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
       state: backendState({
         projects: [
           {
-            project: { path: "/projects/solo", name: "Solo", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+            project: { path: "/projects/solo", name: "Solo", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
             sessions: [
               {
                 tabId: "only", sessionId: null, lineageDir: "l", projectCwd: "/projects/solo",
-                launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", advisor: false, advisorModel: null,
+                launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, lastViewedAt: null, advisor: false, advisorModel: null,
                 cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
                 status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
               },
@@ -1629,6 +1676,13 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     projectCwd: handoffPath,
     launchedAt: "2026-08-03T00:00:00.000Z",
     mode: "rpc-ui" as const,
+    worktree: null,
+    planImplementationSource: null,
+    agentMode: "build" as const,
+    compactionMethod: null,
+    model: null,
+    thinkingLevel: null,
+    lastViewedAt: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: title,
@@ -1647,7 +1701,11 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     name: "Handoff",
     addedAt: "2026-08-03T00:00:00.000Z",
     lastModel: null,
+    lastThinkingLevel: null,
+    lastAdvisor: null,
     lastAdvisorModel: null,
+    defaultModel: null,
+    defaultAdvisorModel: null,
   };
 
   // The implementation arrives newer than its source — the sidebar must still

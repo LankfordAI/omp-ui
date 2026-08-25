@@ -36,7 +36,6 @@ function savedSourceOf(session: SessionSummary): PlanImplementationSource | null
   const source = session.planImplementationSource;
   if (
     source === null ||
-    source === undefined ||
     typeof source !== "object" ||
     typeof source.sourceTabId !== "string" ||
     typeof source.planTitle !== "string" ||

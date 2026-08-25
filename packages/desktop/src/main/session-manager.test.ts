@@ -138,7 +138,11 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
         name: "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
         lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
       },
     ],
     sessions: [
@@ -441,7 +445,7 @@ describe("plan implementation handoff persistence (issue #238)", () => {
 
   it("creates a fresh rpc-ui record with the exact source snapshot before broadcasting", async () => {
     const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
-    const broadcastSources: Array<Core.PlanImplementationSource | null | undefined> = [];
+    const broadcastSources: Array<Core.PlanImplementationSource | null> = [];
     broadcast.mockImplementation(async () => {
       const child = registry.sessions.find((session) => session.tabId !== TAB);
       if (child) broadcastSources.push(child.planImplementationSource);
@@ -1420,7 +1424,7 @@ describe("convert to worktree (issue #225)", () => {
     expect(spawnOmpMock).toHaveBeenCalledTimes(1);
     expect(manager.isLive(tabId)).toBe(true);
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
-    expect(record.worktree ?? null).toBeNull();
+    expect(record.worktree).toBeNull();
     expect(fs.existsSync(Core.mintWorktreePath(worktreesRoot(), project, branch))).toBe(false);
   });
 

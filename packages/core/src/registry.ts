@@ -349,6 +349,10 @@ function parseRegistryData(raw: unknown): RegistryData | null {
   const projectsValue = "projects" in raw ? raw.projects : [];
   const sessionsValue = "sessions" in raw ? raw.sessions : [];
   if (!Array.isArray(projectsValue) || !Array.isArray(sessionsValue)) return null;
+  // These maps are what keeps old on-disk registries loadable: the guards
+  // deliberately accept absent optional fields, so the spread alone cannot
+  // guarantee the now-required keys exist. Do not "simplify" them away.
+  // (Issue #294 flipped the record types to required-with-null.)
   const projects = projectsValue
     .filter(isProjectRecord)
     .map((p) => ({

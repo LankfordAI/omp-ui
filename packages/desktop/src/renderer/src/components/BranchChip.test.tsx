@@ -48,7 +48,7 @@ function seedBusy(): void {
     state: makeBackendState({
       projects: [
         {
-          project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastAdvisorModel: null },
+          project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
           sessions: [
             {
               tabId: "tab-1",
@@ -57,6 +57,13 @@ function seedBusy(): void {
               projectCwd: "/p",
               launchedAt: "t",
               mode: "rpc-ui",
+worktree: null,
+              planImplementationSource: null,
+              agentMode: "build",
+              compactionMethod: null,
+              model: null,
+              thinkingLevel: null,
+              lastViewedAt: null,
               advisor: false,
               advisorModel: null,
               cachedTitle: null,

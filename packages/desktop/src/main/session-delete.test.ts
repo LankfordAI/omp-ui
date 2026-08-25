@@ -98,7 +98,11 @@ function setup(): {
         name: "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
         lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
       },
     ],
     sessions: [

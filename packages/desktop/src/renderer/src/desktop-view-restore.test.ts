@@ -140,6 +140,13 @@ const session = (
   projectCwd,
   launchedAt: "2026-08-03T00:00:00.000Z",
   mode,
+  worktree: null,
+  planImplementationSource: null,
+  agentMode: "build" as const,
+  compactionMethod: null,
+  model: null,
+  thinkingLevel: null,
+  lastViewedAt: null,
   advisor,
   advisorModel: null,
   cachedTitle: null,
@@ -155,11 +162,11 @@ const session = (
 const backendState: BackendState = makeBackendState({
   projects: [
     {
-      project: { path: "/p/a", name: "a", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+      project: { path: "/p/a", name: "a", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
       sessions: [session("pty-1", "/p/a", "pty", "dormant", false)],
     },
     {
-      project: { path: "/p/b", name: "b", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastAdvisorModel: null },
+      project: { path: "/p/b", name: "b", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
       // rpc-1 resumable, missing-1 is gone on disk, deleted-1 has NO record.
       sessions: [
         session("rpc-1", "/p/b", "rpc-ui", "dormant", true),
