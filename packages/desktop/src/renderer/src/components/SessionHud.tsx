@@ -184,6 +184,43 @@ function StreamStallChip({
   );
 }
 
+/** The three-way liveness readout: compacting > stalled > plain status. */
+function LivenessBadge({
+  compacting,
+  stallMs,
+  face,
+  label,
+  short = false,
+  className,
+  title,
+}: {
+  compacting: boolean;
+  stallMs: number | undefined;
+  face: { tone: Tone; pulse: boolean };
+  label: string;
+  short?: boolean;
+  className?: string;
+  title?: string;
+}) {
+  if (compacting) {
+    return (
+      <Chip tone="copper" className={className}>
+        <Dot tone="copper" pulse />
+        compacting
+      </Chip>
+    );
+  }
+  if (stallMs !== undefined) {
+    return <StreamStallChip stallMs={stallMs} short={short} className={className} />;
+  }
+  return (
+    <span className={cn("flex items-center gap-1.5 text-[11px] text-ink-dim", className)} title={title}>
+      <Dot tone={face.tone} pulse={face.pulse} />
+      {label}
+    </span>
+  );
+}
+
 /**
  * Click-to-rename title. Enter commits; Escape and blur both abandon.
  * Both faces are no-drag: in the wide HUD they sit inside the title bar's
@@ -558,6 +595,24 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
   const exceptionalAgentMode =
     activeAgentMode !== null && activeAgentMode !== defaultAgentMode ? activeAgentMode : null;
+  // `available:true` is emitted for both on and off sessions (off reports
+  // configured:false), so the record flag alone was the gate — and it can be
+  // stale after an advisor-toggle relaunch. The extension's `configured` is
+  // omp's own runtime truth for "advisor is enabled", so a genuinely-running
+  // advisor shows even if the record lags; an off session stays hidden.
+  const showAdvisor =
+    advisorStats?.available === true && (advisor === true || advisorStats.configured === true);
+  // The agent-mode chip renders in both faces; the wide one carves itself out
+  // of the title bar's drag region, the compact sheet does not.
+  const agentModeChip = exceptionalAgentMode !== null && (
+    <Chip
+      tone="iris"
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+      title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}
+    >
+      {exceptionalAgentMode}
+    </Chip>
+  );
 
 
   const refresh = () => {
@@ -571,8 +626,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
     return (
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
-          {session?.isCompacting ? <Chip tone="copper"><Dot tone="copper" pulse />compacting</Chip> : streamStallMs !== undefined ? <StreamStallChip stallMs={streamStallMs} short /> : <span className="flex items-center gap-1.5 text-[11px] text-ink-dim"><Dot tone={face.tone} pulse={face.pulse} />{label}</span>}
-          {exceptionalAgentMode && <Chip tone="iris" title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}>{exceptionalAgentMode}</Chip>}
+          <LivenessBadge compacting={session?.isCompacting === true} stallMs={streamStallMs} face={face} label={label} short />
+          {agentModeChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -589,7 +644,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>worktree</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} /></div></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
-                {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{compactNum(advisorStats.totalTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
+                {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{compactNum(advisorStats.totalTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
             )}
@@ -620,29 +675,16 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // this row MUST sit inside a no-drag box — and never wrap `flex-1`.
   return (
     <div className="titlebar-hud flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:drag]">
-      {session?.isCompacting ? (
-        <Chip tone="copper" className="shrink-0 [app-region:no-drag]">
-          <Dot tone="copper" pulse />
-          compacting
-        </Chip>
-      ) : streamStallMs !== undefined ? (
-        <StreamStallChip stallMs={streamStallMs} className="[app-region:no-drag]" />
-      ) : (
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-dim [app-region:no-drag]" title={`rpc status: ${label}`}>
-          <Dot tone={face.tone} pulse={face.pulse} />
-          {label}
-        </span>
-      )}
+      <LivenessBadge
+        compacting={session?.isCompacting === true}
+        stallMs={streamStallMs}
+        face={face}
+        label={label}
+        className="shrink-0 [app-region:no-drag]"
+        title={`rpc status: ${label}`}
+      />
 
-      {exceptionalAgentMode && (
-        <Chip
-          tone="iris"
-          className="shrink-0 [app-region:no-drag]"
-          title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}
-        >
-          {exceptionalAgentMode}
-        </Chip>
-      )}
+      {agentModeChip}
       {worktree && projectCwd !== undefined && (
         <WorktreeChip
           worktree={worktree}
@@ -676,12 +718,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </div>
       )}
 
-      {/* `available:true` is emitted for both on and off sessions (off reports
-          configured:false), so the record flag alone was the gate — and it can be
-          stale after an advisor-toggle relaunch. The extension's `configured` is
-          omp's own runtime truth for "advisor is enabled", so a genuinely-running
-          advisor shows even if the record lags; an off session stays hidden. */}
-      {advisorStats?.available === true && (advisor === true || advisorStats.configured === true) && (
+      {showAdvisor && (
         <AdvisorCluster stats={advisorStats} />
       )}
 
