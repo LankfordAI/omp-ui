@@ -168,6 +168,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     busy: false,
     failure: undefined,
     initialPrompt: null,
+    autoTitleSent: null,
     hasRenamed: false,
     plan: null,
     planReview: null,
@@ -2896,9 +2897,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // prompt instead (same policy as omp's own titling).
       if (isLowSignalTitleInput(prompt)) return;
       patchRpc(tabId, { initialPrompt: prompt });
-      // Name the session as soon as the first substantive prompt is sent, not
-      // when the first run finishes. `renameSession` guards on hasRenamed so
-      // the concurrent agent_end path stays a harmless no-op (or a retry).
+      // Two-phase titling starts here: the derived name goes out immediately
+      // (renameSession phase 1) and the model title is a background upgrade
+      // (phase 2). `renameSession` guards on hasRenamed so the concurrent
+      // agent_end path stays a harmless no-op (or a retry of phase 1).
       get().renameSession(tabId);
     },
 
@@ -2908,34 +2910,78 @@ export const useStore = create<UiStore>()((set, get, api) => {
       const prompt = tab.initialPrompt;
       // Latch before the first await so a second agent_end can't double-rename.
       patchRpc(tabId, { hasRenamed: true });
-      const projectCwd = findRecord(get().state, tabId)?.projectCwd;
+      const record = findRecord(get().state, tabId);
+      const projectCwd = record?.projectCwd;
+      const sessionId = record?.sessionId ?? null;
+      const derived = generateTitleFromPrompt(prompt);
+      // Phase 1: the derived name goes out immediately, so the session is
+      // named before any model round trip — no cold spawn, no provider wait.
       void (async () => {
-        // omp's small model writes the title; the derived one is the fallback
-        // for a model that declines, errors, or isn't reachable. Never both —
-        // `set_session_name` is a one-shot latch (source "user").
-        const modelTitle = projectCwd
-          ? await backend
-              .generateTitle(projectCwd, prompt)
-              .catch((err: unknown) => {
-                console.warn("[session-rename] model titling failed:", err);
-                return null;
-              })
-          : null;
-        // The tab can die or be renamed by hand while the model thinks.
-        const current = get().rpc[tabId];
-        if (!current || current.initialPrompt !== prompt) return;
-        const name = modelTitle ?? generateTitleFromPrompt(prompt);
         try {
           await get().rpcCommand(
             tabId,
-            { type: "set_session_name", name },
+            { type: "set_session_name", name: derived },
             { quiet: true },
           );
-          patchRpc(tabId, { initialPrompt: null });
+          const current = get().rpc[tabId];
+          if (!current || current.initialPrompt !== prompt) return;
+          patchRpc(tabId, { autoTitleSent: derived });
+          // No model path: the derived name is final.
+          if (!projectCwd) patchRpc(tabId, { initialPrompt: null });
         } catch (err) {
-          // Release the latch so the next agent_end retries.
+          // Release the latch so the next agent_end retries the whole titling.
           patchRpc(tabId, { hasRenamed: false });
           console.warn("[session-rename] set_session_name failed:", err);
+        }
+      })();
+      // Phase 2: the model title is a background upgrade, never the first
+      // name. A cold `omp -p` spawn plus the provider round trip takes
+      // seconds (up to the 90 s timeout); waiting on it kept the session
+      // unnamed for its whole duration.
+      if (!projectCwd) return;
+      void (async () => {
+        const modelTitle = await backend
+          .generateTitle(projectCwd, prompt)
+          .catch((err: unknown) => {
+            console.warn("[session-rename] model titling failed:", err);
+            return null;
+          });
+        const current = get().rpc[tabId];
+        // Tab gone, prompt re-latched, or a manual rename in the interim
+        // (renameSessionTo clears initialPrompt): the derived name stands.
+        if (!current || current.initialPrompt !== prompt) return;
+        // Phase 1 must have landed, or the upgrade could send first and the
+        // derived send would then overwrite it.
+        if (current.autoTitleSent !== derived) return;
+        // A /new or /branch while the model thought: never title the
+        // replacement session with the previous prompt.
+        if (
+          sessionId !== null &&
+          findRecord(get().state, tabId)?.sessionId !== sessionId
+        )
+          return;
+        const title = findRecord(get().state, tabId)?.title;
+        // The record shows a name we did not set: leave it alone.
+        if (!isUntitled(title) && title !== derived) return;
+        if (!modelTitle || modelTitle === derived || modelTitle === title) {
+          patchRpc(tabId, { initialPrompt: null });
+          return;
+        }
+        try {
+          // A second user-sourced rename overwrites the first: omp only
+          // refuses an "auto" title once a "user" one exists
+          // (SessionManager.setSessionName, verified in omp 18.0.4). If a
+          // future omp refuses the overwrite, the catch keeps the derived
+          // name and settles — the session keeps its phase-1 name.
+          await get().rpcCommand(
+            tabId,
+            { type: "set_session_name", name: modelTitle },
+            { quiet: true },
+          );
+          patchRpc(tabId, { autoTitleSent: modelTitle, initialPrompt: null });
+        } catch (err) {
+          patchRpc(tabId, { initialPrompt: null });
+          console.warn("[session-rename] title upgrade failed:", err);
         }
       })();
     },

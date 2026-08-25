@@ -13,6 +13,7 @@ import type {
   RemoteState,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
+import { generateTitleFromPrompt } from "./lib/session-title";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { ADVISOR_STATS_KEY } from "@omp-ui/core/advisor-stats";
@@ -3912,15 +3913,22 @@ describe("auto-title gating (setInitialPrompt)", () => {
 
   it("renames immediately from a substantive first prompt, no agent_end needed", async () => {
     useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
-    // Latched and renamed synchronously — the title goes out as soon as the
-    // prompt is offered, not when the first run ends.
+    // Latched and phase-1 sent synchronously — the derived name goes out as
+    // soon as the prompt is offered, not when the first run ends.
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe(
       "Refactor the auth module",
     );
     expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
     await flushMicrotasks();
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Refactor the auth module");
+    const renames = sent.filter((s) => s.cmd.type === "set_session_name");
+    expect(renames).toHaveLength(1);
+    expect(renames[0]!.cmd.name).toBe("Refactor the auth module");
+    // Ack the derived send; the default model mock (null) means no upgrade.
+    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Refactor the auth module",
+    );
   });
 
   it("defers on a greeting, then titles from the next real prompt", async () => {
@@ -4020,16 +4028,24 @@ describe("auto-title end-to-end", () => {
   });
 
   it("sends set_session_name once, then clears the stored prompt", async () => {
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
     useStore.getState().setInitialPrompt(TAB, "Create a login page with OAuth");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
     await flushMicrotasks();
 
+    // Deferred so phase 2 settles after the phase-1 ack, not ahead of it.
     const rename = sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Create a login page with OAuth");
 
     for (const { tabId: tid, cmd } of sent.splice(0)) respond(tid, cmd, {});
     await flushMicrotasks();
+    model.resolve(null);
+    await flushMicrotasks();
     expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Create a login page with OAuth",
+    );
 
     // A later turn must not rename again.
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
@@ -4067,48 +4083,236 @@ describe("auto-title end-to-end", () => {
   });
 
   it("titles from omp's small model rather than the raw prompt", async () => {
-    // The whole point of routing through the model: the title is a summary,
-    // not a copy of the prompt.
-    mockBackend.generateTitle.mockResolvedValueOnce(
-      "Add sessions list pagination",
-    );
-    useStore
-      .getState()
-      .setInitialPrompt(
-        TAB,
-        "can you add pagination to the sessions list please",
-      );
+    // The model title is a background upgrade: two sends, the derived name
+    // first, the model's summary second.
+    const prompt = "can you add pagination to the sessions list please";
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    useStore.getState().setInitialPrompt(TAB, prompt);
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
     await flushMicrotasks();
 
-    expect(mockBackend.generateTitle).toHaveBeenCalledWith(
-      "/p",
-      "can you add pagination to the sessions list please",
+    expect(
+      sent.filter((s) => s.cmd.type === "set_session_name"),
+    ).toHaveLength(1);
+    expect(
+      sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
+    ).toBe(generateTitleFromPrompt(prompt));
+
+    const wave1 = sent.splice(0);
+    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    model.resolve("Add sessions list pagination");
+    await flushMicrotasks();
+    const wave2 = sent.splice(0);
+    const renames = [...wave1, ...wave2].filter(
+      (s) => s.cmd.type === "set_session_name",
     );
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Add sessions list pagination");
+    expect(renames).toHaveLength(2);
+    expect(renames[0]!.cmd.name).toBe(generateTitleFromPrompt(prompt));
+    expect(renames[1]!.cmd.name).toBe("Add sessions list pagination");
+    for (const { tabId, cmd } of wave2) respond(tabId, cmd, {});
+    await flushMicrotasks();
+
+    expect(mockBackend.generateTitle).toHaveBeenCalledWith("/p", prompt);
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Add sessions list pagination",
+    );
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
   });
 
   it("falls back to the derived title when the model declines", async () => {
-    // null covers every failure path in main: no omp, bad model, timeout, or a
-    // `<title/>` answer. A session must still get named.
-    mockBackend.generateTitle.mockResolvedValueOnce(null);
+    // null covers every failure path in main: no omp, bad model, timeout,
+    // or a `<title/>` answer. The session is already named by phase 1, so
+    // the decline only forgoes the upgrade.
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
     useStore.getState().setInitialPrompt(TAB, "Can you fix the login redirect");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
     await flushMicrotasks();
 
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Fix the login redirect");
+    const wave1 = sent.splice(0);
+    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    model.resolve(null);
+    await flushMicrotasks();
+
+    const renames = [...wave1, ...sent].filter(
+      (s) => s.cmd.type === "set_session_name",
+    );
+    expect(renames).toHaveLength(1);
+    expect(renames[0]!.cmd.name).toBe("Fix the login redirect");
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Fix the login redirect",
+    );
   });
 
   it("falls back to the derived title when the model call rejects", async () => {
-    mockBackend.generateTitle.mockRejectedValueOnce(new Error("ipc died"));
+    let rejectModel!: (err: unknown) => void;
+    const model = new Promise<string | null>((_resolve, reject) => {
+      rejectModel = reject;
+    });
+    mockBackend.generateTitle.mockReturnValueOnce(model);
     useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
     useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
     await flushMicrotasks();
 
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Refactor the auth module");
+    const wave1 = sent.splice(0);
+    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    rejectModel(new Error("ipc died"));
+    await flushMicrotasks();
+
+    const renames = [...wave1, ...sent].filter(
+      (s) => s.cmd.type === "set_session_name",
+    );
+    expect(renames).toHaveLength(1);
+    expect(renames[0]!.cmd.name).toBe("Refactor the auth module");
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Refactor the auth module",
+    );
+  });
+
+  it("sends the derived name before the model resolves", async () => {
+    const prompt = "Can you fix the login redirect";
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    useStore.getState().setInitialPrompt(TAB, prompt);
+    await flushMicrotasks();
+
+    // Phase 1 is already in flight while the model is still pending.
+    expect(
+      sent.filter((s) => s.cmd.type === "set_session_name"),
+    ).toHaveLength(1);
+    expect(
+      sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
+    ).toBe("Fix the login redirect");
+
+    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    await flushMicrotasks();
+
+    model.resolve("Fix the login redirect race");
+    await flushMicrotasks();
+    expect(
+      sent.filter((s) => s.cmd.type === "set_session_name"),
+    ).toHaveLength(1);
+    expect(
+      sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
+    ).toBe("Fix the login redirect race");
+
+    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Fix the login redirect race",
+    );
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+  });
+
+  it("skips the upgrade when the model title equals the derived name", async () => {
+    const prompt = "Create a login page with OAuth";
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    useStore.getState().setInitialPrompt(TAB, prompt);
+    await flushMicrotasks();
+
+    const wave1 = sent.splice(0);
+    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    model.resolve(generateTitleFromPrompt(prompt));
+    await flushMicrotasks();
+
+    const renames = [...wave1, ...sent].filter(
+      (s) => s.cmd.type === "set_session_name",
+    );
+    expect(renames).toHaveLength(1);
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      generateTitleFromPrompt(prompt),
+    );
+  });
+
+  it("does not upgrade after a manual rename in the interim", async () => {
+    const prompt = "Refactor the auth module";
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    useStore.getState().setInitialPrompt(TAB, prompt);
+    await flushMicrotasks();
+
+    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    await flushMicrotasks();
+
+    // The user's name is final: renameSessionTo clears initialPrompt, which
+    // cancels the pending upgrade.
+    const manual = useStore.getState().renameSessionTo(TAB, "My name");
+    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    await manual;
+    await flushMicrotasks();
+
+    model.resolve("Model upgrade attempt");
+    await flushMicrotasks();
+
+    expect(
+      sent.filter(
+        (s) =>
+          s.cmd.type === "set_session_name" && s.cmd.name === "Model upgrade attempt",
+      ),
+    ).toHaveLength(0);
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+  });
+
+  it("does not title a replacement session after /new", async () => {
+    const prompt = "Refactor the auth module";
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    useStore.getState().setInitialPrompt(TAB, prompt);
+    await flushMicrotasks();
+
+    const wave1 = sent.splice(0);
+    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
+    await flushMicrotasks();
+
+    // A /new or /branch while the model thought: the record now points at a
+    // different session — the upgrade must not name it.
+    backendState = stateWithRecord("sess-2");
+    useStore.setState({ state: backendState });
+
+    model.resolve("Model upgrade attempt");
+    await flushMicrotasks();
+
+    // Phase 1 already went out; the upgrade never reached the wire.
+    const totalRenames = [...wave1, ...sent].filter(
+      (s) => s.cmd.type === "set_session_name",
+    );
+    expect(totalRenames).toHaveLength(1);
+  });
+
+  it("keeps the derived name when the upgrade is rejected", async () => {
+    const prompt = "Refactor the auth module";
+    const model = deferred<string | null>();
+    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    useStore.getState().setInitialPrompt(TAB, prompt);
+    await flushMicrotasks();
+
+    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    await flushMicrotasks();
+    model.resolve("Model upgrade attempt");
+    await flushMicrotasks();
+
+    // A future omp that refuses the user→user overwrite degrades to the
+    // derived name standing; the titling still settles.
+    for (const { tabId, cmd } of sent.splice(0)) {
+      const ok = cmd.type !== "set_session_name";
+      respond(tabId, cmd, ok ? {} : "rejected", ok);
+    }
+    await flushMicrotasks();
+
+    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+      "Refactor the auth module",
+    );
+    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
   });
 });
 
@@ -4129,7 +4333,11 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("sendPrompt always sends the prompt frame, with steer as the streaming behaviour", async () => {
     const ready = useStore.getState().sendPrompt(TAB, "do the thing");
-    expect(sent[0]!.cmd).toMatchObject({
+    // Phase 1 of auto-titling also sends on the first prompt, so select the
+    // prompt frame by type rather than by position.
+    const frame = sent.find((s) => s.cmd.type === "prompt");
+    expect(frame).toBeDefined();
+    expect(frame!.cmd).toMatchObject({
       type: "prompt",
       message: "do the thing",
       streamingBehavior: "steer",
@@ -4139,7 +4347,8 @@ describe("prompting, slash commands, and session ops", () => {
 
     useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
     const steering = useStore.getState().sendPrompt(TAB, "actually, wait");
-    expect(sent[0]!.cmd).toMatchObject({
+    const steerFrame = sent.find((s) => s.cmd.type === "prompt");
+    expect(steerFrame!.cmd).toMatchObject({
       type: "prompt",
       message: "actually, wait",
       streamingBehavior: "steer",
@@ -4159,7 +4368,8 @@ describe("prompting, slash commands, and session ops", () => {
 
     useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "ready" }) } });
     const failed = useStore.getState().sendPrompt(TAB, "rejected");
-    respond(TAB, sent[0]!.cmd, "prompt rejected", false);
+    const promptFrame = sent.find((s) => s.cmd.type === "prompt");
+    respond(TAB, promptFrame!.cmd, "prompt rejected", false);
     await expect(failed).resolves.toBe(false);
   });
 
@@ -4168,7 +4378,8 @@ describe("prompting, slash commands, and session ops", () => {
     const promise = useStore
       .getState()
       .sendPrompt(TAB, "and then this", "follow_up");
-    expect(sent[0]!.cmd).toMatchObject({
+    const followFrame = sent.find((s) => s.cmd.type === "prompt");
+    expect(followFrame!.cmd).toMatchObject({
       type: "prompt",
       message: "and then this",
       streamingBehavior: "followUp",

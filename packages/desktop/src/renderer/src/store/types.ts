@@ -121,6 +121,13 @@ export interface RpcTabState {
   busy: boolean;
   failure?: RpcFailure;
   initialPrompt: string | null;
+  /**
+   * The auto-title that has already been sent, after its send was acked:
+   * the phase-1 derived name first, then the model title when the phase-2
+   * upgrade lands. Phase 2 must never send before phase 1 has landed, or the
+   * derived send would overwrite the model name.
+   */
+  autoTitleSent: string | null;
   hasRenamed: boolean;
   plan: PlanStatus | null;
   planReview: { request: PlanReviewRequest; frame: unknown } | null;

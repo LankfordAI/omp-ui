@@ -1,20 +1,22 @@
 /**
  * Session auto-titling for rpc-ui tabs: the low-signal gate, and the derived
- * title used when the model cannot supply one.
+ * title sent immediately at prompt time.
  *
  * omp titles itself only in the TUI (`input-controller.ts` #maybeStartTitleGeneration);
  * `--mode=rpc-ui` never does — verified against omp v17.1.8, where a full
  * prompt/agent_end cycle leaves the title slot empty. So omp-ui titles the
- * session itself: `core/title-model.ts` asks omp's own small model, and
- * {@link generateTitleFromPrompt} below is the fallback for a model that
- * declines, errors, or is unreachable. Either way the result is pushed with
- * `set_session_name`.
+ * session itself in two phases: first, the derived name goes out immediately
+ * with `set_session_name` at prompt time, then `core/title-model.ts` asks omp's
+ * own small model and, when it answers with a different name, the model title
+ * overwrites it.
  *
- * That command lands with source `"user"`, and SessionManager.setSessionName
- * refuses every later `"auto"` title once a `"user"` one exists
- * (session-manager.ts:1806). A title latched onto a greeting is therefore
- * permanent, which is why the low-signal filter below gates the very first
- * rename — mirroring omp's own `isLowSignalTitleInput` deferral.
+ * That command lands with source `"user"`. omp (verified in 18.0.4) refuses
+ * only a later `"auto"` title once a `"user"` one exists — a second
+ * user-sourced rename (our phase-2 upgrade, the HUD's manual rename)
+ * overwrites it, which is why phase 2 guards itself instead of relying on
+ * refusal. Latching a title onto a greeting is still wrong, which is why the
+ * low-signal filter below gates the very first rename — mirroring omp's own
+ * `isLowSignalTitleInput` deferral.
  */
 
 /**
@@ -51,8 +53,9 @@ const XML_BLOCK = /<([a-zA-Z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g;
  * Follows omp's `isLowSignalTitleInput`, with one deliberate divergence: omp's
  * `stripCodeBlocks` restores the original message when stripping leaves under
  * 12 chars, so omp titles a first message that is *only* a pasted snippet.
- * omp-ui defers instead — a snippet with no prose is not a task, and the title
- * omp-ui writes lands with source "user" and can never be superseded.
+ * omp-ui defers instead — a snippet with no prose is not a task, and omp's own
+ * auto titling is latched out once a "user" title exists, and only a later
+ * user-sourced rename can supersede one.
  */
 export function isLowSignalTitleInput(message: string): boolean {
   const cleaned = message.replace(XML_BLOCK, " ").replace(FENCED_CODE_BLOCK, " ");
@@ -79,8 +82,10 @@ const MIN_SENTENCE_CHARS = 14;
 /**
  * Fallback title, derived mechanically from the prompt: strips conversational
  * prefixes, cuts at the first real sentence boundary, else truncates on a word
- * boundary. Used only when omp's small model produced nothing — it reads like
- * a trimmed prompt, not a summary, which is exactly why the model runs first.
+ * boundary. Sent first, immediately at prompt time, so the session is named
+ * before any model round trip; the model title overwrites it when it arrives
+ * with a different name. It reads like a trimmed prompt, not a summary — that
+ * is exactly why the model upgrade follows.
  */
 export function generateTitleFromPrompt(prompt: string): string {
   // Collapse whitespace (multi-line prompts, extra spaces)

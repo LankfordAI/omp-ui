@@ -31,6 +31,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     pendingCommands: new Map(), extensionQueue: [], busy: false, initialPrompt: null,
+    autoTitleSent: null,
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, ...patch,
   };

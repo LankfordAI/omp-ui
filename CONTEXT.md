@@ -192,13 +192,17 @@ omp's mime type, not the clipboard's.
 _Avoid_: upload, file, media
 
 **Auto-title**:
-The name a new session gets from its first substantive prompt. rpc-ui mode
-never titles itself, so omp-ui asks omp's own small model — a stateless
-`omp -p` run on the `tiny`/`commit`/`smol` role its config binds — and pushes
-the answer with `set_session_name`. A greeting is not substantive: titling
-defers rather than latch, because `set_session_name` writes source `"user"`
-and omp refuses every later title. When the model declines or is unreachable,
-a mechanically derived title from the prompt stands in.
+The name a new session gets from its first substantive prompt, in two phases.
+Phase one, at prompt time: a mechanically derived title from the prompt is
+pushed immediately with `set_session_name`, so the session is named before any
+model round trip. Phase two, in the background: omp-ui asks omp's own small
+model — a stateless `omp -p` run on the `tiny`/`commit`/`smol` role its config
+binds — and, when it answers with a different title, upgrades the name with a
+second `set_session_name`; a user-sourced rename overwrites a user title (only
+omp's own "auto" titling is latched out once a "user" one exists), which is
+what makes the upgrade possible. A greeting is not substantive: titling
+defers rather than latch. When the model declines or is unreachable, the
+derived name simply stands.
 _Avoid_: session name generation, summary, label
 
 **Build mode**:

@@ -52,9 +52,11 @@ export const TITLE_MODEL_ROLES = ["tiny", "commit", "smol"] as const;
 
 /**
  * Generous because the observed spread is wide: a warm provider answers in
- * ~4 s, a cold one took 54 s on the same model and prompt. Titling is
- * background work, so waiting costs nothing visible; giving up early would
- * just fall back to the derived title for no reason.
+ * ~4 s, a cold one took 54 s on the same model and prompt. The model title
+ * is a background upgrade over the already-sent derived name, so waiting
+ * costs nothing visible; giving up early would just forgo the upgrade for
+ * no reason. A timeout leaves the already-sent derived name standing; it
+ * delays only the upgrade.
  */
 const DEFAULT_TIMEOUT_MS = 90_000;
 
