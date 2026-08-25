@@ -34,349 +34,16 @@ import {
   rpcTabState,
   tabInfo,
 } from "./test/fixtures";
+import { h } from "./test/store-harness";
 
-// --- Bridge mock: store.ts reads window.ompBackend at module load -----------
-
-const sent: Array<{ tabId: string; cmd: Record<string, unknown> }> = [];
-let backendState: BackendState = makeBackendState();
-
-const idleAppUpdate: AppUpdateState = {
-  status: "idle",
-  currentVersion: null,
-  latestVersion: null,
-  releaseUrl: null,
-  releaseName: null,
-  format: "unknown",
-  progress: null,
-  downloadedPath: null,
-  installOnQuit: false,
-  error: null,
-};
-
-const idleOmpUpdate: OmpUpdateState = {
-  status: "idle",
-  installPath: null,
-  installedVersion: null,
-  latestVersion: null,
-  progress: null,
-  error: null,
-};
-
-const idleRemoteState: RemoteState = {
-  status: "stopped",
-  enabled: false,
-  bind: "localhost",
-  port: 4677,
-  token: "t",
-  hasPassword: false,
-  urls: [],
-  tokenUrls: [],
-  webBundleMissing: false,
-  error: null,
-};
-
-const emptyOmpSettings: OmpSettingsSnapshot = {
-  entries: [],
-  agentDir: null,
-  projectConfigPath: null,
-  error: null,
-};
-
-// init() registers the shell-exit listener once per file and the global
-// beforeEach wipes mock.calls, so suites running after it read the callback
-// from here instead of re-reading the registration.
-let shellExitCb: ((tabId: string, code: number) => void) | null = null;
-
-const mockBackend = {
-  getState: vi.fn(async () => backendState),
-  rpcSend: vi.fn((tabId: string, cmd: Record<string, unknown>) => {
-    sent.push({ tabId, cmd });
-  }),
-  tabViewed: vi.fn(),
-  reportStallCap: vi.fn(),
-  onRpcFrame: vi.fn(),
-  onStateChanged: vi.fn(),
-  onPtyData: vi.fn(),
-  onPtyExit: vi.fn(),
-  onSessionHibernated: vi.fn(),
-  onFocusSession: vi.fn(),
-  onShellData: vi.fn(),
-  onShellExit: vi.fn((cb: (tabId: string, code: number) => void) => {
-    shellExitCb = cb;
-  }),
-  shellSpawn: vi.fn(),
-  shellKill: vi.fn(),
-  shellWrite: vi.fn(),
-  shellResize: vi.fn(),
-  addProject: vi.fn(),
-  browseDirectories: vi.fn(),
-  removeProject: vi.fn(),
-  moveProject: vi.fn(async () => {}),
-  moveSession: vi.fn(async () => {}),
-  setSessionAdvisor: vi.fn(),
-  setSessionModel: vi.fn(async () => {}),
-  getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
-  setProjectDefaultModel: vi.fn(async () => {}),
-  setProjectDefaultAdvisorModel: vi.fn(async () => {}),
-  generateTitle: vi.fn(async (): Promise<string | null> => null),
-  readPlanFile: vi.fn(
-    async (_tabId: string, absPath: string): Promise<string | null> =>
-      absPath.endsWith(".html") ? "<h1>Plan</h1>" : "# Plan\n\nstep one\n",
-  ),
-  listBranches: vi.fn(),
-  checkoutBranch: vi.fn(),
-  pullBranch: vi.fn(),
-  getMergeBackStatus: vi.fn(),
-  mergeWorktreeBranch: vi.fn(),
-  ptyPasteImage: vi.fn(),
-  setDefaultMode: vi.fn(),
-  setPlanFormat: vi.fn(async () => {}),
-  setAdvisorAutoReply: vi.fn(async () => {}),
-  setStallAutoContinue: vi.fn(async () => {}),
-  setDesktopNotifications: vi.fn(async () => {}),
-  setDefaultAdvisor: vi.fn(async () => {}),
-  setSkipDeleteConfirmation: vi.fn(async () => {}),
-  spawnSession: vi.fn(),
-  terminateSession: vi.fn(),
-  hibernatePlanSource: vi.fn(async () => true),
-  restartSession: vi.fn(),
-  convertToWorktree: vi.fn(async () => {}),
-  switchMode: vi.fn(),
-  deleteSession: vi.fn(),
-  forkSession: vi.fn(),
-  toggleFavorite: vi.fn(),
-  ptyWrite: vi.fn(),
-  ptyResize: vi.fn(),
-  getOmpUpdateState: vi.fn(async () => idleOmpUpdate),
-  checkOmpUpdate: vi.fn(),
-  downloadOmpUpdate: vi.fn(),
-  dismissOmpUpdate: vi.fn(),
-  onOmpUpdateState: vi.fn(),
-  getAppUpdateState: vi.fn(async () => idleAppUpdate),
-  checkAppUpdate: vi.fn(),
-  downloadAppUpdate: vi.fn(),
-  openAppUpdateReleaseNotes: vi.fn(),
-  showAppUpdateDownload: vi.fn(),
-  restartForAppUpdate: vi.fn(),
-  setAppUpdateInstallOnQuit: vi.fn(),
-  dismissAppUpdate: vi.fn(),
-  onAppUpdateState: vi.fn(),
-  setThemeId: vi.fn(async () => {}),
-  setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
-  setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
-  clearDismissedAppUpdate: vi.fn(async () => {}),
-  clearDismissedOmpUpdate: vi.fn(async () => {}),
-  setWindowChrome: vi.fn(async () => {}),
-  readOmpSettings: vi.fn(async () => emptyOmpSettings),
-  writeOmpSetting: vi.fn(async () => {}),
-  getRemoteState: vi.fn(async () => idleRemoteState),
-  setRemoteEnabled: vi.fn(async () => {}),
-  setRemoteBind: vi.fn(async () => {}),
-  setRemotePort: vi.fn(async () => {}),
-  regenerateRemoteToken: vi.fn(async () => {}),
-  setRemotePassword: vi.fn(async () => {}),
-  clearRemotePassword: vi.fn(async () => {}),
-  onRemoteState: vi.fn(),
-};
-
-// Dialog text is an assertable part of a destructive action's contract, so the
-// stubs record what they were asked; `confirm` accepts unless a case says no.
-const prompts: string[] = [];
-const alerts: string[] = [];
-// open_url extension requests route through window.open; main's
-// setWindowOpenHandler owns the real policy, the stub just records the ask.
-const openedUrls: string[] = [];
-
-const windowStub = {
-  ompBackend: mockBackend,
-  alert: (msg: string): void => {
-    alerts.push(msg);
-  },
-  confirm: (msg: string): boolean => {
-    prompts.push(msg);
-    return true;
-  },
-  open: (url?: string | URL): null => {
-    openedUrls.push(String(url ?? ""));
-    return null;
-  },
-  get setTimeout() {
-    return globalThis.setTimeout;
-  },
-  get clearTimeout() {
-    return globalThis.clearTimeout;
-  },
-  get setInterval() {
-    return globalThis.setInterval;
-  },
-  get clearInterval() {
-    return globalThis.clearInterval;
-  },
-  // The transcript scheduler (issue #187) coalesces onto rAF in production.
-  // Tests commit synchronously by default; batching tests replace this with a
-  // capturing stub and run the frame themselves.
-  requestAnimationFrame: (cb: FrameRequestCallback): number => {
-    cb(0);
-    return 0;
-  },
-  cancelAnimationFrame: (): void => {},
-};
-Object.assign(globalThis, { window: windowStub });
-
-// Dynamic import is required: ./backend reads window.ompBackend at module
-// load, so the stub above must land before the store module evaluates.
-const {
-  COMPACTION_USAGE_MAX_ATTEMPTS,
-  COMPACTION_USAGE_RETRY_MS,
-  deriveSidebarSessionState,
-  QUEUE_SETTLE_REFRESH_MS,
-  registerShellWriter,
-  RpcCommandTimeoutError,
-  STREAM_STALL_THRESHOLD_MS,
-  STREAM_STALL_TICK_MS,
-  useStore,
-} = await import("./store");
-
-/** Deterministic event-drain for promise chains (no wall-clock waiting). */
-const flushMicrotasks = async (): Promise<void> => {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
-};
-
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((settle) => {
-    resolve = settle;
-  });
-  return { promise, resolve };
-}
-
-const TAB = "tab-test-1";
-
-function stateWithRecord(
-  sessionId: string | null,
-  live: LiveState = "live",
-): BackendState {
-  return makeBackendState({
-    projects: [
-      {
-        project: {
-          path: "/p",
-          name: "p",
-          addedAt: "t",
-          lastModel: null,
-          lastThinkingLevel: null,
-          lastAdvisor: null,
-          lastAdvisorModel: null,
-          defaultModel: null,
-          defaultAdvisorModel: null,
-        },
-        sessions: [
-          {
-            tabId: TAB,
-            sessionId,
-            lineageDir: "omp-ui--p--11111111-2222-3333-4444-555555555555",
-            projectCwd: "/p",
-            launchedAt: "t",
-            mode: "rpc-ui",
-            worktree: null,
-            planImplementationSource: null,
-            agentMode: "build",
-            compactionMethod: null,
-            model: null,
-            thinkingLevel: null,
-            lastViewedAt: null,
-            advisor: false,
-            advisorModel: null,
-            cachedTitle: null,
-            cachedModified: null,
-            title: "New session",
-            status: null,
-            live,
-            pendingPlan: null,
-            planSettle: null,
-              streamStalled: false,
-          },
-        ],
-      },
-    ],
-  });
-}
-
-function respond(
-  tabId: string,
-  cmd: Record<string, unknown>,
-  data: unknown,
-  success = true,
-) {
-  useStore.getState().handleRpcFrame(tabId, {
-    type: "response",
-    id: cmd.id,
-    command: cmd.type,
-    success,
-    ...(success ? { data } : { error: String(data) }),
-  });
-}
-
-/** Runs bootRpcTab while answering every command it emits, in wave order. */
-async function driveBoot(
-  tabId: string,
-  responses: Record<string, { data?: unknown; success?: boolean }> = {},
-): Promise<string[]> {
-  const boot = useStore.getState().bootRpcTab(tabId);
-  const answered: string[] = [];
-  // Commands arrive in waves: get_state is awaited first, then
-  // models/messages — drain and answer each wave deterministically.
-  for (let wave = 0; wave < 3; wave++) {
-    await flushMicrotasks();
-    for (const { cmd } of sent.splice(0)) {
-      answered.push(
-        cmd.type === "prompt" ? String(cmd.message) : String(cmd.type),
-      );
-      const r = responses[String(cmd.type)] ?? {};
-      respond(tabId, cmd, r.data ?? {}, r.success ?? true);
-    }
-  }
-  await boot;
-  return answered;
-}
-
-beforeEach(() => {
-  sent.length = 0;
-  prompts.length = 0;
-  alerts.length = 0;
-  openedUrls.length = 0;
-  // Cases that answer "no" overwrite confirm; reinstall the default each time.
-  windowStub.confirm = (msg: string): boolean => {
-    prompts.push(msg);
-    return true;
-  };
-  backendState = makeBackendState();
-  useStore.setState({
-    state: null,
-    tabs: [],
-    activeTabId: null,
-    focusedTabByProject: {},
-    restoringTabs: false,
-    exited: {},
-    rpc: {},
-    lastActiveAt: {},
-    catchup: {},
-    compactionSettings: {},
-    deleteConfirmation: null,
-    appUpdate: idleAppUpdate,
-    ompUpdate: idleOmpUpdate,
-    remote: idleRemoteState,
-  });
-  vi.clearAllMocks();
-});
 
 describe("deriveSidebarSessionState", () => {
-  const summary = () => stateWithRecord(null).projects[0]!.sessions[0]!;
+  const summary = () => h.stateWithRecord(null).projects[0]!.sessions[0]!;
 
   it("derives every lifecycle and native RPC activity state from authoritative inputs", () => {
     for (const live of ["dormant", "archived", "missing"] as const) {
       expect(
-        deriveSidebarSessionState(
+        h.deriveSidebarSessionState(
           { ...summary(), live },
           rpcTabState(),
           undefined,
@@ -385,17 +52,17 @@ describe("deriveSidebarSessionState", () => {
     }
 
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         { ...summary(), mode: "pty" },
         rpcTabState({ status: "running" }),
         undefined,
       ),
     ).toBe("live");
-    expect(deriveSidebarSessionState(summary(), undefined, undefined)).toBe(
+    expect(h.deriveSidebarSessionState(summary(), undefined, undefined)).toBe(
       "live",
     );
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "running" }),
         0,
@@ -403,28 +70,28 @@ describe("deriveSidebarSessionState", () => {
     ).toBe("dormant");
 
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "starting" }),
         undefined,
       ),
     ).toBe("starting");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "error" }),
         undefined,
       ),
     ).toBe("error");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "running" }),
         undefined,
       ),
     ).toBe("working");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "ready" }),
         undefined,
@@ -432,14 +99,14 @@ describe("deriveSidebarSessionState", () => {
     ).toBe("ready");
 
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "ready", extensionQueue: [{ id: "q" }] }),
         undefined,
       ),
     ).toBe("awaiting-answer");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({
           status: "running",
@@ -456,7 +123,7 @@ describe("deriveSidebarSessionState", () => {
       ),
     ).toBe("awaiting-answer");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "error", extensionQueue: [{ id: "q" }] }),
         undefined,
@@ -465,35 +132,35 @@ describe("deriveSidebarSessionState", () => {
     // Issue #248: a watchdog-aborted turn badges the row stalled, outranking
     // an awaiting answer — the user must prompt to continue either way.
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         { ...summary(), streamStalled: true },
         rpcTabState({ status: "ready" }),
         undefined,
       ),
     ).toBe("stalled");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         { ...summary(), streamStalled: true },
         rpcTabState({ status: "ready", extensionQueue: [{ id: "q" }] }),
         undefined,
       ),
     ).toBe("stalled");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         { ...summary(), streamStalled: true },
         rpcTabState({ status: "error" }),
         undefined,
       ),
     ).toBe("error");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({ status: "ready", busy: true }),
         undefined,
       ),
     ).toBe("ready");
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
         rpcTabState({
           status: "ready",
@@ -506,18 +173,18 @@ describe("deriveSidebarSessionState", () => {
 
   it("tracks queued answers in FIFO order through a complete agent turn", () => {
     const current = () =>
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
-        useStore.getState().rpc[TAB],
+        h.useStore.getState().rpc[h.TAB],
         undefined,
       );
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
     expect(current()).toBe("ready");
 
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
     expect(current()).toBe("working");
     for (const id of ["q1", "q2"]) {
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "extension_ui_request",
         id,
         method: "confirm",
@@ -526,27 +193,27 @@ describe("deriveSidebarSessionState", () => {
     }
     expect(current()).toBe("awaiting-answer");
 
-    let request = useStore.getState().rpc[TAB]!.extensionQueue[0];
-    useStore.getState().answerExtension(TAB, request, { confirmed: true });
+    let request = h.useStore.getState().rpc[h.TAB]!.extensionQueue[0];
+    h.useStore.getState().answerExtension(h.TAB, request, { confirmed: true });
     expect(current()).toBe("awaiting-answer");
-    request = useStore.getState().rpc[TAB]!.extensionQueue[0];
-    useStore.getState().answerExtension(TAB, request, { confirmed: true });
+    request = h.useStore.getState().rpc[h.TAB]!.extensionQueue[0];
+    h.useStore.getState().answerExtension(h.TAB, request, { confirmed: true });
     expect(current()).toBe("working");
 
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     expect(current()).toBe("ready");
   });
 
   it("tracks a plan-review gate until refinePlan answers it", () => {
     const current = () =>
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
-        useStore.getState().rpc[TAB],
+        h.useStore.getState().rpc[h.TAB],
         undefined,
       );
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "plan-1",
       method: "select",
@@ -556,25 +223,25 @@ describe("deriveSidebarSessionState", () => {
     });
     expect(current()).toBe("awaiting-answer");
 
-    useStore.getState().refinePlan(TAB);
-    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
+    h.useStore.getState().refinePlan(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).toBeNull();
     expect(current()).toBe("working");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     expect(current()).toBe("ready");
   });
 
   it("does not mistake non-dialog extension traffic for a pending answer", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "notice-1",
       method: "notify",
       message: "done",
     });
     expect(
-      deriveSidebarSessionState(
+      h.deriveSidebarSessionState(
         summary(),
-        useStore.getState().rpc[TAB],
+        h.useStore.getState().rpc[h.TAB],
         undefined,
       ),
     ).toBe("ready");
@@ -590,9 +257,9 @@ describe("proposed plans: defer keeps the gate unanswered, history tracks verdic
   });
 
   it("records a proposal, defers without answering, and re-opens on demand", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
-    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d1"));
-    let rpc = useStore.getState().rpc[TAB]!;
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame("d1"));
+    let rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.planReview?.request.planFilePath).toBe("local://p.md");
     expect(rpc.planDeferred).toBe(false);
     expect(rpc.plans).toEqual([
@@ -601,48 +268,48 @@ describe("proposed plans: defer keeps the gate unanswered, history tracks verdic
 
     // "not now" dismisses the pane but never answers the blocked gate: the
     // agent stays paused and the plan stays pending for later.
-    useStore.getState().deferPlanReview(TAB);
-    rpc = useStore.getState().rpc[TAB]!;
+    h.useStore.getState().deferPlanReview(h.TAB);
+    rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.planDeferred).toBe(true);
     expect(rpc.planReview).not.toBeNull();
-    expect(sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(
       false,
     );
     expect(
-      deriveSidebarSessionState(
-        stateWithRecord(null).projects[0]!.sessions[0]!,
+      h.deriveSidebarSessionState(
+        h.stateWithRecord(null).projects[0]!.sessions[0]!,
         rpc,
         undefined,
       ),
     ).toBe("awaiting-answer");
 
     // Restoring the review from the plans tab clears the deferral.
-    useStore.getState().showPlanReview(TAB);
-    expect(useStore.getState().rpc[TAB]!.planDeferred).toBe(false);
+    h.useStore.getState().showPlanReview(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.planDeferred).toBe(false);
   });
 
   it("settles the pending record to refined on a refine verdict", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
-    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d2"));
-    useStore.getState().refinePlan(TAB);
-    const rpc = useStore.getState().rpc[TAB]!;
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame("d2"));
+    h.useStore.getState().refinePlan(h.TAB);
+    const rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.plans).toEqual([
       { key: "local://p.md", title: "t", status: "refined" },
     ]);
     expect(
-      sent.find((s) => s.cmd.type === "extension_ui_response")!.cmd.value,
+      h.sent.find((s) => s.cmd.type === "extension_ui_response")!.cmd.value,
     ).toBe("refine");
   });
 
   it("settles the pending record to executed, and a repropose keeps one record", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
-    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d3"));
-    useStore.getState().executePlan(TAB, "existing");
-    let rpc = useStore.getState().rpc[TAB]!;
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame("d3"));
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    let rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.plans[0]!.status).toBe("executed");
     // The planner comes back with a revised draft for the same plan file.
-    useStore.getState().handleRpcFrame(TAB, planReviewFrame("d4"));
-    rpc = useStore.getState().rpc[TAB]!;
+    h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame("d4"));
+    rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.plans).toHaveLength(1);
     expect(rpc.plans[0]).toEqual({
       key: "local://p.md",
@@ -679,7 +346,7 @@ describe("native RPC relaunch preparation", () => {
     });
 
   const expectPrepared = () => {
-    const rpc = useStore.getState().rpc[TAB]!;
+    const rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.status).toBe("starting");
     expect(rpc.plan).toBeNull();
     expect(rpc.session.isStreaming).toBe(false);
@@ -692,49 +359,49 @@ describe("native RPC relaunch preparation", () => {
   };
 
   it("prepares an exited native tab before its resume promise settles", async () => {
-    backendState = stateWithRecord("sess-1", "dormant");
-    const spawn = deferred<{ tabId: string }>();
-    mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
-    useStore.setState({
-      state: backendState,
-      exited: { [TAB]: 0 },
-      rpc: { [TAB]: staleRpc() },
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    const spawn = h.deferred<{ tabId: string }>();
+    h.mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
+    h.useStore.setState({
+      state: h.backendState,
+      exited: { [h.TAB]: 0 },
+      rpc: { [h.TAB]: staleRpc() },
     });
 
-    const resume = useStore.getState().resumeDead(TAB);
+    const resume = h.useStore.getState().resumeDead(h.TAB);
     expectPrepared();
-    expect(useStore.getState().exited[TAB]).toBe(0);
-    spawn.resolve({ tabId: TAB });
+    expect(h.useStore.getState().exited[h.TAB]).toBe(0);
+    spawn.resolve({ tabId: h.TAB });
     await resume;
-    expect(useStore.getState().exited[TAB]).toBeUndefined();
+    expect(h.useStore.getState().exited[h.TAB]).toBeUndefined();
   });
 
   it("prepares a live mode switch involving native RPC before IPC settles", async () => {
-    backendState = stateWithRecord("sess-1");
-    const switched = deferred<void>();
-    mockBackend.switchMode.mockReturnValueOnce(switched.promise);
-    useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
+    h.backendState = h.stateWithRecord("sess-1");
+    const switched = h.deferred<void>();
+    h.mockBackend.switchMode.mockReturnValueOnce(switched.promise);
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: staleRpc() } });
 
-    const change = useStore.getState().switchMode(TAB, "pty");
+    const change = h.useStore.getState().switchMode(h.TAB, "pty");
     expectPrepared();
     switched.resolve(undefined);
     await change;
   });
 
   it("prepares a changed live native advisor tuple before IPC settles", async () => {
-    backendState = stateWithRecord("sess-1");
-    const changed = deferred<void>();
-    mockBackend.setSessionAdvisor.mockReturnValueOnce(changed.promise);
-    useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
+    h.backendState = h.stateWithRecord("sess-1");
+    const changed = h.deferred<void>();
+    h.mockBackend.setSessionAdvisor.mockReturnValueOnce(changed.promise);
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: staleRpc() } });
 
-    const update = useStore
+    const update = h.useStore
       .getState()
-      .setSessionAdvisor(TAB, true, "openrouter/a/b:high");
+      .setSessionAdvisor(h.TAB, true, "openrouter/a/b:high");
     expectPrepared();
     changed.resolve(undefined);
     await update;
-    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      h.TAB,
       true,
       "openrouter/a/b:high",
       true,
@@ -742,68 +409,68 @@ describe("native RPC relaunch preparation", () => {
   });
 
   it("drains a pending thinking change through persistence before relaunch", async () => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({
-      state: backendState,
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           model: { id: "qwen", name: "Qwen", provider: "openrouter" },
           plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
         }),
       },
     });
 
-    const level = useStore.getState().setThinkingLevel(TAB, "medium");
-    const command = sent.find((entry) => entry.cmd.type === "set_thinking_level")!;
-    const relaunch = useStore
+    const level = h.useStore.getState().setThinkingLevel(h.TAB, "medium");
+    const command = h.sent.find((entry) => entry.cmd.type === "set_thinking_level")!;
+    const relaunch = h.useStore
       .getState()
-      .setSessionAdvisor(TAB, true, "openrouter/openai/gpt-5.6-sol:low");
-    expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
-    expect(useStore.getState().rpc[TAB]!.status).toBe("starting");
+      .setSessionAdvisor(h.TAB, true, "openrouter/openai/gpt-5.6-sol:low");
+    expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("starting");
 
-    useStore.setState((state) => ({
+    h.useStore.setState((state) => ({
       rpc: {
         ...state.rpc,
-        [TAB]: {
-          ...state.rpc[TAB]!,
+        [h.TAB]: {
+          ...state.rpc[h.TAB]!,
           plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false },
         },
       },
     }));
-    respond(TAB, command.cmd, {});
+    h.respond(h.TAB, command.cmd, {});
     await Promise.all([level, relaunch]);
 
-    expect(mockBackend.setSessionModel).toHaveBeenCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
       "openrouter/qwen",
       "medium",
     );
-    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      h.TAB,
       true,
       "openrouter/openai/gpt-5.6-sol:low",
       true,
     );
-    expect(mockBackend.setSessionModel.mock.invocationCallOrder[0]).toBeLessThan(
-      mockBackend.setSessionAdvisor.mock.invocationCallOrder[0]!,
+    expect(h.mockBackend.setSessionModel.mock.invocationCallOrder[0]).toBeLessThan(
+      h.mockBackend.setSessionAdvisor.mock.invocationCallOrder[0]!,
     );
   });
 
   it("preserves known Build posture when no newer status arrives", async () => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({
-      state: backendState,
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           plan: { enabled: false, planFilePath: null, planAbsPath: null, approved: false },
         }),
       },
     });
 
-    await useStore.getState().setSessionAdvisor(TAB, true, "openrouter/a/b:high");
+    await h.useStore.getState().setSessionAdvisor(h.TAB, true, "openrouter/a/b:high");
 
-    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      h.TAB,
       true,
       "openrouter/a/b:high",
       false,
@@ -813,7 +480,7 @@ describe("native RPC relaunch preparation", () => {
   it("restores prior mode when an unsettled command cancels advisor relaunch", async () => {
     vi.useFakeTimers();
     try {
-      backendState = stateWithRecord("sess-1");
+      h.backendState = h.stateWithRecord("sess-1");
       const priorPlan = {
         enabled: true,
         planFilePath: "local://plan.md",
@@ -831,65 +498,65 @@ describe("native RPC relaunch preparation", () => {
         startedAt: Date.now(),
         timeoutMs: 60_000,
       });
-      useStore.setState({ state: backendState, rpc: { [TAB]: rpc } });
+      h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpc } });
 
-      const relaunch = useStore.getState().setSessionAdvisor(TAB, true, "openrouter/a/b:high");
+      const relaunch = h.useStore.getState().setSessionAdvisor(h.TAB, true, "openrouter/a/b:high");
       expectPrepared();
       await vi.advanceTimersByTimeAsync(31_000);
       await relaunch;
 
-      expect(useStore.getState().rpc[TAB]!.plan).toEqual(priorPlan);
-      expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+      expect(h.useStore.getState().rpc[h.TAB]!.plan).toEqual(priorPlan);
+      expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
   it("blocks user-facing process commands while a relaunch is starting", async () => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({
-      state: backendState,
-      rpc: { [TAB]: rpcTabState({ status: "starting" }) },
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ status: "starting" }) },
     });
 
     await Promise.all([
-      useStore.getState().sendPrompt(TAB, "prompt"),
-      useStore.getState().abortAndPrompt(TAB, "replace"),
-      useStore.getState().setModel(TAB, { id: "m", name: "M", provider: "p" }),
-      useStore.getState().setThinkingLevel(TAB, "medium"),
-      useStore.getState().setPlanMode(TAB, true),
-      useStore.getState().setSessionAdvisor(TAB, true, "p/a:low"),
+      h.useStore.getState().sendPrompt(h.TAB, "prompt"),
+      h.useStore.getState().abortAndPrompt(h.TAB, "replace"),
+      h.useStore.getState().setModel(h.TAB, { id: "m", name: "M", provider: "p" }),
+      h.useStore.getState().setThinkingLevel(h.TAB, "medium"),
+      h.useStore.getState().setPlanMode(h.TAB, true),
+      h.useStore.getState().setSessionAdvisor(h.TAB, true, "p/a:low"),
     ]);
 
-    expect(sent).toEqual([]);
-    expect(mockBackend.setSessionModel).not.toHaveBeenCalled();
-    expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+    expect(h.sent).toEqual([]);
+    expect(h.mockBackend.setSessionModel).not.toHaveBeenCalled();
+    expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
   });
 
   it("leaves RPC state alone for an unchanged advisor tuple and a PTY resume", async () => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({ state: backendState, rpc: { [TAB]: staleRpc() } });
-    await useStore.getState().setSessionAdvisor(TAB, false, null);
-    expect(useStore.getState().rpc[TAB]).toEqual(staleRpc());
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: staleRpc() } });
+    await h.useStore.getState().setSessionAdvisor(h.TAB, false, null);
+    expect(h.useStore.getState().rpc[h.TAB]).toEqual(staleRpc());
 
-    backendState = stateWithRecord("sess-1", "dormant");
-    backendState.projects[0]!.sessions[0]!.mode = "pty";
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
-    useStore.setState({
-      state: backendState,
-      exited: { [TAB]: 1 },
-      rpc: { [TAB]: staleRpc() },
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.backendState.projects[0]!.sessions[0]!.mode = "pty";
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: h.backendState,
+      exited: { [h.TAB]: 1 },
+      rpc: { [h.TAB]: staleRpc() },
     });
-    await useStore.getState().resumeDead(TAB);
-    expect(useStore.getState().rpc[TAB]).toEqual(staleRpc());
+    await h.useStore.getState().resumeDead(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]).toEqual(staleRpc());
   });
 });
 
 describe("bootRpcTab", () => {
   it("unwraps data payloads for state, models, commands, stats, and history", async () => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({ state: backendState });
-    const commands = await driveBoot(TAB, {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState });
+    const commands = await h.driveBoot(h.TAB, {
       get_state: {
         data: {
           todoPhases: [
@@ -925,7 +592,7 @@ describe("bootRpcTab", () => {
         },
       },
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.status).toBe("ready");
     expect(tab.todos).toEqual([
       { phase: "P", tasks: [{ content: "do it", status: "pending" }] },
@@ -956,39 +623,39 @@ describe("bootRpcTab", () => {
   });
 
   it("subscribes to subagent progress and never wedges boot on a failed extra", async () => {
-    backendState = stateWithRecord(null);
-    useStore.setState({ state: backendState });
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({ state: h.backendState });
     const levels: unknown[] = [];
-    const boot = useStore.getState().bootRpcTab(TAB);
+    const boot = h.useStore.getState().bootRpcTab(h.TAB);
     for (let wave = 0; wave < 3; wave++) {
-      await flushMicrotasks();
-      for (const { cmd } of sent.splice(0)) {
+      await h.flushMicrotasks();
+      for (const { cmd } of h.sent.splice(0)) {
         if (cmd.type === "set_subagent_subscription") levels.push(cmd.level);
         // Every optional boot command fails; only get_state decides readiness.
         const ok = cmd.type === "get_state";
-        respond(TAB, cmd, ok ? {} : "unavailable", ok);
+        h.respond(h.TAB, cmd, ok ? {} : "unavailable", ok);
       }
     }
     await boot;
     expect(levels).toEqual(["progress"]);
-    expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
   it("fetches backend state when store state is null, then loads history", async () => {
     // Regression: boot outrunning init()'s first getState must not skip
     // get_messages — the record decides, so state is pulled from the backend.
-    backendState = stateWithRecord("sess-2");
-    const commands = await driveBoot(TAB, {
+    h.backendState = h.stateWithRecord("sess-2");
+    const commands = await h.driveBoot(h.TAB, {
       get_messages: { data: { messages: [] } },
     });
-    expect(mockBackend.getState).toHaveBeenCalled();
+    expect(h.mockBackend.getState).toHaveBeenCalled();
     expect(commands).toContain("get_messages");
   });
 
   it("does not request history for a never-materialized session", async () => {
-    backendState = stateWithRecord(null);
-    useStore.setState({ state: backendState });
-    const commands = await driveBoot(TAB);
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({ state: h.backendState });
+    const commands = await h.driveBoot(h.TAB);
     expect(commands).not.toContain("get_messages");
   });
 
@@ -997,34 +664,34 @@ describe("bootRpcTab", () => {
     // relaunch) must not skip the arm: the runtime readout depends on it.
     // driveBoot drains `sent` wave-by-wave, so the fire-and-forget arm (pushed
     // after Promise.allSettled) must be captured during the drain, not after.
-    backendState = stateWithRecord(null); // records built with advisor:false
-    useStore.setState({ state: backendState });
-    const boot = useStore.getState().bootRpcTab(TAB);
+    h.backendState = h.stateWithRecord(null); // records built with advisor:false
+    h.useStore.setState({ state: h.backendState });
+    const boot = h.useStore.getState().bootRpcTab(h.TAB);
     const arms: unknown[] = [];
     for (let wave = 0; wave < 5; wave++) {
-      await flushMicrotasks();
-      for (const { cmd } of sent.splice(0)) {
+      await h.flushMicrotasks();
+      for (const { cmd } of h.sent.splice(0)) {
         if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats")
           arms.push(cmd);
-        respond(TAB, cmd, {});
+        h.respond(h.TAB, cmd, {});
       }
     }
     await boot;
-    for (const { cmd } of sent.splice(0)) {
+    for (const { cmd } of h.sent.splice(0)) {
       if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats")
         arms.push(cmd);
-      respond(TAB, cmd, {});
+      h.respond(h.TAB, cmd, {});
     }
     expect(arms).toHaveLength(1);
   });
 
   it("reports error, not ready, when get_state fails", async () => {
-    backendState = stateWithRecord("s");
-    useStore.setState({ state: backendState });
-    await driveBoot(TAB, {
+    h.backendState = h.stateWithRecord("s");
+    h.useStore.setState({ state: h.backendState });
+    await h.driveBoot(h.TAB, {
       get_state: { success: false, data: "process dead" },
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.status).toBe("error");
     expect(tab.failure).toMatchObject({
       message: expect.stringMatching(/process dead/),
@@ -1037,11 +704,11 @@ describe("bootRpcTab", () => {
   });
 
   it("clears the prior failure after a successful boot retry", async () => {
-    backendState = stateWithRecord("s");
-    useStore.setState({
-      state: backendState,
+    h.backendState = h.stateWithRecord("s");
+    h.useStore.setState({
+      state: h.backendState,
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           status: "error",
           failure: {
             message: "old boot failure",
@@ -1053,41 +720,41 @@ describe("bootRpcTab", () => {
       },
     });
 
-    await driveBoot(TAB);
+    await h.driveBoot(h.TAB);
 
-    expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
-    expect(useStore.getState().rpc[TAB]!.failure).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
   });
 
   it("seeds advisorReply from the persisted advisorAutoReply setting (issue #111)", async () => {
-    backendState = { ...stateWithRecord(null), advisorAutoReply: false };
-    useStore.setState({ state: backendState });
-    await driveBoot(TAB);
-    expect(useStore.getState().rpc[TAB]!.advisorReply).toBe(false);
+    h.backendState = { ...h.stateWithRecord(null), advisorAutoReply: false };
+    h.useStore.setState({ state: h.backendState });
+    await h.driveBoot(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.advisorReply).toBe(false);
   });
 
   it("sweeps advisorReply across open tabs when the setting flips (issue #111)", async () => {
-    backendState = stateWithRecord(null);
-    useStore.setState({
-      state: backendState,
-      rpc: { [TAB]: rpcTabState({ advisorReply: true }) },
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ advisorReply: true }) },
     });
-    useStore.setState({ state: { ...backendState, advisorAutoReply: false } });
-    expect(useStore.getState().rpc[TAB]!.advisorReply).toBe(false);
-    useStore.setState({ state: { ...backendState, advisorAutoReply: true } });
-    expect(useStore.getState().rpc[TAB]!.advisorReply).toBe(true);
+    h.useStore.setState({ state: { ...h.backendState, advisorAutoReply: false } });
+    expect(h.useStore.getState().rpc[h.TAB]!.advisorReply).toBe(false);
+    h.useStore.setState({ state: { ...h.backendState, advisorAutoReply: true } });
+    expect(h.useStore.getState().rpc[h.TAB]!.advisorReply).toBe(true);
   });
 });
 
 describe("rpcCommand / handleRpcFrame correlation", () => {
   beforeEach(() => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
 
   it("resolves a command by matching response id", async () => {
-    const promise = useStore.getState().rpcCommand(TAB, { type: "get_state" });
-    const cmd = sent.pop()!.cmd;
-    respond(TAB, cmd, { ok: 1 });
+    const promise = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
+    const cmd = h.sent.pop()!.cmd;
+    h.respond(h.TAB, cmd, { ok: 1 });
     await expect(promise).resolves.toMatchObject({
       command: "get_state",
       data: { ok: 1 },
@@ -1095,9 +762,9 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
   });
 
   it("rejects with the server error on success:false", async () => {
-    const promise = useStore.getState().rpcCommand(TAB, { type: "set_model" });
-    const cmd = sent.pop()!.cmd;
-    respond(TAB, cmd, "unknown model", false);
+    const promise = h.useStore.getState().rpcCommand(h.TAB, { type: "set_model" });
+    const cmd = h.sent.pop()!.cmd;
+    h.respond(h.TAB, cmd, "unknown model", false);
     await expect(promise).rejects.toThrow("unknown model");
   });
 
@@ -1105,23 +772,23 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      backendState = stateWithRecord("s");
-      useStore.setState({
-        state: backendState,
+      h.backendState = h.stateWithRecord("s");
+      h.useStore.setState({
+        state: h.backendState,
         rpc: {
-          [TAB]: rpcTabState({
+          [h.TAB]: rpcTabState({
             status: "running",
             session: { ...emptySessionRuntime(), isStreaming: true },
           }),
         },
       });
-      const promise = useStore
+      const promise = h.useStore
         .getState()
-        .rpcCommand(TAB, { type: "prompt", message: "private" });
-      const cmd = sent.pop()!.cmd;
-      const pending = useStore
+        .rpcCommand(h.TAB, { type: "prompt", message: "private" });
+      const cmd = h.sent.pop()!.cmd;
+      const pending = h.useStore
         .getState()
-        .rpc[TAB]!.pendingCommands.get(String(cmd.id));
+        .rpc[h.TAB]!.pendingCommands.get(String(cmd.id));
       expect(pending).toMatchObject({
         command: "prompt",
         startedAt: expect.any(Number),
@@ -1129,7 +796,7 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
         quiet: false,
       });
       const typed = expect(promise).rejects.toBeInstanceOf(
-        RpcCommandTimeoutError,
+        h.RpcCommandTimeoutError,
       );
       const fields = expect(promise).rejects.toMatchObject({
         name: "RpcCommandTimeoutError",
@@ -1140,10 +807,10 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
       await vi.advanceTimersByTimeAsync(30_000);
       await Promise.all([typed, fields]);
 
-      expect(useStore.getState().rpc[TAB]!.pendingCommands.size).toBe(0);
+      expect(h.useStore.getState().rpc[h.TAB]!.pendingCommands.size).toBe(0);
       expect(warn).toHaveBeenCalledOnce();
       expect(warn).toHaveBeenCalledWith("[rpc] command timeout", {
-        tabId: TAB,
+        tabId: h.TAB,
         commandId: cmd.id,
         command: "prompt",
         timeoutMs: 30_000,
@@ -1161,33 +828,33 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
   });
 
   it("a fresh ready frame re-boots the tab", async () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "ready", maxFrameBytes: 1048576 });
-    await flushMicrotasks();
-    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+      .handleRpcFrame(h.TAB, { type: "ready", maxFrameBytes: 1048576 });
+    await h.flushMicrotasks();
+    expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(true);
     // Let the re-boot finish: an in-flight boot blocks a later
     // bootRpcTab on the same tab via the module-level rpcBooting set.
     for (let wave = 0; wave < 4; wave++) {
-      await flushMicrotasks();
-      for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
     }
-    expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
   it("boots an early ready frame before its renderer runtime exists", async () => {
     const earlyTab = "early-ready-tab";
-    backendState = stateWithRecord(null);
-    useStore.setState({ state: backendState, rpc: {} });
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({ state: h.backendState, rpc: {} });
 
-    useStore
+    h.useStore
       .getState()
       .handleRpcFrame(earlyTab, { type: "ready", maxFrameBytes: 1048576 });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(useStore.getState().rpc[earlyTab]).toBeDefined();
+    expect(h.useStore.getState().rpc[earlyTab]).toBeDefined();
     expect(
-      sent.some(
+      h.sent.some(
         (entry) => entry.tabId === earlyTab && entry.cmd.type === "get_state",
       ),
     ).toBe(true);
@@ -1196,17 +863,17 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
 
 describe("handleRpcFrame routing", () => {
   beforeEach(() => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
 
   it("omp_ui_error records a fatal process failure", () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, {
+      .handleRpcFrame(h.TAB, {
         type: "omp_ui_error",
         message: "handshake failed",
       });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.status).toBe("error");
     expect(tab.failure).toMatchObject({
       message: "handshake failed",
@@ -1218,112 +885,112 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("a successful loud command cannot clear a fatal process failure", async () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "omp_ui_error", message: "process gone" });
-    const fatal = useStore.getState().rpc[TAB]!.failure;
-    const command = useStore.getState().setThinkingLevel(TAB, "high");
-    respond(TAB, sent.pop()!.cmd, {});
+      .handleRpcFrame(h.TAB, { type: "omp_ui_error", message: "process gone" });
+    const fatal = h.useStore.getState().rpc[h.TAB]!.failure;
+    const command = h.useStore.getState().setThinkingLevel(h.TAB, "high");
+    h.respond(h.TAB, h.sent.pop()!.cmd, {});
     await command;
-    expect(useStore.getState().rpc[TAB]!.failure).toBe(fatal);
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toBe(fatal);
   });
 
   it("agent_end refreshes get_state and get_session_stats", () => {
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(true);
     // get_session_stats carries the HUD cost/token totals; without this the
     // boot-time snapshot (a fresh session reads $0) lingers forever.
-    expect(sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
+    expect(h.sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
   });
 
   it("agent_start flips status to running; prompt_result back to ready", () => {
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
-    expect(useStore.getState().rpc[TAB]!.status).toBe("running");
-    useStore.getState().handleRpcFrame(TAB, { type: "prompt_result" });
-    expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "prompt_result" });
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
   it("refreshes get_state and get_session_stats live on message_end while the agent runs", () => {
-    useStore.setState({
-      rpc: { [`${TAB}-live`]: rpcTabState({ status: "running" }) },
+    h.useStore.setState({
+      rpc: { [`${h.TAB}-live`]: rpcTabState({ status: "running" }) },
     });
-    useStore.getState().handleRpcFrame(`${TAB}-live`, {
+    h.useStore.getState().handleRpcFrame(`${h.TAB}-live`, {
       type: "message_end",
       message: {
         role: "assistant",
         content: [{ type: "text", text: "first turn" }],
       },
     });
-    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+    expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(true);
     // Spend lives on get_session_stats — without this tick the HUD cost
     // counter freezes for the whole run and only moves at agent_end.
-    expect(sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
+    expect(h.sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
   });
 
   it("throttles a burst of message_ends to one live usage snapshot", () => {
-    useStore.setState({
-      rpc: { [`${TAB}-burst`]: rpcTabState({ status: "running" }) },
+    h.useStore.setState({
+      rpc: { [`${h.TAB}-burst`]: rpcTabState({ status: "running" }) },
     });
     const end = (text: string) =>
-      useStore.getState().handleRpcFrame(`${TAB}-burst`, {
+      h.useStore.getState().handleRpcFrame(`${h.TAB}-burst`, {
         type: "message_end",
         message: { role: "assistant", content: [{ type: "text", text }] },
       });
     end("a");
     end("b");
     end("c");
-    expect(sent.filter((s) => s.cmd.type === "get_state")).toHaveLength(1);
-    expect(sent.filter((s) => s.cmd.type === "get_session_stats")).toHaveLength(
+    expect(h.sent.filter((s) => s.cmd.type === "get_state")).toHaveLength(1);
+    expect(h.sent.filter((s) => s.cmd.type === "get_session_stats")).toHaveLength(
       1,
     );
   });
 
   it("does not refresh get_state on message_end while idle", () => {
-    useStore.setState({
-      rpc: { [`${TAB}-idle`]: rpcTabState({ status: "ready" }) },
+    h.useStore.setState({
+      rpc: { [`${h.TAB}-idle`]: rpcTabState({ status: "ready" }) },
     });
-    useStore.getState().handleRpcFrame(`${TAB}-idle`, {
+    h.useStore.getState().handleRpcFrame(`${h.TAB}-idle`, {
       type: "message_end",
       message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
     });
-    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
   });
 
   describe("queue settle re-fetch (issue #181)", () => {
     const getStateCalls = () =>
-      sent.filter((s) => s.cmd.type === "get_state");
+      h.sent.filter((s) => s.cmd.type === "get_state");
 
     /** Fires agent_end mid-run and answers the immediate get_state refresh. */
     const endTurnWithCount = async (key: string, count: number) => {
-      useStore.getState().handleRpcFrame(key, { type: "agent_end" });
-      respond(key, getStateCalls().at(-1)!.cmd, {
+      h.useStore.getState().handleRpcFrame(key, { type: "agent_end" });
+      h.respond(key, getStateCalls().at(-1)!.cmd, {
         queuedMessageCount: count,
       });
-      await flushMicrotasks();
+      await h.flushMicrotasks();
     };
 
     it("re-fetches once when a turn ends with a nonzero queue count", async () => {
       vi.useFakeTimers();
       try {
-        const key = `${TAB}-settle-once`;
-        useStore.setState({
+        const key = `${h.TAB}-settle-once`;
+        h.useStore.setState({
           rpc: { [key]: rpcTabState({ status: "running" }) },
         });
         await endTurnWithCount(key, 1);
         expect(getStateCalls()).toHaveLength(1);
-        expect(useStore.getState().rpc[key]!.session.queuedMessageCount).toBe(
+        expect(h.useStore.getState().rpc[key]!.session.queuedMessageCount).toBe(
           1,
         );
         // omp-side settle work (advice reclaim, deferred flush) can land just
         // after agent_end — one delayed re-fetch catches it.
-        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS);
-        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.QUEUE_SETTLE_REFRESH_MS);
+        await h.flushMicrotasks();
         expect(getStateCalls()).toHaveLength(2);
         // The re-fetch settles the count; no further polling once it clears.
-        respond(key, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 0 });
-        await flushMicrotasks();
-        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS * 4);
-        await flushMicrotasks();
+        h.respond(key, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 0 });
+        await h.flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.QUEUE_SETTLE_REFRESH_MS * 4);
+        await h.flushMicrotasks();
         expect(getStateCalls()).toHaveLength(2);
       } finally {
         vi.useRealTimers();
@@ -1333,13 +1000,13 @@ describe("handleRpcFrame routing", () => {
     it("does not re-fetch when the turn ends with an empty queue", async () => {
       vi.useFakeTimers();
       try {
-        const key = `${TAB}-settle-empty`;
-        useStore.setState({
+        const key = `${h.TAB}-settle-empty`;
+        h.useStore.setState({
           rpc: { [key]: rpcTabState({ status: "running" }) },
         });
         await endTurnWithCount(key, 0);
-        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS * 2);
-        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.QUEUE_SETTLE_REFRESH_MS * 2);
+        await h.flushMicrotasks();
         expect(getStateCalls()).toHaveLength(1);
       } finally {
         vi.useRealTimers();
@@ -1349,14 +1016,14 @@ describe("handleRpcFrame routing", () => {
     it("cancels the settle timer when a new turn starts", async () => {
       vi.useFakeTimers();
       try {
-        const key = `${TAB}-settle-cancel`;
-        useStore.setState({
+        const key = `${h.TAB}-settle-cancel`;
+        h.useStore.setState({
           rpc: { [key]: rpcTabState({ status: "running" }) },
         });
         await endTurnWithCount(key, 1);
-        useStore.getState().handleRpcFrame(key, { type: "agent_start" });
-        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS * 2);
-        await flushMicrotasks();
+        h.useStore.getState().handleRpcFrame(key, { type: "agent_start" });
+        await vi.advanceTimersByTimeAsync(h.QUEUE_SETTLE_REFRESH_MS * 2);
+        await h.flushMicrotasks();
         expect(getStateCalls()).toHaveLength(1);
       } finally {
         vi.useRealTimers();
@@ -1366,24 +1033,24 @@ describe("handleRpcFrame routing", () => {
     it("re-fetches when the agent_end get_state itself fails", async () => {
       vi.useFakeTimers();
       try {
-        const key = `${TAB}-settle-fail`;
-        useStore.setState({
+        const key = `${h.TAB}-settle-fail`;
+        h.useStore.setState({
           rpc: { [key]: rpcTabState({ status: "running" }) },
         });
         // Seed a nonzero last-known count through one clean cycle.
         await endTurnWithCount(key, 1);
-        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS);
-        await flushMicrotasks();
-        respond(key, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 1 });
-        await flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.QUEUE_SETTLE_REFRESH_MS);
+        await h.flushMicrotasks();
+        h.respond(key, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 1 });
+        await h.flushMicrotasks();
         // The next turn's closing refresh is lost: the settle timer is the
         // one retry, or the stale count would freeze in the composer.
-        useStore.getState().handleRpcFrame(key, { type: "agent_start" });
-        useStore.getState().handleRpcFrame(key, { type: "agent_end" });
-        respond(key, getStateCalls().at(-1)!.cmd, "unavailable", false);
-        await flushMicrotasks();
-        await vi.advanceTimersByTimeAsync(QUEUE_SETTLE_REFRESH_MS);
-        await flushMicrotasks();
+        h.useStore.getState().handleRpcFrame(key, { type: "agent_start" });
+        h.useStore.getState().handleRpcFrame(key, { type: "agent_end" });
+        h.respond(key, getStateCalls().at(-1)!.cmd, "unavailable", false);
+        await h.flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.QUEUE_SETTLE_REFRESH_MS);
+        await h.flushMicrotasks();
         expect(getStateCalls()).toHaveLength(4);
       } finally {
         vi.useRealTimers();
@@ -1392,27 +1059,27 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("folds session events into render items", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "user", content: [{ type: "text", text: "yo" }] },
     });
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({ kind: "user", text: "yo" }),
     ]);
   });
 
   it("queues dialog extension requests", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "e1",
       method: "confirm",
       title: "sure?",
     });
-    expect(useStore.getState().rpc[TAB]!.extensionQueue).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
   });
 
   it("records a setWidget's text in extensionStatus AND still answers it", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "e2",
       method: "setWidget",
@@ -1420,12 +1087,12 @@ describe("handleRpcFrame routing", () => {
       widgetLines: ["ctx 12%", "cost $0.10"],
     });
     // omp blocks on the reply — recording the text must not replace answering.
-    expect(sent.pop()!.cmd).toMatchObject({
+    expect(h.sent.pop()!.cmd).toMatchObject({
       type: "extension_ui_response",
       id: "e2",
       cancelled: true,
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.extensionStatus).toEqual({ ctx: "ctx 12%\ncost $0.10" });
     expect(tab.extensionQueue).toHaveLength(0);
     // Displayed text is not transcript noise.
@@ -1433,39 +1100,39 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("records setStatus text and clears a widget when its lines go away", () => {
-    const store = useStore.getState();
-    store.handleRpcFrame(TAB, {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "e3",
       method: "setStatus",
       statusKey: "advisor",
       statusText: "reviewing",
     });
-    expect(useStore.getState().rpc[TAB]!.extensionStatus).toEqual({
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionStatus).toEqual({
       advisor: "reviewing",
     });
-    store.handleRpcFrame(TAB, {
+    store.handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "e4",
       method: "setStatus",
       statusKey: "advisor",
       statusText: undefined,
     });
-    expect(useStore.getState().rpc[TAB]!.extensionStatus).toEqual({});
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionStatus).toEqual({});
   });
 
   it("auto-cancels a non-status extension request with a marker", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "e5",
       method: "notify",
       message: "hi",
     });
-    expect(sent.pop()!.cmd).toMatchObject({
+    expect(h.sent.pop()!.cmd).toMatchObject({
       type: "extension_ui_response",
       id: "e5",
     });
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({
         kind: "marker",
         label: "extension notify auto-cancelled",
@@ -1474,19 +1141,19 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("open_url opens the system browser, confirms, and stamps a marker", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "u1",
       method: "open_url",
       url: "https://auth.example.com/login?state=1",
     });
-    expect(openedUrls).toEqual(["https://auth.example.com/login?state=1"]);
-    expect(sent.pop()!.cmd).toEqual({
+    expect(h.openedUrls).toEqual(["https://auth.example.com/login?state=1"]);
+    expect(h.sent.pop()!.cmd).toEqual({
       type: "extension_ui_response",
       id: "u1",
       confirmed: true,
     });
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({
         kind: "marker",
         label: "opened browser: https://auth.example.com",
@@ -1495,13 +1162,13 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("open_url without a url string is cancelled, never opened", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "u2",
       method: "open_url",
     });
-    expect(openedUrls).toHaveLength(0);
-    expect(sent.pop()!.cmd).toMatchObject({
+    expect(h.openedUrls).toHaveLength(0);
+    expect(h.sent.pop()!.cmd).toMatchObject({
       type: "extension_ui_response",
       id: "u2",
       cancelled: true,
@@ -1509,7 +1176,7 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("claims the plan status frame as state, not as displayed text", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p1",
       method: "setStatus",
@@ -1521,7 +1188,7 @@ describe("handleRpcFrame routing", () => {
         approved: false,
       }),
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.plan).toMatchObject({
       enabled: true,
       planFilePath: "local://a-plan.md",
@@ -1531,7 +1198,7 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("claims the advisor-stats frame as state, not as displayed text", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "a1",
       method: "setStatus",
@@ -1547,7 +1214,7 @@ describe("handleRpcFrame routing", () => {
         totalTokens: 900000,
       }),
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.advisorStats).toMatchObject({
       available: true,
       cost: 0.41,
@@ -1569,7 +1236,7 @@ describe("handleRpcFrame routing", () => {
     });
 
     it("derives one warning per new auth and connection failure", () => {
-      useStore.getState().handleRpcFrame(TAB, statusFrame(JSON.stringify({
+      h.useStore.getState().handleRpcFrame(h.TAB, statusFrame(JSON.stringify({
         pendingServers: [],
         connectedServers: [],
         failedServers: [
@@ -1578,7 +1245,7 @@ describe("handleRpcFrame routing", () => {
         ],
       })));
 
-      const tab = useStore.getState().rpc[TAB]!;
+      const tab = h.useStore.getState().rpc[h.TAB]!;
       expect(tab.items).toEqual([
         expect.objectContaining({
           kind: "notice",
@@ -1601,15 +1268,15 @@ describe("handleRpcFrame routing", () => {
         connectedServers: [],
         failedServers: [{ serverName: "remote", kind: "auth" }],
       });
-      useStore.getState().handleRpcFrame(TAB, statusFrame(failed, "first"));
-      useStore.getState().handleRpcFrame(TAB, statusFrame(failed, "repeat"));
-      useStore.getState().handleRpcFrame(TAB, statusFrame(JSON.stringify({
+      h.useStore.getState().handleRpcFrame(h.TAB, statusFrame(failed, "first"));
+      h.useStore.getState().handleRpcFrame(h.TAB, statusFrame(failed, "repeat"));
+      h.useStore.getState().handleRpcFrame(h.TAB, statusFrame(JSON.stringify({
         pendingServers: [],
         connectedServers: ["remote"],
         failedServers: [],
       }), "connected"));
 
-      const tab = useStore.getState().rpc[TAB]!;
+      const tab = h.useStore.getState().rpc[h.TAB]!;
       expect(tab.items.filter((item) => item.kind === "notice")).toHaveLength(1);
       expect(tab.mcpStatus).toEqual({
         pendingServers: [],
@@ -1619,31 +1286,31 @@ describe("handleRpcFrame routing", () => {
     });
 
     it("claims malformed status without changing state or creating a generic chip", () => {
-      useStore.getState().handleRpcFrame(TAB, statusFrame("{not-json"));
-      const tab = useStore.getState().rpc[TAB]!;
+      h.useStore.getState().handleRpcFrame(h.TAB, statusFrame("{not-json"));
+      const tab = h.useStore.getState().rpc[h.TAB]!;
       expect(tab.mcpStatus).toBeNull();
       expect(tab.items).toEqual([]);
       expect(tab.extensionStatus).toEqual({});
     });
 
     it("updates and warns a background tab", () => {
-      useStore.setState({ activeTabId: "another-tab" });
-      useStore.getState().handleRpcFrame(TAB, statusFrame(JSON.stringify({
+      h.useStore.setState({ activeTabId: "another-tab" });
+      h.useStore.getState().handleRpcFrame(h.TAB, statusFrame(JSON.stringify({
         pendingServers: [],
         connectedServers: [],
         failedServers: [{ serverName: "background", kind: "connection" }],
       })));
-      expect(useStore.getState().rpc[TAB]!.mcpStatus?.failedServers).toEqual([
+      expect(h.useStore.getState().rpc[h.TAB]!.mcpStatus?.failedServers).toEqual([
         { serverName: "background", kind: "connection" },
       ]);
-      expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
     });
     it("clears process-scoped status and notices when the tab boots again", async () => {
       const relaunchTab = "mcp-relaunch-tab";
-      const state = stateWithRecord("session-1");
+      const state = h.stateWithRecord("session-1");
       state.projects[0]!.sessions[0]!.tabId = relaunchTab;
-      backendState = state;
-      useStore.setState({
+      h.backendState = state;
+      h.useStore.setState({
         state,
         rpc: {
           [relaunchTab]: rpcTabState({
@@ -1657,10 +1324,10 @@ describe("handleRpcFrame routing", () => {
         },
       });
 
-      await driveBoot(relaunchTab);
+      await h.driveBoot(relaunchTab);
 
-      expect(useStore.getState().rpc[relaunchTab]!.mcpStatus).toBeNull();
-      expect(useStore.getState().rpc[relaunchTab]!.items).toEqual([]);
+      expect(h.useStore.getState().rpc[relaunchTab]!.mcpStatus).toBeNull();
+      expect(h.useStore.getState().rpc[relaunchTab]!.items).toEqual([]);
     });
   });
 
@@ -1678,14 +1345,14 @@ describe("handleRpcFrame routing", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(1_000_000);
-        const store = useStore.getState();
-        store.handleRpcFrame(TAB, {
+        const store = h.useStore.getState();
+        store.handleRpcFrame(h.TAB, {
           type: "message_update",
           assistantMessageEvent: { type: "text_delta", delta: "x" },
         });
         vi.setSystemTime(1_000_000 + 123_000);
-        useStore.getState().handleRpcFrame(TAB, stallFrame);
-        const last = useStore.getState().rpc[TAB]!.items.at(-1);
+        h.useStore.getState().handleRpcFrame(h.TAB, stallFrame);
+        const last = h.useStore.getState().rpc[h.TAB]!.items.at(-1);
         expect(last).toMatchObject({ kind: "notice", level: "warn" });
         if (last?.kind !== "notice") return;
         expect(last.text).toContain(
@@ -1703,23 +1370,23 @@ describe("handleRpcFrame routing", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(1_000_000);
-        const store = useStore.getState();
-        store.handleRpcFrame(TAB, {
+        const store = h.useStore.getState();
+        store.handleRpcFrame(h.TAB, {
           type: "message_update",
           assistantMessageEvent: { type: "toolcall_end" },
         });
         vi.setSystemTime(1_120_000);
-        store.handleRpcFrame(TAB, {
+        store.handleRpcFrame(h.TAB, {
           type: "tool_execution_start",
           toolCallId: "t1",
         });
         vi.setSystemTime(1_123_000);
-        store.handleRpcFrame(TAB, {
+        store.handleRpcFrame(h.TAB, {
           type: "tool_execution_update",
           toolCallId: "t1",
         });
-        store.handleRpcFrame(TAB, stallFrame);
-        const last = useStore.getState().rpc[TAB]!.items.at(-1);
+        store.handleRpcFrame(h.TAB, stallFrame);
+        const last = h.useStore.getState().rpc[h.TAB]!.items.at(-1);
         if (last?.kind !== "notice") return;
         expect(last.text).toContain(
           "2m 03s since tool-call arguments complete",
@@ -1734,12 +1401,12 @@ describe("handleRpcFrame routing", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(1_000_000);
-        useStore.getState().handleRpcFrame(TAB, stallFrame);
+        h.useStore.getState().handleRpcFrame(h.TAB, stallFrame);
         vi.setSystemTime(1_100_000);
-        useStore.getState().handleRpcFrame(TAB, { ...stallFrame, attempt: 2 });
-        const notices = useStore
+        h.useStore.getState().handleRpcFrame(h.TAB, { ...stallFrame, attempt: 2 });
+        const notices = h.useStore
           .getState()
-          .rpc[TAB]!.items.filter((i) => i.kind === "notice");
+          .rpc[h.TAB]!.items.filter((i) => i.kind === "notice");
         expect(notices).toHaveLength(2);
         if (notices[0]?.kind !== "notice" || notices[1]?.kind !== "notice")
           return;
@@ -1751,14 +1418,14 @@ describe("handleRpcFrame routing", () => {
     });
 
     it("stays silent for a non-stall retry (no Timeout bit, no watchdog message)", () => {
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "auto_retry_start",
         attempt: 1,
         maxAttempts: 10,
         delayMs: 2000,
         errorMessage: "429 rate limit",
       });
-      const tab = useStore.getState().rpc[TAB]!;
+      const tab = h.useStore.getState().rpc[h.TAB]!;
       expect(tab.items.filter((i) => i.kind === "notice")).toEqual([]);
       const last = tab.items[tab.items.length - 1];
       expect(last).toMatchObject({
@@ -1768,16 +1435,16 @@ describe("handleRpcFrame routing", () => {
     });
 
     it("admits an unknown stage when only the Timeout bit is available", () => {
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "auto_retry_start",
         attempt: 1,
         maxAttempts: 10,
         delayMs: 2000,
         errorId: 0x0006_0000,
       });
-      const notice = useStore
+      const notice = h.useStore
         .getState()
-        .rpc[TAB]!.items.find((i) => i.kind === "notice");
+        .rpc[h.TAB]!.items.find((i) => i.kind === "notice");
       if (notice?.kind !== "notice") return;
       expect(notice.level).toBe("warn");
       expect(notice.text).toContain("supplied no watchdog stage");
@@ -1785,15 +1452,15 @@ describe("handleRpcFrame routing", () => {
     });
 
     it("distinguishes first-event from idle and avoids unsupported attribution", () => {
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         ...stallFrame,
         errorMessage:
           "OpenAI responses stream timed out while waiting for the first event",
       });
-      useStore.getState().handleRpcFrame(TAB, stallFrame);
-      const notices = useStore
+      h.useStore.getState().handleRpcFrame(h.TAB, stallFrame);
+      const notices = h.useStore
         .getState()
-        .rpc[TAB]!.items.filter((i) => i.kind === "notice");
+        .rpc[h.TAB]!.items.filter((i) => i.kind === "notice");
       if (notices[0]?.kind !== "notice" || notices[1]?.kind !== "notice")
         return;
       expect(notices[0].text).toContain("first-event watchdog fired");
@@ -1807,20 +1474,20 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("refreshAdvisorStats asks the extension over a slash command", async () => {
-    const pending = useStore.getState().refreshAdvisorStats(TAB);
-    const entry = sent.pop()!;
+    const pending = h.useStore.getState().refreshAdvisorStats(h.TAB);
+    const entry = h.sent.pop()!;
     expect(entry.cmd).toMatchObject({
       type: "prompt",
       message: "/omp-ui-advisor-stats",
     });
     // The extension answers by publishing a setStatus frame, not a response —
     // settle the command so the method promise resolves.
-    respond(TAB, entry.cmd, {});
+    h.respond(h.TAB, entry.cmd, {});
     await pending;
   });
 
   it("routes a plan review to the review pane instead of the generic dialog", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p2",
       method: "select",
@@ -1833,19 +1500,19 @@ describe("handleRpcFrame routing", () => {
         }),
       options: ["approve", "refine"],
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.planReview?.request).toMatchObject({
       planFilePath: "local://auth-plan.md",
     });
     expect(tab.extensionQueue).toHaveLength(0);
     // The agent is blocked on this select — nothing may answer it early.
-    expect(sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(
       false,
     );
   });
 
   it("reads one file and flags an html plan for iframe rendering", async () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p2h",
       method: "select",
@@ -1857,17 +1524,17 @@ describe("handleRpcFrame routing", () => {
           planAbsPath: "/lineage/local/auth-plan.html",
         }),
     });
-    await flushMicrotasks();
-    const tab = useStore.getState().rpc[TAB]!;
+    await h.flushMicrotasks();
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     // The html file IS the plan — one read, and planHtml is only the flag that
     // says "render this text in an iframe", never a second document.
-    expect(mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
     expect(tab.planText).toBe("<h1>Plan</h1>");
     expect(tab.planHtml).toBe("<h1>Plan</h1>");
   });
 
   it("leaves planHtml null for a markdown plan", async () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p2m",
       method: "select",
@@ -1879,16 +1546,16 @@ describe("handleRpcFrame routing", () => {
           planAbsPath: "/lineage/local/auth-plan.md",
         }),
     });
-    await flushMicrotasks();
-    const tab = useStore.getState().rpc[TAB]!;
-    expect(mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
+    await h.flushMicrotasks();
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(h.mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
     expect(tab.planText).toBe("# Plan\n\nstep one\n");
     expect(tab.planHtml).toBeNull();
   });
 
   it("clears both plan fields when an html plan cannot be read", async () => {
-    mockBackend.readPlanFile.mockRejectedValueOnce(new Error("ENOENT"));
-    useStore.getState().handleRpcFrame(TAB, {
+    h.mockBackend.readPlanFile.mockRejectedValueOnce(new Error("ENOENT"));
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p2f",
       method: "select",
@@ -1900,8 +1567,8 @@ describe("handleRpcFrame routing", () => {
           planAbsPath: "/lineage/local/auth-plan.html",
         }),
     });
-    await flushMicrotasks();
-    const tab = useStore.getState().rpc[TAB]!;
+    await h.flushMicrotasks();
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     // A failed read must not leave the pane flagged for iframe rendering with
     // nothing to render — the review itself stays open either way.
     expect(tab.planText).toBeNull();
@@ -1910,7 +1577,7 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("executing a review answers with the execute verdict and closes the pane", async () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p3",
       method: "select",
@@ -1918,15 +1585,15 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
-    useStore.getState().executePlan(TAB, "existing");
-    const response = sent.find((s) => s.cmd.type === "extension_ui_response");
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p3", value: "execute" });
-    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
-    await flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).toBeNull();
+    await h.flushMicrotasks();
   });
 
   it("executing in the existing session queues an implementation prompt there", async () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p3b",
       method: "select",
@@ -1934,10 +1601,10 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
-    useStore.getState().executePlan(TAB, "existing");
-    const prompt = sent.find(
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
@@ -1945,17 +1612,17 @@ describe("handleRpcFrame routing", () => {
     // followUp queues the prompt until the just-accepted plan turn ends, so it
     // races nothing — the implementer runs after the planner stops.
     expect(prompt!.cmd.streamingBehavior).toBe("followUp");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   it("holds the implementation prompt until the session reports Build after execute (issue #165)", async () => {
     // The proposing session published armed status; the verdict's exit frame
     // is still in flight when the verdict is answered.
-    useStore.setState((s) => ({
+    h.useStore.setState((s) => ({
       rpc: {
         ...s.rpc,
-        [TAB]: {
-          ...s.rpc[TAB]!,
+        [h.TAB]: {
+          ...s.rpc[h.TAB]!,
           plan: {
             enabled: true,
             planFilePath: "local://p.md",
@@ -1965,7 +1632,7 @@ describe("handleRpcFrame routing", () => {
         },
       },
     }));
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p3c",
       method: "select",
@@ -1973,11 +1640,11 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
-    useStore.getState().executePlan(TAB, "existing");
+    h.useStore.getState().executePlan(h.TAB, "existing");
     // Verdict landed, but no implementation prompt yet — it waits for Build.
-    expect(sent.find((s) => s.cmd.type === "prompt")).toBeUndefined();
+    expect(h.sent.find((s) => s.cmd.type === "prompt")).toBeUndefined();
     // The extension's in-process exit publishes its status frame.
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "st1",
       method: "setStatus",
@@ -1989,25 +1656,25 @@ describe("handleRpcFrame routing", () => {
         approved: true,
       }),
     });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
     expect(prompt).toBeDefined();
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   it("forces plan mode off before dispatching when the verdict's exit never publishes (issue #165)", async () => {
     vi.useFakeTimers();
     try {
-      useStore.setState((s) => ({
+      h.useStore.setState((s) => ({
         rpc: {
           ...s.rpc,
-          [TAB]: {
-            ...s.rpc[TAB]!,
+          [h.TAB]: {
+            ...s.rpc[h.TAB]!,
             plan: {
               enabled: true,
               planFilePath: "local://p.md",
@@ -2017,7 +1684,7 @@ describe("handleRpcFrame routing", () => {
           },
         },
       }));
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "extension_ui_request",
         id: "p3d",
         method: "select",
@@ -2025,20 +1692,20 @@ describe("handleRpcFrame routing", () => {
           "omp-ui:plan-review:" +
           JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
       });
-      useStore.getState().executePlan(TAB, "existing");
+      h.useStore.getState().executePlan(h.TAB, "existing");
       // No exit frame ever arrives; the bounded wait expires and the mode
       // command is sent directly.
       await vi.advanceTimersByTimeAsync(15_000);
-      await flushMicrotasks();
-      const off = sent.find(
+      await h.flushMicrotasks();
+      const off = h.sent.find(
         (s) =>
-          s.tabId === TAB &&
+          s.tabId === h.TAB &&
           s.cmd.type === "prompt" &&
           String(s.cmd.message) === "/omp-ui-plan off",
       );
       expect(off).toBeDefined();
       // The forced exit answers with its status frame; implementation follows.
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "extension_ui_request",
         id: "st2",
         method: "setStatus",
@@ -2050,11 +1717,11 @@ describe("handleRpcFrame routing", () => {
           approved: true,
         }),
       });
-      await flushMicrotasks();
+      await h.flushMicrotasks();
       expect(
-        sent.find(
+        h.sent.find(
           (s) =>
-            s.tabId === TAB &&
+            s.tabId === h.TAB &&
             s.cmd.type === "prompt" &&
             String(s.cmd.message).includes("execute the approved plan"),
         ),
@@ -2065,7 +1732,7 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("refining a review answers with the refine verdict and sends no prompt", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p4",
       method: "select",
@@ -2073,14 +1740,14 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
-    useStore.getState().refinePlan(TAB);
-    const response = sent.find((s) => s.cmd.type === "extension_ui_response");
+    h.useStore.getState().refinePlan(h.TAB);
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p4", value: "refine" });
-    expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
   });
 
   it("refining with notes steers the planner with the requested changes", async () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p4b",
       method: "select",
@@ -2088,18 +1755,18 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
-    useStore.getState().refinePlan(TAB, { text: "drop the API layer" });
-    const prompt = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
+    h.useStore.getState().refinePlan(h.TAB, { text: "drop the API layer" });
+    const prompt = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
     expect(prompt!.cmd.streamingBehavior).toBe("steer");
     expect(prompt!.cmd.message).toContain("drop the API layer");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   it("executing in a fresh session spawns a new tab seeded with the plan", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p7",
       method: "select",
@@ -2112,32 +1779,32 @@ describe("handleRpcFrame routing", () => {
         }),
     });
     // Let the plan file read resolve so executePlan captures the plan text.
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    const response = sent.find((s) => s.cmd.type === "extension_ui_response");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p7", value: "execute" });
-    await flushMicrotasks();
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         projectCwd: "/p",
         mode: "rpc-ui",
         startInPlanMode: false,
         planImplementationSource: {
-          sourceTabId: TAB,
+          sourceTabId: h.TAB,
           planTitle: "t",
           planFilePath: "local://p.md",
         },
       }),
     );
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
         s.tabId === "fresh-tab" &&
         s.cmd.type === "prompt" &&
@@ -2145,25 +1812,25 @@ describe("handleRpcFrame routing", () => {
     );
     expect(prompt).toBeDefined();
     expect(prompt!.cmd.message).toContain("Implement it now");
-    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
     expect(
-      useStore
+      h.useStore
         .getState()
-        .rpc[TAB]!.items.some(
+        .rpc[h.TAB]!.items.some(
           (item) =>
             item.kind === "notice" && item.text.includes("implementation dispatched"),
         ),
     ).toBe(false);
 
-    respond("fresh-tab", prompt!.cmd, {});
-    await flushMicrotasks();
+    h.respond("fresh-tab", prompt!.cmd, {});
+    await h.flushMicrotasks();
 
-    expect(mockBackend.hibernatePlanSource).toHaveBeenCalledOnce();
-    expect(mockBackend.hibernatePlanSource).toHaveBeenCalledWith(TAB, "fresh-tab");
+    expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledOnce();
+    expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     expect(
-      useStore
+      h.useStore
         .getState()
-        .rpc[TAB]!.items.some(
+        .rpc[h.TAB]!.items.some(
           (item) =>
             item.kind === "notice" && item.text.includes("implementation dispatched"),
         ),
@@ -2180,10 +1847,10 @@ describe("handleRpcFrame routing", () => {
       "<body><h1>Ship the auth rewrite</h1></body>",
       "</html>",
     ].join("\n");
-    mockBackend.readPlanFile.mockResolvedValueOnce(htmlPlan);
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.mockBackend.readPlanFile.mockResolvedValueOnce(htmlPlan);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p7h",
       method: "select",
@@ -2196,18 +1863,18 @@ describe("handleRpcFrame routing", () => {
         }),
     });
     // Let the plan file read resolve so executePlan captures the plan text.
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
     );
     expect(prompt).toBeDefined();
@@ -2215,7 +1882,7 @@ describe("handleRpcFrame routing", () => {
     // token cost in a prompt.
     expect(String(prompt!.cmd.message)).toContain("Ship the auth rewrite");
     expect(String(prompt!.cmd.message)).not.toContain("rebeccapurple");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   /** An advisor review card as it lands over the live stream. */
@@ -2235,7 +1902,7 @@ describe("handleRpcFrame routing", () => {
 
   /** Opens a plan review ready for a verdict. */
   const openReview = (id: string) => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id,
       method: "select",
@@ -2245,21 +1912,21 @@ describe("handleRpcFrame routing", () => {
     });
   };
 
-  const dispatchFreshSeed = async (id: string): Promise<(typeof sent)[number]> => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
+  const dispatchFreshSeed = async (id: string): Promise<(typeof h.sent)[number]> => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openReview(id);
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    await flushMicrotasks();
-    useStore.setState((state) => ({
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    h.useStore.setState((state) => ({
       rpc: {
         ...state.rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     }));
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt",
     );
     if (prompt === undefined) throw new Error("fresh implementation seed was not sent");
@@ -2267,36 +1934,36 @@ describe("handleRpcFrame routing", () => {
   };
 
   const rearmHandoffSource = async (): Promise<void> => {
-    const prompt = useStore.getState().sendPrompt(TAB, "test handoff cleanup", "prompt");
-    const command = sent.at(-1);
-    if (command?.tabId === TAB && command.cmd.type === "prompt") {
-      respond(TAB, command.cmd, {});
+    const prompt = h.useStore.getState().sendPrompt(h.TAB, "test handoff cleanup", "prompt");
+    const command = h.sent.at(-1);
+    if (command?.tabId === h.TAB && command.cmd.type === "prompt") {
+      h.respond(h.TAB, command.cmd, {});
     }
     await prompt;
   };
 
   it("does not hibernate after a fresh spawn failure or readiness timeout (issue #283)", async () => {
-    mockBackend.spawnSession.mockRejectedValueOnce(new Error("spawn failed"));
-    useStore.setState({ state: stateWithRecord(null) });
+    h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("spawn failed"));
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openReview("handoff-spawn-failure");
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    await flushMicrotasks();
-    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
 
     vi.useFakeTimers();
     try {
-      mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "never-ready" });
+      h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "never-ready" });
       openReview("handoff-ready-timeout");
-      await flushMicrotasks();
-      useStore.getState().executePlan(TAB, "fresh");
-      await flushMicrotasks();
+      await h.flushMicrotasks();
+      h.useStore.getState().executePlan(h.TAB, "fresh");
+      await h.flushMicrotasks();
       await vi.advanceTimersByTimeAsync(15_000);
-      await flushMicrotasks();
+      await h.flushMicrotasks();
       expect(
-        sent.some((entry) => entry.tabId === "never-ready" && entry.cmd.type === "prompt"),
+        h.sent.some((entry) => entry.tabId === "never-ready" && entry.cmd.type === "prompt"),
       ).toBe(false);
-      expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+      expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -2306,42 +1973,42 @@ describe("handleRpcFrame routing", () => {
     ["set_model", { model: { id: "new", name: "New", provider: "provider" } }],
     ["set_thinking_level", { thinkingLevel: "high" }],
   ])("does not seed or hibernate after %s setup fails (issue #283)", async (command, options) => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openReview(`handoff-${command}`);
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh", options);
-    await flushMicrotasks();
-    useStore.setState((state) => ({
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh", options);
+    await h.flushMicrotasks();
+    h.useStore.setState((state) => ({
       rpc: {
         ...state.rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     }));
-    await flushMicrotasks();
-    const setupCommand = sent.find(
+    await h.flushMicrotasks();
+    const setupCommand = h.sent.find(
       (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === command,
     );
     expect(setupCommand).toBeDefined();
-    respond("fresh-tab", setupCommand!.cmd, "setup failed", false);
-    await flushMicrotasks();
+    h.respond("fresh-tab", setupCommand!.cmd, "setup failed", false);
+    await h.flushMicrotasks();
 
     expect(
-      sent.some((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
+      h.sent.some((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
     ).toBe(false);
-    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
   });
 
   it("does not hibernate or claim dispatch when the seed command fails (issue #283)", async () => {
     const prompt = await dispatchFreshSeed("handoff-seed-failure");
-    respond("fresh-tab", prompt.cmd, "seed rejected", false);
-    await flushMicrotasks();
+    h.respond("fresh-tab", prompt.cmd, "seed rejected", false);
+    await h.flushMicrotasks();
 
-    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
     expect(
-      useStore
+      h.useStore
         .getState()
-        .rpc[TAB]!.items.some(
+        .rpc[h.TAB]!.items.some(
           (item) =>
             item.kind === "notice" && item.text.includes("implementation dispatched"),
         ),
@@ -2350,13 +2017,13 @@ describe("handleRpcFrame routing", () => {
 
   it("suppresses a second advisor reply while source hibernation is unresolved (issue #283)", async () => {
     vi.useFakeTimers();
-    const hibernation = deferred<boolean>();
-    mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
+    const hibernation = h.deferred<boolean>();
+    h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
     try {
-      useStore.setState({
-        state: stateWithRecord(null),
+      h.useStore.setState({
+        state: h.stateWithRecord(null),
         rpc: {
-          [TAB]: rpcTabState({
+          [h.TAB]: rpcTabState({
             advisorStats: {
               available: true,
               configured: true,
@@ -2371,34 +2038,34 @@ describe("handleRpcFrame routing", () => {
           }),
         },
       });
-      mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+      h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
       openReview("handoff-advisor-race");
-      useStore.getState().executePlan(TAB, "fresh");
-      useStore
+      h.useStore.getState().executePlan(h.TAB, "fresh");
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("first finding", "concern", "advisor"));
-      await flushMicrotasks();
-      useStore.setState((state) => ({
+        .handleRpcFrame(h.TAB, advisorReviewFrame("first finding", "concern", "advisor"));
+      await h.flushMicrotasks();
+      h.useStore.setState((state) => ({
         rpc: {
           ...state.rpc,
           "fresh-tab": rpcTabState({ status: "ready", planText: null }),
         },
       }));
-      await flushMicrotasks();
-      const seed = sent.find(
+      await h.flushMicrotasks();
+      const seed = h.sent.find(
         (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt",
       );
       expect(seed).toBeDefined();
-      respond("fresh-tab", seed!.cmd, {});
-      await flushMicrotasks();
-      expect(mockBackend.hibernatePlanSource).toHaveBeenCalledWith(TAB, "fresh-tab");
+      h.respond("fresh-tab", seed!.cmd, {});
+      await h.flushMicrotasks();
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
 
-      useStore
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("late finding", "concern", "advisor"));
+        .handleRpcFrame(h.TAB, advisorReviewFrame("late finding", "concern", "advisor"));
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
-      await flushMicrotasks();
-      expect(sent.some((entry) => entry.tabId === TAB && entry.cmd.type === "prompt")).toBe(
+      await h.flushMicrotasks();
+      expect(h.sent.some((entry) => entry.tabId === h.TAB && entry.cmd.type === "prompt")).toBe(
         false,
       );
     } finally {
@@ -2410,16 +2077,16 @@ describe("handleRpcFrame routing", () => {
 
   it("suppresses stall auto-continue after a successful fresh seed (issue #283)", async () => {
     vi.useFakeTimers();
-    const hibernation = deferred<boolean>();
-    mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
+    const hibernation = h.deferred<boolean>();
+    h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
     try {
       const seed = await dispatchFreshSeed("handoff-stall");
-      respond("fresh-tab", seed.cmd, {});
-      await flushMicrotasks();
-      useStore.setState((state) => ({
-        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
       }));
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "message_end",
         message: {
           role: "assistant",
@@ -2429,13 +2096,13 @@ describe("handleRpcFrame routing", () => {
           errorId: 397312,
         },
       });
-      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
       await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
-      await flushMicrotasks();
+      await h.flushMicrotasks();
 
       expect(
-        sent.some(
-          (entry) => entry.tabId === TAB && entry.cmd.message === STALL_CONTINUE_LEAD,
+        h.sent.some(
+          (entry) => entry.tabId === h.TAB && entry.cmd.message === STALL_CONTINUE_LEAD,
         ),
       ).toBe(false);
     } finally {
@@ -2451,28 +2118,28 @@ describe("handleRpcFrame routing", () => {
   ])("keeps source automation suppressed after backend %s (issue #283)", async (_case, result) => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockBackend.hibernatePlanSource.mockImplementationOnce(result);
+    h.mockBackend.hibernatePlanSource.mockImplementationOnce(result);
     try {
       const seed = await dispatchFreshSeed(`handoff-${_case}`);
-      respond("fresh-tab", seed.cmd, {});
-      await flushMicrotasks();
-      useStore.setState((state) => ({
-        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
       }));
-      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-      useStore
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("late", "concern", "advisor"));
+        .handleRpcFrame(h.TAB, advisorReviewFrame("late", "concern", "advisor"));
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
-      await flushMicrotasks();
+      await h.flushMicrotasks();
 
       expect(
-        sent.filter((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
+        h.sent.filter((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
       ).toHaveLength(1);
-      expect(sent.some((entry) => entry.tabId === TAB && entry.cmd.type === "prompt")).toBe(
+      expect(h.sent.some((entry) => entry.tabId === h.TAB && entry.cmd.type === "prompt")).toBe(
         false,
       );
-      expect(mockBackend.terminateSession).not.toHaveBeenCalled();
+      expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
       await rearmHandoffSource();
@@ -2482,31 +2149,31 @@ describe("handleRpcFrame routing", () => {
 
   it("a manual source prompt re-enables advisor replies after handoff (issue #283)", async () => {
     vi.useFakeTimers();
-    mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
+    h.mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
     try {
       const seed = await dispatchFreshSeed("handoff-manual-resume");
-      respond("fresh-tab", seed.cmd, {});
-      await flushMicrotasks();
-      const manual = useStore.getState().sendPrompt(TAB, "new human direction", "prompt");
-      const manualCommand = sent.find(
-        (entry) => entry.tabId === TAB && entry.cmd.message === "new human direction",
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const manual = h.useStore.getState().sendPrompt(h.TAB, "new human direction", "prompt");
+      const manualCommand = h.sent.find(
+        (entry) => entry.tabId === h.TAB && entry.cmd.message === "new human direction",
       );
-      respond(TAB, manualCommand!.cmd, {});
+      h.respond(h.TAB, manualCommand!.cmd, {});
       await expect(manual).resolves.toBe(true);
-      useStore.setState((state) => ({
-        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
       }));
-      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-      useStore
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("review human work", "concern", "advisor"));
+        .handleRpcFrame(h.TAB, advisorReviewFrame("review human work", "concern", "advisor"));
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
-      await flushMicrotasks();
+      await h.flushMicrotasks();
 
       expect(
-        sent.some(
+        h.sent.some(
           (entry) =>
-            entry.tabId === TAB &&
+            entry.tabId === h.TAB &&
             entry.cmd.type === "prompt" &&
             String(entry.cmd.message).includes("review human work"),
         ),
@@ -2518,27 +2185,27 @@ describe("handleRpcFrame routing", () => {
 
   it("booting the source re-enables advisor replies after handoff (issue #283)", async () => {
     vi.useFakeTimers();
-    mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
+    h.mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
     try {
       const seed = await dispatchFreshSeed("handoff-boot-resume");
-      respond("fresh-tab", seed.cmd, {});
-      await flushMicrotasks();
-      sent.length = 0;
-      await driveBoot(TAB);
-      useStore.setState((state) => ({
-        rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "running" } },
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      h.sent.length = 0;
+      await h.driveBoot(h.TAB);
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
       }));
-      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-      useStore
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("review resumed work", "concern", "advisor"));
+        .handleRpcFrame(h.TAB, advisorReviewFrame("review resumed work", "concern", "advisor"));
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
-      await flushMicrotasks();
+      await h.flushMicrotasks();
 
       expect(
-        sent.some(
+        h.sent.some(
           (entry) =>
-            entry.tabId === TAB &&
+            entry.tabId === h.TAB &&
             entry.cmd.type === "prompt" &&
             String(entry.cmd.message).includes("review resumed work"),
         ),
@@ -2550,12 +2217,12 @@ describe("handleRpcFrame routing", () => {
 
   it("never requests source hibernation for existing or compacted execution (issue #283)", async () => {
     openReview("handoff-existing");
-    useStore.getState().executePlan(TAB, "existing");
+    h.useStore.getState().executePlan(h.TAB, "existing");
     openReview("handoff-compacted");
-    useStore.getState().executePlan(TAB, "compacted");
-    await flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "compacted");
+    await h.flushMicrotasks();
 
-    expect(mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
   });
 
   it("holds execute for the drafting turn's advisor review, then folds its concerns", async () => {
@@ -2565,9 +2232,9 @@ describe("handleRpcFrame routing", () => {
     vi.useFakeTimers();
     try {
       // Configured advisor = a review of the plan turn is on its way after the verdict.
-      useStore.setState({
+      h.useStore.setState({
         rpc: {
-          [TAB]: rpcTabState({
+          [h.TAB]: rpcTabState({
             advisorStats: {
               available: true,
               configured: true,
@@ -2583,24 +2250,24 @@ describe("handleRpcFrame routing", () => {
         },
       });
       openReview("c1");
-      useStore.getState().executePlan(TAB, "existing");
+      h.useStore.getState().executePlan(h.TAB, "existing");
       // The verdict lands immediately — omp's agent is blocked on it.
-      const verdict = sent.find((s) => s.cmd.type === "extension_ui_response");
+      const verdict = h.sent.find((s) => s.cmd.type === "extension_ui_response");
       expect(verdict!.cmd).toMatchObject({ id: "c1", value: "execute" });
       // …but the implementation waits for the review: the turn that produced the
       // plan is still ending, so its review cannot have landed yet.
-      expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+      expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
       // The advisor reviews the now-finished plan turn.
-      useStore
+      h.useStore
         .getState()
         .handleRpcFrame(
-          TAB,
+          h.TAB,
           advisorReviewFrame("Hardcoded key", "blocker", "security"),
         );
-      await flushMicrotasks();
-      const prompt = sent.find(
+      await h.flushMicrotasks();
+      const prompt = h.sent.find(
         (s) =>
-          s.tabId === TAB &&
+          s.tabId === h.TAB &&
           s.cmd.type === "prompt" &&
           String(s.cmd.message).includes("execute the approved plan"),
       );
@@ -2608,15 +2275,15 @@ describe("handleRpcFrame routing", () => {
       expect(String(prompt!.cmd.message)).toContain("advisor flagged");
       expect(String(prompt!.cmd.message)).toContain("Hardcoded key");
       expect(String(prompt!.cmd.message)).toContain("[blocker]");
-      const tab = useStore.getState().rpc[TAB]!;
+      const tab = h.useStore.getState().rpc[h.TAB]!;
       expect(tab.items.at(-1)).toMatchObject({
         kind: "notice",
         text: expect.stringContaining("1 concern"),
       });
       // The fold already answered this review; the auto-reply must not send a second.
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
-      await flushMicrotasks();
-      expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(1);
+      await h.flushMicrotasks();
+      expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -2633,25 +2300,25 @@ describe("handleRpcFrame routing", () => {
       // the `agent finished` marker and leaves the next frame's advisory above
       // it. Feeding the advisory first would instead seed the baseline past it,
       // as a resumed tab's history correctly is.
-      useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
-      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-      expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
-      useStore
+      h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("Do it now", "concern", "ops"));
+        .handleRpcFrame(h.TAB, advisorReviewFrame("Do it now", "concern", "ops"));
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
-    const replies = sent.filter((s) => s.cmd.type === "prompt");
+    await h.flushMicrotasks();
+    const replies = h.sent.filter((s) => s.cmd.type === "prompt");
     expect(replies).toHaveLength(1);
     // followUp keeps the reply on the same session without restarting its turn.
     expect(replies[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
     expect(String(replies[0]!.cmd.message)).toContain("Do it now");
     expect(String(replies[0]!.cmd.message)).toContain("[concern]");
     // The transcript says why a prompt nobody typed appeared.
-    const items = useStore.getState().rpc[TAB]!.items;
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
     const announcement = items.find(
       (i) => i.kind === "notice" && /answering it \(1 finding\)/.test(i.text),
     );
@@ -2663,29 +2330,29 @@ describe("handleRpcFrame routing", () => {
     try {
       // Same production sequence as the case above, so the only thing
       // suppressing the reply here is the opt-out.
-      useStore.setState({
-        rpc: { [TAB]: rpcTabState({ status: "running", advisorReply: false }) },
+      h.useStore.setState({
+        rpc: { [h.TAB]: rpcTabState({ status: "running", advisorReply: false }) },
       });
-      useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-      useStore
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      h.useStore
         .getState()
-        .handleRpcFrame(TAB, advisorReviewFrame("Do it now", "concern", "ops"));
+        .handleRpcFrame(h.TAB, advisorReviewFrame("Do it now", "concern", "ops"));
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS * 2);
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
-    expect(sent.some((s) => s.cmd.type === "prompt")).toBe(false);
-    const items = useStore.getState().rpc[TAB]!.items;
+    await h.flushMicrotasks();
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("answering it")),
     ).toBe(false);
   });
 
   it("executes immediately, and reads no transcript, when the fold is off", async () => {
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           items: [
             {
               kind: "advisory",
@@ -2714,25 +2381,25 @@ describe("handleRpcFrame routing", () => {
       },
     });
     openReview("c2");
-    useStore.getState().executePlan(TAB, "existing", { addressAdvisor: false });
-    await flushMicrotasks();
-    const prompt = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
+    h.useStore.getState().executePlan(h.TAB, "existing", { addressAdvisor: false });
+    await h.flushMicrotasks();
+    const prompt = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
     // Stale pre-verdict advisories are never folded onto a fresh verdict.
     expect(String(prompt!.cmd.message)).not.toContain("old unrelated nit");
   });
 
   it("skips the wait entirely when the session has no configured advisor", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState({ advisorStats: null }) } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ advisorStats: null }) } });
     openReview("c3");
-    useStore.getState().executePlan(TAB, "existing");
-    expect(sent.find((s) => s.cmd.type === "prompt")).toBeDefined();
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    expect(h.sent.find((s) => s.cmd.type === "prompt")).toBeDefined();
   });
 
   it("refine stays immediate: user notes steer at once, never waiting on a review", () => {
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           advisorStats: {
             available: true,
             configured: true,
@@ -2748,16 +2415,16 @@ describe("handleRpcFrame routing", () => {
       },
     });
     openReview("c4");
-    useStore.getState().refinePlan(TAB, { text: "drop the API layer" });
+    h.useStore.getState().refinePlan(h.TAB, { text: "drop the API layer" });
     expect(
-      sent.find((s) => s.cmd.type === "extension_ui_response")!.cmd,
+      h.sent.find((s) => s.cmd.type === "extension_ui_response")!.cmd,
     ).toMatchObject({
       id: "c4",
       value: "refine",
     });
     // The planner revises in this same turn (the extension tells it to), so
     // there is no review to wait for — the user's notes steer immediately.
-    const steer = sent.find((s) => s.tabId === TAB && s.cmd.type === "prompt");
+    const steer = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(steer!.cmd.streamingBehavior).toBe("steer");
     expect(String(steer!.cmd.message)).toContain("drop the API layer");
   });
@@ -2765,9 +2432,9 @@ describe("handleRpcFrame routing", () => {
   it("times out the execute concern wait and implements without concerns", async () => {
     vi.useFakeTimers();
     try {
-      useStore.setState({
+      h.useStore.setState({
         rpc: {
-          [TAB]: rpcTabState({
+          [h.TAB]: rpcTabState({
             advisorStats: {
               available: true,
               configured: true,
@@ -2783,13 +2450,13 @@ describe("handleRpcFrame routing", () => {
         },
       });
       openReview("c5");
-      useStore.getState().executePlan(TAB, "existing");
+      h.useStore.getState().executePlan(h.TAB, "existing");
       // The review never lands; the bounded deadline settles the wait.
       await vi.advanceTimersByTimeAsync(15_000);
-      await flushMicrotasks();
-      const prompt = sent.find(
+      await h.flushMicrotasks();
+      const prompt = h.sent.find(
         (s) =>
-          s.tabId === TAB &&
+          s.tabId === h.TAB &&
           s.cmd.type === "prompt" &&
           String(s.cmd.message).includes("execute the approved plan"),
       );
@@ -2801,11 +2468,11 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("seeds a fresh implementation session with the folded concerns", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
-    useStore.setState({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           advisorStats: {
             available: true,
             configured: true,
@@ -2821,22 +2488,22 @@ describe("handleRpcFrame routing", () => {
       },
     });
     openReview("c6");
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
-    useStore
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).toBeNull();
+    h.useStore
       .getState()
       .handleRpcFrame(
-        TAB,
+        h.TAB,
         advisorReviewFrame("pin the toolchain", "concern", "ops"),
       );
-    await flushMicrotasks();
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         projectCwd: "/p",
         mode: "rpc-ui",
         planImplementationSource: {
-          sourceTabId: TAB,
+          sourceTabId: h.TAB,
           planTitle: "t",
           planFilePath: "local://p.md",
         },
@@ -2844,14 +2511,14 @@ describe("handleRpcFrame routing", () => {
       }),
     );
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
         s.tabId === "fresh-tab" &&
         s.cmd.type === "prompt" &&
@@ -2859,22 +2526,22 @@ describe("handleRpcFrame routing", () => {
     );
     expect(prompt).toBeDefined();
     expect(String(prompt!.cmd.message)).toContain("pin the toolchain");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   it("fresh implementation spawns with the app default advisor when none is staged (issue #174)", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({
       tabId: "fresh-default-on",
     });
-    useStore.setState({
-      state: { ...stateWithRecord(null), defaultAdvisor: true },
+    h.useStore.setState({
+      state: { ...h.stateWithRecord(null), defaultAdvisor: true },
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
     openReview("d1");
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    await flushMicrotasks();
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         projectCwd: "/p",
         mode: "rpc-ui",
@@ -2882,28 +2549,28 @@ describe("handleRpcFrame routing", () => {
         startInPlanMode: false,
       }),
     );
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-default-on": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   it("fresh implementation defaults the advisor off against omp config when none is staged (issue #174)", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({
       tabId: "fresh-default-off",
     });
-    useStore.setState({
-      state: stateWithRecord(null),
+    h.useStore.setState({
+      state: h.stateWithRecord(null),
       advisorDefaults: { "/p": { enabled: true, model: null } },
     });
     openReview("d2");
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh");
-    await flushMicrotasks();
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         projectCwd: "/p",
         mode: "rpc-ui",
@@ -2911,13 +2578,13 @@ describe("handleRpcFrame routing", () => {
         startInPlanMode: false,
       }),
     );
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-default-off": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   /** Staged model with efforts, distinct from anything seeded on the tab. */
@@ -2930,7 +2597,7 @@ describe("handleRpcFrame routing", () => {
 
   /** Review frame whose plan file read resolves — fresh spawns seed from it. */
   const openReviewWithPlan = (id: string) => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id,
       method: "select",
@@ -2946,11 +2613,11 @@ describe("handleRpcFrame routing", () => {
 
   it("prepends the orchestrate keyword to the implementation prompt (existing context)", async () => {
     openReview("o1");
-    useStore.getState().executePlan(TAB, "existing", { orchestrate: true });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    h.useStore.getState().executePlan(h.TAB, "existing", { orchestrate: true });
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
@@ -2964,11 +2631,11 @@ describe("handleRpcFrame routing", () => {
 
   it("prepends the ultrathink keyword to the implementation prompt (existing context)", async () => {
     openReview("o1u");
-    useStore.getState().executePlan(TAB, "existing", { ultrathink: true });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    h.useStore.getState().executePlan(h.TAB, "existing", { ultrathink: true });
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
@@ -2982,11 +2649,11 @@ describe("handleRpcFrame routing", () => {
 
   it("prepends armed keywords in notice order, not arming order", async () => {
     openReview("o1w");
-    useStore.getState().executePlan(TAB, "existing", { workflowz: true, ultrathink: true });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    h.useStore.getState().executePlan(h.TAB, "existing", { workflowz: true, ultrathink: true });
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
@@ -3000,11 +2667,11 @@ describe("handleRpcFrame routing", () => {
 
   it("leaves the keyword off by default", async () => {
     openReview("o2");
-    useStore.getState().executePlan(TAB, "existing");
-    await flushMicrotasks();
-    const prompt = sent.find(
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
@@ -3013,22 +2680,22 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("prepends the orchestrate keyword to a fresh session's seed", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openReviewWithPlan("o3");
     // Let the plan file read resolve so executePlan captures the plan text.
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh", { orchestrate: true });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh", { orchestrate: true });
+    await h.flushMicrotasks();
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
     );
     expect(prompt).toBeDefined();
@@ -3040,22 +2707,22 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("prepends the workflowz keyword to a fresh session's seed", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openReviewWithPlan("o3w");
     // Let the plan file read resolve so executePlan captures the plan text.
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh", { workflowz: true });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh", { workflowz: true });
+    await h.flushMicrotasks();
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
-    const prompt = sent.find(
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
       (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
     );
     expect(prompt).toBeDefined();
@@ -3067,42 +2734,42 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("applies staged model and thinking level before the same-session prompt", async () => {
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           model: { id: "m1", name: "M1", provider: "p" },
           session: { ...emptySessionRuntime(), thinkingLevel: "low" },
         }),
       },
     });
     openReview("m1");
-    useStore.getState().executePlan(TAB, "existing", {
+    h.useStore.getState().executePlan(h.TAB, "existing", {
       model: MODEL_X,
       thinkingLevel: "high",
       advisor: false,
       advisorModel: null,
     });
-    await flushMicrotasks();
-    const onTab = (s: (typeof sent)[number]) => s.tabId === TAB;
+    await h.flushMicrotasks();
+    const onTab = (s: (typeof h.sent)[number]) => s.tabId === h.TAB;
     // The staged pair applies over RPC first; each awaited command stalls the
     // chain until the test answers it.
-    const setModel = sent.find((s) => onTab(s) && s.cmd.type === "set_model");
+    const setModel = h.sent.find((s) => onTab(s) && s.cmd.type === "set_model");
     expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
-    respond(TAB, setModel!.cmd, {});
-    await flushMicrotasks();
-    const setLevel = sent.find(
+    h.respond(h.TAB, setModel!.cmd, {});
+    await h.flushMicrotasks();
+    const setLevel = h.sent.find(
       (s) => onTab(s) && s.cmd.type === "set_thinking_level",
     );
     expect(setLevel?.cmd).toMatchObject({ level: "high" });
-    respond(TAB, setLevel!.cmd, {});
-    await flushMicrotasks();
-    const modelIdx = sent.findIndex(
+    h.respond(h.TAB, setLevel!.cmd, {});
+    await h.flushMicrotasks();
+    const modelIdx = h.sent.findIndex(
       (s) => onTab(s) && s.cmd.type === "set_model",
     );
-    const levelIdx = sent.findIndex(
+    const levelIdx = h.sent.findIndex(
       (s) => onTab(s) && s.cmd.type === "set_thinking_level",
     );
-    const promptIdx = sent.findIndex(
+    const promptIdx = h.sent.findIndex(
       (s) =>
         onTab(s) &&
         s.cmd.type === "prompt" &&
@@ -3113,37 +2780,37 @@ describe("handleRpcFrame routing", () => {
     expect(levelIdx).toBeLessThan(promptIdx);
     // setModel persists the then-current level first; setThinkingLevel
     // re-persists with the new one, so the last call carries the final pair.
-    expect(mockBackend.setSessionModel).toHaveBeenLastCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionModel).toHaveBeenLastCalledWith(
+      h.TAB,
       "p2/mx",
       "high",
     );
   });
 
   it("an unchanged staged tuple is a no-op", async () => {
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           model: { id: "m1", name: "M1", provider: "p" },
           session: { ...emptySessionRuntime(), thinkingLevel: "low" },
         }),
       },
     });
     openReview("m2");
-    useStore.getState().executePlan(TAB, "existing", {
+    h.useStore.getState().executePlan(h.TAB, "existing", {
       model: { id: "m1", name: "M1", provider: "p" },
       thinkingLevel: "low",
       advisor: false,
       advisorModel: null,
     });
-    await flushMicrotasks();
-    expect(sent.some((s) => s.cmd.type === "set_model")).toBe(false);
-    expect(sent.some((s) => s.cmd.type === "set_thinking_level")).toBe(false);
-    expect(mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+    await h.flushMicrotasks();
+    expect(h.sent.some((s) => s.cmd.type === "set_model")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "set_thinking_level")).toBe(false);
+    expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
     // Staging what is already live must preserve today's behavior exactly.
-    const prompt = sent.find(
+    const prompt = h.sent.find(
       (s) =>
-        s.tabId === TAB &&
+        s.tabId === h.TAB &&
         s.cmd.type === "prompt" &&
         String(s.cmd.message).includes("execute the approved plan"),
     );
@@ -3151,35 +2818,35 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("an advisor change relaunches the session before dispatching", async () => {
-    useStore.setState({
-      state: stateWithRecord(null),
-      rpc: { [TAB]: rpcTabState() },
+    h.useStore.setState({
+      state: h.stateWithRecord(null),
+      rpc: { [h.TAB]: rpcTabState() },
     });
     openReview("a1");
-    useStore.getState().executePlan(TAB, "existing", {
+    h.useStore.getState().executePlan(h.TAB, "existing", {
       advisor: true,
       advisorModel: "openrouter/a/b:high",
     });
-    await flushMicrotasks();
-    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
-      TAB,
+    await h.flushMicrotasks();
+    expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      h.TAB,
       true,
       "openrouter/a/b:high",
       false,
     );
     const implementationPrompt = () =>
-      sent.find(
+      h.sent.find(
         (s) =>
-          s.tabId === TAB &&
+          s.tabId === h.TAB &&
           s.cmd.type === "prompt" &&
           String(s.cmd.message).includes("execute the approved plan"),
       );
     // The relaunch parked the tab at "starting" — the prompt waits on readiness.
     expect(implementationPrompt()).toBeUndefined();
-    useStore.setState({
-      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, status: "ready" } },
+    h.useStore.setState({
+      rpc: { [h.TAB]: { ...h.useStore.getState().rpc[h.TAB]!, status: "ready" } },
     });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
     const prompt = implementationPrompt();
     expect(prompt).toBeDefined();
     // A relaunched session has no plan turn in flight, so the prompt steers.
@@ -3187,28 +2854,28 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("a failed advisor relaunch never dispatches the prompt", async () => {
-    useStore.setState({
-      state: stateWithRecord(null),
-      rpc: { [TAB]: rpcTabState() },
+    h.useStore.setState({
+      state: h.stateWithRecord(null),
+      rpc: { [h.TAB]: rpcTabState() },
     });
     openReview("a2");
-    useStore.getState().executePlan(TAB, "existing", {
+    h.useStore.getState().executePlan(h.TAB, "existing", {
       advisor: true,
       advisorModel: "openrouter/a/b:high",
     });
-    await flushMicrotasks();
-    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
-      TAB,
+    await h.flushMicrotasks();
+    expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      h.TAB,
       true,
       "openrouter/a/b:high",
       false,
     );
-    useStore.setState({
-      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, status: "error" } },
+    h.useStore.setState({
+      rpc: { [h.TAB]: { ...h.useStore.getState().rpc[h.TAB]!, status: "error" } },
     });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
     expect(
-      sent.some(
+      h.sent.some(
         (s) =>
           s.cmd.type === "prompt" &&
           String(s.cmd.message).includes("execute the approved plan"),
@@ -3217,48 +2884,48 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("a fresh session receives the staged advisor tuple and model", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({ state: stateWithRecord(null) });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openReviewWithPlan("a3");
-    await flushMicrotasks();
-    useStore.getState().executePlan(TAB, "fresh", {
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh", {
       advisor: true,
       advisorModel: "openrouter/a/b:high",
       model: MODEL_X,
       thinkingLevel: "high",
     });
-    await flushMicrotasks();
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         advisor: true,
         advisorModel: "openrouter/a/b:high",
       }),
     );
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        ...useStore.getState().rpc,
+        ...h.useStore.getState().rpc,
         "fresh-tab": rpcTabState({ status: "ready", planText: null }),
       },
     });
-    await flushMicrotasks();
-    const onFresh = (s: (typeof sent)[number]) => s.tabId === "fresh-tab";
-    const setModel = sent.find((s) => onFresh(s) && s.cmd.type === "set_model");
+    await h.flushMicrotasks();
+    const onFresh = (s: (typeof h.sent)[number]) => s.tabId === "fresh-tab";
+    const setModel = h.sent.find((s) => onFresh(s) && s.cmd.type === "set_model");
     expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
-    respond("fresh-tab", setModel!.cmd, {});
-    await flushMicrotasks();
-    const setLevel = sent.find(
+    h.respond("fresh-tab", setModel!.cmd, {});
+    await h.flushMicrotasks();
+    const setLevel = h.sent.find(
       (s) => onFresh(s) && s.cmd.type === "set_thinking_level",
     );
     expect(setLevel?.cmd).toMatchObject({ level: "high" });
-    respond("fresh-tab", setLevel!.cmd, {});
-    await flushMicrotasks();
-    const modelIdx = sent.findIndex(
+    h.respond("fresh-tab", setLevel!.cmd, {});
+    await h.flushMicrotasks();
+    const modelIdx = h.sent.findIndex(
       (s) => onFresh(s) && s.cmd.type === "set_model",
     );
-    const levelIdx = sent.findIndex(
+    const levelIdx = h.sent.findIndex(
       (s) => onFresh(s) && s.cmd.type === "set_thinking_level",
     );
-    const promptIdx = sent.findIndex(
+    const promptIdx = h.sent.findIndex(
       (s) => onFresh(s) && s.cmd.type === "prompt",
     );
     expect(modelIdx).toBeGreaterThanOrEqual(0);
@@ -3267,38 +2934,38 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("still shows a plain select dialog when the title is not a plan review", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "p5",
       method: "select",
       title: "pick one",
       options: ["a", "b"],
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.planReview).toBeNull();
     expect(tab.extensionQueue).toHaveLength(1);
   });
 
   it("answers stray host_tool_call with an error result", () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "host_tool_call", id: "h1", name: "x" });
-    expect(sent.pop()!.cmd).toMatchObject({
+      .handleRpcFrame(h.TAB, { type: "host_tool_call", id: "h1", name: "x" });
+    expect(h.sent.pop()!.cmd).toMatchObject({
       type: "host_tool_result",
       id: "h1",
     });
   });
 
   it("answers host_uri_request instead of leaving the agent blocked", () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, {
+      .handleRpcFrame(h.TAB, {
         type: "host_uri_request",
         id: "u1",
         operation: "read",
         url: "db://x",
       });
-    expect(sent.pop()!.cmd).toMatchObject({
+    expect(h.sent.pop()!.cmd).toMatchObject({
       type: "host_uri_result",
       id: "u1",
       error: "omp-ui registers no uri schemes",
@@ -3308,25 +2975,25 @@ describe("handleRpcFrame routing", () => {
   it("command_output attaches to the newest running command row", () => {
     const first = commandItem("usage", "");
     const second = commandItem("context", "");
-    useStore.setState({
-      rpc: { [TAB]: rpcTabState({ items: [first, second] }) },
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ items: [first, second] }) },
     });
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "command_output", text: "out-1" });
-    useStore
+      .handleRpcFrame(h.TAB, { type: "command_output", text: "out-1" });
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "command_output", text: "out-2" });
-    const items = useStore.getState().rpc[TAB]!.items;
+      .handleRpcFrame(h.TAB, { type: "command_output", text: "out-2" });
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
     expect(items[0]).toBe(first);
     expect(items[1]).toMatchObject({ id: second.id, output: "out-1\nout-2" });
   });
 
   it("command_output with no running command row falls back to a notice", () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "command_output", text: "stray reply" });
-    const items = useStore.getState().rpc[TAB]!.items;
+      .handleRpcFrame(h.TAB, { type: "command_output", text: "stray reply" });
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       kind: "notice",
@@ -3337,14 +3004,14 @@ describe("handleRpcFrame routing", () => {
 
   it("command_output accumulation is capped, head-preserving", () => {
     const item = commandItem("usage", "");
-    useStore.setState({ rpc: { [TAB]: rpcTabState({ items: [item] }) } });
-    useStore
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ items: [item] }) } });
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "command_output", text: "x".repeat(64 * 1024) });
-    useStore
+      .handleRpcFrame(h.TAB, { type: "command_output", text: "x".repeat(64 * 1024) });
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "command_output", text: "tail" });
-    const updated = useStore.getState().rpc[TAB]!.items[0]!;
+      .handleRpcFrame(h.TAB, { type: "command_output", text: "tail" });
+    const updated = h.useStore.getState().rpc[h.TAB]!.items[0]!;
     expect(updated.kind).toBe("command");
     const output = updated.kind === "command" ? updated.output! : "";
     expect(output.length).toBeLessThanOrEqual(64 * 1024 + 24);
@@ -3353,7 +3020,7 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("available_commands_update replaces the command palette", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "available_commands_update",
       commands: [
         { name: "stats", description: "show stats", source: "builtin" },
@@ -3366,7 +3033,7 @@ describe("handleRpcFrame routing", () => {
         { name: 42 },
       ],
     });
-    const { commands } = useStore.getState().rpc[TAB]!;
+    const { commands } = h.useStore.getState().rpc[h.TAB]!;
     expect(commands.map((c) => c.name)).toEqual(["stats", "model"]);
     expect(commands[1]).toMatchObject({
       aliases: ["m"],
@@ -3375,12 +3042,12 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("extension_error surfaces as a rose-worthy error notice", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_error",
       extensionPath: "/ext/foo.ts",
       error: "boom",
     });
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({
         kind: "notice",
         text: "boom",
@@ -3391,28 +3058,28 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("subagent frames mark the transcript and refresh the roster", () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "subagent_lifecycle",
       payload: { id: "s1", agent: "scout", status: "started", index: 0 },
     });
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({
         kind: "marker",
         label: "subagent scout: started",
         tone: "copper",
       }),
     ]);
-    expect(sent.some((s) => s.cmd.type === "get_subagents")).toBe(true);
+    expect(h.sent.some((s) => s.cmd.type === "get_subagents")).toBe(true);
   });
 
   it("thinking_level_changed patches the session as well as the transcript", () => {
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, {
+      .handleRpcFrame(h.TAB, {
         type: "thinking_level_changed",
         thinkingLevel: "max",
       });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.session.thinkingLevel).toBe("max");
     expect(tab.items).toEqual([
       expect.objectContaining({ kind: "marker", label: "thinking level: max" }),
@@ -3420,19 +3087,19 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("session_info_update and config_update merge into session/model", () => {
-    const store = useStore.getState();
-    store.handleRpcFrame(TAB, {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
       type: "session_info_update",
       title: "Renamed",
       sessionId: "sess-9",
     });
-    expect(useStore.getState().rpc[TAB]!.session.sessionId).toBe("sess-9");
-    store.handleRpcFrame(TAB, {
+    expect(h.useStore.getState().rpc[h.TAB]!.session.sessionId).toBe("sess-9");
+    store.handleRpcFrame(h.TAB, {
       type: "config_update",
       model: { id: "m2", name: "M Two", provider: "openai" },
       thinkingLevel: "low",
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.model).toMatchObject({ id: "m2", provider: "openai" });
     // A partial frame must not wipe what get_state already established.
     expect(tab.session).toMatchObject({
@@ -3458,14 +3125,14 @@ describe("stall auto-continue (issue #251)", () => {
   });
 
   const continuePrompts = () =>
-    sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === STALL_CONTINUE_LEAD);
+    h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === STALL_CONTINUE_LEAD);
 
   it("continues a stalled turn end with a bounded follow-up prompt (incident replay)", async () => {
     const T = "tab-stall-a";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-      const store = useStore.getState();
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
       // The real frame sequence of session 01a024fc (issue #250's incident):
       // the ask's args are still streaming when the model stream goes silent.
       store.handleRpcFrame(T, {
@@ -3500,10 +3167,10 @@ describe("stall auto-continue (issue #251)", () => {
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
     // The in-flight ask card reads aborted, not cancelled.
-    const items = useStore.getState().rpc[T]!.items;
+    const items = h.useStore.getState().rpc[T]!.items;
     const tools = items.filter((i) => i.kind === "tool");
     expect(tools).not.toHaveLength(0);
     for (const t of tools) expect(t).toMatchObject({ status: "aborted" });
@@ -3530,12 +3197,12 @@ describe("stall auto-continue (issue #251)", () => {
     const T = "tab-stall-b";
     vi.useFakeTimers();
     try {
-      backendState = { ...backendState, stallAutoContinue: false };
-      useStore.setState({
-        state: backendState,
+      h.backendState = { ...h.backendState, stallAutoContinue: false };
+      h.useStore.setState({
+        state: h.backendState,
         rpc: { [T]: rpcTabState({ status: "running" }) },
       });
-      const store = useStore.getState();
+      const store = h.useStore.getState();
       store.handleRpcFrame(T, {
         type: "tool_execution_start",
         toolCallId: "t1",
@@ -3547,9 +3214,9 @@ describe("stall auto-continue (issue #251)", () => {
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
-    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
-    const items = useStore.getState().rpc[T]!.items;
+    await h.flushMicrotasks();
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    const items = h.useStore.getState().rpc[T]!.items;
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
     ).toBe(true);
@@ -3560,8 +3227,8 @@ describe("stall auto-continue (issue #251)", () => {
 
   it("does not continue a user interrupt: the card cancels, no diagnostic, no prompt", async () => {
     const T = "tab-stall-c";
-    useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-    const store = useStore.getState();
+    h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+    const store = h.useStore.getState();
     store.handleRpcFrame(T, {
       type: "tool_execution_start",
       toolCallId: "t1",
@@ -3576,11 +3243,11 @@ describe("stall auto-continue (issue #251)", () => {
       },
     });
     store.handleRpcFrame(T, { type: "agent_end" });
-    await flushMicrotasks();
-    const items = useStore.getState().rpc[T]!.items;
+    await h.flushMicrotasks();
+    const items = h.useStore.getState().rpc[T]!.items;
     const tool = items.find((i) => i.kind === "tool");
     expect(tool).toMatchObject({ status: "cancelled" });
-    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
     ).toBe(false);
@@ -3588,8 +3255,8 @@ describe("stall auto-continue (issue #251)", () => {
 
   it("aborts cards on a non-stall error end, with no diagnostic and no continue", async () => {
     const T = "tab-stall-d";
-    useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-    const store = useStore.getState();
+    h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+    const store = h.useStore.getState();
     store.handleRpcFrame(T, {
       type: "tool_execution_start",
       toolCallId: "t1",
@@ -3605,11 +3272,11 @@ describe("stall auto-continue (issue #251)", () => {
       },
     });
     store.handleRpcFrame(T, { type: "agent_end" });
-    await flushMicrotasks();
-    const items = useStore.getState().rpc[T]!.items;
+    await h.flushMicrotasks();
+    const items = h.useStore.getState().rpc[T]!.items;
     const tool = items.find((i) => i.kind === "tool");
     expect(tool).toMatchObject({ status: "aborted" });
-    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
     ).toBe(false);
@@ -3619,8 +3286,8 @@ describe("stall auto-continue (issue #251)", () => {
     const T = "tab-stall-w1";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-      const store = useStore.getState();
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
       // Main's stall watchdog aborted the turn and reported it (issue #253);
       // the tagged notice frame is the only stall marker — the turn itself
       // ends with stopReason "aborted", invisible to isStreamStallEnd.
@@ -3644,9 +3311,9 @@ describe("stall auto-continue (issue #251)", () => {
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    const items = useStore.getState().rpc[T]!.items;
+    const items = h.useStore.getState().rpc[T]!.items;
     // Main's notice is the diagnostic — no provider-stall diagnostic on top.
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
@@ -3661,19 +3328,19 @@ describe("stall auto-continue (issue #251)", () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
     // Consumed at the turn boundary: a later non-stall end must not continue.
-    expect(useStore.getState().rpc[T]!.stallAbortPending ?? false).toBe(false);
+    expect(h.useStore.getState().rpc[T]!.stallAbortPending ?? false).toBe(false);
   });
 
   it("the app switch also gates watchdog-abort continues", async () => {
     const T = "tab-stall-w2";
     vi.useFakeTimers();
     try {
-      backendState = { ...backendState, stallAutoContinue: false };
-      useStore.setState({
-        state: backendState,
+      h.backendState = { ...h.backendState, stallAutoContinue: false };
+      h.useStore.setState({
+        state: h.backendState,
         rpc: { [T]: rpcTabState({ status: "running" }) },
       });
-      const store = useStore.getState();
+      const store = h.useStore.getState();
       store.handleRpcFrame(T, {
         type: "omp_ui_notice",
         level: "warn",
@@ -3694,9 +3361,9 @@ describe("stall auto-continue (issue #251)", () => {
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    const items = useStore.getState().rpc[T]!.items;
+    const items = h.useStore.getState().rpc[T]!.items;
     // The abort report still lands in the transcript; only the continue is gated.
     expect(
       items.some(
@@ -3704,15 +3371,15 @@ describe("stall auto-continue (issue #251)", () => {
           i.kind === "notice" && i.level === "warn" && i.text.includes("aborted a stalled turn"),
       ),
     ).toBe(true);
-    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
   });
 
   it("an untagged omp_ui_notice does not arm auto-continue", async () => {
     const T = "tab-stall-w3";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-      const store = useStore.getState();
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
       store.handleRpcFrame(T, {
         type: "omp_ui_notice",
         level: "warn",
@@ -3724,25 +3391,25 @@ describe("stall auto-continue (issue #251)", () => {
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
-    expect(useStore.getState().rpc[T]!.stallAbortPending ?? false).toBe(false);
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(h.useStore.getState().rpc[T]!.stallAbortPending ?? false).toBe(false);
   });
 
   it("caps consecutive continues, then re-arms on a user prompt", async () => {
     const T = "tab-stall-e";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
       // One stalled turn end: the continue prompt goes out, then its turn
       // (simulated) dies to a stall again.
       const stalledTurn = async () => {
-        useStore.setState((s) => ({
+        h.useStore.setState((s) => ({
           rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
         }));
-        useStore.getState().handleRpcFrame(T, stallEndFrame());
-        useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+        h.useStore.getState().handleRpcFrame(T, stallEndFrame());
+        h.useStore.getState().handleRpcFrame(T, { type: "agent_end" });
         await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
       };
 
@@ -3754,7 +3421,7 @@ describe("stall auto-continue (issue #251)", () => {
       // A third consecutive stall hits the cap: explained once, nothing sent.
       await stalledTurn();
       expect(continuePrompts()).toHaveLength(2);
-      const capped = useStore
+      const capped = h.useStore
         .getState()
         .rpc[T]!.items.filter(
           (i) => i.kind === "notice" && i.text === STALL_CONTINUE_CAP_NOTICE,
@@ -3763,13 +3430,13 @@ describe("stall auto-continue (issue #251)", () => {
 
       // The OS-notification cap report latched exactly once, and clears on the
       // user prompt that re-arms the guard.
-      expect(mockBackend.reportStallCap).toHaveBeenCalledTimes(1);
-      expect(mockBackend.reportStallCap).toHaveBeenCalledWith(T, true);
+      expect(h.mockBackend.reportStallCap).toHaveBeenCalledTimes(1);
+      expect(h.mockBackend.reportStallCap).toHaveBeenCalledWith(T, true);
 
       // The per-session stall counter (issue #100 numbering) advanced across
       // stalls — stallNotice must mutate the live tab, not the frame-start
       // capture the ready patch above it replaced.
-      const stallNotices = useStore
+      const stallNotices = h.useStore
         .getState()
         .rpc[T]!.items.filter(
           (i): i is NoticeItem =>
@@ -3782,23 +3449,23 @@ describe("stall auto-continue (issue #251)", () => {
       ]);
 
       // A user prompt re-arms the guard: the next stall gets its continue.
-      void useStore.getState().sendPrompt(T, "carry on");
+      void h.useStore.getState().sendPrompt(T, "carry on");
       await stalledTurn();
       expect(continuePrompts()).toHaveLength(3);
-      expect(mockBackend.reportStallCap).toHaveBeenCalledTimes(2);
-      expect(mockBackend.reportStallCap).toHaveBeenLastCalledWith(T, false);
+      expect(h.mockBackend.reportStallCap).toHaveBeenCalledTimes(2);
+      expect(h.mockBackend.reportStallCap).toHaveBeenLastCalledWith(T, false);
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 
   it("a user prompt inside the settle window wins the race", async () => {
     const T = "tab-stall-f";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-      const store = useStore.getState();
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
       store.handleRpcFrame(T, {
         type: "tool_execution_start",
         toolCallId: "t1",
@@ -3807,13 +3474,13 @@ describe("stall auto-continue (issue #251)", () => {
       store.handleRpcFrame(T, stallEndFrame());
       store.handleRpcFrame(T, { type: "agent_end" });
       // The user sees the error and types their own continuation.
-      void useStore.getState().sendPrompt(T, "carry on where you stopped");
+      void h.useStore.getState().sendPrompt(T, "carry on where you stopped");
       await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
-    const prompts = sent.filter((s) => s.cmd.type === "prompt");
+    await h.flushMicrotasks();
+    const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
     expect(prompts).toHaveLength(1);
     expect(prompts[0]!.cmd.message).toBe("carry on where you stopped");
   });
@@ -3822,8 +3489,8 @@ describe("stall auto-continue (issue #251)", () => {
     const T = "tab-stall-g";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-      const store = useStore.getState();
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
       store.handleRpcFrame(T, {
         type: "tool_execution_start",
         toolCallId: "t1",
@@ -3832,30 +3499,30 @@ describe("stall auto-continue (issue #251)", () => {
       store.handleRpcFrame(T, stallEndFrame());
       store.handleRpcFrame(T, { type: "agent_end" });
       // The session process dies before the settle window closes.
-      useStore.setState((s) => ({ exited: { ...s.exited, [T]: 1 } }));
+      h.useStore.setState((s) => ({ exited: { ...s.exited, [T]: 1 } }));
       await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
-    expect(sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    await h.flushMicrotasks();
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
   });
 
   it("the auto-continue does not reset the advisor-reply streak", async () => {
     const T = "tab-stall-h";
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
       // The production sequence, load-bearing for the advisor watcher's cursor:
       // the reviewed turn's agent_end lands while the tab still reads running
       // (seeding the baseline past the marker), then the review arrives on the
       // idle session.
       const review = async (note: string) => {
-        useStore.setState((s) => ({
+        h.useStore.setState((s) => ({
           rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
         }));
-        useStore.getState().handleRpcFrame(T, { type: "agent_end" });
-        useStore.getState().handleRpcFrame(T, {
+        h.useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+        h.useStore.getState().handleRpcFrame(T, {
           type: "message_end",
           message: {
             role: "custom",
@@ -3867,7 +3534,7 @@ describe("stall auto-continue (issue #251)", () => {
         await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
       };
       const advisorReplies = () =>
-        sent.filter(
+        h.sent.filter(
           (s) => s.cmd.type === "prompt" && String(s.cmd.message).startsWith(ADVISOR_REPLY_LEAD),
         );
 
@@ -3878,11 +3545,11 @@ describe("stall auto-continue (issue #251)", () => {
       expect(advisorReplies()).toHaveLength(2);
 
       // A stall end dispatches its continue; the advisor guard must not reset.
-      useStore.setState((s) => ({
+      h.useStore.setState((s) => ({
         rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
       }));
-      useStore.getState().handleRpcFrame(T, stallEndFrame());
-      useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+      h.useStore.getState().handleRpcFrame(T, stallEndFrame());
+      h.useStore.getState().handleRpcFrame(T, { type: "agent_end" });
       await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
       expect(continuePrompts()).toHaveLength(1);
 
@@ -3890,79 +3557,79 @@ describe("stall auto-continue (issue #251)", () => {
       // instead of answering. Had the continue reset it, the reply would go out.
       await review("third finding");
       expect(advisorReplies()).toHaveLength(2);
-      const capNotice = useStore.getState().rpc[T]!.items.find(
+      const capNotice = h.useStore.getState().rpc[T]!.items.find(
         (i) => i.kind === "notice" && i.text === ADVISOR_REPLY_CAP_NOTICE,
       );
       expect(capNotice).toBeDefined();
     } finally {
       vi.useRealTimers();
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
   });
 });
 
 describe("auto-title gating (setInitialPrompt)", () => {
   beforeEach(() => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({
-      state: backendState,
-      rpc: { [TAB]: rpcTabState({ status: "running" }) },
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
     });
-    sent.length = 0;
+    h.sent.length = 0;
   });
 
   it("renames immediately from a substantive first prompt, no agent_end needed", async () => {
-    useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
     // Latched and phase-1 sent synchronously — the derived name goes out as
     // soon as the prompt is offered, not when the first run ends.
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Refactor the auth module",
     );
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
-    await flushMicrotasks();
-    const renames = sent.filter((s) => s.cmd.type === "set_session_name");
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    await h.flushMicrotasks();
+    const renames = h.sent.filter((s) => s.cmd.type === "set_session_name");
     expect(renames).toHaveLength(1);
     expect(renames[0]!.cmd.name).toBe("Refactor the auth module");
     // Ack the derived send; the default model mock (null) means no upgrade.
-    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Refactor the auth module",
     );
   });
 
   it("defers on a greeting, then titles from the next real prompt", async () => {
-    useStore.getState().setInitialPrompt(TAB, "hi!");
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(false);
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
 
     // agent_end on the greeting turn must not name the session.
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
-    expect(sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(h.sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
 
-    useStore
+    h.useStore
       .getState()
-      .setInitialPrompt(TAB, "Add pagination to the sessions list");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+      .setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Add pagination to the sessions list");
   });
 
   it("keeps the first substantive prompt as the title source", () => {
     // The first prompt latches and renames; a second prompt must not displace it.
-    useStore.getState().setInitialPrompt(TAB, "Fix the login redirect");
-    useStore.getState().setInitialPrompt(TAB, "Actually, fix logout too");
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe(
+    h.useStore.getState().setInitialPrompt(h.TAB, "Fix the login redirect");
+    h.useStore.getState().setInitialPrompt(h.TAB, "Actually, fix logout too");
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Fix the login redirect",
     );
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 
   it("never titles a session that already has a user-visible name", async () => {
-    const base = stateWithRecord("sess-1");
-    backendState = {
+    const base = h.stateWithRecord("sess-1");
+    h.backendState = {
       ...base,
       projects: [
         {
@@ -3973,31 +3640,31 @@ describe("auto-title gating (setInitialPrompt)", () => {
         },
       ],
     };
-    useStore.setState({ state: backendState });
+    h.useStore.setState({ state: h.backendState });
 
-    useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
 
     // Latched closed: no source captured, and no later prompt can reopen it.
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
-    useStore.getState().setInitialPrompt(TAB, "Add pagination to the list");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
-    expect(sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the list");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(h.sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
   });
 
   it("titles a session whose record is still the 'New session' placeholder", async () => {
-    useStore.getState().setInitialPrompt(TAB, "Create a login page with OAuth");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    h.useStore.getState().setInitialPrompt(h.TAB, "Create a login page with OAuth");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Create a login page with OAuth");
   });
 
   it("titles from the captured prompt even if omp renamed mid-turn", async () => {
-    useStore.getState().setInitialPrompt(TAB, "Build a feature for the app");
-    const base = stateWithRecord("sess-1");
-    backendState = {
+    h.useStore.getState().setInitialPrompt(h.TAB, "Build a feature for the app");
+    const base = h.stateWithRecord("sess-1");
+    h.backendState = {
       ...base,
       projects: [
         {
@@ -4008,77 +3675,77 @@ describe("auto-title gating (setInitialPrompt)", () => {
         },
       ],
     };
-    useStore.setState({ state: backendState });
+    h.useStore.setState({ state: h.backendState });
 
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Build a feature for the app");
   });
 });
 
 describe("auto-title end-to-end", () => {
   beforeEach(() => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({
-      state: backendState,
-      rpc: { [TAB]: rpcTabState({ status: "running" }) },
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
     });
-    sent.length = 0;
+    h.sent.length = 0;
   });
 
   it("sends set_session_name once, then clears the stored prompt", async () => {
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, "Create a login page with OAuth");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, "Create a login page with OAuth");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
 
     // Deferred so phase 2 settles after the phase-1 ack, not ahead of it.
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Create a login page with OAuth");
 
-    for (const { tabId: tid, cmd } of sent.splice(0)) respond(tid, cmd, {});
-    await flushMicrotasks();
+    for (const { tabId: tid, cmd } of h.sent.splice(0)) h.respond(tid, cmd, {});
+    await h.flushMicrotasks();
     model.resolve(null);
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Create a login page with OAuth",
     );
 
     // A later turn must not rename again.
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
     expect(
-      sent.splice(0).find((s) => s.cmd.type === "set_session_name"),
+      h.sent.splice(0).find((s) => s.cmd.type === "set_session_name"),
     ).toBeUndefined();
   });
 
   it("retries on the next agent_end when set_session_name fails", async () => {
-    useStore.getState().setInitialPrompt(TAB, "Add a new API endpoint");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add a new API endpoint");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
 
-    const firstBatch = sent.splice(0);
+    const firstBatch = h.sent.splice(0);
     expect(
       firstBatch.find((s) => s.cmd.type === "set_session_name"),
     ).toBeTruthy();
     for (const { tabId: tid, cmd } of firstBatch) {
       const ok = cmd.type !== "set_session_name";
-      respond(tid, cmd, ok ? {} : "rejected", ok);
+      h.respond(tid, cmd, ok ? {} : "rejected", ok);
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(false);
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Add a new API endpoint",
     );
 
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
     expect(
-      sent.splice(0).find((s) => s.cmd.type === "set_session_name"),
+      h.sent.splice(0).find((s) => s.cmd.type === "set_session_name"),
     ).toBeTruthy();
   });
 
@@ -4086,64 +3753,64 @@ describe("auto-title end-to-end", () => {
     // The model title is a background upgrade: two sends, the derived name
     // first, the model's summary second.
     const prompt = "can you add pagination to the sessions list please";
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, prompt);
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
 
     expect(
-      sent.filter((s) => s.cmd.type === "set_session_name"),
+      h.sent.filter((s) => s.cmd.type === "set_session_name"),
     ).toHaveLength(1);
     expect(
-      sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
+      h.sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
     ).toBe(generateTitleFromPrompt(prompt));
 
-    const wave1 = sent.splice(0);
-    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    const wave1 = h.sent.splice(0);
+    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
     model.resolve("Add sessions list pagination");
-    await flushMicrotasks();
-    const wave2 = sent.splice(0);
+    await h.flushMicrotasks();
+    const wave2 = h.sent.splice(0);
     const renames = [...wave1, ...wave2].filter(
       (s) => s.cmd.type === "set_session_name",
     );
     expect(renames).toHaveLength(2);
     expect(renames[0]!.cmd.name).toBe(generateTitleFromPrompt(prompt));
     expect(renames[1]!.cmd.name).toBe("Add sessions list pagination");
-    for (const { tabId, cmd } of wave2) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    for (const { tabId, cmd } of wave2) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
 
-    expect(mockBackend.generateTitle).toHaveBeenCalledWith("/p", prompt);
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    expect(h.mockBackend.generateTitle).toHaveBeenCalledWith("/p", prompt);
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Add sessions list pagination",
     );
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
   });
 
   it("falls back to the derived title when the model declines", async () => {
     // null covers every failure path in main: no omp, bad model, timeout,
     // or a `<title/>` answer. The session is already named by phase 1, so
     // the decline only forgoes the upgrade.
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, "Can you fix the login redirect");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, "Can you fix the login redirect");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
 
-    const wave1 = sent.splice(0);
-    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    const wave1 = h.sent.splice(0);
+    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
     model.resolve(null);
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    const renames = [...wave1, ...sent].filter(
+    const renames = [...wave1, ...h.sent].filter(
       (s) => s.cmd.type === "set_session_name",
     );
     expect(renames).toHaveLength(1);
     expect(renames[0]!.cmd.name).toBe("Fix the login redirect");
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Fix the login redirect",
     );
   });
@@ -4153,136 +3820,136 @@ describe("auto-title end-to-end", () => {
     const model = new Promise<string | null>((_resolve, reject) => {
       rejectModel = reject;
     });
-    mockBackend.generateTitle.mockReturnValueOnce(model);
-    useStore.getState().setInitialPrompt(TAB, "Refactor the auth module");
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    await flushMicrotasks();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model);
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
 
-    const wave1 = sent.splice(0);
-    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    const wave1 = h.sent.splice(0);
+    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
     rejectModel(new Error("ipc died"));
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    const renames = [...wave1, ...sent].filter(
+    const renames = [...wave1, ...h.sent].filter(
       (s) => s.cmd.type === "set_session_name",
     );
     expect(renames).toHaveLength(1);
     expect(renames[0]!.cmd.name).toBe("Refactor the auth module");
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Refactor the auth module",
     );
   });
 
   it("sends the derived name before the model resolves", async () => {
     const prompt = "Can you fix the login redirect";
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, prompt);
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
+    await h.flushMicrotasks();
 
     // Phase 1 is already in flight while the model is still pending.
     expect(
-      sent.filter((s) => s.cmd.type === "set_session_name"),
+      h.sent.filter((s) => s.cmd.type === "set_session_name"),
     ).toHaveLength(1);
     expect(
-      sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
+      h.sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
     ).toBe("Fix the login redirect");
 
-    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
 
     model.resolve("Fix the login redirect race");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
     expect(
-      sent.filter((s) => s.cmd.type === "set_session_name"),
+      h.sent.filter((s) => s.cmd.type === "set_session_name"),
     ).toHaveLength(1);
     expect(
-      sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
+      h.sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
     ).toBe("Fix the login redirect race");
 
-    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Fix the login redirect race",
     );
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
   });
 
   it("skips the upgrade when the model title equals the derived name", async () => {
     const prompt = "Create a login page with OAuth";
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, prompt);
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
+    await h.flushMicrotasks();
 
-    const wave1 = sent.splice(0);
-    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    const wave1 = h.sent.splice(0);
+    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
     model.resolve(generateTitleFromPrompt(prompt));
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    const renames = [...wave1, ...sent].filter(
+    const renames = [...wave1, ...h.sent].filter(
       (s) => s.cmd.type === "set_session_name",
     );
     expect(renames).toHaveLength(1);
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       generateTitleFromPrompt(prompt),
     );
   });
 
   it("does not upgrade after a manual rename in the interim", async () => {
     const prompt = "Refactor the auth module";
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, prompt);
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
+    await h.flushMicrotasks();
 
-    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
 
     // The user's name is final: renameSessionTo clears initialPrompt, which
     // cancels the pending upgrade.
-    const manual = useStore.getState().renameSessionTo(TAB, "My name");
-    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
+    const manual = h.useStore.getState().renameSessionTo(h.TAB, "My name");
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
     await manual;
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
     model.resolve("Model upgrade attempt");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
     expect(
-      sent.filter(
+      h.sent.filter(
         (s) =>
           s.cmd.type === "set_session_name" && s.cmd.name === "Model upgrade attempt",
       ),
     ).toHaveLength(0);
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
   });
 
   it("does not title a replacement session after /new", async () => {
     const prompt = "Refactor the auth module";
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, prompt);
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
+    await h.flushMicrotasks();
 
-    const wave1 = sent.splice(0);
-    for (const { tabId, cmd } of wave1) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    const wave1 = h.sent.splice(0);
+    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
 
     // A /new or /branch while the model thought: the record now points at a
     // different session — the upgrade must not name it.
-    backendState = stateWithRecord("sess-2");
-    useStore.setState({ state: backendState });
+    h.backendState = h.stateWithRecord("sess-2");
+    h.useStore.setState({ state: h.backendState });
 
     model.resolve("Model upgrade attempt");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
     // Phase 1 already went out; the upgrade never reached the wire.
-    const totalRenames = [...wave1, ...sent].filter(
+    const totalRenames = [...wave1, ...h.sent].filter(
       (s) => s.cmd.type === "set_session_name",
     );
     expect(totalRenames).toHaveLength(1);
@@ -4290,52 +3957,52 @@ describe("auto-title end-to-end", () => {
 
   it("keeps the derived name when the upgrade is rejected", async () => {
     const prompt = "Refactor the auth module";
-    const model = deferred<string | null>();
-    mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    useStore.getState().setInitialPrompt(TAB, prompt);
-    await flushMicrotasks();
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
+    await h.flushMicrotasks();
 
-    for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, {});
-    await flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
     model.resolve("Model upgrade attempt");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
     // A future omp that refuses the user→user overwrite degrades to the
     // derived name standing; the titling still settles.
-    for (const { tabId, cmd } of sent.splice(0)) {
+    for (const { tabId, cmd } of h.sent.splice(0)) {
       const ok = cmd.type !== "set_session_name";
-      respond(tabId, cmd, ok ? {} : "rejected", ok);
+      h.respond(tabId, cmd, ok ? {} : "rejected", ok);
     }
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
-    expect(useStore.getState().rpc[TAB]!.autoTitleSent).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Refactor the auth module",
     );
-    expect(useStore.getState().rpc[TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 });
 
 describe("prompting, slash commands, and session ops", () => {
   beforeEach(() => {
-    backendState = stateWithRecord("sess-1");
-    useStore.setState({ state: backendState, rpc: { [TAB]: rpcTabState() } });
-    sent.length = 0;
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() } });
+    h.sent.length = 0;
   });
 
   /** Answers every outstanding command with `data`, so a method promise settles. */
   const settleAll = async (data: unknown = {}): Promise<void> => {
     for (let wave = 0; wave < 3; wave++) {
-      await flushMicrotasks();
-      for (const { tabId, cmd } of sent.splice(0)) respond(tabId, cmd, data);
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, data);
     }
   };
 
   it("sendPrompt always sends the prompt frame, with steer as the streaming behaviour", async () => {
-    const ready = useStore.getState().sendPrompt(TAB, "do the thing");
+    const ready = h.useStore.getState().sendPrompt(h.TAB, "do the thing");
     // Phase 1 of auto-titling also sends on the first prompt, so select the
     // prompt frame by type rather than by position.
-    const frame = sent.find((s) => s.cmd.type === "prompt");
+    const frame = h.sent.find((s) => s.cmd.type === "prompt");
     expect(frame).toBeDefined();
     expect(frame!.cmd).toMatchObject({
       type: "prompt",
@@ -4345,9 +4012,9 @@ describe("prompting, slash commands, and session ops", () => {
     await settleAll();
     await expect(ready).resolves.toBe(true);
 
-    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
-    const steering = useStore.getState().sendPrompt(TAB, "actually, wait");
-    const steerFrame = sent.find((s) => s.cmd.type === "prompt");
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+    const steering = h.useStore.getState().sendPrompt(h.TAB, "actually, wait");
+    const steerFrame = h.sent.find((s) => s.cmd.type === "prompt");
     expect(steerFrame!.cmd).toMatchObject({
       type: "prompt",
       message: "actually, wait",
@@ -4358,27 +4025,27 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("sendPrompt returns false when no command is accepted (issue #283)", async () => {
-    useStore.setState({ rpc: {} });
-    await expect(useStore.getState().sendPrompt(TAB, "missing")).resolves.toBe(false);
-    expect(sent).toHaveLength(0);
+    h.useStore.setState({ rpc: {} });
+    await expect(h.useStore.getState().sendPrompt(h.TAB, "missing")).resolves.toBe(false);
+    expect(h.sent).toHaveLength(0);
 
-    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "starting" }) } });
-    await expect(useStore.getState().sendPrompt(TAB, "starting")).resolves.toBe(false);
-    expect(sent).toHaveLength(0);
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "starting" }) } });
+    await expect(h.useStore.getState().sendPrompt(h.TAB, "starting")).resolves.toBe(false);
+    expect(h.sent).toHaveLength(0);
 
-    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "ready" }) } });
-    const failed = useStore.getState().sendPrompt(TAB, "rejected");
-    const promptFrame = sent.find((s) => s.cmd.type === "prompt");
-    respond(TAB, promptFrame!.cmd, "prompt rejected", false);
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "ready" }) } });
+    const failed = h.useStore.getState().sendPrompt(h.TAB, "rejected");
+    const promptFrame = h.sent.find((s) => s.cmd.type === "prompt");
+    h.respond(h.TAB, promptFrame!.cmd, "prompt rejected", false);
     await expect(failed).resolves.toBe(false);
   });
 
   it("sendPrompt honours an explicit follow_up route while running", async () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
-    const promise = useStore
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+    const promise = h.useStore
       .getState()
-      .sendPrompt(TAB, "and then this", "follow_up");
-    const followFrame = sent.find((s) => s.cmd.type === "prompt");
+      .sendPrompt(h.TAB, "and then this", "follow_up");
+    const followFrame = h.sent.find((s) => s.cmd.type === "prompt");
     expect(followFrame!.cmd).toMatchObject({
       type: "prompt",
       message: "and then this",
@@ -4389,16 +4056,16 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("sendPrompt feeds the auto-titler immediately, no agent_end needed", async () => {
-    const promise = useStore
+    const promise = h.useStore
       .getState()
-      .sendPrompt(TAB, "Refactor the auth module");
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBe(
+      .sendPrompt(h.TAB, "Refactor the auth module");
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Refactor the auth module",
     );
     // Flush once so the async rename's set_session_name lands, then capture it
     // before settleAll consumes the sent queue.
-    await flushMicrotasks();
-    const rename = sent.find((s) => s.cmd.type === "set_session_name");
+    await h.flushMicrotasks();
+    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
     expect(rename!.cmd.name).toBe("Refactor the auth module");
     // settleAll answers the prompt (and the rename) so sendPrompt resolves.
     await settleAll();
@@ -4406,27 +4073,27 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("runSlashCommand normalizes the leading slash and never titles", async () => {
-    const promise = useStore.getState().runSlashCommand(TAB, "advisor on");
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "advisor on");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/advisor on",
     });
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
     await settleAll();
     await promise;
   });
 
   it("runSlashCommand /new opens a new session tab instead of prompting omp", async () => {
-    backendState = stateWithRecord(null);
-    const project = backendState.projects[0]!.project;
+    h.backendState = h.stateWithRecord(null);
+    const project = h.backendState.projects[0]!.project;
     project.lastAdvisor = true;
     project.lastAdvisorModel = null;
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
-    useStore.setState({
-      state: backendState,
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({
+      state: h.backendState,
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
@@ -4435,9 +4102,9 @@ describe("prompting, slash commands, and session ops", () => {
       advisorDefaults: { "/p": { enabled: true, model: null } },
     });
 
-    await useStore.getState().runSlashCommand(TAB, "/new");
+    await h.useStore.getState().runSlashCommand(h.TAB, "/new");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: true,
@@ -4445,67 +4112,67 @@ describe("prompting, slash commands, and session ops", () => {
       cols: 80,
       rows: 24,
     });
-    expect(sent).toEqual([]); // nothing reached omp
-    expect(useStore.getState().activeTabId).toBe("fresh-tab");
+    expect(h.sent).toEqual([]); // nothing reached omp
+    expect(h.useStore.getState().activeTabId).toBe("fresh-tab");
   });
 
   it("runSlashCommand forwards /new with arguments to omp", async () => {
-    const promise = useStore.getState().runSlashCommand(TAB, "/new later");
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/new later");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/new later",
     });
-    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     await settleAll();
     await promise;
   });
 
   it("runSlashCommand /new falls back to omp when the tab is unknown", async () => {
-    useStore.setState({ tabs: [] });
-    const promise = useStore.getState().runSlashCommand(TAB, "/new");
-    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/new" });
-    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    h.useStore.setState({ tabs: [] });
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/new");
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/new" });
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     await settleAll();
     await promise;
   });
 
   it("runSlashCommand /plan toggles plan mode on instead of prompting omp", async () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/plan");
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/plan");
     // The configured plan format rides the `on` command (issue #109).
-    expect(sent[0]!.cmd).toMatchObject({
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/omp-ui-plan on html",
     });
-    expect(useStore.getState().rpc[TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
     await settleAll();
     await promise;
   });
 
   it("runSlashCommand /plan on matches the bare toggle", async () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/plan on");
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/plan on");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/omp-ui-plan on html",
     });
@@ -4514,20 +4181,20 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("runSlashCommand /plan carries the markdown format when that is the setting", async () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      rpc: { [TAB]: rpcTabState() },
-      state: { ...stateWithRecord("s1"), planFormat: "md" },
+      rpc: { [h.TAB]: rpcTabState() },
+      state: { ...h.stateWithRecord("s1"), planFormat: "md" },
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/plan");
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/plan");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/omp-ui-plan on md",
     });
@@ -4536,19 +4203,19 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("runSlashCommand /plan off exits plan mode", async () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/plan off");
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/plan off");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/omp-ui-plan off",
     });
@@ -4557,19 +4224,19 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("runSlashCommand /no-plan exits plan mode", async () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/no-plan");
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/no-plan");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/omp-ui-plan off",
     });
@@ -4578,10 +4245,10 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("runSlashCommand forwards /plan with arguments to omp", async () => {
-    const promise = useStore
+    const promise = h.useStore
       .getState()
-      .runSlashCommand(TAB, "/plan rewrite auth");
-    expect(sent[0]!.cmd).toMatchObject({
+      .runSlashCommand(h.TAB, "/plan rewrite auth");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/plan rewrite auth",
     });
@@ -4590,13 +4257,13 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("runSlashCommand forwards /plan from a pty tab to its TUI", async () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
-        tabInfo({ tabId: TAB, mode: "pty", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: h.TAB, mode: "pty", projectCwd: "/p", hidden: false }),
       ],
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/plan");
-    expect(sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/plan" });
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/plan");
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/plan" });
     await settleAll();
     await promise;
   });
@@ -4605,9 +4272,9 @@ describe("prompting, slash commands, and session ops", () => {
   const seedCommands = (
     ...commands: Array<{ name: string; aliases?: string[] }>
   ): void => {
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           commands: commands.map((c) => ({ ...c, description: "" })),
         }),
       },
@@ -4616,16 +4283,16 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("runSlashCommand echoes an advertised command and settles done when no agent ran", async () => {
     seedCommands({ name: "usage" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/usage");
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/usage");
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       name: "usage",
       args: "",
       status: "running",
     });
-    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
+    h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "done",
     });
@@ -4633,16 +4300,16 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("runSlashCommand matches aliases and marks the row agent when a turn starts", async () => {
     seedCommands({ name: "usage", aliases: ["cost"] });
-    const promise = useStore.getState().runSlashCommand(TAB, "/cost this month");
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/cost this month");
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       name: "cost",
       args: "this month",
       status: "running",
     });
-    respond(TAB, sent[0]!.cmd, { agentInvoked: true });
+    h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: true });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "agent",
     });
@@ -4650,9 +4317,9 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("refreshes usage after an advertised soft compact command", async () => {
     seedCommands({ name: "compact", aliases: ["shrink"] });
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           commands: [
             { name: "compact", aliases: ["shrink"], description: "" },
           ],
@@ -4667,68 +4334,68 @@ describe("prompting, slash commands, and session ops", () => {
         }),
       },
     });
-    const promise = useStore.getState().runSlashCommand(TAB, "/shrink soft");
-    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
-    await flushMicrotasks();
-    const state = sent.find((s) => s.cmd.type === "get_state");
-    const stats = sent.find((s) => s.cmd.type === "get_session_stats");
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/shrink soft");
+    h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
+    await h.flushMicrotasks();
+    const state = h.sent.find((s) => s.cmd.type === "get_state");
+    const stats = h.sent.find((s) => s.cmd.type === "get_session_stats");
     expect(state).toBeDefined();
     expect(stats).toBeDefined();
-    respond(TAB, state!.cmd, {
+    h.respond(h.TAB, state!.cmd, {
       contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
     });
-    respond(TAB, stats!.cmd, {
+    h.respond(h.TAB, stats!.cmd, {
       userMessages: 2,
       assistantMessages: 3,
       tokens: { input: 10, output: 20, total: 30 },
       cost: 0.5,
     });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.session.contextUsage?.tokens).toBe(
       47247,
     );
   });
 
   it("does not refresh usage after a failed compact command", async () => {
     seedCommands({ name: "compact" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/compact soft");
-    respond(TAB, sent[0]!.cmd, "compaction failed", false);
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/compact soft");
+    h.respond(h.TAB, h.sent[0]!.cmd, "compaction failed", false);
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "failed",
     });
-    expect(sent.some((s) => s.cmd.type === "get_state")).toBe(false);
-    expect(sent.some((s) => s.cmd.type === "get_session_stats")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "get_session_stats")).toBe(false);
   });
 
   it("keeps a completed compact command when half the usage refresh fails", async () => {
     seedCommands({ name: "compact" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/compact soft");
-    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
-    await flushMicrotasks();
-    const state = sent.find((s) => s.cmd.type === "get_state");
-    const stats = sent.find((s) => s.cmd.type === "get_session_stats");
-    respond(TAB, state!.cmd, {
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/compact soft");
+    h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
+    await h.flushMicrotasks();
+    const state = h.sent.find((s) => s.cmd.type === "get_state");
+    const stats = h.sent.find((s) => s.cmd.type === "get_session_stats");
+    h.respond(h.TAB, state!.cmd, {
       contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
     });
-    respond(TAB, stats!.cmd, "stats unavailable", false);
+    h.respond(h.TAB, stats!.cmd, "stats unavailable", false);
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "done",
     });
-    expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(
+    expect(h.useStore.getState().rpc[h.TAB]!.session.contextUsage?.tokens).toBe(
       47247,
     );
   });
 
   it("runSlashCommand settles failed with omp's own error text", async () => {
     seedCommands({ name: "usage" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/usage");
-    respond(TAB, sent[0]!.cmd, "prompt rejected while streaming", false);
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/usage");
+    h.respond(h.TAB, h.sent[0]!.cmd, "prompt rejected while streaming", false);
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "failed",
       error: 'RPC command "prompt" failed: prompt rejected while streaming',
@@ -4737,27 +4404,27 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a bare ack without agentInvoked stays running until prompt_result settles it", async () => {
     seedCommands({ name: "usage" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/usage");
-    const cmd = sent[0]!.cmd;
-    respond(TAB, cmd, {});
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/usage");
+    const cmd = h.sent[0]!.cmd;
+    h.respond(h.TAB, cmd, {});
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "running",
     });
     // A foreign prompt_result must not settle it.
-    useStore
+    h.useStore
       .getState()
-      .handleRpcFrame(TAB, { type: "prompt_result", id: "other" });
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+      .handleRpcFrame(h.TAB, { type: "prompt_result", id: "other" });
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       status: "running",
     });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "prompt_result",
       id: cmd.id,
       agentInvoked: false,
     });
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "done",
     });
@@ -4765,107 +4432,107 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a bare ack settles to agent on the tab's next agent_start", async () => {
     seedCommands({ name: "commit" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/commit");
-    respond(TAB, sent[0]!.cmd, {});
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/commit");
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
     await promise;
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
-    const row = useStore
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    const row = h.useStore
       .getState()
-      .rpc[TAB]!.items.find((i) => i.kind === "command");
+      .rpc[h.TAB]!.items.find((i) => i.kind === "command");
     expect(row).toMatchObject({ kind: "command", status: "agent" });
   });
 
   it("an unadvertised /word forwards as a literal prompt with no command row", async () => {
-    const promise = useStore
+    const promise = h.useStore
       .getState()
-      .runSlashCommand(TAB, "/nonexistent-xyz do it");
-    expect(sent[0]!.cmd).toMatchObject({
+      .runSlashCommand(h.TAB, "/nonexistent-xyz do it");
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/nonexistent-xyz do it",
     });
     expect(
-      useStore.getState().rpc[TAB]!.items.some((i) => i.kind === "command"),
+      h.useStore.getState().rpc[h.TAB]!.items.some((i) => i.kind === "command"),
     ).toBe(false);
     await settleAll();
     await promise;
   });
 
   it("bare /mcp and /mcp list open the MCP manager instead of prompting omp", async () => {
-    useStore.setState({
+    h.useStore.setState({
       mcpManager: null,
-      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
-    await useStore.getState().runSlashCommand(TAB, "/mcp");
-    expect(sent).toHaveLength(0);
-    expect(useStore.getState().mcpManager).toEqual({
+    await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().mcpManager).toEqual({
       projectCwd: "/p",
-      tabId: TAB,
+      tabId: h.TAB,
     });
-    useStore.getState().closeMcpManager();
-    await useStore.getState().runSlashCommand(TAB, "/mcp list");
-    expect(sent).toHaveLength(0);
-    expect(useStore.getState().mcpManager).toEqual({
+    h.useStore.getState().closeMcpManager();
+    await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().mcpManager).toEqual({
       projectCwd: "/p",
-      tabId: TAB,
+      tabId: h.TAB,
     });
-    useStore.getState().closeMcpManager();
+    h.useStore.getState().closeMcpManager();
   });
 
   it("other /mcp subcommands forward with the command lifecycle", async () => {
-    useStore.setState({
+    h.useStore.setState({
       mcpManager: null,
-      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
     seedCommands({ name: "mcp" });
-    const promise = useStore.getState().runSlashCommand(TAB, "/mcp reauth linear");
-    expect(useStore.getState().mcpManager).toBeNull();
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/mcp reauth linear");
+    expect(h.useStore.getState().mcpManager).toBeNull();
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/mcp reauth linear",
     });
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       name: "mcp",
       args: "reauth linear",
       status: "running",
     });
-    respond(TAB, sent[0]!.cmd, { agentInvoked: false });
+    h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items.at(-1)).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
       kind: "command",
       status: "done",
     });
   });
 
   it("busy is true while a command is in flight and survives a concurrent one", async () => {
-    const first = useStore.getState().rpcCommand(TAB, { type: "get_state" });
-    const second = useStore
+    const first = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
+    const second = h.useStore
       .getState()
-      .rpcCommand(TAB, { type: "get_session_stats" });
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
+      .rpcCommand(h.TAB, { type: "get_session_stats" });
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(true);
 
-    const [a, b] = sent.splice(0);
-    respond(TAB, a!.cmd, {});
+    const [a, b] = h.sent.splice(0);
+    h.respond(h.TAB, a!.cmd, {});
     await first;
     // One settled, one still outstanding — busy must not drop yet.
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
-    respond(TAB, b!.cmd, {});
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(true);
+    h.respond(h.TAB, b!.cmd, {});
     await second;
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
   });
 
   it("keeps busy ref-counted when one loud command times out beside another", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const timeout = useStore.getState().runSlashCommand(TAB, "/compact");
+      const timeout = h.useStore.getState().runSlashCommand(h.TAB, "/compact");
       await vi.advanceTimersByTimeAsync(5_000);
-      const success = useStore.getState().setThinkingLevel(TAB, "high");
-      const surviving = sent.at(-1)!.cmd;
+      const success = h.useStore.getState().setThinkingLevel(h.TAB, "high");
+      const surviving = h.sent.at(-1)!.cmd;
 
       await vi.advanceTimersByTimeAsync(25_000);
       await timeout;
-      expect(useStore.getState().rpc[TAB]!.failure).toMatchObject({
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
         message: expect.stringContaining('RPC command "prompt"'),
         kind: "command",
         fatal: false,
@@ -4877,14 +4544,14 @@ describe("prompting, slash commands, and session ops", () => {
           /may still complete.*resending can duplicate work/,
         ),
       });
-      expect(useStore.getState().rpc[TAB]!.pendingCommands.size).toBe(1);
-      expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
+      expect(h.useStore.getState().rpc[h.TAB]!.pendingCommands.size).toBe(1);
+      expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(true);
       expect(warn).toHaveBeenCalledOnce();
 
-      respond(TAB, surviving, {});
+      h.respond(h.TAB, surviving, {});
       await success;
-      expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
-      expect(useStore.getState().rpc[TAB]!.failure).toBeUndefined();
+      expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
     } finally {
       warn.mockRestore();
       vi.useRealTimers();
@@ -4892,25 +4559,25 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("quiet commands never raise busy, so background sync can't strobe the sweeps", async () => {
-    const promise = useStore
+    const promise = h.useStore
       .getState()
-      .rpcCommand(TAB, { type: "get_subagents" }, { quiet: true });
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
-    respond(TAB, sent.pop()!.cmd, { subagents: [] });
+      .rpcCommand(h.TAB, { type: "get_subagents" }, { quiet: true });
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
+    h.respond(h.TAB, h.sent.pop()!.cmd, { subagents: [] });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
   });
 
   it("a quiet timeout posts one dim notice and never paints the session failure (issue #302)", async () => {
     const T = "wedge-tab-1";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const promise = useStore.getState().refreshSubagents(T);
+      const promise = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await promise;
-      const tab = useStore.getState().rpc[T]!;
+      const tab = h.useStore.getState().rpc[T]!;
       expect(tab.failure).toBeUndefined();
       expect(tab.busy).toBe(false);
       expect(warn).toHaveBeenCalledWith(
@@ -4936,17 +4603,17 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("coalesces repeated quiet timeouts in one wedge episode to a single notice (issue #302)", async () => {
     const T = "wedge-tab-2";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const first = useStore.getState().refreshState(T);
+      const first = h.useStore.getState().refreshState(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await first;
-      const second = useStore.getState().refreshStats(T);
+      const second = h.useStore.getState().refreshStats(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await second;
-      const tab = useStore.getState().rpc[T]!;
+      const tab = h.useStore.getState().rpc[T]!;
       expect(tab.failure).toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(2);
       const notices = tab.items.filter((i) => i.kind === "notice");
@@ -4960,23 +4627,23 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a quiet timeout names the command still holding the chain, beside its loud banner (issue #302)", async () => {
     const T = "wedge-tab-3";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       // Timeline (issue #302): compact t=0, heartbeat t=5, compact budget t=30,
       // heartbeat budget t=35.
-      const wedge = useStore.getState().compactSession(T);
+      const wedge = h.useStore.getState().compactSession(T);
       await vi.advanceTimersByTimeAsync(5_000);
-      const quiet = useStore.getState().refreshSubagents(T);
+      const quiet = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(25_000);
       await wedge;
-      const banner = useStore.getState().rpc[T]!.failure;
+      const banner = h.useStore.getState().rpc[T]!.failure;
       expect(banner).toMatchObject({ command: "compact", kind: "command", fatal: false });
       await vi.advanceTimersByTimeAsync(5_000);
       await quiet;
-      expect(useStore.getState().rpc[T]!.failure).toBe(banner);
-      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      expect(h.useStore.getState().rpc[T]!.failure).toBe(banner);
+      const notices = h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
       expect(notices).toHaveLength(1);
       expect(notices[0]!.text).toBe(
         'background "get_subagents" timed out after 30.0s — queued behind compact (timed out 5.0s ago, response not yet observed)',
@@ -5003,33 +4670,33 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("re-arms the quiet-failure notice on a quiet success; loud failures survive quiet timeouts (issue #302)", async () => {
     const T = "wedge-tab-4";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const first = useStore.getState().refreshSubagents(T);
+      const first = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await first;
-      const ok = useStore.getState().refreshState(T);
-      respond(T, sent.pop()!.cmd, {});
+      const ok = h.useStore.getState().refreshState(T);
+      h.respond(T, h.sent.pop()!.cmd, {});
       await ok;
-      const second = useStore.getState().refreshSubagents(T);
+      const second = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await second;
       expect(
-        useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice"),
+        h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice"),
       ).toHaveLength(2);
-      const failed = useStore.getState().setThinkingLevel(T, "high");
-      respond(T, sent.pop()!.cmd, "unknown level", false);
+      const failed = h.useStore.getState().setThinkingLevel(T, "high");
+      h.respond(T, h.sent.pop()!.cmd, "unknown level", false);
       await failed;
-      const transient = useStore.getState().rpc[T]!.failure;
+      const transient = h.useStore.getState().rpc[T]!.failure;
       expect(transient).toBeDefined();
-      const third = useStore.getState().refreshSubagents(T);
+      const third = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await third;
-      expect(useStore.getState().rpc[T]!.failure).toBe(transient);
+      expect(h.useStore.getState().rpc[T]!.failure).toBe(transient);
       expect(
-        useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice"),
+        h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice"),
       ).toHaveLength(2);
     } finally {
       warn.mockRestore();
@@ -5039,30 +4706,30 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a late response retires the timed-out holder before the quiet timeout attributes it (issue #302)", async () => {
     const T = "wedge-tab-5";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       // Timeline (issue #302): set_model t=0, heartbeat t=5, set_model budget t=30,
       // late response t=32, heartbeat budget t=35.
-      const wedge = useStore.getState().rpcCommand(T, { type: "set_model" });
-      const typed = expect(wedge).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      const wedge = h.useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typed = expect(wedge).rejects.toBeInstanceOf(h.RpcCommandTimeoutError);
       await vi.advanceTimersByTimeAsync(5_000);
-      const quiet = useStore.getState().refreshSubagents(T);
+      const quiet = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(27_000);
       await typed;
       // The holder's late response arrives before the victim's budget: the
       // chain provably moved past it, so attribution must not fire (issue #302).
-      useStore.getState().handleRpcFrame(T, {
+      h.useStore.getState().handleRpcFrame(T, {
         type: "response",
-        id: sent[0]!.cmd.id,
+        id: h.sent[0]!.cmd.id,
         command: "set_model",
         success: true,
         data: {},
       });
       await vi.advanceTimersByTimeAsync(3_000);
       await quiet;
-      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      const notices = h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
       expect(notices).toHaveLength(1);
       expect(notices[0]!.text).toBe(
         'background "get_subagents" timed out after 30.0s — no other command in flight',
@@ -5075,24 +4742,24 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a bash success does not retire the attribution: it bypasses the serial chain (issue #302)", async () => {
     const T = "wedge-tab-6";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       // Timeline (issue #302): set_model t=0, its budget t=30, bash t=32
       // (completes at t=32), heartbeat t=32, heartbeat budget t=62.
-      const wedge = useStore.getState().rpcCommand(T, { type: "set_model" });
-      const typed = expect(wedge).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      const wedge = h.useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typed = expect(wedge).rejects.toBeInstanceOf(h.RpcCommandTimeoutError);
       await vi.advanceTimersByTimeAsync(32_000);
       await typed;
-      const bash = useStore.getState().rpcCommand(T, { type: "bash", command: "true" });
-      const bCmd = sent.at(-1)!.cmd;
-      respond(T, bCmd, {});
+      const bash = h.useStore.getState().rpcCommand(T, { type: "bash", command: "true" });
+      const bCmd = h.sent.at(-1)!.cmd;
+      h.respond(T, bCmd, {});
       await bash; // completes — but it never queued, so it proves nothing (issue #302)
-      const quiet = useStore.getState().refreshSubagents(T);
+      const quiet = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(33_000);
       await quiet;
-      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      const notices = h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
       expect(notices).toHaveLength(1);
       expect(notices[0]!.text).toBe(
         'background "get_subagents" timed out after 30.0s — queued behind set_model (timed out 32.0s ago, response not yet observed)',
@@ -5105,26 +4772,26 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a non-bash success retires earlier timeouts: the chain provably drained (issue #302)", async () => {
     const T = "wedge-tab-7";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       // Timeline (issue #302): set_model t=0, its budget t=30, set_steering_mode t=32
       // (completes at t=32), heartbeat t=32, heartbeat budget t=62.
-      const wedge = useStore.getState().rpcCommand(T, { type: "set_model" });
-      const typed = expect(wedge).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      const wedge = h.useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typed = expect(wedge).rejects.toBeInstanceOf(h.RpcCommandTimeoutError);
       await vi.advanceTimersByTimeAsync(32_000);
       await typed;
-      const loud = useStore
+      const loud = h.useStore
         .getState()
         .rpcCommand(T, { type: "set_steering_mode", mode: "manual" });
-      const lCmd = sent.at(-1)!.cmd;
-      respond(T, lCmd, {});
+      const lCmd = h.sent.at(-1)!.cmd;
+      h.respond(T, lCmd, {});
       await loud; // its completion proves the chain drained past the wedge (issue #302)
-      const quiet = useStore.getState().refreshSubagents(T);
+      const quiet = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(33_000);
       await quiet;
-      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      const notices = h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
       expect(notices).toHaveLength(1);
       expect(notices[0]!.text).toBe(
         'background "get_subagents" timed out after 30.0s — no other command in flight',
@@ -5137,26 +4804,26 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("attributes the earliest unretired timeout, the command executing while the rest queue (issue #302)", async () => {
     const T = "wedge-tab-8";
-    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       // Timeline (issue #302): set_model t=0, set_steering_mode t=10, heartbeat t=15;
       // budgets fire at t=30, t=40, t=45.
-      const first = useStore.getState().rpcCommand(T, { type: "set_model" });
-      const typedFirst = expect(first).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      const first = h.useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typedFirst = expect(first).rejects.toBeInstanceOf(h.RpcCommandTimeoutError);
       await vi.advanceTimersByTimeAsync(10_000);
-      const second = useStore
+      const second = h.useStore
         .getState()
         .rpcCommand(T, { type: "set_steering_mode", mode: "manual" });
-      const typedSecond = expect(second).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      const typedSecond = expect(second).rejects.toBeInstanceOf(h.RpcCommandTimeoutError);
       await vi.advanceTimersByTimeAsync(5_000);
-      const quiet = useStore.getState().refreshSubagents(T);
+      const quiet = h.useStore.getState().refreshSubagents(T);
       await vi.advanceTimersByTimeAsync(30_000);
       await typedFirst;
       await typedSecond;
       await quiet;
-      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      const notices = h.useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
       expect(notices).toHaveLength(1);
       expect(notices[0]!.text).toBe(
         'background "get_subagents" timed out after 30.0s — queued behind set_model (timed out 15.0s ago, response not yet observed)',
@@ -5169,28 +4836,28 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("a loud command's busy survives an interleaved quiet one settling", async () => {
-    const loud = useStore.getState().rpcCommand(TAB, { type: "compact" });
-    const quiet = useStore
+    const loud = h.useStore.getState().rpcCommand(h.TAB, { type: "compact" });
+    const quiet = h.useStore
       .getState()
-      .rpcCommand(TAB, { type: "get_state" }, { quiet: true });
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
+      .rpcCommand(h.TAB, { type: "get_state" }, { quiet: true });
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(true);
 
-    const [a, b] = sent.splice(0);
+    const [a, b] = h.sent.splice(0);
     // The quiet one settles first — busy must hold for the loud one.
-    respond(TAB, b!.cmd, {});
+    h.respond(h.TAB, b!.cmd, {});
     await quiet;
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(true);
-    respond(TAB, a!.cmd, {});
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(true);
+    h.respond(h.TAB, a!.cmd, {});
     await loud;
-    expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
   });
 
   it("a failed command records a nonfatal command failure", async () => {
-    const promise = useStore.getState().setThinkingLevel(TAB, "high");
-    const cmd = sent.pop()!.cmd;
-    respond(TAB, cmd, "unknown level", false);
+    const promise = h.useStore.getState().setThinkingLevel(h.TAB, "high");
+    const cmd = h.sent.pop()!.cmd;
+    h.respond(h.TAB, cmd, "unknown level", false);
     await expect(promise).resolves.toBeUndefined();
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.failure).toMatchObject({
       message: 'RPC command "set_thinking_level" failed: unknown level',
       kind: "command",
@@ -5206,20 +4873,20 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("a quiet success preserves a nonfatal failure until a loud command succeeds", async () => {
-    const failed = useStore.getState().setThinkingLevel(TAB, "high");
-    respond(TAB, sent.pop()!.cmd, "unknown level", false);
+    const failed = h.useStore.getState().setThinkingLevel(h.TAB, "high");
+    h.respond(h.TAB, h.sent.pop()!.cmd, "unknown level", false);
     await failed;
-    const transient = useStore.getState().rpc[TAB]!.failure;
+    const transient = h.useStore.getState().rpc[h.TAB]!.failure;
 
-    const refresh = useStore.getState().refreshState(TAB);
-    respond(TAB, sent.pop()!.cmd, {});
+    const refresh = h.useStore.getState().refreshState(h.TAB);
+    h.respond(h.TAB, h.sent.pop()!.cmd, {});
     await refresh;
-    expect(useStore.getState().rpc[TAB]!.failure).toBe(transient);
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toBe(transient);
 
-    const recovered = useStore.getState().setThinkingLevel(TAB, "low");
-    respond(TAB, sent.pop()!.cmd, {});
+    const recovered = h.useStore.getState().setThinkingLevel(h.TAB, "low");
+    h.respond(h.TAB, h.sent.pop()!.cmd, {});
     await recovered;
-    expect(useStore.getState().rpc[TAB]!.failure).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
   });
 
   it("setModel sends provider + modelId, not the whole model object", async () => {
@@ -5228,25 +4895,25 @@ describe("prompting, slash commands, and session ops", () => {
       name: "Opus 5",
       provider: "anthropic",
     };
-    const promise = useStore.getState().setModel(TAB, model);
-    expect(sent[0]!.cmd).toMatchObject({
+    const promise = h.useStore.getState().setModel(h.TAB, model);
+    expect(h.sent[0]!.cmd).toMatchObject({
       type: "set_model",
       provider: "anthropic",
       modelId: "claude-opus-5",
     });
     await settleAll(model);
     await promise;
-    expect(useStore.getState().rpc[TAB]!.model).toMatchObject({
+    expect(h.useStore.getState().rpc[h.TAB]!.model).toMatchObject({
       id: "claude-opus-5",
     });
   });
 
   it("setModel remembers the model with the current thinking level", async () => {
-    backendState = stateWithRecord(null);
-    useStore.setState({
-      state: backendState,
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({
+      state: h.backendState,
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           session: { ...emptySessionRuntime(), thinkingLevel: "high" },
         }),
       },
@@ -5256,36 +4923,36 @@ describe("prompting, slash commands, and session ops", () => {
       name: "Opus 5",
       provider: "anthropic",
     };
-    const promise = useStore.getState().setModel(TAB, model);
+    const promise = h.useStore.getState().setModel(h.TAB, model);
     await settleAll(model);
     await promise;
-    expect(mockBackend.setSessionModel).toHaveBeenCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
       "anthropic/claude-opus-5",
       "high",
     );
   });
 
   it("setThinkingLevel remembers the level without changing the main model", async () => {
-    useStore.setState({
+    h.useStore.setState({
       rpc: {
-        [TAB]: rpcTabState({ model: { id: "m1", name: "M1", provider: "p" } }),
+        [h.TAB]: rpcTabState({ model: { id: "m1", name: "M1", provider: "p" } }),
       },
     });
-    const promise = useStore.getState().setThinkingLevel(TAB, "max");
+    const promise = h.useStore.getState().setThinkingLevel(h.TAB, "max");
     await settleAll({});
     await promise;
-    expect(mockBackend.setSessionModel).toHaveBeenCalledWith(
-      TAB,
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
       "p/m1",
       "max",
     );
   });
 
   it("setAdvisorModel persists the advisor tuple through one backend call", async () => {
-    await useStore.getState().setAdvisorModel(TAB, "openrouter/a/b:high");
-    expect(mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
-      TAB,
+    await h.useStore.getState().setAdvisorModel(h.TAB, "openrouter/a/b:high");
+    expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(
+      h.TAB,
       true,
       "openrouter/a/b:high",
       false,
@@ -5293,19 +4960,19 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("newSession uses the persisted mode and restores the last advisor tuple", async () => {
-    backendState = stateWithRecord(null);
-    const project = backendState.projects[0]!.project;
+    h.backendState = h.stateWithRecord(null);
+    const project = h.backendState.projects[0]!.project;
     project.lastAdvisor = false;
     project.lastAdvisorModel = "openrouter/a/b:high";
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "new-tab" });
-    useStore.setState({
-      state: backendState,
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "new-tab" });
+    h.useStore.setState({
+      state: h.backendState,
       advisorDefaults: { "/p": { enabled: true, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: false,
@@ -5316,19 +4983,19 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("newSession mode override wins without changing the persisted default", async () => {
-    backendState = stateWithRecord(null);
-    const project = backendState.projects[0]!.project;
+    h.backendState = h.stateWithRecord(null);
+    const project = h.backendState.projects[0]!.project;
     project.lastAdvisor = true;
     project.lastAdvisorModel = "openrouter/a/b:high";
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "terminal-tab" });
-    useStore.setState({
-      state: backendState,
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "terminal-tab" });
+    h.useStore.setState({
+      state: h.backendState,
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
 
-    await useStore.getState().newSession("/p", "pty");
+    await h.useStore.getState().newSession("/p", "pty");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "pty",
       advisor: true,
@@ -5336,21 +5003,21 @@ describe("prompting, slash commands, and session ops", () => {
       cols: 80,
       rows: 24,
     });
-    expect(mockBackend.setDefaultMode).not.toHaveBeenCalled();
+    expect(h.mockBackend.setDefaultMode).not.toHaveBeenCalled();
   });
 
   it("newSession falls back to terminal mode without backend state", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fallback-tab" });
-    useStore.setState({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fallback-tab" });
+    h.useStore.setState({
       state: null,
       advisorDefaults: {
         "/p": { enabled: true, model: "openrouter/a/b:high" },
       },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "pty",
       advisor: true,
@@ -5361,15 +5028,15 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("newSession uses the app default advisor when the project has none (issue #174)", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "default-on-tab" });
-    useStore.setState({
-      state: { ...stateWithRecord(null), defaultAdvisor: true },
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "default-on-tab" });
+    h.useStore.setState({
+      state: { ...h.stateWithRecord(null), defaultAdvisor: true },
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: true,
@@ -5380,17 +5047,17 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("the app default of false overrides omp config for new sessions (issue #174)", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({
       tabId: "default-off-tab",
     });
-    useStore.setState({
-      state: stateWithRecord(null),
+    h.useStore.setState({
+      state: h.stateWithRecord(null),
       advisorDefaults: { "/p": { enabled: true, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: false,
@@ -5401,10 +5068,10 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("exportHtml pushes the returned path as a notice", async () => {
-    const promise = useStore.getState().exportHtml(TAB);
+    const promise = h.useStore.getState().exportHtml(h.TAB);
     await settleAll({ path: "/tmp/session.html" });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({
         kind: "notice",
         text: "exported to /tmp/session.html",
@@ -5416,28 +5083,28 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("exportHtml without a path in the response leaves a plain notice", async () => {
-    const promise = useStore.getState().exportHtml(TAB);
+    const promise = h.useStore.getState().exportHtml(h.TAB);
     await settleAll({});
     await promise;
-    const [item] = useStore.getState().rpc[TAB]!.items;
+    const [item] = h.useStore.getState().rpc[h.TAB]!.items;
     expect(item).toMatchObject({ kind: "notice", text: "export finished" });
     expect(item).not.toHaveProperty("path");
   });
 
   it("compactSession marks the transcript without pasting the summary into it", async () => {
-    const promise = useStore.getState().compactSession(TAB);
+    const promise = h.useStore.getState().compactSession(h.TAB);
     await settleAll({ summary: "x".repeat(5000) });
     await promise;
-    const { items } = useStore.getState().rpc[TAB]!;
+    const { items } = h.useStore.getState().rpc[h.TAB]!;
     expect(items.map((i) => i.kind)).toEqual(["marker", "marker"]);
     expect(JSON.stringify(items)).not.toContain("xxxx");
   });
 
   describe("automatic compaction usage convergence", () => {
     const seedUsage = (tokens = 210049): void => {
-      useStore.setState({
+      h.useStore.setState({
         rpc: {
-          [TAB]: rpcTabState({
+          [h.TAB]: rpcTabState({
             session: {
               ...emptySessionRuntime(),
               contextUsage: {
@@ -5451,9 +5118,9 @@ describe("prompting, slash commands, and session ops", () => {
       });
     };
     const stateRequests = (): Array<{ tabId: string; cmd: Record<string, unknown> }> =>
-      sent.filter((request) => request.cmd.type === "get_state");
+      h.sent.filter((request) => request.cmd.type === "get_state");
     const emitSuccessfulEnd = (tokensBefore = 210049): void =>
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "auto_compaction_end",
         result: { tokensBefore },
       });
@@ -5463,22 +5130,22 @@ describe("prompting, slash commands, and session ops", () => {
       try {
         seedUsage();
         emitSuccessfulEnd();
-        await flushMicrotasks();
+        await h.flushMicrotasks();
         expect(stateRequests()).toHaveLength(1);
-        expect(sent.filter((request) => request.cmd.type === "get_session_stats")).toHaveLength(1);
-        respond(TAB, stateRequests()[0]!.cmd, {
+        expect(h.sent.filter((request) => request.cmd.type === "get_session_stats")).toHaveLength(1);
+        h.respond(h.TAB, stateRequests()[0]!.cmd, {
           contextUsage: { tokens: 210049, contextWindow: 256000, percent: 82.1 },
         });
-        await flushMicrotasks();
-        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(210049);
-        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS);
+        await h.flushMicrotasks();
+        expect(h.useStore.getState().rpc[h.TAB]!.session.contextUsage?.tokens).toBe(210049);
+        await vi.advanceTimersByTimeAsync(h.COMPACTION_USAGE_RETRY_MS);
         expect(stateRequests()).toHaveLength(2);
-        respond(TAB, stateRequests()[1]!.cmd, {
+        h.respond(h.TAB, stateRequests()[1]!.cmd, {
           contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
         });
-        await flushMicrotasks();
-        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(47247);
-        expect(useStore.getState().rpc[TAB]!.items).toContainEqual(
+        await h.flushMicrotasks();
+        expect(h.useStore.getState().rpc[h.TAB]!.session.contextUsage?.tokens).toBe(47247);
+        expect(h.useStore.getState().rpc[h.TAB]!.items).toContainEqual(
           expect.objectContaining({
             kind: "marker",
             label: "auto-compaction finished",
@@ -5495,14 +5162,14 @@ describe("prompting, slash commands, and session ops", () => {
       try {
         seedUsage();
         emitSuccessfulEnd();
-        await flushMicrotasks();
-        respond(TAB, stateRequests()[0]!.cmd, {
+        await h.flushMicrotasks();
+        h.respond(h.TAB, stateRequests()[0]!.cmd, {
           contextUsage: { tokens: 47247, contextWindow: 256000, percent: 18.5 },
         });
-        await flushMicrotasks();
-        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 2);
+        await h.flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.COMPACTION_USAGE_RETRY_MS * 2);
         expect(stateRequests()).toHaveLength(1);
-        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(47247);
+        expect(h.useStore.getState().rpc[h.TAB]!.session.contextUsage?.tokens).toBe(47247);
       } finally {
         vi.useRealTimers();
       }
@@ -5513,23 +5180,23 @@ describe("prompting, slash commands, and session ops", () => {
       try {
         seedUsage();
         emitSuccessfulEnd();
-        await flushMicrotasks();
-        for (let attempt = 0; attempt < COMPACTION_USAGE_MAX_ATTEMPTS; attempt++) {
+        await h.flushMicrotasks();
+        for (let attempt = 0; attempt < h.COMPACTION_USAGE_MAX_ATTEMPTS; attempt++) {
           const request = stateRequests()[attempt]!;
-          respond(
-            TAB,
+          h.respond(
+            h.TAB,
             request.cmd,
             attempt % 2 === 0
               ? { contextUsage: { tokens: 210049, contextWindow: 256000, percent: 82.1 } }
               : "not ready",
             attempt % 2 === 0,
           );
-          await flushMicrotasks();
-          await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS);
+          await h.flushMicrotasks();
+          await vi.advanceTimersByTimeAsync(h.COMPACTION_USAGE_RETRY_MS);
         }
-        expect(stateRequests()).toHaveLength(COMPACTION_USAGE_MAX_ATTEMPTS);
-        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 10);
-        expect(stateRequests()).toHaveLength(COMPACTION_USAGE_MAX_ATTEMPTS);
+        expect(stateRequests()).toHaveLength(h.COMPACTION_USAGE_MAX_ATTEMPTS);
+        await vi.advanceTimersByTimeAsync(h.COMPACTION_USAGE_RETRY_MS * 10);
+        expect(stateRequests()).toHaveLength(h.COMPACTION_USAGE_MAX_ATTEMPTS);
       } finally {
         vi.useRealTimers();
       }
@@ -5540,20 +5207,20 @@ describe("prompting, slash commands, and session ops", () => {
       try {
         seedUsage();
         emitSuccessfulEnd();
-        await flushMicrotasks();
+        await h.flushMicrotasks();
         emitSuccessfulEnd(180000);
-        await flushMicrotasks();
+        await h.flushMicrotasks();
         const [older, newer] = stateRequests();
-        respond(TAB, newer!.cmd, {
+        h.respond(h.TAB, newer!.cmd, {
           contextUsage: { tokens: 50000, contextWindow: 256000, percent: 19.5 },
         });
-        await flushMicrotasks();
-        respond(TAB, older!.cmd, {
+        await h.flushMicrotasks();
+        h.respond(h.TAB, older!.cmd, {
           contextUsage: { tokens: 40000, contextWindow: 256000, percent: 15.6 },
         });
-        await flushMicrotasks();
-        await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 2);
-        expect(useStore.getState().rpc[TAB]!.session.contextUsage?.tokens).toBe(50000);
+        await h.flushMicrotasks();
+        await vi.advanceTimersByTimeAsync(h.COMPACTION_USAGE_RETRY_MS * 2);
+        expect(h.useStore.getState().rpc[h.TAB]!.session.contextUsage?.tokens).toBe(50000);
         expect(stateRequests()).toHaveLength(2);
       } finally {
         vi.useRealTimers();
@@ -5567,15 +5234,15 @@ describe("prompting, slash commands, and session ops", () => {
           { type: "auto_compaction_end", aborted: true, result: { tokensBefore: 210049 } },
           { type: "auto_compaction_end" },
         ]) {
-          sent.length = 0;
+          h.sent.length = 0;
           seedUsage();
-          useStore.getState().handleRpcFrame(TAB, frame);
-          await flushMicrotasks();
+          h.useStore.getState().handleRpcFrame(h.TAB, frame);
+          await h.flushMicrotasks();
           expect(stateRequests()).toHaveLength(1);
-          expect(sent.filter((request) => request.cmd.type === "get_session_stats")).toHaveLength(1);
-          respond(TAB, stateRequests()[0]!.cmd, {});
-          await flushMicrotasks();
-          await vi.advanceTimersByTimeAsync(COMPACTION_USAGE_RETRY_MS * 10);
+          expect(h.sent.filter((request) => request.cmd.type === "get_session_stats")).toHaveLength(1);
+          h.respond(h.TAB, stateRequests()[0]!.cmd, {});
+          await h.flushMicrotasks();
+          await vi.advanceTimersByTimeAsync(h.COMPACTION_USAGE_RETRY_MS * 10);
           expect(stateRequests()).toHaveLength(1);
         }
       } finally {
@@ -5586,69 +5253,69 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("branchSession forks the transcript into a new tab and leaves the source untouched (issue #83)", async () => {
     const forked = {
-      ...stateWithRecord("sess-fork").projects[0]!.sessions[0]!,
+      ...h.stateWithRecord("sess-fork").projects[0]!.sessions[0]!,
       tabId: "tab-fork",
     };
-    backendState.projects[0]!.sessions.push(forked);
-    mockBackend.forkSession.mockResolvedValueOnce({ tabId: "tab-fork" });
-    useStore.setState({
+    h.backendState.projects[0]!.sessions.push(forked);
+    h.mockBackend.forkSession.mockResolvedValueOnce({ tabId: "tab-fork" });
+    h.useStore.setState({
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
+      activeTabId: h.TAB,
     });
 
-    await useStore.getState().branchSession(TAB);
+    await h.useStore.getState().branchSession(h.TAB);
 
-    expect(mockBackend.forkSession).toHaveBeenCalledWith(TAB);
+    expect(h.mockBackend.forkSession).toHaveBeenCalledWith(h.TAB);
     // The fork opens through the normal resume path and takes focus.
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         resumeTabId: "tab-fork",
         projectCwd: "/p",
         mode: "rpc-ui",
       }),
     );
-    expect(useStore.getState().activeTabId).toBe("tab-fork");
-    expect(useStore.getState().tabs.map((t) => t.tabId)).toEqual([
-      TAB,
+    expect(h.useStore.getState().activeTabId).toBe("tab-fork");
+    expect(h.useStore.getState().tabs.map((t) => t.tabId)).toEqual([
+      h.TAB,
       "tab-fork",
     ]);
     // The source tab's transcript and runtime are exactly as they were.
-    expect(useStore.getState().rpc[TAB]).toEqual(rpcTabState());
+    expect(h.useStore.getState().rpc[h.TAB]).toEqual(rpcTabState());
   });
 
   it("a failed branch alerts and changes nothing", async () => {
-    mockBackend.forkSession.mockRejectedValueOnce(
+    h.mockBackend.forkSession.mockRejectedValueOnce(
       new Error("this session has no transcript to branch yet"),
     );
-    useStore.setState({ activeTabId: TAB });
+    h.useStore.setState({ activeTabId: h.TAB });
 
-    await useStore.getState().branchSession(TAB);
+    await h.useStore.getState().branchSession(h.TAB);
 
-    expect(alerts.at(-1)).toBe("this session has no transcript to branch yet");
-    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
-    expect(useStore.getState().activeTabId).toBe(TAB);
+    expect(h.alerts.at(-1)).toBe("this session has no transcript to branch yet");
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().activeTabId).toBe(h.TAB);
   });
 
   it("setTodos sends phases with tasks and re-reads the server's copy", async () => {
     const phases = [
       { phase: "Build", tasks: [{ content: "wire it", status: "pending" }] },
     ];
-    const promise = useStore.getState().setTodos(TAB, phases);
-    expect(sent[0]!.cmd).toMatchObject({ type: "set_todos", phases });
+    const promise = h.useStore.getState().setTodos(h.TAB, phases);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "set_todos", phases });
     await settleAll({ todoPhases: phases });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.todos).toEqual(phases);
+    expect(h.useStore.getState().rpc[h.TAB]!.todos).toEqual(phases);
   });
 
   it("refreshSubagents parses the roster", async () => {
-    const promise = useStore.getState().refreshSubagents(TAB);
+    const promise = h.useStore.getState().refreshSubagents(h.TAB);
     await settleAll({
       subagents: [
         {
@@ -5661,7 +5328,7 @@ describe("prompting, slash commands, and session ops", () => {
       ],
     });
     await promise;
-    expect(useStore.getState().rpc[TAB]!.subagents).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.subagents).toEqual([
       {
         id: "s1",
         name: undefined,
@@ -5673,33 +5340,33 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("toggleConsole flips one tab's drawer without touching another's (issue #33)", () => {
-    useStore.setState({ consoleOpen: {} });
-    useStore.getState().toggleConsole(TAB);
-    expect(useStore.getState().consoleOpen[TAB]).toBe(true);
-    expect(useStore.getState().consoleOpen[`${TAB}-other`]).toBeUndefined();
-    useStore.getState().toggleConsole(TAB);
-    expect(useStore.getState().consoleOpen[TAB]).toBe(false);
+    h.useStore.setState({ consoleOpen: {} });
+    h.useStore.getState().toggleConsole(h.TAB);
+    expect(h.useStore.getState().consoleOpen[h.TAB]).toBe(true);
+    expect(h.useStore.getState().consoleOpen[`${h.TAB}-other`]).toBeUndefined();
+    h.useStore.getState().toggleConsole(h.TAB);
+    expect(h.useStore.getState().consoleOpen[h.TAB]).toBe(false);
   });
 
   it("openSearch/closeSearch set and clear one tab's find bar without touching another's (issue #270)", () => {
-    useStore.setState({ searchOpen: {} });
-    useStore.getState().openSearch(TAB);
-    expect(useStore.getState().searchOpen[TAB]).toBe(true);
-    expect(useStore.getState().searchOpen[`${TAB}-other`]).toBeUndefined();
-    useStore.getState().closeSearch(TAB);
-    expect(useStore.getState().searchOpen[TAB]).toBe(false);
-    expect(useStore.getState().searchOpen[`${TAB}-other`]).toBeUndefined();
+    h.useStore.setState({ searchOpen: {} });
+    h.useStore.getState().openSearch(h.TAB);
+    expect(h.useStore.getState().searchOpen[h.TAB]).toBe(true);
+    expect(h.useStore.getState().searchOpen[`${h.TAB}-other`]).toBeUndefined();
+    h.useStore.getState().closeSearch(h.TAB);
+    expect(h.useStore.getState().searchOpen[h.TAB]).toBe(false);
+    expect(h.useStore.getState().searchOpen[`${h.TAB}-other`]).toBeUndefined();
   });
 });
 
 describe("project default models (issue #257)", () => {
   beforeEach(() => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
 
   /** Review frame whose plan file read resolves — fresh spawns seed from it. */
   const openReviewWithPlan = (id: string) => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id,
       method: "select",
@@ -5714,20 +5381,20 @@ describe("project default models (issue #257)", () => {
   };
 
   it("newSession boots the pinned advisor model ahead of last-used memory", async () => {
-    const state = stateWithRecord(null);
+    const state = h.stateWithRecord(null);
     const project = state.projects[0]!.project;
     project.lastAdvisor = true;
     project.lastAdvisorModel = "last/advisor";
     project.defaultAdvisorModel = "pin/advisor:high";
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "pin-tab" });
-    useStore.setState({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "pin-tab" });
+    h.useStore.setState({
       state,
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: true,
@@ -5738,34 +5405,34 @@ describe("project default models (issue #257)", () => {
   });
 
   it("newSession falls back to the last-used advisor model when the pin is null", async () => {
-    const state = stateWithRecord(null);
+    const state = h.stateWithRecord(null);
     const project = state.projects[0]!.project;
     project.lastAdvisor = true;
     project.lastAdvisorModel = "last/advisor";
     project.defaultAdvisorModel = null;
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "last-tab" });
-    useStore.setState({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "last-tab" });
+    h.useStore.setState({
       state,
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({ advisor: true, advisorModel: "last/advisor" }),
     );
   });
 
   it("newSession falls back to omp's configured advisor model when no app state exists", async () => {
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "cfg-tab" });
-    useStore.setState({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "cfg-tab" });
+    h.useStore.setState({
       state: null,
       advisorDefaults: { "/p": { enabled: true, model: "openrouter/a/b:high" } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({ advisor: true, advisorModel: "openrouter/a/b:high" }),
     );
   });
@@ -5773,19 +5440,19 @@ describe("project default models (issue #257)", () => {
   it("keeps the pinned advisor model while the on/off chain resolves off", async () => {
     // Inert-while-off is intended: the pin is a model value, and advisor
     // on/off keeps its own chain (issue #174).
-    const state = stateWithRecord(null);
+    const state = h.stateWithRecord(null);
     const project = state.projects[0]!.project;
     project.lastAdvisor = false;
     project.defaultAdvisorModel = "p/pin";
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "dormant-tab" });
-    useStore.setState({
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "dormant-tab" });
+    h.useStore.setState({
       state,
       advisorDefaults: { "/p": { enabled: true, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith({
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: false,
@@ -5796,54 +5463,54 @@ describe("project default models (issue #257)", () => {
   });
 
   it("plan dispatch in a fresh session: the staged advisor tuple beats the pin", async () => {
-    const state = stateWithRecord(null);
+    const state = h.stateWithRecord(null);
     const project = state.projects[0]!.project;
     project.defaultAdvisorModel = "pin/advisor";
-    useStore.setState({
+    h.useStore.setState({
       state,
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
     openReviewWithPlan("pd1");
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-staged" });
-    useStore.getState().executePlan(TAB, "fresh", {
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-staged" });
+    h.useStore.getState().executePlan(h.TAB, "fresh", {
       advisor: true,
       advisorModel: "staged/advisor",
     });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({ advisor: true, advisorModel: "staged/advisor" }),
     );
   });
 
   it("plan dispatch in a fresh session: the pin wins the fallback branch", async () => {
-    const state = stateWithRecord(null);
+    const state = h.stateWithRecord(null);
     const project = state.projects[0]!.project;
     project.lastAdvisorModel = "last/advisor";
     project.defaultAdvisorModel = "pin/advisor";
-    useStore.setState({
+    h.useStore.setState({
       state,
       advisorDefaults: { "/p": { enabled: true, model: null } },
     });
     openReviewWithPlan("pd2");
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-pin" });
-    useStore.getState().executePlan(TAB, "fresh");
-    await flushMicrotasks();
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-pin" });
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({ advisor: false, advisorModel: "pin/advisor" }),
     );
   });
 
   it("pin setters forward to the backend channel", async () => {
-    await useStore.getState().setProjectDefaultModel("/p", "p/m");
-    expect(mockBackend.setProjectDefaultModel).toHaveBeenCalledWith("/p", "p/m");
-    await useStore.getState().setProjectDefaultAdvisorModel("/p", null);
-    expect(mockBackend.setProjectDefaultAdvisorModel).toHaveBeenCalledWith("/p", null);
+    await h.useStore.getState().setProjectDefaultModel("/p", "p/m");
+    expect(h.mockBackend.setProjectDefaultModel).toHaveBeenCalledWith("/p", "p/m");
+    await h.useStore.getState().setProjectDefaultAdvisorModel("/p", null);
+    expect(h.mockBackend.setProjectDefaultAdvisorModel).toHaveBeenCalledWith("/p", null);
   });
 });
 
@@ -5852,13 +5519,13 @@ describe("console-drawer shell routing (issue #42)", () => {
   // once per file — no other suite calls it. The captures below must happen
   // in the same test: beforeEach's vi.clearAllMocks() wipes mock.calls.
   it("routes shell:data to the registered writer and tracks shell exit", async () => {
-    useStore.setState({ shellExited: {} });
-    await useStore.getState().init();
-    const dataCb = mockBackend.onShellData.mock.calls[0]?.[0] as (
+    h.useStore.setState({ shellExited: {} });
+    await h.useStore.getState().init();
+    const dataCb = h.mockBackend.onShellData.mock.calls[0]?.[0] as (
       tabId: string,
       data: Uint8Array,
     ) => void;
-    const exitCb = mockBackend.onShellExit.mock.calls[0]?.[0] as (
+    const exitCb = h.mockBackend.onShellExit.mock.calls[0]?.[0] as (
       tabId: string,
       code: number,
     ) => void;
@@ -5866,26 +5533,26 @@ describe("console-drawer shell routing (issue #42)", () => {
     expect(exitCb).toBeDefined();
     // Same latch, same test: onRemoteState is registered and the initial getRemoteState()
     // seeds the store, so the settings page has a token to show before any transition.
-    const remoteCb = mockBackend.onRemoteState.mock.calls[0]?.[0] as (
+    const remoteCb = h.mockBackend.onRemoteState.mock.calls[0]?.[0] as (
       s: RemoteState,
     ) => void;
     expect(remoteCb).toBeDefined();
-    expect(useStore.getState().remote).toEqual(idleRemoteState);
-    remoteCb({ ...idleRemoteState, status: "listening", enabled: true });
-    expect(useStore.getState().remote.status).toBe("listening");
+    expect(h.useStore.getState().remote).toEqual(h.idleRemoteState);
+    remoteCb({ ...h.idleRemoteState, status: "listening", enabled: true });
+    expect(h.useStore.getState().remote.status).toBe("listening");
 
     const writer = vi.fn();
-    const unregister = registerShellWriter(TAB, writer);
-    dataCb(TAB, new Uint8Array([65]));
+    const unregister = h.registerShellWriter(h.TAB, writer);
+    dataCb(h.TAB, new Uint8Array([65]));
     expect(writer).toHaveBeenCalledWith(new Uint8Array([65]));
     unregister();
-    dataCb(TAB, new Uint8Array([66]));
+    dataCb(h.TAB, new Uint8Array([66]));
     expect(writer).toHaveBeenCalledTimes(1); // unregistered: dropped
 
-    exitCb(TAB, 7);
-    expect(useStore.getState().shellExited[TAB]).toBe(7);
-    useStore.getState().clearShellExited(TAB);
-    expect(useStore.getState().shellExited[TAB]).toBeUndefined();
+    exitCb(h.TAB, 7);
+    expect(h.useStore.getState().shellExited[h.TAB]).toBe(7);
+    h.useStore.getState().clearShellExited(h.TAB);
+    expect(h.useStore.getState().shellExited[h.TAB]).toBeUndefined();
   });
 });
 
@@ -5893,47 +5560,47 @@ describe("TUI handoff staging (issue #243)", () => {
   // init() is latched, so this is a no-op once the suite above has run; it
   // still registers the shell-exit listener when only these cases are run.
   beforeEach(async () => {
-    await useStore.getState().init();
-    useStore.setState({ consoleOpen: {}, shellExited: {}, tuiHandoff: {} });
+    await h.useStore.getState().init();
+    h.useStore.setState({ consoleOpen: {}, shellExited: {}, tuiHandoff: {} });
   });
 
   it("stages a handoff, sends it on demand, and retires it when omp exits", () => {
     // A previous login shell's exit code must not paint its notice over the
     // omp TUI the drawer is about to spawn.
-    useStore.setState({ shellExited: { [TAB]: 0 } });
+    h.useStore.setState({ shellExited: { [h.TAB]: 0 } });
 
-    useStore.getState().startTuiHandoff(TAB, "/mcp reauth linear");
-    expect(useStore.getState().consoleOpen[TAB]).toBe(true);
-    expect(useStore.getState().shellExited[TAB]).toBeUndefined();
-    expect(useStore.getState().tuiHandoff[TAB]).toEqual({
+    h.useStore.getState().startTuiHandoff(h.TAB, "/mcp reauth linear");
+    expect(h.useStore.getState().consoleOpen[h.TAB]).toBe(true);
+    expect(h.useStore.getState().shellExited[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual({
       line: "/mcp reauth linear",
       key: 1,
       phase: "running",
     });
 
-    useStore.getState().sendTuiHandoff(TAB);
-    expect(mockBackend.shellWrite).toHaveBeenCalledWith(
-      TAB,
+    h.useStore.getState().sendTuiHandoff(h.TAB);
+    expect(h.mockBackend.shellWrite).toHaveBeenCalledWith(
+      h.TAB,
       "/mcp reauth linear\r",
     );
 
-    shellExitCb!(TAB, 0);
-    expect(useStore.getState().tuiHandoff[TAB]!.phase).toBe("exited");
-    expect(useStore.getState().shellExited[TAB]).toBe(0);
+    h.shellExitCb!(h.TAB, 0);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]!.phase).toBe("exited");
+    expect(h.useStore.getState().shellExited[h.TAB]).toBe(0);
 
     // Nothing is listening once omp is gone — the banner offers a restart.
-    mockBackend.shellWrite.mockClear();
-    useStore.getState().sendTuiHandoff(TAB);
-    expect(mockBackend.shellWrite).not.toHaveBeenCalled();
+    h.mockBackend.shellWrite.mockClear();
+    h.useStore.getState().sendTuiHandoff(h.TAB);
+    expect(h.mockBackend.shellWrite).not.toHaveBeenCalled();
 
-    useStore.getState().dismissTuiHandoff(TAB);
-    expect(useStore.getState().tuiHandoff[TAB]).toBeUndefined();
+    h.useStore.getState().dismissTuiHandoff(h.TAB);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
   });
 
   it("bumps the key so a second handoff respawns the drawer's omp", () => {
-    useStore.getState().startTuiHandoff(TAB, "/mcp reauth linear");
-    useStore.getState().startTuiHandoff(TAB, "/mcp reauth github");
-    expect(useStore.getState().tuiHandoff[TAB]).toEqual({
+    h.useStore.getState().startTuiHandoff(h.TAB, "/mcp reauth linear");
+    h.useStore.getState().startTuiHandoff(h.TAB, "/mcp reauth github");
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual({
       line: "/mcp reauth github",
       key: 2,
       phase: "running",
@@ -5941,39 +5608,39 @@ describe("TUI handoff staging (issue #243)", () => {
   });
 
   it("tracks a plain shell's exit without minting a handoff", () => {
-    shellExitCb!(TAB, 1);
-    expect(useStore.getState().shellExited[TAB]).toBe(1);
-    expect(useStore.getState().tuiHandoff).toEqual({});
+    h.shellExitCb!(h.TAB, 1);
+    expect(h.useStore.getState().shellExited[h.TAB]).toBe(1);
+    expect(h.useStore.getState().tuiHandoff).toEqual({});
   });
 
   it("drops the staged handoff with the deleted session", async () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1", "dormant"),
-      tuiHandoff: { [TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" } },
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
+      tuiHandoff: { [h.TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" } },
     });
-    await useStore.getState().deleteSession(TAB);
-    await useStore.getState().confirmDeleteSession(false);
-    expect(useStore.getState().tuiHandoff[TAB]).toBeUndefined();
+    await h.useStore.getState().deleteSession(h.TAB);
+    await h.useStore.getState().confirmDeleteSession(false);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
   });
 
   it("drops the staged handoff when the agent is terminated", async () => {
     // killShell suppresses the drawer program's exit event, so no shell:exit
     // ever arrives to retire the handoff — terminate must do it itself.
-    useStore.setState({
+    h.useStore.setState({
       tuiHandoff: {
-        [TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
+        [h.TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
       },
     });
 
-    await useStore.getState().terminate(TAB);
+    await h.useStore.getState().terminate(h.TAB);
 
-    expect(mockBackend.terminateSession).toHaveBeenCalledWith(TAB);
-    expect(useStore.getState().tuiHandoff[TAB]).toBeUndefined();
+    expect(h.mockBackend.terminateSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
   });
 
   it("keeps the staged handoff when terminate is declined", async () => {
-    windowStub.confirm = (msg: string): boolean => {
-      prompts.push(msg);
+    h.windowStub.confirm = (msg: string): boolean => {
+      h.prompts.push(msg);
       return false;
     };
     const staged = {
@@ -5981,12 +5648,12 @@ describe("TUI handoff staging (issue #243)", () => {
       key: 1,
       phase: "running" as const,
     };
-    useStore.setState({ tuiHandoff: { [TAB]: staged } });
+    h.useStore.setState({ tuiHandoff: { [h.TAB]: staged } });
 
-    await useStore.getState().terminate(TAB);
+    await h.useStore.getState().terminate(h.TAB);
 
-    expect(mockBackend.terminateSession).not.toHaveBeenCalled();
-    expect(useStore.getState().tuiHandoff[TAB]).toEqual(staged);
+    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
   });
 });
 
@@ -6005,18 +5672,18 @@ describe("branch switching (issue #35)", () => {
       upstreamFetchedAt: null,
       upstreamRefreshError: null,
     };
-    mockBackend.checkoutBranch.mockResolvedValueOnce(undefined);
-    mockBackend.listBranches.mockResolvedValueOnce(fixture);
-    useStore.setState({ branches: {} });
+    h.mockBackend.checkoutBranch.mockResolvedValueOnce(undefined);
+    h.mockBackend.listBranches.mockResolvedValueOnce(fixture);
+    h.useStore.setState({ branches: {} });
 
-    const err = await useStore.getState().checkoutGitBranch("/p", "feature/x");
+    const err = await h.useStore.getState().checkoutGitBranch("/p", "feature/x");
     expect(err).toBeNull();
-    expect(mockBackend.checkoutBranch).toHaveBeenCalledWith(
+    expect(h.mockBackend.checkoutBranch).toHaveBeenCalledWith(
       "/p",
       "feature/x",
       undefined,
     );
-    expect(useStore.getState().branches["/p"]).toEqual(fixture);
+    expect(h.useStore.getState().branches["/p"]).toEqual(fixture);
   });
 
   it("checkoutGitBranch rejection returns git's message and keeps the last listing", async () => {
@@ -6033,17 +5700,17 @@ describe("branch switching (issue #35)", () => {
       upstreamFetchedAt: null,
       upstreamRefreshError: null,
     };
-    mockBackend.checkoutBranch.mockRejectedValueOnce(
+    h.mockBackend.checkoutBranch.mockRejectedValueOnce(
       new Error("error: would be overwritten"),
     );
-    useStore.setState({ branches: { "/p": existing } });
+    h.useStore.setState({ branches: { "/p": existing } });
 
-    const err = await useStore.getState().checkoutGitBranch("/p", "other");
+    const err = await h.useStore.getState().checkoutGitBranch("/p", "other");
     expect(err).toBe("error: would be overwritten");
-    expect(useStore.getState().branches["/p"]).toEqual(existing);
+    expect(h.useStore.getState().branches["/p"]).toEqual(existing);
   });
 
-  it("refreshBranches keeps the previous snapshot until the deferred listing completes", async () => {
+    it("refreshBranches keeps the previous snapshot until the deferred listing completes", async () => {
     const previous: BranchList = {
       repoRoot: "/p",
       current: "main",
@@ -6063,24 +5730,24 @@ describe("branch switching (issue #35)", () => {
       behind: 0,
       upstreamFetchedAt: 20,
     };
-    const listing = deferred<BranchList>();
-    mockBackend.listBranches.mockReturnValueOnce(listing.promise);
-    useStore.setState({
+    const listing = h.deferred<BranchList>();
+    h.mockBackend.listBranches.mockReturnValueOnce(listing.promise);
+    h.useStore.setState({
       branches: { "/p": previous },
       branchActivity: {},
       branchDiffRevision: {},
     });
 
-    const refresh = useStore
+    const refresh = h.useStore
       .getState()
       .refreshBranches("/p", { fetchUpstream: false });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(mockBackend.listBranches).toHaveBeenCalledWith("/p", {
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", {
       fetchUpstream: false,
     });
-    expect(useStore.getState().branches["/p"]).toEqual(previous);
-    expect(useStore.getState().branchActivity["/p"]).toEqual({
+    expect(h.useStore.getState().branches["/p"]).toEqual(previous);
+    expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: true,
       pulling: false,
     });
@@ -6088,8 +5755,8 @@ describe("branch switching (issue #35)", () => {
     listing.resolve(refreshed);
     await refresh;
 
-    expect(useStore.getState().branches["/p"]).toEqual(refreshed);
-    expect(useStore.getState().branchActivity["/p"]).toEqual({
+    expect(h.useStore.getState().branches["/p"]).toEqual(refreshed);
+    expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       pulling: false,
     });
@@ -6115,38 +5782,38 @@ describe("branch switching (issue #35)", () => {
       behind: 0,
       upstreamFetchedAt: 20,
     };
-    const localListing = deferred<BranchList>();
-    mockBackend.listBranches
+    const localListing = h.deferred<BranchList>();
+    h.mockBackend.listBranches
       .mockReturnValueOnce(localListing.promise)
       .mockResolvedValueOnce(networkSnapshot);
-    useStore.setState({
+    h.useStore.setState({
       branches: { "/p": previous },
       branchActivity: {},
       branchDiffRevision: {},
     });
 
-    const localRefresh = useStore
+    const localRefresh = h.useStore
       .getState()
       .refreshBranches("/p", { fetchUpstream: false });
-    const networkRefresh = useStore
+    const networkRefresh = h.useStore
       .getState()
       .refreshBranches("/p", { fetchUpstream: true });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(mockBackend.listBranches.mock.calls).toEqual([
+    expect(h.mockBackend.listBranches.mock.calls).toEqual([
       ["/p", { fetchUpstream: false }],
     ]);
-    expect(useStore.getState().branches["/p"]).toEqual(previous);
+    expect(h.useStore.getState().branches["/p"]).toEqual(previous);
 
     localListing.resolve(localSnapshot);
     await Promise.all([localRefresh, networkRefresh]);
 
-    expect(mockBackend.listBranches.mock.calls).toEqual([
+    expect(h.mockBackend.listBranches.mock.calls).toEqual([
       ["/p", { fetchUpstream: false }],
       ["/p", { fetchUpstream: true }],
     ]);
-    expect(useStore.getState().branches["/p"]).toEqual(networkSnapshot);
-    expect(useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
+    expect(h.useStore.getState().branches["/p"]).toEqual(networkSnapshot);
+    expect(h.useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
   });
 
   it("coalesces duplicate in-flight network refreshes", async () => {
@@ -6163,32 +5830,32 @@ describe("branch switching (issue #35)", () => {
       upstreamFetchedAt: 20,
       upstreamRefreshError: null,
     };
-    const listing = deferred<BranchList>();
-    mockBackend.listBranches.mockReturnValueOnce(listing.promise);
-    useStore.setState({
+    const listing = h.deferred<BranchList>();
+    h.mockBackend.listBranches.mockReturnValueOnce(listing.promise);
+    h.useStore.setState({
       branches: {},
       branchActivity: {},
       branchDiffRevision: {},
     });
 
-    const first = useStore
+    const first = h.useStore
       .getState()
       .refreshBranches("/p", { fetchUpstream: true });
-    const duplicate = useStore
+    const duplicate = h.useStore
       .getState()
       .refreshBranches("/p", { fetchUpstream: true });
-    await flushMicrotasks();
+    await h.flushMicrotasks();
 
-    expect(mockBackend.listBranches.mock.calls).toEqual([
+    expect(h.mockBackend.listBranches.mock.calls).toEqual([
       ["/p", { fetchUpstream: true }],
     ]);
 
     listing.resolve(snapshot);
     await Promise.all([first, duplicate]);
 
-    expect(mockBackend.listBranches).toHaveBeenCalledTimes(1);
-    expect(useStore.getState().branches["/p"]).toEqual(snapshot);
-    expect(useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
+    expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    expect(h.useStore.getState().branches["/p"]).toEqual(snapshot);
+    expect(h.useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
   });
 
   it("pullGitBranch failure preserves the snapshot and diff revision and clears activity", async () => {
@@ -6205,31 +5872,31 @@ describe("branch switching (issue #35)", () => {
       upstreamFetchedAt: 10,
       upstreamRefreshError: null,
     };
-    mockBackend.pullBranch.mockRejectedValueOnce(
+    h.mockBackend.pullBranch.mockRejectedValueOnce(
       new Error("network unavailable"),
     );
-    useStore.setState({
+    h.useStore.setState({
       branches: { "/p": previous },
       branchActivity: {},
       branchDiffRevision: { "/p": 4, "/other": 9 },
     });
 
-    const pull = useStore.getState().pullGitBranch("/p");
-    expect(useStore.getState().branchActivity["/p"]).toEqual({
+    const pull = h.useStore.getState().pullGitBranch("/p");
+    expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       pulling: true,
     });
 
     await expect(pull).resolves.toBe("network unavailable");
 
-    expect(mockBackend.pullBranch).toHaveBeenCalledWith("/p");
-    expect(mockBackend.listBranches).not.toHaveBeenCalled();
-    expect(useStore.getState().branches["/p"]).toEqual(previous);
-    expect(useStore.getState().branchDiffRevision).toEqual({
+    expect(h.mockBackend.pullBranch).toHaveBeenCalledWith("/p");
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(h.useStore.getState().branches["/p"]).toEqual(previous);
+    expect(h.useStore.getState().branchDiffRevision).toEqual({
       "/p": 4,
       "/other": 9,
     });
-    expect(useStore.getState().branchActivity["/p"]).toEqual({
+    expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       pulling: false,
     });
@@ -6249,34 +5916,34 @@ describe("branch switching (issue #35)", () => {
       upstreamFetchedAt: 10,
       upstreamRefreshError: null,
     };
-    const pulling = deferred<void>();
-    mockBackend.pullBranch.mockReturnValueOnce(pulling.promise);
-    mockBackend.listBranches.mockRejectedValueOnce(new Error("refresh failed"));
-    useStore.setState({
+    const pulling = h.deferred<void>();
+    h.mockBackend.pullBranch.mockReturnValueOnce(pulling.promise);
+    h.mockBackend.listBranches.mockRejectedValueOnce(new Error("refresh failed"));
+    h.useStore.setState({
       branches: { "/p": previous },
       branchActivity: {},
       branchDiffRevision: { "/p": 4, "/other": 9 },
     });
 
-    const first = useStore.getState().pullGitBranch("/p");
-    const duplicate = useStore.getState().pullGitBranch("/p");
+    const first = h.useStore.getState().pullGitBranch("/p");
+    const duplicate = h.useStore.getState().pullGitBranch("/p");
 
-    expect(mockBackend.pullBranch.mock.calls).toEqual([["/p"]]);
+    expect(h.mockBackend.pullBranch.mock.calls).toEqual([["/p"]]);
     await expect(duplicate).resolves.toBeNull();
 
     pulling.resolve(undefined);
     await expect(first).resolves.toBeNull();
 
-    expect(mockBackend.pullBranch).toHaveBeenCalledTimes(1);
-    expect(mockBackend.listBranches.mock.calls).toEqual([
+    expect(h.mockBackend.pullBranch).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.listBranches.mock.calls).toEqual([
       ["/p", { fetchUpstream: false }],
     ]);
-    expect(useStore.getState().branches["/p"]).toEqual(previous);
-    expect(useStore.getState().branchDiffRevision).toEqual({
+    expect(h.useStore.getState().branches["/p"]).toEqual(previous);
+    expect(h.useStore.getState().branchDiffRevision).toEqual({
       "/p": 5,
       "/other": 9,
     });
-    expect(useStore.getState().branchActivity["/p"]).toEqual({
+    expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       pulling: false,
     });
@@ -6319,71 +5986,71 @@ describe("merge-back (issue #272)", () => {
   };
 
   it("ff: calls the backend, locally refreshes the listing, and returns the result", async () => {
-    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(ff);
-    mockBackend.listBranches.mockResolvedValueOnce(listing);
-    useStore.setState({ branches: {}, branchActivity: {} });
+    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(ff);
+    h.mockBackend.listBranches.mockResolvedValueOnce(listing);
+    h.useStore.setState({ branches: {}, branchActivity: {} });
 
-    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+    const result = await h.useStore.getState().mergeWorktreeBranch("/p", BR, "main");
 
     expect(result).toEqual(ff);
-    expect(mockBackend.mergeWorktreeBranch).toHaveBeenCalledWith("/p", BR, "main");
-    expect(mockBackend.listBranches).toHaveBeenCalledWith("/p", {
+    expect(h.mockBackend.mergeWorktreeBranch).toHaveBeenCalledWith("/p", BR, "main");
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", {
       fetchUpstream: false,
     });
-    expect(useStore.getState().branches["/p"]).toEqual(listing);
-    expect(useStore.getState().branchActivity["/p"]).toEqual({
+    expect(h.useStore.getState().branches["/p"]).toEqual(listing);
+    expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       pulling: false,
     });
   });
 
   it("merged: refreshes locally without fetching upstream", async () => {
-    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(merged);
-    mockBackend.listBranches.mockResolvedValueOnce(listing);
-    useStore.setState({ branches: {}, branchActivity: {} });
+    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(merged);
+    h.mockBackend.listBranches.mockResolvedValueOnce(listing);
+    h.useStore.setState({ branches: {}, branchActivity: {} });
 
-    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+    const result = await h.useStore.getState().mergeWorktreeBranch("/p", BR, "main");
 
     expect(result).toEqual(merged);
-    expect(mockBackend.listBranches).toHaveBeenCalledTimes(1);
-    expect(mockBackend.listBranches).toHaveBeenCalledWith("/p", {
+    expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", {
       fetchUpstream: false,
     });
-    expect(useStore.getState().branches["/p"]).toEqual(listing);
+    expect(h.useStore.getState().branches["/p"]).toEqual(listing);
   });
 
   it("conflicts: keeps the result, leaves the listing untouched", async () => {
-    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(conflicts);
-    useStore.setState({ branches: { "/p": listing }, branchActivity: {} });
+    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(conflicts);
+    h.useStore.setState({ branches: { "/p": listing }, branchActivity: {} });
 
-    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+    const result = await h.useStore.getState().mergeWorktreeBranch("/p", BR, "main");
 
     expect(result).toEqual(conflicts);
-    expect(mockBackend.listBranches).not.toHaveBeenCalled();
-    expect(useStore.getState().branches["/p"]).toEqual(listing);
-    expect(useStore.getState().branchActivity["/p"]).toBeUndefined();
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(h.useStore.getState().branches["/p"]).toEqual(listing);
+    expect(h.useStore.getState().branchActivity["/p"]).toBeUndefined();
   });
 
   it("already-merged: no refresh", async () => {
-    mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(alreadyMerged);
-    useStore.setState({ branches: {}, branchActivity: {} });
+    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(alreadyMerged);
+    h.useStore.setState({ branches: {}, branchActivity: {} });
 
-    const result = await useStore.getState().mergeWorktreeBranch("/p", BR, "main");
+    const result = await h.useStore.getState().mergeWorktreeBranch("/p", BR, "main");
 
     expect(result).toEqual(alreadyMerged);
-    expect(mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
   });
 
   it("propagates git's rejection and does not refresh", async () => {
-    mockBackend.mergeWorktreeBranch.mockRejectedValueOnce(
+    h.mockBackend.mergeWorktreeBranch.mockRejectedValueOnce(
       new Error("error: refusing to merge into a branch that is not checked out"),
     );
-    useStore.setState({ branches: {}, branchActivity: {} });
+    h.useStore.setState({ branches: {}, branchActivity: {} });
 
     await expect(
-      useStore.getState().mergeWorktreeBranch("/p", BR, "main"),
+      h.useStore.getState().mergeWorktreeBranch("/p", BR, "main"),
     ).rejects.toThrow("error: refusing to merge");
-    expect(mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
   });
 
   it("readMergeBackStatus passes through to the backend with exact args", async () => {
@@ -6396,12 +6063,12 @@ describe("merge-back (issue #272)", () => {
       alreadyMerged: false,
       ahead: 3,
     };
-    mockBackend.getMergeBackStatus.mockResolvedValueOnce(status);
+    h.mockBackend.getMergeBackStatus.mockResolvedValueOnce(status);
 
     await expect(
-      useStore.getState().readMergeBackStatus("/p", BR, "main"),
+      h.useStore.getState().readMergeBackStatus("/p", BR, "main"),
     ).resolves.toBe(status);
-    expect(mockBackend.getMergeBackStatus).toHaveBeenCalledWith("/p", BR, "main");
+    expect(h.mockBackend.getMergeBackStatus).toHaveBeenCalledWith("/p", BR, "main");
 
     const unresolvable: MergeBackStatus = {
       ...status,
@@ -6409,26 +6076,26 @@ describe("merge-back (issue #272)", () => {
       reason: "base-gone",
       destinationCheckedOut: false,
     };
-    mockBackend.getMergeBackStatus.mockResolvedValueOnce(unresolvable);
+    h.mockBackend.getMergeBackStatus.mockResolvedValueOnce(unresolvable);
 
     // pre-field records pass a null base
     await expect(
-      useStore.getState().readMergeBackStatus("/p", BR, null),
+      h.useStore.getState().readMergeBackStatus("/p", BR, null),
     ).resolves.toBe(unresolvable);
-    expect(mockBackend.getMergeBackStatus).toHaveBeenLastCalledWith("/p", BR, null);
+    expect(h.mockBackend.getMergeBackStatus).toHaveBeenLastCalledWith("/p", BR, null);
   });
 
   it("appendNotice appends a notice item to a live rpc tab", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
 
-    useStore
+    h.useStore
       .getState()
-      .appendNotice(TAB, `merged ${BR} into main — fast-forward, 2 commits`, "info");
-    useStore
+      .appendNotice(h.TAB, `merged ${BR} into main — fast-forward, 2 commits`, "info");
+    h.useStore
       .getState()
-      .appendNotice(TAB, `merge of ${BR} into main stopped — 2 file(s) conflict`, "warn");
+      .appendNotice(h.TAB, `merge of ${BR} into main stopped — 2 file(s) conflict`, "warn");
 
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
       expect.objectContaining({
         kind: "notice",
         text: `merged ${BR} into main — fast-forward, 2 commits`,
@@ -6443,44 +6110,44 @@ describe("merge-back (issue #272)", () => {
   });
 
   it("appendNotice omits a level when none is given", () => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
 
-    useStore.getState().appendNotice(TAB, `merged ${BR} into main`);
+    h.useStore.getState().appendNotice(h.TAB, `merged ${BR} into main`);
 
-    const item = useStore.getState().rpc[TAB]!.items.at(-1);
+    const item = h.useStore.getState().rpc[h.TAB]!.items.at(-1);
     expect(item).toMatchObject({ kind: "notice", text: `merged ${BR} into main` });
     expect(item?.kind === "notice" ? item.level : undefined).toBeUndefined();
   });
 
   it("appendNotice no-ops for a tab without rpc state", () => {
-    useStore.setState({ rpc: {} });
+    h.useStore.setState({ rpc: {} });
 
-    useStore.getState().appendNotice("no-such-tab", "nothing to see", "warn");
+    h.useStore.getState().appendNotice("no-such-tab", "nothing to see", "warn");
 
-    expect(useStore.getState().rpc).toEqual({});
+    expect(h.useStore.getState().rpc).toEqual({});
   });
 });
 
 describe("deleteSession", () => {
   it("opens a warning that deleting a live session stops its agent", async () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1", "live"),
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      rpc: { [TAB]: rpcTabState() },
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    await useStore.getState().deleteSession(TAB);
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(mockBackend.deleteSession).not.toHaveBeenCalled();
-    expect(useStore.getState().deleteConfirmation).toEqual({
-      tabId: TAB,
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().deleteConfirmation).toEqual({
+      tabId: h.TAB,
       title: "New session",
       running: true,
       hasFiles: true,
@@ -6488,26 +6155,26 @@ describe("deleteSession", () => {
       worktreeBase: null,
     });
 
-    await useStore.getState().confirmDeleteSession(false);
-    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
-    expect(useStore.getState().tabs).toEqual([]);
+    await h.useStore.getState().confirmDeleteSession(false);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.useStore.getState().tabs).toEqual([]);
   });
 
   it("does nothing when the warning is dismissed", async () => {
-    useStore.setState({ state: stateWithRecord("sess-1", "dormant") });
-    await useStore.getState().deleteSession(TAB);
-    useStore.getState().cancelDeleteSession();
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+    await h.useStore.getState().deleteSession(h.TAB);
+    h.useStore.getState().cancelDeleteSession();
 
-    expect(mockBackend.deleteSession).not.toHaveBeenCalled();
-    expect(useStore.getState().deleteConfirmation).toBeNull();
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().deleteConfirmation).toBeNull();
   });
 
   it("drops the tab, its rpc slot, and its exit code once confirmed", async () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1", "dormant"),
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
@@ -6519,78 +6186,78 @@ describe("deleteSession", () => {
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      exited: { [TAB]: 1 },
-      rpc: { [TAB]: rpcTabState() },
+      activeTabId: h.TAB,
+      exited: { [h.TAB]: 1 },
+      rpc: { [h.TAB]: rpcTabState() },
     });
 
-    await useStore.getState().deleteSession(TAB);
-    await useStore.getState().confirmDeleteSession(false);
+    await h.useStore.getState().deleteSession(h.TAB);
+    await h.useStore.getState().confirmDeleteSession(false);
 
-    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
-    const st = useStore.getState();
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    const st = h.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual(["other"]);
-    expect(st.rpc[TAB]).toBeUndefined();
-    expect(st.exited[TAB]).toBeUndefined();
+    expect(st.rpc[h.TAB]).toBeUndefined();
+    expect(st.exited[h.TAB]).toBeUndefined();
     expect(st.activeTabId).toBe("other");
   });
 
   it("keeps the tab and surfaces the error when the backend delete fails", async () => {
-    mockBackend.deleteSession.mockRejectedValueOnce(new Error("EBUSY"));
-    useStore.setState({
-      state: stateWithRecord("sess-1", "dormant"),
+    h.mockBackend.deleteSession.mockRejectedValueOnce(new Error("EBUSY"));
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      rpc: { [TAB]: rpcTabState() },
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
     });
 
-    await useStore.getState().deleteSession(TAB);
-    await useStore.getState().confirmDeleteSession(false);
+    await h.useStore.getState().deleteSession(h.TAB);
+    await h.useStore.getState().confirmDeleteSession(false);
 
-    const st = useStore.getState();
-    expect(st.tabs.map((t) => t.tabId)).toEqual([TAB]);
-    expect(st.rpc[TAB]).toBeDefined();
-    expect(alerts[0]).toBe("EBUSY");
+    const st = h.useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB]);
+    expect(st.rpc[h.TAB]).toBeDefined();
+    expect(h.alerts[0]).toBe("EBUSY");
   });
 
   it("marks a record whose files are gone without a file-erasure warning", async () => {
-    useStore.setState({ state: stateWithRecord("sess-1", "missing") });
-    await useStore.getState().deleteSession(TAB);
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "missing") });
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
+    expect(h.useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
   });
 
   it("records the worktree branch and base on the confirmation", async () => {
-    const state = stateWithRecord("sess-1", "live");
+    const state = h.stateWithRecord("sess-1", "live");
     state.projects[0]!.sessions[0]!.worktree = {
       path: "/wt",
       branch: "omp-ui/abcd1234",
       base: "main",
     };
-    useStore.setState({
+    h.useStore.setState({
       state,
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      rpc: { [TAB]: rpcTabState() },
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    await useStore.getState().deleteSession(TAB);
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(useStore.getState().deleteConfirmation).toEqual({
-      tabId: TAB,
+    expect(h.useStore.getState().deleteConfirmation).toEqual({
+      tabId: h.TAB,
       title: "New session",
       running: true,
       hasFiles: true,
@@ -6600,56 +6267,56 @@ describe("deleteSession", () => {
   });
 
   it("records a null base on a pre-field worktree record", async () => {
-    const state = stateWithRecord("sess-1", "dormant");
+    const state = h.stateWithRecord("sess-1", "dormant");
     state.projects[0]!.sessions[0]!.worktree = {
       path: "/wt",
       branch: "omp-ui/abcd1234",
       base: null,
     };
-    useStore.setState({ state });
-    await useStore.getState().deleteSession(TAB);
+    h.useStore.setState({ state });
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(useStore.getState().deleteConfirmation).toMatchObject({
+    expect(h.useStore.getState().deleteConfirmation).toMatchObject({
       worktreeBranch: "omp-ui/abcd1234",
       worktreeBase: null,
     });
   });
 
   it("persists the opt-out only when deletion is confirmed", async () => {
-    useStore.setState({ state: stateWithRecord("sess-1", "dormant") });
-    await useStore.getState().deleteSession(TAB);
-    useStore.getState().cancelDeleteSession();
-    expect(mockBackend.setSkipDeleteConfirmation).not.toHaveBeenCalled();
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+    await h.useStore.getState().deleteSession(h.TAB);
+    h.useStore.getState().cancelDeleteSession();
+    expect(h.mockBackend.setSkipDeleteConfirmation).not.toHaveBeenCalled();
 
-    await useStore.getState().deleteSession(TAB);
-    await useStore.getState().confirmDeleteSession(true);
-    expect(mockBackend.setSkipDeleteConfirmation).toHaveBeenCalledWith(true);
+    await h.useStore.getState().deleteSession(h.TAB);
+    await h.useStore.getState().confirmDeleteSession(true);
+    expect(h.mockBackend.setSkipDeleteConfirmation).toHaveBeenCalledWith(true);
   });
 
   it("deletes immediately after warnings have been disabled", async () => {
-    const state = stateWithRecord("sess-1", "dormant");
+    const state = h.stateWithRecord("sess-1", "dormant");
     state.skipDeleteConfirmation = true;
-    useStore.setState({ state });
+    h.useStore.setState({ state });
 
-    await useStore.getState().deleteSession(TAB);
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(useStore.getState().deleteConfirmation).toBeNull();
-    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
+    expect(h.useStore.getState().deleteConfirmation).toBeNull();
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
   });
 });
 
 describe("convertSessionToWorktree (issue #225)", () => {
   it("converts via the backend channel and rethrows failures", async () => {
-    await useStore
+    await h.useStore
       .getState()
-      .convertSessionToWorktree(TAB, { branch: "omp-ui/abcd1234", baseRef: "main" });
-    expect(mockBackend.convertToWorktree).toHaveBeenCalledWith(TAB, "omp-ui/abcd1234", "main");
+      .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: "main" });
+    expect(h.mockBackend.convertToWorktree).toHaveBeenCalledWith(h.TAB, "omp-ui/abcd1234", "main");
 
-    mockBackend.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
+    h.mockBackend.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
     await expect(
-      useStore
+      h.useStore
         .getState()
-        .convertSessionToWorktree(TAB, { branch: "omp-ui/abcd1234", baseRef: null }),
+        .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: null }),
     ).rejects.toThrow("branch already exists");
   });
 });
@@ -6703,90 +6370,90 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
   });
 
   it("newSession records the spawned tab as the project's focus", async () => {
-    backendState = projectState([rec(TAB)]);
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh" });
-    useStore.setState({
-      state: backendState,
+    h.backendState = projectState([rec(h.TAB)]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh" });
+    h.useStore.setState({
+      state: h.backendState,
       advisorDefaults: { "/p": { enabled: false, model: null } },
     });
 
-    await useStore.getState().newSession("/p");
+    await h.useStore.getState().newSession("/p");
 
-    const st = useStore.getState();
+    const st = h.useStore.getState();
     expect(st.focusedTabByProject["/p"]).toBe("fresh");
     expect(st.activeTabId).toBe("fresh");
   });
 
   it("openSession on a dormant record resumes and records focus", async () => {
-    backendState = projectState([rec(TAB, "dormant")]);
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
-    useStore.setState({ state: backendState });
+    h.backendState = projectState([rec(h.TAB, "dormant")]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({ state: h.backendState });
 
-    await useStore.getState().openSession(TAB);
+    await h.useStore.getState().openSession(h.TAB);
 
-    const st = useStore.getState();
-    expect(st.focusedTabByProject["/p"]).toBe(TAB);
-    expect(st.activeTabId).toBe(TAB);
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    const st = h.useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(h.TAB);
+    expect(st.activeTabId).toBe(h.TAB);
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
         projectCwd: "/p",
         mode: "rpc-ui",
         advisor: false,
-        resumeTabId: TAB,
+        resumeTabId: h.TAB,
       }),
     );
   });
 
   it("openSession on an existing tab unhides and records focus without reseeding", async () => {
-    backendState = projectState([rec(TAB)]);
-    useStore.setState({
-      state: backendState,
+    h.backendState = projectState([rec(h.TAB)]);
+    h.useStore.setState({
+      state: h.backendState,
       tabs: [
-        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
       ],
     });
 
-    await useStore.getState().openSession(TAB);
+    await h.useStore.getState().openSession(h.TAB);
 
-    const st = useStore.getState();
-    expect(st.focusedTabByProject["/p"]).toBe(TAB);
-    expect(st.activeTabId).toBe(TAB);
-    expect(st.tabs.find((t) => t.tabId === TAB)?.hidden).toBe(false);
-    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    const st = h.useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(h.TAB);
+    expect(st.activeTabId).toBe(h.TAB);
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(false);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 
   it("focusTab records the focused tab's project", () => {
-    useStore.setState({
+    h.useStore.setState({
       tabs: [
-        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
       ],
     });
 
-    useStore.getState().focusTab(TAB);
+    h.useStore.getState().focusTab(h.TAB);
 
-    const st = useStore.getState();
-    expect(st.focusedTabByProject["/p"]).toBe(TAB);
-    expect(st.activeTabId).toBe(TAB);
+    const st = h.useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(h.TAB);
+    expect(st.activeTabId).toBe(h.TAB);
   });
 
   it("resumeDead behind a dormant record records focus", async () => {
-    backendState = projectState([rec(TAB, "dormant")]);
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
-    useStore.setState({
-      state: backendState,
+    h.backendState = projectState([rec(h.TAB, "dormant")]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: h.backendState,
       tabs: [
-        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
       ],
     });
 
-    await useStore.getState().resumeDead(TAB);
+    await h.useStore.getState().resumeDead(h.TAB);
 
-    const st = useStore.getState();
-    expect(st.focusedTabByProject["/p"]).toBe(TAB);
-    expect(st.activeTabId).toBe(TAB);
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    const st = h.useStore.getState();
+    expect(st.focusedTabByProject["/p"]).toBe(h.TAB);
+    expect(st.activeTabId).toBe(h.TAB);
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        resumeTabId: TAB,
+        resumeTabId: h.TAB,
         projectCwd: "/p",
         mode: "rpc-ui",
       }),
@@ -6794,24 +6461,24 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
   });
 
   it("resumeDead behind a hibernated tab wakes it and clears the flag", async () => {
-    backendState = projectState([rec(TAB, "dormant")]);
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
-    useStore.setState({
-      state: backendState,
+    h.backendState = projectState([rec(h.TAB, "dormant")]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: h.backendState,
       tabs: [
-        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
       ],
-      exited: { [TAB]: 0 },
-      hibernated: { [TAB]: true },
+      exited: { [h.TAB]: 0 },
+      hibernated: { [h.TAB]: true },
     });
 
-    await useStore.getState().resumeDead(TAB);
+    await h.useStore.getState().resumeDead(h.TAB);
 
-    const st = useStore.getState();
-    expect(st.exited[TAB]).toBeUndefined();
-    expect(st.hibernated[TAB]).toBeUndefined();
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeTabId: TAB, projectCwd: "/p", mode: "rpc-ui" }),
+    const st = h.useStore.getState();
+    expect(st.exited[h.TAB]).toBeUndefined();
+    expect(st.hibernated[h.TAB]).toBeUndefined();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeTabId: h.TAB, projectCwd: "/p", mode: "rpc-ui" }),
     );
   });
 });
@@ -6858,17 +6525,17 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
             defaultModel: null,
             defaultAdvisorModel: null,
           },
-          sessions: [rec(TAB), rec("other")],
+          sessions: [rec(h.TAB), rec("other")],
         },
       ],
     });
 
   it("hideTab moves the project's focus to its last non-hidden tab", () => {
-    useStore.setState({
+    h.useStore.setState({
       state: twoSessionState(),
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
@@ -6880,13 +6547,13 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      focusedTabByProject: { "/p": TAB },
+      activeTabId: h.TAB,
+      focusedTabByProject: { "/p": h.TAB },
     });
 
-    useStore.getState().hideTab(TAB);
+    h.useStore.getState().hideTab(h.TAB);
 
-    const st = useStore.getState();
+    const st = h.useStore.getState();
     // Per-project focus moves to the surviving tab of the same project…
     expect(st.focusedTabByProject["/p"]).toBe("other");
     // …and the global fallback also lands on the last non-hidden tab overall.
@@ -6894,34 +6561,34 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
   });
 
   it("hideTab drops the project entry when the hidden tab was its only one", () => {
-    useStore.setState({
+    h.useStore.setState({
       state: {
         ...twoSessionState(),
-        projects: [{ ...twoSessionState().projects[0]!, sessions: [rec(TAB)] }],
+        projects: [{ ...twoSessionState().projects[0]!, sessions: [rec(h.TAB)] }],
       },
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      focusedTabByProject: { "/p": TAB },
+      activeTabId: h.TAB,
+      focusedTabByProject: { "/p": h.TAB },
     });
 
-    useStore.getState().hideTab(TAB);
+    h.useStore.getState().hideTab(h.TAB);
 
-    expect(useStore.getState().focusedTabByProject).toEqual({});
+    expect(h.useStore.getState().focusedTabByProject).toEqual({});
   });
 
   it("deleting the focused tab moves focus to the surviving sibling", async () => {
-    useStore.setState({
+    h.useStore.setState({
       state: twoSessionState(),
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
@@ -6933,128 +6600,128 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      focusedTabByProject: { "/p": TAB },
+      activeTabId: h.TAB,
+      focusedTabByProject: { "/p": h.TAB },
     });
 
-    await useStore.getState().deleteSession(TAB);
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(mockBackend.deleteSession).toHaveBeenCalledWith(TAB);
-    expect(useStore.getState().focusedTabByProject["/p"]).toBe("other");
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.useStore.getState().focusedTabByProject["/p"]).toBe("other");
   });
 
   it("deleting the last tab of a project drops its focus entry", async () => {
-    useStore.setState({
+    h.useStore.setState({
       state: {
         ...twoSessionState(),
-        projects: [{ ...twoSessionState().projects[0]!, sessions: [rec(TAB)] }],
+        projects: [{ ...twoSessionState().projects[0]!, sessions: [rec(h.TAB)] }],
       },
       tabs: [
         tabInfo({
-          tabId: TAB,
+          tabId: h.TAB,
           mode: "rpc-ui",
           projectCwd: "/p",
           hidden: false,
         }),
       ],
-      activeTabId: TAB,
-      focusedTabByProject: { "/p": TAB },
+      activeTabId: h.TAB,
+      focusedTabByProject: { "/p": h.TAB },
     });
 
-    await useStore.getState().deleteSession(TAB);
+    await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(useStore.getState().focusedTabByProject).toEqual({});
+    expect(h.useStore.getState().focusedTabByProject).toEqual({});
   });
 });
 
 describe("settings", () => {
   it("opens on general by default, honours an explicit page, and closes back to null", () => {
-    useStore.getState().openSettings();
-    expect(useStore.getState().settingsPage).toBe("general");
+    h.useStore.getState().openSettings();
+    expect(h.useStore.getState().settingsPage).toBe("general");
 
-    useStore.getState().openSettings("memory");
-    expect(useStore.getState().settingsPage).toBe("memory");
+    h.useStore.getState().openSettings("memory");
+    expect(h.useStore.getState().settingsPage).toBe("memory");
 
-    useStore.getState().closeSettings();
-    expect(useStore.getState().settingsPage).toBeNull();
+    h.useStore.getState().closeSettings();
+    expect(h.useStore.getState().settingsPage).toBeNull();
   });
 
   it("caches the effective compaction threshold per project (issue #249)", async () => {
-    mockBackend.readOmpSettings.mockResolvedValueOnce({
-      ...emptyOmpSettings,
+    h.mockBackend.readOmpSettings.mockResolvedValueOnce({
+      ...h.emptyOmpSettings,
       entries: [
         { key: "compaction.thresholdPercent", type: "number", description: "", value: -1, options: null, layer: "default" },
         { key: "compaction.thresholdTokens", type: "number", description: "", value: -1, options: null, layer: "default" },
       ],
     });
 
-    await useStore.getState().ensureCompactionSettings("/p");
+    await h.useStore.getState().ensureCompactionSettings("/p");
 
-    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
-    expect(mockBackend.readOmpSettings).toHaveBeenCalledWith("/p");
-    expect(useStore.getState().compactionSettings["/p"]).toEqual({
+    expect(h.mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.readOmpSettings).toHaveBeenCalledWith("/p");
+    expect(h.useStore.getState().compactionSettings["/p"]).toEqual({
       thresholdPercent: -1,
       thresholdTokens: -1,
     });
 
     // A second ensure is a cache hit — no second backend round trip.
-    await useStore.getState().ensureCompactionSettings("/p");
-    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    await h.useStore.getState().ensureCompactionSettings("/p");
+    expect(h.mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
   });
 
   it("dedupes concurrent compaction settings reads for one project", async () => {
     let resolveRead!: (snapshot: OmpSettingsSnapshot) => void;
-    mockBackend.readOmpSettings.mockImplementationOnce(
+    h.mockBackend.readOmpSettings.mockImplementationOnce(
       () => new Promise<OmpSettingsSnapshot>((resolve) => { resolveRead = resolve; }),
     );
     const inFlight = Promise.all([
-      useStore.getState().ensureCompactionSettings("/p"),
-      useStore.getState().ensureCompactionSettings("/p"),
+      h.useStore.getState().ensureCompactionSettings("/p"),
+      h.useStore.getState().ensureCompactionSettings("/p"),
     ]);
-    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
-    resolveRead(emptyOmpSettings);
+    expect(h.mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    resolveRead(h.emptyOmpSettings);
     await inFlight;
-    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
-    expect(useStore.getState().compactionSettings["/p"]).toEqual({});
+    expect(h.mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    expect(h.useStore.getState().compactionSettings["/p"]).toEqual({});
   });
 
   it("caches a failed compaction settings read as null, not a default", async () => {
-    mockBackend.readOmpSettings.mockResolvedValueOnce({
-      ...emptyOmpSettings,
+    h.mockBackend.readOmpSettings.mockResolvedValueOnce({
+      ...h.emptyOmpSettings,
       error: "omp binary not found",
     });
 
-    await useStore.getState().ensureCompactionSettings("/p");
+    await h.useStore.getState().ensureCompactionSettings("/p");
 
-    expect(useStore.getState().compactionSettings["/p"]).toBeNull();
+    expect(h.useStore.getState().compactionSettings["/p"]).toBeNull();
     // The failure is cached too: the next ensure must not hammer a missing
     // binary — the HUD only refetches after a compaction.* write or relaunch.
-    await useStore.getState().ensureCompactionSettings("/p");
-    expect(mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
+    await h.useStore.getState().ensureCompactionSettings("/p");
+    expect(h.mockBackend.readOmpSettings).toHaveBeenCalledTimes(1);
   });
 
   it("clears the compaction cache on compaction.* writes only", async () => {
-    await useStore.getState().ensureCompactionSettings("/p");
-    expect("/p" in useStore.getState().compactionSettings).toBe(true);
+    await h.useStore.getState().ensureCompactionSettings("/p");
+    expect("/p" in h.useStore.getState().compactionSettings).toBe(true);
 
-    await useStore.getState().writeOmpSetting("advisor.enabled", true);
-    expect("/p" in useStore.getState().compactionSettings).toBe(true);
+    await h.useStore.getState().writeOmpSetting("advisor.enabled", true);
+    expect("/p" in h.useStore.getState().compactionSettings).toBe(true);
 
-    await useStore.getState().writeOmpSetting("compaction.thresholdPercent", 50);
-    expect(useStore.getState().compactionSettings).toEqual({});
+    await h.useStore.getState().writeOmpSetting("compaction.thresholdPercent", 50);
+    expect(h.useStore.getState().compactionSettings).toEqual({});
   });
 
   it("rejects writeOmpSetting to its caller instead of alerting", async () => {
-    mockBackend.writeOmpSetting.mockRejectedValueOnce(
+    h.mockBackend.writeOmpSetting.mockRejectedValueOnce(
       new Error("unknown setting"),
     );
 
     // The omp settings page renders this inline, so the rejection must survive
     // the store rather than being swallowed into window.alert.
     await expect(
-      useStore.getState().writeOmpSetting("advisor.enabled", true),
+      h.useStore.getState().writeOmpSetting("advisor.enabled", true),
     ).rejects.toThrow("unknown setting");
-    expect(alerts).toEqual([]);
+    expect(h.alerts).toEqual([]);
   });
 });
 
@@ -7062,30 +6729,30 @@ describe("remote access settings", () => {
   it("renders remote state only from the push, never an optimistic set", () => {
     // The pushed RemoteState IS the rendered one: main/remote-server.ts publishes a full state
     // per transition, so the store never patches a field itself.
-    const push = (s: RemoteState): void => useStore.setState({ remote: s });
-    push({ ...idleRemoteState, status: "starting", enabled: true });
-    expect(useStore.getState().remote.status).toBe("starting");
+    const push = (s: RemoteState): void => h.useStore.setState({ remote: s });
+    push({ ...h.idleRemoteState, status: "starting", enabled: true });
+    expect(h.useStore.getState().remote.status).toBe("starting");
     push({
-      ...idleRemoteState,
+      ...h.idleRemoteState,
       status: "listening",
       enabled: true,
       urls: ["http://127.0.0.1:4677/?t=t"],
     });
-    expect(useStore.getState().remote.urls).toEqual([
+    expect(h.useStore.getState().remote.urls).toEqual([
       "http://127.0.0.1:4677/?t=t",
     ]);
 
     // An action's resolution changes nothing on its own — only the next push does.
-    void useStore.getState().setRemoteEnabled(false);
-    expect(useStore.getState().remote.enabled).toBe(true);
+    void h.useStore.getState().setRemoteEnabled(false);
+    expect(h.useStore.getState().remote.enabled).toBe(true);
   });
 
   it("alerts a real remote-settings failure", async () => {
-    mockBackend.setRemotePort.mockRejectedValueOnce(
+    h.mockBackend.setRemotePort.mockRejectedValueOnce(
       new Error("port must be a whole number between 1024 and 65535"),
     );
-    await useStore.getState().setRemotePort(80);
-    expect(alerts).toEqual([
+    await h.useStore.getState().setRemotePort(80);
+    expect(h.alerts).toEqual([
       "port must be a whole number between 1024 and 65535",
     ]);
   });
@@ -7102,59 +6769,59 @@ describe("remote access settings", () => {
       ["setRemotePassword", "short"],
       ["clearRemotePassword", undefined],
     ] as const) {
-      mockBackend[action].mockRejectedValueOnce(
+      h.mockBackend[action].mockRejectedValueOnce(
         new Error("remote connection lost"),
       );
-      await (useStore.getState()[action] as (a?: unknown) => Promise<void>)(
+      await (h.useStore.getState()[action] as (a?: unknown) => Promise<void>)(
         arg,
       );
     }
-    expect(alerts).toEqual([]);
+    expect(h.alerts).toEqual([]);
   });
 });
 
 describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)", () => {
-  const THROTTLE_TAB = `${TAB}-throttle`;
+  const THROTTLE_TAB = `${h.TAB}-throttle`;
 
   beforeEach(() => {
-    useStore.setState({
-      rpc: { [TAB]: rpcTabState(), [THROTTLE_TAB]: rpcTabState() },
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState(), [THROTTLE_TAB]: rpcTabState() },
     });
   });
 
   const heartbeat = (tabId: string, id: string, agent: string) =>
-    useStore.getState().handleRpcFrame(tabId, {
+    h.useStore.getState().handleRpcFrame(tabId, {
       type: "subagent_progress",
       payload: { id, agent, progress: { status: "running" } },
     });
 
   const markerLabels = (tabId: string) =>
-    useStore
+    h.useStore
       .getState()
       .rpc[tabId]!.items.filter((i) => i.kind === "marker")
       .map((i) => i.label);
 
   it("interleaved running heartbeats from two agents stamp exactly one marker each", () => {
-    heartbeat(TAB, "a", "scout");
-    heartbeat(TAB, "b", "task");
-    heartbeat(TAB, "a", "scout");
-    heartbeat(TAB, "b", "task");
-    heartbeat(TAB, "a", "scout");
-    expect(markerLabels(TAB)).toEqual([
+    heartbeat(h.TAB, "a", "scout");
+    heartbeat(h.TAB, "b", "task");
+    heartbeat(h.TAB, "a", "scout");
+    heartbeat(h.TAB, "b", "task");
+    heartbeat(h.TAB, "a", "scout");
+    expect(markerLabels(h.TAB)).toEqual([
       "subagent scout: running",
       "subagent task: running",
     ]);
   });
 
   it("a status change for one agent appends exactly one more marker, for that agent only", () => {
-    heartbeat(TAB, "a", "scout");
-    heartbeat(TAB, "b", "task");
-    useStore.getState().handleRpcFrame(TAB, {
+    heartbeat(h.TAB, "a", "scout");
+    heartbeat(h.TAB, "b", "task");
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "subagent_lifecycle",
       payload: { id: "a", agent: "scout", status: "finished" },
     });
-    heartbeat(TAB, "b", "task");
-    expect(markerLabels(TAB)).toEqual([
+    heartbeat(h.TAB, "b", "task");
+    expect(markerLabels(h.TAB)).toEqual([
       "subagent scout: running",
       "subagent task: running",
       "subagent scout: finished",
@@ -7165,19 +6832,19 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     vi.useFakeTimers();
     try {
       const rosterCalls = () =>
-        sent.filter((s) => s.cmd.type === "get_subagents");
+        h.sent.filter((s) => s.cmd.type === "get_subagents");
       heartbeat(THROTTLE_TAB, "a", "scout");
       expect(rosterCalls()).toHaveLength(1);
       // Frames landing mid-request only schedule the trailing call.
       heartbeat(THROTTLE_TAB, "a", "scout");
       heartbeat(THROTTLE_TAB, "b", "task");
       expect(rosterCalls()).toHaveLength(1);
-      respond(THROTTLE_TAB, rosterCalls()[0]!.cmd, { subagents: [] });
-      await flushMicrotasks();
+      h.respond(THROTTLE_TAB, rosterCalls()[0]!.cmd, { subagents: [] });
+      await h.flushMicrotasks();
       await vi.advanceTimersByTimeAsync(500);
       expect(rosterCalls()).toHaveLength(2);
-      respond(THROTTLE_TAB, rosterCalls()[1]!.cmd, { subagents: [] });
-      await flushMicrotasks();
+      h.respond(THROTTLE_TAB, rosterCalls()[1]!.cmd, { subagents: [] });
+      await h.flushMicrotasks();
       await vi.advanceTimersByTimeAsync(2000);
       expect(rosterCalls()).toHaveLength(2);
     } finally {
@@ -7187,41 +6854,41 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
 
   it("event frames append to the per-agent buffer with dedupe and a 500-item cap", () => {
     const text = (t: string) =>
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "subagent_event",
         payload: { id: "a", text: t },
       });
     text("hello");
     text("hello");
-    expect(useStore.getState().rpc[TAB]!.subagentItems?.a).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.subagentItems?.a).toHaveLength(1);
     for (let i = 0; i < 505; i++) text(`note ${i}`);
-    const buffer = useStore.getState().rpc[TAB]!.subagentItems!.a!;
+    const buffer = h.useStore.getState().rpc[h.TAB]!.subagentItems!.a!;
     expect(buffer).toHaveLength(500);
     expect(buffer.at(-1)).toMatchObject({ text: "note 504" });
   });
 
   it("opening a detail escalates the subscription to events; closing drops back, without redundant sends", () => {
     const levels = () =>
-      sent
+      h.sent
         .filter((s) => s.cmd.type === "set_subagent_subscription")
         .map((s) => s.cmd.level);
-    useStore.getState().openSubagent(TAB, "a");
-    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("a");
-    useStore.getState().openSubagent(TAB, "a");
+    h.useStore.getState().openSubagent(h.TAB, "a");
+    expect(h.useStore.getState().rpc[h.TAB]!.selectedSubagent).toBe("a");
+    h.useStore.getState().openSubagent(h.TAB, "a");
     expect(levels()).toEqual(["events"]);
-    useStore.getState().closeSubagent(TAB);
-    useStore.getState().closeSubagent(TAB);
+    h.useStore.getState().closeSubagent(h.TAB);
+    h.useStore.getState().closeSubagent(h.TAB);
     expect(levels()).toEqual(["events", "progress"]);
-    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.selectedSubagent).toBeNull();
   });
 
   it("a ready-frame re-boot sends progress, then re-escalates while a detail is open", async () => {
     // A dedicated tab id: an earlier suite leaves TAB's boot latch held, and
     // rpcBooting short-circuits a second bootRpcTab for the same tab.
-    const REBOOT_TAB = `${TAB}-reboot`;
-    backendState = stateWithRecord(null);
-    useStore.setState({
-      state: backendState,
+    const REBOOT_TAB = `${h.TAB}-reboot`;
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({
+      state: h.backendState,
       rpc: {
         [REBOOT_TAB]: rpcTabState({
           selectedSubagent: "a",
@@ -7230,29 +6897,29 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
       },
     });
     const levels: unknown[] = [];
-    const boot = useStore.getState().bootRpcTab(REBOOT_TAB);
+    const boot = h.useStore.getState().bootRpcTab(REBOOT_TAB);
     for (let wave = 0; wave < 6; wave++) {
-      await flushMicrotasks();
-      for (const { cmd } of sent.splice(0)) {
+      await h.flushMicrotasks();
+      for (const { cmd } of h.sent.splice(0)) {
         if (cmd.type === "set_subagent_subscription") levels.push(cmd.level);
-        respond(REBOOT_TAB, cmd, {});
+        h.respond(REBOOT_TAB, cmd, {});
       }
     }
     await boot;
     expect(levels).toEqual(["progress", "events"]);
-    expect(useStore.getState().rpc[REBOOT_TAB]!.selectedSubagent).toBe("a");
+    expect(h.useStore.getState().rpc[REBOOT_TAB]!.selectedSubagent).toBe("a");
   });
 
   it("openSubagent backfills the run's history from its transcript file", async () => {
-    useStore.getState().openSubagent(TAB, "s1");
-    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("s1");
-    await flushMicrotasks();
-    const cmds = sent.splice(0);
+    h.useStore.getState().openSubagent(h.TAB, "s1");
+    expect(h.useStore.getState().rpc[h.TAB]!.selectedSubagent).toBe("s1");
+    await h.flushMicrotasks();
+    const cmds = h.sent.splice(0);
     const levels = cmds.filter((c) => c.cmd.type === "set_subagent_subscription");
     expect(levels.map((c) => c.cmd.level)).toEqual(["events"]);
     const backfill = cmds.find((c) => c.cmd.type === "get_subagent_messages");
     expect(backfill?.cmd.subagentId).toBe("s1");
-    respond(TAB, backfill!.cmd, {
+    h.respond(h.TAB, backfill!.cmd, {
       sessionFile: "/x/s1.jsonl",
       fromByte: 0,
       nextByte: 100,
@@ -7263,64 +6930,64 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
         { role: "assistant", content: [{ type: "text", text: "done" }] },
       ],
     });
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.subagentItems?.["s1"]).toEqual([
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.subagentItems?.["s1"]).toEqual([
       expect.objectContaining({ kind: "user", text: "map the store" }),
       expect.objectContaining({ kind: "assistant", text: "done" }),
     ]);
   });
 
   it("openSubagent keeps the live buffer and raises no panel when backfill fails", async () => {
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "subagent_event",
       payload: { id: "s1", text: "live line" },
     });
-    const before = useStore.getState().rpc[TAB]!.subagentItems?.["s1"];
-    useStore.getState().openSubagent(TAB, "s1");
-    await flushMicrotasks();
-    const backfill = sent.splice(0).find((c) => c.cmd.type === "get_subagent_messages");
-    respond(TAB, backfill!.cmd, "Unknown subagent or session file unavailable: s1", false);
-    await flushMicrotasks();
-    const tab = useStore.getState().rpc[TAB]!;
+    const before = h.useStore.getState().rpc[h.TAB]!.subagentItems?.["s1"];
+    h.useStore.getState().openSubagent(h.TAB, "s1");
+    await h.flushMicrotasks();
+    const backfill = h.sent.splice(0).find((c) => c.cmd.type === "get_subagent_messages");
+    h.respond(h.TAB, backfill!.cmd, "Unknown subagent or session file unavailable: s1", false);
+    await h.flushMicrotasks();
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.subagentItems?.["s1"]).toEqual(before);
     expect(tab.failure).toBeUndefined();
   });
 
   it("drops a late backfill response when the selection moved on", async () => {
-    useStore.getState().openSubagent(TAB, "s1");
-    await flushMicrotasks();
-    const stale = sent.splice(0).find((c) => c.cmd.type === "get_subagent_messages");
-    useStore.getState().openSubagent(TAB, "s2");
-    await flushMicrotasks();
-    respond(TAB, stale!.cmd, {
+    h.useStore.getState().openSubagent(h.TAB, "s1");
+    await h.flushMicrotasks();
+    const stale = h.sent.splice(0).find((c) => c.cmd.type === "get_subagent_messages");
+    h.useStore.getState().openSubagent(h.TAB, "s2");
+    await h.flushMicrotasks();
+    h.respond(h.TAB, stale!.cmd, {
       messages: [{ role: "user", content: [{ type: "text", text: "stale" }] }],
     });
-    await flushMicrotasks();
-    expect(useStore.getState().rpc[TAB]!.subagentItems?.["s1"]).toBeUndefined();
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.subagentItems?.["s1"]).toBeUndefined();
   });
 
   it("re-selecting the open agent is a no-op", async () => {
-    useStore.getState().openSubagent(TAB, "s1");
-    await flushMicrotasks();
-    sent.splice(0);
-    useStore.getState().openSubagent(TAB, "s1");
-    await flushMicrotasks();
-    expect(sent.splice(0)).toEqual([]);
+    h.useStore.getState().openSubagent(h.TAB, "s1");
+    await h.flushMicrotasks();
+    h.sent.splice(0);
+    h.useStore.getState().openSubagent(h.TAB, "s1");
+    await h.flushMicrotasks();
+    expect(h.sent.splice(0)).toEqual([]);
   });
 
   it("live frames for the viewed agent grow past the retained-buffer cap; others stay capped", () => {
-    useStore.getState().openSubagent(TAB, "s1");
+    h.useStore.getState().openSubagent(h.TAB, "s1");
     for (let i = 0; i < 510; i++) {
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "subagent_event",
         payload: { id: "s1", text: `live ${i}` },
       });
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "subagent_event",
         payload: { id: "s2", text: `bg ${i}` },
       });
     }
-    const buffers = useStore.getState().rpc[TAB]!.subagentItems!;
+    const buffers = h.useStore.getState().rpc[h.TAB]!.subagentItems!;
     expect(buffers["s1"]).toHaveLength(510);
     expect(buffers["s2"]).toHaveLength(500);
   });
@@ -7328,18 +6995,18 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
 
 describe("initialization snapshot ordering", () => {
   it("registers listeners first, starts all reads together, and commits only after the slowest", async () => {
-    const stateRead = deferred<BackendState>();
-    const appRead = deferred<AppUpdateState>();
-    const ompRead = deferred<OmpUpdateState>();
-    const remoteRead = deferred<RemoteState>();
+    const stateRead = h.deferred<BackendState>();
+    const appRead = h.deferred<AppUpdateState>();
+    const ompRead = h.deferred<OmpUpdateState>();
+    const remoteRead = h.deferred<RemoteState>();
     const initialState = makeBackendState();
-    const initialApp = { ...idleAppUpdate, currentVersion: "9.8.7" };
-    const initialOmp = { ...idleOmpUpdate, installedVersion: "1.2.3" };
-    const initialRemote = { ...idleRemoteState, enabled: true };
-    mockBackend.getState.mockImplementationOnce(() => stateRead.promise);
-    mockBackend.getAppUpdateState.mockImplementationOnce(() => appRead.promise);
-    mockBackend.getOmpUpdateState.mockImplementationOnce(() => ompRead.promise);
-    mockBackend.getRemoteState.mockImplementationOnce(() => remoteRead.promise);
+    const initialApp = { ...h.idleAppUpdate, currentVersion: "9.8.7" };
+    const initialOmp = { ...h.idleOmpUpdate, installedVersion: "1.2.3" };
+    const initialRemote = { ...h.idleRemoteState, enabled: true };
+    h.mockBackend.getState.mockImplementationOnce(() => stateRead.promise);
+    h.mockBackend.getAppUpdateState.mockImplementationOnce(() => appRead.promise);
+    h.mockBackend.getOmpUpdateState.mockImplementationOnce(() => ompRead.promise);
+    h.mockBackend.getRemoteState.mockImplementationOnce(() => remoteRead.promise);
     // init's StrictMode latch is module-scoped; an earlier routing test initializes
     // the shared store, so this contract test intentionally needs a fresh evaluation.
     vi.resetModules();
@@ -7349,22 +7016,22 @@ describe("initialization snapshot ordering", () => {
     const duplicate = freshStore.getState().init();
 
     const listeners = [
-      mockBackend.onStateChanged,
-      mockBackend.onPtyData,
-      mockBackend.onPtyExit,
-      mockBackend.onSessionHibernated,
-      mockBackend.onShellData,
-      mockBackend.onShellExit,
-      mockBackend.onRpcFrame,
-      mockBackend.onAppUpdateState,
-      mockBackend.onOmpUpdateState,
-      mockBackend.onRemoteState,
+      h.mockBackend.onStateChanged,
+      h.mockBackend.onPtyData,
+      h.mockBackend.onPtyExit,
+      h.mockBackend.onSessionHibernated,
+      h.mockBackend.onShellData,
+      h.mockBackend.onShellExit,
+      h.mockBackend.onRpcFrame,
+      h.mockBackend.onAppUpdateState,
+      h.mockBackend.onOmpUpdateState,
+      h.mockBackend.onRemoteState,
     ];
     const reads = [
-      mockBackend.getState,
-      mockBackend.getAppUpdateState,
-      mockBackend.getOmpUpdateState,
-      mockBackend.getRemoteState,
+      h.mockBackend.getState,
+      h.mockBackend.getAppUpdateState,
+      h.mockBackend.getOmpUpdateState,
+      h.mockBackend.getRemoteState,
     ];
     expect(
       listeners.every((listener) => listener.mock.calls.length === 1),
@@ -7381,12 +7048,12 @@ describe("initialization snapshot ordering", () => {
     stateRead.resolve(initialState);
     appRead.resolve(initialApp);
     ompRead.resolve(initialOmp);
-    await flushMicrotasks();
+    await h.flushMicrotasks();
     expect(freshStore.getState()).toMatchObject({
       state: null,
-      appUpdate: idleAppUpdate,
-      ompUpdate: idleOmpUpdate,
-      remote: { ...idleRemoteState, token: "" },
+      appUpdate: h.idleAppUpdate,
+      ompUpdate: h.idleOmpUpdate,
+      remote: { ...h.idleRemoteState, token: "" },
     });
 
     remoteRead.resolve(initialRemote);
@@ -7430,7 +7097,7 @@ describe("transcript commit batching (issue #187)", () => {
     window.requestAnimationFrame = (cb: FrameRequestCallback): number =>
       rafQueue.push(cb);
     window.cancelAnimationFrame = (): void => {};
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
 
   afterEach(() => {
@@ -7442,30 +7109,30 @@ describe("transcript commit batching (issue #187)", () => {
 
   it("coalesces a burst of transcript frames into one render commit", () => {
     const commits: number[] = [];
-    const unsub = useStore.subscribe((state, prev) => {
-      if (state.rpc[TAB]?.items !== prev.rpc[TAB]?.items)
-        commits.push(state.rpc[TAB]!.items.length);
+    const unsub = h.useStore.subscribe((state, prev) => {
+      if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items)
+        commits.push(state.rpc[h.TAB]!.items.length);
     });
     try {
-      const store = useStore.getState();
-      store.handleRpcFrame(TAB, {
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
         type: "message_start",
         message: { role: "user", content: [{ type: "text", text: "go" }] },
       });
-      store.handleRpcFrame(TAB, {
+      store.handleRpcFrame(h.TAB, {
         type: "message_update",
         assistantMessageEvent: { type: "text_delta", delta: "a" },
       });
-      store.handleRpcFrame(TAB, {
+      store.handleRpcFrame(h.TAB, {
         type: "message_update",
         assistantMessageEvent: { type: "text_delta", delta: "b" },
       });
       // Nothing committed yet — the renderer stays free for input mid-burst.
-      expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
       expect(rafQueue).toHaveLength(1);
       runFrame();
       expect(commits).toEqual([2]);
-      const items = useStore.getState().rpc[TAB]!.items;
+      const items = h.useStore.getState().rpc[h.TAB]!.items;
       expect(items[0]).toMatchObject({ kind: "user", text: "go" });
       expect(items[1]).toMatchObject({
         kind: "assistant",
@@ -7478,21 +7145,21 @@ describe("transcript commit batching (issue #187)", () => {
   });
 
   it("commits each later burst separately with frame order preserved", () => {
-    const store = useStore.getState();
-    store.handleRpcFrame(TAB, {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "user", content: [{ type: "text", text: "q1" }] },
     });
     runFrame();
-    store.handleRpcFrame(TAB, {
+    store.handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "user", content: [{ type: "text", text: "q2" }] },
     });
     expect(
-      useStore.getState().rpc[TAB]!.items.map((i) => i.kind),
+      h.useStore.getState().rpc[h.TAB]!.items.map((i) => i.kind),
     ).toEqual(["user"]);
     runFrame();
-    const items = useStore.getState().rpc[TAB]!.items;
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
     expect(items.map((i) => (i.kind === "user" ? i.text : ""))).toEqual([
       "q1",
       "q2",
@@ -7500,41 +7167,41 @@ describe("transcript commit batching (issue #187)", () => {
   });
 
   it("keeps control frames immediate while a transcript commit is pending", async () => {
-    const store = useStore.getState();
-    store.handleRpcFrame(TAB, {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "x" },
     });
     expect(rafQueue).toHaveLength(1);
     // A dialog request must not wait for the flush — omp blocks on its reply.
-    store.handleRpcFrame(TAB, {
+    store.handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "e1",
       method: "confirm",
       title: "sure?",
     });
-    expect(useStore.getState().rpc[TAB]!.extensionQueue).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
     // A command response also resolves without waiting for the flush.
-    const cmd = store.rpcCommand(TAB, { type: "get_state" });
-    respond(TAB, sent.pop()!.cmd, {});
+    const cmd = store.rpcCommand(h.TAB, { type: "get_state" });
+    h.respond(h.TAB, h.sent.pop()!.cmd, {});
     await expect(cmd).resolves.toBeDefined();
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
     runFrame();
-    expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
   });
 
   it("settles running tools from the pending batch on process death", () => {
-    const store = useStore.getState();
-    store.handleRpcFrame(TAB, {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
       type: "tool_execution_start",
       toolCallId: "t1",
       toolName: "bash",
       args: { command: "make" },
     });
     // The card exists only in the pending batch.
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
-    store.handleRpcFrame(TAB, { type: "omp_ui_error", message: "process gone" });
-    const items = useStore.getState().rpc[TAB]!.items;
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+    store.handleRpcFrame(h.TAB, { type: "omp_ui_error", message: "process gone" });
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
     expect(items).toEqual([
       expect.objectContaining({
         kind: "tool",
@@ -7544,39 +7211,39 @@ describe("transcript commit batching (issue #187)", () => {
     ]);
     // The aborted commit landed immediately; the dead batch is gone.
     runFrame();
-    expect(useStore.getState().rpc[TAB]!.items).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
   });
 
   it("drops a pending batch on relaunch so stale frames cannot land", async () => {
-    useStore.setState({ state: stateWithRecord(null) });
-    const store = useStore.getState();
-    store.handleRpcFrame(TAB, {
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "old" },
     });
     expect(rafQueue).toHaveLength(1);
-    mockBackend.restartSession.mockResolvedValueOnce(undefined);
-    await store.restartSession(TAB);
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+    h.mockBackend.restartSession.mockResolvedValueOnce(undefined);
+    await store.restartSession(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
     runFrame();
-    expect(useStore.getState().rpc[TAB]!.items).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
   });
 
   it("feeds the advisor reply watcher from the pending batch, not the commit", async () => {
     vi.useFakeTimers();
     try {
-      useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
-      const store = useStore.getState();
-      store.handleRpcFrame(TAB, { type: "agent_end" });
+      h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, { type: "agent_end" });
       runFrame(); // commits only the "agent finished" marker
-      store.handleRpcFrame(TAB, advisorFrame("Do it now"));
+      store.handleRpcFrame(h.TAB, advisorFrame("Do it now"));
       // The advisory lives only in the pending batch — never flushed here.
       expect(
-        useStore.getState().rpc[TAB]!.items.some((i) => i.kind === "advisory"),
+        h.useStore.getState().rpc[h.TAB]!.items.some((i) => i.kind === "advisory"),
       ).toBe(false);
       await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
-      await flushMicrotasks();
-      const replies = sent.filter((s) => s.cmd.type === "prompt");
+      await h.flushMicrotasks();
+      const replies = h.sent.filter((s) => s.cmd.type === "prompt");
       expect(replies).toHaveLength(1);
       expect(String(replies[0]!.cmd.message)).toContain("Do it now");
     } finally {
@@ -7599,7 +7266,7 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     pendingPlan?: PendingPlan | null;
     planSettle?: PlanSettle | null;
   }): BackendState => {
-    const base = stateWithRecord(null);
+    const base = h.stateWithRecord(null);
     return {
       ...base,
       projects: [
@@ -7629,7 +7296,7 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
     const init = fresh.getState().init();
-    const onStateChanged = mockBackend.onStateChanged.mock.calls[0]![0] as (
+    const onStateChanged = h.mockBackend.onStateChanged.mock.calls[0]![0] as (
       state: BackendState,
     ) => void;
     await init;
@@ -7652,10 +7319,10 @@ describe("plan-review gate reconciliation (issue #215)", () => {
 
   it("hydrates a late-joining renderer from the record alone", async () => {
     const { store, onStateChanged } = await initFreshStore();
-    store.setState({ rpc: { [TAB]: rpcTabState() } });
+    store.setState({ rpc: { [h.TAB]: rpcTabState() } });
 
     onStateChanged(gateState({ pendingPlan: PENDING }));
-    let tab = store.getState().rpc[TAB]!;
+    let tab = store.getState().rpc[h.TAB]!;
     expect(tab.planReview).toEqual({
       request: {
         title: "add auth",
@@ -7668,9 +7335,9 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     expect(tab.plans).toEqual([
       { key: "local://auth-plan.html", title: "add auth", status: "pending" },
     ]);
-    expect(mockBackend.readPlanFile).toHaveBeenCalledWith(TAB, "/l/auth-plan.html");
-    await flushMicrotasks();
-    tab = store.getState().rpc[TAB]!;
+    expect(h.mockBackend.readPlanFile).toHaveBeenCalledWith(h.TAB, "/l/auth-plan.html");
+    await h.flushMicrotasks();
+    tab = store.getState().rpc[h.TAB]!;
     expect(tab.planText).toBe("<h1>Plan</h1>");
     expect(tab.planHtml).toBe("<h1>Plan</h1>");
   });
@@ -7678,10 +7345,10 @@ describe("plan-review gate reconciliation (issue #215)", () => {
   it("settles a verdict another client made, matching the proposal frame id", async () => {
     const { store, onStateChanged } = await initFreshStore();
     const planItem = planProposalItem("add auth", "local://auth-plan.html", "/l/auth-plan.html");
-    store.setState({ rpc: { [TAB]: reviewedTab({ items: [planItem] }) } });
+    store.setState({ rpc: { [h.TAB]: reviewedTab({ items: [planItem] }) } });
 
     onStateChanged(gateState({ planSettle: { frameId: "p1", verdict: "executed" } }));
-    const tab = store.getState().rpc[TAB]!;
+    const tab = store.getState().rpc[h.TAB]!;
     expect(tab.planReview).toBeNull();
     expect(tab.plans).toEqual([
       { key: "local://auth-plan.html", title: "add auth", status: "executed" },
@@ -7691,10 +7358,10 @@ describe("plan-review gate reconciliation (issue #215)", () => {
 
   it("closes the pane when the settle is for a different gate", async () => {
     const { store, onStateChanged } = await initFreshStore();
-    store.setState({ rpc: { [TAB]: reviewedTab() } });
+    store.setState({ rpc: { [h.TAB]: reviewedTab() } });
 
     onStateChanged(gateState({ planSettle: { frameId: "p2", verdict: "executed" } }));
-    const tab = store.getState().rpc[TAB]!;
+    const tab = store.getState().rpc[h.TAB]!;
     expect(tab.planReview).toBeNull();
     expect(tab.planText).toBeNull();
     expect(tab.planDeferred).toBe(false);
@@ -7708,7 +7375,7 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     const { store, onStateChanged } = await initFreshStore();
     store.setState({
       rpc: {
-        [TAB]: reviewedTab({
+        [h.TAB]: reviewedTab({
           planReview: {
             request: {
               title: "add auth",
@@ -7722,15 +7389,15 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     });
 
     onStateChanged(gateState({ pendingPlan: { ...PENDING, frameId: "new" } }));
-    expect(store.getState().rpc[TAB]!.planReview?.frame).toEqual({ id: "new" });
+    expect(store.getState().rpc[h.TAB]!.planReview?.frame).toEqual({ id: "new" });
   });
 
   it("marks the sidebar awaiting-answer from the record alone", () => {
     const record = {
-      ...stateWithRecord(null).projects[0]!.sessions[0]!,
+      ...h.stateWithRecord(null).projects[0]!.sessions[0]!,
       pendingPlan: PENDING,
     };
-    expect(deriveSidebarSessionState(record, undefined, undefined)).toBe(
+    expect(h.deriveSidebarSessionState(record, undefined, undefined)).toBe(
       "awaiting-answer",
     );
   });
@@ -7752,14 +7419,14 @@ describe("live stream-stall indicator (issue #228)", () => {
   ] as const;
 
   beforeEach(() => {
-    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
 
   /** agent_start plus an open assistant response: the stall gate is armed. */
   const openAssistant = (): void => {
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
-    useStore.getState().handleRpcFrame(TAB, { type: "turn_start" });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "turn_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "assistant" },
     });
@@ -7769,29 +7436,29 @@ describe("live stream-stall indicator (issue #228)", () => {
     // Terminate any armed interval before the fake clock is discarded; a
     // stale map entry would block re-arming in a later test.
     if (vi.isFakeTimers()) {
-      useStore.setState({ rpc: {} });
+      h.useStore.setState({ rpc: {} });
       vi.advanceTimersByTime(1_000);
     }
     vi.useRealTimers();
   });
 
   it("pins the 30s threshold and 1Hz tick from the plan", () => {
-    expect(STREAM_STALL_THRESHOLD_MS).toBe(30_000);
-    expect(STREAM_STALL_TICK_MS).toBe(1_000);
+    expect(h.STREAM_STALL_THRESHOLD_MS).toBe(30_000);
+    expect(h.STREAM_STALL_TICK_MS).toBe(1_000);
   });
 
   it("arms at the threshold and ticks once per second", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     openAssistant();
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
     vi.advanceTimersByTime(2_000);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS + 2_000,
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS + 2_000,
     );
   });
 
@@ -7799,16 +7466,16 @@ describe("live stream-stall indicator (issue #228)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     openAssistant();
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "hi" },
     });
     vi.advanceTimersByTime(1_000);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
   });
 
   it("classifies each block start/end event as its own checkpoint", () => {
@@ -7817,11 +7484,11 @@ describe("live stream-stall indicator (issue #228)", () => {
       // A distinct time per event: an unclassified event would leave the
       // previous checkpoint in place and fail both assertions.
       vi.setSystemTime(1_000_000 + i * 10_000);
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "message_update",
         assistantMessageEvent: { type, contentIndex: 0 },
       });
-      expect(useStore.getState().rpc[TAB]!.streamCheckpoint).toMatchObject({
+      expect(h.useStore.getState().rpc[h.TAB]!.streamCheckpoint).toMatchObject({
         at: 1_000_000 + i * 10_000,
         label: BLOCK_LABELS[i],
       });
@@ -7831,18 +7498,18 @@ describe("live stream-stall indicator (issue #228)", () => {
   it("publishes whole-second (floor) values for off-boundary checkpoints", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
     // The response opens 37ms after the interval armed, so every 1s tick
     // boundary sees an off-boundary silence (ceil would overstate it).
     vi.advanceTimersByTime(37);
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "assistant" },
     });
     // Until the first tick that reaches the threshold (silence 30,963ms).
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS + 963);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS + 963);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
   });
 
@@ -7852,21 +7519,21 @@ describe("live stream-stall indicator (issue #228)", () => {
     openAssistant();
     for (const type of BLOCK_EVENTS) {
       // Each classified block event restarts the silence clock...
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "message_update",
         assistantMessageEvent: { type, contentIndex: 0 },
       });
-      vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-      expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-        STREAM_STALL_THRESHOLD_MS,
+      vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+      expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+        h.STREAM_STALL_THRESHOLD_MS,
       );
       // ...and the next frame clears the indicator within one tick.
-      useStore.getState().handleRpcFrame(TAB, {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "message_update",
         assistantMessageEvent: { type, contentIndex: 0 },
       });
       vi.advanceTimersByTime(1_000);
-      expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+      expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
     }
   });
 
@@ -7874,12 +7541,12 @@ describe("live stream-stall indicator (issue #228)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     openAssistant();
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
     // omp gives up and schedules a retry: the #100 notice lands...
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "auto_retry_start",
       attempt: 1,
       maxAttempts: 10,
@@ -7890,8 +7557,8 @@ describe("live stream-stall indicator (issue #228)", () => {
     // ...and the live indicator keeps ticking on the same clock (the retry
     // frame does not reset it).
     vi.advanceTimersByTime(1_000);
-    const tab = useStore.getState().rpc[TAB]!;
-    expect(tab.streamStallMs).toBe(STREAM_STALL_THRESHOLD_MS + 1_000);
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.streamStallMs).toBe(h.STREAM_STALL_THRESHOLD_MS + 1_000);
     expect(tab.items.at(-1)).toMatchObject({ kind: "notice", level: "warn" });
   });
 
@@ -7899,26 +7566,26 @@ describe("live stream-stall indicator (issue #228)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     openAssistant();
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_end",
       message: { role: "assistant" },
     });
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "tool_execution_start",
       toolCallId: "t1",
       toolName: "bash",
     });
     vi.advanceTimersByTime(60_000);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
     // The next assistant response in the same run re-arms the clock:
     // every frame while "running" defensively arms it.
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "assistant" },
     });
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
   });
 
@@ -7926,58 +7593,58 @@ describe("live stream-stall indicator (issue #228)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     openAssistant();
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_end" });
-    const tab = useStore.getState().rpc[TAB]!;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.streamStallMs).toBeUndefined();
     expect(tab.status).toBe("ready");
     // The clock is stopped: no re-arm, no re-patch, ever.
     vi.advanceTimersByTime(120_000);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
   });
 
   it("relaunch resets the field and the checkpoint", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
-    useStore.setState({ state: stateWithRecord(null) });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
     openAssistant();
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
-    expect(useStore.getState().rpc[TAB]!.streamCheckpoint).toBeDefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.streamCheckpoint).toBeDefined();
     // The explicit stop is observable without advancing the clock: the armed
     // interval is gone the moment the relaunch lands (self-termination would
     // only remove it on the next tick).
     const timersBefore = vi.getTimerCount();
-    mockBackend.restartSession.mockResolvedValueOnce(undefined);
-    await useStore.getState().restartSession(TAB);
+    h.mockBackend.restartSession.mockResolvedValueOnce(undefined);
+    await h.useStore.getState().restartSession(h.TAB);
     expect(vi.getTimerCount()).toBe(timersBefore - 1);
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.status).toBe("starting");
     expect(tab.streamStallMs).toBeUndefined();
     expect(tab.streamCheckpoint).toBeUndefined();
     // The clock is stopped: nothing can re-arm it while "starting".
     vi.advanceTimersByTime(120_000);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
   });
 
   it("does not claim a stall before it has seen a checkpoint (late joiner)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
-    useStore.getState().handleRpcFrame(TAB, { type: "agent_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
     // A client that joined mid-response: the transcript shows an open
     // assistant, but this client has seen no model-stream frame — it cannot
     // time what it never saw.
-    useStore.setState((s) => {
-      const t = s.rpc[TAB]!;
+    h.useStore.setState((s) => {
+      const t = s.rpc[h.TAB]!;
       return {
         rpc: {
           ...s.rpc,
-          [TAB]: {
+          [h.TAB]: {
             ...t,
             items: [
               {
@@ -7993,15 +7660,15 @@ describe("live stream-stall indicator (issue #228)", () => {
       };
     });
     vi.advanceTimersByTime(60_000);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
     // The first frame this client sees sets the clock — and arms it.
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "hi" },
     });
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
   });
 
@@ -8009,15 +7676,15 @@ describe("live stream-stall indicator (issue #228)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     openAssistant();
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(useStore.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "omp_ui_error",
       message: "boom",
     });
-    const tab = useStore.getState().rpc[TAB]!;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.streamStallMs).toBeUndefined();
     expect(tab.status).toBe("error");
   });
@@ -8029,29 +7696,29 @@ describe("live stream-stall indicator (issue #228)", () => {
     vi.setSystemTime(1_000_000);
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
-    fresh.setState({ rpc: { [TAB]: rpcTabState() } });
-    fresh.getState().handleRpcFrame(TAB, { type: "agent_start" });
-    fresh.getState().handleRpcFrame(TAB, { type: "turn_start" });
-    fresh.getState().handleRpcFrame(TAB, {
+    fresh.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    fresh.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    fresh.getState().handleRpcFrame(h.TAB, { type: "turn_start" });
+    fresh.getState().handleRpcFrame(h.TAB, {
       type: "message_start",
       message: { role: "assistant" },
     });
     const init = fresh.getState().init();
     // No tool cards were running — the pure-text-stall shape.
-    const exitCb = mockBackend.onPtyExit.mock.calls[0]![0] as (
+    const exitCb = h.mockBackend.onPtyExit.mock.calls[0]![0] as (
       tabId: string,
       code: number,
     ) => void;
     await init;
-    vi.advanceTimersByTime(STREAM_STALL_THRESHOLD_MS);
-    expect(fresh.getState().rpc[TAB]!.streamStallMs).toBe(
-      STREAM_STALL_THRESHOLD_MS,
+    vi.advanceTimersByTime(h.STREAM_STALL_THRESHOLD_MS);
+    expect(fresh.getState().rpc[h.TAB]!.streamStallMs).toBe(
+      h.STREAM_STALL_THRESHOLD_MS,
     );
-    exitCb(TAB, 1);
-    expect(fresh.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
-    expect(fresh.getState().exited[TAB]).toBe(1);
+    exitCb(h.TAB, 1);
+    expect(fresh.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
+    expect(fresh.getState().exited[h.TAB]).toBe(1);
     vi.advanceTimersByTime(120_000);
-    expect(fresh.getState().rpc[TAB]!.streamStallMs).toBeUndefined();
+    expect(fresh.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
   });
 });
 
@@ -8063,26 +7730,26 @@ describe("hibernation (issue #246)", () => {
     vi.setSystemTime(1_000_000);
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
-    fresh.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
+    fresh.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
     // A tool card mid-flight: the process is stopped with it still running.
-    fresh.getState().handleRpcFrame(TAB, {
+    fresh.getState().handleRpcFrame(h.TAB, {
       type: "tool_execution_start",
       toolCallId: "t1",
       toolName: "bash",
     });
-    expect(fresh.getState().rpc[TAB]!.items).toHaveLength(1);
+    expect(fresh.getState().rpc[h.TAB]!.items).toHaveLength(1);
 
     const init = fresh.getState().init();
     const hibernateCb =
-      mockBackend.onSessionHibernated.mock.calls[0]![0] as (tabId: string) => void;
+      h.mockBackend.onSessionHibernated.mock.calls[0]![0] as (tabId: string) => void;
     await init;
 
-    hibernateCb(TAB);
+    hibernateCb(h.TAB);
 
     // The dead gates see a plain exit (code 0); the framing is hibernated.
-    expect(fresh.getState().exited[TAB]).toBe(0);
-    expect(fresh.getState().hibernated[TAB]).toBe(true);
-    const [item] = fresh.getState().rpc[TAB]!.items;
+    expect(fresh.getState().exited[h.TAB]).toBe(0);
+    expect(fresh.getState().hibernated[h.TAB]).toBe(true);
+    const [item] = fresh.getState().rpc[h.TAB]!.items;
     expect(item).toMatchObject({ kind: "tool", toolCallId: "t1", status: "aborted" });
     vi.useRealTimers();
   });
@@ -8099,18 +7766,18 @@ describe("viewed-tab reporter (issue #266)", () => {
       const { useStore: fresh } = await import("./store");
       const init = fresh.getState().init();
       await init;
-      expect(mockBackend.tabViewed).toHaveBeenCalledTimes(1);
-      expect(mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), null);
+      expect(h.mockBackend.tabViewed).toHaveBeenCalledTimes(1);
+      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), null);
 
-      mockBackend.tabViewed.mockClear();
-      fresh.getState().focusTab(TAB);
-      expect(mockBackend.tabViewed).toHaveBeenCalledTimes(1);
-      expect(mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), TAB);
+      h.mockBackend.tabViewed.mockClear();
+      fresh.getState().focusTab(h.TAB);
+      expect(h.mockBackend.tabViewed).toHaveBeenCalledTimes(1);
+      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), h.TAB);
 
-      mockBackend.tabViewed.mockClear();
+      h.mockBackend.tabViewed.mockClear();
       await vi.advanceTimersByTimeAsync(5 * 60_000); // heartbeat
-      expect(mockBackend.tabViewed).toHaveBeenCalledTimes(1);
-      expect(mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), TAB);
+      expect(h.mockBackend.tabViewed).toHaveBeenCalledTimes(1);
+      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), h.TAB);
     } finally {
       vi.useRealTimers();
     }
@@ -8169,45 +7836,45 @@ describe("notification click focus (issue #271)", () => {
   it("a notification click resurfaces and focuses a hidden tab", async () => {
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
-    backendState = projectState([rec(TAB)]);
+    h.backendState = projectState([rec(h.TAB)]);
     fresh.setState({
-      state: backendState,
+      state: h.backendState,
       tabs: [
-        tabInfo({ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
       ],
       activeTabId: null,
     });
 
     const init = fresh.getState().init();
     await init;
-    const cb = mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
+    const cb = h.mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
 
-    void cb(TAB);
-    await flushMicrotasks();
+    void cb(h.TAB);
+    await h.flushMicrotasks();
 
     const st = fresh.getState();
-    expect(st.tabs.find((t) => t.tabId === TAB)?.hidden).toBe(false);
-    expect(st.activeTabId).toBe(TAB);
-    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(false);
+    expect(st.activeTabId).toBe(h.TAB);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 
   it("a notification click resumes a session the store has no tab for", async () => {
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
-    backendState = projectState([rec(TAB, "dormant")]);
-    mockBackend.spawnSession.mockResolvedValueOnce({ tabId: TAB });
-    fresh.setState({ state: backendState });
+    h.backendState = projectState([rec(h.TAB, "dormant")]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    fresh.setState({ state: h.backendState });
 
     const init = fresh.getState().init();
     await init;
-    const cb = mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
+    const cb = h.mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
 
-    void cb(TAB);
-    await flushMicrotasks();
+    void cb(h.TAB);
+    await h.flushMicrotasks();
 
-    expect(mockBackend.spawnSession).toHaveBeenCalledWith(
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        resumeTabId: TAB,
+        resumeTabId: h.TAB,
         projectCwd: "/p",
         mode: "rpc-ui",
       }),
@@ -8238,20 +7905,20 @@ describe("catch-up digest (issue #273)", () => {
 
   beforeEach(async () => {
     // Installs the activation watcher once per module; later calls no-op.
-    await useStore.getState().init();
+    await h.useStore.getState().init();
   });
 
   it("stages and settles from a stale in-memory baseline on a mounted tab", () => {
     const since = Date.now() - AWAY;
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB }), tabInfo({ tabId: "tab-b" })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB }), tabInfo({ tabId: "tab-b" })],
       activeTabId: "tab-b",
-      rpc: { [TAB]: rpcTabState({ items: items() }) },
-      lastActiveAt: { [TAB]: since },
+      rpc: { [h.TAB]: rpcTabState({ items: items() }) },
+      lastActiveAt: { [h.TAB]: since },
     });
-    useStore.getState().focusTab(TAB);
-    const entry = useStore.getState().catchup[TAB];
+    h.useStore.getState().focusTab(h.TAB);
+    const entry = h.useStore.getState().catchup[h.TAB];
     expect(entry).toMatchObject({ since, settled: true });
     expect(entry?.digest).toMatchObject({
       turns: [{ prompt: "hello", outcome: "completed" }],
@@ -8263,35 +7930,35 @@ describe("catch-up digest (issue #273)", () => {
   });
 
   it("falls back to the persisted lastViewedAt and settles an empty window to a null digest", () => {
-    const state = stateWithRecord("sess-1");
+    const state = h.stateWithRecord("sess-1");
     const rec = state.projects[0]!.sessions[0]!;
     const iso = new Date(Date.now() - AWAY).toISOString();
     rec.lastViewedAt = iso;
-    useStore.setState({
+    h.useStore.setState({
       state,
-      tabs: [tabInfo({ tabId: TAB })],
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    useStore.getState().focusTab(TAB);
-    const entry = useStore.getState().catchup[TAB];
+    h.useStore.getState().focusTab(h.TAB);
+    const entry = h.useStore.getState().catchup[h.TAB];
     expect(entry).toMatchObject({ since: Date.parse(iso), settled: true, digest: null });
   });
 
   it("falls back to launchedAt when lastViewedAt is absent", () => {
-    const state = stateWithRecord("sess-1");
+    const state = h.stateWithRecord("sess-1");
     const rec = state.projects[0]!.sessions[0]!;
     rec.lastViewedAt = null;
     const iso = new Date(Date.now() - AWAY).toISOString();
     rec.launchedAt = iso;
-    useStore.setState({
+    h.useStore.setState({
       state,
-      tabs: [tabInfo({ tabId: TAB })],
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    useStore.getState().focusTab(TAB);
-    expect(useStore.getState().catchup[TAB]).toMatchObject({
+    h.useStore.getState().focusTab(h.TAB);
+    expect(h.useStore.getState().catchup[h.TAB]).toMatchObject({
       since: Date.parse(iso),
       settled: true,
       digest: null,
@@ -8299,49 +7966,49 @@ describe("catch-up digest (issue #273)", () => {
   });
 
   it("does not stage under the threshold, but still records the activation", () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
-      rpc: { [TAB]: rpcTabState() },
-      lastActiveAt: { [TAB]: Date.now() - 60_000 },
+      rpc: { [h.TAB]: rpcTabState() },
+      lastActiveAt: { [h.TAB]: Date.now() - 60_000 },
     });
-    useStore.getState().focusTab(TAB);
-    expect(useStore.getState().catchup).toEqual({});
-    const active = useStore.getState().lastActiveAt[TAB];
+    h.useStore.getState().focusTab(h.TAB);
+    expect(h.useStore.getState().catchup).toEqual({});
+    const active = h.useStore.getState().lastActiveAt[h.TAB];
     expect(active).toBeTypeOf("number");
     expect(Date.now() - active).toBeLessThan(5_000);
   });
 
   it("never stages for terminal tabs", () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB, mode: "pty" })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "pty" })],
       activeTabId: null,
-      lastActiveAt: { [TAB]: Date.now() - AWAY },
+      lastActiveAt: { [h.TAB]: Date.now() - AWAY },
     });
-    useStore.getState().focusTab(TAB);
-    expect(useStore.getState().catchup).toEqual({});
+    h.useStore.getState().focusTab(h.TAB);
+    expect(h.useStore.getState().catchup).toEqual({});
   });
 
   it("does not stage when neither a record nor an in-memory baseline exists", () => {
-    useStore.setState({
+    h.useStore.setState({
       state: makeBackendState(),
-      tabs: [tabInfo({ tabId: TAB })],
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
-      rpc: { [TAB]: rpcTabState() },
+      rpc: { [h.TAB]: rpcTabState() },
     });
-    useStore.getState().focusTab(TAB);
-    expect(useStore.getState().catchup).toEqual({});
+    h.useStore.getState().focusTab(h.TAB);
+    expect(h.useStore.getState().catchup).toEqual({});
   });
 
   it("includes advisor totals already in the slot at settle time", () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
       rpc: {
-        [TAB]: rpcTabState({
+        [h.TAB]: rpcTabState({
           items: items(),
           advisorStats: {
             available: true,
@@ -8356,10 +8023,10 @@ describe("catch-up digest (issue #273)", () => {
           },
         }),
       },
-      lastActiveAt: { [TAB]: Date.now() - AWAY },
+      lastActiveAt: { [h.TAB]: Date.now() - AWAY },
     });
-    useStore.getState().focusTab(TAB);
-    expect(useStore.getState().catchup[TAB]?.digest?.advisor).toEqual({
+    h.useStore.getState().focusTab(h.TAB);
+    expect(h.useStore.getState().catchup[h.TAB]?.digest?.advisor).toEqual({
       cost: 0.5,
       tokens: 1200,
     });
@@ -8367,15 +8034,15 @@ describe("catch-up digest (issue #273)", () => {
 
   it("stages on a booting tab and settles once at ready from the backfill", async () => {
     const since = Date.now() - AWAY;
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
-      rpc: { [TAB]: rpcTabState({ status: "starting" }) },
-      lastActiveAt: { [TAB]: since },
+      rpc: { [h.TAB]: rpcTabState({ status: "starting" }) },
+      lastActiveAt: { [h.TAB]: since },
     });
-    useStore.getState().focusTab(TAB);
-    expect(useStore.getState().catchup[TAB]).toMatchObject({ since, settled: false });
+    h.useStore.getState().focusTab(h.TAB);
+    expect(h.useStore.getState().catchup[h.TAB]).toMatchObject({ since, settled: false });
     const at = Date.now() - 10 * 60_000;
     const messages = [
       { role: "user", content: [{ type: "text", text: "backfill me" }], timestamp: at },
@@ -8386,8 +8053,8 @@ describe("catch-up digest (issue #273)", () => {
         stopReason: "stop",
       },
     ];
-    await driveBoot(TAB, { get_messages: { data: { messages } } });
-    const entry = useStore.getState().catchup[TAB];
+    await h.driveBoot(h.TAB, { get_messages: { data: { messages } } });
+    const entry = h.useStore.getState().catchup[h.TAB];
     expect(entry).toMatchObject({ settled: true });
     expect(entry?.digest).toMatchObject({
       turns: [{ prompt: "backfill me", outcome: "completed" }],
@@ -8397,17 +8064,17 @@ describe("catch-up digest (issue #273)", () => {
 
   it("does not re-settle a taken snapshot when the advisor frame arrives after ready", async () => {
     const since = Date.now() - AWAY;
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB })],
       activeTabId: null,
-      rpc: { [TAB]: rpcTabState({ status: "starting" }) },
-      lastActiveAt: { [TAB]: since },
+      rpc: { [h.TAB]: rpcTabState({ status: "starting" }) },
+      lastActiveAt: { [h.TAB]: since },
     });
-    useStore.getState().focusTab(TAB);
-    await driveBoot(TAB, { get_messages: { data: { messages: [] } } });
-    const before = useStore.getState().catchup[TAB];
-    useStore.getState().handleRpcFrame(TAB, {
+    h.useStore.getState().focusTab(h.TAB);
+    await h.driveBoot(h.TAB, { get_messages: { data: { messages: [] } } });
+    const before = h.useStore.getState().catchup[h.TAB];
+    h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       method: "setStatus",
       id: ADVISOR_STATS_KEY,
@@ -8424,8 +8091,8 @@ describe("catch-up digest (issue #273)", () => {
         totalTokens: 1200,
       }),
     });
-    expect(useStore.getState().catchup[TAB]).toBe(before);
-    expect(useStore.getState().rpc[TAB]?.advisorStats).toMatchObject({
+    expect(h.useStore.getState().catchup[h.TAB]).toBe(before);
+    expect(h.useStore.getState().rpc[h.TAB]?.advisorStats).toMatchObject({
       available: true,
       cost: 0.5,
     });
@@ -8433,42 +8100,42 @@ describe("catch-up digest (issue #273)", () => {
 
   it("dismisses the card and stages a fresh nonce on the next qualifying resurface", () => {
     const since = Date.now() - AWAY;
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB }), tabInfo({ tabId: "tab-b" })],
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB }), tabInfo({ tabId: "tab-b" })],
       activeTabId: "tab-b",
-      rpc: { [TAB]: rpcTabState({ items: items() }) },
-      lastActiveAt: { [TAB]: since },
+      rpc: { [h.TAB]: rpcTabState({ items: items() }) },
+      lastActiveAt: { [h.TAB]: since },
     });
-    useStore.getState().focusTab(TAB);
-    const nonce1 = useStore.getState().catchup[TAB]!.nonce;
-    useStore.getState().dismissCatchup(TAB);
-    expect(useStore.getState().catchup[TAB]).toBeUndefined();
+    h.useStore.getState().focusTab(h.TAB);
+    const nonce1 = h.useStore.getState().catchup[h.TAB]!.nonce;
+    h.useStore.getState().dismissCatchup(h.TAB);
+    expect(h.useStore.getState().catchup[h.TAB]).toBeUndefined();
     // Leave, simulate the away interval, then resurface.
-    useStore.setState({ activeTabId: "tab-b" });
-    useStore.setState({
-      lastActiveAt: { ...useStore.getState().lastActiveAt, [TAB]: Date.now() - AWAY },
+    h.useStore.setState({ activeTabId: "tab-b" });
+    h.useStore.setState({
+      lastActiveAt: { ...h.useStore.getState().lastActiveAt, [h.TAB]: Date.now() - AWAY },
     });
-    useStore.getState().focusTab(TAB);
-    const entry = useStore.getState().catchup[TAB];
+    h.useStore.getState().focusTab(h.TAB);
+    const entry = h.useStore.getState().catchup[h.TAB];
     expect(entry).toMatchObject({ settled: true });
     expect(entry?.nonce).toBeGreaterThan(nonce1);
   });
 
   it("eraseSession drops the catch-up entry, the baseline, and the slot", async () => {
-    useStore.setState({
-      state: stateWithRecord("sess-1"),
-      tabs: [tabInfo({ tabId: TAB })],
-      activeTabId: TAB,
-      rpc: { [TAB]: rpcTabState() },
-      lastActiveAt: { [TAB]: Date.now() - AWAY },
-      catchup: { [TAB]: { since: 1, nonce: 1, settled: true, digest: null } },
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      tabs: [tabInfo({ tabId: h.TAB })],
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
+      lastActiveAt: { [h.TAB]: Date.now() - AWAY },
+      catchup: { [h.TAB]: { since: 1, nonce: 1, settled: true, digest: null } },
     });
-    useStore.getState().deleteSession(TAB);
-    await flushMicrotasks();
-    await useStore.getState().confirmDeleteSession(true);
-    expect(useStore.getState().catchup[TAB]).toBeUndefined();
-    expect(useStore.getState().lastActiveAt[TAB]).toBeUndefined();
-    expect(useStore.getState().rpc[TAB]).toBeUndefined();
+    h.useStore.getState().deleteSession(h.TAB);
+    await h.flushMicrotasks();
+    await h.useStore.getState().confirmDeleteSession(true);
+    expect(h.useStore.getState().catchup[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().lastActiveAt[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]).toBeUndefined();
   });
 });
