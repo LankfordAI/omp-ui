@@ -55,6 +55,7 @@ import {
 import type { Attention } from "./desktop-notifier";
 import { liveEntry, type LiveEntry } from "./live-entry";
 import { TurnCounter } from "./turns";
+import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
 
 /** True when `p` settles inside `ms`. Bounded wait, no dangling timer. */
@@ -77,12 +78,6 @@ const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 const STALL_WATCH_TICK_MS = 15_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
-/** How fresh a tab:viewed report must be to protect its tab (issue #266). */
-const VIEWED_STALE_MS = 15 * 60 * 1_000;
-/** Reports older than this are swept on the next write. */
-const VIEWED_SWEEP_MS = 60 * 60 * 1_000;
-/** At most one lastViewedAt registry write per tab per window (issue #273). */
-const VIEWED_DEDUP_MS = 30_000;
 /**
  * Renderer-routed dialogs whose unanswered requests suppress hibernation and
  * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
@@ -137,6 +132,8 @@ export class SessionManager {
   private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
   /** Lineage-dir watchers and their throttled sidebar broadcast (issue #187). */
   private readonly watcherHub: WatcherHub;
+  /** Fresh tab:viewed reports and their deduped lastViewedAt writes. */
+  private readonly viewTracker: ViewTracker;
   /**
    * In-flight resume spawns, keyed by tab — registered before the first await
    * (double-click race). The value settles when the spawn does, so a delete
@@ -158,15 +155,6 @@ export class SessionManager {
   private readonly hibernating = new Map<string, Promise<boolean>>();
   /** Unanswered extension_ui_request ids per tab (plan reviews included). */
   private readonly openExtensionRequests = new Map<string, Set<string>>();
-  /**
-   * Fresh tab:viewed reports keyed by renderer clientId (issue #266). A tab
-   * named by any fresh report is the one the user is looking at and is never
-   * hibernated. Stale entries stop protecting on their own (macOS window
-   * close, dead remote socket) — no disconnect hook is needed.
-   */
-  private readonly viewedTabs = new Map<string, { tabId: string | null; at: number }>();
-  /** clientId the desktop renderer reports under; only the IPC transport marks it (issue #271). */
-  private desktopViewedClientId: string | null = null;
   /** Turn-stall watchdog sweep; one interval for all live tabs (issue #248). */
   private stallWatchInterval: NodeJS.Timeout | undefined;
 
@@ -175,6 +163,10 @@ export class SessionManager {
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
       broadcast: () => deps.broadcast(),
+    });
+    this.viewTracker = new ViewTracker({
+      registry: deps.registry,
+      broadcastPatch: (immediate) => this.watcherHub.broadcastPatch(immediate),
     });
   }
 
@@ -826,51 +818,17 @@ export class SessionManager {
 
   /** Renderer reports the tab it currently has in view, or null (issue #266). */
   setViewedTab(clientId: string, tabId: string | null): void {
-    const now = Date.now();
-    for (const [id, entry] of this.viewedTabs) {
-      if (now - entry.at > VIEWED_SWEEP_MS) this.viewedTabs.delete(id);
-    }
-    const previous = this.viewedTabs.get(clientId)?.tabId ?? null;
-    this.viewedTabs.set(clientId, { tabId, at: now });
-    // The tab just left (if any) has its last-viewed moment now; the tab just
-    // entered — or re-heartbeated — is being viewed right now (issue #273).
-    if (previous !== null && previous !== tabId) this.noteLastViewed(previous, now);
-    this.noteLastViewed(tabId, now);
-  }
-
-  /**
-   * Persists a viewed report to the record (issue #273). Deduped: a report
-   * that leaves the stored value within VIEWED_DEDUP_MS writes nothing. The
-   * 5-min heartbeats therefore keep a continuously-viewed tab fresh within
-   * ~5 min, a tab switch records the leaving tab exactly, and unreported
-   * leaves (window close, dead socket) stay within one heartbeat.
-   */
-  private noteLastViewed(tabId: string | null, now: number): void {
-    if (tabId === null) return;
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (record === undefined) return;
-    const stored = record.lastViewedAt;
-    const last = stored === null ? null : Date.parse(stored);
-    if (last !== null && Number.isFinite(last) && now - last < VIEWED_DEDUP_MS) return;
-    this.deps.registry.updateSession(tabId, { lastViewedAt: new Date(now).toISOString() });
-    this.watcherHub.broadcastPatch(false);
+    this.viewTracker.setViewedTab(clientId, tabId);
   }
 
   /** Marks the clientId the desktop renderer reports under (issue #271). */
   noteDesktopClientId(clientId: string): void {
-    this.desktopViewedClientId = clientId;
+    this.viewTracker.noteDesktopClientId(clientId);
   }
 
   /** True while the desktop renderer's fresh viewed report names this tab (issue #271). */
   isViewedInDesktop(tabId: string): boolean {
-    const clientId = this.desktopViewedClientId;
-    if (clientId === null) return false;
-    const report = this.viewedTabs.get(clientId);
-    return (
-      report !== undefined &&
-      report.tabId === tabId &&
-      Date.now() - report.at <= VIEWED_STALE_MS
-    );
+    return this.viewTracker.isViewedInDesktop(tabId);
   }
 
   // --- Hibernation: idle rpc-ui sessions are killed and left dormant, then
@@ -1118,15 +1076,6 @@ export class SessionManager {
     return (this.openExtensionRequests.get(tabId)?.size ?? 0) > 0;
   }
 
-  /** True while any fresh tab:viewed report names this tab (issue #266). */
-  private isViewed(tabId: string): boolean {
-    const now = Date.now();
-    for (const { tabId: viewed, at } of this.viewedTabs.values()) {
-      if (viewed === tabId && now - at <= VIEWED_STALE_MS) return true;
-    }
-    return false;
-  }
-
   /**
    * True while `tabId` is its project's most recently active owned session.
    * The last active session in each project never idle-hibernates (issue #304):
@@ -1160,7 +1109,7 @@ export class SessionManager {
     if (this.turns.running(tabId) > 0) return false; // mid-turn
     if (this.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
     if (policy === "plan-handoff") return true;
-    if (this.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
+    if (this.viewTracker.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
     if (this.isLastActiveInProject(tabId)) return false; // the project's last active session stays warm (issue #304)
     const until = entry.settleSuspendedUntil;
     if (until !== null) {
