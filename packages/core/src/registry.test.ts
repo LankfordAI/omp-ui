@@ -1246,3 +1246,49 @@ describe("OwnedSessionRecord.lastViewedAt (issue #273)", () => {
     expect(fs.existsSync(file)).toBe(true);
   });
 });
+
+describe("legacy registries with absent optional fields (issue #294)", () => {
+  it("normalizes every absent preference field to null, agentMode to build", () => {
+    const file = tmpFile();
+    const legacyProject: Record<string, unknown> = {
+      path: "/abs/proj",
+      name: "proj",
+      addedAt: "t",
+    };
+    const legacySession: Record<string, unknown> = { ...sessionRecord() };
+    for (const k of [
+      "model",
+      "thinkingLevel",
+      "compactionMethod",
+      "agentMode",
+      "worktree",
+      "planImplementationSource",
+      "lastViewedAt",
+    ]) {
+      delete legacySession[k];
+    }
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [legacyProject], sessions: [legacySession] }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.projects[0]).toMatchObject({
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
+    });
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({
+      model: null,
+      thinkingLevel: null,
+      compactionMethod: null,
+      agentMode: "build",
+      worktree: null,
+      planImplementationSource: null,
+      lastViewedAt: null,
+    });
+  });
+});
