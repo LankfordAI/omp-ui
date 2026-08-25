@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CH,
@@ -8,7 +7,6 @@ import {
   bracketedImagePaste,
   deleteSessionFiles,
   forkSessionFile,
-  hydrateSessionFile,
   mintLineageDirName,
   mintWorktreePath,
   isWithin,
@@ -22,7 +20,6 @@ import {
   spawnOmp,
   spawnOmpTui,
   spawnShell,
-  unarchiveSession,
   writeImageToScratch,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
@@ -40,7 +37,7 @@ import type { FrameObserver } from "./frame-observer";
 import { liveEntry, type LiveEntry } from "./live-entry";
 import { HibernationTracker } from "./hibernation-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
-import { writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
+import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnCounter } from "./turns";
 import { ViewTracker } from "./view-tracker";
@@ -74,6 +71,8 @@ export interface SessionManagerDependencies {
   attention?: Attention;
 }
 
+type OpKind = "spawn" | "delete" | "hibernate" | "relaunch";
+
 /** The sole owner of live session children and their supporting process state. */
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -86,11 +85,12 @@ export class SessionManager {
   /** Fresh tab:viewed reports and their deduped lastViewedAt writes. */
   private readonly viewTracker: ViewTracker;
   /**
-   * In-flight resume spawns, keyed by tab — registered before the first await
-   * (double-click race). The value settles when the spawn does, so a delete
-   * arriving mid-spawn can wait for the process to exist and then kill it.
+   * Per-tab serialized op chain (issue #297): spawn, delete, hibernate, and
+   * relaunch for one tab never overlap. Replaces the `spawning`/`hibernating`
+   * maps; a newcomer enqueues behind the in-flight op instead of waiting on
+   * a promise it cannot reason about.
    */
-  private readonly spawning = new Map<string, Promise<void>>();
+  private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
   /**
    * Live plan-review gates, owned by the tracker (issue #215). In-memory:
    * they die with the process, so a gate can never outlive its agent.
@@ -127,6 +127,7 @@ export class SessionManager {
       awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
       isViewed: (tabId) => this.viewTracker.isViewed(tabId),
       hibernate: (tabId, entry) => this.hibernate(tabId, entry),
+      runSerialized: (tabId, work) => this.enqueueOp(tabId, "hibernate", work),
     });
     this.planGates = new PlanGateTracker({
       registry: deps.registry,
@@ -282,108 +283,127 @@ export class SessionManager {
     return { ...snapshot };
   }
 
+  /** The tab's current op, if any; its kind decides how a newcomer behaves. */
+  private pendingOp(tabId: string): { kind: OpKind; chain: Promise<void> } | undefined {
+    return this.ops.get(tabId);
+  }
+
+  /**
+   * Runs `work` after any pending op for the tab settles. The stored chain
+   * swallows rejection so a failed op never poisons the next one (mirrors
+   * remote-server's #enqueue); the caller keeps the real result or error.
+   */
+  private enqueueOp<T>(tabId: string, kind: OpKind, work: () => Promise<T>): Promise<T> {
+    const prev = this.ops.get(tabId)?.chain;
+    const run: Promise<T> = prev === undefined ? work() : prev.then(() => work());
+    const chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.ops.set(tabId, { kind, chain });
+    // Drop the entry once this chain is no longer the head of the tab's.
+    void chain.then(() => {
+      if (this.ops.get(tabId)?.chain === chain) this.ops.delete(tabId);
+    });
+    return run;
+  }
+
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
+    if (!req.resumeTabId) return this.spawnInner(req);
+    const tabId = req.resumeTabId;
+    const pending = this.pendingOp(tabId);
+    // A resume during an in-flight spawn dedupes: the first click owns the
+    // process (double-click race).
+    if (pending?.kind === "spawn") return { tabId };
+    // A resume during a pending delete/hibernate/relaunch queues behind it:
+    // a spawn queued behind a delete learns "unknown session tab" from the
+    // registry, not from a half-gone live map.
+    if (pending === undefined && this.live.has(tabId)) return { tabId };
+    return this.enqueueOp(tabId, "spawn", () => this.spawnInner(req));
+  }
+
+  /** The spawn proper: runs behind any pending op for the tab. */
+  private async spawnInner(req: SpawnRequest): Promise<{ tabId: string }> {
     const planImplementationSource = this.validatePlanImplementationSource(req);
-    // Dedupe guard — the renderer should never send this, but a second
-    // process for the same session would corrupt the .jsonl. The in-flight
-    // set closes the race window before the first await (live.set happens
-    // after async prepareResume).
-    let spawnSettled = (): void => {};
-    if (req.resumeTabId) {
-      // A resume issued while a hibernation reap is in flight must wait for
-      // the dying entry to leave `live`, or it dedupes and the user clicks
-      // twice (issue #246).
-      const pendingHibernate = this.hibernation.pendingReap(req.resumeTabId);
-      if (pendingHibernate !== undefined) await pendingHibernate;
-      if (this.live.has(req.resumeTabId) || this.spawning.has(req.resumeTabId)) {
-        return { tabId: req.resumeTabId };
-      }
-      this.spawning.set(
-        req.resumeTabId,
-        new Promise<void>((resolve) => {
-          spawnSettled = () => resolve();
-        }),
+    const ompPath = this.requireOmpPath();
+
+    // A new session cannot run without a model credential — omp would crash
+    // moments after spawn with no explanation. Resuming an existing session
+    // is allowed through (its process may already be keyless but viewable).
+    if (!req.resumeTabId && !this.deps.providerKeys.hasModelProvider(req.projectCwd)) {
+      throw new Error(
+        "No model provider is configured. Add an API key under Settings → Providers before starting a session.",
       );
     }
-    try {
-      const ompPath = this.requireOmpPath();
 
-      // A new session cannot run without a model credential — omp would crash
-      // moments after spawn with no explanation. Resuming an existing session
-      // is allowed through (its process may already be keyless but viewable).
-      if (!req.resumeTabId && !this.deps.providerKeys.hasModelProvider(req.projectCwd)) {
-        throw new Error(
-          "No model provider is configured. Add an API key under Settings → Providers before starting a session.",
-        );
+    let record: OwnedSessionRecord;
+    if (req.resumeTabId) {
+      // A resume queued behind a relaunch collapses to a dedupe: the
+      // relaunch's own spawn already owns the respawn.
+      if (this.live.has(req.resumeTabId)) return { tabId: req.resumeTabId };
+      const existing = this.deps.registry.sessions.find((s) => s.tabId === req.resumeTabId);
+      if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
+      record = await prepareResumeRecord(existing, {
+        sessionsRoot: this.deps.getSessionsRoot(),
+        archiveRoot: this.deps.getArchiveRoot(),
+        updateSession: (tabId, patch) => this.deps.registry.updateSession(tabId, patch),
+      });
+    } else {
+      let worktree: SessionWorktree | null = null;
+      if (req.worktree) {
+        const worktreePath = mintWorktreePath(
+          this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
+        const base = await addWorktree(
+          req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
+        worktree = { path: worktreePath, branch: req.worktree.branch, base };
       }
-
-      let record: OwnedSessionRecord;
-      if (req.resumeTabId) {
-        const existing = this.deps.registry.sessions.find((s) => s.tabId === req.resumeTabId);
-        if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
-        record = await this.prepareResume(existing);
-      } else {
-        let worktree: SessionWorktree | null = null;
-        if (req.worktree) {
-          const worktreePath = mintWorktreePath(
-            this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
-          const base = await addWorktree(
-            req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
-          worktree = { path: worktreePath, branch: req.worktree.branch, base };
-        }
-        const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
-        // agentMode starts at the parse-time normalization default; the plan
-        // extension overwrites it when its first incarnation report lands.
-        record = this.deps.registry.addSession({
-          tabId: randomUUID(),
-          sessionId: null,
-          lineageDir: mintLineageDirName(req.projectCwd),
-          projectCwd: req.projectCwd,
-          worktree,
-          planImplementationSource,
-          launchedAt: new Date().toISOString(),
-          mode: req.mode,
-          agentMode: "build",
-          compactionMethod:
-            req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
-          model: project?.defaultModel ?? project?.lastModel ?? null,
-          thinkingLevel: project?.lastThinkingLevel ?? null,
-          advisor: req.advisor,
-          advisorModel: req.advisorModel ?? null,
-          cachedTitle: null,
-          cachedModified: null,
-          lastViewedAt: null,
-        });
-        // The launched values are now the project's last session parameters,
-        // even when they originated in omp config rather than an explicit click.
-        this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
-      }
-      const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
-      if (record.mode !== req.mode) patch.mode = req.mode;
-      // A resume carries the caller's advisor intent; `undefined` means "keep
-      // whatever the record already says" so a plain reopen is not a reset.
-      if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
-        patch.advisorModel = req.advisorModel;
-      }
-      if (req.advisor !== record.advisor && req.resumeTabId) patch.advisor = req.advisor;
-      if (Object.keys(patch).length > 0) {
-        record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
-      }
-
-      const startInPlanMode =
-        req.startInPlanMode ??
-        (req.resumeTabId === undefined
-          ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
-          : record.agentMode === "plan");
-      return req.mode === "rpc-ui"
-        ? await this.spawnRpc(record, startInPlanMode, ompPath)
-        : await this.spawnPty(record, req, ompPath);
-    } finally {
-      if (req.resumeTabId) {
-        this.spawning.delete(req.resumeTabId);
-        spawnSettled();
-      }
+      const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
+      // agentMode starts at the parse-time normalization default; the plan
+      // extension overwrites it when its first incarnation report lands.
+      record = this.deps.registry.addSession({
+        tabId: randomUUID(),
+        sessionId: null,
+        lineageDir: mintLineageDirName(req.projectCwd),
+        projectCwd: req.projectCwd,
+        worktree,
+        planImplementationSource,
+        launchedAt: new Date().toISOString(),
+        mode: req.mode,
+        agentMode: "build",
+        compactionMethod:
+          req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
+        model: project?.defaultModel ?? project?.lastModel ?? null,
+        thinkingLevel: project?.lastThinkingLevel ?? null,
+        advisor: req.advisor,
+        advisorModel: req.advisorModel ?? null,
+        cachedTitle: null,
+        cachedModified: null,
+        lastViewedAt: null,
+      });
+      // The launched values are now the project's last session parameters,
+      // even when they originated in omp config rather than an explicit click.
+      this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
     }
+    const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
+    if (record.mode !== req.mode) patch.mode = req.mode;
+    // A resume carries the caller's advisor intent; `undefined` means "keep
+    // whatever the record already says" so a plain reopen is not a reset.
+    if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
+      patch.advisorModel = req.advisorModel;
+    }
+    if (req.advisor !== record.advisor && req.resumeTabId) patch.advisor = req.advisor;
+    if (Object.keys(patch).length > 0) {
+      record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
+    }
+
+    const startInPlanMode =
+      req.startInPlanMode ??
+      (req.resumeTabId === undefined
+        ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
+        : record.agentMode === "plan");
+    return req.mode === "rpc-ui"
+      ? await this.spawnRpc(record, startInPlanMode, ompPath)
+      : await this.spawnPty(record, req, ompPath);
   }
 
   private async spawnPty(
@@ -468,44 +488,48 @@ export class SessionManager {
     advisor: boolean,
     advisorModel: string | null,
   ): Promise<void> {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (!record) return;
-    const changed = record.advisor !== advisor || record.advisorModel !== advisorModel;
-    this.deps.registry.setSessionAdvisor(tabId, advisor, advisorModel);
-    if (!changed) {
-      await this.deps.broadcast();
-      return;
-    }
-    const entry = this.live.get(tabId);
-    if (!entry) {
-      // Dormant: the next launch picks the new values up from the record.
-      await this.deps.broadcast();
-      return;
-    }
-    await this.relaunch(entry, {
-      projectCwd: record.projectCwd,
-      mode: record.mode,
-      advisor,
-      advisorModel,
-      cols: 80,
-      rows: 24,
-      resumeTabId: tabId,
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) return;
+      const changed = record.advisor !== advisor || record.advisorModel !== advisorModel;
+      this.deps.registry.setSessionAdvisor(tabId, advisor, advisorModel);
+      if (!changed) {
+        await this.deps.broadcast();
+        return;
+      }
+      const entry = this.live.get(tabId);
+      if (!entry) {
+        // Dormant: the next launch picks the new values up from the record.
+        await this.deps.broadcast();
+        return;
+      }
+      await this.relaunch(entry, {
+        projectCwd: record.projectCwd,
+        mode: record.mode,
+        advisor,
+        advisorModel,
+        cols: 80,
+        rows: 24,
+        resumeTabId: tabId,
+      });
     });
   }
 
   /** Restarts a live session in place so it picks up process-start config. */
   async restart(tabId: string): Promise<void> {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    const entry = this.live.get(tabId);
-    if (!record || !entry) throw new Error("session is not live");
-    await this.relaunch(entry, {
-      projectCwd: record.projectCwd,
-      mode: record.mode,
-      advisor: record.advisor,
-      advisorModel: record.advisorModel,
-      cols: 80,
-      rows: 24,
-      resumeTabId: tabId,
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      const entry = this.live.get(tabId);
+      if (!record || !entry) throw new Error("session is not live");
+      await this.relaunch(entry, {
+        projectCwd: record.projectCwd,
+        mode: record.mode,
+        advisor: record.advisor,
+        advisorModel: record.advisorModel,
+        cols: 80,
+        rows: 24,
+        resumeTabId: tabId,
+      });
     });
   }
 
@@ -518,30 +542,32 @@ export class SessionManager {
    * resumable worktree session rather than rolling back into the project root.
    */
   async convertToWorktree(tabId: string, branch: string, baseRef: string | null): Promise<void> {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (!record) throw new Error(`unknown session tab ${tabId}`);
-    if (record.worktree) throw new Error("session already runs in a worktree");
-    const worktreePath = mintWorktreePath(
-      this.deps.getWorktreesRoot(), record.projectCwd, branch);
-    const base = await addWorktree(record.projectCwd, worktreePath, branch, baseRef);
-    this.deps.registry.updateSession(tabId, {
-      worktree: { path: worktreePath, branch, base },
-    });
-    const entry = this.live.get(tabId);
-    if (!entry) {
-      // A dormant restored tab: its next resume picks the worktree up from
-      // the record.
-      await this.deps.broadcast();
-      return;
-    }
-    await this.relaunch(entry, {
-      projectCwd: record.projectCwd,
-      mode: record.mode,
-      advisor: record.advisor,
-      advisorModel: record.advisorModel,
-      cols: 80,
-      rows: 24,
-      resumeTabId: tabId,
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) throw new Error(`unknown session tab ${tabId}`);
+      if (record.worktree) throw new Error("session already runs in a worktree");
+      const worktreePath = mintWorktreePath(
+        this.deps.getWorktreesRoot(), record.projectCwd, branch);
+      const base = await addWorktree(record.projectCwd, worktreePath, branch, baseRef);
+      this.deps.registry.updateSession(tabId, {
+        worktree: { path: worktreePath, branch, base },
+      });
+      const entry = this.live.get(tabId);
+      if (!entry) {
+        // A dormant restored tab: its next resume picks the worktree up from
+        // the record.
+        await this.deps.broadcast();
+        return;
+      }
+      await this.relaunch(entry, {
+        projectCwd: record.projectCwd,
+        mode: record.mode,
+        advisor: record.advisor,
+        advisorModel: record.advisorModel,
+        cols: 80,
+        rows: 24,
+        resumeTabId: tabId,
+      });
     });
   }
 
@@ -655,7 +681,9 @@ export class SessionManager {
    * idle hibernation.
    */
   hibernatePlanSource(sourceTabId: string, implementationTabId: string): Promise<boolean> {
-    return this.hibernation.attemptHandoff(sourceTabId, implementationTabId);
+    return this.enqueueOp(sourceTabId, "hibernate", () =>
+      this.hibernation.attemptHandoff(sourceTabId, implementationTabId),
+    );
   }
 
   /**
@@ -693,60 +721,6 @@ export class SessionManager {
     shell.handle.kill();
   }
 
-  /** Unarchives / adopts as needed so spawn can --resume the right session. */
-  private async prepareResume(record: OwnedSessionRecord): Promise<OwnedSessionRecord> {
-    if (record.worktree && !fs.existsSync(record.worktree.path)) {
-      throw new Error(
-        "this session's worktree checkout is gone — delete the session from the sidebar",
-      );
-    }
-    const loc = await resolveSessionLocation(
-      this.deps.getSessionsRoot(),
-      this.deps.getArchiveRoot(),
-      record.lineageDir,
-      record.sessionId,
-    );
-    if (loc.where === "missing") {
-      // omp writes the transcript lazily, on the first turn. A record that
-      // never had a session id is therefore still a fresh start, not a loss.
-      if (record.sessionId === null) return record;
-      throw new Error("session files are gone — delete it from the sidebar");
-    }
-    if (loc.where === "archived") {
-      let sessionId = record.sessionId;
-      if (!sessionId) {
-        const m = /_([^_]+)\.jsonl\.gz$/.exec(loc.filePath);
-        if (!m) throw new Error(`cannot identify archived session file ${loc.filePath}`);
-        sessionId = m[1]!;
-      }
-      await unarchiveSession(
-        this.deps.getSessionsRoot(),
-        this.deps.getArchiveRoot(),
-        record.lineageDir,
-        sessionId,
-      );
-      if (sessionId !== record.sessionId) {
-        record = this.deps.registry.updateSession(record.tabId, { sessionId }) ?? record;
-      }
-      return record;
-    }
-    // Active: adopt the file's header id when it differs (stale or null id).
-    try {
-      const h = await hydrateSessionFile(loc.filePath);
-      if (h.id && h.id !== record.sessionId) {
-        record =
-          this.deps.registry.updateSession(record.tabId, {
-            sessionId: h.id,
-            cachedTitle: h.title ?? record.cachedTitle,
-            cachedModified: h.mtime.toISOString(),
-          }) ?? record;
-      }
-    } catch {
-      // Head unreadable — spawn proceeds without --resume.
-    }
-    return record;
-  }
-
   terminate(tabId: string): void {
     this.killShell(tabId);
     const entry = this.live.get(tabId);
@@ -757,14 +731,11 @@ export class SessionManager {
 
   /** Erases a session's record and files after its child is fully reaped. */
   async deleteSession(tabId: string): Promise<void> {
-    const inFlight = this.spawning.get(tabId);
-    if (inFlight) await inFlight;
-    // A mid-flight hibernation reap owns the same entry: wait it out so the
-    // reap's `session:hibernated` (if any) lands while the record and files
-    // still exist, then proceed with an entry already gone from `live`
-    // (mirrors spawn's pending-hibernate wait; issue #296).
-    const pendingHibernate = this.hibernation.pendingReap(tabId);
-    if (pendingHibernate !== undefined) await pendingHibernate;
+    return this.enqueueOp(tabId, "delete", () => this.deleteInner(tabId));
+  }
+
+  /** The delete proper: runs behind any pending op for the tab. */
+  private async deleteInner(tabId: string): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
     const entry = this.live.get(tabId);
@@ -865,22 +836,24 @@ export class SessionManager {
   }
 
   async switchMode(tabId: string, mode: SessionMode): Promise<void> {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (!record || record.mode === mode) return;
-    this.killShell(tabId);
-    const entry = this.live.get(tabId);
-    if (!entry) {
-      this.deps.registry.updateSession(tabId, { mode });
-      await this.deps.broadcast();
-      return;
-    }
-    await this.relaunch(entry, {
-      projectCwd: record.projectCwd,
-      mode,
-      advisor: record.advisor,
-      cols: 80,
-      rows: 24,
-      resumeTabId: tabId,
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record || record.mode === mode) return;
+      this.killShell(tabId);
+      const entry = this.live.get(tabId);
+      if (!entry) {
+        this.deps.registry.updateSession(tabId, { mode });
+        await this.deps.broadcast();
+        return;
+      }
+      await this.relaunch(entry, {
+        projectCwd: record.projectCwd,
+        mode,
+        advisor: record.advisor,
+        cols: 80,
+        rows: 24,
+        resumeTabId: tabId,
+      });
     });
   }
 
@@ -890,7 +863,7 @@ export class SessionManager {
     await this.killAndReap(tabId, entry);
     this.live.delete(tabId);
     try {
-      await this.spawn(req);
+      await this.spawnInner(req);
     } catch (err) {
       // -1 is the same code spawnRpc's own exit path uses for "no status".
       this.deps.send(CH.onPtyExit, tabId, -1);

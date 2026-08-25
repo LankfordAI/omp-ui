@@ -16,6 +16,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
   return {
     ...core,
     resolveSessionLocation: vi.fn(core.resolveSessionLocation),
+    deleteSessionFiles: vi.fn(core.deleteSessionFiles),
     spawnOmp: vi.fn(),
     spawnShell: vi.fn(),
     watchLineageDir: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
 const TAB = "tab-1";
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
 const resolveSessionLocationMock = vi.mocked(Core.resolveSessionLocation);
+const deleteSessionFilesMock = vi.mocked(Core.deleteSessionFiles);
 const spawnOmpMock = vi.mocked(Core.spawnOmp);
 const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
@@ -717,6 +719,64 @@ describe("SessionManager live ownership", () => {
 
     expect(registry.sessions.some((record) => record.tabId === TAB)).toBe(false);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
+  });
+
+  it("a delete during an in-flight resume spawn waits, kills once, and erases", async () => {
+    nextPtyDiesOn = "default";
+    const { manager, registry, sessionsRoot } = setup();
+    let release = (): void => {};
+    let started = (): void => {};
+    const preparationStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    resolveSessionLocationMock.mockImplementationOnce(async () => {
+      started();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { where: "missing" };
+    });
+
+    const spawning = resume(manager);
+    await preparationStarted;
+    const deleting = manager.deleteSession(TAB);
+
+    release();
+    await spawning;
+    await deleting;
+
+    expect(fakePtys).toHaveLength(1);
+    expect(fakePtys[0]!.kill).toHaveBeenCalledTimes(1);
+    expect(manager.isLive(TAB)).toBe(false);
+    expect(registry.sessions.some((record) => record.tabId === TAB)).toBe(false);
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
+  });
+
+  it("a resume during an in-flight delete queues and rejects after the erase", async () => {
+    nextPtyDiesOn = "default";
+    const { manager } = setup();
+    await resume(manager);
+    let release = (): void => {};
+    let deleteFilesStarted = (): void => {};
+    const filesStepReached = new Promise<void>((resolve) => {
+      deleteFilesStarted = resolve;
+    });
+    deleteSessionFilesMock.mockImplementationOnce(async () => {
+      deleteFilesStarted();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return [];
+    });
+
+    const deleting = manager.deleteSession(TAB);
+    const respawning = resume(manager);
+    await filesStepReached;
+
+    release();
+    await deleting;
+    await expect(respawning).rejects.toThrow(`unknown session tab ${TAB}`);
+    expect(manager.isLive(TAB)).toBe(false);
   });
 
   it("killAll detaches and kills sessions and shells and disposes lineage watchers", async () => {

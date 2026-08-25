@@ -66,6 +66,8 @@ export interface HibernationTrackerDeps {
   isViewed: (tabId: string) => boolean;
   /** The manager's SIGTERM → grace → SIGKILL reap primitive. */
   hibernate: (tabId: string, entry: LiveEntry) => Promise<boolean>;
+  /** Runs the attempt behind the tab's op chain (issue #297). */
+  runSerialized: (tabId: string, work: () => Promise<void>) => Promise<void>;
 }
 
 /**
@@ -86,11 +88,6 @@ export class HibernationTracker implements FrameObserver {
   private readonly records = new Map<string, HibernateRecord>();
 
   constructor(private readonly deps: HibernationTrackerDeps) {}
-
-  /** In-flight reap for the tab, if any (spawn resume and delete wait on it). */
-  pendingReap(tabId: string): Promise<boolean> | undefined {
-    return this.inFlight.get(tabId);
-  }
 
   /** True while a renderer-routed dialog awaits the user's answer. */
   hasOpenRequests(tabId: string): boolean {
@@ -299,7 +296,10 @@ export class HibernationTracker implements FrameObserver {
   private scheduleHibernateCheck(tabId: string, delayMs: number): void {
     clearTimeout(this.timers.get(tabId));
     if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return;
-    const timer = setTimeout(() => void this.attemptIdle(tabId), delayMs);
+    const timer = setTimeout(
+      () => void this.deps.runSerialized(tabId, () => this.attemptIdle(tabId)),
+      delayMs,
+    );
     if (typeof timer.unref === "function") timer.unref();
     this.timers.set(tabId, timer);
   }
