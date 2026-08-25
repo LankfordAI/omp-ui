@@ -11,7 +11,7 @@ import { findRecord, useStore } from "../store";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { WorktreeChip } from "./WorktreeChip";
-import { Button, Chip, CopyButton, Dot, IconButton, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
+import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -76,8 +76,6 @@ function Segmented({
 
 /* ------------------------------------------------------------------- icons */
 
-const S = { fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" } as const;
-
 function Svg({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)}>
@@ -89,9 +87,9 @@ function Svg({ children, className }: { children: ReactNode; className?: string 
 function IconCompact() {
   return (
     <Svg>
-      <path d="M8 1.5V6M5.5 3.5L8 6l2.5-2.5" {...S} />
-      <path d="M8 14.5V10M5.5 12.5L8 10l2.5 2.5" {...S} />
-      <path d="M2.5 8h11" {...S} />
+      <path d="M8 1.5V6M5.5 3.5L8 6l2.5-2.5" {...ICON_STROKE} />
+      <path d="M8 14.5V10M5.5 12.5L8 10l2.5 2.5" {...ICON_STROKE} />
+      <path d="M2.5 8h11" {...ICON_STROKE} />
     </Svg>
   );
 }
@@ -99,8 +97,8 @@ function IconCompact() {
 function IconExport() {
   return (
     <Svg>
-      <path d="M8 10.5V2M5 5l3-3 3 3" {...S} />
-      <path d="M2.5 10v3.5h11V10" {...S} />
+      <path d="M8 10.5V2M5 5l3-3 3 3" {...ICON_STROKE} />
+      <path d="M2.5 10v3.5h11V10" {...ICON_STROKE} />
     </Svg>
   );
 }
@@ -108,10 +106,10 @@ function IconExport() {
 function IconBranch() {
   return (
     <Svg>
-      <circle cx="4" cy="3.8" r="1.7" {...S} />
-      <circle cx="4" cy="12.2" r="1.7" {...S} />
-      <circle cx="11.8" cy="4.6" r="1.7" {...S} />
-      <path d="M4 5.5v5.1M10.1 4.6H8.4A4.4 4.4 0 004 9v1.4" {...S} />
+      <circle cx="4" cy="3.8" r="1.7" {...ICON_STROKE} />
+      <circle cx="4" cy="12.2" r="1.7" {...ICON_STROKE} />
+      <circle cx="11.8" cy="4.6" r="1.7" {...ICON_STROKE} />
+      <path d="M4 5.5v5.1M10.1 4.6H8.4A4.4 4.4 0 004 9v1.4" {...ICON_STROKE} />
     </Svg>
   );
 }
@@ -119,27 +117,8 @@ function IconBranch() {
 function IconNew() {
   return (
     <Svg>
-      <circle cx="8" cy="8" r="6" {...S} />
-      <path d="M8 5.2v5.6M5.2 8h5.6" {...S} />
-    </Svg>
-  );
-}
-
-export function IconRefresh() {
-  return (
-    <Svg>
-      <path d="M13.5 8a5.5 5.5 0 11-1.9-4.2" {...S} />
-      <path d="M13.6 2v3.6H10" {...S} />
-    </Svg>
-  );
-}
-
-function IconSliders() {
-  return (
-    <Svg>
-      <path d="M2 4.5h4.6M10.4 4.5H14M2 11.5h2.6M8.4 11.5H14" {...S} />
-      <circle cx="8.5" cy="4.5" r="1.7" {...S} />
-      <circle cx="6.5" cy="11.5" r="1.7" {...S} />
+      <circle cx="8" cy="8" r="6" {...ICON_STROKE} />
+      <path d="M8 5.2v5.6M5.2 8h5.6" {...ICON_STROKE} />
     </Svg>
   );
 }
@@ -147,9 +126,9 @@ function IconSliders() {
 function IconMcp() {
   return (
     <Svg>
-      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1" {...S} />
-      <rect x="2.5" y="9" width="11" height="4.5" rx="1" {...S} />
-      <path d="M5 4.75h.01M5 11.25h.01" {...S} />
+      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1" {...ICON_STROKE} />
+      <rect x="2.5" y="9" width="11" height="4.5" rx="1" {...ICON_STROKE} />
+      <path d="M5 4.75h.01M5 11.25h.01" {...ICON_STROKE} />
     </Svg>
   );
 }
@@ -426,7 +405,7 @@ function ModesPopover({ tabId }: { tabId: string }) {
         onClick={() => setOpen(!open)}
         className={open ? "bg-hover text-ink" : undefined}
       >
-        <IconSliders />
+        <IconTune />
       </IconButton>
       {open && pos && createPortal(
         <div ref={panelRef} className="fixed z-[70]" style={pos}>

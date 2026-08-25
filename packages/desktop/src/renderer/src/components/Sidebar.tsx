@@ -15,7 +15,7 @@ import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -79,17 +79,6 @@ function IconEllipsis() {
       <circle cx="3.5" cy="8" r="1.1" />
       <circle cx="8" cy="8" r="1.1" />
       <circle cx="12.5" cy="8" r="1.1" />
-    </svg>
-  );
-}
-
-/** Slider mark for the project settings dialog (issue #281), matching the composer's options icon. */
-function IconTune() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
-      <path d="M2 4.5h4.6M10.4 4.5H14M2 11.5h2.6M8.4 11.5H14" />
-      <circle cx="9" cy="4.5" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="6" cy="11.5" r="1.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }

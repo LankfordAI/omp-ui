@@ -7,8 +7,7 @@ import type {
 import { backend } from "../backend";
 import { findRecord, useStore } from "../store";
 import { compactNum } from "../lib/format";
-import { IconRefresh } from "./SessionHud";
-import { Button, Chip, ChoiceCapsule, ConfirmDialog, CopyButton, Disclosure, Empty, IconButton, Panel } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, CopyButton, Disclosure, Empty, IconButton, IconRefresh, Panel } from "./ui";
 
 /**
  * The memory pane: a view of the project's mnemopi store, not of any live

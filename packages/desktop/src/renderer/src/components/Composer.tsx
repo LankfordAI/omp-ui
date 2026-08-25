@@ -32,7 +32,7 @@ import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
-import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, Label, PerimeterGlow, PerimeterSweep, Sheet } from "./ui";
+import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep, Sheet } from "./ui";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -44,17 +44,6 @@ import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, I
 const MAX_ROWS = 12;
 /** A counter below this is noise; above it the user is writing something long. */
 const COUNTER_AT = 400;
-
-/** Sliders — the compact options trigger, echoing the HUD's queue-modes icon. */
-function IconTune() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" className="size-4 shrink-0">
-      <path d="M2 4.5h4.6M10.4 4.5H14M2 11.5h2.6M8.4 11.5H14" />
-      <circle cx="8.5" cy="4.5" r="1.7" />
-      <circle cx="6.5" cy="11.5" r="1.7" />
-    </svg>
-  );
-}
 
 /** Arrow-up send glyph for the compact primary control. */
 function IconSend() {
@@ -944,7 +933,7 @@ export function Composer({
                 disabled={unavailable}
                 onClick={() => showCompactSurface("composer-options")}
               >
-                <IconTune />
+                <IconTune className="size-4 shrink-0" />
                 <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || "no model"}</span>
                 <span className="sr-only">prompt options</span>
               </Button>

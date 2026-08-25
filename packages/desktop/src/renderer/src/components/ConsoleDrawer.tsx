@@ -3,7 +3,7 @@ import { backend } from "../backend";
 import { IS_WINDOWS } from "../lib/platform";
 import { useStore } from "../store";
 import { ShellDrawer } from "./ShellDrawer";
-import { Button, IconButton, IconClose } from "./ui";
+import { Button, ICON_STROKE, IconButton, IconClose } from "./ui";
 
 /**
  * The console as a Session HUD-controlled drawer: a full-width login shell
@@ -18,22 +18,14 @@ import { Button, IconButton, IconClose } from "./ui";
  */
 const consoleOpened = new Set<string>();
 
-const S = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.4,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-} as const;
-
 /** The Session HUD's console button. */
 export function ConsoleToggle({ tabId, className }: { tabId: string; className?: string }) {
   const toggleConsole = useStore((s) => s.toggleConsole);
   return (
     <IconButton label="toggle console (mod+j)" className={className} onClick={() => toggleConsole(tabId)}>
       <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
-        <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" {...S} />
-        <path d="M4.6 6.4l1.8 1.7-1.8 1.7M8.4 9.9h3" {...S} />
+        <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" {...ICON_STROKE} />
+        <path d="M4.6 6.4l1.8 1.7-1.8 1.7M8.4 9.9h3" {...ICON_STROKE} />
       </svg>
     </IconButton>
   );

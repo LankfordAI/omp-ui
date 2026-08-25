@@ -13,9 +13,8 @@ import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import { findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
-import { IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
-import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
+import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 interface BranchDiffLoad {
   status: "idle" | "loading" | "error" | "loaded";
@@ -46,50 +45,42 @@ const selectedTab = new Map<string, RailTab>();
 
 /* ------------------------------------------------------------------- icons */
 
-const S = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.4,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-} as const;
-
 function TabIcon({ tab }: { tab: RailTab }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
       {tab === "todos" && (
         <>
-          <path d="M2.5 4.2l1.4 1.4 2.3-2.4M2.5 11.2l1.4 1.4 2.3-2.4" {...S} />
-          <path d="M8.6 4.6h5M8.6 11.6h5" {...S} />
+          <path d="M2.5 4.2l1.4 1.4 2.3-2.4M2.5 11.2l1.4 1.4 2.3-2.4" {...ICON_STROKE} />
+          <path d="M8.6 4.6h5M8.6 11.6h5" {...ICON_STROKE} />
         </>
       )}
       {tab === "agents" && (
         <>
-          <circle cx="5.4" cy="5" r="2.1" {...S} />
-          <path d="M1.9 13c0-2.1 1.6-3.5 3.5-3.5S8.9 10.9 8.9 13" {...S} />
-          <circle cx="11.6" cy="6.4" r="1.6" {...S} />
-          <path d="M9.9 12.6c0-1.7 1-2.7 2.3-2.7 1 0 1.9.6 2.2 1.7" {...S} />
+          <circle cx="5.4" cy="5" r="2.1" {...ICON_STROKE} />
+          <path d="M1.9 13c0-2.1 1.6-3.5 3.5-3.5S8.9 10.9 8.9 13" {...ICON_STROKE} />
+          <circle cx="11.6" cy="6.4" r="1.6" {...ICON_STROKE} />
+          <path d="M9.9 12.6c0-1.7 1-2.7 2.3-2.7 1 0 1.9.6 2.2 1.7" {...ICON_STROKE} />
         </>
       )}
       {tab === "session" && (
         <>
-          <path d="M2.6 4.4c0-1 2.4-1.9 5.4-1.9s5.4.9 5.4 1.9-2.4 1.9-5.4 1.9S2.6 5.4 2.6 4.4z" {...S} />
-          <path d="M2.6 4.4v7.2c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9V4.4" {...S} />
-          <path d="M2.6 8c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9" {...S} />
+          <path d="M2.6 4.4c0-1 2.4-1.9 5.4-1.9s5.4.9 5.4 1.9-2.4 1.9-5.4 1.9S2.6 5.4 2.6 4.4z" {...ICON_STROKE} />
+          <path d="M2.6 4.4v7.2c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9V4.4" {...ICON_STROKE} />
+          <path d="M2.6 8c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9" {...ICON_STROKE} />
         </>
       )}
       {tab === "plans" && (
         <>
-          <path d="M3.4 5.6h9.2V12a1.3 1.3 0 0 1-1.3 1.3H4.7A1.3 1.3 0 0 1 3.4 12z" {...S} />
-          <path d="M5.2 3h5.6v2.6H5.2z" {...S} />
-          <path d="M6.3 9.1l1.3 1.3 2.1-2.6" {...S} />
+          <path d="M3.4 5.6h9.2V12a1.3 1.3 0 0 1-1.3 1.3H4.7A1.3 1.3 0 0 1 3.4 12z" {...ICON_STROKE} />
+          <path d="M5.2 3h5.6v2.6H5.2z" {...ICON_STROKE} />
+          <path d="M6.3 9.1l1.3 1.3 2.1-2.6" {...ICON_STROKE} />
         </>
       )}
       {tab === "diffs" && (
         <>
-          <path d="M2.8 4.4h8.6v6.6a1.2 1.2 0 0 1-1.2 1.2H4A1.2 1.2 0 0 1 2.8 11z" {...S} />
-          <path d="M12.4 3.4v4.6M10.1 5.7h4.6" {...S} />
-          <path d="M6 2H4.4A1.4 1.4 0 0 0 3 3.4v1.8M10 14h1.6a1.4 1.4 0 0 0 1.4-1.4v-1.8" {...S} />
+          <path d="M2.8 4.4h8.6v6.6a1.2 1.2 0 0 1-1.2 1.2H4A1.2 1.2 0 0 1 2.8 11z" {...ICON_STROKE} />
+          <path d="M12.4 3.4v4.6M10.1 5.7h4.6" {...ICON_STROKE} />
+          <path d="M6 2H4.4A1.4 1.4 0 0 0 3 3.4v1.8M10 14h1.6a1.4 1.4 0 0 0 1.4-1.4v-1.8" {...ICON_STROKE} />
         </>
       )}
     </svg>
@@ -99,8 +90,8 @@ function TabIcon({ tab }: { tab: RailTab }) {
 function IconCollapse() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5 rotate-180">
-      <path d="M10 4l-3.5 4 3.5 4" {...S} />
-      <path d="M3.5 2.6v10.8" {...S} />
+      <path d="M10 4l-3.5 4 3.5 4" {...ICON_STROKE} />
+      <path d="M3.5 2.6v10.8" {...ICON_STROKE} />
     </svg>
   );
 }

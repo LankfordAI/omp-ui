@@ -78,6 +78,36 @@ function CheckIcon() {
   );
 }
 
+/** Shared props for 16-px stroke glyphs drawn by feature components. */
+export const ICON_STROKE = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.4,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+/** Sliders — the shared "options/settings" glyph (composer options, project settings, queue modes). */
+export function IconTune({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M2 4.5h4.6M10.4 4.5H14M2 11.5h2.6M8.4 11.5H14" />
+      <circle cx="8.5" cy="4.5" r="1.7" />
+      <circle cx="6.5" cy="11.5" r="1.7" />
+    </svg>
+  );
+}
+
+/** Circular refresh arrow. */
+export function IconRefresh({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M13.5 8a5.5 5.5 0 11-1.9-4.2" />
+      <path d="M13.6 2v3.6H10" />
+    </svg>
+  );
+}
+
 export function IconClose({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} aria-hidden className={cn("size-2.5", className)}>

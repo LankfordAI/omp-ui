@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
-import { Button } from "./ui";
+import { Button, ICON_STROKE } from "./ui";
 import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
 
 /**
@@ -21,14 +21,6 @@ import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from ".
  * concurrent refreshes, and keeps the last good snapshot when one fails, so
  * this component never blanks the branch it already showed.
  */
-
-const S = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.4,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-} as const;
 
 /**
  * Focus and visibility both fire on a single alt-tab back into the window;
@@ -328,10 +320,10 @@ export function BranchChip({
         className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
       >
         <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
-          <circle cx="5" cy="4" r="1.6" {...S} />
-          <circle cx="5" cy="12" r="1.6" {...S} />
-          <circle cx="11" cy="6" r="1.6" {...S} />
-          <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...S} />
+          <circle cx="5" cy="4" r="1.6" {...ICON_STROKE} />
+          <circle cx="5" cy="12" r="1.6" {...ICON_STROKE} />
+          <circle cx="11" cy="6" r="1.6" {...ICON_STROKE} />
+          <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...ICON_STROKE} />
         </svg>
         <span className="min-w-0 max-w-44 truncate">
           {workspace?.mode === "worktree" ? workspace.branch : current ?? "detached"}
