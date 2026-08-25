@@ -3,7 +3,7 @@ import type { MergeBackStatus } from "@omp-ui/core/types";
 import type { DeleteConfirmation } from "../store";
 import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
-import { shortBase } from "./WorktreeChip";
+import { shortBase } from "../lib/format";
 /**
  * Session delete confirmation. For worktree sessions, offers a merge-back of the
  * branch first (issue #272): the merge into the recorded base runs in the

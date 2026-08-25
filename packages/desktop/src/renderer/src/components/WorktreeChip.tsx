@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { MergeBackStatus, SessionWorktree } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { shortBase } from "../lib/format";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, Chip, ConfirmDialog, CopyButton, Panel } from "./ui";
 
@@ -19,14 +20,6 @@ import { Button, Chip, ConfirmDialog, CopyButton, Panel } from "./ui";
  * and dismissal follow the sidebar's terminal-menu convention; Escape
  * restores focus to the trigger, matching BranchChip.
  */
-
-/**
- * A 40-hex commit base reads as its 8-char short form; a ref name (the user's
- * own pick) reads verbatim. Shared with the diffs pane's "since" chip.
- */
-export function shortBase(base: string): string {
-  return /^[0-9a-f]{40}$/.test(base) ? base.slice(0, 8) : base;
-}
 
 const rowText =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";

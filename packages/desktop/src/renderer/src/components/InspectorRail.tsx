@@ -12,9 +12,9 @@ import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import { findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
-import { compactNum, exactNum, formatCost, IconRefresh } from "./SessionHud";
+import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
+import { IconRefresh } from "./SessionHud";
 import { TodoPanel } from "./TodoPanel";
-import { shortBase } from "./WorktreeChip";
 import { AGENT_TONE, Button, Chip, CopyButton, Dot, Empty, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 interface BranchDiffLoad {

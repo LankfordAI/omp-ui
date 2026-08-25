@@ -4,6 +4,7 @@ import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
+import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
@@ -19,32 +20,9 @@ import { Button, Chip, CopyButton, Dot, IconButton, Label, Meter, Panel, Sheet, 
  * On desktop the HUD renders inside App's merged title bar (issue #60); the
  * compact branch below is unchanged and still renders in-tab inside RpcTab.
  *
- * The numeric formatters and the two micro-controls below live here rather than
- * in `ui.tsx` (which Main owns) because only the RPC chrome consumes them.
+ * The two micro-controls below live here rather than in `ui.tsx` (which
+ * Main owns) because only the RPC chrome consumes them.
  */
-
-/* ------------------------------------------------------------- formatting */
-
-/** `34900` → `34.9K`, `1000000` → `1M`. Exact values belong in `title=`. */
-export function compactNum(value: number): string {
-  const abs = Math.abs(value);
-  const step: readonly [number, string] =
-    abs >= 1e9 ? [1e9, "B"] : abs >= 1e6 ? [1e6, "M"] : abs >= 1e3 ? [1e3, "K"] : [1, ""];
-  if (step[0] === 1) return `${Math.round(value)}`;
-  const scaled = (value / step[0]).toFixed(1);
-  return `${scaled.endsWith(".0") ? scaled.slice(0, -2) : scaled}${step[1]}`;
-}
-
-/** Grouped digits for `title=` tooltips, where truncation would be a lie. */
-export function exactNum(value: number): string {
-  return value.toLocaleString("en-US");
-}
-
-/** Cost display precision is a product decision, shared by the HUD and the rail. */
-export function formatCost(cost: number): string {
-  return `$${cost.toFixed(4)}`;
-}
-
 /* ---------------------------------------------------------------- controls */
 
 interface SegmentOption {

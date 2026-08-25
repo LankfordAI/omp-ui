@@ -6,7 +6,8 @@ import type {
 } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { findRecord, useStore } from "../store";
-import { compactNum, IconRefresh } from "./SessionHud";
+import { compactNum } from "../lib/format";
+import { IconRefresh } from "./SessionHud";
 import { Button, Chip, ChoiceCapsule, ConfirmDialog, CopyButton, Disclosure, Empty, IconButton, Panel } from "./ui";
 
 /**

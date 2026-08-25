@@ -9,6 +9,7 @@ import {
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
+import { formatCost, tokenCount } from "../lib/format";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
@@ -32,10 +33,6 @@ const AT_BOTTOM_SLACK = 64;
 
 /* ------------------------------------------------------------- assistant */
 
-function tokens(n: number): string {
-  return n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
 /**
  * The receipt: one dim line under a finished turn. It exists so cost and
  * latency are always answerable without opening a panel, which means it has
@@ -46,9 +43,9 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   if (!usage) return null;
   const parts: string[] = [];
   if (item.model) parts.push(item.model);
-  parts.push(`↑${tokens(usage.input)}`, `↓${tokens(usage.output)}`);
-  if (usage.cacheRead > 0) parts.push(`cache ${tokens(usage.cacheRead)}`);
-  if (usage.cost > 0) parts.push(`$${usage.cost.toFixed(4)}`);
+  parts.push(`↑${tokenCount(usage.input)}`, `↓${tokenCount(usage.output)}`);
+  if (usage.cacheRead > 0) parts.push(`cache ${tokenCount(usage.cacheRead)}`);
+  if (usage.cost > 0) parts.push(formatCost(usage.cost));
   if (item.ttftMs !== undefined && item.ttftMs > 0) parts.push(`ttft ${formatDuration(item.ttftMs)}`);
   if (item.durationMs !== undefined && item.durationMs > 0) parts.push(formatDuration(item.durationMs));
   if (item.stopReason && item.stopReason !== "end_turn" && item.stopReason !== "stop") {

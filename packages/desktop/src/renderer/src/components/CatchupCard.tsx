@@ -1,6 +1,6 @@
 import type { CatchupDigest, CatchupFile, CatchupOutcome } from "../lib/catchup";
 import { useStore } from "../store";
-import { compactNum, formatCost } from "./SessionHud";
+import { compactNum, formatCost } from "../lib/format";
 import { Button, Chip, IconButton, Panel } from "./ui";
 
 /** "2h 14m" / "14m" — the header's away-duration readout. */

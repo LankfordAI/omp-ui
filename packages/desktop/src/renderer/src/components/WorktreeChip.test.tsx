@@ -42,7 +42,8 @@ Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: ../store → ./backend reads window.ompBackend
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
-const { shortBase, WorktreeChip } = await import("./WorktreeChip");
+const { shortBase } = await import("../lib/format");
+const { WorktreeChip } = await import("./WorktreeChip");
 
 const worktree: SessionWorktree = {
   path: "/worktrees/alpha/omp-feature",
@@ -227,19 +228,6 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
-});
-
-describe("shortBase", () => {
-  it("shortens a 40-hex commit to 8 chars and leaves refs verbatim", () => {
-    expect(shortBase("a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0")).toBe("a1b2c3d4");
-    expect(shortBase("main")).toBe("main");
-    // Uppercase hex is not git's normalized output — treated as a ref name.
-    expect(shortBase("A1B2C3D4E5F6A7B8C9D0A1B2C3D4E5F6A7B8C9D0")).toBe(
-      "A1B2C3D4E5F6A7B8C9D0A1B2C3D4E5F6A7B8C9D0",
-    );
-    // 39 or 41 hex chars is not a full SHA either.
-    expect(shortBase("a".repeat(39))).toBe("a".repeat(39));
-  });
 });
 
 describe("WorktreeChip (issue #260)", () => {
