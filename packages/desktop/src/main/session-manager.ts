@@ -29,7 +29,6 @@ import {
   spawnOmpTui,
   spawnShell,
   unarchiveSession,
-  watchLineageDir,
   readOmpCompactionMethods,
   writeAdvisorOverlay,
   writeAdvisorStatsExtension,
@@ -56,6 +55,7 @@ import {
 import type { Attention } from "./desktop-notifier";
 import { liveEntry, type LiveEntry } from "./live-entry";
 import { TurnCounter } from "./turns";
+import { WatcherHub } from "./watcher-hub";
 
 /** True when `p` settles inside `ms`. Bounded wait, no dangling timer. */
 function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
@@ -96,13 +96,6 @@ const BLOCKING_DIALOG_METHODS: Record<string, true> = {
   input: true,
   editor: true,
 };
-/**
- * Min interval between sidebar broadcasts caused purely by session-file mtime
- * churn (issue #187). A mid-turn transcript rewrites its .jsonl constantly;
- * each rewrite used to trigger a full buildState + broadcast, so the renderer
- * re-rendered the whole shell at turn rate on top of the transcript stream.
- */
-const WATCHER_BROADCAST_MS = 1_000;
 
 export interface SessionManagerDependencies {
   registry: Registry;
@@ -142,7 +135,8 @@ export class SessionManager {
   private readonly turns = new TurnCounter();
   /** Console-drawer shells keyed by tabId (issue #42) — outside `live` on purpose. */
   private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
-  private readonly watchers = new Map<string, () => void>();
+  /** Lineage-dir watchers and their throttled sidebar broadcast (issue #187). */
+  private readonly watcherHub: WatcherHub;
   /**
    * In-flight resume spawns, keyed by tab — registered before the first await
    * (double-click race). The value settles when the spawn does, so a delete
@@ -175,11 +169,14 @@ export class SessionManager {
   private desktopViewedClientId: string | null = null;
   /** Turn-stall watchdog sweep; one interval for all live tabs (issue #248). */
   private stallWatchInterval: NodeJS.Timeout | undefined;
-  /** Throttle state for mtime-only watcher broadcasts (issue #187). */
-  private watcherBroadcastAt = 0;
-  private watcherBroadcastTimer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly deps: SessionManagerDependencies) {}
+  constructor(private readonly deps: SessionManagerDependencies) {
+    this.watcherHub = new WatcherHub({
+      registry: deps.registry,
+      getSessionsRoot: () => deps.getSessionsRoot(),
+      broadcast: () => deps.broadcast(),
+    });
+  }
 
   get liveCount(): number {
     return this.live.size;
@@ -197,14 +194,12 @@ export class SessionManager {
   }
 
   async hydrateAll(): Promise<void> {
-    for (const record of this.deps.registry.sessions) this.startWatcher(record);
+    this.watcherHub.startAll(this.deps.registry.sessions);
     await this.deps.broadcast();
   }
 
   stopProjectWatchers(projectCwd: string): void {
-    for (const record of this.deps.registry.sessions) {
-      if (record.projectCwd === projectCwd) this.stopWatcher(record.tabId);
-    }
+    this.watcherHub.stopForProject(projectCwd);
   }
 
   /** Kills every owned child and closes every lineage watcher. */
@@ -214,12 +209,7 @@ export class SessionManager {
     for (const tabId of [...this.shells.keys()]) this.killShell(tabId);
     // Lineage watchers hold inotify fds; quit is the one path that must not
     // leave them to the OS — a cancelled quit keeps the app alive without them.
-    for (const dispose of this.watchers.values()) dispose();
-    this.watchers.clear();
-    if (this.watcherBroadcastTimer !== undefined) {
-      clearTimeout(this.watcherBroadcastTimer);
-      this.watcherBroadcastTimer = undefined;
-    }
+    this.watcherHub.disposeAll();
     for (const timer of this.hibernateTimers.values()) clearTimeout(timer);
     this.hibernateTimers.clear();
     this.openExtensionRequests.clear();
@@ -460,7 +450,7 @@ export class SessionManager {
       this.deps.send(CH.onPtyData, record.tabId, data),
     );
     ptyHandle.onExit(({ exitCode }) => this.handleExit(record.tabId, entry, exitCode));
-    this.startWatcher(record);
+    this.watcherHub.start(record);
     await this.deps.broadcast();
     return { tabId: record.tabId };
   }
@@ -521,7 +511,7 @@ export class SessionManager {
     this.live.set(record.tabId, entry);
     // A fresh process owes no stall badge: the wedge died with the old one.
     this.streamStalledTabs.delete(record.tabId);
-    this.startWatcher(record);
+    this.watcherHub.start(record);
     void this.deps.broadcast();
     return { tabId: record.tabId };
   }
@@ -863,7 +853,7 @@ export class SessionManager {
     const last = stored === null ? null : Date.parse(stored);
     if (last !== null && Number.isFinite(last) && now - last < VIEWED_DEDUP_MS) return;
     this.deps.registry.updateSession(tabId, { lastViewedAt: new Date(now).toISOString() });
-    this.broadcastWatcherPatch(false);
+    this.watcherHub.broadcastPatch(false);
   }
 
   /** Marks the clientId the desktop renderer reports under (issue #271). */
@@ -1439,7 +1429,7 @@ export class SessionManager {
     if (!record) return;
     const entry = this.live.get(tabId);
     if (entry) await this.killAndReap(tabId, entry);
-    this.stopWatcher(tabId);
+    this.watcherHub.stop(tabId);
     this.killShell(tabId);
     // Files first: a failed delete must leave the record so the row stays
     // visible and retryable, rather than orphaning the transcript on disk.
@@ -1450,7 +1440,7 @@ export class SessionManager {
         record.lineageDir,
       );
     } catch (err) {
-      this.startWatcher(record);
+      this.watcherHub.start(record);
       throw err;
     }
     if (record.worktree) {
@@ -1564,75 +1554,6 @@ export class SessionManager {
       this.deps.send(CH.onPtyExit, tabId, -1);
       await this.deps.broadcast();
       throw err;
-    }
-  }
-
-  private startWatcher(record: OwnedSessionRecord): void {
-    this.stopWatcher(record.tabId);
-    const absDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
-    if (!fs.existsSync(absDir)) return;
-    this.watchers.set(
-      record.tabId,
-      watchLineageDir(absDir, (event) => {
-        if (event.kind === "vanished") {
-          this.stopWatcher(record.tabId);
-          void this.deps.broadcast();
-          return;
-        }
-        void this.onSessionFile(record.tabId, event.filePath);
-      }),
-    );
-  }
-
-  private stopWatcher(tabId: string): void {
-    this.watchers.get(tabId)?.();
-    this.watchers.delete(tabId);
-  }
-
-  /**
-   * Identity changes (first materialization, /new, /branch, a fresh title)
-   * broadcast immediately; mtime-only churn is sidebar noise at turn rate and
-   * gets a trailing throttle (issue #187).
-   */
-  private broadcastWatcherPatch(immediate: boolean): void {
-    if (this.watcherBroadcastTimer !== undefined) {
-      clearTimeout(this.watcherBroadcastTimer);
-      this.watcherBroadcastTimer = undefined;
-    }
-    const wait = this.watcherBroadcastAt + WATCHER_BROADCAST_MS - Date.now();
-    if (immediate || wait <= 0) {
-      this.watcherBroadcastAt = Date.now();
-      void this.deps.broadcast();
-      return;
-    }
-    this.watcherBroadcastTimer = setTimeout(() => {
-      this.watcherBroadcastTimer = undefined;
-      this.watcherBroadcastAt = Date.now();
-      void this.deps.broadcast();
-    }, wait);
-    this.watcherBroadcastTimer.unref?.();
-  }
-
-  /** First materialization, /new, /branch, title-slot rewrites → adopt + broadcast. */
-  private async onSessionFile(tabId: string, filePath: string): Promise<void> {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (!record) return;
-    try {
-      const h = await hydrateSessionFile(filePath);
-      const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
-      if (h.id && h.id !== record.sessionId) patch.sessionId = h.id;
-      const title = h.title?.trim() ? h.title : null;
-      if (title !== record.cachedTitle) patch.cachedTitle = title;
-      const modified = h.mtime.toISOString();
-      if (modified !== record.cachedModified) patch.cachedModified = modified;
-      if (Object.keys(patch).length > 0) {
-        this.deps.registry.updateSession(tabId, patch);
-        this.broadcastWatcherPatch(
-          patch.sessionId !== undefined || patch.cachedTitle !== undefined,
-        );
-      }
-    } catch {
-      // Mid-write or vanished — the next event (or state rebuild) retries.
     }
   }
 }
