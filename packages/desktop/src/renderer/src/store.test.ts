@@ -1137,6 +1137,7 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
         timeoutMs: 30_000,
         elapsedMs: 30_000,
         pendingCommandCount: 0,
+        pending: [],
         sessionStatus: "running",
         isStreaming: true,
         liveState: "live",
@@ -4676,6 +4677,273 @@ describe("prompting, slash commands, and session ops", () => {
     respond(TAB, sent.pop()!.cmd, { subagents: [] });
     await promise;
     expect(useStore.getState().rpc[TAB]!.busy).toBe(false);
+  });
+
+  it("a quiet timeout posts one dim notice and never paints the session failure (issue #302)", async () => {
+    const T = "wedge-tab-1";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const promise = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await promise;
+      const tab = useStore.getState().rpc[T]!;
+      expect(tab.failure).toBeUndefined();
+      expect(tab.busy).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        "[rpc] command timeout",
+        expect.objectContaining({
+          command: "get_subagents",
+          pendingCommandCount: 0,
+          pending: [],
+        }),
+      );
+      const notices = tab.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!).toMatchObject({
+        kind: "notice",
+        level: "info",
+        text: 'background "get_subagents" timed out after 30.0s — no other command in flight',
+      });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces repeated quiet timeouts in one wedge episode to a single notice (issue #302)", async () => {
+    const T = "wedge-tab-2";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const first = useStore.getState().refreshState(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await first;
+      const second = useStore.getState().refreshStats(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await second;
+      const tab = useStore.getState().rpc[T]!;
+      expect(tab.failure).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(2);
+      const notices = tab.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toContain('background "get_state" timed out after 30.0s');
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a quiet timeout names the command still holding the chain, beside its loud banner (issue #302)", async () => {
+    const T = "wedge-tab-3";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Timeline (issue #302): compact t=0, heartbeat t=5, compact budget t=30,
+      // heartbeat budget t=35.
+      const wedge = useStore.getState().compactSession(T);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const quiet = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(25_000);
+      await wedge;
+      const banner = useStore.getState().rpc[T]!.failure;
+      expect(banner).toMatchObject({ command: "compact", kind: "command", fatal: false });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await quiet;
+      expect(useStore.getState().rpc[T]!.failure).toBe(banner);
+      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toBe(
+        'background "get_subagents" timed out after 30.0s — queued behind compact (timed out 5.0s ago, response not yet observed)',
+      );
+      expect(warn).toHaveBeenNthCalledWith(
+        1,
+        "[rpc] command timeout",
+        expect.objectContaining({
+          command: "compact",
+          pendingCommandCount: 1,
+          pending: [{ command: "get_subagents", quiet: true, elapsedMs: 25_000 }],
+        }),
+      );
+      expect(warn).toHaveBeenNthCalledWith(
+        2,
+        "[rpc] command timeout",
+        expect.objectContaining({ command: "get_subagents", pending: [] }),
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-arms the quiet-failure notice on a quiet success; loud failures survive quiet timeouts (issue #302)", async () => {
+    const T = "wedge-tab-4";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const first = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await first;
+      const ok = useStore.getState().refreshState(T);
+      respond(T, sent.pop()!.cmd, {});
+      await ok;
+      const second = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await second;
+      expect(
+        useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice"),
+      ).toHaveLength(2);
+      const failed = useStore.getState().setThinkingLevel(T, "high");
+      respond(T, sent.pop()!.cmd, "unknown level", false);
+      await failed;
+      const transient = useStore.getState().rpc[T]!.failure;
+      expect(transient).toBeDefined();
+      const third = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await third;
+      expect(useStore.getState().rpc[T]!.failure).toBe(transient);
+      expect(
+        useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice"),
+      ).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a late response retires the timed-out holder before the quiet timeout attributes it (issue #302)", async () => {
+    const T = "wedge-tab-5";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Timeline (issue #302): set_model t=0, heartbeat t=5, set_model budget t=30,
+      // late response t=32, heartbeat budget t=35.
+      const wedge = useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typed = expect(wedge).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const quiet = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(27_000);
+      await typed;
+      // The holder's late response arrives before the victim's budget: the
+      // chain provably moved past it, so attribution must not fire (issue #302).
+      useStore.getState().handleRpcFrame(T, {
+        type: "response",
+        id: sent[0]!.cmd.id,
+        command: "set_model",
+        success: true,
+        data: {},
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      await quiet;
+      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toBe(
+        'background "get_subagents" timed out after 30.0s — no other command in flight',
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a bash success does not retire the attribution: it bypasses the serial chain (issue #302)", async () => {
+    const T = "wedge-tab-6";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Timeline (issue #302): set_model t=0, its budget t=30, bash t=32
+      // (completes at t=32), heartbeat t=32, heartbeat budget t=62.
+      const wedge = useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typed = expect(wedge).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      await vi.advanceTimersByTimeAsync(32_000);
+      await typed;
+      const bash = useStore.getState().rpcCommand(T, { type: "bash", command: "true" });
+      const bCmd = sent.at(-1)!.cmd;
+      respond(T, bCmd, {});
+      await bash; // completes — but it never queued, so it proves nothing (issue #302)
+      const quiet = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(33_000);
+      await quiet;
+      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toBe(
+        'background "get_subagents" timed out after 30.0s — queued behind set_model (timed out 32.0s ago, response not yet observed)',
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a non-bash success retires earlier timeouts: the chain provably drained (issue #302)", async () => {
+    const T = "wedge-tab-7";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Timeline (issue #302): set_model t=0, its budget t=30, set_steering_mode t=32
+      // (completes at t=32), heartbeat t=32, heartbeat budget t=62.
+      const wedge = useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typed = expect(wedge).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      await vi.advanceTimersByTimeAsync(32_000);
+      await typed;
+      const loud = useStore
+        .getState()
+        .rpcCommand(T, { type: "set_steering_mode", mode: "manual" });
+      const lCmd = sent.at(-1)!.cmd;
+      respond(T, lCmd, {});
+      await loud; // its completion proves the chain drained past the wedge (issue #302)
+      const quiet = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(33_000);
+      await quiet;
+      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toBe(
+        'background "get_subagents" timed out after 30.0s — no other command in flight',
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("attributes the earliest unretired timeout, the command executing while the rest queue (issue #302)", async () => {
+    const T = "wedge-tab-8";
+    useStore.setState({ rpc: { ...useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Timeline (issue #302): set_model t=0, set_steering_mode t=10, heartbeat t=15;
+      // budgets fire at t=30, t=40, t=45.
+      const first = useStore.getState().rpcCommand(T, { type: "set_model" });
+      const typedFirst = expect(first).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const second = useStore
+        .getState()
+        .rpcCommand(T, { type: "set_steering_mode", mode: "manual" });
+      const typedSecond = expect(second).rejects.toBeInstanceOf(RpcCommandTimeoutError);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const quiet = useStore.getState().refreshSubagents(T);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await typedFirst;
+      await typedSecond;
+      await quiet;
+      const notices = useStore.getState().rpc[T]!.items.filter((i) => i.kind === "notice");
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toBe(
+        'background "get_subagents" timed out after 30.0s — queued behind set_model (timed out 15.0s ago, response not yet observed)',
+      );
+      expect(notices[0]!.text).not.toContain("set_steering_mode");
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("a loud command's busy survives an interleaved quiet one settling", async () => {

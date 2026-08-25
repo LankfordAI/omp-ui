@@ -130,14 +130,16 @@ const COMMAND_OUTPUT_CAP = 64 * 1024;
 export class RpcCommandTimeoutError extends Error {
   readonly command: string;
   readonly timeoutMs: number;
+  readonly startedAt: number;
 
-  constructor(command: string, timeoutMs: number) {
+  constructor(command: string, timeoutMs: number, startedAt: number) {
     super(
       `RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`,
     );
     this.name = "RpcCommandTimeoutError";
     this.command = command;
     this.timeoutMs = timeoutMs;
+    this.startedAt = startedAt;
   }
 }
 
@@ -374,6 +376,51 @@ interface SubagentRefresh {
   timer: number | undefined;
 }
 const subagentRefresh = new Map<string, SubagentRefresh>();
+/**
+ * Quiet-failure notice coalescing (issue #302): one dim transcript notice per
+ * wedge episode per tab. Set by the first quiet failure (timeout or error),
+ * re-armed by any quiet success, reset on relaunch. Tabs hide rather than
+ * close, so the map is bounded by tab count and needs no teardown (same
+ * posture as `subagentRefresh`).
+ */
+const quietWedgeNotified = new Map<string, boolean>();
+/**
+ * Renderer-side timed-out commands whose completion response has not yet
+ * been observed (issue #302). A command ahead of a victim in omp's serial
+ * chain cannot still be in `pendingCommands` — it shares the same response
+ * budget, so its entry left at its own, earlier timeout. The holder is the
+ * earliest such command started before the victim: in a FIFO chain it is
+ * the one executing while the rest merely queue behind it. Entries retire
+ * when a late response for the command arrives, when any non-`bash` success
+ * proves the chain drained past them, or on relaunch/erase.
+ */
+interface TimedOutCommand {
+  id: string;
+  command: string;
+  startedAt: number;
+  timedOutAt: number;
+}
+const timedOutCommands = new Map<string, TimedOutCommand[]>();
+
+/** A late response for a timed-out command: the chain provably moved past it (issue #302). */
+const retireTimedOutCommand = (tabId: string, id: string): void => {
+  const list = timedOutCommands.get(tabId);
+  if (!list) return;
+  const at = list.findIndex((e) => e.id === id);
+  if (at === -1) return;
+  list.splice(at, 1);
+  if (list.length === 0) timedOutCommands.delete(tabId);
+};
+
+/** A non-bash completion proves the FIFO chain drained past every earlier-started command (issue #302). */
+const retireTimedOutEarlierThan = (tabId: string, startedAt: number): void => {
+  const list = timedOutCommands.get(tabId);
+  if (!list) return;
+  const kept = list.filter((e) => e.startedAt >= startedAt);
+  if (kept.length === list.length) return;
+  if (kept.length === 0) timedOutCommands.delete(tabId);
+  else timedOutCommands.set(tabId, kept);
+};
 
 /** Whole parameter actions, including their authoritative registry write. */
 const pendingSessionParameterActions = new Map<string, Set<Promise<void>>>();
@@ -675,6 +722,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
     // No frames will come from the dying process: stop the stall clock now
     // rather than waiting for its next tick (issue #228).
     stopStreamStallTimer(tabId);
+    // A fresh process has no wedge memory: re-arm the quiet-failure notice
+    // and drop the attribution memory (issue #302).
+    quietWedgeNotified.delete(tabId);
+    timedOutCommands.delete(tabId);
     patchRpc(tabId, {
       status: "starting",
       plan: null,
@@ -741,10 +792,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
       ) {
         patchRpc(tabId, { failure: undefined });
       }
+      // Any quiet success proves the queue is draining: re-arm the
+      // wedge-episode notice for the next episode (issue #302).
+      if (opts?.quiet === true) quietWedgeNotified.delete(tabId);
       return resp;
     } catch (err) {
       const tab = get().rpc[tabId];
       if (tab?.failure?.fatal) return null;
+      // Background sync never paints the session-level failure: one dim,
+      // coalesced notice per wedge episode instead (issue #302).
+      if (opts?.quiet === true) {
+        noteQuietWedge(tabId, command, err);
+        return null;
+      }
       const timedOut = err instanceof RpcCommandTimeoutError;
       const message = err instanceof Error ? err.message : String(err);
       const liveState = findRecord(get().state, tabId)?.live;
@@ -779,6 +839,45 @@ export const useStore = create<UiStore>()((set, get, api) => {
       return;
     }
     patchRpc(tabId, { items: [...tab.items, item] });
+  };
+  /**
+   * Quiet commands are background sync (heartbeats, usage ticks): their
+   * failure means the session is congested, not that it failed. Never paint
+   * the session-level failure — one dim, coalesced transcript notice per
+   * wedge episode, naming the command still holding the chain when the
+   * attribution memory has one (issue #302).
+   */
+  const noteQuietWedge = (tabId: string, command: string, err: unknown): void => {
+    if (quietWedgeNotified.get(tabId)) return;
+    quietWedgeNotified.set(tabId, true);
+    const text =
+      err instanceof RpcCommandTimeoutError
+        ? (() => {
+            const budget = formatDuration(err.timeoutMs);
+            // Entries are appended in send order (one shared budget), so the
+            // first started before the victim is the chain's current holder;
+            // the rest merely queue behind it (issue #302).
+            const holder = (timedOutCommands.get(tabId) ?? []).find(
+              (e) => e.startedAt < err.startedAt,
+            );
+            if (holder)
+              return `background "${command}" timed out after ${budget} — queued behind ${holder.command} (timed out ${formatDuration(
+                Date.now() - holder.timedOutAt,
+              )} ago, response not yet observed)`;
+            const pending = get().rpc[tabId]?.pendingCommands;
+            const inFlight = pending
+              ? [...pending.values()].map((p) =>
+                  p.quiet
+                    ? `${p.command} (bg, ${formatDuration(Date.now() - p.startedAt)})`
+                    : `${p.command} (${formatDuration(Date.now() - p.startedAt)})`,
+                )
+              : [];
+            return inFlight.length > 0
+              ? `background "${command}" timed out after ${budget} — other commands still in flight: ${inFlight.join(", ")}`
+              : `background "${command}" timed out after ${budget} — no other command in flight`;
+          })()
+        : `background "${command}" failed: ${err instanceof Error ? err.message : String(err)}`;
+    appendItem(tabId, noticeItem(text, "info"));
   };
 
   /** Maps every item; patches only when at least one item actually changed. */
@@ -1120,6 +1219,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     slashCommandItems.delete(tabId);
     compactionUsageGenerations.delete(tabId);
     handedOffPlanSources.delete(tabId);
+    quietWedgeNotified.delete(tabId);
+    timedOutCommands.delete(tabId);
     if (tab) {
       for (const pending of tab.pendingCommands.values()) {
         clearTimeout(pending.timer);
@@ -2221,6 +2322,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
           // Remove before settling so the map remains the authoritative ref
           // count when `finally` recomputes busy.
           tab.pendingCommands.delete(id);
+          // Attribution memory: the entry outlives the budget until a
+          // completion response is observed, so a later quiet timeout can
+          // name the command holding the chain (issue #302).
+          const timedOut = timedOutCommands.get(tabId) ?? [];
+          timedOut.push({ id, command, startedAt, timedOutAt: Date.now() });
+          timedOutCommands.set(tabId, timedOut);
           const runtime = get().rpc[tabId];
           const liveState = findRecord(get().state, tabId)?.live;
           const details = {
@@ -2230,12 +2337,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
             timeoutMs,
             elapsedMs: Date.now() - startedAt,
             pendingCommandCount: tab.pendingCommands.size,
+            pending: [...tab.pendingCommands.values()].map((p) => ({
+              command: p.command,
+              quiet: p.quiet,
+              elapsedMs: Date.now() - p.startedAt,
+            })),
             sessionStatus: runtime?.status ?? null,
             isStreaming: runtime?.session.isStreaming ?? null,
             liveState: liveState ?? null,
           };
           console.warn("[rpc] command timeout", details);
-          reject(new RpcCommandTimeoutError(command, timeoutMs));
+          reject(new RpcCommandTimeoutError(command, timeoutMs, startedAt));
         }, timeoutMs);
         tab.pendingCommands.set(id, {
           resolve,
@@ -2283,9 +2395,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
           const id =
             "id" in frame && typeof frame.id === "string" ? frame.id : null;
           const pending = id ? tab.pendingCommands.get(id) : undefined;
-          if (!pending) return;
+          if (!pending) {
+            // The budget expired first: this late response is the completion
+            // observation the timeout attribution waits for (issue #302).
+            if (id) retireTimedOutCommand(tabId, id);
+            return;
+          }
           clearTimeout(pending.timer);
           tab.pendingCommands.delete(id!);
+          // The chain is FIFO: this completion proves every earlier-started
+          // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
+          if (pending.command !== "bash") retireTimedOutEarlierThan(tabId, pending.startedAt);
           if ("success" in frame && frame.success === false) {
             const message =
               "error" in frame && typeof frame.error === "string"
