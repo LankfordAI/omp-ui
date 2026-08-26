@@ -115,6 +115,18 @@ export interface MergeBackResult {
   files: string[];
 }
 
+/** Outcome of a worktree-branch deletion attempt (issue #323). */
+export interface WorktreeBranchRemoval {
+  kind:
+    | "removed"
+    | "kept-unmerged"
+    | "kept-no-destination"
+    | "kept-refused"
+    | "already-gone";
+  /** git's message when kind is "kept-refused"; undefined otherwise. */
+  detail?: string;
+}
+
 /** Saved provenance for a fresh implementation session created from an accepted plan. */
 export interface PlanImplementationSource {
   /** Planning session tab that dispatched the implementation. */

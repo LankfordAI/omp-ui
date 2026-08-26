@@ -1253,6 +1253,10 @@ describe("worktree sessions (issue #224)", () => {
       worktree: { branch, baseRef: null },
     });
     expect(fs.existsSync(worktreePath)).toBe(true);
+    // A branch-side commit: the branch is unmerged, so it must survive.
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
 
     await manager.deleteSession(tabId, false);
 
@@ -1299,6 +1303,11 @@ describe("worktree sessions (issue #224)", () => {
     );
 
     const { tabId: forkTabId } = await manager.forkSession(tabId);
+    // A branch-side commit: the branch is unmerged, so it must survive both
+    // deletes (issue #323 deletes only merged branches).
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
 
     await manager.deleteSession(tabId, false);
 
@@ -1319,6 +1328,128 @@ describe("worktree sessions (issue #224)", () => {
       cwd: project,
     });
     expect(branches).toContain(branch);
+  });
+
+  it("deletes a merged worktree branch when the last record is deleted (issue #323)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-merged";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    // Land the branch's work in main, so the delete can verify the merge.
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+    await execFileP("git", ["merge", "-q", "--no-ff", "-m", "fold", branch], {
+      cwd: project,
+    });
+
+    await manager.deleteSession(tabId, false);
+
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout: branches } = await execFileP("git", ["branch", "--list", branch], {
+      cwd: project,
+    });
+    expect(branches).not.toContain(branch);
+  });
+
+  it("keeps an unmerged worktree branch when the session is deleted (issue #323)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-unmerged";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+
+    await manager.deleteSession(tabId, false);
+
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout: branches } = await execFileP("git", ["branch", "--list", branch], {
+      cwd: project,
+    });
+    expect(branches).toContain(branch);
+  });
+
+  it("removes a merged branch with the last session of a shared checkout (issue #323)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-shared";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+    await execFileP("git", ["merge", "-q", "--no-ff", "-m", "fold", branch], {
+      cwd: project,
+    });
+    // forkSessionFile reads the source transcript — seed one in the lineage dir.
+    const source = registry.sessions.find((s) => s.tabId === tabId)!;
+    const transcript = path.join(
+      base,
+      "sessions",
+      source.lineageDir,
+      "2026-08-13T00-00-00-000Z_wt-shared-source.jsonl",
+    );
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(
+      transcript,
+      `${JSON.stringify({ type: "session", id: "wt-shared-source", cwd: project })}\n`,
+    );
+    const { tabId: forkTabId } = await manager.forkSession(tabId);
+
+    await manager.deleteSession(tabId, false);
+
+    // The fork still shares the checkout: neither the checkout nor the
+    // branch goes with the first delete.
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    let { stdout: branches } = await execFileP("git", ["branch", "--list", branch], {
+      cwd: project,
+    });
+    expect(branches).toContain(branch);
+
+    await manager.deleteSession(forkTabId, false);
+
+    expect(registry.sessions.some((s) => s.tabId === forkTabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    ({ stdout: branches } = await execFileP("git", ["branch", "--list", branch], {
+      cwd: project,
+    }));
+    expect(branches).not.toContain(branch);
   });
 
   it("refuses to resume a worktree session whose checkout was removed from disk", async () => {

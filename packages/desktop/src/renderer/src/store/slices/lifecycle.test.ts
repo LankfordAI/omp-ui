@@ -428,6 +428,79 @@ describe("deleteSession", () => {
   });
 });
 
+describe("closeWorktreeSession (issue #323)", () => {
+  it("closes the worktree session, cascades to descendants, and erases the tab", async () => {
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [{ tabId: "tab-2", title: "Impl one", running: false }],
+    });
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
+      tabs: [
+        tabInfo({
+          tabId: h.TAB,
+          mode: "rpc-ui",
+          projectCwd: "/p",
+          hidden: false,
+        }),
+        tabInfo({
+          tabId: "tab-2",
+          mode: "rpc-ui",
+          projectCwd: "/p",
+          hidden: false,
+        }),
+      ],
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+    const ok = await h.useStore.getState().closeWorktreeSession(h.TAB);
+
+    expect(ok).toBe(true);
+    expect(h.mockBackend.deleteSessionPreview).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, true);
+    const st = h.useStore.getState();
+    expect(st.tabs).toEqual([]);
+    expect(st.rpc[h.TAB]).toBeUndefined();
+    expect(st.activeTabId).toBeNull();
+  });
+
+  it("erases nothing and reports failure when the preview rejects", async () => {
+    h.mockBackend.deleteSessionPreview.mockRejectedValueOnce(new Error("boom"));
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+
+    const ok = await h.useStore.getState().closeWorktreeSession(h.TAB);
+
+    expect(ok).toBe(false);
+    expect(h.alerts).toEqual(["boom"]);
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().tabs.map((t) => t.tabId)).toEqual([h.TAB]);
+  });
+
+  it("keeps the tab and reports failure when the backend delete rejects", async () => {
+    h.mockBackend.deleteSession.mockRejectedValueOnce(new Error("EBUSY"));
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+
+    const ok = await h.useStore.getState().closeWorktreeSession(h.TAB);
+
+    expect(ok).toBe(false);
+    expect(h.alerts).toEqual(["EBUSY"]);
+    expect(h.useStore.getState().tabs.map((t) => t.tabId)).toEqual([h.TAB]);
+  });
+});
+
 describe("convertSessionToWorktree (issue #225)", () => {
   it("converts via the backend channel and rethrows failures", async () => {
     await h.useStore

@@ -11,6 +11,8 @@ import {
   mintWorktreePath,
   readMergeBackStatus,
   removeWorktree,
+  removeWorktreeBranch,
+  resolveMergeDestination,
   sweepOrphanWorktrees,
 } from "./worktree";
 
@@ -440,6 +442,143 @@ describe("mergeWorktreeBranch", () => {
     );
     expect(fs.readFileSync(path.join(dir, "dirty.txt"), "utf8")).toBe("local edit\n");
     expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
+  });
+});
+
+
+describe("resolveMergeDestination", () => {
+  it("resolves a branch base to that branch name", async () => {
+    const dir = await tmpRepo();
+    await git(dir, ["branch", "feature"]);
+    expect(await resolveMergeDestination(dir, "feature")).toEqual({
+      destination: "feature",
+      reason: null,
+    });
+  });
+
+  it("resolves a SHA base to the local branch still at that tip", async () => {
+    const dir = await tmpRepo();
+    const sha = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    // A branch-side commit, so main is the unique branch still at the SHA.
+    await commitFile(wt, "one.txt", "one\n", "one");
+    expect(await resolveMergeDestination(dir, sha)).toEqual({
+      destination: "main",
+      reason: null,
+    });
+  });
+
+  it("resolves a moved-on SHA base to the project's current branch that contains it", async () => {
+    const dir = await tmpRepo();
+    const cut = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    // main moves past the cut point, so no branch points at it anymore.
+    await commitFile(dir, "two.txt", "two\n", "two");
+    expect(await resolveMergeDestination(dir, cut)).toEqual({
+      destination: "main",
+      reason: null,
+    });
+  });
+
+  it("resolves to no-branch-match when a detached project matches no branch", async () => {
+    const dir = await tmpRepo();
+    const cut = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await commitFile(dir, "two.txt", "two\n", "two");
+    await git(dir, ["checkout", "--detach"]);
+    expect(await resolveMergeDestination(dir, cut)).toEqual({
+      destination: null,
+      reason: "no-branch-match",
+    });
+  });
+
+  it("resolves to base-gone for a deleted name and for a null base", async () => {
+    const dir = await tmpRepo();
+    await git(dir, ["branch", "feature"]);
+    await git(dir, ["branch", "-D", "feature"]);
+    expect(await resolveMergeDestination(dir, "feature")).toEqual({
+      destination: null,
+      reason: "base-gone",
+    });
+    expect(await resolveMergeDestination(dir, null)).toEqual({
+      destination: null,
+      reason: "base-gone",
+    });
+  });
+});
+
+describe("removeWorktreeBranch", () => {
+  it("removes a branch verified merged into the resolved destination", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await git(dir, ["merge", "-q", "--no-ff", "-m", "fold", branch]);
+    // The delete path runs after the checkout is gone — mirror that order.
+    await removeWorktree(dir, wt);
+    const result = await removeWorktreeBranch(dir, branch, "main");
+    expect(result).toEqual({ kind: "removed" });
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe("");
+  });
+
+  it("keeps an unmerged branch with the kept-unmerged outcome", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await removeWorktree(dir, wt);
+    const result = await removeWorktreeBranch(dir, branch, "main");
+    expect(result).toEqual({ kind: "kept-unmerged" });
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
+  });
+
+  it("keeps the branch when the recorded base no longer resolves", async () => {
+    const dir = await tmpRepo();
+    await git(dir, ["branch", "feature"]);
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "feature");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await git(dir, ["branch", "-D", "feature"]);
+    await removeWorktree(dir, wt);
+    const result = await removeWorktreeBranch(dir, branch, "feature");
+    expect(result).toEqual({ kind: "kept-no-destination" });
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
+  });
+
+  it("reports already-gone when the branch ref no longer exists", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    await addWorktree(dir, path.join(dir, "wt", "checkout"), branch, "main");
+    await git(dir, ["update-ref", "-d", `refs/heads/${branch}`]);
+    expect(await removeWorktreeBranch(dir, branch, "main")).toEqual({ kind: "already-gone" });
+  });
+
+  it("keeps a merged branch when the project sits on another branch (git -d refusal)", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await git(dir, ["merge", "-q", "--no-ff", "-m", "fold", branch]);
+    await removeWorktree(dir, wt);
+    // The project moves off main to a branch that does not contain the
+    // branch's commit: `git branch -d` verifies against HEAD.
+    await git(dir, ["checkout", "-q", "-b", "elsewhere", "HEAD~1"]);
+    const result = await removeWorktreeBranch(dir, branch, "main");
+    expect(result.kind).toBe("kept-refused");
+    expect(result.detail).toBeTruthy();
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
   });
 });
 

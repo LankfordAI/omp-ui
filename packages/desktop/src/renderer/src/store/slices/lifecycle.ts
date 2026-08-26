@@ -58,6 +58,7 @@ export type LifecycleSlice = Pick<
   | "resumeDead"
   | "deleteSession"
   | "confirmDeleteSession"
+  | "closeWorktreeSession"
   | "cancelDeleteSession"
   | "clearShellExited"
   | "toggleConsole"
@@ -73,7 +74,7 @@ export type LifecycleSlice = Pick<
     advisor: boolean;
     advisorModel: string | null;
   }>;
-  eraseSession(tabId: string, cascade?: readonly string[]): Promise<void>;
+  eraseSession(tabId: string, cascade?: readonly string[]): Promise<boolean>;
   spawnFreshImplementation(
     tabId: string,
     planText: string | null,
@@ -129,13 +130,13 @@ export function createLifecycleSlice(
     });
   };
 
-  const eraseSession = async (tabId: string, cascade: readonly string[] = []): Promise<void> => {
+  const eraseSession = async (tabId: string, cascade: readonly string[] = []): Promise<boolean> => {
     const gone = [tabId, ...cascade];
     try {
       await backend.deleteSession(tabId, cascade.length > 0);
     } catch (err) {
       alertError(err);
-      return;
+      return false;
     }
     for (const id of gone) {
       // A dangling concern-wait timer must not fire into the dead tab's slot.
@@ -176,6 +177,7 @@ export function createLifecycleSlice(
         tuiHandoff: gone.reduce((th, id) => dropTuiHandoff(th, id), s.tuiHandoff),
       };
     });
+    return true;
   };
 
   /**
@@ -671,6 +673,24 @@ export function createLifecycleSlice(
     await eraseSession(pending.tabId, pending.cascade.map((d) => d.tabId));
   };
 
+  /**
+   * Closes a worktree session after its merge-back (issue #323): recomputes
+   * the plan-handoff descendant closure in main, then erases the session and
+   * every descendant through the ordinary delete path (main performs the
+   * last-ref checkout removal and merged-branch deletion). Returns false when
+   * the preview failed and nothing was erased.
+   */
+  const closeWorktreeSession = async (tabId: string): Promise<boolean> => {
+    let preview: DeleteSessionPreview;
+    try {
+      preview = await backend.deleteSessionPreview(tabId);
+    } catch (err) {
+      alertError(err);
+      return false;
+    }
+    return await eraseSession(tabId, preview.descendants.map((d) => d.tabId));
+  };
+
   const cancelDeleteSession = (): void => {
     set({ deleteConfirmation: null });
   };
@@ -758,6 +778,7 @@ export function createLifecycleSlice(
     resumeDead,
     deleteSession,
     confirmDeleteSession,
+    closeWorktreeSession,
     cancelDeleteSession,
     clearShellExited,
     toggleConsole,

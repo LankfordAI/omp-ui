@@ -151,7 +151,11 @@ export function DeleteSessionDialog({
           {confirmation.running && "Its running agent will be stopped. "}
           {confirmation.hasFiles && "Its transcript and artifacts will be erased. "}
           {confirmation.worktreeBranch &&
-            `Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on ${confirmation.worktreeBranch}. `}
+            (mergeFirst && mergeEnabled
+              ? `Its worktree checkout will be removed — uncommitted changes there are lost, and the branch ${confirmation.worktreeBranch} is deleted. `
+              : mergeStatus?.alreadyMerged
+                ? `Its worktree checkout will be removed — uncommitted changes there are lost. The branch ${confirmation.worktreeBranch} (already in ${destination}) is deleted. `
+                : `Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on ${confirmation.worktreeBranch}. `)}
           This cannot be undone.
         </p>
 

@@ -76,3 +76,31 @@ the user made.
 - **The delete confirmation offers the same merge first.** Merging is
   additive: "deletion is one-way on the checkout only" still stands — the
   branch and its commits survive deletion either way.
+
+## Worktree close addendum (issue #323)
+
+- **Merge-back is terminal: merge & close.** A successful merge from the
+  HUD worktree chip or the branch chip's merge-back row closes the
+  worktree in the same operation: the session is deleted (its agent
+  stopped, transcript and artifacts erased) and the checkout is removed —
+  the merge and the close are one deliberate action, and the confirm
+  dialog says so before it is taken.
+- **A conflicted merge stops both the merge and the close** — the project
+  checkout is left with files to resolve and the worktree stays open, so
+  nothing is deleted behind a merge the user still has to finish by hand.
+- **The already-merged state gains an actionable close.** When the status
+  read reports the branch is already in the destination, the chips offer
+  "close the worktree" (the session delete behind it) instead of the old
+  inert "delete the session" note.
+- **Branch deletion rides on the last-ref session delete.** When the
+  session being deleted is the last record referencing its checkout, the
+  delete path also attempts `git branch -d` for the worktree branch into
+  its recorded base (the same destination the merge-back resolves). Plain
+  `-d`, never force: git's own guards (branch checked out elsewhere,
+  not merged) keep the branch when they say so, and the close-on-merge
+  path can never hit the refusal because the merge required the
+  destination checked out in the project.
+- **The refusal is a warn, not a failure.** An unmerged branch, a base
+  that no longer resolves, or a git refusal keeps the branch (commits
+  survive, as before) and logs a warning; it never blocks or fails the
+  session delete.

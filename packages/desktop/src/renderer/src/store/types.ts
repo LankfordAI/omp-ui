@@ -342,6 +342,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   resumeDead(tabId: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
+  closeWorktreeSession(tabId: string): Promise<boolean>;
   cancelDeleteSession(): void;
   bootRpcTab(tabId: string): Promise<void>;
   rpcCommand(

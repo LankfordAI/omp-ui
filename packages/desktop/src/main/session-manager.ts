@@ -17,6 +17,7 @@ import {
   type ProviderKeys,
   type Registry,
   removeWorktree,
+  removeWorktreeBranch,
   resolveSessionLocation,
   RpcClient,
   spawnOmp,
@@ -843,8 +844,25 @@ export class SessionManager {
           `[sessions] worktree path ${wt.path} does not match its minted location — leaving it for manual removal`,
         );
       } else if (!shared) {
-        try { await removeWorktree(record.projectCwd, wt.path); }
-        catch (err) { console.warn(`[sessions] worktree cleanup failed for ${wt.path}:`, err); }
+        let checkoutGone = false;
+        try {
+          await removeWorktree(record.projectCwd, wt.path);
+          checkoutGone = true;
+        } catch (err) {
+          console.warn(`[sessions] worktree cleanup failed for ${wt.path}:`, err);
+        }
+        if (checkoutGone) {
+          try {
+            const outcome = await removeWorktreeBranch(record.projectCwd, wt.branch, wt.base);
+            if (outcome.kind !== "removed") {
+              console.warn(
+                `[sessions] worktree branch ${wt.branch} kept (${outcome.kind}${outcome.detail ? `: ${outcome.detail}` : ""})`,
+              );
+            }
+          } catch (err) {
+            console.warn(`[sessions] worktree branch cleanup failed for ${wt.branch}:`, err);
+          }
+        }
       }
     }
     this.deps.registry.removeSession(tabId);

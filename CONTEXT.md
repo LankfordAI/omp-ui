@@ -376,15 +376,19 @@ pane and the HUD's worktree chip read; records from before this field show
 plain HEAD diffs. The HUD's worktree chip, the composer's branch chip (first
 row of its menu while a worktree session is focused), and the delete
 confirmation (merge first, before deleting) each offer a merge-back into the
-recorded base — fast-forward when history allows, otherwise a merge commit; a
-conflicted merge is left for the user to resolve in the project checkout.
-Deleting the
-session removes the checkout; the branch and its commits survive in the
-repo. Resume, restart and mode switches keep the worktree — it lives on the
-session record. A record's checkout may be shared — forking a worktree
-session, and a plan handoff from a worktree planning session (issue #316),
-give the new record the same `path`/`branch`/`base`, and the last record
-deleted removes the checkout.
+recorded base — fast-forward when history allows, otherwise a merge commit.
+Merge-back is terminal: a successful merge closes the worktree — the
+session, the checkout, and the branch are all deleted — and a conflicted
+merge stops the merge and the close, leaving its files in the project
+checkout for the user to resolve with the worktree left open. Deleting the
+session removes the checkout; an unmerged branch and its commits survive in
+the repo, while a branch already in its destination is deleted too (plain
+`git branch -d`; a branch that will not delete is kept). Resume, restart and
+mode switches keep the worktree — it lives on the session record. A
+record's checkout may be shared — forking a worktree session, and a plan
+handoff from a worktree planning session (issue #316), give the new record
+the same `path`/`branch`/`base`, and the last record deleted removes the
+checkout.
 _Avoid_: sandbox session, isolated session, branch session
 
 **MCP manager**:

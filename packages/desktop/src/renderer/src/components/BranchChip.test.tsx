@@ -52,12 +52,58 @@ const backendMock = {
   pullBranch: vi.fn(async () => {}),
   getMergeBackStatus: vi.fn<(projectCwd: string, branch: string, base: string | null) => Promise<MergeBackStatus>>(),
   mergeWorktreeBranch: vi.fn<(projectCwd: string, branch: string, destination: string) => Promise<MergeBackResult>>(),
+  deleteSessionPreview: vi.fn<(tabId: string) => Promise<{ descendants: Array<{ tabId: string; title: string; running: boolean }> }>>(
+    async () => ({ descendants: [] }),
+  ),
+  deleteSession: vi.fn<(tabId: string, cascade: boolean) => Promise<void>>(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
 const { BranchChip } = await import("./BranchChip");
+
+/**
+ * The merge-back tab's worktree record on the registry state (issue #323):
+ * the close confirms read the checkout path from it.
+ */
+function seedWorktreeRecord(): void {
+  useStore.setState({
+    state: makeBackendState({
+      projects: [
+        {
+          project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+          sessions: [
+            {
+              tabId: "tab-0",
+              sessionId: null,
+              lineageDir: "omp-ui--p--00000000-0000-4000-8000-000000000000",
+              projectCwd: "/p",
+              launchedAt: "t",
+              mode: "rpc-ui",
+              worktree: { path: "/wt/deadbeef", branch: "omp-ui/deadbeef", base: "main" },
+              planImplementationSource: null,
+              agentMode: "build",
+              compactionMethod: null,
+              model: null,
+              thinkingLevel: null,
+              advisor: false,
+              advisorModel: null,
+              cachedTitle: null,
+              cachedModified: null,
+              title: "Worktree",
+              status: null,
+              live: "live",
+              pendingPlan: null,
+              planSettle: null,
+              streamStalled: false,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+}
 
 let root: Root | null = null;
 let changes: WorkspaceSelection[] = [];
@@ -223,6 +269,19 @@ async function flushMicrotasks(): Promise<void> {
   });
 }
 
+/**
+ * Drains the multi-hop merge -> close -> erase chain: each awaited mock
+ * resolution schedules another microtask round, and act only flushes while
+ * it waits, so a few zero-delay ticks are the reliable drain.
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 8; i += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
 /** The open branch popover (aria-busy also carries the in-flight state). */
 const menu = (): HTMLElement | null => document.body.querySelector<HTMLElement>("[aria-busy]");
 
@@ -231,6 +290,14 @@ const mergeRow = (): HTMLButtonElement | undefined =>
   [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((el) =>
     el.textContent?.startsWith("merg"),
   );
+
+const menuitemByText = (text: string): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (el) => el.textContent === text,
+  );
+
+/** The already-merged close row (issue #323). */
+const closeRow = (): HTMLButtonElement | undefined => menuitemByText("close the worktree");
 
 const dialog = (): HTMLElement | null =>
   document.body.querySelector<HTMLElement>('[role="alertdialog"]');
@@ -276,6 +343,10 @@ beforeEach(() => {
   backendMock.getMergeBackStatus.mockResolvedValue(mergeStatus());
   backendMock.mergeWorktreeBranch.mockReset();
   backendMock.mergeWorktreeBranch.mockRejectedValue(new Error("unexpected merge"));
+  backendMock.deleteSessionPreview.mockReset();
+  backendMock.deleteSessionPreview.mockResolvedValue({ descendants: [] });
+  backendMock.deleteSession.mockReset();
+  backendMock.deleteSession.mockResolvedValue(undefined);
   useStore.setState({
     branches: { "/p": fixture },
     branchActivity: {},
@@ -851,23 +922,23 @@ describe("BranchChip merge-back (issue #322)", () => {
     await act(async () => chip().click());
     await flushMicrotasks();
 
-    expect(mergeRow()).toBeUndefined();
     expect(backendMock.getMergeBackStatus).not.toHaveBeenCalled();
+    expect(mergeRow()).toBeUndefined();
   });
 
   it("offers the merge row with the commit count, and reads the status on open", async () => {
     renderMergeChip();
     await openMergePopover();
 
-    expect(backendMock.getMergeBackStatus).toHaveBeenCalledWith(
-      "/p",
-      "omp-ui/deadbeef",
-      "main",
-    );
+    expect(backendMock.getMergeBackStatus).toHaveBeenCalledWith("/p", "omp-ui/deadbeef", "main");
     const row = mergeRow();
     expect(row).toBeDefined();
     expect(row!.disabled).toBe(false);
     expect(row!.textContent).toBe("merge into main · 3 commits");
+    expect(menu()!.textContent).toContain(
+      "a successful merge closes the worktree — this session, the checkout, and the branch are " +
+        "deleted",
+    );
   });
 
   it("uses the singular commit wording for one commit", async () => {
@@ -907,14 +978,17 @@ describe("BranchChip merge-back (issue #322)", () => {
     await openMergePopover();
 
     expect(menu()!.textContent).toContain("status failed");
-    // Status stays null — the row remains, disabled, beside the error slot.
     const row = mergeRow();
     expect(row).toBeDefined();
     expect(row!.disabled).toBe(true);
   });
 
-  it("confirms through the copper modal and reports a fast-forward merge", async () => {
-    useStore.setState({ rpc: { [MERGE_BACK.tabId]: rpcTabState() } });
+  it("confirms the close in the rose modal, merges, and closes the worktree", async () => {
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
       kind: "ff",
       destination: "main",
@@ -927,29 +1001,34 @@ describe("BranchChip merge-back (issue #322)", () => {
 
     const d = dialog();
     expect(d).not.toBeNull();
-    expect(d!.textContent).toContain("Merge omp-ui/deadbeef into main?");
+    expect(d!.textContent).toContain("Irreversible action");
+    expect(d!.textContent).toContain("Merge omp-ui/deadbeef into main and close the worktree?");
     expect(d!.textContent).toContain(
-      "Fast-forwards when history allows, otherwise creates a merge commit in the project " +
-        "checkout. Merges the 3 committed change(s) on omp-ui/deadbeef; uncommitted changes in the " +
-        "worktree are not included. A conflict stops the merge and leaves the project checkout " +
-        "with files to resolve.",
+      "A successful merge closes the worktree: this session is deleted — its agent is stopped " +
+        "and its transcript and artifacts are erased — the checkout /wt/deadbeef is removed, and " +
+        "the branch omp-ui/deadbeef is deleted from the project.",
+    );
+    expect(d!.textContent).toContain(
+      "A conflicted merge stops both the merge and the close: the project checkout is left with " +
+        "files to resolve, and the worktree stays open.",
     );
 
-    await act(async () => dialogButton("merge into main")!.click());
-    await flushMicrotasks();
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
 
     expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledWith("/p", "omp-ui/deadbeef", "main");
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", false);
+    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(false);
+    expect(useStore.getState().rpc["tab-0"]).toBeUndefined();
     expect(dialog()).toBeNull();
-    expect(menu()!.textContent).toContain("merged into main (fast-forward, 3 commits)");
-    expect(notices()).toEqual([
-      { text: "merged omp-ui/deadbeef into main — fast-forward, 3 commits", level: "info" },
-    ]);
-    // The status is re-read after every merge attempt.
-    expect(backendMock.getMergeBackStatus).toHaveBeenCalledTimes(2);
   });
 
-  it("reports a real merge commit with the commit count", async () => {
-    useStore.setState({ rpc: { [MERGE_BACK.tabId]: rpcTabState() } });
+  it("closes the worktree on a real merge commit too", async () => {
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
       kind: "merged",
       destination: "main",
@@ -959,16 +1038,15 @@ describe("BranchChip merge-back (issue #322)", () => {
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
-    await act(async () => dialogButton("merge into main")!.click());
-    await flushMicrotasks();
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
 
-    expect(menu()!.textContent).toContain("merged into main (5 commits, merge commit)");
-    expect(notices()).toEqual([
-      { text: "merged omp-ui/deadbeef into main — 5 commits, merge commit", level: "info" },
-    ]);
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", false);
+    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(false);
   });
 
-  it("cancelling the modal makes no merge call and keeps the popover", async () => {
+  it("cancelling the modal makes no merge or close call and keeps the popover", async () => {
+    seedWorktreeRecord();
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
@@ -978,11 +1056,13 @@ describe("BranchChip merge-back (issue #322)", () => {
 
     expect(dialog()).toBeNull();
     expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
     expect(mergeRow()).toBeDefined();
     expect(menu()).not.toBeNull();
   });
 
   it("survives a pointerdown on the modal — the popover's own surface is not outside", async () => {
+    seedWorktreeRecord();
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
@@ -996,6 +1076,7 @@ describe("BranchChip merge-back (issue #322)", () => {
   });
 
   it("Escape with the modal open closes only the modal; the next Escape closes the menu", async () => {
+    seedWorktreeRecord();
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
@@ -1013,22 +1094,28 @@ describe("BranchChip merge-back (issue #322)", () => {
   });
 
   it("surfaces a rejected merge in the rose slot and re-fetches the status", async () => {
+    seedWorktreeRecord();
     backendMock.mergeWorktreeBranch.mockRejectedValueOnce(new Error("fatal: cannot merge"));
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
-    await act(async () => dialogButton("merge into main")!.click());
-    await flushMicrotasks();
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
 
     expect(menu()!.textContent).toContain("fatal: cannot merge");
     expect(dialog()).toBeNull();
     expect(menu()).not.toBeNull();
     expect(mergeRow()).toBeDefined();
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
     expect(backendMock.getMergeBackStatus).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a conflicted merge's file list with the console escape hatch", async () => {
-    useStore.setState({ rpc: { [MERGE_BACK.tabId]: rpcTabState() } });
+  it("shows a conflicted merge's file list with the console escape hatch, and keeps the session", async () => {
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
       kind: "conflicts",
       destination: "main",
@@ -1038,8 +1125,8 @@ describe("BranchChip merge-back (issue #322)", () => {
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
-    await act(async () => dialogButton("merge into main")!.click());
-    await flushMicrotasks();
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
 
     const popover = menu()!;
     expect(popover.textContent).toContain("merge stopped — 2 file(s) conflict");
@@ -1058,12 +1145,16 @@ describe("BranchChip merge-back (issue #322)", () => {
       },
     ]);
     expect(backendMock.getMergeBackStatus).toHaveBeenCalledTimes(2);
+    // A conflict stops the close too: the session is untouched.
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
+    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(true);
 
     await act(async () => buttonByText("open console")!.click());
     expect(useStore.getState().consoleOpen[MERGE_BACK.tabId]).toBe(true);
   });
 
   it("lists up to five conflicted files in the notice and counts the rest", async () => {
+    seedWorktreeRecord();
     useStore.setState({ rpc: { [MERGE_BACK.tabId]: rpcTabState() } });
     const files = ["f1", "f2", "f3", "f4", "f5", "f6", "f7"];
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
@@ -1075,8 +1166,8 @@ describe("BranchChip merge-back (issue #322)", () => {
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
-    await act(async () => dialogButton("merge into main")!.click());
-    await flushMicrotasks();
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
 
     expect(notices()).toEqual([
       {
@@ -1086,6 +1177,7 @@ describe("BranchChip merge-back (issue #322)", () => {
         level: "warn",
       },
     ]);
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
   });
 
   it("notes an unchecked-out destination, with no row and no merge call", async () => {
@@ -1100,17 +1192,41 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
   });
 
-  it("notes an already-merged branch quietly, with the delete guidance", async () => {
+  it("offers an actionable close row for an already-merged branch", async () => {
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
     backendMock.getMergeBackStatus.mockResolvedValue(
       mergeStatus({ alreadyMerged: true, ahead: 0 }),
     );
     renderMergeChip();
     await openMergePopover();
 
-    expect(menu()!.textContent).toContain(
-      "already in main — delete the session to reclaim the checkout (the branch survives)",
-    );
     expect(mergeRow()).toBeUndefined();
+    expect(closeRow()).toBeDefined();
+
+    await act(async () => closeRow()!.click());
+    await settle();
+
+    const d = dialog();
+    expect(d).not.toBeNull();
+    expect(d!.textContent).toContain("Irreversible action");
+    expect(d!.textContent).toContain("Close the worktree?");
+    expect(d!.textContent).toContain("The branch omp-ui/deadbeef is already in main.");
+    expect(d!.textContent).toContain(
+      "Closing deletes this session — its agent is stopped and its transcript and artifacts are " +
+        "erased — removes the checkout /wt/deadbeef (uncommitted changes there are lost), and " +
+        "deletes the branch omp-ui/deadbeef.",
+    );
+
+    await act(async () => dialogButton("close the worktree")!.click());
+    await settle();
+
+    expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", false);
+    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(false);
   });
 
   it("notes an in-progress merge in the project with the console escape hatch", async () => {
@@ -1172,7 +1288,73 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(mergeRow()).toBeUndefined();
   });
 
-  it("confirms inline while a session is mid-turn in the project, and merges on merge anyway", async () => {
+  it("names the plan implementation descendants it closes with the session", async () => {
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
+    backendMock.deleteSessionPreview.mockResolvedValue({
+      descendants: [
+        { tabId: "tab-desc-1", title: "Impl one", running: false },
+        { tabId: "tab-desc-2", title: "Impl two", running: true },
+      ],
+    });
+    backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
+      kind: "ff",
+      destination: "main",
+      commits: 3,
+      files: [],
+    });
+    renderMergeChip();
+    await openMergePopover();
+    await act(async () => mergeRow()!.click());
+    await settle();
+
+    const d = dialog()!;
+    expect(d.textContent).toContain("Also closes 2 plan implementation descendants:");
+    expect(d.textContent).toContain("Impl one");
+    expect(d.textContent).toContain("Impl two · running");
+
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
+
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", true);
+    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(false);
+  });
+
+  it("keeps the session open when the close preview fails", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
+    backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
+      kind: "ff",
+      destination: "main",
+      commits: 3,
+      files: [],
+    });
+    backendMock.deleteSessionPreview.mockRejectedValue(new Error("preview failed"));
+    renderMergeChip();
+    await openMergePopover();
+    await act(async () => mergeRow()!.click());
+    await act(async () => dialogButton("merge & close")!.click());
+    await settle();
+
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith("preview failed");
+    expect(dialog()).toBeNull();
+    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(true);
+    // The failed close resets: the merge row is back and the status re-read.
+    expect(mergeRow()).toBeDefined();
+    expect(mergeRow()!.disabled).toBe(false);
+    expect(backendMock.getMergeBackStatus).toHaveBeenCalledTimes(2);
+    alertSpy.mockRestore();
+  });
+
+  it("confirms inline while a session is mid-turn in the project, and merges on merge & close anyway", async () => {
     seedBusy();
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
       kind: "ff",
@@ -1187,14 +1369,16 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(dialog()).toBeNull();
     const popover = menu()!;
     expect(popover.textContent).toContain(
-      "session “Busy” is mid-turn in the project — merging moves main under it",
+      "session “Busy” is mid-turn in the project — merging moves main under it. The merge also " +
+        "closes the worktree: this session is deleted,",
     );
+    expect(popover.textContent).toContain("and the checkout and branch are removed.");
 
-    await act(async () => buttonByText("merge anyway")!.click());
-    await flushMicrotasks();
+    await act(async () => buttonByText("merge & close anyway")!.click());
+    await settle();
 
     expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledWith("/p", "omp-ui/deadbeef", "main");
-    expect(popover.textContent).toContain("merged into main (fast-forward, 3 commits)");
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", false);
   });
 
   it("cancel leaves the busy confirm and makes no call", async () => {
@@ -1202,13 +1386,14 @@ describe("BranchChip merge-back (issue #322)", () => {
     renderMergeChip();
     await openMergePopover();
     await act(async () => mergeRow()!.click());
-    expect(buttonByText("merge anyway")).toBeDefined();
+    expect(buttonByText("merge & close anyway")).toBeDefined();
 
     await act(async () => buttonByText("cancel").click());
 
     expect(menu()!.textContent).not.toContain("is mid-turn in the project");
     expect(dialog()).toBeNull();
     expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+    expect(backendMock.deleteSession).not.toHaveBeenCalled();
     expect(mergeRow()).toBeDefined();
   });
 
@@ -1259,6 +1444,37 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(menu()!.textContent).not.toContain("is mid-turn in the project");
     const d = dialog();
     expect(d).not.toBeNull();
-    expect(d!.textContent).toContain("Merge omp-ui/deadbeef into main?");
+    expect(d!.textContent).toContain("Merge omp-ui/deadbeef into main and close the worktree?");
+  });
+
+  it("keeps the row as merging…, then closing… while the merge and close run", async () => {
+    seedWorktreeRecord();
+    useStore.setState({
+      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+      rpc: { "tab-0": rpcTabState() },
+    });
+    const pending = deferred<MergeBackResult>();
+    backendMock.mergeWorktreeBranch.mockReturnValueOnce(pending.promise);
+    renderMergeChip();
+    await openMergePopover();
+    await act(async () => mergeRow()!.click());
+    await act(async () => dialogButton("merge & close")!.click());
+    await flushMicrotasks();
+
+    expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+    const row = mergeRow();
+    expect(row).toBeDefined();
+    expect(row!.disabled).toBe(true);
+    expect(row!.textContent).toBe("merging…");
+    expect(dialogButton("merging…")).toBeDefined();
+
+    await act(async () => {
+      pending.resolve({ kind: "ff", destination: "main", commits: 3, files: [] });
+    });
+    await settle();
+
+    expect(dialog()).toBeNull();
+    expect(menuitemByText("closing the worktree…")).toBeDefined();
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", false);
   });
 });

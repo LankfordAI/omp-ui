@@ -20,6 +20,7 @@ export {
   mintWorktreePath,
   readMergeBackStatus,
   removeWorktree,
+  removeWorktreeBranch,
   sweepOrphanWorktrees,
 } from "./worktree";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";

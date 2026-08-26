@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
 import { projectSlug } from "./paths";
-import type { MergeBackResult, MergeBackStatus } from "./types";
+import type { MergeBackResult, MergeBackStatus, WorktreeBranchRemoval } from "./types";
 
 const ADD_TIMEOUT_MS = 60_000;
 const REMOVE_TIMEOUT_MS = 30_000;
@@ -185,34 +185,16 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
 }
 
 /**
- * Merge-back feasibility (issue #272). Never throws: an unreadable repo
- * resolves to destination null, reason "no-repo". Destination resolution:
- * (1) a local branch named by `base`; (2) else, when `base` resolves to a
- * commit — a unique local branch pointing at it, else the project's
- * current branch when it contains that commit; (3) else null with
+ * Destination resolution shared by readMergeBackStatus and removeWorktreeBranch
+ * (issue #323): (1) a local branch named by `base`; (2) else, when `base`
+ * resolves to a commit — a unique local branch pointing at it, else the
+ * project's current branch when it contains that commit; (3) else null with
  * "base-gone" (deleted name / unknown SHA) or "no-branch-match".
- * All ref reads are local; `rev-list --count` is the only potentially slow one.
  */
-export async function readMergeBackStatus(
+export async function resolveMergeDestination(
   projectCwd: string,
-  branch: string,
   base: string | null,
-): Promise<MergeBackStatus> {
-  try {
-    await git(projectCwd, ["rev-parse", "--show-toplevel"]);
-  } catch {
-    return {
-      destination: null,
-      reason: "no-repo",
-      destinationCheckedOut: false,
-      branchExists: false,
-      mergeInProgress: false,
-      alreadyMerged: false,
-      ahead: 0,
-    };
-  }
-
-  const branchExists = await hasRef(projectCwd, `refs/heads/${branch}`);
+): Promise<{ destination: string | null; reason: MergeBackStatus["reason"] }> {
   const baseIsBranch =
     base !== null &&
     !/^[0-9a-f]{40}$/.test(base) &&
@@ -223,14 +205,6 @@ export async function readMergeBackStatus(
   } catch {
     current = "";
   }
-  let mergeInProgress = false;
-  try {
-    await git(projectCwd, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
-    mergeInProgress = true;
-  } catch {
-    // No merge in progress.
-  }
-
   let destination: string | null = null;
   let reason: MergeBackStatus["reason"] = "base-gone";
   if (baseIsBranch) {
@@ -266,6 +240,53 @@ export async function readMergeBackStatus(
       }
     }
   }
+  return { destination, reason };
+}
+
+/**
+ * Merge-back feasibility (issue #272). Never throws: an unreadable repo
+ * resolves to destination null, reason "no-repo". Destination resolution:
+ * (1) a local branch named by `base`; (2) else, when `base` resolves to a
+ * commit — a unique local branch pointing at it, else the project's
+ * current branch when it contains that commit; (3) else null with
+ * "base-gone" (deleted name / unknown SHA) or "no-branch-match".
+ * All ref reads are local; `rev-list --count` is the only potentially slow one.
+ */
+export async function readMergeBackStatus(
+  projectCwd: string,
+  branch: string,
+  base: string | null,
+): Promise<MergeBackStatus> {
+  try {
+    await git(projectCwd, ["rev-parse", "--show-toplevel"]);
+  } catch {
+    return {
+      destination: null,
+      reason: "no-repo",
+      destinationCheckedOut: false,
+      branchExists: false,
+      mergeInProgress: false,
+      alreadyMerged: false,
+      ahead: 0,
+    };
+  }
+
+  const branchExists = await hasRef(projectCwd, `refs/heads/${branch}`);
+  let current: string;
+  try {
+    current = (await git(projectCwd, ["branch", "--show-current"])).trim();
+  } catch {
+    current = "";
+  }
+  let mergeInProgress = false;
+  try {
+    await git(projectCwd, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+    mergeInProgress = true;
+  } catch {
+    // No merge in progress.
+  }
+
+  const { destination, reason } = await resolveMergeDestination(projectCwd, base);
 
   let alreadyMerged = false;
   let ahead = 0;
@@ -347,4 +368,36 @@ export async function mergeWorktreeBranch(
     throw error;
   }
   return { kind: "merged", destination, commits, files: [] };
+}
+
+/**
+ * Deletes the worktree branch once it is verified fully merged into the
+ * destination resolved from its recorded base (issue #323). Runs in the
+ * project checkout, after the checkout's worktree has been removed, so git's
+ * own `git branch -d` guards (merged-into-HEAD, not checked out elsewhere)
+ * apply. A refusal keeps the branch and reports it — never throws, never
+ * uses -D: an unverified unmerged branch must survive.
+ */
+export async function removeWorktreeBranch(
+  projectCwd: string,
+  branch: string,
+  base: string | null,
+): Promise<WorktreeBranchRemoval> {
+  if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
+    return { kind: "already-gone" };
+  }
+  const { destination } = await resolveMergeDestination(projectCwd, base);
+  if (destination === null) return { kind: "kept-no-destination" };
+  if (!(await isAncestor(projectCwd, branch, destination))) {
+    return { kind: "kept-unmerged" };
+  }
+  try {
+    await git(projectCwd, ["branch", "-d", branch]);
+  } catch (err) {
+    return {
+      kind: "kept-refused",
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { kind: "removed" };
 }

@@ -460,6 +460,12 @@ describe("DeleteSessionDialog", () => {
     const mergeCheckbox = document.body.querySelectorAll<HTMLInputElement>("input[type='checkbox']")[0];
     expect(mergeCheckbox.checked).toBe(false);
     act(() => mergeCheckbox.click());
+    // The checked merge names the branch deletion in the copy (issue #323).
+    const checked = document.body.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(checked.textContent).toContain(
+      "Its worktree checkout will be removed — uncommitted changes there are lost, and the branch " +
+        "omp-ui/deadbeef is deleted.",
+    );
     await act(async () => {
       buttonByText("merge & delete").click();
     });
@@ -467,6 +473,31 @@ describe("DeleteSessionDialog", () => {
     expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledWith("/repo", "omp-ui/deadbeef", "main");
     expect(confirmDeleteSession).toHaveBeenCalledTimes(1);
     expect(confirmDeleteSession).toHaveBeenCalledWith(false);
+  });
+
+  it("names the already-merged branch in the delete copy", async () => {
+    useStore.setState({
+      confirmDeleteSession: vi.fn(async () => {}),
+      cancelDeleteSession: vi.fn(),
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      rpc: {},
+      state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
+    });
+    backendMock.getMergeBackStatus.mockReset().mockResolvedValue({
+      ...mergeableStatus,
+      alreadyMerged: true,
+    });
+
+    renderDialog(worktreeConfirmation);
+    await flush();
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.textContent).toContain(
+      "Its worktree checkout will be removed — uncommitted changes there are lost. The branch " +
+        "omp-ui/deadbeef (already in main) is deleted.",
+    );
+    unmountDialog();
   });
 
   it("keeps the dialog open on conflicts and deletes after unchecking", async () => {
