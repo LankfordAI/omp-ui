@@ -373,10 +373,12 @@ session's effective working tree, so the branch diff pane, branch chip,
 branch was cut from (`base`: the picked ref, or the project checkout's
 branch at creation (its HEAD commit when detached)), which the branch diff
 pane and the HUD's worktree chip read; records from before this field show
-plain HEAD diffs. The HUD's worktree chip offers a merge-back into the
-recorded base — fast-forward when history allows, otherwise a merge commit
-— and the delete confirmation offers the same merge first; a conflicted
-merge is left for the user to resolve in the project checkout. Deleting the
+plain HEAD diffs. The HUD's worktree chip, the composer's branch chip (first
+row of its menu while a worktree session is focused), and the delete
+confirmation (merge first, before deleting) each offer a merge-back into the
+recorded base — fast-forward when history allows, otherwise a merge commit; a
+conflicted merge is left for the user to resolve in the project checkout.
+Deleting the
 session removes the checkout; the branch and its commits survive in the
 repo. Resume, restart and mode switches keep the worktree — it lives on the
 session record. A record's checkout may be shared — forking a worktree

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { MergeBackStatus } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
+import { shortBase } from "../lib/format";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
-import { Button, ICON_STROKE } from "./ui";
+import { Button, ConfirmDialog, ICON_STROKE } from "./ui";
 import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
 
 /**
@@ -33,9 +35,20 @@ import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from ".
 const NETWORK_REFRESH_DEBOUNCE_MS = 250;
 
 /** The working-tree change awaiting the busy-session confirm. */
-type Pending = { kind: "checkout"; branch: string } | { kind: "pull" };
+type Pending =
+  | { kind: "checkout"; branch: string }
+  | { kind: "pull" }
+  | { kind: "merge" };
 
 const commits = (count: number): string => `${count} commit${count === 1 ? "" : "s"}`;
+
+/** The merge-back row, matching the pull row's mono metrics. */
+const mergeRowText =
+  "rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink-mid hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim";
+/** "You must act" guidance inside the branch menu (ADR-0004). */
+const copperNote = "px-1.5 py-1 text-[10px] leading-snug text-copper";
+/** "Already done" guidance inside the branch menu. */
+const quietNote = "px-1.5 py-1 text-[10px] leading-snug text-ink-faint";
 
 export function BranchChip({
   projectCwd,
@@ -43,6 +56,7 @@ export function BranchChip({
   onWorkspaceChange,
   workspaceDisabled = false,
   onCreateWorktree,
+  mergeBack,
 }: {
   projectCwd?: string;
   /**
@@ -69,6 +83,20 @@ export function BranchChip({
    * strip.
    */
   onCreateWorktree?: () => Promise<boolean>;
+  /**
+   * The session's own worktree merge-back (issue #322): the worktree branch,
+   * its recorded base, the project checkout the merge runs in, and the tab
+   * to exclude from the project's busy guard. The Composer passes it only
+   * for worktree sessions with a non-null base; absent (the default) the
+   * popover is the branch menu alone — every plain session and the compact
+   * sheet instance.
+   */
+  mergeBack?: {
+    branch: string;
+    base: string;
+    projectRootCwd: string;
+    tabId: string;
+  };
 }) {
   const info = useStore((s) => (projectCwd === undefined ? undefined : s.branches[projectCwd]));
   const refreshing = useStore(
@@ -83,6 +111,21 @@ export function BranchChip({
   // A session mid-turn on this checkout: a plain checkout or a fast-forward
   // would move the working tree out from under it, so both earn a confirm.
   const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
+  const readMergeBackStatus = useStore((s) => s.readMergeBackStatus);
+  const mergeWorktreeBranch = useStore((s) => s.mergeWorktreeBranch);
+  const appendNotice = useStore((s) => s.appendNotice);
+  const toggleConsole = useStore((s) => s.toggleConsole);
+  const consoleIsOpen = useStore((s) =>
+    mergeBack === undefined ? false : s.consoleOpen[mergeBack.tabId] === true,
+  );
+  // A session mid-turn in the PROJECT checkout: the merge moves the
+  // destination branch out from under it. The own tab is excluded — the
+  // merge never touches this session's worktree checkout.
+  const projectBusyTitle = useStore((s) =>
+    mergeBack === undefined
+      ? null
+      : runningSessionTitleOnCheckout(s, mergeBack.projectRootCwd, mergeBack.tabId),
+  );
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -93,6 +136,16 @@ export function BranchChip({
   const [cutting, setCutting] = useState(false);
   /** The change awaiting the busy-session confirm; null when not confirming. */
   const [confirm, setConfirm] = useState<Pending | null>(null);
+  /** null = not fetched yet, or the fetch rejected (see the error slot). */
+  const [mergeStatus, setMergeStatus] = useState<MergeBackStatus | null>(null);
+  /** True while the merge is in flight (row label). */
+  const [merging, setMerging] = useState(false);
+  /** The copper confirm modal, portaled outside the popover. */
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  /** Quiet success line after a completed merge. */
+  const [mergedNote, setMergedNote] = useState<string | null>(null);
+  /** Files from a fresh conflicted merge; null when none. */
+  const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
 
   /** Wraps the trigger *and* the popover, so one containment test covers both. */
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -106,6 +159,11 @@ export function BranchChip({
     setName("");
     setError(null);
     setConfirm(null);
+    setMergeStatus(null);
+    setMerging(false);
+    setConfirmOpen(false);
+    setMergedNote(null);
+    setConflictFiles(null);
   };
 
   /**
@@ -177,6 +235,7 @@ export function BranchChip({
     restoreFocus: () => {
       if (mode === "list" && confirm === null) triggerRef.current?.focus();
     },
+    exemptSelector: '[role="alertdialog"]',
   });
 
   if (projectCwd === undefined || info === undefined || info.repoRoot === null) return null;
@@ -265,6 +324,21 @@ export function BranchChip({
     if (ok) closeMenu();
   };
 
+  /**
+   * Feasibility read; a rejection keeps the status null and lands in the
+   * error slot. Re-fetched after every merge attempt so the next render
+   * shows the settled git state (already-merged, merge-in-progress, …).
+   */
+  const fetchStatus = (): void => {
+    if (mergeBack === undefined) return;
+    readMergeBackStatus(mergeBack.projectRootCwd, mergeBack.branch, mergeBack.base)
+      .then(setMergeStatus)
+      .catch((err: unknown) => {
+        setMergeStatus(null);
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  };
+
   const toggleMenu = (): void => {
     if (menuOpen) {
       closeMenu();
@@ -274,6 +348,7 @@ export function BranchChip({
     // Fresh list *and* fresh upstream on every open — another tab (or the user
     // in a terminal) may have switched branches, and the remote may have moved.
     void refreshBranches(projectCwd, { fetchUpstream: true });
+    fetchStatus();
   };
 
   const attempt = async (branch: string, create: boolean): Promise<void> => {
@@ -315,10 +390,189 @@ export function BranchChip({
     closeMenu();
   };
 
+  const onMergeClick = (): void => {
+    if (projectBusyTitle !== null && confirm?.kind !== "merge") {
+      setConfirm({ kind: "merge" });
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
+  /**
+   * The console drawer's shell starts in the worktree checkout — the
+   * guidance text always carries the project path — so the button only
+   * opens an already-closed drawer, never closes one.
+   */
+  const openConsole = (): void => {
+    if (mergeBack !== undefined && !consoleIsOpen) toggleConsole(mergeBack.tabId);
+  };
+
+  const runMerge = async (): Promise<void> => {
+    const destination = mergeStatus?.destination;
+    if (mergeBack === undefined || destination === null || destination === undefined) return;
+    setMerging(true);
+    try {
+      const result = await mergeWorktreeBranch(
+        mergeBack.projectRootCwd,
+        mergeBack.branch,
+        destination,
+      );
+      setConfirmOpen(false);
+      setConfirm(null);
+      if (result.kind === "ff") {
+        setMergedNote(`merged into ${destination} (fast-forward, ${commits(result.commits)})`);
+        appendNotice(
+          mergeBack.tabId,
+          `merged ${mergeBack.branch} into ${destination} — fast-forward, ${commits(result.commits)}`,
+          "info",
+        );
+      } else if (result.kind === "merged") {
+        setMergedNote(`merged into ${destination} (${commits(result.commits)}, merge commit)`);
+        appendNotice(
+          mergeBack.tabId,
+          `merged ${mergeBack.branch} into ${destination} — ${commits(result.commits)}, merge commit`,
+          "info",
+        );
+      } else if (result.kind === "conflicts") {
+        setConflictFiles(result.files);
+        const more = result.files.length > 5 ? `, and ${result.files.length - 5} more` : "";
+        appendNotice(
+          mergeBack.tabId,
+          `merge of ${mergeBack.branch} into ${destination} stopped — ${result.files.length} file(s) conflict: ${result.files
+            .slice(0, 5)
+            .join(", ")}${more}. Resolve in ${mergeBack.projectRootCwd} (git merge --continue) or abort (git merge --abort).`,
+          "warn",
+        );
+      }
+      // already-merged: no note, no notice — the re-fetched status renders
+      // the guidance line.
+    } catch (err: unknown) {
+      setConfirmOpen(false);
+      setConfirm(null);
+      setMergedNote(null);
+      setConflictFiles(null);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMerging(false);
+      fetchStatus();
+    }
+  };
+
   const filtered = info.branches.filter((branch) =>
     branch.toLowerCase().includes(filter.toLowerCase()),
   );
 
+  /**
+   * The merge-back block (issue #322), first match wins: a disabled
+   * pending/merging row, an explanatory note with an escape hatch, or the
+   * merge action itself. Copper notes are "you must act"; quiet ones,
+   * "already done". The inline busy confirm renders in the popover's
+   * confirm sub-state, not here.
+   */
+  const mergeSection = (): ReactNode => {
+    if (mergeBack === undefined) return null;
+    if (mergeStatus === null) {
+      // Fetch in flight (or rejected — the error slot says so): the row
+      // survives, disabled, naming the base as the destination to merge
+      // into — and "merging…" while the operation is in flight.
+      return (
+        <button type="button" role="menuitem" className={mergeRowText} disabled>
+          {merging ? "merging…" : `merge into ${shortBase(mergeBack.base)}`}
+        </button>
+      );
+    }
+    if (merging) {
+      // The row survives the merge itself: a row that vanished mid-operation
+      // would read as a silent failure (the pull-row pattern).
+      return (
+        <button type="button" role="menuitem" className={mergeRowText} disabled>
+          merging…
+        </button>
+      );
+    }
+    if (mergeStatus.mergeInProgress) {
+      return (
+        <>
+          <p className={copperNote}>
+            a merge is already in progress in the project — finish it there: git merge --continue
+            or git merge --abort
+          </p>
+          <div className="flex gap-1.5 px-1.5 pb-0.5">
+            <Button size="xs" variant="ghost" onClick={openConsole}>
+              open console
+            </Button>
+          </div>
+        </>
+      );
+    }
+    if (conflictFiles !== null) {
+      return (
+        <>
+          <p className={copperNote}>
+            merge stopped — {conflictFiles.length} file(s) conflict
+          </p>
+          <div className="max-h-24 overflow-y-auto px-1.5 pb-1 font-mono text-[10px] leading-relaxed text-ink-mid">
+            {conflictFiles.map((file) => (
+              <span key={file} className="block truncate" title={file}>
+                {file}
+              </span>
+            ))}
+          </div>
+          <p className={quietNote}>
+            resolve in {mergeBack.projectRootCwd}, then git merge --continue — or git merge --abort
+          </p>
+          <div className="flex gap-1.5 px-1.5 pb-0.5">
+            <Button size="xs" variant="ghost" onClick={openConsole}>
+              open console
+            </Button>
+          </div>
+        </>
+      );
+    }
+    if (mergedNote !== null) {
+      return <p className={quietNote}>{mergedNote}</p>;
+    }
+    if (!mergeStatus.branchExists) {
+      return (
+        <p className={copperNote}>
+          branch {mergeBack.branch} no longer exists — nothing to merge
+        </p>
+      );
+    }
+    if (mergeStatus.destination === null) {
+      const short = shortBase(mergeBack.base);
+      const text =
+        mergeStatus.reason === "base-gone"
+          ? `base ${short} no longer resolves — merge manually`
+          : mergeStatus.reason === "no-branch-match"
+            ? `no local branch matches base ${short} — merge manually`
+            : "the project is not a readable git repo — merge manually";
+      return <p className={copperNote}>{text}</p>;
+    }
+    if (!mergeStatus.destinationCheckedOut) {
+      return (
+        <p className={copperNote}>
+          check out {mergeStatus.destination} in the project to merge back
+        </p>
+      );
+    }
+    if (mergeStatus.alreadyMerged) {
+      return (
+        <p className={quietNote}>
+          already in {mergeStatus.destination} — delete the session to reclaim the checkout (the
+          branch survives)
+        </p>
+      );
+    }
+    return (
+      <button type="button" role="menuitem" className={mergeRowText} onClick={onMergeClick}>
+        merge into {mergeStatus.destination}
+        {mergeStatus.ahead > 0 && (
+          <span className="text-ink-faint"> · {commits(mergeStatus.ahead)}</span>
+        )}
+      </button>
+    );
+  };
   return (
     <span ref={rootRef} className="relative flex min-w-0">
       <button
@@ -378,7 +632,11 @@ export function BranchChip({
               <div className="px-1.5 py-1 text-[11px] leading-snug text-copper">
                 {confirm.kind === "pull"
                   ? `session “${busyTitle}” is mid-turn — pulling changes the project working tree`
-                  : `session “${busyTitle}” is mid-turn — the tree will change under it`}
+                  : confirm.kind === "merge"
+                    ? `session “${projectBusyTitle}” is mid-turn in the project — merging moves ${
+                        mergeStatus?.destination ?? (mergeBack ? shortBase(mergeBack.base) : "")
+                      } under it`
+                    : `session “${busyTitle}” is mid-turn — the tree will change under it`}
               </div>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 {confirm.kind === "pull" ? (
@@ -389,6 +647,10 @@ export function BranchChip({
                     onClick={() => void attemptPull()}
                   >
                     {pulling ? "Pulling…" : "pull anyway"}
+                  </Button>
+                ) : confirm.kind === "merge" ? (
+                  <Button size="xs" tone="copper" onClick={() => void runMerge()}>
+                    {merging ? "merging…" : "merge anyway"}
                   </Button>
                 ) : (
                   <Button
@@ -483,6 +745,7 @@ export function BranchChip({
             </>
           ) : (
             <>
+              {mergeSection()}
               {showPull && (
                 <button
                   type="button"
@@ -599,6 +862,37 @@ export function BranchChip({
             <div className="break-words px-1.5 py-1 text-[11px] text-rose">{error}</div>
           )}
         </div>
+      )}
+      {confirmOpen && mergeBack !== undefined && mergeStatus !== null && mergeStatus.destination !== null && (
+        <ConfirmDialog
+          kicker="git operation"
+          tone="copper"
+          width="w-[28rem]"
+          title={`Merge ${mergeBack.branch} into ${mergeStatus.destination}?`}
+          onClose={() => setConfirmOpen(false)}
+          actions={
+            <>
+              <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
+                cancel
+              </Button>
+              <Button
+                variant="solid"
+                tone="copper"
+                disabled={merging}
+                onClick={() => void runMerge()}
+              >
+                {merging ? "merging…" : `merge into ${mergeStatus.destination}`}
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Fast-forwards when history allows, otherwise creates a merge commit in the project
+            checkout. Merges the {mergeStatus.ahead} committed change(s) on {mergeBack.branch};
+            uncommitted changes in the worktree are not included. A conflict stops the merge and
+            leaves the project checkout with files to resolve.
+          </p>
+        </ConfirmDialog>
       )}
     </span>
   );

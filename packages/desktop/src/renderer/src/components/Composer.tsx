@@ -95,6 +95,20 @@ export function Composer({
   // and has no worktree of its own.
   const offerWorkspace = unprompted && !hasWorktree && cwd !== undefined;
 
+  // The merge-back offer (issue #322): the session's own worktree branch and
+  // recorded base, plus the project checkout the merge runs in. Absent for
+  // plain sessions and for worktree records without a recorded base.
+  const record = useStore((s) => findRecord(s.state, tabId));
+  const mergeBack =
+    record?.worktree != null && record.worktree.base !== null
+      ? {
+          branch: record.worktree.branch,
+          base: record.worktree.base,
+          projectRootCwd: record.projectCwd,
+          tabId,
+        }
+      : undefined;
+
   const sendPrompt = useStore((s) => s.sendPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
@@ -811,6 +825,7 @@ export function Composer({
               onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
               workspaceDisabled={unavailable || converting}
               onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
+              mergeBack={mergeBack}
             />
 
             <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
