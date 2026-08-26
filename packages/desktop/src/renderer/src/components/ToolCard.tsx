@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
-import { langFromPath, useHighlightTokens } from "../lib/highlight";
+import { HIGHLIGHT_CHAR_CAP, langFromPath, useHighlightTokens } from "../lib/highlight";
 import { strField } from "../lib/fields";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
@@ -108,6 +108,101 @@ function editDraft(name: string, args: unknown): { code: string; lang?: string }
   return null;
 }
 
+/** One parsed line of a read result: gutter digits plus content, or a gutterless line. */
+export interface ReadResultRow {
+  num: string | null;
+  text: string;
+}
+
+/** An omp `read` result split into its `[path#tag]` header and body rows. */
+export interface ReadResultParts {
+  header: string | null;
+  rows: ReadResultRow[];
+}
+
+const READ_HEADER_RE = /^\[[^[\]\n]+\]$/;
+const READ_GUTTER_RE = /^(\d+):(.*)$/;
+
+/**
+ * Splits an omp `read` result into its `[path#tag]` header line and body rows.
+ * A guttered line becomes { num, text }; any line without an `N:` prefix
+ * (elision markers, oddity) keeps its full text with num === null, so it
+ * degrades to an ordinary line instead of corrupting the parse.
+ */
+export function splitReadResult(text: string): ReadResultParts {
+  const lines = text.split("\n");
+  let header: string | null = null;
+  const first = lines[0];
+  if (first !== undefined && READ_HEADER_RE.test(first)) {
+    header = first;
+    lines.splice(0, 1);
+  }
+  const rows = lines.map((line) => {
+    const match = READ_GUTTER_RE.exec(line);
+    return match ? { num: match[1] ?? null, text: match[2] ?? "" } : { num: null, text: line };
+  });
+  return { header, rows };
+}
+
+/**
+ * A read-type result: the `[path#tag]` header plus `N:`-guttered file content.
+ * Gutters are stripped before tokenizing and rendered as their own uncolored
+ * select-none column, so shiki only ever sees file content. Above the cap (or
+ * before the grammar loads) the body degrades to plain text beside the gutters.
+ */
+function ReadResultSlab({
+  parts,
+  lang,
+  pin,
+  className,
+}: {
+  parts: ReadResultParts;
+  lang?: string;
+  pin?: boolean;
+  className?: string;
+}) {
+  const code = useMemo(() => parts.rows.map((row) => row.text).join("\n"), [parts]);
+  const tokens = useHighlightTokens(code, lang, code.length < HIGHLIGHT_CHAR_CAP);
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (!pin) return;
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [pin, code, tokens]);
+  return (
+    <pre
+      ref={ref}
+      data-selectable
+      className={cn(
+        "overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink",
+        className,
+      )}
+    >
+      {parts.header !== null && (
+        <span className="select-none text-ink-faint">
+          {parts.header}
+          {"\n"}
+        </span>
+      )}
+      {parts.rows.map((row, i) => (
+        <span key={i}>
+          {row.num !== null && (
+            <span className="select-none tabular-nums text-ink-faint">{row.num}:</span>
+          )}
+          {tokens
+            ? tokens[i]?.map((token, k) => (
+                <span key={k} style={{ color: token.color }}>
+                  {token.content}
+                </span>
+              ))
+            : row.text}
+          {i < parts.rows.length - 1 ? "\n" : null}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
 /** The mono slab used for commands, paths, partial output and results. */
 function Slab({
   children,
@@ -148,8 +243,8 @@ function Slab({
  * hook drops stale runs, so each delta just lags one tokenize behind; very
  * large payloads stay plain. `pin` follows the tail while the model writes.
  */
-function CodeSlab({ code, lang, pin }: { code: string; lang?: string; pin?: boolean }) {
-  const tokens = useHighlightTokens(code, lang, code.length < 20_000);
+function CodeSlab({ code, lang, pin, className }: { code: string; lang?: string; pin?: boolean; className?: string }) {
+  const tokens = useHighlightTokens(code, lang, code.length < HIGHLIGHT_CHAR_CAP);
   const ref = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (!pin) return;
@@ -160,7 +255,10 @@ function CodeSlab({ code, lang, pin }: { code: string; lang?: string; pin?: bool
     <pre
       ref={ref}
       data-selectable
-      className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink"
+      className={cn(
+        "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink",
+        className,
+      )}
     >
       {tokens
         ? tokens.map((line, i) => (
@@ -200,6 +298,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
   const kind = glyphFor(name);
   const entries: [string, unknown][] =
     args !== null && typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [];
+  const argsJson = useMemo(() => jsonText(args), [args]);
 
   if (kind === "bash") {
     const command = strField(args, "command") ?? strField(args, "cmd");
@@ -270,7 +369,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
       )}
       {(hasComplex || scalars.some(([, v]) => v.length > ARG_VALUE_MAX)) && (
         <Disclosure summary={<Label>all arguments</Label>}>
-          <Slab className="mt-1 max-h-48">{jsonText(args)}</Slab>
+          <CodeSlab code={argsJson} lang="json" className="mt-1 max-h-48" />
         </Disclosure>
       )}
     </div>
@@ -388,6 +487,25 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const headline = item.intent ?? argSummary(item.args);
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
   const draft = useMemo(() => editDraft(item.name, item.args), [item.name, item.args]);
+  const kind = glyphFor(item.name);
+  const resultLang = kind === "read" ? langFromPath(item.path ?? pathFromArgs(item.args)) : undefined;
+  // Read bodies stream with the same header+gutter shape as the settled result;
+  // until the header line arrives we cannot tell read output from prose.
+  const resultParts = useMemo(
+    () => (kind === "read" && typeof item.resultText === "string" ? splitReadResult(item.resultText) : null),
+    [kind, item.resultText],
+  );
+  const partialParts = useMemo(
+    () => (kind === "read" && typeof item.partialText === "string" ? splitReadResult(item.partialText) : null),
+    [kind, item.partialText],
+  );
+  const partialLang = useMemo(
+    () =>
+      kind === "read"
+        ? langFromPath(item.path ?? pathFromArgs(item.args))
+        : editDraft(item.name, item.args)?.lang,
+    [kind, item.name, item.args, item.path],
+  );
   const planWrite = isPlanArtifactPath(item.path ?? pathFromArgs(item.args));
   const hasBody =
     item.args !== undefined ||
@@ -465,9 +583,15 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {item.status === "running" && item.partialText && (
             <div className="space-y-1">
               <Label>streaming</Label>
-              <Slab className="max-h-32" pin>
-                {linkify(item.partialText)}
-              </Slab>
+              {partialParts?.header !== null && partialParts ? (
+                <ReadResultSlab parts={partialParts} lang={partialLang} pin className="max-h-32" />
+              ) : partialLang !== undefined ? (
+                <CodeSlab code={item.partialText} lang={partialLang} pin className="max-h-32" />
+              ) : (
+                <Slab className="max-h-32" pin>
+                  {linkify(item.partialText)}
+                </Slab>
+              )}
             </div>
           )}
 
@@ -483,13 +607,16 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
                   </span>
                 }
               >
-                <Slab
-                  className="mt-1 max-h-48"
-                  tone={item.status === "error" ? "rose" : "neutral"}
-                >
-                  {resultText}
-                </Slab>
+                {resultParts?.header !== null && resultParts ? (
+                  <ReadResultSlab parts={resultParts} lang={resultLang} className="mt-1 max-h-48" />
+                ) : (
+                  <Slab className="mt-1 max-h-48" tone={item.status === "error" ? "rose" : "neutral"}>
+                    {resultText}
+                  </Slab>
+                )}
               </Disclosure>
+            ) : resultParts?.header !== null && resultParts ? (
+              <ReadResultSlab parts={resultParts} lang={resultLang} className="max-h-48" />
             ) : (
               <Slab className="max-h-48" tone={item.status === "error" ? "rose" : "neutral"}>
                 {resultText}

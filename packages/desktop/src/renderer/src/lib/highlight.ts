@@ -160,6 +160,9 @@ export function langFromPath(path: string | undefined): string | undefined {
   return dot > 0 ? base.slice(dot + 1).toLowerCase() : undefined;
 }
 
+/** Payloads above this many characters stay plain; tokenizing them costs more than it shows. */
+export const HIGHLIGHT_CHAR_CAP = 20_000;
+
 /**
  * Themes registered on the core, seeded with the one `getCore` builds it
  * with. A theme is only paid for once the user actually switches to it.
