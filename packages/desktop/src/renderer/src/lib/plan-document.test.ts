@@ -125,6 +125,33 @@ body {
 }`);
   });
 
+  it("paints pre and code on the active theme's sunken plane, after the universal rule", async () => {
+    const source =
+      "<html><head><style>pre{background:#f1f5f9;color:#000}code{background:#e8edf3}</style></head>" +
+      "<body><p>inline <code>chip</code></p><pre><code>x = 1</code></pre></body></html>";
+    const prepared = await preparePlanDocument(source, resolveTheme("graphite"));
+    const css = guardrailCss(prepared);
+
+    expect(css).toContain(`background-color: #0e1013 !important;`);
+    expect(css).toContain(`color: #e8ecf1 !important;`);
+    expect(css).toContain(`color-scheme: dark !important;`);
+    expect(css).toContain(`white-space: pre-wrap !important;`);
+    // Same specificity and !important tier as the universal rule: the plane
+    // holds only because it sits later in the sheet.
+    expect(prepared.indexOf("background-color: #0e1013 !important")).toBeGreaterThan(
+      prepared.indexOf("background-color: transparent !important"),
+    );
+  });
+
+  it("follows light themes with a light code plane", async () => {
+    const source = "<html><head></head><body><pre><code>x</code></pre></body></html>";
+    const css = guardrailCss(await preparePlanDocument(source, resolveTheme("light")));
+
+    expect(css).toContain(`background-color: #f1f4f7 !important;`);
+    expect(css).toContain(`color: #12161b !important;`);
+    expect(css).toContain(`color-scheme: light !important;`);
+  });
+
   it("contains fixed content-box layouts without erasing authored padding or borders", async () => {
     const source =
       '<div style="box-sizing:content-box;width:1200px;padding:80px;border:12px solid red">Wide</div>';
@@ -175,6 +202,12 @@ code {
     expect(css).toContain(`pre,
 code {
   white-space: pre-wrap !important;
+  /* Code plane (issue #319): the canvas stays light, but code sits on the
+     active theme's sunken plane — the transcript's code plane — so the
+     theme's token palette has the surface it was derived against. */
+  background-color: #0e1013 !important;
+  color: #e8ecf1 !important;
+  color-scheme: dark !important;
 }`);
     expect(css).toContain(`a,
 a:link,

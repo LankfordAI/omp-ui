@@ -66,9 +66,10 @@ const backendMock = {
   rpcSend: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
-// Dynamic imports are required: store.ts → ./backend reads window.ompBackend
+// Dynamic imports are required: store.ts → ./backend (and lib/themes)
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
+const { applyTheme, resolveTheme } = await import("../lib/themes");
 const { PlanReview } = await import("./PlanReview");
 
 const TAB = "tab-1";
@@ -1123,6 +1124,7 @@ describe("PlanReview code highlighting (issue #319)", () => {
         }),
       },
     });
+    applyTheme(resolveTheme("graphite")); // pin the plane theme for this case
     render();
 
     const frame = planFrame()!;
@@ -1140,6 +1142,9 @@ describe("PlanReview code highlighting (issue #319)", () => {
     expect(srcdoc).toContain('class="omp-ui-hl"');
     expect(srcdoc).toContain("tk-");
     expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
+    // The code plane follows the pinned theme: Graphite's sunken plane.
+    expect(srcdoc).toContain("background-color: #0e1013 !important");
+    expect(srcdoc).toContain("color: #e8ecf1 !important");
     // The unclass'd block stays plain.
     expect(srcdoc).toContain("no class stays plain");
     expect(frame.getAttribute("sandbox")).toBe("");

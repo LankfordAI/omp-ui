@@ -44,6 +44,15 @@ spans plus a renderer-generated rule per (colour, font-style) pair.
 - **Live theme.** `usePreparedPlanDocument` takes the current `useTheme()`
   into its effect deps, so a theme switch re-prepares the plan in the new
   palette — mirroring `useHighlightTokens`'s theme dep.
+- **Code plane follows the theme.** The plan canvas stays light (ADR-0014's
+  explicit light canvas; `svg text` is forced `#111`), but the guardrail
+  paints every `pre`/`code` on the active theme's `--color-sunken` plane
+  with `--color-ink` foreground — the same plane the transcript's code
+  blocks occupy — so the runtime-theme token palette has the surface it was
+  derived against. The declaration rides in the guardrail stylesheet (last
+  in the head, `!important`) where plan-authored code styling cannot
+  displace it, and re-derives live on theme switch through the existing
+  prepare pass.
 
 Rejected: hand-authored highlighted spans in the plan HTML (fragile,
 token-bloated, and pushes tokenization onto the model — the same failure class
@@ -73,3 +82,6 @@ lexical analysis it is bad at).
 - **A new verification reason**: a surviving `<!--omp-ui-highlight-N-->`
   placeholder fails structural verification, in parity with the
   diagram-placeholder check (issue #312).
+- **The guardrail stylesheet becomes theme-scoped**: the const becomes
+  `guardrailStylesheet(theme)`, called from `preparePlanDocument` with the
+  theme it already receives — no new parameter threading, no caller edits.

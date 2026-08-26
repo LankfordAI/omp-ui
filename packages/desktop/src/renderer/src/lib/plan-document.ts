@@ -5,9 +5,12 @@ import { currentThemeId, resolveTheme, useTheme, type Theme } from "./themes";
 
 const GUARDRAIL_ID = "omp-ui-plan-guardrails";
 
-// This stylesheet must remain the final stylesheet in an existing head so its
-// important containment rules win over presentation authored by the plan.
-const PLAN_GUARDRAIL_STYLESHEET = `<style id="${GUARDRAIL_ID}">
+// The guardrail stylesheet for one theme. It must remain the final stylesheet
+// in an existing head so its important containment rules win over presentation
+// authored by the plan. The code-plane declarations ride in the same sheet so
+// a plan's own pre/code styling can never displace the plane (issue #319).
+function guardrailStylesheet(theme: Theme): string {
+  return `<style id="${GUARDRAIL_ID}">
 html,
 html::before,
 html::after,
@@ -83,6 +86,12 @@ caption {
 pre,
 code {
   white-space: pre-wrap !important;
+  /* Code plane (issue #319): the canvas stays light, but code sits on the
+     active theme's sunken plane — the transcript's code plane — so the
+     theme's token palette has the surface it was derived against. */
+  background-color: ${theme.tokens["--color-sunken"]} !important;
+  color: ${theme.code.foreground} !important;
+  color-scheme: ${theme.dark ? "dark" : "light"} !important;
 }
 
 table {
@@ -138,6 +147,7 @@ a:active {
   display: block;
 }
 </style>`;
+}
 
 const GUARDRAIL_MARKER = new RegExp(
   `\\bid\\s*=\\s*(?:["']${GUARDRAIL_ID}["']|${GUARDRAIL_ID}(?=[\\s>]))`,
@@ -165,9 +175,10 @@ export async function preparePlanDocument(
   html = await renderMermaidBlocks(highlighted);
   if (GUARDRAIL_MARKER.test(html)) return html;
 
+  const base = guardrailStylesheet(theme);
   const stylesheet = tokenCss
-    ? PLAN_GUARDRAIL_STYLESHEET.replace("</style>", `${tokenCss}\n</style>`)
-    : PLAN_GUARDRAIL_STYLESHEET;
+    ? base.replace("</style>", `${tokenCss}\n</style>`)
+    : base;
 
   if (CLOSING_HEAD.test(html)) {
     return html.replace(CLOSING_HEAD, `${stylesheet}$&`);
