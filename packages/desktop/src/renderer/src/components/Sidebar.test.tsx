@@ -1765,12 +1765,22 @@ describe("Sidebar plan handoffs (issue #238)", () => {
 
     // Exactly one connector — the linked child. Orphans and plain rows stay
     // flush left. The stem/elbow is decorative (aria-hidden) neutral chrome:
-    // border-line-soft, never the signal accent (ADR-0004).
+    // a 2px stroke in border-line — one step above line-soft — never the
+    // signal accent (ADR-0004, issue #310).
     const connectors = document.body.querySelectorAll("[data-handoff-connector]");
     expect(connectors).toHaveLength(1);
     const connector = connectors[0]!;
     expect(connector.getAttribute("aria-hidden")).toBe("true");
-    expect(connector.className).toContain("border-line-soft");
+    const classes = connector.className.split(" ");
+    expect(classes).toContain("border-line");
+    expect(classes).not.toContain("border-line-soft");
+    // Two-pixel stroke with the geometry untouched (issue #310).
+    expect(classes).toContain("border-l-2");
+    expect(classes).toContain("border-b-2");
+    expect(classes).toContain("w-2");
+    expect(classes).toContain("h-1/2");
+    expect(classes).toContain("top-0");
+    expect(classes).toContain("left-1.5");
     expect(connector.className).not.toContain("signal");
     // Depth 1 indents the child's wrapper; the connector sits in the gutter.
     expect(connector.parentElement?.className).toContain("pl-4");

@@ -413,12 +413,14 @@ function ProjectSection({
               {entry.depth > 0 && (
                 // Handoff connector — a stem and elbow from the plan source
                 // above into this implementation row. Neutral chrome, never
-                // the signal accent (ADR-0004, issue #238).
+                // the signal accent (ADR-0004, issue #238). The stroke is a
+                // 2px border-line — one step above line-soft — so the
+                // handoff reads on the sunken sidebar (issue #310).
                 <span
                   aria-hidden
                   data-handoff-connector
                   className={cn(
-                    "pointer-events-none absolute top-0 h-1/2 w-2 rounded-bl border-b border-l border-line-soft",
+                    "pointer-events-none absolute top-0 h-1/2 w-2 rounded-bl border-b-2 border-l-2 border-line",
                     entry.depth === 1 ? "left-1.5" : "left-5.5",
                   )}
                 />
