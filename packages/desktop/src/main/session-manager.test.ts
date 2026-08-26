@@ -1445,10 +1445,16 @@ describe("worktree sessions (issue #224)", () => {
     const opts = RpcClientMock.mock.calls.at(-1)![0] as { cwd: string };
     expect(opts.cwd).toBe(worktreePath);
     // Exactly one checkout still: no second cut under the worktrees root.
-    const { stdout: worktrees } = await execFileP("git", ["worktree", "list"], {
+    // Git for Windows prints forward slashes, so compare separator-normalized.
+    const { stdout: worktrees } = await execFileP("git", ["worktree", "list", "--porcelain"], {
       cwd: project,
     });
-    expect(worktrees.split(worktreePath).length - 1).toBe(1);
+    const target = worktreePath.split(/[\\/]+/).join("/");
+    const listed = worktrees
+      .split("\n")
+      .filter((line) => line.startsWith("worktree "))
+      .map((line) => line.slice("worktree ".length).split(/[\\/]+/).join("/"));
+    expect(listed.filter((p) => p === target).length).toBe(1);
   });
 
   it("rejects a worktreeReuse whose checkout vanished from disk (issue #316)", async () => {
