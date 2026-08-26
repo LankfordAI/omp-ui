@@ -14,7 +14,9 @@ import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from ".
  * here (issue #227): while the session is unprompted and has no worktree of
  * its own, the menu gains a "worktree…" row whose sub-mode hosts the shared
  * branch/base fields, and the trigger reads the minted branch with a
- * "worktree" marker. Neutral chrome only — signal mint is reserved for agent
+ * "worktree" marker; its create button cuts the pending worktree now instead
+ * of on the first prompt (issue #314), running the same conversion the first
+ * send runs. Neutral chrome only — signal mint is reserved for agent
  * liveness (ADR-0004), and neither branch identity nor upstream drift is
  * liveness, so divergence escalates to copper and failures to rose.
  *
@@ -40,6 +42,7 @@ export function BranchChip({
   workspace,
   onWorkspaceChange,
   workspaceDisabled = false,
+  onCreateWorktree,
 }: {
   projectCwd?: string;
   /**
@@ -59,6 +62,13 @@ export function BranchChip({
   ) => void;
   /** The composer's session unavailability; disables the worktree rows. */
   workspaceDisabled?: boolean;
+  /**
+   * Cuts the pending worktree now instead of on the first prompt (issue #314):
+   * the composer's shared conversion. Its success lets the popover close; a
+   * failure keeps it open for a fix-and-retry, the message in the composer's
+   * strip.
+   */
+  onCreateWorktree?: () => Promise<boolean>;
 }) {
   const info = useStore((s) => (projectCwd === undefined ? undefined : s.branches[projectCwd]));
   const refreshing = useStore(
@@ -79,6 +89,8 @@ export function BranchChip({
   const [mode, setMode] = useState<"list" | "create" | "worktree">("list");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** True while the create-now conversion is in flight (button label). */
+  const [cutting, setCutting] = useState(false);
   /** The change awaiting the busy-session confirm; null when not confirming. */
   const [confirm, setConfirm] = useState<Pending | null>(null);
 
@@ -236,6 +248,21 @@ export function BranchChip({
   const pickCheckout = (): void => {
     onWorkspaceChange?.({ mode: "checkout" });
     closeMenu();
+  };
+
+  /**
+   * Cuts the pending worktree now (issue #314). Success closes the popover; the
+   * composer's "cutting the worktree…" strip carries the in-flight status,
+   * and a failure leaves the fields open with git's message in that strip.
+   */
+  const attemptCreate = async (): Promise<void> => {
+    if (workspace === undefined || workspace.mode !== "worktree") return;
+    if (!onCreateWorktree || cutting || worktreeLocked) return;
+    if (workspace.branch.trim() === "") return;
+    setCutting(true);
+    const ok = await onCreateWorktree();
+    setCutting(false);
+    if (ok) closeMenu();
   };
 
   const toggleMenu = (): void => {
@@ -437,9 +464,18 @@ export function BranchChip({
                 idPrefix="composer-worktree"
               />
               <span className="px-1.5 pb-1 text-[10px] text-ink-faint">
-                the first prompt cuts this branch in a fresh worktree
+                create it now, or the first prompt cuts it
               </span>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
+                {onCreateWorktree !== undefined && (
+                  <Button
+                    size="xs"
+                    disabled={cutting || worktreeLocked || workspace.branch.trim() === ""}
+                    onClick={() => void attemptCreate()}
+                  >
+                    {cutting ? "creating…" : "create"}
+                  </Button>
+                )}
                 <Button size="xs" variant="ghost" onClick={() => setMode("list")}>
                   back
                 </Button>

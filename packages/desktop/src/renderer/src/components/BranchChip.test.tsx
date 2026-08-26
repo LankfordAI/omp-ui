@@ -38,6 +38,7 @@ let root: Root | null = null;
 let changes: WorkspaceSelection[] = [];
 let workspaceDisabledFlag = false;
 let workspaceOffered = true;
+let createWorktreeHandler: (() => Promise<boolean>) | null = null;
 
 /** One running session on the project — the busy-confirm trigger. */
 function seedBusy(): void {
@@ -115,6 +116,7 @@ function WorkspaceChipHarness({ cwd }: { cwd: string }) {
           : undefined
       }
       workspaceDisabled={workspaceDisabledFlag}
+      onCreateWorktree={createWorktreeHandler ?? undefined}
     />
   );
 }
@@ -189,6 +191,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   changes = [];
   workspaceDisabledFlag = false;
+  createWorktreeHandler = null;
   workspaceOffered = true;
   backendMock.listBranches.mockResolvedValue(fixture);
   backendMock.pullBranch.mockResolvedValue(undefined);
@@ -701,5 +704,62 @@ describe("BranchChip worktree section (issue #227)", () => {
     // leave the popover open).
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+  });
+
+  it("create is offered only with the onCreateWorktree prop", async () => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.some((b) => b.textContent === "create")).toBe(false);
+
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+    createWorktreeHandler = async () => true;
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+    expect(buttonByText("create").disabled).toBe(false);
+    createWorktreeHandler = null;
+  });
+
+  it("create success fires the conversion once and closes the popover", async () => {
+    const calls: number[] = [];
+    createWorktreeHandler = async () => { calls.push(1); return true; };
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+    await act(async () => buttonByText("create").click());
+    await flushMicrotasks();
+    expect(calls).toHaveLength(1);
+    expect(document.body.querySelector('input[aria-label="filter branches"]')).toBeNull();
+    createWorktreeHandler = null;
+  });
+
+  it("a create failure keeps the popover open for a fix-and-retry", async () => {
+    createWorktreeHandler = async () => false;
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+    await act(async () => buttonByText("create").click());
+    await flushMicrotasks();
+    expect(document.body.querySelector("#composer-worktree-branch")).not.toBeNull();
+    createWorktreeHandler = null;
+  });
+
+  it("create is disabled with an empty branch name", async () => {
+    createWorktreeHandler = async () => true;
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+    await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-branch")!, "");
+    expect(buttonByText("create").disabled).toBe(true);
+    createWorktreeHandler = null;
   });
 });

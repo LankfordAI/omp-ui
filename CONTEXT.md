@@ -363,7 +363,10 @@ _Avoid_: per-session diff log, file edit history
 **Worktree session**:
 A session whose omp process runs in a dedicated git worktree of its project —
 a separate checkout on its own branch, minted at spawn under omp-ui's app-data
-worktrees root, sharing the repo's object store. `projectCwd` still names the
+worktrees root, sharing the repo's object store. While the session still sits
+at its empty-transcript hero, the cut is offered directly: the composer's
+branch chip worktree section, whose create button mints the checkout on
+demand, or the first prompt does. `projectCwd` still names the
 project (sidebar grouping, MCP scope, parameter memory); the worktree is the
 session's effective working tree, so the branch diff pane, branch chip,
 @-picker and console shell all read it. The record also carries what the

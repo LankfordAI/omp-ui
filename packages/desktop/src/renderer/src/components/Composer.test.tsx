@@ -1072,5 +1072,48 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     expect(textarea.value).toBe("hello");
     expect(document.body.textContent).toContain("branch already exists");
     expect(document.body.querySelector('button[aria-label="dismiss worktree error"]')).not.toBeNull();
+
   });
+  it("create cuts the worktree now, without a prompt", async () => {
+    renderUnprompted();
+    await enterWorktreeSection();
+    await act(async () => buttonByText("create").click());
+    await flush();
+    expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
+    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(
+      TAB,
+      expect.stringMatching(/^omp-ui\/[0-9a-f]{8}$/),
+      "main",
+    );
+    expect(sendPrompt).not.toHaveBeenCalled();
+    // The selection resets; the chip reads the checkout's branch again.
+    expect(chipTrigger().textContent).toContain("main");
+    expect(chipTrigger().textContent).not.toContain("worktree");
+  });
+
+  it("a create failure keeps the selection and shows the error", async () => {
+    backendMock.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
+    renderUnprompted();
+    await enterWorktreeSection();
+    await act(async () => buttonByText("create").click());
+    await flush();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("branch already exists");
+    expect(document.body.querySelector('button[aria-label="dismiss worktree error"]')).not.toBeNull();
+    // The worktree selection survives for a fix-and-retry.
+    expect(chipTrigger().textContent).toContain("worktree");
+  });
+
+  it("create shows the in-flight state and blocks re-entry", async () => {
+    // A never-settling conversion holds the in-flight state without a store.
+    const neverSettled = Promise.withResolvers<void>();
+    backendMock.convertToWorktree.mockImplementationOnce(() => neverSettled.promise);
+    renderUnprompted();
+    await enterWorktreeSection();
+    await act(async () => buttonByText("create").click());
+    await flush();
+    expect(document.body.textContent).toContain("cutting the worktree…");
+    expect(buttonByText("creating…").disabled).toBe(true);
+  });
+
 });

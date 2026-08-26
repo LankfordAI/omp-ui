@@ -385,6 +385,42 @@ export function Composer({
     },
   });
 
+  /**
+   * Cuts the pending worktree — on the first send (issue #225) or from the
+   * branch chip's create button (issue #314): one shared conversion, one error
+   * surface. Returns success so the send path can gate the prompt and the
+   * chip's popover can close.
+   */
+  const runWorktreeConversion = useCallback(
+    async (selection: Extract<WorkspaceSelection, { mode: "worktree" }>): Promise<boolean> => {
+      if (converting) return false;
+      setConverting(true);
+      setWorkspaceError(null);
+      try {
+        await convertSessionToWorktree(tabId, {
+          branch: selection.branch,
+          baseRef: selection.baseRef,
+        });
+      } catch (err) {
+        setWorkspaceError(err instanceof Error ? err.message : String(err));
+        setConverting(false);
+        return false;
+      }
+      setConverting(false);
+      // The record's new worktree hides the chip via its selector; reset the
+      // selection anyway so a stale "worktree" can never gate a send.
+      setWorkspace({ mode: "checkout" });
+      return true;
+    },
+    [converting, tabId, convertSessionToWorktree],
+  );
+
+  /** The branch chip's create-now action: the same conversion, no prompt. */
+  const createWorktreeNow = useCallback((): Promise<boolean> => {
+    if (workspace.mode !== "worktree") return Promise.resolve(false);
+    return runWorktreeConversion(workspace);
+  }, [workspace, runWorktreeConversion]);
+
   const submit = useCallback(
     async (route: PromptRoute | "interrupt") => {
       let message = text.trim();
@@ -394,26 +430,12 @@ export function Composer({
       if ((message === "" && payload.length === 0) || unavailable || converting) return;
       // A first prompt with the branch chip's worktree section set to a fresh
       // worktree converts the session before anything else happens (issue
-      // #225): on failure the draft, the hero, and the chip all stay put, and
-      // git's message renders in the composer's inline strip. Slash commands
-      // are not prompts — they bypass the conversion entirely.
+      // #225) — the same conversion the chip's create button runs (issue #314):
+      // on failure the draft, the hero, and the chip all stay put, and git's
+      // message renders in the composer's inline strip. Slash commands are
+      // not prompts — they bypass the conversion entirely.
       if (!message.startsWith("/") && workspace.mode === "worktree" && unprompted) {
-        setConverting(true);
-        setWorkspaceError(null);
-        try {
-          await convertSessionToWorktree(tabId, {
-            branch: workspace.branch,
-            baseRef: workspace.baseRef,
-          });
-        } catch (err) {
-          setWorkspaceError(err instanceof Error ? err.message : String(err));
-          setConverting(false);
-          return;
-        }
-        setConverting(false);
-        // The record's new worktree hides the chip via its selector; reset
-        // the selection anyway so a stale "worktree" can never gate a send.
-        setWorkspace({ mode: "checkout" });
+        if (!(await runWorktreeConversion(workspace))) return;
       }
       if (!message.startsWith("/")) onPrompt?.();
       // Consecutive duplicates make ↑ recall useless.
@@ -470,7 +492,7 @@ export function Composer({
       unprompted,
       workspace,
       converting,
-      convertSessionToWorktree,
+      runWorktreeConversion,
     ],
   );
 
@@ -788,6 +810,7 @@ export function Composer({
               workspace={offerWorkspace ? workspace : undefined}
               onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
               workspaceDisabled={unavailable || converting}
+              onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
             />
 
             <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
