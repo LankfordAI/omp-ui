@@ -31,8 +31,8 @@ const branchFixture: BranchList = {
 };
 
 const backendMock = {
-  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean }>>(),
-  openProject: vi.fn<(path: string, target: "vscode" | "files") => Promise<void>>(),
+  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean; terminal: boolean }>>(),
+  openProject: vi.fn<(path: string, target: "vscode" | "files" | "terminal") => Promise<void>>(),
   // The store's merge action refreshes the branch list after a completed merge.
   listBranches: vi.fn<() => Promise<BranchList>>(),
   getMergeBackStatus: vi.fn<(projectCwd: string, branch: string, base: string | null) => Promise<MergeBackStatus>>(),
@@ -208,7 +208,7 @@ function deferred<T>(): {
 
 beforeEach(() => {
   backendMock.getProjectOpenAvailability.mockReset();
-  backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: false });
+  backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: false, terminal: false });
   backendMock.openProject.mockReset();
   backendMock.openProject.mockResolvedValue(undefined);
   backendMock.listBranches.mockReset();
@@ -254,7 +254,7 @@ describe("WorktreeChip (issue #260)", () => {
   });
 
   it("offers Open in VS Code only when availability resolves true, and opens with it", async () => {
-    backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: true });
+    backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: true, terminal: false });
     render();
     await openPopover();
 

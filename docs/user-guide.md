@@ -25,7 +25,7 @@ Switching a live session between native and terminal mode kills its process and 
 
 Use **Add project** in the title bar or sidebar, choose a directory, and add the resolved path. The sidebar groups owned sessions under each project. Sessions keep their position until you move them: new sessions enter at their project's top, and running activity never reshuffles the list. Drag a session row's grip, or focus it and press `Alt+Up` or `Alt+Down`, to reorder; a plan-handoff tree moves with its planning row. Filter by session title or project name, collapse a project, drag project headers to reorder them, or focus a header's grip and press `Alt+Up` or `Alt+Down`.
 
-On a desktop-sized window, a project header exposes open, MCP, new-session, and remove actions. Right-click the new-session control to choose a terminal or worktree session. In the compact shell, use the project's ellipsis button to open the [project actions sheet](#command-palette-and-compact-shell).
+On a desktop-sized window, a project header exposes open, MCP, new-session, and remove actions. The Open control's menu offers **VS Code** (when installed), **Files**, and **Terminal** (when a launchable system terminal is found); Terminal opens the host's terminal with its shell in the project root. Right-click the new-session control to choose a terminal or worktree session. In the compact shell, use the project's ellipsis button to open the [project actions sheet](#command-palette-and-compact-shell).
 
 You must terminate a project's live sessions before removing the project. Removal deletes the project registration and all of its session records, then attempts to force-remove the recorded omp-ui worktree checkouts. Uncommitted changes in a removed checkout are lost, but its branch and commits survive. Removal does not delete transcripts, artifacts, or files in the registered project. A failed worktree cleanup does not stop record removal.
 
@@ -154,7 +154,7 @@ Press `Mod+K` to open the command palette. Search is fuzzy across sessions, proj
 
 Below 900 pixels, omp-ui uses the **compact shell**. The top-left control opens projects and sessions, the title opens the same sheet, and the top-right inspector control opens the inspector sheet for a native tab. Native session actions move into a bottom sheet. The prompt's model, effort, advisor, mode, branch, queue, and interrupt controls move into the prompt-options sheet.
 
-Each compact project header has an ellipsis button that opens the **project actions sheet**. It shows the project's name and full path, followed by **New session**, **New terminal session**, **New worktree session**, **MCP servers**, and **Remove project**. Desktop-only actions that open VS Code or the host file manager do not appear in the compact shell.
+Each compact project header has an ellipsis button that opens the **project actions sheet**. It shows the project's name and full path, followed by **New session**, **New terminal session**, **New worktree session**, **MCP servers**, and **Remove project**. Desktop-only actions that open VS Code, the host file manager, or a system terminal do not appear in the compact shell.
 
 For connecting a phone or another browser to the compact shell, see [Remote access](remote-access.md).
 

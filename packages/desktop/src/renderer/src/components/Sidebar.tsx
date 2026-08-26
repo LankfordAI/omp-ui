@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
+import type { ProjectGroup, ProjectOpenAvailability, SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
@@ -168,8 +168,8 @@ interface ProjectSectionProps {
   openTerminalMenu: OpenTerminalMenu;
   compact: boolean;
   onActivate: () => void;
-  vsCodeAvailable: boolean | null;
-  refreshAvailability: () => Promise<boolean>;
+  openAvailability: ProjectOpenAvailability | null;
+  refreshAvailability: () => Promise<void>;
   onOpenActions?: () => void;
   /** The project row's drag/keyboard reorder wiring (issues #115/#120). */
   reorder: ListReorderRow;
@@ -185,7 +185,7 @@ function ProjectSection({
   query,
   openTerminalMenu,
   compact,
-  vsCodeAvailable,
+  openAvailability,
   refreshAvailability,
   onActivate,
   onOpenActions,
@@ -370,7 +370,7 @@ function ProjectSection({
             <div className="proj-reveal proj-reveal-l compact-lifecycle-visible flex shrink-0 items-center gap-1 overflow-hidden opacity-0 max-w-0 transition-all duration-200 group-hover/proj:ml-1.5 group-hover/proj:max-w-full group-hover/proj:opacity-100 focus-within:ml-1.5 focus-within:max-w-full focus-within:opacity-100">
               <ProjectOpenControl
                 project={project}
-                vsCodeAvailable={vsCodeAvailable}
+                availability={openAvailability}
                 refreshAvailability={refreshAvailability}
               />
               <IconButton label={`project settings for ${project.name}`} onClick={() => openProjectSettings(project.path)}>
@@ -557,22 +557,21 @@ export function Sidebar() {
   // The project whose compact actions sheet is open (issue #205), by path.
   // Sidebar-local UI state, like `terminalMenu` — never in the store.
   const [actionsFor, setActionsFor] = useState<string | null>(null);
-  const [vsCodeAvailable, setVsCodeAvailable] = useState<boolean | null>(null);
+  const [openAvailability, setOpenAvailability] = useState<ProjectOpenAvailability | null>(null);
   const availabilityMounted = useRef(false);
   const availabilityGeneration = useRef(0);
-  const refreshAvailability = useCallback(async (): Promise<boolean> => {
+  const refreshAvailability = useCallback(async (): Promise<void> => {
     const generation = ++availabilityGeneration.current;
-    let available = false;
+    let available: ProjectOpenAvailability = { vsCode: false, terminal: false };
     try {
-      available = (await backend.getProjectOpenAvailability()).vsCode;
+      available = await backend.getProjectOpenAvailability();
     } catch {
-      // A failed discovery channel is equivalent to an unavailable optional
-      // integration; Files remains a usable project-open destination.
+      // A failed discovery channel is equivalent to unavailable optional
+      // integrations; Files remains a usable project-open destination.
     }
     if (availabilityMounted.current && generation === availabilityGeneration.current) {
-      setVsCodeAvailable(available);
+      setOpenAvailability(available);
     }
-    return available;
   }, []);
 
   useEffect(() => {
@@ -760,7 +759,7 @@ export function Sidebar() {
                   query={query}
                   openTerminalMenu={openTerminalMenu}
                   compact={compact}
-                  vsCodeAvailable={vsCodeAvailable}
+                  openAvailability={openAvailability}
                   refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
                   onOpenActions={() => setActionsFor(path)}

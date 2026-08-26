@@ -120,7 +120,7 @@ _Avoid_: right sidebar, panel, drawer
 The bottom sheet a compact-shell project header's ⋯ button opens: the
 project's name and full path, then New session, New terminal session,
 *New worktree session, Project settings, and Remove project. It
-replaces the cluster below 900px. The desktop open targets (VS Code, Files) are
+replaces the cluster below 900px. The desktop open targets (VS Code, Files, Terminal) are
 deliberately absent: a compact shell is usually a phone talking to a
 remote omp-ui, where opening on the host answers a question nobody asked.
 _Avoid_: project context menu, overflow menu, kebab menu

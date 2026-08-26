@@ -67,7 +67,7 @@ describe("BACKEND_CHANNELS", () => {
       (projectPath: string, beforePath: string | null) => void | Promise<void>
     >();
     expectTypeOf<ChannelTable["request"]["project:open"]>().toEqualTypeOf<
-      (projectPath: string, target: "vscode" | "files") => void | Promise<void>
+      (projectPath: string, target: "vscode" | "files" | "terminal") => void | Promise<void>
     >();
     expectTypeOf<ChannelTable["request"]["memory:list"]>().toEqualTypeOf<
       (

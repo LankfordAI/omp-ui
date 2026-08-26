@@ -32,10 +32,11 @@ export interface ImageAttachment {
   mimeType: string;
 }
 
-export type ProjectOpenTarget = "vscode" | "files";
+export type ProjectOpenTarget = "vscode" | "files" | "terminal";
 
 export interface ProjectOpenAvailability {
   vsCode: boolean;
+  terminal: boolean;
 }
 
 export interface ProjectRecord {

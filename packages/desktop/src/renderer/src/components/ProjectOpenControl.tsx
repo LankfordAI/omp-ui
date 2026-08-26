@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ProjectOpenTarget, ProjectRecord } from "@omp-ui/core/types";
+import type { ProjectOpenAvailability, ProjectOpenTarget, ProjectRecord } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
@@ -13,9 +13,9 @@ import { Capsule, CAPSULE_SEGMENT, Chevron, IconButton, IconClose, Panel } from 
  *
  * Availability is resolved once by the sidebar and handed down, so a window of
  * twenty project sections asks the host once rather than twenty times. `null`
- * means "not resolved yet" — distinct from "resolved, no VS Code" — and is the
- * only state that disables both segments outright, because until the answer
- * arrives there is no honest primary action to name.
+ * means "not resolved yet" — distinct from "resolved, nothing optional" — and
+ * is the only state that disables both segments outright, because until the
+ * answer arrives there is no honest primary action to name.
  *
  * Pending and error state are deliberately local: opening one project must
  * never busy or blame another, and a failure belongs beside the project it
@@ -26,8 +26,8 @@ import { Capsule, CAPSULE_SEGMENT, Chevron, IconButton, IconClose, Panel } from 
 const MENU_ITEM_CLASS =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
 
-/** Fixed and compact: the menu holds two short entries, and a popup sized to
- *  this trigger would be unreadably narrow. */
+/** Fixed and compact: the menu holds a few short entries, and a popup sized
+ *  to this trigger would be unreadably narrow. */
 const MENU_WIDTH = 176;
 const MENU_GAP = 4;
 /** Breathing room kept between the menu and every viewport edge. */
@@ -43,18 +43,19 @@ interface MenuGeometry {
 const TARGET_LABEL: Record<ProjectOpenTarget, string> = {
   vscode: "VS Code",
   files: "Files",
+  terminal: "Terminal",
 };
 
 export function ProjectOpenControl({
   project,
-  vsCodeAvailable,
+  availability,
   refreshAvailability,
 }: {
   project: Pick<ProjectRecord, "name" | "path">;
   /** `null` until the host has answered; the control is inert until then. */
-  vsCodeAvailable: boolean | null;
-  /** Re-asks the host and resolves with the fresh VS Code answer. */
-  refreshAvailability: () => Promise<boolean>;
+  availability: ProjectOpenAvailability | null;
+  /** Re-asks the host; the parent commits the fresh answer. */
+  refreshAvailability: () => Promise<void>;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [geometry, setGeometry] = useState<MenuGeometry | null>(null);
@@ -78,11 +79,12 @@ export function ProjectOpenControl({
     };
   }, []);
 
-  const unresolved = vsCodeAvailable === null;
+  const unresolved = availability === null;
   const busy = pending !== null;
   const disabled = unresolved || busy;
-  /** VS Code when the host has it, the file manager otherwise (issue #169). */
-  const preferred: ProjectOpenTarget = vsCodeAvailable === true ? "vscode" : "files";
+  /** VS Code when the host has it, the file manager otherwise (issue #169).
+   *  Terminal is menu-only, never the primary segment. */
+  const preferred: ProjectOpenTarget = availability?.vsCode === true ? "vscode" : "files";
 
   const closeMenu = useCallback((restoreFocus: boolean) => {
     setMenuOpen(false);
@@ -107,9 +109,10 @@ export function ProjectOpenControl({
         await backend.openProject(project.path, target);
       } catch (err) {
         if (mountedRef.current) setError(displayMessage(err));
-        // A failed VS Code launch is the one moment the cached answer is
-        // suspect — re-ask so the control stops offering a dead destination.
-        if (target === "vscode") {
+        // A failed launch of a discoverable target is the one moment the
+        // cached answer is suspect — re-ask so the control stops offering a
+        // dead destination.
+        if (target === "vscode" || target === "terminal") {
           try {
             await refreshAvailability();
           } catch {
@@ -236,6 +239,7 @@ export function ProjectOpenControl({
   };
 
   const filesDescriptionId = `project-open-files-${project.path}`;
+  const terminalDescriptionId = `project-open-terminal-${project.path}`;
   const primaryLabel = busy ? "Opening…" : "Open";
 
   return (
@@ -359,7 +363,7 @@ export function ProjectOpenControl({
             <Panel className="edge-lit p-1">
               {/* VS Code leads when the host can reach it — the issue's preferred
                   handoff — and is absent, never broken, when it cannot. */}
-              {vsCodeAvailable === true && (
+              {availability?.vsCode === true && (
                 <button
                   type="button"
                   role="menuitem"
@@ -386,6 +390,26 @@ export function ProjectOpenControl({
               >
                 Opens the project directory in the system file manager.
               </span>
+              {availability?.terminal === true && (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-label={`Open ${project.name} in Terminal`}
+                    aria-describedby={terminalDescriptionId}
+                    className={MENU_ITEM_CLASS}
+                    onClick={() => select("terminal")}
+                  >
+                    Terminal
+                  </button>
+                  <span
+                    id={terminalDescriptionId}
+                    className="block px-2.5 pt-0.5 pb-1 text-[10px] text-ink-faint"
+                  >
+                    Opens a system terminal at the project root.
+                  </span>
+                </>
+              )}
             </Panel>
           </div>,
           document.body,
