@@ -50,7 +50,6 @@ const state = backendState({
           compactionMethod: null,
           model: null,
           thinkingLevel: null,
-          lastViewedAt: null,
           advisor: false,
           advisorModel: null,
           cachedTitle: "Mobile session",

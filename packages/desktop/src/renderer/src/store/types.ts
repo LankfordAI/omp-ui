@@ -36,7 +36,6 @@ import type {
   SubagentInfo,
   TodoPhase,
 } from "../lib/rpc-types";
-import type { CatchupDigest } from "../lib/catchup";
 import type { RenderItem } from "../lib/transcript";
 
 export interface TabInfo {
@@ -138,17 +137,6 @@ export interface RpcTabState {
   advisorStats: AdvisorStatsView | null;
   mcpStatus: McpRuntimeStatus | null;
   advisorReply: boolean;
-}
-
-/** One resurface's catch-up digest (issue #273); pending, then a settled snapshot. */
-export interface CatchupEntry {
-  /** Epoch ms of the last-viewed baseline the windowing used. */
-  since: number;
-  /** Bumps per staged resurface; distinguishes re-arms. */
-  nonce: number;
-  /** True once the snapshot was taken. digest null = nothing to report. */
-  settled: boolean;
-  digest: CatchupDigest | null;
 }
 
 /** The turn's terminal assistant message end; drives settle target and stall classification. */
@@ -283,9 +271,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   shellExited: Record<string, number>;
   /** True for tabs whose process omp-ui hibernated while idle (issue #246). */
   hibernated: Record<string, boolean>;
-  /** Epoch ms each tab last held this renderer's active focus (issue #273). */
-  lastActiveAt: Record<string, number>;
-  catchup: Record<string, CatchupEntry>;
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
   searchOpen: Record<string, boolean>;
@@ -413,8 +398,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   ): Promise<void>;
   deferPlanReview(tabId: string): void;
   showPlanReview(tabId: string): void;
-  /** Dismisses the resurfaced tab's catch-up card (issue #273). */
-  dismissCatchup(tabId: string): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;

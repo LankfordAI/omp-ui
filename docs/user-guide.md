@@ -48,8 +48,6 @@ Read the confirmation before deleting. Deleting one row may erase more than one 
 
 The native transcript is derived from OMP's event stream. The session file remains the source of truth, and omp-ui does not rewrite it. The transcript renders user and assistant content, thinking, tool calls and results, advisor findings, notices, IRC activity, and lifecycle markers. A usage receipt under a completed assistant response shows its model, tokens, cache reads, cost, time to first token, and duration. Scroll away from the bottom to pause following; return to the bottom or use **Jump to latest** to follow new output again.
 
-When you return to a native tab you left for over 15 minutes — after switching tabs, hibernating, or relaunching the app — a **catch-up card** appears above the transcript. It summarizes the turns that ran and how they ended, the files touched, spend and tokens since you left, any compaction or retry activity, and a **Review plan** action when a plan review is pending. It shows only when something actually happened while you were away, and dismisses with one click.
-
 ### Use the Session HUD
 
 The **Session HUD** runs across the top of a native tab. It shows liveness, a click-to-rename title, context use, total spend, and advisor context and cost when an advisor is active. A worktree chip names the effective branch. The controls let you compact context, toggle auto-compaction, open the console, export the transcript as HTML, open the MCP manager, branch the session, start a new session, refresh runtime state and statistics, and edit queue modes.

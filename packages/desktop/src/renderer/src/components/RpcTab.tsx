@@ -3,7 +3,6 @@ import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
 import { findRecord, useStore, type RpcFailure } from "../store";
-import { CatchupCard } from "./CatchupCard";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
@@ -337,29 +336,24 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                   // the transcript behind it is static. Inactive tabs keep the
                   // transcript — the dock stays unmounted there, as before.
                   <PlanReview tabId={tabId} fill />
+                ) : centered ? (
+                  hero ? (
+                    <HeroGreeting projectCwd={projectCwd} />
+                  ) : (
+                    <TranscriptSkeleton centered />
+                  )
+                ) : status === "starting" && items.length === 0 ? (
+                  <TranscriptSkeleton />
                 ) : (
-                  <>
-                    <CatchupCard tabId={tabId} />
-                    {centered ? (
-                      hero ? (
-                        <HeroGreeting projectCwd={projectCwd} />
-                      ) : (
-                        <TranscriptSkeleton centered />
-                      )
-                    ) : status === "starting" && items.length === 0 ? (
-                      <TranscriptSkeleton />
-                    ) : (
-                      <TranscriptView
-                        items={items}
-                        tabId={tabId}
-                        find={
-                          searchOpen && activeId !== null
-                            ? { ids: matches, activeId, nonce }
-                            : null
-                        }
-                      />
-                    )}
-                  </>
+                  <TranscriptView
+                    items={items}
+                    tabId={tabId}
+                    find={
+                      searchOpen && activeId !== null
+                        ? { ids: matches, activeId, nonce }
+                        : null
+                    }
+                  />
                 )}
                 <ExtensionDialogHost tabId={tabId} />
                 {/* While the review owns the column, its send-it-back input is

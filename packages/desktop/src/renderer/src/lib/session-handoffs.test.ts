@@ -37,7 +37,6 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     thinkingLevel: null,
     agentMode: "build",
     compactionMethod: null,
-    lastViewedAt: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: null,

@@ -146,7 +146,6 @@ const session = (
   compactionMethod: null,
   model: null,
   thinkingLevel: null,
-  lastViewedAt: null,
   advisor,
   advisorModel: null,
   cachedTitle: null,

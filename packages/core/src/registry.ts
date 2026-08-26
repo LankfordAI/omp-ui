@@ -332,8 +332,7 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     "cachedTitle" in value &&
     (typeof value.cachedTitle === "string" || value.cachedTitle === null) &&
     "cachedModified" in value &&
-    (typeof value.cachedModified === "string" || value.cachedModified === null) &&
-    optNullable(value, "lastViewedAt", isStr)
+    (typeof value.cachedModified === "string" || value.cachedModified === null)
   );
 }
 
@@ -377,7 +376,6 @@ function parseRegistryData(raw: unknown): RegistryData | null {
         ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
         : null,
       planImplementationSource: s.planImplementationSource ?? null,
-      lastViewedAt: s.lastViewedAt ?? null,
     }));
   const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"

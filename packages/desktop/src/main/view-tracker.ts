@@ -1,16 +1,7 @@
-import type { Registry } from "@omp-ui/core";
-
 /** How fresh a tab:viewed report must be to protect its tab (issue #266). */
 const VIEWED_STALE_MS = 15 * 60 * 1_000;
 /** Reports older than this are swept on the next write. */
 const VIEWED_SWEEP_MS = 60 * 60 * 1_000;
-/** At most one lastViewedAt registry write per tab per window (issue #273). */
-const VIEWED_DEDUP_MS = 30_000;
-
-export interface ViewTrackerDeps {
-  registry: Registry;
-  broadcastPatch: (immediate: boolean) => void;
-}
 
 /**
  * Fresh tab:viewed reports keyed by renderer clientId (issue #266). A tab
@@ -23,38 +14,13 @@ export class ViewTracker {
   /** clientId the desktop renderer reports under; only the IPC transport marks it (issue #271). */
   private desktopClientId: string | null = null;
 
-  constructor(private readonly deps: ViewTrackerDeps) {}
-
   /** Renderer reports the tab it currently has in view, or null (issue #266). */
   setViewedTab(clientId: string, tabId: string | null): void {
     const now = Date.now();
     for (const [id, report] of this.reports) {
       if (now - report.at > VIEWED_SWEEP_MS) this.reports.delete(id);
     }
-    const previous = this.reports.get(clientId)?.tabId ?? null;
     this.reports.set(clientId, { tabId, at: now });
-    // The tab just left (if any) has its last-viewed moment now; the tab just
-    // entered — or re-heartbeated — is being viewed right now (issue #273).
-    if (previous !== null && previous !== tabId) this.noteLastViewed(previous, now);
-    this.noteLastViewed(tabId, now);
-  }
-
-  /**
-   * Persists a viewed report to the record (issue #273). Deduped: a report
-   * that leaves the stored value within VIEWED_DEDUP_MS writes nothing. The
-   * 5-min heartbeats therefore keep a continuously-viewed tab fresh within
-   * ~5 min, a tab switch records the leaving tab exactly, and unreported
-   * leaves (window close, dead socket) stay within one heartbeat.
-   */
-  private noteLastViewed(tabId: string | null, now: number): void {
-    if (tabId === null) return;
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
-    if (record === undefined) return;
-    const stored = record.lastViewedAt;
-    const last = stored === null ? null : Date.parse(stored);
-    if (last !== null && Number.isFinite(last) && now - last < VIEWED_DEDUP_MS) return;
-    this.deps.registry.updateSession(tabId, { lastViewedAt: new Date(now).toISOString() });
-    this.deps.broadcastPatch(false);
   }
 
   /** Marks the clientId the desktop renderer reports under (issue #271). */

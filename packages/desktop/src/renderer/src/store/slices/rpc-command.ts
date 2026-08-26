@@ -37,7 +37,6 @@ export type RpcCommandSlice = Pick<
 >;
 
 export interface RpcCommandDeps extends Watchers {
-  settleCatchup(tabId: string): void;
   reconcilePlanGates(state: BackendState): void;
 }
 
@@ -222,9 +221,6 @@ export function createRpcCommandSlice(
         // gate on the record hydrates now instead of being clobbered.
         const bootedState = get().state;
         if (bootedState !== null) deps.reconcilePlanGates(bootedState);
-        // Backfill (loadHistory) completed before status flipped: a staged
-        // resurface settles from the complete transcript (issue #273).
-        deps.settleCatchup(tabId);
       }
     } catch (err) {
       const liveState = findRecord(get().state, tabId)?.live;

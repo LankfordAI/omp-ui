@@ -74,7 +74,7 @@ The physical-frame limit applies to each newline-delimited stdout frame: 1 MiB u
 
 ## Session ownership and storage
 
-OMP's JSONL files are authoritative for session identity, transcript content, title, status, and lineage changes. omp-ui's `registry.json` is authoritative for application preferences, registered projects, owned-session membership, `tabId`, current mode, agent mode, model and advisor choices, the compaction method captured by a fresh native session, worktree metadata, the shared last-viewed baseline `lastViewedAt`, and cached display fields. Cached registry fields are fallback display data, not a replacement transcript.
+OMP's JSONL files are authoritative for session identity, transcript content, title, status, and lineage changes. omp-ui's `registry.json` is authoritative for application preferences, registered projects, owned-session membership, `tabId`, current mode, agent mode, model and advisor choices, the compaction method captured by a fresh native session, worktree metadata, and cached display fields. Cached registry fields are fallback display data, not a replacement transcript.
 
 - **Registry.** One `OwnedSessionRecord` represents one spawned lineage. Registry writes replace the JSON file atomically. An unknown or corrupt registry schema is quarantined rather than partially trusted.
 - **Sidebar order.** The registry's persisted arrays are the sidebar orders (issues #115, #274): projects append via `addProject`, sessions insert at their project's top via `addSession`, and `moveProject`/`moveSession` reorder on user action only. Nothing re-sorts during state builds — activity refreshes cached fields in place. A one-time `sessionOrderFrozen` seed converts legacy registries from recency order on first load.
@@ -145,10 +145,6 @@ Desktop main owns whether remote access is enabled, its bind address and port, i
 ### Memory
 
 OMP exposes no memory command over rpc-ui. Core therefore reads and edits mnemopi SQLite banks directly with `node:sqlite`, one connection per request. The renderer sends `projectCwd` and a project or global scope, never a database path; main resolves and confines the bank. Reads coexist with OMP's WAL writer. Writes use a 2 second busy timeout and surface contention instead of retrying indefinitely. omp-ui discovers existing project banks and does not derive or create their hashed names. The settings surface reports configured banks but does not claim to show the exact memories OMP injected into a running session. See [ADR-0017](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md).
-
-### Catch-up digest
-
-Resurfacing a native tab after being unseen beyond 15 minutes (`CATCHUP_THRESHOLD_MS`, a renderer constant — no setting yet) shows a mechanical digest card once per resurface above the transcript: turns with outcomes, files touched, main-model spend and tokens since the unseen window opened, advisor session-tree totals when the stats frame has arrived by settle time, compaction/retry marker labels, and a plan-review action when the record carries a pending plan. It is suppressed when nothing happened and is never modal. The window baseline is per renderer in memory (the moment the tab last held active focus, refreshed on focus loss), falling back to the owned record's shared `lastViewedAt` — written by desktop main from `tab:viewed` reports with a 30 s dedup — then `launchedAt`. The digest is one settled snapshot: mounted tabs settle at activation, booting or restored tabs at the boot ready path, and a later advisor-stats frame never re-settles a taken snapshot. No model call and no structured event stream (ADR-0001); terminal tabs never digest.
 
 ## ACP is deliberately unwrapped
 

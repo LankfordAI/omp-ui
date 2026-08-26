@@ -82,7 +82,6 @@ function sessionRecord(tabId: string, title: string) {
     compactionMethod: null,
     model: null,
     thinkingLevel: null,
-    lastViewedAt: null,
     advisor: false,
     advisorModel: null,
     cachedTitle: title,

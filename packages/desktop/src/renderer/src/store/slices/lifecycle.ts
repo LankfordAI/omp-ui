@@ -159,10 +159,6 @@ export function createLifecycleSlice(
         s.activeTabId === tabId
           ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
           : s.activeTabId;
-      const catchup = { ...s.catchup };
-      delete catchup[tabId];
-      const lastActiveAt = { ...s.lastActiveAt };
-      delete lastActiveAt[tabId];
       return {
         rpc,
         tabs,
@@ -170,8 +166,6 @@ export function createLifecycleSlice(
         focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
         exited: dropExited(s.exited, tabId),
         tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId),
-        catchup,
-        lastActiveAt,
       };
     });
   };

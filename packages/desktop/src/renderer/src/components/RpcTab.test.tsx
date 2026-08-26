@@ -44,7 +44,7 @@ const state = backendState({
     project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
     sessions: [{
       tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t",
-      mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build", compactionMethod: null, model: null, thinkingLevel: null, lastViewedAt: null, advisor: false, advisorModel: null, cachedTitle: "T",
+      mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build", compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, cachedTitle: "T",
       cachedModified: "t", title: "T", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
     }],
   }],

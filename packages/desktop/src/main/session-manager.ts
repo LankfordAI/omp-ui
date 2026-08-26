@@ -82,7 +82,7 @@ export class SessionManager {
   private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
   /** Lineage-dir watchers and their throttled sidebar broadcast (issue #187). */
   private readonly watcherHub: WatcherHub;
-  /** Fresh tab:viewed reports and their deduped lastViewedAt writes. */
+  /** Fresh tab:viewed reports keyed by renderer clientId (issue #266). */
   private readonly viewTracker: ViewTracker;
   /**
    * Per-tab serialized op chain (issue #297): spawn, delete, hibernate, and
@@ -113,10 +113,7 @@ export class SessionManager {
       getSessionsRoot: () => deps.getSessionsRoot(),
       broadcast: () => deps.broadcast(),
     });
-    this.viewTracker = new ViewTracker({
-      registry: deps.registry,
-      broadcastPatch: (immediate) => this.watcherHub.broadcastPatch(immediate),
-    });
+    this.viewTracker = new ViewTracker();
     this.hibernation = new HibernationTracker({
       registry: deps.registry,
       send: deps.send,
@@ -378,7 +375,6 @@ export class SessionManager {
         advisorModel: req.advisorModel ?? null,
         cachedTitle: null,
         cachedModified: null,
-        lastViewedAt: null,
       });
       // The launched values are now the project's last session parameters,
       // even when they originated in omp config rather than an explicit click.
@@ -819,9 +815,6 @@ export class SessionManager {
       advisorModel: source.advisorModel,
       cachedTitle: source.cachedTitle,
       cachedModified: new Date().toISOString(),
-      // The forked transcript is the source's: its away window starts where
-      // the source's viewing left off (issue #273).
-      lastViewedAt: source.lastViewedAt,
     });
     await this.deps.broadcast();
     return { tabId: fork.tabId };

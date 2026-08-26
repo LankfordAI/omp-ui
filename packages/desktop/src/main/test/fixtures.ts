@@ -67,7 +67,6 @@ export function ownedSessionRecord(
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
-    lastViewedAt: null,
     ...patch,
   };
 }

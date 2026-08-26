@@ -8,7 +8,6 @@ import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { createBranchesSlice } from "./store/slices/branches";
-import { createCatchupSlice } from "./store/slices/catchup";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
@@ -64,7 +63,6 @@ let initialized = false;
 
 export const useStore = create<UiStore>()((set, get, api) => {
   const m = createMachinery(set, get, api);
-  const catchup = createCatchupSlice(set, get, m);
   const branchesSlice = createBranchesSlice(set, get);
   const plan = createPlanExecutionSlice(set, get, m, {
     spawnFreshImplementation: (
@@ -91,7 +89,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
     stall: stallContinueWatcher,
-    settleCatchup: catchup.settleCatchup,
     reconcilePlanGates,
   });
   const sessionParams = createSessionParamsSlice(set, get, m, {
@@ -127,8 +124,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     state: null,
     exited: {},
     hibernated: {},
-    lastActiveAt: catchup.lastActiveAt,
-    catchup: catchup.catchup,
     rpc: {},
     branches: branchesSlice.branches,
     branchActivity: branchesSlice.branchActivity,
@@ -202,7 +197,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
-      catchup.installCatchupWatcher(api);
     },
 
     bootRpcTab: rpcCommandSlice.bootRpcTab,
@@ -215,7 +209,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     refinePlan: plan.refinePlan,
     deferPlanReview: plan.deferPlanReview,
     showPlanReview: plan.showPlanReview,
-    dismissCatchup: catchup.dismissCatchup,
     loadPlanText: plan.loadPlanText,
 
     appendNotice: frame.appendNotice,
