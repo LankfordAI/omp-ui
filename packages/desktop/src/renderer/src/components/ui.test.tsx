@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -536,5 +536,26 @@ describe("Meter", () => {
     expect(fill(0.8).className).toContain("bg-copper");
     expect(fill(0.95).className).toContain("bg-rose");
     expect(fill(0.95).style.width).toBe("95%");
+  });
+});
+
+describe("Chip truncate", () => {
+  it("stays shrink-0 and untruncated by default", async () => {
+    await render(<Chip mono title="t">abc</Chip>);
+    const chip = document.querySelector("#root > span")!;
+    expect(chip.className).toContain("shrink-0");
+    expect(chip.querySelector("span")).toBeNull();
+    expect(chip.getAttribute("title")).toBe("t");
+  });
+
+  it("caps at the container and ellipsizes when truncate", async () => {
+    const token = "a-very-long-unbroken-token-".repeat(20);
+    await render(<Chip mono truncate title={token}>{token}</Chip>);
+    const chip = document.querySelector("#root > span")!;
+    expect(chip.className).toContain("min-w-0");
+    expect(chip.className).toContain("max-w-full");
+    expect(chip.className).not.toContain("shrink-0");
+    expect(chip.querySelector("span.truncate")?.textContent).toBe(token);
+    expect(chip.getAttribute("title")).toBe(token);
   });
 });

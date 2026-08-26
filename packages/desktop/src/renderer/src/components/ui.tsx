@@ -449,24 +449,32 @@ export function Chip({
   mono,
   title,
   className,
+  truncate = false,
 }: {
   children: ReactNode;
   tone?: Tone;
   mono?: boolean;
   title?: string;
   className?: string;
+  /**
+   * Cap the chip at its container's width and ellipsize the text instead of
+   * letting a long unbroken token overflow the card. For single text runs;
+   * pass `title` so the full value stays reachable on hover.
+   */
+  truncate?: boolean;
 }) {
   return (
     <span
       title={title}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-[10px] leading-4",
+        "inline-flex items-center gap-1 rounded border px-1.5 py-px text-[10px] leading-4",
+        truncate ? "min-w-0 max-w-full" : "shrink-0",
         mono && "font-mono tabular-nums",
         TONE_CHIP[tone],
         className,
       )}
     >
-      {children}
+      {truncate ? <span className="min-w-0 truncate">{children}</span> : children}
     </span>
   );
 }

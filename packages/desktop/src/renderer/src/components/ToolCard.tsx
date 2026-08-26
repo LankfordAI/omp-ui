@@ -311,7 +311,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
     if (pattern || where) {
       return (
         <div className="flex flex-wrap items-center gap-1.5">
-          {pattern && <Chip mono title={pattern}>{pattern}</Chip>}
+          {pattern && <Chip mono truncate title={pattern}>{pattern}</Chip>}
           {where && <PathChip value={where} />}
         </div>
       );

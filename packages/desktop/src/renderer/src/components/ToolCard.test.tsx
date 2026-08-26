@@ -193,6 +193,25 @@ describe("ToolCard arguments dump", () => {
   });
 });
 
+describe("ToolCard search args", () => {
+  it("bounds a long unbroken pattern and keeps the full text in title", () => {
+    const pattern =
+      "\b(shellExitCb|windowStub|emptyOmpSettings|mockBackend|idleAppUpdate|idleOmpUpdate|idleRemoteState|deferred|flushMicrotasks|driveBoot|stateWithRecord|openedUrls|registerShellWriter|deriveSidebarSessionState|RpcCommandTimeoutError)\b";
+    const { el, root } = renderCard(
+      tool({ name: "Grep", args: { pattern, path: "src" } }),
+    );
+
+    const chip = [...el.querySelectorAll("span")].find((s) =>
+      s.className.includes("max-w-full"),
+    );
+    expect(chip).toBeDefined();
+    // Full pattern survives in the DOM (selectable) and in the hover title.
+    expect(chip!.querySelector(".truncate")?.textContent).toBe(pattern);
+    expect(chip!.getAttribute("title")).toBe(pattern);
+    act(() => root.unmount());
+  });
+});
+
 describe("ToolCard streaming partials", () => {
   it("a write partial highlights with the target file's language", () => {
     const partialText = "<html><body>streaming…";
