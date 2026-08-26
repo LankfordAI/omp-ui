@@ -1109,6 +1109,43 @@ describe("PlanReview mermaid diagrams (issue #285)", () => {
   });
 });
 
+describe("PlanReview code highlighting (issue #319)", () => {
+  const planFrame = (): HTMLIFrameElement | null =>
+    document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
+
+  it("tokenizes a language-classed block in the guardrailed document", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          planText: null,
+          planHtml:
+            '<h1>Fix</h1><pre><code class="language-python">def f():\n    return 1</code></pre><p>plain block:</p><pre><code>no class stays plain</code></pre>',
+        }),
+      },
+    });
+    render();
+
+    const frame = planFrame()!;
+    // Real shiki loads behind dynamic imports, so pump macrotasks until
+    // srcdoc populates (same pattern as the mermaid case).
+    let srcdoc = frame.getAttribute("srcdoc")!;
+    for (let i = 0; i < 50 && srcdoc === ""; i += 1) {
+      await act(async () => {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 10);
+        await promise;
+      });
+      srcdoc = frame.getAttribute("srcdoc")!;
+    }
+    expect(srcdoc).toContain('class="omp-ui-hl"');
+    expect(srcdoc).toContain("tk-");
+    expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
+    // The unclass'd block stays plain.
+    expect(srcdoc).toContain("no class stays plain");
+    expect(frame.getAttribute("sandbox")).toBe("");
+  });
+});
+
 describe("PlanReview compact flow (issue #216)", () => {
   const step = (): HTMLElement => document.body.querySelector<HTMLElement>("[data-plan-review-step]")!;
   const planFrame = (): HTMLIFrameElement | null =>

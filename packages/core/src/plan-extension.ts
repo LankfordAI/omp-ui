@@ -150,6 +150,15 @@ const HTML_PLAN_BODY =
   "text out of rotated or clipped regions. The renderer passes hand-drawn SVG " +
   "through unchanged and the guardrail stylesheet scales it to the column, so a " +
   "well-formed viewBox is all you must get right. " +
+  "Code blocks are highlighted at review time: put the language on the block's " +
+  '<code> element — <pre><code class="language-python">…</code></pre> — and the ' +
+  "renderer tokenizes the block in the active theme. Recognized: bash, c, cpp, " +
+  "csharp, css, diff, docker, go, html, java, javascript, json, jsx, kotlin, " +
+  "lua, markdown, php, python, ruby, rust, sql, swift, toml, tsx, typescript, " +
+  "xml, yaml (also accepted: sh, shell, shellscript, zsh, c++, cs, dockerfile, " +
+  "golang, js, jsonc, kt, md, py, rb, rs, ts, yml). A block without a recognized " +
+  "language class renders plain, so keep any load-bearing code readable without " +
+  "colour. " +
   "Use the expressiveness HTML gives you — layout, tables, " +
   "callouts, diagrams — to make the plan easier to review, and keep " +
   "the styling modest so the document stays mostly content. ";

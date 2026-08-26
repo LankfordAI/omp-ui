@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { preparePlanDocument } from "./plan-document";
+import { currentThemeId, DEFAULT_THEME_ID, resolveTheme } from "./themes";
+import type { CodeTokenizer } from "./plan-highlight";
+import type { Theme } from "./themes";
 
 vi.mock("./plan-diagrams", async (importOriginal) => {
   const original = await importOriginal<typeof import("./plan-diagrams")>();
@@ -9,6 +13,25 @@ vi.mock("./plan-diagrams", async (importOriginal) => {
     // contract, not mermaid's layout engine (covered by the smoke test).
     renderMermaidBlocks: (html: string, render?: (id: string, source: string) => Promise<string>) =>
       original.renderMermaidBlocks(html, render ?? (async (id) => `<svg data-diagram="${id}"></svg>`)),
+  };
+});
+
+// The stub tokenizer stands in for shiki: default `null` leaves every block
+// plain (no token CSS), so the byte-identity cases pin the unhighlighted
+// contract; a non-null result drives the token-CSS-landing cases.
+const highlightMock = vi.hoisted(() => ({
+  themes: [] as string[],
+  tokenize: null as CodeTokenizer | null,
+}));
+
+vi.mock("./plan-highlight", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./plan-highlight")>();
+  return {
+    ...original,
+    highlightCodeBlocks: (html: string, theme: Theme) => {
+      highlightMock.themes.push(theme.id);
+      return original.highlightCodeBlocks(html, theme, highlightMock.tokenize ?? (async () => null));
+    },
   };
 });
 
@@ -245,5 +268,42 @@ describe("preparePlanDocument diagram substitution", () => {
   display: flex;
   justify-content: center;
 }`);
+  });
+});
+
+describe("preparePlanDocument code highlighting (issue #319)", () => {
+  afterEach(() => {
+    highlightMock.themes.length = 0;
+    highlightMock.tokenize = null;
+  });
+
+  it("passes the explicit theme through and defaults to the applied theme", async () => {
+    const source = "<p>plan</p>";
+    highlightMock.themes.length = 0;
+    const explicit = { ...resolveTheme(DEFAULT_THEME_ID), id: "explicit" };
+    await preparePlanDocument(source, explicit);
+    await preparePlanDocument(source);
+
+    expect(highlightMock.themes).toEqual([
+      "explicit",
+      resolveTheme(currentThemeId()).id,
+    ]);
+  });
+
+  it("lands non-empty token CSS inside the guardrail stylesheet with the marker still last", async () => {
+    highlightMock.tokenize = async () => [
+      [{ content: "x", color: "#123456", offset: 0 }],
+    ];
+    const source =
+      '<html><head><title>t</title></head><body><pre><code class="language-python">x</code></pre></body></html>';
+    const prepared = await preparePlanDocument(source);
+    const css = guardrailCss(prepared);
+
+    expect(prepared).toContain('<pre class="omp-ui-hl">');
+    expect(css).toContain(".omp-ui-hl .tk-0 { color: #123456 !important; }");
+    // The token rules ride inside the guardrail stylesheet, which stays the
+    // final stylesheet in the head.
+    expect(prepared.indexOf(".omp-ui-hl .tk-0")).toBeGreaterThan(prepared.indexOf(MARKER));
+    expect(prepared.indexOf(MARKER)).toBeLessThan(prepared.indexOf("</head>"));
   });
 });

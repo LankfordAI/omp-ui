@@ -145,7 +145,7 @@ const ALIASES: Record<string, string> = {
 };
 
 /** `null` = unknown language: render plain, never guess a grammar. */
-function resolveLang(lang: string | undefined): string | null {
+export function resolveLang(lang: string | null | undefined): string | null {
   if (!lang) return null;
   const key = lang.toLowerCase();
   const canonical = ALIASES[key] ?? key;
@@ -200,6 +200,26 @@ function ensureLang(core: HighlighterCore, lang: string): Promise<void> {
   }
   return pending;
 }
+/** Load a theme onto the core once, mirroring the transcript hook's bookkeeping. */
+export function ensureTheme(core: HighlighterCore, theme: Theme): void {
+  if (!loadedThemes.has(theme.id)) {
+    core.loadThemeSync(buildShikiTheme(theme));
+    loadedThemes.add(theme.id);
+  }
+}
+
+/** One settled tokenization: core, grammar, theme, then token lines.
+ *  Rejections propagate; the caller owns its fallback. */
+export async function tokenizeCode(
+  lang: string,
+  code: string,
+  theme: Theme,
+): Promise<ThemedToken[][]> {
+  const core = await getCore();
+  await ensureLang(core, lang);
+  ensureTheme(core, theme);
+  return core.codeToTokensBase(code, { lang: lang as never, theme: `omp-${theme.id}` });
+}
 
 /**
  * Token lines for a settled code block, or `null` while loading / for
@@ -222,16 +242,7 @@ export function useHighlightTokens(
     }
     let alive = true;
     void (async () => {
-      const core = await getCore();
-      await ensureLang(core, resolved);
-      if (!loadedThemes.has(theme.id)) {
-        core.loadThemeSync(buildShikiTheme(theme));
-        loadedThemes.add(theme.id);
-      }
-      const lines = core.codeToTokensBase(code, {
-        lang: resolved as never,
-        theme: `omp-${theme.id}`,
-      });
+      const lines = await tokenizeCode(resolved, code, theme);
       if (alive) setTokens(lines);
     })().catch(() => {
       // A failed grammar or engine load leaves the block as plain text.

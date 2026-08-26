@@ -127,7 +127,7 @@ export const renderMermaid: DiagramRenderer = async (id, source) => {
   return svg;
 };
 
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
   return text
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
@@ -136,7 +136,7 @@ function decodeEntities(text: string): string {
     .replace(/&amp;/gi, "&");
 }
 
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

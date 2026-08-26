@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { renderMermaidBlocks } from "./plan-diagrams";
+import { HIGHLIGHT_PLACEHOLDER, highlightCodeBlocks } from "./plan-highlight";
+import { currentThemeId, resolveTheme, useTheme, type Theme } from "./themes";
 
 const GUARDRAIL_ID = "omp-ui-plan-guardrails";
 
@@ -145,26 +147,37 @@ const CLOSING_HEAD = /<\/head\s*>/i;
 const OPENING_HTML = /<html(?:\s[^>]*)?>/i;
 
 /**
- * Prepares an authored HTML plan for the sandboxed review iframe: renders any
- * `<pre class="mermaid">` diagram blocks to SVG (issue #285), then adds
- * non-destructive readability and horizontal-containment guardrails. Apart
- * from the diagram substitution and stylesheet insertion, source bytes are
- * retained exactly. Async because mermaid loads behind a dynamic import;
- * documents without diagrams resolve in the same microtask.
+ * Prepares an authored HTML plan for the sandboxed review iframe: highlights
+ * any language-classed code blocks in the active theme (issue #319), renders
+ * any `<pre class="mermaid">` diagram blocks to SVG (issue #285), then adds
+ * non-destructive readability and horizontal-containment guardrails (the
+ * token-colour rules ride inside the guardrail style). Apart from the code
+ * highlighting, the diagram substitution, and the stylesheet insertion,
+ * source bytes are retained exactly. Async because highlighting and mermaid
+ * load behind dynamic imports; documents without either resolve in the same
+ * microtask.
  */
-export async function preparePlanDocument(html: string): Promise<string> {
-  html = await renderMermaidBlocks(html);
+export async function preparePlanDocument(
+  html: string,
+  theme: Theme = resolveTheme(currentThemeId()),
+): Promise<string> {
+  const { html: highlighted, tokenCss } = await highlightCodeBlocks(html, theme);
+  html = await renderMermaidBlocks(highlighted);
   if (GUARDRAIL_MARKER.test(html)) return html;
 
+  const stylesheet = tokenCss
+    ? PLAN_GUARDRAIL_STYLESHEET.replace("</style>", `${tokenCss}\n</style>`)
+    : PLAN_GUARDRAIL_STYLESHEET;
+
   if (CLOSING_HEAD.test(html)) {
-    return html.replace(CLOSING_HEAD, `${PLAN_GUARDRAIL_STYLESHEET}$&`);
+    return html.replace(CLOSING_HEAD, `${stylesheet}$&`);
   }
 
   if (OPENING_HTML.test(html)) {
-    return html.replace(OPENING_HTML, `$&<head>${PLAN_GUARDRAIL_STYLESHEET}</head>`);
+    return html.replace(OPENING_HTML, `$&<head>${stylesheet}</head>`);
   }
 
-  return `${PLAN_GUARDRAIL_STYLESHEET}${html}`;
+  return `${stylesheet}${html}`;
 }
 
 /** Prepared-document state exposed to the two plan surfaces (issue #312). */
@@ -188,6 +201,9 @@ const DIAGRAM_PLACEHOLDER = /<!--omp-ui-diagram-\d+-->/;
 export function verifyPlanStructure(prepared: string): string | null {
   if (DIAGRAM_PLACEHOLDER.test(prepared)) {
     return "a diagram placeholder survived substitution";
+  }
+  if (HIGHLIGHT_PLACEHOLDER.test(prepared)) {
+    return "a highlight placeholder survived substitution";
   }
 
   const doc = new DOMParser().parseFromString(prepared, "text/html");
@@ -296,10 +312,11 @@ export const probePlanLayout: LayoutProbe = (doc) => {
 export async function preparePlanForReview(
   html: string,
   probe: LayoutProbe = probePlanLayout,
+  theme: Theme = resolveTheme(currentThemeId()),
 ): Promise<Exclude<PreparedPlanState, { status: "pending" }>> {
   let prepared: string;
   try {
-    prepared = await preparePlanDocument(html);
+    prepared = await preparePlanDocument(html, theme);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { status: "failed", reason: `document preparation failed: ${message}` };
@@ -329,6 +346,7 @@ export async function preparePlanForReview(
  * state: a stale document is never shown for a plan that has changed.
  */
 export function usePreparedPlanDocument(html: string | null): PreparedPlanState {
+  const theme = useTheme();
   const [state, setState] = useState<PreparedPlanState>({ status: "pending" });
   useEffect(() => {
     if (html === null) {
@@ -336,12 +354,14 @@ export function usePreparedPlanDocument(html: string | null): PreparedPlanState 
       return;
     }
     let alive = true;
-    void preparePlanForReview(html).then((settled) => {
+    void preparePlanForReview(html, undefined, theme).then((settled) => {
       if (alive) setState(settled);
     });
     return () => {
       alive = false;
     };
-  }, [html]);
+    // Tokens carry their colour as inline classes, so a theme switch only
+    // reaches the rendered plan by re-preparing it.
+  }, [html, theme]);
   return state;
 }

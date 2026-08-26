@@ -6,6 +6,9 @@ import {
   probePlanLayout,
   verifyPlanStructure,
 } from "./plan-document";
+import { currentThemeId, resolveTheme } from "./themes";
+import type { CodeTokenizer } from "./plan-highlight";
+import type { Theme } from "./themes";
 
 const diagrams = vi.hoisted(() => ({ failure: null as Error | null }));
 
@@ -22,8 +25,24 @@ vi.mock("./plan-diagrams", async (importOriginal) => {
   };
 });
 
+// Stub shiki (same seam as plan-document.test.ts): default `null` leaves
+// blocks plain; the highlighted cases install a fixed-token result.
+const highlight = vi.hoisted(() => ({
+  tokenize: null as CodeTokenizer | null,
+}));
+
+vi.mock("./plan-highlight", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./plan-highlight")>();
+  return {
+    ...original,
+    highlightCodeBlocks: (html: string, theme: Theme) =>
+      original.highlightCodeBlocks(html, theme, highlight.tokenize ?? (async () => null)),
+  };
+});
+
 afterEach(() => {
   diagrams.failure = null;
+  highlight.tokenize = null;
 });
 
 const NORMAL_PLAN = "<html><head><title>Plan</title></head><body><h1>Plan</h1></body></html>";
@@ -38,6 +57,26 @@ describe("verifyPlanStructure", () => {
       "<html><head></head><body><h1>Plan</h1><!--omp-ui-diagram-0--></body></html>",
     );
     expect(verifyPlanStructure(prepared)).toBe("a diagram placeholder survived substitution");
+  });
+
+  it("fails when a highlight placeholder survived substitution", async () => {
+    const prepared = await preparePlanDocument(
+      "<html><head></head><body><h1>Plan</h1><!--omp-ui-highlight-0--></body></html>",
+    );
+    expect(verifyPlanStructure(prepared)).toBe("a highlight placeholder survived substitution");
+  });
+
+  it("passes a plan whose code block was highlighted, token CSS included", async () => {
+    highlight.tokenize = async () => [
+      [{ content: "x", color: "#123456", offset: 0 }],
+    ];
+    const prepared = await preparePlanDocument(
+      '<html><head></head><body><h1>Plan</h1><pre><code class="language-python">x</code></pre></body></html>',
+    );
+
+    expect(prepared).toContain('<pre class="omp-ui-hl">');
+    expect(prepared).toContain(".omp-ui-hl .tk-0 { color: #123456 !important; }");
+    expect(verifyPlanStructure(prepared)).toBeNull();
   });
 
   it("fails when the marker id sits on a non-style element and dodged injection", async () => {
@@ -101,6 +140,24 @@ describe("preparePlanForReview", () => {
     if (result.status === "ready") {
       expect(result.doc).toContain('id="omp-ui-plan-guardrails"');
       expect(result.doc).toContain("<h1>Plan</h1>");
+    }
+  });
+
+  it("settles ready with token spans when the code block is highlighted", async () => {
+    highlight.tokenize = async () => [
+      [{ content: "def", color: "#123456", offset: 0 }],
+    ];
+    const result = await preparePlanForReview(
+      '<html><head></head><body><h1>Plan</h1><pre><code class="language-python">def</code></pre></body></html>',
+      async () => "visible",
+      resolveTheme(currentThemeId()),
+    );
+
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.doc).toContain('<pre class="omp-ui-hl">');
+      expect(result.doc).toContain("<span class=\"tk-0\">def</span>");
+      expect(result.doc).toContain(".omp-ui-hl .tk-0 { color: #123456 !important; }");
     }
   });
 

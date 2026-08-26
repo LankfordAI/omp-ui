@@ -80,6 +80,10 @@ describe("writePlanExtension", () => {
     expect(source).toContain("sendCustomMessage");
     expect(source).toContain("local://<slug>-plan.html");
     expect(source).toContain("resolveHtmlPlan");
+    // The language-class contract (issue #319): the grammar list must stay in
+    // lockstep with the renderer's curated LANG_IMPORTS/ALIASES tables.
+    expect(source).toContain("language-");
+    expect(source).toContain("bash, c, cpp");
     expect(source).not.toContain("planHtmlAbsPath");
 
     const h = harness(await loadExtension());
