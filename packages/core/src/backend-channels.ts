@@ -692,6 +692,52 @@ export interface ChannelTable {
   readonly notify: NotifyHandlers;
 }
 
+/**
+ * The single dispatch boundary into a {@link ChannelTable}. Both transports — Electron's
+ * ipcMain and the remote ws server — deliver dynamically decoded `unknown[]` argument
+ * arrays, so the channel-keyed table is widened exactly once, here; individual handlers
+ * stay tuple-checked by ChannelTable.
+ *
+ * An unknown request channel rejects with a named error; a throwing handler rejects with
+ * its own error. The transport decides what a rejection means on the wire.
+ */
+export function dispatchRequest(
+  table: ChannelTable,
+  channel: string,
+  args: unknown[],
+): Promise<unknown> {
+  const handler = (table.request as unknown as Record<string, (...args: unknown[]) => unknown>)[
+    channel
+  ];
+  if (handler === undefined) return Promise.reject(new Error(`unknown channel ${channel}`));
+  try {
+    return Promise.resolve(handler(...args));
+  } catch (err) {
+    return Promise.reject(err);
+  }
+}
+
+/**
+ * Fire-and-forget dispatch. Unknown notify channels are ignored — there is no one to tell —
+ * and a throwing handler is swallowed: a notify has no reply channel, so the error can only
+ * be dropped. Both transports share that policy (issue #301).
+ */
+export function dispatchNotify(
+  table: ChannelTable,
+  channel: string,
+  args: unknown[],
+): void {
+  const handler = (table.notify as unknown as Record<string, (...args: unknown[]) => void>)[
+    channel
+  ];
+  if (handler === undefined) return;
+  try {
+    handler(...args);
+  } catch {
+    // No reply channel — see the doc comment.
+  }
+}
+
 /** Transport primitives implemented at an IPC or WebSocket boundary. */
 export interface BackendTransport {
   request<Args extends unknown[], Result>(channel: string, args: Args): Promise<Result>;

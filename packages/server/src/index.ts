@@ -4,9 +4,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
-import type { ChannelTable, RemoteBind } from "@omp-ui/core";
+import { dispatchNotify, dispatchRequest, type ChannelTable, type RemoteBind } from "@omp-ui/core";
+import { loginPage } from "./login-page";
+import { LoginThrottle } from "./login-throttle";
 import {
   encodeBinaryEvent,
+  parseClientFrame,
   REMOTE_COOKIE,
   REMOTE_TOKEN_PARAM,
   REMOTE_WS_PATH,
@@ -52,12 +55,6 @@ const COOKIE_MAX_AGE = 31_536_000;
 const CLOSE_DRAIN_MS = 250;
 /** POST /login body ceiling; a real form is a few dozen bytes. */
 const MAX_LOGIN_BODY = 8192;
-/** Consecutive failures before an IP is locked out of /login. */
-const LOGIN_FAIL_THRESHOLD = 5;
-const LOGIN_LOCK_BASE_S = 60;
-const LOGIN_LOCK_CAP_S = 900;
-/** Caps the per-IP attempt map; the oldest insertion goes first. */
-const LOGIN_ATTEMPTS_CAP = 10_000;
 
 const MIME: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -135,62 +132,6 @@ function withToken(urls: string[], token: string): string[] {
   return urls.map((u) => `${u}?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`);
 }
 
-/**
- * The sign-in form served at /login in password mode. Inline CSS, no JS, no external assets:
- * it must render even when the web bundle is missing, and it deliberately reveals the service
- * is omp-ui to an unauthenticated caller (accepted trade-off for usability).
- */
-function loginPage(error: string | null): string {
-  const errorHtml = error
-    ? `<p role="alert" style="margin:0 0 12px;color:#f87171;font-size:13px">${escapeHtml(error)}</p>`
-    : "";
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>omp-ui — Sign in</title>
-<style>
-  * { box-sizing: border-box; margin: 0; }
-  body { display:flex; align-items:center; justify-content:center; min-height:100dvh;
-         background:#0a0b0d; color:#c8d0da; font:14px/1.5 system-ui,sans-serif; padding:24px; }
-  .card { width:100%; max-width:340px; }
-  h1 { font-size:18px; font-weight:600; color:#e6ebf2; margin-bottom:4px; }
-  .sub { font-size:12px; color:#8b95a3; margin-bottom:20px; }
-  label { display:block; font-size:12px; color:#8b95a3; margin-bottom:6px; }
-  input[type="password"] { width:100%; padding:9px 12px; border:1px solid #2a3038;
-    border-radius:6px; background:#14171b; color:#e6ebf2; font:inherit; outline:none; }
-  input[type="password"]:focus { border-color:#4a5568; }
-  button { margin-top:12px; width:100%; padding:9px 12px; border:none; border-radius:6px;
-    background:#c8d0da; color:#0a0b0d; font:inherit; font-weight:600; cursor:pointer; }
-  button:hover { background:#e6ebf2; }
-  .hint { margin-top:16px; font-size:11px; color:#8b95a3; text-align:center; }
-</style>
-</head>
-<body>
-<div class="card">
-  <h1>omp-ui</h1>
-  <p class="sub">Remote access &mdash; sign in to continue</p>
-  ${errorHtml}
-  <form method="post" action="/login">
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" required autofocus autocomplete="current-password">
-    <button type="submit">Sign in</button>
-  </form>
-  <p class="hint">or open a pairing link with an access token</p>
-</div>
-</body>
-</html>`;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 /** null rather than a throw: a missing path is a routing decision here, not an error. */
 function statOrNull(file: string): fs.Stats | null {
   try {
@@ -220,30 +161,9 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     return tokenMatches(token, value) || (sessionCred !== null && tokenMatches(sessionCred, value));
   };
 
-  // In-memory per-IP lockout state for POST /login. Function-scoped on purpose: every
-  // startRemoteServer is a fresh server, and a restart (config change) resetting the lockout is
-  // the documented v1 behavior.
-  const loginAttempts = new Map<string, { fails: number; until: number }>();
-  const pruneLoginAttempts = (): void => {
-    if (loginAttempts.size <= LOGIN_ATTEMPTS_CAP) return;
-    // Map iterates in insertion order — evict the oldest first.
-    for (const key of loginAttempts.keys()) {
-      loginAttempts.delete(key);
-      if (loginAttempts.size <= LOGIN_ATTEMPTS_CAP) break;
-    }
-  };
-  const recordLoginFailure = (ip: string): void => {
-    const entry = loginAttempts.get(ip);
-    const fails = (entry?.fails ?? 0) + 1;
-    let until = 0;
-    if (fails >= LOGIN_FAIL_THRESHOLD) {
-      until =
-        Date.now() +
-        Math.min(LOGIN_LOCK_BASE_S * 2 ** (fails - LOGIN_FAIL_THRESHOLD), LOGIN_LOCK_CAP_S) * 1000;
-    }
-    loginAttempts.set(ip, { fails, until });
-    pruneLoginAttempts();
-  };
+  // One throttle per server: a restart (config change) resetting the lockout is the
+  // documented v1 behavior.
+  const loginThrottle = new LoginThrottle();
 
   const serveStatic = (res: ServerResponse, pathname: string): void => {
     if (webBundleMissing) {
@@ -278,9 +198,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 
   const handleLogin = (req: IncomingMessage, res: ServerResponse): void => {
     const ip = req.socket.remoteAddress ?? "?";
-    const entry = loginAttempts.get(ip);
-    if (entry !== undefined && entry.until > Date.now()) {
-      const retryAfter = Math.ceil((entry.until - Date.now()) / 1000);
+    const retryAfter = loginThrottle.retryAfter(ip);
+    if (retryAfter > 0) {
       res.writeHead(429, {
         "Content-Type": "text/html; charset=utf-8",
         "Retry-After": String(retryAfter),
@@ -317,11 +236,11 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
         return;
       }
       if (!password || !verifyRemotePassword(pw, password.salt, password.hash)) {
-        recordLoginFailure(ip);
+        loginThrottle.recordFailure(ip);
         send(res, 401, loginPage("Wrong password. Try again."), "text/html; charset=utf-8");
         return;
       }
-      loginAttempts.delete(ip);
+      loginThrottle.clear(ip);
       res.writeHead(302, {
         // No `Secure`: plain HTTP is the v1 transport (see the settings footer's honesty note).
         "Set-Cookie": `${REMOTE_COOKIE}=${encodeURIComponent(sessionCred!)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}`,
@@ -412,57 +331,39 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     ws.on("error", () => {});
     ws.on("message", (raw: Buffer, isBinary: boolean) => {
       if (isBinary) return; // clients never send binary — nothing upstream takes bytes.
-      let frame: unknown;
+      let parsed: unknown;
       try {
-        frame = JSON.parse(raw.toString("utf8"));
+        parsed = JSON.parse(raw.toString("utf8"));
       } catch {
         return;
       }
-      if (frame === null || typeof frame !== "object") return;
-      const f = frame as { t?: unknown; id?: unknown; ch?: unknown; args?: unknown };
-      if (typeof f.ch !== "string") return;
-      const args = Array.isArray(f.args) ? f.args : [];
-      const table = host.handlers();
-      if (f.t === "notify") {
-        const notifyHandlers = table.notify as unknown as Record<
-          string,
-          (...args: unknown[]) => void
-        >;
-        const fn = notifyHandlers[f.ch];
-        if (!fn) return; // unknown notify channel is ignored — there is no one to tell.
-        try {
-          fn(...args);
-        } catch {
-          // A notify has no reply channel; a throwing handler must not kill the socket.
-        }
+      const frame = parseClientFrame(parsed);
+      if (frame === null) return;
+      if (frame.t === "notify") {
+        dispatchNotify(table, frame.ch, frame.args);
         return;
       }
-      if (f.t !== "req" || typeof f.id !== "number") return;
-      const id = f.id;
-      const fn = (table.request as unknown as Record<string, (...args: unknown[]) => unknown>)[
-        f.ch
-      ];
-      if (!fn) {
-        reply(ws, { t: "res", id, ok: false, message: `unknown channel ${f.ch}` });
-        return;
-      }
-      void (async () => {
-        try {
-          const value = await fn(...args);
+      const id = frame.id;
+      void dispatchRequest(table, frame.ch, frame.args)
+        .then((value) => {
           // JSON.stringify turns an undefined return into null, which every Promise<void>
           // caller ignores.
           reply(ws, { t: "res", id, ok: true, value: value ?? null });
-        } catch (err) {
+        })
+        .catch((err: unknown) => {
           reply(ws, {
             t: "res",
             id,
             ok: false,
             message: err instanceof Error ? err.message : String(err),
           });
-        }
-      })();
+        });
     });
   });
+
+  // Built once per server, not per message: the handlers are stateless closures over the
+  // host and nothing invalidates the table (issue #301).
+  const table = host.handlers();
 
   // One sink for the whole server, not one per socket: the host fans out once and we fan to clients.
   const unsink = host.addSink((channel, args) => {

@@ -6,6 +6,8 @@ import {
   addMemory,
   browseDirectories,
   checkoutBranch,
+  dispatchNotify,
+  dispatchRequest,
   forgetMemory,
   formatModelRole,
   generateBranchNameWithOmp,
@@ -605,32 +607,30 @@ export class MainBackend {
   }
 
   registerIpc(): void {
-    const { request, notify } = this.handlers();
-    // Electron supplies dynamically decoded argument arrays, so widening happens once per table at
-    // this transport boundary; individual handlers remain tuple-checked by ChannelTable.
-    const requestHandlers = request as unknown as Record<
-      string,
-      (...args: unknown[]) => unknown
-    >;
-    const notifyHandlers = notify as unknown as Record<string, (...args: unknown[]) => void>;
-    for (const [channel, handle] of Object.entries(requestHandlers)) {
-      ipcMain.handle(channel, (_event, ...args: unknown[]) => handle(...args));
+    const table = this.handlers();
+    // Decorate before binding: the IPC transport is the desktop; its viewed reports name the
+    // tab the desktop window is showing, the only view state that may suppress or acknowledge
+    // an OS notification (issue #271). Remote renderers reach the same handler through the
+    // WebSocket transport and never mark the desktop.
+    const viewed = table.notify[CH.tabViewed];
+    const notify: ChannelTable["notify"] = {
+      ...table.notify,
+      [CH.tabViewed]: (clientId: string, tabId: string | null) => {
+        viewed(clientId, tabId);
+        this.sessions.noteDesktopClientId(clientId);
+        if (tabId !== null) this.notifier.viewedChanged(tabId);
+      },
+    };
+    const desktopTable: ChannelTable = { request: table.request, notify };
+    for (const channel of Object.keys(desktopTable.request)) {
+      ipcMain.handle(channel, (_event, ...args: unknown[]) =>
+        dispatchRequest(desktopTable, channel, args),
+      );
     }
-    for (const [channel, handle] of Object.entries(notifyHandlers)) {
-      if (channel === CH.tabViewed) {
-        // The IPC transport is the desktop: its viewed reports name the tab
-        // the desktop window is showing, the only view state that may
-        // suppress or acknowledge an OS notification (issue #271). Remote
-        // renderers reach the same handler through the WebSocket transport
-        // and never mark the desktop.
-        ipcMain.on(channel, (_event, clientId: string, tabId: string | null) => {
-          handle(clientId, tabId);
-          this.sessions.noteDesktopClientId(clientId);
-          if (tabId !== null) this.notifier.viewedChanged(tabId);
-        });
-      } else {
-        ipcMain.on(channel, (_event, ...args: unknown[]) => handle(...args));
-      }
+    for (const channel of Object.keys(desktopTable.notify)) {
+      ipcMain.on(channel, (_event, ...args: unknown[]) =>
+        dispatchNotify(desktopTable, channel, args),
+      );
     }
   }
 
@@ -700,7 +700,7 @@ export class MainBackend {
     if (!record) return null;
     const root = path.resolve(this.sessionsRoot, record.lineageDir);
     const resolved = path.resolve(absPath);
-    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    if (!isWithin(root, resolved)) {
       console.warn("[plan] refusing to read outside the lineage dir:", resolved);
       return null;
     }
@@ -770,13 +770,22 @@ export class MainBackend {
   }
 
   private async buildState(): Promise<BackendState> {
-    const records = this.registry.sessions;
+    // Group records by project in one pass; the old per-project filter was
+    // O(projects × sessions).
+    const byProject = new Map<string, OwnedSessionRecord[]>();
+    for (const record of this.registry.sessions) {
+      const group = byProject.get(record.projectCwd);
+      if (group) group.push(record);
+      else byProject.set(record.projectCwd, [record]);
+    }
     const groups: ProjectGroup[] = [];
     for (const project of this.registry.projects) {
-      const sessions: SessionSummary[] = [];
-      for (const record of records.filter((r) => r.projectCwd === project.path)) {
-        sessions.push(await this.summarize(record));
-      }
+      // Summarizes are independent — each reads its own lineage dir, and the registry
+      // writes inside are synchronous — so they run concurrently; one slow disk no
+      // longer stalls the rest. Order within a group follows the registry array.
+      const sessions = await Promise.all(
+        (byProject.get(project.path) ?? []).map((record) => this.summarize(record)),
+      );
       groups.push({ project, sessions });
     }
     // The registry arrays are the sidebar orders (issues #115, #274): projects

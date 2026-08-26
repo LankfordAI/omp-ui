@@ -8,6 +8,23 @@ export type ClientFrame =
   | { t: "req"; id: number; ch: string; args: unknown[] }
   | { t: "notify"; ch: string; args: unknown[] };
 
+/**
+ * The one narrowing for inbound JSON frames (issue #301). A well-formed frame comes back
+ * with `args` normalized to an array — a missing `args` dispatches with no arguments, as
+ * the server did before. Anything else (non-object, missing `ch`, a non-numeric `id` on a
+ * req, a present-but-non-array `args`) is null: dropped, never thrown.
+ */
+export function parseClientFrame(frame: unknown): ClientFrame | null {
+  if (frame === null || typeof frame !== "object") return null;
+  const f = frame as { t?: unknown; id?: unknown; ch?: unknown; args?: unknown };
+  if (typeof f.ch !== "string") return null;
+  if (f.args !== undefined && !Array.isArray(f.args)) return null;
+  const args = f.args ?? [];
+  if (f.t === "notify") return { t: "notify", ch: f.ch, args };
+  if (f.t === "req" && typeof f.id === "number") return { t: "req", id: f.id, ch: f.ch, args };
+  return null;
+}
+
 export type ServerFrame =
   | { t: "res"; id: number; ok: true; value: unknown }
   | { t: "res"; id: number; ok: false; message: string }

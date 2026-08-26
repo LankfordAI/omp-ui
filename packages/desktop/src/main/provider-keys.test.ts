@@ -55,7 +55,8 @@ function setup(): void {
   new MainBackend(win as never, registryFile, { providerKeysFile: keysFile }).registerIpc();
 }
 
-const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
+const invoke = async (ch: string, ...args: unknown[]): Promise<unknown> =>
+  handlers.get(ch)!(null, ...args);
 const snapshot = (result: unknown): ProviderKeysSnapshot => result as ProviderKeysSnapshot;
 const row = (snap: ProviderKeysSnapshot, id: string) => {
   const found = snap.providers.find((p) => p.id === id);
@@ -71,38 +72,38 @@ afterEach(() => {
 });
 
 describe("provider-keys IPC", () => {
-  it("reads every catalogued provider, unconfigured, with no key material", () => {
-    const snap = snapshot(invoke(CH.readProviderKeys, null));
+  it("reads every catalogued provider, unconfigured, with no key material", async () => {
+    const snap = snapshot(await invoke(CH.readProviderKeys, null));
     expect(snap.providers.length).toBeGreaterThan(10);
     expect(row(snap, "openrouter")).toMatchObject({ source: "none", masked: null });
     expect(snap.encryptionAvailable).toBe(true);
     expect(snap.backend).toBe(process.platform === "win32" ? "windows-dpapi" : "test_stub");
   });
 
-  it("a saved key reaches the environment omp inherits — the whole point", () => {
-    invoke(CH.setProviderKey, KEY, VALUE);
+  it("a saved key reaches the environment omp inherits — the whole point", async () => {
+    await invoke(CH.setProviderKey, KEY, VALUE);
     expect(process.env[KEY]).toBe(VALUE);
   });
 
-  it("answers a write with the refreshed snapshot, so no re-read is needed", () => {
-    const snap = snapshot(invoke(CH.setProviderKey, KEY, VALUE));
+  it("answers a write with the refreshed snapshot, so no re-read is needed", async () => {
+    const snap = snapshot(await invoke(CH.setProviderKey, KEY, VALUE));
     expect(row(snap, "openrouter")).toMatchObject({ source: "stored", masked: "••••cdef" });
   });
 
-  it("never returns the key itself over IPC, only a masked tail", () => {
-    const snap = snapshot(invoke(CH.setProviderKey, KEY, VALUE));
+  it("never returns the key itself over IPC, only a masked tail", async () => {
+    const snap = snapshot(await invoke(CH.setProviderKey, KEY, VALUE));
     expect(JSON.stringify(snap)).not.toContain(VALUE);
   });
 
-  it("clearing removes the key from the environment and the store", () => {
-    invoke(CH.setProviderKey, KEY, VALUE);
-    const snap = snapshot(invoke(CH.clearProviderKey, KEY));
+  it("clearing removes the key from the environment and the store", async () => {
+    await invoke(CH.setProviderKey, KEY, VALUE);
+    const snap = snapshot(await invoke(CH.clearProviderKey, KEY));
     expect(KEY in process.env).toBe(false);
     expect(row(snap, "openrouter").source).toBe("none");
   });
 
-  it("survives a restart: a stored key is applied before any session can spawn", () => {
-    invoke(CH.setProviderKey, KEY, VALUE);
+  it("survives a restart: a stored key is applied before any session can spawn", async () => {
+    await invoke(CH.setProviderKey, KEY, VALUE);
     delete process.env[KEY];
     // A fresh backend is exactly what the next app launch builds.
     new MainBackend(win as never, path.join(base, "registry.json"), {
@@ -111,31 +112,33 @@ describe("provider-keys IPC", () => {
     expect(process.env[KEY]).toBe(VALUE);
   });
 
-  it("rejects a variable outside the provider catalog", () => {
-    expect(() => invoke(CH.setProviderKey, "LD_PRELOAD", "/tmp/evil.so")).toThrow(
+  it("rejects a variable outside the provider catalog", async () => {
+    await expect(invoke(CH.setProviderKey, "LD_PRELOAD", "/tmp/evil.so")).rejects.toThrow(
       /unknown provider variable/,
     );
   });
 
-  it("reports a project .env key without injecting it — omp loads those itself", () => {
+  it("reports a project .env key without injecting it — omp loads those itself", async () => {
     const project = path.join(base, "proj");
     fs.mkdirSync(project);
     fs.writeFileSync(path.join(project, ".env"), `${KEY}=${VALUE}\n`);
-    const snap = snapshot(invoke(CH.readProviderKeys, project));
+    const snap = snapshot(await invoke(CH.readProviderKeys, project));
     expect(row(snap, "openrouter").source).toBe("dotenv");
     expect(KEY in process.env).toBe(false);
   });
 });
 
 describe("Windows credential backend", () => {
-  it("reports DPAPI and round-trips stored provider credentials", () => {
+  it("reports DPAPI and round-trips stored provider credentials", async () => {
     expect(electronKeyCipher("win32").backend).toBe("windows-dpapi");
-    invoke(CH.setProviderKey, KEY, VALUE);
+    await invoke(CH.setProviderKey, KEY, VALUE);
     delete process.env[KEY];
     new MainBackend(win as never, path.join(base, "registry.json"), {
       providerKeysFile: keysFile,
     });
     expect(process.env[KEY]).toBe(VALUE);
-    expect(row(snapshot(invoke(CH.readProviderKeys, null)), "openrouter").source).toBe("stored");
+    expect(row(snapshot(await invoke(CH.readProviderKeys, null)), "openrouter").source).toBe(
+      "stored",
+    );
   });
 });

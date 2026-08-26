@@ -422,6 +422,25 @@ describe("startRemoteServer websocket", () => {
     expect(await reply).toMatchObject({ id: 4, ok: true });
     expect(ws.readyState).toBe(WebSocket.OPEN);
   });
+
+  it("builds the host's table once per server, not per message", async () => {
+    const host = fakeHost();
+    let tableCalls = 0;
+    const original = host.handlers;
+    host.handlers = () => {
+      tableCalls += 1;
+      return original();
+    };
+    const { base } = await serve({ host });
+    const ws = await connect(base, TOKEN);
+    const reply = nextJson(ws);
+    ws.send(JSON.stringify({ t: "notify", ch: "pty:write", args: ["tab", "x"] }));
+    ws.send(JSON.stringify({ t: "req", id: 9, ch: "nope:nope", args: [] }));
+    ws.send(JSON.stringify({ t: "req", id: 10, ch: "state:get", args: [] }));
+    expect(await reply).toMatchObject({ id: 10, ok: true });
+    expect(tableCalls).toBe(1);
+  });
+
 });
 
 describe("startRemoteServer event fan-out", () => {

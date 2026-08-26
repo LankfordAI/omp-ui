@@ -13,6 +13,7 @@ import {
   type KeyCipher,
 } from "@omp-ui/core";
 import { MainBackend } from "./backend";
+import { DesktopNotifier } from "./desktop-notifier";
 import { SessionManager } from "./session-manager";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
@@ -406,5 +407,71 @@ describe("orphan worktree sweep on startup (issue #262)", () => {
     await vi.waitFor(() => {
       expect(fs.existsSync(orphan)).toBe(false);
     });
+  });
+});
+
+describe("dispatch and state builds (issue #301)", () => {
+  it("summarizes every session concurrently", async () => {
+    seedRegistry(path.join(base, "registry.json"), {
+      projects: [
+        {
+          path: "/p/a",
+          name: "A",
+          addedAt: "2026-08-01T00:00:00.000Z",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+        },
+      ],
+      sessions: [
+        ownedSessionRecord({ projectCwd: "/p/a" }),
+        ownedSessionRecord({
+          tabId: "tab-2",
+          projectCwd: "/p/a",
+          lineageDir: "omp-ui--proj--99999999-8888-7777-6666-555555555555",
+        }),
+      ],
+    });
+    const gate = deferred<void>();
+    let locationReads = 0;
+    resolveSessionLocationMock.mockImplementation(() => {
+      locationReads += 1;
+      return gate.promise.then(() => ({ where: "missing" as const }));
+    });
+
+    const backend = new MainBackend(win as never, path.join(base, "registry.json"));
+    backend.registerIpc();
+    const pending = invoke(CH.getState);
+
+    // Both summarizes must have started before either resolved: a serial build
+    // stalls at one outstanding location read.
+    expect(locationReads).toBe(2);
+    gate.resolve(undefined);
+    const state = (await pending) as BackendState;
+    expect(state.projects.map((group) => group.sessions.length)).toEqual([2]);
+  });
+
+  it("marks desktop viewed reports and raises the notifier (issue #271)", async () => {
+    const noteDesktop = vi.spyOn(SessionManager.prototype, "noteDesktopClientId");
+    const viewedChanged = vi.spyOn(DesktopNotifier.prototype, "viewedChanged");
+    try {
+      const backend = new MainBackend(win as never, path.join(base, "registry.json"));
+      backend.registerIpc();
+      invoke(CH.tabViewed, "desktop-client", "tab-1");
+      expect(noteDesktop).toHaveBeenCalledWith("desktop-client");
+      expect(viewedChanged).toHaveBeenCalledWith("tab-1");
+
+      noteDesktop.mockClear();
+      viewedChanged.mockClear();
+      invoke(CH.tabViewed, "remote-client", null);
+      expect(noteDesktop).toHaveBeenCalledWith("remote-client");
+      expect(viewedChanged).not.toHaveBeenCalled();
+    } finally {
+      noteDesktop.mockRestore();
+      viewedChanged.mockRestore();
+    }
   });
 });

@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   BACKEND_CHANNELS,
   CH,
+  dispatchNotify,
+  dispatchRequest,
   makeBackendClient,
   type BackendChannelSpec,
   type BackendTransport,
@@ -171,5 +173,52 @@ describe("makeBackendClient", () => {
       args: ["tab-1", 120, 40],
     });
     expect(recorded.listeners.get("pty:data")).toBe(onData);
+  });
+});
+
+describe("transport dispatch (issue #301)", () => {
+  const noteCalls: unknown[][] = [];
+  const table = {
+    request: {
+      "echo:sync": (a: unknown, b: unknown) => [a, b],
+      "echo:async": async (v: unknown) => `async:${v}`,
+      "boom:sync": () => {
+        throw new Error("sync-throw");
+      },
+      "boom:async": async () => {
+        throw new Error("async-reject");
+      },
+    },
+    notify: {
+      note: (a: unknown, b: unknown) => {
+        noteCalls.push([a, b]);
+      },
+      "note:boom": () => {
+        throw new Error("notify-throw");
+      },
+    },
+  } as unknown as ChannelTable;
+
+  it("dispatchRequest resolves handler values and passes args in order", async () => {
+    await expect(dispatchRequest(table, "echo:sync", [1, "two"])).resolves.toEqual([1, "two"]);
+    await expect(dispatchRequest(table, "echo:async", ["v"])).resolves.toBe("async:v");
+  });
+
+  it("dispatchRequest rejects unknown channels by name", async () => {
+    await expect(dispatchRequest(table, "nope:nope", [])).rejects.toThrow(
+      "unknown channel nope:nope",
+    );
+  });
+
+  it("dispatchRequest rejects with the handler's own error", async () => {
+    await expect(dispatchRequest(table, "boom:sync", [])).rejects.toThrow("sync-throw");
+    await expect(dispatchRequest(table, "boom:async", [])).rejects.toThrow("async-reject");
+  });
+
+  it("dispatchNotify invokes with args, ignores unknown channels, swallows throws", () => {
+    dispatchNotify(table, "note", ["x", 1]);
+    expect(noteCalls).toEqual([["x", 1]]);
+    expect(() => dispatchNotify(table, "nope:nope", [])).not.toThrow();
+    expect(() => dispatchNotify(table, "note:boom", [])).not.toThrow();
   });
 });
