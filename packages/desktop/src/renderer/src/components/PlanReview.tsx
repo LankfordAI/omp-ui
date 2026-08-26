@@ -14,13 +14,15 @@ import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
 import { PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
+import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
  * call while this docked, non-modal panel is open in the session's tab. It has
  * no scrim, app-wide inert state, or focus trap: execute lands a verdict and
  * lets the renderer dispatch the implementation into a chosen context (same
- * session, same session after compacting, or a fresh session), while refine
+ * session, same session after compacting, a fresh session, or a fresh
+ * worktree session), while refine
  * sends the agent back to revise the draft. "Not now" or the close button
  * defers the decision without answering the gate: the agent stays paused and
  * the plan stays pending in the rail's plans tab until the user returns. Both
@@ -40,6 +42,7 @@ const CONTEXTS: Array<{
   { id: "existing", label: "this session", hint: "implement in the same chat" },
   { id: "compacted", label: "this session, compacted", hint: "compact context, then implement here" },
   { id: "fresh", label: "fresh session", hint: "a new chat seeded with the plan" },
+  { id: "worktree", label: "worktree session", hint: "a new chat in a dedicated checkout and branch" },
 ];
 
 /** Stable empty array so the selector doesn't resubscribe on every store tick. */
@@ -91,6 +94,16 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const [compactStep, setCompactStep] = useState<CompactReviewStep>("review");
 
   const [context, setContext] = useState<PlanExecutionContext>("existing");
+  /**
+   * The worktree context's dedicated checkout (issue #313): branch + base,
+   * minted once on first pick of the worktree row. Persists across context
+   * switches within a review; a new proposal re-seeds it to null.
+   */
+  const [worktreeSel, setWorktreeSel] = useState<{
+    branch: string;
+    baseRef: string | null;
+    baseTouched: boolean;
+  } | null>(null);
   /** Change notes for the planner; text + optional images ride a steer prompt. */
   const [changes, setChanges] = useState("");
   const { images, pasteError, onPaste, pickImages, dropImage, clearImages } = useImageDraft();
@@ -145,6 +158,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     setOrchestrate(false);
     setCompactStep("review");
     setWorkflowz(false);
+    setWorktreeSel(null);
   }
 
   // omp's config supplies the inherited advisor default, read in main.
@@ -207,8 +221,17 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
       thinkingLevel: stagedThinking,
       advisor: stagedAdvisor,
       advisorModel: stagedAdvisorModel,
+      // A "worktree" dispatch carries its dedicated-checkout spec in the bag;
+      // every other context leaves it null (ignored on the spawn side).
+      worktree:
+        context === "worktree" && worktreeSel !== null
+          ? { branch: worktreeSel.branch.trim(), baseRef: worktreeSel.baseRef }
+          : null,
     };
-    if (!(await branch.resolve())) return;
+    // A worktree dispatch never moves the project's working tree, so the
+    // branch-checkout dance (which protects a shared checkout) is a
+    // same-session-contexts concern only.
+    if (context !== "worktree" && !(await branch.resolve())) return;
     executePlan(tabId, context, options);
   };
 
@@ -406,12 +429,34 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       key={option.id}
                       type="button"
                       aria-pressed={active}
-                      onClick={() => setContext(option.id)}
+                      disabled={option.id === "worktree" && !branch.isRepo}
+                      title={
+                        option.id === "worktree" && !branch.isRepo
+                          ? "the project isn't a git repo"
+                          : undefined
+                      }
+                      onClick={() => {
+                        // Mint the worktree branch once, on first pick only —
+                        // re-picking the active selection keeps the minted name
+                        // and any edits (issue #225 semantics, as in the
+                        // composer's branch chip).
+                        if (option.id === "worktree" && worktreeSel === null) {
+                          setWorktreeSel({
+                            branch: mintBranchName(),
+                            baseRef: null,
+                            baseTouched: false,
+                          });
+                        }
+                        setContext(option.id);
+                      }}
                       className={cn(
                         "group flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-[background-color,border-color]",
                         active
                           ? "edge-lit border-line-strong bg-raised"
                           : "border-transparent hover:border-line hover:bg-raised/60",
+                        option.id === "worktree" &&
+                          !branch.isRepo &&
+                          "cursor-not-allowed opacity-50",
                       )}
                     >
                       <span
@@ -602,7 +647,29 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               )}
             </fieldset>
 
-            {branch.isRepo && <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />}
+            {branch.isRepo && context !== "worktree" && (
+              <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />
+            )}
+            {context === "worktree" && worktreeSel !== null && projectCwd !== undefined && (
+              <fieldset className="mt-5 border-t border-line pt-4">
+                <legend className="text-[11px] font-medium text-ink">Worktree</legend>
+                <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                  The implementation runs in a dedicated checkout under the app's worktrees root; the project's working tree is untouched.
+                </p>
+                <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
+                  <WorktreeBranchFields
+                    projectCwd={projectCwd}
+                    branch={worktreeSel.branch}
+                    onBranchChange={(b) => setWorktreeSel({ ...worktreeSel, branch: b })}
+                    baseRef={worktreeSel.baseRef}
+                    onBaseRefChange={(baseRef) => setWorktreeSel({ ...worktreeSel, baseRef })}
+                    baseTouched={worktreeSel.baseTouched}
+                    onBaseTouchedChange={(baseTouched) => setWorktreeSel({ ...worktreeSel, baseTouched })}
+                    idPrefix="plan-worktree"
+                  />
+                </div>
+              </fieldset>
+            )}
 
             <fieldset className="mt-5 border-t border-line pt-4">
               <legend className="text-[11px] font-medium text-ink">Magic keywords</legend>
@@ -658,6 +725,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   {ultrathink && " · ultrathink"}
                   {orchestrate && " · orchestrate"}
                   {workflowz && " · workflowz"}
+                  {context === "worktree" && worktreeSel !== null && (
+                    <>{" · "}{worktreeSel.branch.trim() || "new branch"}</>
+                  )}
                 </p>
               </div>
             )}
@@ -683,7 +753,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   <Button
                     variant="solid"
                     tone="signal"
-                    disabled={branch.checkingOut || branch.branchInvalid}
+                    disabled={
+                      context === "worktree"
+                        ? worktreeSel === null || worktreeSel.branch.trim() === ""
+                        : branch.checkingOut || branch.branchInvalid
+                    }
                     onClick={() => void execute()}
                   >
                     {branch.checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
@@ -702,13 +776,26 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 {ultrathink && " · ultrathink"}
                 {orchestrate && " · orchestrate"}
                 {workflowz && " · workflowz"}
-                {branch.summary !== null && <>{" · "}{branch.summary}</>}
+                {context === "worktree" && worktreeSel !== null ? (
+                  <>{" · "}{worktreeSel.branch.trim() || "new branch"}</>
+                ) : (
+                  branch.summary !== null && <>{" · "}{branch.summary}</>
+                )}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>not now</Button>
               <Button onClick={() => void refine()}>refine</Button>
-              <Button variant="solid" tone="signal" disabled={branch.checkingOut || branch.branchInvalid} onClick={() => void execute()}>
+              <Button
+                variant="solid"
+                tone="signal"
+                disabled={
+                  context === "worktree"
+                    ? worktreeSel === null || worktreeSel.branch.trim() === ""
+                    : branch.checkingOut || branch.branchInvalid
+                }
+                onClick={() => void execute()}
+              >
                 {branch.checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
               </Button>
             </div>

@@ -8,7 +8,7 @@ import type { RenderItem } from "./transcript";
  * Moved here from store.ts (was `export type PlanExecutionContext`) so this
  * module owns the whole plan-execute handoff.
  */
-export type PlanExecutionContext = "existing" | "compacted" | "fresh";
+export type PlanExecutionContext = "existing" | "compacted" | "fresh" | "worktree";
 
 /** How long after a plan verdict to let the drafting turn's advisor review land. */
 export const PLAN_CONCERNS_WAIT_MS = 15_000;
@@ -43,6 +43,12 @@ export interface PlanExecutionOptions {
   advisor?: boolean;
   /** Staged advisor `model[:level]` selector; null defers to omp's modelRoles.advisor. */
   advisorModel?: string | null;
+  /**
+   * Dedicated worktree for a "worktree" context spawn: the branch is cut from
+   * baseRef (null = the project checkout's HEAD) under the app's worktrees root.
+   * Set only when context is "worktree"; ignored by every other context.
+   */
+  worktree?: { branch: string; baseRef: string | null } | null;
 }
 
 /**

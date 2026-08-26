@@ -93,13 +93,14 @@ When a plan is proposed, the review docks in that session's view — the rest of
 - **Refine** sends the planner back immediately. You can include revision notes and image attachments.
 - **Not now** (or the review's close button) dismisses it without answering. The agent stays paused and the working tree stays read-only; the rest of the app remains usable, and the session's sidebar row keeps its "answer needed" state until the gate is answered.
 
-Execution always begins in Build mode, regardless of the Default agent mode. Choose one of three implementation contexts:
+Execution always begins in Build mode, regardless of the Default agent mode. Choose one of four implementation contexts:
 
 1. **This session** sends the implementation prompt into the current session.
 2. **This session, compacted** compacts the current context first, then implements there.
 3. **Fresh session** opens a new session seeded with the plan.
+4. **Worktree session** opens a new session seeded with the plan, running in a dedicated git worktree — a separate checkout on its own branch under omp-ui's app-data directory, leaving the project's working tree untouched. The branch name mints to an editable `omp-ui/…` name and is cut from the chosen base (default: the project checkout's current branch; the checkout's HEAD when it is detached). Offered on git projects only; the resulting session follows the usual [worktree session](#worktree-sessions) rules.
 
-Before execution you can stage the model, thinking level, advisor, advisor model, git branch, and OMP's `ultrathink`, `orchestrate`, and `workflowz` magic keywords. On a git project, keep the current branch, create and switch to a new one, or switch to an existing one. If another session in that project is mid-turn, omp-ui asks before switching to an existing branch. If Git rejects the checkout, the review stays pending and shows the error. When an advisor reviewed the plan turn, **Address advisor concerns** folds those findings into the implementation prompt; this option starts on.
+Before execution you can stage the model, thinking level, advisor, advisor model, git branch, and OMP's `ultrathink`, `orchestrate`, and `workflowz` magic keywords. On a git project, keep the current branch, create and switch to a new one, or switch to an existing one; in the worktree session context, cut a new worktree branch instead, choosing the branch name and base. If another session in that project is mid-turn, omp-ui asks before switching to an existing branch. If Git rejects the checkout, the review stays pending and shows the error. When an advisor reviewed the plan turn, **Address advisor concerns** folds those findings into the implementation prompt; this option starts on.
 
 The Plans pane keeps the pending plan first and settled plans dimmed below it. **Review** restores the same gate, **Request changes** refines without notes, and **Not now** leaves the gate unanswered.
 
@@ -119,7 +120,7 @@ On compact screens, the inspector opens as a right-side sheet with the same five
 
 A **worktree session** runs OMP in a dedicated git worktree on its own branch. The checkout lives under omp-ui's app-data directory and shares the project's git object store. The registered project remains its project for sidebar grouping, MCP scope, and remembered session parameters, but the worktree is its effective working tree.
 
-Start one from **New worktree session**, choose a branch name and base ref, then create the session. You can also create an ordinary native session, open the branch chip before its first prompt, choose **Worktree**, and send the first prompt. omp-ui cuts the checkout before sending; if git rejects the operation, the draft and selection remain in place with the error.
+Start one from **New worktree session**, choose a branch name and base ref, then create the session. You can also create an ordinary native session, open the branch chip before its first prompt, choose **Worktree**, and send the first prompt. The plan review's worktree-session execution context produces worktree sessions too, seeded with the approved plan. omp-ui cuts the checkout before sending; if git rejects the operation, the draft and selection remain in place with the error.
 
 The effective checkout controls the branch chip, `@` file picker, branch diff pane, and console shell. Resume, advisor or MCP restart, native or terminal mode restart, and Build or Plan switches all keep the same checkout because its path is stored on the session record.
 

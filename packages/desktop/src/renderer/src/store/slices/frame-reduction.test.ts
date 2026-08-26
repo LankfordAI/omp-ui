@@ -1133,6 +1133,94 @@ describe("handleRpcFrame routing", () => {
     }
   });
 
+  it("executing in a worktree session spawns in a dedicated checkout (issue #313)", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "wt-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "p-wt",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({
+          title: "t",
+          planFilePath: "local://p.md",
+          planAbsPath: "/lineage/local/p.md",
+        }),
+    });
+    // Let the plan file read resolve so executePlan captures the plan text.
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "worktree", {
+      worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+    });
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "p-wt", value: "execute" });
+    await h.flushMicrotasks();
+    // The worktree spec rides the same spawn as the plan provenance.
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectCwd: "/p",
+        mode: "rpc-ui",
+        startInPlanMode: false,
+        worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+        planImplementationSource: {
+          sourceTabId: h.TAB,
+          planTitle: "t",
+          planFilePath: "local://p.md",
+        },
+      }),
+    );
+    // Boot the worktree tab to ready — resolves the spawn's readiness wait.
+    h.useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        "wt-tab": rpcTabState({ status: "ready", planText: null }),
+      },
+    }));
+    await h.flushMicrotasks();
+    const prompt = h.sent.find((s) => s.tabId === "wt-tab" && s.cmd.type === "prompt");
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message)).toContain("Implement it now");
+    expect(String(prompt!.cmd.message)).toContain("# Plan");
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+
+    h.respond("wt-tab", prompt!.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "wt-tab");
+    // The handoff notice names the worktree dispatch, not the plain fresh one.
+    expect(
+      h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.some(
+          (item) =>
+            item.kind === "notice" &&
+            item.text.includes("implementation dispatched to a fresh worktree session"),
+        ),
+    ).toBe(true);
+    await rearmHandoffSource();
+  });
+
+  it("a refused worktree add alerts, sends no prompt, and hibernates nothing (issue #313)", async () => {
+    h.mockBackend.spawnSession.mockRejectedValueOnce(
+      new Error("fatal: a branch named 'omp-ui/cafebabe' already exists"),
+    );
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    openReview("p-wt-refused");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "worktree", {
+      worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+    });
+    await h.flushMicrotasks();
+    // The verdict answers the gate before the add is refused, so the plan is
+    // already settled "executed"; the failure then rides the spawn-failure
+    // contract: an alert, no seed prompt, no hibernate.
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "p-wt-refused", value: "execute" });
+    expect(h.alerts).toEqual(["fatal: a branch named 'omp-ui/cafebabe' already exists"]);
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["set_model", { model: { id: "new", name: "New", provider: "provider" } }],
     ["set_thinking_level", { thinkingLevel: "high" }],

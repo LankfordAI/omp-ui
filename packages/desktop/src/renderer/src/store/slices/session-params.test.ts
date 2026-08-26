@@ -1525,6 +1525,35 @@ describe("project default models (issue #257)", () => {
     );
   });
 
+  it("plan dispatch in a worktree session: the spec and staged advisor ride one spawn", async () => {
+    const state = h.stateWithRecord(null);
+    const project = state.projects[0]!.project;
+    project.defaultAdvisorModel = "pin/advisor";
+    h.useStore.setState({
+      state,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    openReviewWithPlan("pd-wt");
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "wt-staged" });
+    h.useStore.getState().executePlan(h.TAB, "worktree", {
+      worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+      advisor: true,
+      advisorModel: "staged/advisor",
+    });
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+        startInPlanMode: false,
+        advisor: true,
+        advisorModel: "staged/advisor",
+      }),
+    );
+  });
+
   it("pin setters forward to the backend channel", async () => {
     await h.useStore.getState().setProjectDefaultModel("/p", "p/m");
     expect(h.mockBackend.setProjectDefaultModel).toHaveBeenCalledWith("/p", "p/m");

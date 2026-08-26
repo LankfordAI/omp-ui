@@ -191,6 +191,9 @@ export function createLifecycleSlice(
     const rec = findRecord(get().state, srcTabId);
     if (!rec) return;
     const projectCwd = rec.projectCwd;
+    // A "worktree" context dispatch carries its dedicated-checkout spec in the
+    // options bag; every other context spawns in the project checkout as-is.
+    const worktree = options?.worktree ?? null;
     // A staged tuple (the modal always sends one) wins over the project's
     // last-used defaults; legacy callers keep the fallback chain.
     await get().loadAdvisorDefaults(projectCwd);
@@ -222,6 +225,7 @@ export function createLifecycleSlice(
         rows: 24,
         startInPlanMode: false,
         planImplementationSource,
+        ...(worktree ? { worktree } : {}),
       }));
     } catch (err) {
       alertError(err);
@@ -279,7 +283,9 @@ export function createLifecycleSlice(
     m.appendItem(
       srcTabId,
       noticeItem(
-        "plan approved — implementation dispatched to a fresh session",
+        worktree !== null
+          ? "plan approved — implementation dispatched to a fresh worktree session"
+          : "plan approved — implementation dispatched to a fresh session",
         "info",
       ),
     );

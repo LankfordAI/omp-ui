@@ -468,6 +468,155 @@ describe("PlanReview git branch section (issue #25)", () => {
   });
 });
 
+describe("PlanReview worktree execution context (issue #313)", () => {
+  /** A Session-fieldset context row (aria-pressed, label-led text). */
+  const contextRow = (label: string): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
+      (candidate) => candidate.textContent?.startsWith(label),
+    );
+    expect(found).toBeDefined();
+    return found!;
+  };
+
+  it("offers four contexts; picking worktree mints a branch and shows the worktree fields", async () => {
+    render();
+    for (const label of [
+      "this session",
+      "this session, compacted",
+      "fresh session",
+      "worktree session",
+    ]) {
+      expect(contextRow(label)).toBeDefined();
+    }
+    await act(async () => contextRow("worktree session").click());
+
+    const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
+    expect(input).not.toBeNull();
+    // Minted once on first pick: omp-ui/<8 hex> (ADR-0018 app scratch work).
+    expect(input.value).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
+    expect(base).not.toBeNull();
+    // Base defaults to the checkout's current branch once the fields mount.
+    await act(async () => {});
+    expect(base.value).toBe("main");
+    // The Git-branch fieldset is a same-session-contexts concern: hidden here.
+    expect(document.body.textContent).not.toContain("Git branch");
+
+    // Re-picking the active selection keeps the minted name (issue #225).
+    const minted = input.value;
+    await act(async () => contextRow("worktree session").click());
+    expect(document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value).toBe(
+      minted,
+    );
+  });
+
+  it("disables the worktree context off-git and leaves the other contexts alone", () => {
+    useStore.setState({
+      branches: {
+        "/p": {
+          repoRoot: null,
+          current: null,
+          branches: [],
+          defaultBranch: null,
+          upstreamRef: null,
+          upstreamRemote: null,
+          hasUpstream: false,
+          ahead: 0,
+          behind: 0,
+          upstreamFetchedAt: null,
+          upstreamRefreshError: null,
+        },
+      },
+    });
+    render();
+    const row = contextRow("worktree session");
+    expect(row.disabled).toBe(true);
+    expect(row.title).toBe("the project isn't a git repo");
+    // The other contexts stay offered and enabled.
+    for (const label of ["this session", "fresh session"]) {
+      expect(contextRow(label).disabled).toBe(false);
+    }
+    expect(buttonByText("execute in this session")).toBeDefined();
+    expect(document.body.querySelector("#plan-worktree-branch")).toBeNull();
+  });
+
+  it("keeps execute disabled while the worktree branch name is empty", async () => {
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+    const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
+
+    expect(buttonByText("execute in worktree session").disabled).toBe(false);
+    await typeInto(input, "");
+    expect(buttonByText("execute in worktree session").disabled).toBe(true);
+    await typeInto(input, "omp-ui/renamed");
+    expect(buttonByText("execute in worktree session").disabled).toBe(false);
+  });
+
+  it("executes the worktree context with the staged spec and no checkout", async () => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await act(async () => contextRow("worktree session").click());
+      await act(async () => {});
+      const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
+      const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
+      await act(async () => {
+        buttonByText("execute in worktree session").click();
+        await Promise.resolve();
+      });
+
+      expect(executePlanSpy).toHaveBeenCalledTimes(1);
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "worktree",
+        expect.objectContaining({
+          worktree: { branch: input.value, baseRef: base.value === "" ? null : base.value },
+        }),
+      );
+      expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("re-mints the worktree branch for a revised proposal", async () => {
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+    const first = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
+
+    // A refined-and-reproposed plan re-seeds the pane while it stays mounted.
+    await act(async () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: tabState({
+            planReview: {
+              request: {
+                title: "Fix the login race",
+                planFilePath: "local://fix-login-race-plan.md",
+                planAbsPath: "/x/fix-login-race-plan.md",
+              },
+              frame: { id: "p2" },
+            },
+          }),
+        },
+      });
+    });
+    // The context survives the re-seed but its spec is gone: the fields hide
+    // and execute stays disabled until the row is picked again.
+    expect(document.body.querySelector("#plan-worktree-branch")).toBeNull();
+    expect(buttonByText("execute in worktree session").disabled).toBe(true);
+
+    await act(async () => contextRow("worktree session").click());
+    const second = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
+    expect(second).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    expect(second).not.toBe(first);
+  });
+});
+
 describe("PlanReview dock height (issue #277)", () => {
   it("stays a capped dock by default", () => {
     render();

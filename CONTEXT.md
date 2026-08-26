@@ -234,8 +234,10 @@ docked in the session's tab so it never locks the rest of the app. The agent
 submits by writing its plan's slug to `xd://propose`, which blocks it until the
 user answers execute or refine. Execute lands a single verdict and the renderer
 dispatches the implementation into a chosen context — the same session, the
-same session after compacting its context, or a freshly spawned session seeded
-with the plan — as a normal prompt. Implementation always begins in Build mode,
+same session after compacting its context, a freshly spawned session seeded
+with the plan, or a freshly spawned worktree session seeded with the plan and
+running in a dedicated checkout on its own branch — as a normal prompt.
+Implementation always begins in Build mode,
 whatever the Default agent mode says (issue #165). Refine sends the agent back
 to revise the draft, optionally carrying the user's revision notes (text +
 images). Abandoning the pane — "not now" or the pane's close button — is the

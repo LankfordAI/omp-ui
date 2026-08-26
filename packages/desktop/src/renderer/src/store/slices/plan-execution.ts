@@ -242,7 +242,7 @@ export function createPlanExecutionSlice(
       withConcerns(EXECUTION_PROMPT, concerns),
       options ?? {},
     );
-    if (context === "fresh") {
+    if (context === "fresh" || context === "worktree") {
       if (!planImplementationSource) return;
       void deps.spawnFreshImplementation(
         tabId,
