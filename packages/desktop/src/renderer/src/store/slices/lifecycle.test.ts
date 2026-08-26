@@ -177,10 +177,12 @@ describe("deleteSession", () => {
       hasFiles: true,
       worktreeBranch: null,
       worktreeBase: null,
+      cascade: [],
     });
 
     await h.useStore.getState().confirmDeleteSession(false);
-    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
     expect(h.useStore.getState().tabs).toEqual([]);
   });
 
@@ -218,7 +220,7 @@ describe("deleteSession", () => {
     await h.useStore.getState().deleteSession(h.TAB);
     await h.useStore.getState().confirmDeleteSession(false);
 
-    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
     const st = h.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual(["other"]);
     expect(st.rpc[h.TAB]).toBeUndefined();
@@ -287,6 +289,7 @@ describe("deleteSession", () => {
       hasFiles: true,
       worktreeBranch: "omp-ui/abcd1234",
       worktreeBase: "main",
+      cascade: [],
     });
   });
 
@@ -325,7 +328,103 @@ describe("deleteSession", () => {
     await h.useStore.getState().deleteSession(h.TAB);
 
     expect(h.useStore.getState().deleteConfirmation).toBeNull();
-    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
+  });
+
+  it("always fetches the authoritative preview, even on the fast path", async () => {
+    const state = h.stateWithRecord("sess-1", "dormant");
+    state.skipDeleteConfirmation = true;
+    h.useStore.setState({ state });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+
+    expect(h.mockBackend.deleteSessionPreview).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
+    expect(h.useStore.getState().deleteConfirmation).toBeNull();
+  });
+
+  it("stages the cascade confirmation even with the skip flag set", async () => {
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [
+        { tabId: "child-1", title: "Impl one", running: false },
+        { tabId: "child-2", title: "Impl two", running: true },
+      ],
+    });
+    const state = h.stateWithRecord("sess-1", "live");
+    state.skipDeleteConfirmation = true;
+    h.useStore.setState({ state });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().deleteConfirmation).toMatchObject({
+      tabId: h.TAB,
+      cascade: [
+        { tabId: "child-1", title: "Impl one", running: false },
+        { tabId: "child-2", title: "Impl two", running: true },
+      ],
+    });
+  });
+
+  it("carries both the worktree fields and the cascade on the confirmation", async () => {
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
+    });
+    const state = h.stateWithRecord("sess-1", "live");
+    state.projects[0]!.sessions[0]!.worktree = {
+      path: "/wt",
+      branch: "omp-ui/abcd1234",
+      base: "main",
+    };
+    h.useStore.setState({ state });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+
+    expect(h.useStore.getState().deleteConfirmation).toMatchObject({
+      worktreeBranch: "omp-ui/abcd1234",
+      worktreeBase: "main",
+      cascade: [{ tabId: "child-1", title: "Impl one", running: false }],
+    });
+  });
+
+  it("erases the root and every staged descendant on confirm", async () => {
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
+    });
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: "child-1", mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: "other", mode: "pty", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: h.TAB,
+      exited: { [h.TAB]: 1, "child-1": 2 },
+      rpc: { [h.TAB]: rpcTabState(), "child-1": rpcTabState() },
+    });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+    await h.useStore.getState().confirmDeleteSession(false);
+
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, true);
+    const st = h.useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual(["other"]);
+    expect(st.rpc[h.TAB]).toBeUndefined();
+    expect(st.rpc["child-1"]).toBeUndefined();
+    expect(st.exited[h.TAB]).toBeUndefined();
+    expect(st.exited["child-1"]).toBeUndefined();
+    expect(st.activeTabId).toBe("other");
+  });
+
+  it("surfaces a preview failure and stages nothing", async () => {
+    h.mockBackend.deleteSessionPreview.mockRejectedValueOnce(new Error("boom"));
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+
+    expect(h.useStore.getState().deleteConfirmation).toBeNull();
+    expect(h.alerts[0]).toBe("boom");
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
   });
 });
 
@@ -628,7 +727,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
 
     await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
     expect(h.useStore.getState().focusedTabByProject["/p"]).toBe("other");
   });
 

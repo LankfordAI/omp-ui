@@ -709,7 +709,7 @@ describe("SessionManager live ownership", () => {
     const { manager, registry, sessionsRoot } = setup();
     await resume(manager);
 
-    const deleting = manager.deleteSession(TAB);
+    const deleting = manager.deleteSession(TAB, false);
     await Promise.resolve();
     expect(registry.sessions.some((record) => record.tabId === TAB)).toBe(true);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(true);
@@ -739,7 +739,7 @@ describe("SessionManager live ownership", () => {
 
     const spawning = resume(manager);
     await preparationStarted;
-    const deleting = manager.deleteSession(TAB);
+    const deleting = manager.deleteSession(TAB, false);
 
     release();
     await spawning;
@@ -769,7 +769,7 @@ describe("SessionManager live ownership", () => {
       return [];
     });
 
-    const deleting = manager.deleteSession(TAB);
+    const deleting = manager.deleteSession(TAB, false);
     const respawning = resume(manager);
     await filesStepReached;
 
@@ -1254,7 +1254,7 @@ describe("worktree sessions (issue #224)", () => {
     });
     expect(fs.existsSync(worktreePath)).toBe(true);
 
-    await manager.deleteSession(tabId);
+    await manager.deleteSession(tabId, false);
 
     expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
     expect(fs.existsSync(worktreePath)).toBe(false);
@@ -1300,14 +1300,14 @@ describe("worktree sessions (issue #224)", () => {
 
     const { tabId: forkTabId } = await manager.forkSession(tabId);
 
-    await manager.deleteSession(tabId);
+    await manager.deleteSession(tabId, false);
 
     expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
     const fork = registry.sessions.find((s) => s.tabId === forkTabId)!;
     expect(fork.worktree).toEqual({ path: worktreePath, branch, base: "main" });
     expect(fs.existsSync(worktreePath)).toBe(true);
 
-    await manager.deleteSession(forkTabId);
+    await manager.deleteSession(forkTabId, false);
 
     expect(registry.sessions.some((s) => s.tabId === forkTabId)).toBe(false);
     expect(fs.existsSync(worktreePath)).toBe(false);
@@ -1416,7 +1416,7 @@ describe("worktree sessions (issue #224)", () => {
       }),
     );
 
-    await manager.deleteSession("tab-wt-bad");
+    await manager.deleteSession("tab-wt-bad", false);
 
     expect(fs.existsSync(sentinel)).toBe(true);
     expect(registry.sessions.some((s) => s.tabId === "tab-wt-bad")).toBe(false);
@@ -2606,7 +2606,7 @@ describe("hibernation (issue #246)", () => {
       expect(rpc.kill).toHaveBeenCalledTimes(1);
       expect(manager.isLive(TAB)).toBe(true); // kill in flight, entry not reaped
 
-      const deleting = manager.deleteSession(TAB); // must wait out the reap
+      const deleting = manager.deleteSession(TAB, false); // must wait out the reap
       await flush();
       // Pre-fix, killAndReap had already re-killed the dying entry by here.
       expect(rpc.kill).toHaveBeenCalledTimes(1);

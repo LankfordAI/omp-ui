@@ -45,7 +45,7 @@ export interface ListReorderRow {
   onDragEnd: () => void;
 }
 
-export interface ListReorder<TRow, TKey extends string> {
+export interface ListReorder<TKey extends string> {
   /** The unit currently being dragged, or null. */
   dragKey: TKey | null;
   /** Row wiring for the row at `index` whose unit is `key`. */
@@ -54,7 +54,7 @@ export interface ListReorder<TRow, TKey extends string> {
 
 export function useListReorder<TRow, TKey extends string>(
   options: ListReorderOptions<TRow, TKey>,
-): ListReorder<TRow, TKey> {
+): ListReorder<TKey> {
   // Rows/options/announce can change identity every render; the confirm effect
   // and the bound handlers read current values through the latest ref instead
   // of re-subscribing.

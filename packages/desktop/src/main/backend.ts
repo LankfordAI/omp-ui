@@ -443,7 +443,10 @@ export class MainBackend {
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
         [CH.switchMode]: (tabId: string, mode: SessionMode) =>
           this.sessions.switchMode(tabId, mode),
-        [CH.deleteSession]: (tabId: string) => this.sessions.deleteSession(tabId),
+        [CH.deleteSessionPreview]: (tabId: string) =>
+          this.sessions.deleteSessionPreview(tabId),
+        [CH.deleteSession]: (tabId: string, cascade: boolean) =>
+          this.sessions.deleteSession(tabId, cascade),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
         [CH.convertToWorktree]: (tabId: string, branch: string, baseRef: string | null) =>
           this.sessions.convertToWorktree(tabId, branch, baseRef),

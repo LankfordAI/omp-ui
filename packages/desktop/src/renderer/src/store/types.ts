@@ -14,6 +14,7 @@ import type {
   OmpSettingValue,
   OmpUpdateState,
   PlanFormat,
+  PlanHandoffDescendant,
   ProviderKeysSnapshot,
   RemoteBind,
   RemoteState,
@@ -163,6 +164,8 @@ export interface DeleteConfirmation {
   worktreeBranch: string | null;
   /** The worktree record's base; null for non-worktree sessions and pre-field records. */
   worktreeBase: string | null;
+  /** Plan-handoff descendants deleted with this session; empty = plain delete (issue #309). */
+  cascade: PlanHandoffDescendant[];
 }
 
 export type SettingsPage =

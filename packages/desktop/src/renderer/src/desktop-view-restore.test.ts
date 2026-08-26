@@ -84,6 +84,7 @@ const mockBackend = {
   hibernatePlanSource: vi.fn(async () => true),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
+  deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),
   forkSession: vi.fn(),
   toggleFavorite: vi.fn(),
   ptyWrite: vi.fn(),

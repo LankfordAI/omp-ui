@@ -12,6 +12,7 @@ import {
   isWithin,
   mcpRuntimeStatusMessage,
   planMessage,
+  planHandoffDescendants,
   type ProviderKeys,
   type Registry,
   removeWorktree,
@@ -23,6 +24,7 @@ import {
   writeImageToScratch,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
+  type DeleteSessionPreview,
   type ImageAttachment,
   type OwnedSessionRecord,
   type PlanImplementationSource,
@@ -725,9 +727,41 @@ export class SessionManager {
     // The record stays; the broadcast fires on process exit.
   }
 
-  /** Erases a session's record and files after its child is fully reaped. */
-  async deleteSession(tabId: string): Promise<void> {
-    return this.enqueueOp(tabId, "delete", () => this.deleteInner(tabId));
+  /**
+   * Erases a session's record and files after its child is fully reaped.
+   * With `cascade`, erases every plan-handoff descendant too (issue #309) —
+   * each behind its own tab's op queue, so a pending resume of a live
+   * descendant is not raced, and a per-session file failure leaves exactly
+   * that record retryable.
+   */
+  async deleteSession(tabId: string, cascade: boolean): Promise<void> {
+    const descendants = cascade
+      ? planHandoffDescendants(this.deps.registry.sessions, tabId)
+      : [];
+    await Promise.all(
+      [tabId, ...descendants].map((id) =>
+        this.enqueueOp(id, "delete", () => this.deleteInner(id)),
+      ),
+    );
+  }
+
+  /**
+   * Delete preview (issue #309): the descendants that would be erased with
+   * `tabId`. Pure registry read; an unknown `tabId` resolves to no
+   * descendants.
+   */
+  deleteSessionPreview(tabId: string): DeleteSessionPreview {
+    const descendants = planHandoffDescendants(this.deps.registry.sessions, tabId);
+    return {
+      descendants: descendants.map((id) => {
+        const record = this.deps.registry.sessions.find((s) => s.tabId === id)!;
+        return {
+          tabId: id,
+          title: record.cachedTitle?.trim() || "New session",
+          running: this.live.has(id),
+        };
+      }),
+    };
   }
 
   /** The delete proper: runs behind any pending op for the tab. */

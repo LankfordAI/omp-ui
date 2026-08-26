@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
-import { Registry, SETTINGS } from "./registry";
+import { Registry, SETTINGS, planHandoffDescendants } from "./registry";
 import type { RegistrySettings } from "./registry";
 import type { OwnedSessionRecord } from "./types";
 
@@ -1249,5 +1249,89 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       worktree: null,
       planImplementationSource: null,
     });
+  });
+});
+
+const handoffSource = (sourceTabId: string) => ({
+  sourceTabId,
+  planTitle: "Plan",
+  planFilePath: "local://plans/plan.md",
+});
+
+describe("planHandoffDescendants (issue #309)", () => {
+  it("returns nothing when no relation points at the root", () => {
+    const sessions = [
+      sessionRecord({ tabId: "a" }),
+      sessionRecord({ tabId: "b", planImplementationSource: handoffSource("a") }),
+    ];
+    expect(planHandoffDescendants(sessions, "c")).toEqual([]);
+    expect(planHandoffDescendants([], "a")).toEqual([]);
+  });
+
+  it("walks a chain from every level", () => {
+    const sessions = [
+      sessionRecord({ tabId: "plan" }),
+      sessionRecord({ tabId: "child", planImplementationSource: handoffSource("plan") }),
+      sessionRecord({ tabId: "grandchild", planImplementationSource: handoffSource("child") }),
+    ];
+    expect(planHandoffDescendants(sessions, "plan")).toEqual(["child", "grandchild"]);
+    expect(planHandoffDescendants(sessions, "child")).toEqual(["grandchild"]);
+    expect(planHandoffDescendants(sessions, "grandchild")).toEqual([]);
+  });
+
+  it("visits children depth-first, in registry order", () => {
+    const sessions = [
+      sessionRecord({ tabId: "root" }),
+      sessionRecord({ tabId: "c1", planImplementationSource: handoffSource("root") }),
+      sessionRecord({ tabId: "g1", planImplementationSource: handoffSource("c1") }),
+      sessionRecord({ tabId: "c2", planImplementationSource: handoffSource("root") }),
+      sessionRecord({ tabId: "g2", planImplementationSource: handoffSource("c2") }),
+    ];
+    expect(planHandoffDescendants(sessions, "root")).toEqual(["c1", "g1", "c2", "g2"]);
+  });
+
+  it("returns records pointing at a root that is itself not registered", () => {
+    const sessions = [
+      sessionRecord({ tabId: "child", planImplementationSource: handoffSource("gone") }),
+    ];
+    expect(planHandoffDescendants(sessions, "gone")).toEqual(["child"]);
+  });
+
+  it("neither follows nor includes a self-reference", () => {
+    const sessions = [
+      sessionRecord({ tabId: "root" }),
+      sessionRecord({ tabId: "self", planImplementationSource: handoffSource("self") }),
+    ];
+    expect(planHandoffDescendants(sessions, "self")).toEqual([]);
+    expect(planHandoffDescendants(sessions, "root")).toEqual([]);
+  });
+
+  it("terminates on a two-cycle and visits both members", () => {
+    const sessions = [
+      sessionRecord({ tabId: "r" }),
+      // The r → a edge plus the a ↔ b cycle, where the cycle closes through a second record named "a".
+      sessionRecord({ tabId: "a", planImplementationSource: handoffSource("b") }),
+      sessionRecord({ tabId: "b", planImplementationSource: handoffSource("a") }),
+      sessionRecord({ tabId: "a", planImplementationSource: handoffSource("r") }),
+    ];
+    expect(planHandoffDescendants(sessions, "r")).toEqual(["a", "b"]);
+  });
+
+  it("lists a duplicated child tabId once", () => {
+    const sessions = [
+      sessionRecord({ tabId: "root" }),
+      sessionRecord({ tabId: "dup", planImplementationSource: handoffSource("root") }),
+      sessionRecord({ tabId: "dup", planImplementationSource: handoffSource("root") }),
+    ];
+    expect(planHandoffDescendants(sessions, "root")).toEqual(["dup"]);
+  });
+
+  it("never returns unrelated sessions", () => {
+    const sessions = [
+      sessionRecord({ tabId: "root" }),
+      sessionRecord({ tabId: "child", planImplementationSource: handoffSource("root") }),
+      sessionRecord({ tabId: "other" }),
+    ];
+    expect(planHandoffDescendants(sessions, "root")).toEqual(["child"]);
   });
 });

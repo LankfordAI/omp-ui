@@ -7,6 +7,7 @@ import { beforeEach, vi } from "vitest";
 import type {
   AppUpdateState,
   BackendState,
+  DeleteSessionPreview,
   LiveState,
   OmpSettingsSnapshot,
   OmpUpdateState,
@@ -122,6 +123,7 @@ const mockBackend = {
   convertToWorktree: vi.fn(async () => {}),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
+  deleteSessionPreview: vi.fn(async (): Promise<DeleteSessionPreview> => ({ descendants: [] })),
   forkSession: vi.fn(),
   toggleFavorite: vi.fn(),
   ptyWrite: vi.fn(),

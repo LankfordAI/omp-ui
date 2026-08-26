@@ -8,6 +8,7 @@ import type {
   BranchList,
   BranchListOptions,
   ConsoleProgram,
+  DeleteSessionPreview,
   DirBrowseResult,
   ImageAttachment,
   McpServersResult,
@@ -285,11 +286,25 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string, mode: SessionMode], void>(),
   },
   /**
-   * Deletes a session: the registry record plus its lineage files in the active
-   * and archive roots (transcript + artifacts). Irreversible; rejects while the
-   * session is live.
+   * Delete preview (issue #309): every owned session descended from
+   * `tabId` through `planImplementationSource`, with its cached title and
+   * whether its omp process is running. Read-only; an unknown `tabId`
+   * resolves to no descendants, mirroring `session:delete`'s leniency.
    */
-  deleteSession: { channel: "session:delete", ...request<[tabId: string], void>() },
+  deleteSessionPreview: {
+    channel: "session:deletePreview",
+    ...request<[tabId: string], DeleteSessionPreview>(),
+  },
+  /**
+   * Deletes a session: the registry record plus its lineage files in the
+   * active and archive roots (transcript + artifacts). Irreversible. With
+   * `cascade`, also deletes every plan-handoff descendant of the session,
+   * each through the same per-session path (issue #309).
+   */
+  deleteSession: {
+    channel: "session:delete",
+    ...request<[tabId: string, cascade: boolean], void>(),
+  },
   /**
    * Full-fidelity branch (issue #83): copies the session's transcript into a
    * new lineage dir under a fresh session id and registers it, ready to open

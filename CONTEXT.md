@@ -76,9 +76,11 @@ planning session whose approved plan seeded it. After the fresh session
 acknowledges that seed, the renderer suppresses automatic prompts on the source
 and main hibernates it only when a safety probe finds no turn, queue, stream, or
 blocking human-answer request. A declined reap leaves the source live but still
-handed off until a human prompts or resumes it. The sessions stay independent:
-deleting either one never deletes the other, and an implementation session
-keeps the plan's provenance if the planning session is later deleted.
+handed off until a human prompts or resumes it. Deletion runs one way:
+deleting the planning session deletes the
+implementation sessions it spawned, and every session descended from
+them, with it (issue #309). Deleting an implementation session never
+deletes its planning session or its siblings.
 _Avoid_: lineage, parent session
 
 **Render item**:

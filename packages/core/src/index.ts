@@ -31,7 +31,7 @@ export * from "./app-update";
 export * from "./session-file";
 export * from "./types";
 export * from "./backend-channels";
-export { Registry } from "./registry";
+export { Registry, planHandoffDescendants } from "./registry";
 export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { watchLineageDir, type LineageEvent } from "./watcher";

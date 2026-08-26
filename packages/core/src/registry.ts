@@ -679,3 +679,38 @@ export class Registry {
     this.#save();
   }
 }
+
+/**
+ * Every tabId descended from rootTabId through the one-way
+ * planImplementationSource relation (issue #309). Depth-first preorder,
+ * children visited in registry (input) order; each tabId appears at most
+ * once. Self-references are not followed; cycles and malformed snapshots
+ * end their walk without error. A missing root still yields the records
+ * that point at it.
+ */
+export function planHandoffDescendants(
+  sessions: readonly Pick<OwnedSessionRecord, "tabId" | "planImplementationSource">[],
+  rootTabId: string,
+): string[] {
+  const children = new Map<string, string[]>();
+  for (const session of sessions) {
+    const source = session.planImplementationSource;
+    if (source === null || source.sourceTabId === session.tabId) continue;
+    if (typeof source.sourceTabId !== "string") continue;
+    const list = children.get(source.sourceTabId);
+    if (list !== undefined) list.push(session.tabId);
+    else children.set(source.sourceTabId, [session.tabId]);
+  }
+  const out: string[] = [];
+  const visited = new Set<string>([rootTabId]);
+  const visit = (id: string): void => {
+    for (const child of children.get(id) ?? []) {
+      if (visited.has(child)) continue;
+      visited.add(child);
+      out.push(child);
+      visit(child);
+    }
+  };
+  visit(rootTabId);
+  return out;
+}

@@ -215,7 +215,7 @@ describe("ToolCard search args", () => {
 describe("ToolCard streaming partials", () => {
   it("a write partial highlights with the target file's language", () => {
     const partialText = "<html><body>streaming…";
-    const { el, root } = renderCard(
+    const { root } = renderCard(
       tool({
         name: "Write",
         status: "running",

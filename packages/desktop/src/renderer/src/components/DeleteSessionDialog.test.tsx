@@ -41,6 +41,7 @@ const backendMock = {
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
+  deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),
   forkSession: vi.fn(),
   setSessionAdvisor: vi.fn(),
   getAdvisorDefaults: vi.fn(),
@@ -186,6 +187,7 @@ const worktreeConfirmation: DeleteConfirmation = {
   hasFiles: true,
   worktreeBranch: "omp-ui/deadbeef",
   worktreeBase: "main",
+  cascade: [],
 };
 
 function renderDialog(confirmation: DeleteConfirmation): void {
@@ -233,6 +235,7 @@ describe("DeleteSessionDialog", () => {
             hasFiles: true,
             worktreeBranch: null,
             worktreeBase: null,
+            cascade: [],
           }}
         />,
       ),
@@ -282,6 +285,7 @@ describe("DeleteSessionDialog", () => {
             hasFiles: true,
             worktreeBranch: "omp-ui/deadbeef",
             worktreeBase: null,
+            cascade: [],
           }}
         />,
       ),
@@ -329,7 +333,7 @@ describe("DeleteSessionDialog", () => {
     });
 
     expect(useStore.getState().deleteConfirmation).toBeNull();
-    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-1");
+    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-1", false);
   });
   it("offers the merge row only for a worktree session with a recorded base", async () => {
     backendMock.getMergeBackStatus.mockReset().mockResolvedValue(mergeableStatus);
@@ -597,4 +601,62 @@ describe("DeleteSessionDialog", () => {
     expect(confirmDeleteSession).toHaveBeenCalledWith(false);
   });
 
+  it("names the plan-handoff descendants and counts the total (issue #309)", async () => {
+    useStore.setState({
+      confirmDeleteSession: vi.fn(async () => {}),
+      cancelDeleteSession: vi.fn(),
+    });
+
+    renderDialog({
+      tabId: "tab-1",
+      title: "Source session",
+      running: true,
+      hasFiles: true,
+      worktreeBranch: null,
+      worktreeBase: null,
+      cascade: [
+        { tabId: "c1", title: "Impl one", running: false },
+        { tabId: "c2", title: "Impl two", running: true },
+        { tabId: "c3", title: "Impl three", running: false },
+        { tabId: "c4", title: "Impl four", running: false },
+        { tabId: "c5", title: "Impl five", running: false },
+      ],
+    });
+    await flush();
+
+    const text = document.body.textContent;
+    expect(text).toContain("Also deletes 5 plan implementation descendants");
+    expect(text).toContain("Impl one");
+    expect(text).toContain("Impl two · running");
+    expect(text).toContain("Impl three");
+    expect(text).toContain("Impl four");
+    expect(text).not.toContain("Impl five");
+    expect(text).toContain("+1 more");
+    expect(text).toContain("Their transcripts and artifacts are erased too");
+    buttonByText("Delete 6 sessions");
+    unmountDialog();
+  });
+
+  it("singular plan-handoff descendant and button count (issue #309)", async () => {
+    useStore.setState({
+      confirmDeleteSession: vi.fn(async () => {}),
+      cancelDeleteSession: vi.fn(),
+    });
+
+    renderDialog({
+      tabId: "tab-1",
+      title: "Source session",
+      running: false,
+      hasFiles: true,
+      worktreeBranch: null,
+      worktreeBase: null,
+      cascade: [{ tabId: "c1", title: "Impl one", running: false }],
+    });
+    await flush();
+
+    expect(document.body.textContent).toContain("Also deletes 1 plan implementation descendant");
+    expect(document.body.textContent).not.toContain("more");
+    buttonByText("Delete 2 sessions");
+    unmountDialog();
+  });
 });

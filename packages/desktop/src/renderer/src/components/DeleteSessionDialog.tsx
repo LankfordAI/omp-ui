@@ -27,6 +27,7 @@ export function DeleteSessionDialog({
 
   const branch = confirmation.worktreeBranch;
   const base = confirmation.worktreeBase;
+  const n = confirmation.cascade.length;
   const projectCwd = useStore(
     (s) => findRecord(s.state, confirmation.tabId)?.projectCwd,
   );
@@ -134,7 +135,13 @@ export function DeleteSessionDialog({
             title={mergeFirst && !mergeEnabled ? mergeTitle : undefined}
             onClick={() => void handleConfirm()}
           >
-            {merging ? "merging…" : mergeFirst ? "merge & delete" : "Delete session"}
+            {merging
+              ? "merging…"
+              : mergeFirst
+                ? "merge & delete"
+                : n > 0
+                  ? `Delete ${n + 1} sessions`
+                  : "Delete session"}
           </Button>
         </>
       }
@@ -147,6 +154,29 @@ export function DeleteSessionDialog({
             `Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on ${confirmation.worktreeBranch}. `}
           This cannot be undone.
         </p>
+
+        {n > 0 && (
+          <div className="rounded-md border border-line bg-raised px-3 py-2.5">
+            <p className="text-xs font-medium text-ink">
+              Also deletes {n} plan implementation descendant{n === 1 ? "" : "s"}
+            </p>
+            <ul className="mt-1.5 list-none space-y-0.5 text-xs text-ink-mid">
+              {confirmation.cascade.slice(0, 4).map((d) => (
+                <li key={d.tabId} className="truncate">
+                  {d.title}
+                  {d.running ? " · running" : ""}
+                </li>
+              ))}
+              {n > 4 && (
+                <li>+{n - 4} more</li>
+              )}
+            </ul>
+            <p className="mt-1.5 text-xs text-ink-mid">
+              Their transcripts and artifacts are erased too, and any running
+              agent among them is stopped.
+            </p>
+          </div>
+        )}
 
         {mergeRow && (
           <label

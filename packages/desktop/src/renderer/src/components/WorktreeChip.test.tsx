@@ -42,7 +42,6 @@ Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: ../store → ./backend reads window.ompBackend
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
-const { shortBase } = await import("../lib/format");
 const { WorktreeChip } = await import("./WorktreeChip");
 
 const worktree: SessionWorktree = {

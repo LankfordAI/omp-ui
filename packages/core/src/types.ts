@@ -124,6 +124,19 @@ export interface PlanImplementationSource {
   planFilePath: string;
 }
 
+/** One plan-handoff descendant in a delete preview (issue #309). */
+export interface PlanHandoffDescendant {
+  tabId: string;
+  title: string;
+  /** True when the descendant's omp process is currently running. */
+  running: boolean;
+}
+
+/** The sessions that would be erased with a deleted session (issue #309). */
+export interface DeleteSessionPreview {
+  descendants: PlanHandoffDescendant[];
+}
+
 export interface OwnedSessionRecord {
   tabId: string;
   /** UUIDv7 — null until the session materializes on disk (lazy materialization). */

@@ -40,7 +40,7 @@ Select a dormant or archived owned session to resume it. omp-ui restores an arch
 **Terminate** and **Delete** have different effects:
 
 - **Terminate agent** stops the owned process. The session record, transcript, artifacts, and worktree remain, so the session is resumable.
-- **Delete session** stops a live agent, removes the record, and irreversibly erases the entire lineage from the active and archive roots. For a worktree session, deletion also attempts to force-remove its checkout. The worktree branch and its commits survive.
+- **Delete session** stops a live agent, removes the record, and irreversibly erases the entire lineage from the active and archive roots. For a worktree session, deletion also attempts to force-remove its checkout. The worktree branch and its commits survive. Deleting a session that is the source of plan-implementation handoffs also deletes every session descended from it; the confirmation names them and their count before you confirm.
 
 Read the confirmation before deleting. Deleting one row may erase more than one transcript when OMP switched sessions inside that lineage. This cannot be undone.
 

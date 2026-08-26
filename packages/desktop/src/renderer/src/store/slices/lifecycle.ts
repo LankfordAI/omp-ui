@@ -2,6 +2,7 @@
 // spawn/resume/switch, delete confirmation, TUI handoff, and the
 // console/search drawer toggles.
 import type {
+  DeleteSessionPreview,
   PlanImplementationSource,
   SessionMode,
 } from "@omp-ui/core/types";
@@ -71,7 +72,7 @@ export type LifecycleSlice = Pick<
     advisor: boolean;
     advisorModel: string | null;
   }>;
-  eraseSession(tabId: string): Promise<void>;
+  eraseSession(tabId: string, cascade?: readonly string[]): Promise<void>;
   spawnFreshImplementation(
     tabId: string,
     planText: string | null,
@@ -127,45 +128,51 @@ export function createLifecycleSlice(
     });
   };
 
-  const eraseSession = async (tabId: string): Promise<void> => {
+  const eraseSession = async (tabId: string, cascade: readonly string[] = []): Promise<void> => {
+    const gone = [tabId, ...cascade];
     try {
-      await backend.deleteSession(tabId);
+      await backend.deleteSession(tabId, cascade.length > 0);
     } catch (err) {
       alertError(err);
       return;
     }
-    const tab = get().rpc[tabId];
-    // A dangling concern-wait timer must not fire into the dead tab's slot.
-    concernWatcher.cancel(tabId);
-    advisorReplyWatcher.cancel(tabId);
-    stallContinueWatcher.cancel(tabId);
-    m.cancelTranscriptBatch(tabId);
-    m.slashCommandItems.delete(tabId);
-    compactionUsageGenerations.delete(tabId);
-    handedOffPlanSources.delete(tabId);
-    quietWedgeNotified.delete(tabId);
-    timedOutCommands.delete(tabId);
-    if (tab) {
-      for (const pending of tab.pendingCommands.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error("session deleted"));
+    for (const id of gone) {
+      // A dangling concern-wait timer must not fire into the dead tab's slot.
+      concernWatcher.cancel(id);
+      advisorReplyWatcher.cancel(id);
+      stallContinueWatcher.cancel(id);
+      m.cancelTranscriptBatch(id);
+      m.slashCommandItems.delete(id);
+      compactionUsageGenerations.delete(id);
+      handedOffPlanSources.delete(id);
+      quietWedgeNotified.delete(id);
+      timedOutCommands.delete(id);
+      const tab = get().rpc[id];
+      if (tab) {
+        for (const pending of tab.pendingCommands.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error("session deleted"));
+        }
       }
     }
     set((s) => {
       const rpc = { ...s.rpc };
-      delete rpc[tabId];
-      const tabs = s.tabs.filter((t) => t.tabId !== tabId);
+      const tabs = s.tabs.filter((t) => !gone.includes(t.tabId));
       const activeTabId =
-        s.activeTabId === tabId
+        s.activeTabId !== null && gone.includes(s.activeTabId)
           ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
           : s.activeTabId;
+      for (const id of gone) delete rpc[id];
       return {
         rpc,
         tabs,
         activeTabId,
-        focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
-        exited: dropExited(s.exited, tabId),
-        tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId),
+        focusedTabByProject: gone.reduce(
+          (focus, id) => forgetFocus(focus, id, tabs),
+          s.focusedTabByProject,
+        ),
+        exited: gone.reduce((ex, id) => dropExited(ex, id), s.exited),
+        tuiHandoff: gone.reduce((th, id) => dropTuiHandoff(th, id), s.tuiHandoff),
       };
     });
   };
@@ -601,7 +608,19 @@ export function createLifecycleSlice(
   const deleteSession = async (tabId: string): Promise<void> => {
     const rec = findRecord(get().state, tabId);
     if (!rec) return;
-    if (get().state?.skipDeleteConfirmation === true && !rec.worktree) {
+    let preview: DeleteSessionPreview;
+    try {
+      preview = await backend.deleteSessionPreview(tabId);
+    } catch (err) {
+      alertError(err);
+      return;
+    }
+    const cascade = preview.descendants;
+    if (
+      get().state?.skipDeleteConfirmation === true &&
+      !rec.worktree &&
+      cascade.length === 0
+    ) {
       await eraseSession(tabId);
       return;
     }
@@ -613,6 +632,7 @@ export function createLifecycleSlice(
         hasFiles: rec.live !== "missing",
         worktreeBranch: rec.worktree?.branch ?? null,
         worktreeBase: rec.worktree?.base ?? null,
+        cascade,
       },
     });
   };
@@ -628,7 +648,7 @@ export function createLifecycleSlice(
         alertError(err);
       }
     }
-    await eraseSession(pending.tabId);
+    await eraseSession(pending.tabId, pending.cascade.map((d) => d.tabId));
   };
 
   const cancelDeleteSession = (): void => {

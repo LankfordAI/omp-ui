@@ -296,14 +296,230 @@ describe("session:delete", () => {
   it("keeps the record when the files cannot be deleted, so the row stays retryable", async () => {
     setup();
     const rm = vi.spyOn(fs.promises, "rm").mockRejectedValueOnce(new Error("EBUSY"));
-    await expect(invoke(CH.deleteSession, "tab-1")).rejects.toThrow(/EBUSY/);
+    await expect(invoke(CH.deleteSession, "tab-1", false)).rejects.toThrow(/EBUSY/);
     expect(readRegistry().sessions).toHaveLength(1);
     rm.mockRestore();
   });
 
   it("is a no-op for an unknown tab", async () => {
     setup();
-    await expect(invoke(CH.deleteSession, "nope")).resolves.toBeUndefined();
+    await expect(invoke(CH.deleteSession, "nope", false)).resolves.toBeUndefined();
     expect(readRegistry().sessions).toHaveLength(1);
+  });
+});
+
+const LINEAGE_S = "omp-ui--proj--aaaaaaaa-1111-2222-3333-444444444444";
+const LINEAGE_I1 = "omp-ui--proj--bbbbbbbb-1111-2222-3333-444444444444";
+const LINEAGE_I2 = "omp-ui--proj--cccccccc-1111-2222-3333-444444444444";
+const LINEAGE_U = "omp-ui--proj--dddddddd-1111-2222-3333-444444444444";
+
+const handoff = (sourceTabId: string) => ({
+  sourceTabId,
+  planTitle: "Plan",
+  planFilePath: "local://plans/plan.md",
+});
+
+/**
+ * source tab-s → implementation tab-i1 → grandchild tab-i2, plus an
+ * unrelated tab-u; every session gets its own lineage dir in both roots.
+ */
+function setupCascade(): {
+  sessionsRoot: string;
+  archiveRoot: string;
+} {
+  base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-del-"));
+  const agentDir = path.join(base, "agent");
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  delete process.env.XDG_DATA_HOME;
+  delete process.env.OMP_PROFILE;
+  delete process.env.PI_PROFILE;
+  const ompBin = path.join(base, "omp");
+  fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+  process.env.OMP_UI_OMP_PATH = ompBin;
+
+  const sessionsRoot = path.join(agentDir, "sessions");
+  const archiveRoot = path.join(agentDir, "archive", "sessions");
+  const files: Array<[lineage: string, title: string]> = [
+    [LINEAGE_S, "Source session"],
+    [LINEAGE_I1, "Implementation one"],
+    [LINEAGE_I2, "Implementation two"],
+    [LINEAGE_U, "Unrelated session"],
+  ];
+  for (const [lineage, title] of files) {
+    const activeDir = path.join(sessionsRoot, lineage);
+    fs.mkdirSync(activeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(activeDir, FILE_NAME),
+      `${JSON.stringify({ type: "title", title })}\n${JSON.stringify({
+        type: "session",
+        id: SESSION_ID,
+        cwd: "/proj",
+        timestamp: "2026-07-29T16:18:42.427Z",
+      })}\n`,
+    );
+    fs.mkdirSync(path.join(archiveRoot, lineage), { recursive: true });
+  }
+
+  const registryFile = path.join(base, "registry.json");
+  seedRegistry(registryFile, {
+    settings: { defaultMode: "pty" },
+    projects: [
+      {
+        path: "/proj",
+        name: "proj",
+        addedAt: "2026-07-29T00:00:00.000Z",
+        lastModel: null,
+        lastThinkingLevel: null,
+        lastAdvisor: null,
+        lastAdvisorModel: null,
+        defaultModel: null,
+        defaultAdvisorModel: null,
+      },
+    ],
+    sessions: [
+      ownedSessionRecord({
+        tabId: "tab-s",
+        sessionId: SESSION_ID,
+        lineageDir: LINEAGE_S,
+        projectCwd: "/proj",
+        mode: "pty",
+        cachedTitle: "Source session",
+      }),
+      ownedSessionRecord({
+        tabId: "tab-i1",
+        sessionId: SESSION_ID,
+        lineageDir: LINEAGE_I1,
+        projectCwd: "/proj",
+        mode: "pty",
+        planImplementationSource: handoff("tab-s"),
+        cachedTitle: "Implementation one",
+      }),
+      ownedSessionRecord({
+        tabId: "tab-i2",
+        sessionId: SESSION_ID,
+        lineageDir: LINEAGE_I2,
+        projectCwd: "/proj",
+        mode: "rpc-ui",
+        planImplementationSource: handoff("tab-i1"),
+        cachedTitle: "Implementation two",
+      }),
+      ownedSessionRecord({
+        tabId: "tab-u",
+        sessionId: SESSION_ID,
+        lineageDir: LINEAGE_U,
+        projectCwd: "/proj",
+        mode: "pty",
+        cachedTitle: "Unrelated session",
+      }),
+    ],
+  });
+
+  handlers.clear();
+  sent.length = 0;
+  const backend = new MainBackend(win as never, registryFile);
+  backend.registerIpc();
+  return { sessionsRoot, archiveRoot };
+}
+
+const launchTab = async (tabId: string): Promise<string[]> => {
+  await invoke(CH.spawnSession, {
+    projectCwd: "/proj",
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24,
+    resumeTabId: tabId,
+  });
+  return spawnedSignals.at(-1)!;
+};
+
+const isSessionRow = (s: unknown): s is { tabId: string } =>
+  typeof s === "object" && s !== null && "tabId" in s && typeof s.tabId === "string";
+
+/** Registered tab ids, in registry order. */
+const sessionIds = (): string[] =>
+  readRegistry().sessions.filter(isSessionRow).map((s) => s.tabId);
+
+describe("session:delete cascade (issue #309)", () => {
+  it("previews the whole descendant closure with titles and liveness", async () => {
+    setupCascade();
+    await expect(invoke(CH.deleteSessionPreview, "tab-s")).resolves.toEqual({
+      descendants: [
+        { tabId: "tab-i1", title: "Implementation one", running: false },
+        { tabId: "tab-i2", title: "Implementation two", running: false },
+      ],
+    });
+    await expect(invoke(CH.deleteSessionPreview, "tab-u")).resolves.toEqual({
+      descendants: [],
+    });
+    await expect(invoke(CH.deleteSessionPreview, "unknown")).resolves.toEqual({
+      descendants: [],
+    });
+  });
+
+  it("marks a live descendant as running in the preview", async () => {
+    setupCascade();
+    await launchTab("tab-i1");
+    await expect(invoke(CH.deleteSessionPreview, "tab-s")).resolves.toEqual({
+      descendants: [
+
+        { tabId: "tab-i1", title: "Implementation one", running: true },
+        { tabId: "tab-i2", title: "Implementation two", running: false },
+      ],
+    });
+  });
+
+  it("erases the source, every descendant, and their files, and stops a live descendant", async () => {
+    const { sessionsRoot, archiveRoot } = setupCascade();
+    const signals = await launchTab("tab-i1");
+
+    await invoke(CH.deleteSession, "tab-s", true);
+
+    expect(signals).toEqual(["default"]);
+    expect(sessionIds()).toEqual(["tab-u"]);
+    for (const lineage of [LINEAGE_S, LINEAGE_I1, LINEAGE_I2]) {
+      expect(fs.existsSync(path.join(sessionsRoot, lineage))).toBe(false);
+      expect(fs.existsSync(path.join(archiveRoot, lineage))).toBe(false);
+    }
+    // The unrelated session's record and files are untouched.
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_U, FILE_NAME))).toBe(true);
+    expect(fs.existsSync(path.join(archiveRoot, LINEAGE_U))).toBe(true);
+  });
+
+  it("leaves the descendants behind without cascade", async () => {
+    const { sessionsRoot } = setupCascade();
+
+    await invoke(CH.deleteSession, "tab-s", false);
+
+    expect(sessionIds()).toEqual(["tab-i1", "tab-i2", "tab-u"]);
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_S))).toBe(false);
+    for (const lineage of [LINEAGE_I1, LINEAGE_I2, LINEAGE_U]) {
+      expect(fs.existsSync(path.join(sessionsRoot, lineage))).toBe(true);
+    }
+  });
+
+  it("keeps the failed descendant retryable while the rest of the closure is erased", async () => {
+    const { sessionsRoot } = setupCascade();
+    const realRm = fs.promises.rm.bind(fs.promises);
+    const rm = vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
+      if (String(target).includes(LINEAGE_I2)) {
+        throw new Error("EBUSY: resource busy");
+      }
+      return realRm(target, options);
+    });
+
+    await expect(invoke(CH.deleteSession, "tab-s", true)).rejects.toThrow(/EBUSY/);
+    rm.mockRestore();
+
+    // The failed tab's op rejects Promise.all immediately; the siblings
+    // finish their per-session deletes in the background.
+    await vi.waitFor(() => {
+      expect(sessionIds()).toEqual(["tab-i2", "tab-u"]);
+    });
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_S))).toBe(false);
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_I1))).toBe(false);
+    // The failed session's files survive for the retry.
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_I2, FILE_NAME))).toBe(true);
+    expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_U, FILE_NAME))).toBe(true);
   });
 });
