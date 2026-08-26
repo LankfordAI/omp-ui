@@ -33,11 +33,11 @@ export function subagentKey(frame: unknown): string {
 
 let counter = 0;
 
-/** Entry equality ignoring the generated id — heartbeat dedupe compares content. */
+/** Entry equality ignoring the generated id and arrival timestamp — heartbeat dedupe compares content. */
 function sameEntry(a: RenderItem | undefined, b: RenderItem | undefined): boolean {
   if (!a || !b || a.kind !== b.kind) return false;
-  const { id: _a, ...restA } = a;
-  const { id: _b, ...restB } = b;
+  const { id: _a, timestamp: _ta, ...restA } = a as RenderItem & { timestamp?: number };
+  const { id: _b, timestamp: _tb, ...restB } = b as RenderItem & { timestamp?: number };
   return JSON.stringify(restA) === JSON.stringify(restB);
 }
 
