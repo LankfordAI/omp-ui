@@ -336,3 +336,12 @@ export function GeneralPage() {
     </div>
   );
 }
+
+export function GeneralFooter() {
+  return (
+    <p>
+      Default session and agent modes apply to new sessions; everything else
+      applies immediately.
+    </p>
+  );
+}

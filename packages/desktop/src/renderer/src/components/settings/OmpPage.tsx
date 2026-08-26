@@ -7,7 +7,7 @@ import {
 import { useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
-import { OMP_MISSING, type Load } from "./types";
+import { OMP_MISSING, type FooterContext, type Load } from "./types";
 
 export function OmpPage({
   load,
@@ -218,5 +218,23 @@ export function OmpPage({
         </div>
       </div>
     </div>
+  );
+}
+
+export function OmpFooter({ agentDir, anyLive }: FooterContext) {
+  // Load-bearing per ADR-0005: where writes land, which layer wins, and when
+  // they take effect. omp regenerates its YAML on write, so hand-written
+  // comments in config.yml do not survive an edit from here.
+  return (
+    <p>
+      Writes go to omp&apos;s global config (
+      <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
+      project&apos;s <span className="font-mono">.omp/config.yml</span> still
+      wins and is shown as <span className="font-mono">project</span>. omp
+      binds model roles and the advisor at process start — changes take effect
+      on the next session spawn.
+      {anyLive && " Restart a session from its MCP panel to apply now."} omp
+      regenerates its YAML on write, so comments in config.yml are dropped.
+    </p>
   );
 }

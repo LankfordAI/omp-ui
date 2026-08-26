@@ -237,3 +237,9 @@ export function UpdatesPage() {
     </div>
   );
 }
+
+export function UpdatesFooter() {
+  // Auto-download is deliberately absent: both download paths end in an
+  // installer launch or an app restart.
+  return <p>Downloads always need a click.</p>;
+}

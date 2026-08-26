@@ -11,6 +11,7 @@ import type {
   RemoteState,
 } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
+import type { SettingsPage } from "../store";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -106,6 +107,11 @@ const backendMock = {
   clearDismissedOmpUpdate: vi.fn(async () => {}),
   setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
+  readProviderKeys: vi.fn(async () => ({
+    providers: [],
+    encryptionAvailable: false,
+    backend: "none",
+  })),
   memoryOverview: vi.fn(),
   writeOmpSetting: vi.fn(async () => {}),
   getRemoteState: vi.fn(async () => idleRemote),
@@ -964,4 +970,30 @@ describe("Settings Remote page password row", () => {
 
     expect(backendMock.clearRemotePassword).toHaveBeenCalledTimes(1);
   });
+});
+describe("Settings page footer dispatch (issue #300)", () => {
+  const cases: ReadonlyArray<{ page: SettingsPage; marker: string | null }> = [
+    { page: "general", marker: "Default session and agent modes apply to new sessions" },
+    { page: "appearance", marker: null },
+    { page: "updates", marker: "Downloads always need a click." },
+    { page: "remote", marker: "Changing anything here restarts only the server" },
+    { page: "providers", marker: "omp reads credentials from the environment" },
+    { page: "memory", marker: "Memory configuration applies to sessions started after the change" },
+    { page: "omp", marker: "omp binds model roles and the advisor at process start" },
+    { page: "about", marker: null },
+  ];
+  for (const { page, marker } of cases) {
+    it(`${page} renders its own footer`, async () => {
+      useStore.setState({
+        settingsPage: page,
+        state: backendState(),
+        tabs: [],
+        activeTabId: null,
+      });
+      await renderSettings();
+      const footer = document.body.querySelector("footer");
+      if (marker === null) expect(footer).toBeNull();
+      else expect(footer?.textContent).toContain(marker);
+    });
+  }
 });

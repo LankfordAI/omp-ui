@@ -8,6 +8,7 @@ import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import { Button, Chip, Dot, Empty, Label, Panel } from "../ui";
 import { FIELD } from "./rows";
+import type { FooterContext } from "./types";
 
 type ProviderLoad =
   | { status: "loading" }
@@ -247,5 +248,21 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
         );
       })}
     </div>
+  );
+}
+
+export function ProvidersFooter({ anyLive }: FooterContext) {
+  // Load-bearing: keys bind at process start, and a GUI launch inherits none
+  // of the user's shell exports — the two facts that make this page exist.
+  return (
+    <p>
+      omp reads credentials from the environment, so omp-ui supplies these to
+      every session it launches — a key added here takes effect on the next
+      session spawn.
+      {anyLive && " Restart a session from its MCP panel to apply now."} Keys
+      already exported by your shell profile are picked up automatically, and
+      a project&apos;s <span className="font-mono">.env</span> is loaded by
+      omp itself, so both are shown here but neither needs re-entering.
+    </p>
   );
 }

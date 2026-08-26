@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import type { OmpSettingValue } from "@omp-ui/core/types";
 import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
@@ -6,13 +12,13 @@ import { useStore, type SettingsPage } from "../store";
 import { Modal } from "./ui";
 import { AboutPage } from "./settings/AboutPage";
 import { AppearancePage } from "./settings/AppearancePage";
-import { GeneralPage } from "./settings/GeneralPage";
-import { MemoryPage } from "./settings/MemoryPage";
-import { OmpPage } from "./settings/OmpPage";
-import { ProvidersPage } from "./settings/ProvidersPage";
-import { RemotePage } from "./settings/RemotePage";
-import { UpdatesPage } from "./settings/UpdatesPage";
-import type { Load } from "./settings/types";
+import { GeneralFooter, GeneralPage } from "./settings/GeneralPage";
+import { MemoryFooter, MemoryPage } from "./settings/MemoryPage";
+import { OmpFooter, OmpPage } from "./settings/OmpPage";
+import { ProvidersFooter, ProvidersPage } from "./settings/ProvidersPage";
+import { RemoteFooter, RemotePage } from "./settings/RemotePage";
+import { UpdatesFooter, UpdatesPage } from "./settings/UpdatesPage";
+import type { FooterContext, Load } from "./settings/types";
 
 /**
  * The settings modal (issue #36): eight pages behind one store-driven nav
@@ -29,15 +35,60 @@ import type { Load } from "./settings/types";
  * About consume it, and it costs four omp invocations.
  */
 
-const PAGES: ReadonlyArray<{ id: SettingsPage; label: string }> = [
-  { id: "general", label: "General" },
-  { id: "appearance", label: "Appearance" },
-  { id: "updates", label: "Updates" },
-  { id: "remote", label: "Remote access" },
-  { id: "providers", label: "Providers" },
-  { id: "memory", label: "Memory" },
-  { id: "omp", label: "omp" },
-  { id: "about", label: "About" },
+interface PageContext {
+  load: Load;
+  projectCwd: string | null;
+  pendingKey: string | null;
+  writeError: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+  retry: () => void;
+  /** Snapshot reload counter; MemoryPage feeds it to its overview effect. */
+  revision: number;
+}
+
+const PAGES: ReadonlyArray<{
+  id: SettingsPage;
+  label: string;
+  render: (ctx: PageContext) => ReactNode;
+  footer?: ComponentType<FooterContext>;
+}> = [
+  { id: "general", label: "General", render: () => <GeneralPage />, footer: GeneralFooter },
+  { id: "appearance", label: "Appearance", render: () => <AppearancePage /> },
+  { id: "updates", label: "Updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
+  { id: "remote", label: "Remote access", render: () => <RemotePage />, footer: RemoteFooter },
+  { id: "providers", label: "Providers", render: (ctx) => <ProvidersPage projectCwd={ctx.projectCwd} />, footer: ProvidersFooter },
+  {
+    id: "memory",
+    label: "Memory",
+    render: (ctx) => (
+      <MemoryPage
+        load={ctx.load}
+        projectCwd={ctx.projectCwd}
+        pendingKey={ctx.pendingKey}
+        writeError={ctx.writeError}
+        commit={ctx.commit}
+        retry={ctx.retry}
+        overviewRevision={ctx.revision}
+      />
+    ),
+    footer: MemoryFooter,
+  },
+  {
+    id: "omp",
+    label: "omp",
+    render: (ctx) => (
+      <OmpPage
+        load={ctx.load}
+        projectCwd={ctx.projectCwd}
+        pendingKey={ctx.pendingKey}
+        writeError={ctx.writeError}
+        commit={ctx.commit}
+        retry={ctx.retry}
+      />
+    ),
+    footer: OmpFooter,
+  },
+  { id: "about", label: "About", render: (ctx) => <AboutPage load={ctx.load} /> },
 ];
 
 export function Settings() {
@@ -96,73 +147,17 @@ export function Settings() {
 
   const agentDir = load.status === "loaded" ? load.snapshot.agentDir : null;
 
-  let footer: ReactNode = null;
-  if (page === "general") {
-    footer = (
-      <p>
-        Default session and agent modes apply to new sessions; everything else
-        applies immediately.
-      </p>
-    );
-  } else if (page === "updates") {
-    // Auto-download is deliberately absent: both download paths end in an
-    // installer launch or an app restart.
-    footer = <p>Downloads always need a click.</p>;
-  } else if (page === "remote") {
-    // Load-bearing honesty: installability and offline are secure-context-only, so a plain
-    // http://<lan-ip> origin cannot have them no matter what the manifest says.
-    footer = (
-      <p>
-        Over localhost the app is a full browser app. Over your local network it
-        works as a responsive web app, but browsers reserve installability and
-        offline support for secure origins — plain{" "}
-        <span className="font-mono">http://&lt;lan-ip&gt;</span> is not one, so
-        there is no install prompt until you front this with your own HTTPS (a
-        TLS terminator, or Tailscale serve). Changing anything here restarts
-        only the server; sessions keep running.
-      </p>
-    );
-  } else if (page === "providers") {
-    // Load-bearing: keys bind at process start, and a GUI launch inherits none
-    // of the user's shell exports — the two facts that make this page exist.
-    footer = (
-      <p>
-        omp reads credentials from the environment, so omp-ui supplies these to
-        every session it launches — a key added here takes effect on the next
-        session spawn.
-        {anyLive && " Restart a session from its MCP panel to apply now."} Keys
-        already exported by your shell profile are picked up automatically, and
-        a project&apos;s <span className="font-mono">.env</span> is loaded by
-        omp itself, so both are shown here but neither needs re-entering.
-      </p>
-    );
-  } else if (page === "memory") {
-    footer = (
-      <p>
-        Writes go to omp&apos;s global config (
-        <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
-        project&apos;s <span className="font-mono">.omp/config.yml</span> can win
-        and is shown as <span className="font-mono">project</span>. Memory
-        configuration applies to sessions started after the change.
-      </p>
-    );
-  } else if (page === "omp") {
-    // Load-bearing per ADR-0005: where writes land, which layer wins, and when
-    // they take effect. omp regenerates its YAML on write, so hand-written
-    // comments in config.yml do not survive an edit from here.
-    footer = (
-      <p>
-        Writes go to omp&apos;s global config (
-        <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
-        project&apos;s <span className="font-mono">.omp/config.yml</span> still
-        wins and is shown as <span className="font-mono">project</span>. omp
-        binds model roles and the advisor at process start — changes take effect
-        on the next session spawn.
-        {anyLive && " Restart a session from its MCP panel to apply now."} omp
-        regenerates its YAML on write, so comments in config.yml are dropped.
-      </p>
-    );
-  }
+  const active = PAGES.find((p) => p.id === page);
+  const Footer = active?.footer;
+  const ctx: PageContext = {
+    load,
+    projectCwd,
+    pendingKey,
+    writeError,
+    commit,
+    retry: () => setReloadKey((k) => k + 1),
+    revision: reloadKey,
+  };
 
   return (
     <Modal onClose={closeSettings} width="w-[46rem]">
@@ -204,39 +199,13 @@ export function Settings() {
           </nav>
 
           <div className="settings-body max-h-[30rem] min-w-0 flex-1 overflow-y-auto">
-            {page === "general" && <GeneralPage />}
-            {page === "appearance" && <AppearancePage />}
-            {page === "updates" && <UpdatesPage />}
-            {page === "remote" && <RemotePage />}
-            {page === "providers" && <ProvidersPage projectCwd={projectCwd} />}
-            {page === "memory" && (
-              <MemoryPage
-                load={load}
-                projectCwd={projectCwd}
-                pendingKey={pendingKey}
-                writeError={writeError}
-                commit={commit}
-                retry={() => setReloadKey((revision) => revision + 1)}
-                overviewRevision={reloadKey}
-              />
-            )}
-            {page === "omp" && (
-              <OmpPage
-                load={load}
-                projectCwd={projectCwd}
-                pendingKey={pendingKey}
-                writeError={writeError}
-                commit={commit}
-                retry={() => setReloadKey((k) => k + 1)}
-              />
-            )}
-            {page === "about" && <AboutPage load={load} />}
+            {active !== undefined && active.render(ctx)}
           </div>
         </div>
 
-        {footer !== null && (
+        {Footer !== undefined && (
           <footer className="border-t border-line px-4 py-3 text-[11px] leading-relaxed text-ink-faint">
-            {footer}
+            <Footer agentDir={agentDir} anyLive={anyLive} />
           </footer>
         )}
       </section>

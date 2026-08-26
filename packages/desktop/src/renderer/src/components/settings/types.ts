@@ -8,3 +8,9 @@ export type Load =
 
 /** readOmpSettings never rejects with this — only a null ompPath produces it. */
 export const OMP_MISSING = "omp binary not found";
+
+/** The two shell facts the per-page footers need. */
+export interface FooterContext {
+  agentDir: string | null;
+  anyLive: boolean;
+}

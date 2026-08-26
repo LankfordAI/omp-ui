@@ -9,7 +9,7 @@ import { backend, displayMessage } from "../../backend";
 import { useStore } from "../../store";
 import { Button, Chip, Empty, Label, Panel } from "../ui";
 import { Row, SettingControl, layerBadge } from "./rows";
-import { OMP_MISSING, type Load } from "./types";
+import { OMP_MISSING, type FooterContext, type Load } from "./types";
 
 type OverviewLoad =
   | { status: "idle" }
@@ -258,5 +258,17 @@ export function MemoryPage({
         </section>
       )}
     </div>
+  );
+}
+
+export function MemoryFooter({ agentDir }: FooterContext) {
+  return (
+    <p>
+      Writes go to omp&apos;s global config (
+      <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
+      project&apos;s <span className="font-mono">.omp/config.yml</span> can win
+      and is shown as <span className="font-mono">project</span>. Memory
+      configuration applies to sessions started after the change.
+    </p>
   );
 }

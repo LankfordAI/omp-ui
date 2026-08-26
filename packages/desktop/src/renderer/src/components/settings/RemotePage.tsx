@@ -343,3 +343,19 @@ export function RemotePage() {
     </div>
   );
 }
+
+export function RemoteFooter() {
+  // Load-bearing honesty: installability and offline are secure-context-only, so a plain
+  // http://<lan-ip> origin cannot have them no matter what the manifest says.
+  return (
+    <p>
+      Over localhost the app is a full browser app. Over your local network it
+      works as a responsive web app, but browsers reserve installability and
+      offline support for secure origins — plain{" "}
+      <span className="font-mono">http://&lt;lan-ip&gt;</span> is not one, so
+      there is no install prompt until you front this with your own HTTPS (a
+      TLS terminator, or Tailscale serve). Changing anything here restarts
+      only the server; sessions keep running.
+    </p>
+  );
+}
