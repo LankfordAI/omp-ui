@@ -5,6 +5,7 @@ import type {
   DeleteSessionPreview,
   PlanImplementationSource,
   SessionMode,
+  SessionWorktree,
 } from "@omp-ui/core/types";
 import { backend } from "../../backend";
 import {
@@ -191,9 +192,19 @@ export function createLifecycleSlice(
     const rec = findRecord(get().state, srcTabId);
     if (!rec) return;
     const projectCwd = rec.projectCwd;
-    // A "worktree" context dispatch carries its dedicated-checkout spec in the
-    // options bag; every other context spawns in the project checkout as-is.
-    const worktree = options?.worktree ?? null;
+    // A "worktree" context dispatch carries its dedicated-checkout spec in
+    // the options bag; every other context spawns in the project checkout
+    // as-is.
+    const minted = options?.worktree ?? null;
+    // Reuse, not mint (issue #316): a fresh dispatch from a worktree
+    // planning session keeps the planning checkout, and a worktree dispatch
+    // that keeps the planning session's branch reuses that checkout in
+    // place.
+    const reuse: SessionWorktree | null =
+      rec.worktree !== null &&
+      (minted === null || minted.branch.trim() === rec.worktree.branch.trim())
+        ? rec.worktree
+        : null;
     // A staged tuple (the modal always sends one) wins over the project's
     // last-used defaults; legacy callers keep the fallback chain.
     await get().loadAdvisorDefaults(projectCwd);
@@ -225,7 +236,8 @@ export function createLifecycleSlice(
         rows: 24,
         startInPlanMode: false,
         planImplementationSource,
-        ...(worktree ? { worktree } : {}),
+        ...(reuse !== null ? { worktreeReuse: reuse } : {}),
+        ...(reuse === null && minted !== null ? { worktree: minted } : {}),
       }));
     } catch (err) {
       alertError(err);
@@ -283,9 +295,11 @@ export function createLifecycleSlice(
     m.appendItem(
       srcTabId,
       noticeItem(
-        worktree !== null
-          ? "plan approved — implementation dispatched to a fresh worktree session"
-          : "plan approved — implementation dispatched to a fresh session",
+        reuse !== null
+          ? "plan approved — implementation dispatched to a fresh session in this worktree"
+          : minted !== null
+            ? "plan approved — implementation dispatched to a fresh worktree session"
+            : "plan approved — implementation dispatched to a fresh session",
         "info",
       ),
     );

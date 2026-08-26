@@ -12,6 +12,7 @@ import type {
   OmpSettingsSnapshot,
   OmpUpdateState,
   RemoteState,
+  SessionWorktree,
 } from "@omp-ui/core/types";
 import { backendState as makeBackendState } from "./fixtures";
 
@@ -237,6 +238,7 @@ const TAB = "tab-test-1";
 function stateWithRecord(
   sessionId: string | null,
   live: LiveState = "live",
+  worktree: SessionWorktree | null = null,
 ): BackendState {
   return makeBackendState({
     projects: [
@@ -260,7 +262,7 @@ function stateWithRecord(
             projectCwd: "/p",
             launchedAt: "t",
             mode: "rpc-ui",
-            worktree: null,
+            worktree,
             planImplementationSource: null,
             agentMode: "build",
             compactionMethod: null,

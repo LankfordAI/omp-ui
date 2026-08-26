@@ -379,7 +379,10 @@ recorded base — fast-forward when history allows, otherwise a merge commit
 merge is left for the user to resolve in the project checkout. Deleting the
 session removes the checkout; the branch and its commits survive in the
 repo. Resume, restart and mode switches keep the worktree — it lives on the
-session record.
+session record. A record's checkout may be shared — forking a worktree
+session, and a plan handoff from a worktree planning session (issue #316),
+give the new record the same `path`/`branch`/`base`, and the last record
+deleted removes the checkout.
 _Avoid_: sandbox session, isolated session, branch session
 
 **MCP manager**:

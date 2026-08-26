@@ -1421,6 +1421,120 @@ describe("worktree sessions (issue #224)", () => {
     expect(fs.existsSync(sentinel)).toBe(true);
     expect(registry.sessions.some((s) => s.tabId === "tab-wt-bad")).toBe(false);
   });
+
+  it("spawns a fresh session into an existing checkout via worktreeReuse (issue #316)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-reuse";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    await Core.addWorktree(project, worktreePath, branch, null);
+
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktreeReuse: { path: worktreePath, branch, base: "main" },
+    });
+
+    // The record carries the source descriptor verbatim — no mint.
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: "main" });
+    const opts = RpcClientMock.mock.calls.at(-1)![0] as { cwd: string };
+    expect(opts.cwd).toBe(worktreePath);
+    // Exactly one checkout still: no second cut under the worktrees root.
+    const { stdout: worktrees } = await execFileP("git", ["worktree", "list"], {
+      cwd: project,
+    });
+    expect(worktrees.split(worktreePath).length - 1).toBe(1);
+  });
+
+  it("rejects a worktreeReuse whose checkout vanished from disk (issue #316)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-reuse-gone";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    fs.mkdirSync(worktreePath, { recursive: true });
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+    const before = registry.sessions.length;
+
+    await expect(
+      manager.spawn({
+        projectCwd: project,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktreeReuse: { path: worktreePath, branch, base: "main" },
+      }),
+    ).rejects.toThrow(/worktree checkout is gone/);
+    expect(registry.sessions.length).toBe(before);
+    expect(RpcClientMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a worktreeReuse outside the worktrees root (issue #316)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const outside = path.join(base, "elsewhere");
+    fs.mkdirSync(outside, { recursive: true });
+    const before = registry.sessions.length;
+
+    await expect(
+      manager.spawn({
+        projectCwd: project,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktreeReuse: { path: outside, branch: "omp-ui/wt-outside", base: "main" },
+      }),
+    ).rejects.toThrow(/worktree checkout is gone/);
+    expect(registry.sessions.length).toBe(before);
+    expect(RpcClientMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves the checkout when one of two records sharing it is deleted, and removes it with the last (issue #316)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-reuse-shared";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    const { tabId: reuseTabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktreeReuse: { path: worktreePath, branch, base: "main" },
+    });
+
+    await manager.deleteSession(tabId, false);
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    // The second record still references the checkout: it stays on disk.
+    expect(fs.existsSync(worktreePath)).toBe(true);
+
+    await manager.deleteSession(reuseTabId, false);
+    expect(registry.sessions.some((s) => s.tabId === reuseTabId)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout: worktrees } = await execFileP("git", ["worktree", "list"], {
+      cwd: project,
+    });
+    expect(worktrees).not.toContain(worktreePath);
+  });
 });
 
 describe("convert to worktree (issue #225)", () => {

@@ -40,6 +40,7 @@ export function WorktreeBranchFields({
   idPrefix,
   baseTouched,
   onBaseTouchedChange,
+  showBase,
 }: {
   projectCwd: string;
   branch: string;
@@ -55,6 +56,8 @@ export function WorktreeBranchFields({
    */
   baseTouched?: boolean;
   onBaseTouchedChange?: (touched: boolean) => void;
+  /** false renders the branch field only — nothing is cut from a base. */
+  showBase?: boolean;
 }) {
   // The base defaults to the checkout's current branch once known; a manual
   // pick must survive later refreshes of the branch list.
@@ -109,30 +112,32 @@ export function WorktreeBranchFields({
           className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
       </div>
-      <div>
-        <label htmlFor={`${idPrefix}-base`} className="block text-[10px] text-ink-faint">
-          Base
-        </label>
-        <select
-          id={`${idPrefix}-base`}
-          value={baseRef ?? ""}
-          onChange={(event) => {
-            markTouched();
-            onBaseRefChange(event.target.value === "" ? null : event.target.value);
-          }}
-          className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
-        >
-          {headOnly ? (
-            <option value="">current HEAD</option>
-          ) : (
-            branchNames.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))
-          )}
-        </select>
-      </div>
+      {showBase !== false && (
+        <div>
+          <label htmlFor={`${idPrefix}-base`} className="block text-[10px] text-ink-faint">
+            Base
+          </label>
+          <select
+            id={`${idPrefix}-base`}
+            value={baseRef ?? ""}
+            onChange={(event) => {
+              markTouched();
+              onBaseRefChange(event.target.value === "" ? null : event.target.value);
+            }}
+            className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+          >
+            {headOnly ? (
+              <option value="">current HEAD</option>
+            ) : (
+              branchNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+      )}
     </>
   );
 }

@@ -339,6 +339,15 @@ export interface SpawnRequest {
    * baseRef null starts from the project checkout's HEAD.
    */
   worktree?: { branch: string; baseRef: string | null };
+  /**
+   * Reuse an existing worktree checkout for this new session instead of
+   * minting one (plan handoff, issue #316): the source record's
+   * `SessionWorktree` verbatim. Only read when resumeTabId is absent, and
+   * mutually exclusive with `worktree` — main rejects a request carrying
+   * either both or a reuse on a resume. Main validates that the path sits
+   * under the worktrees root and still exists, then records it unchanged.
+   */
+  worktreeReuse?: SessionWorktree;
   /** Provenance to persist on a fresh implementation session. */
   planImplementationSource?: PlanImplementationSource | null;
   /**

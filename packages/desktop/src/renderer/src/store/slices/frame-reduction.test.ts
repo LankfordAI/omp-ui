@@ -1221,6 +1221,101 @@ describe("handleRpcFrame routing", () => {
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
   });
 
+  const REUSE_WT = { path: "/wt/reuse", branch: "omp-ui/deadbeef", base: "main" };
+
+  it("a fresh dispatch from a worktree planning session reuses the planning checkout (issue #316)", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null, "live", REUSE_WT) });
+    openReview("handoff-reuse-fresh");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "handoff-reuse-fresh", value: "execute" });
+    // The spawn reuses the planning checkout — no mint spec alongside.
+    const call = h.mockBackend.spawnSession.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call).toEqual(expect.objectContaining({ worktreeReuse: REUSE_WT }));
+    expect(call.worktree).toBeUndefined();
+    // Boot the fresh tab to ready and let the seed prompt land.
+    h.useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+      },
+    }));
+    await h.flushMicrotasks();
+    const prompt = h.sent.find((s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt");
+    expect(prompt).toBeDefined();
+    expect(String(prompt!.cmd.message)).toContain("Implement it now");
+    h.respond("fresh-tab", prompt!.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    // The handoff notice names the in-worktree dispatch.
+    expect(
+      h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.some(
+          (item) =>
+            item.kind === "notice" &&
+            item.text.includes("implementation dispatched to a fresh session in this worktree"),
+        ),
+    ).toBe(true);
+    await rearmHandoffSource();
+  });
+
+  it("a worktree dispatch keeping the planning branch reuses the checkout (issue #316)", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "wt-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null, "live", REUSE_WT) });
+    openReview("handoff-reuse-worktree");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "worktree", {
+      worktree: { branch: "omp-ui/deadbeef", baseRef: "main" },
+    });
+    await h.flushMicrotasks();
+    const call = h.mockBackend.spawnSession.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call).toEqual(expect.objectContaining({ worktreeReuse: REUSE_WT }));
+    expect(call.worktree).toBeUndefined();
+  });
+
+  it("a worktree dispatch renaming the branch still mints (issue #316)", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "wt-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null, "live", REUSE_WT) });
+    openReview("handoff-rename-mint");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "worktree", {
+      worktree: { branch: "omp-ui/renamed", baseRef: "main" },
+    });
+    await h.flushMicrotasks();
+    const call = h.mockBackend.spawnSession.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call).toEqual(
+      expect.objectContaining({ worktree: { branch: "omp-ui/renamed", baseRef: "main" } }),
+    );
+    expect(call.worktreeReuse).toBeUndefined();
+  });
+
+  it("a vanished reused checkout alerts, seeds nothing, and hibernates nothing (issue #316)", async () => {
+    h.mockBackend.spawnSession.mockRejectedValueOnce(
+      new Error(
+        "the planning session's worktree checkout is gone — delete the planning session from the sidebar",
+      ),
+    );
+    h.useStore.setState({ state: h.stateWithRecord(null, "live", REUSE_WT) });
+    openReview("handoff-reuse-gone");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    // The verdict answers the gate before the spawn is refused, so the plan
+    // is already settled "executed"; the failure then rides the spawn-failure
+    // contract: an alert, no seed prompt, no hibernate.
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response?.cmd).toMatchObject({ id: "handoff-reuse-gone", value: "execute" });
+    expect(h.alerts).toEqual([
+      "the planning session's worktree checkout is gone — delete the planning session from the sidebar",
+    ]);
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["set_model", { model: { id: "new", name: "New", provider: "provider" } }],
     ["set_thinking_level", { thinkingLevel: "high" }],

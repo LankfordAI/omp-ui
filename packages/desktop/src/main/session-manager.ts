@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CH,
@@ -282,6 +283,38 @@ export class SessionManager {
     return { ...snapshot };
   }
 
+  /**
+   * A worktree reuse (plan handoff, issue #316) is valid only for a fresh
+   * session into a checkout that still exists under the worktrees root:
+   * the record's field is the source of truth, and a vanished checkout
+   * fails loudly the way a worktree-session resume does (ADR-0018).
+   */
+  private validateWorktreeReuse(req: SpawnRequest): SessionWorktree | null {
+    const reuse = req.worktreeReuse;
+    if (reuse === undefined) return null;
+    if (req.resumeTabId !== undefined) {
+      throw new Error("a worktree reuse cannot be attached when resuming a session");
+    }
+    if (req.worktree !== undefined) {
+      throw new Error("worktree and worktreeReuse are mutually exclusive");
+    }
+    if (typeof reuse.path !== "string" || reuse.path === "") {
+      throw new Error("worktree reuse path must be a non-empty string");
+    }
+    if (typeof reuse.branch !== "string" || reuse.branch === "") {
+      throw new Error("worktree reuse branch must be a non-empty string");
+    }
+    if (reuse.base !== null && typeof reuse.base !== "string") {
+      throw new Error("worktree reuse base must be a string or null");
+    }
+    if (!isWithin(this.deps.getWorktreesRoot(), reuse.path) || !fs.existsSync(reuse.path)) {
+      throw new Error(
+        "the planning session's worktree checkout is gone — delete the planning session from the sidebar",
+      );
+    }
+    return { ...reuse };
+  }
+
   /** The tab's current op, if any; its kind decides how a newcomer behaves. */
   private pendingOp(tabId: string): { kind: OpKind; chain: Promise<void> } | undefined {
     return this.ops.get(tabId);
@@ -324,6 +357,7 @@ export class SessionManager {
   /** The spawn proper: runs behind any pending op for the tab. */
   private async spawnInner(req: SpawnRequest): Promise<{ tabId: string }> {
     const planImplementationSource = this.validatePlanImplementationSource(req);
+    const worktreeReuse = this.validateWorktreeReuse(req);
     const ompPath = this.requireOmpPath();
 
     // A new session cannot run without a model credential — omp would crash
@@ -349,7 +383,12 @@ export class SessionManager {
       });
     } else {
       let worktree: SessionWorktree | null = null;
-      if (req.worktree) {
+      if (worktreeReuse !== null) {
+        // A plan handoff from a worktree planning session reuses the
+        // planning checkout in place (issue #316): the record carries the
+        // descriptor verbatim, no mint, no canonical re-derivation.
+        worktree = worktreeReuse;
+      } else if (req.worktree) {
         const worktreePath = mintWorktreePath(
           this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
         const base = await addWorktree(

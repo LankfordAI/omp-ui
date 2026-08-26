@@ -179,7 +179,16 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
 
   if (!review || deferred) return null;
   const { request } = review;
-
+  /**
+   * The planning session's own dedicated checkout (issue #316): when set, a
+   * fresh dispatch is pinned to it, and a worktree dispatch that keeps the
+   * planning branch reuses it instead of minting a second checkout.
+   */
+  const sourceWorktree = sessionRecord?.worktree ?? null;
+  const reusingWorktree =
+    sourceWorktree !== null &&
+    worktreeSel !== null &&
+    worktreeSel.branch.trim() === sourceWorktree.branch.trim();
   // What the advisor row shows: the staged pin, else omp's configured default
   // (AdvisorControl's effective/inherited logic). omp encodes the level as a
   // `:level` suffix on the selector.
@@ -228,10 +237,13 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
           ? { branch: worktreeSel.branch.trim(), baseRef: worktreeSel.baseRef }
           : null,
     };
-    // A worktree dispatch never moves the project's working tree, so the
-    // branch-checkout dance (which protects a shared checkout) is a
-    // same-session-contexts concern only.
-    if (context !== "worktree" && !(await branch.resolve())) return;
+    // A worktree dispatch never moves the project's working tree, and a
+    // fresh dispatch from a worktree planning session is pinned to the
+    // planning checkout — so the branch-checkout dance is a
+    // project-checkout concern.
+    const branchApplies =
+      context !== "worktree" && !(context === "fresh" && sourceWorktree !== null);
+    if (branchApplies && !(await branch.resolve())) return;
     executePlan(tabId, context, options);
   };
 
@@ -436,13 +448,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                           : undefined
                       }
                       onClick={() => {
-                        // Mint the worktree branch once, on first pick only —
-                        // re-picking the active selection keeps the minted name
-                        // and any edits (issue #225 semantics, as in the
-                        // composer's branch chip).
+                        // Prefill the planning branch when this session plans
+                        // in a worktree (issue #316); otherwise mint. Re-picking
+                        // the active selection keeps the current value and any
+                        // edits (issue #225 semantics, as in the composer's
+                        // branch chip).
                         if (option.id === "worktree" && worktreeSel === null) {
                           setWorktreeSel({
-                            branch: mintBranchName(),
+                            branch: sourceWorktree?.branch ?? mintBranchName(),
                             baseRef: null,
                             baseTouched: false,
                           });
@@ -474,7 +487,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                           <span className="font-mono text-[9px] uppercase tracking-wider text-ink-faint">0{index + 1}</span>
                         </span>
                         <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
-                          {option.hint}
+                          {option.id === "fresh" && sourceWorktree !== null
+                            ? "a new chat seeded with the plan, in this session's worktree"
+                            : option.id === "worktree" && sourceWorktree !== null
+                              ? "this session's worktree, or a new checkout and branch"
+                              : option.hint}
                         </span>
                       </span>
                     </button>
@@ -647,15 +664,24 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               )}
             </fieldset>
 
-            {branch.isRepo && context !== "worktree" && (
-              <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />
-            )}
+            {branch.isRepo &&
+              context !== "worktree" &&
+              !(context === "fresh" && sourceWorktree !== null) && (
+                <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />
+              )}
             {context === "worktree" && worktreeSel !== null && projectCwd !== undefined && (
               <fieldset className="mt-5 border-t border-line pt-4">
                 <legend className="text-[11px] font-medium text-ink">Worktree</legend>
-                <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
-                  The implementation runs in a dedicated checkout under the app's worktrees root; the project's working tree is untouched.
-                </p>
+                {reusingWorktree && sourceWorktree !== null ? (
+                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                    This is this session's worktree branch — the implementation reuses this
+                    checkout in place. Change the branch to cut a fresh checkout instead.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                    The implementation runs in a dedicated checkout under the app's worktrees root; the project's working tree is untouched.
+                  </p>
+                )}
                 <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
                   <WorktreeBranchFields
                     projectCwd={projectCwd}
@@ -665,8 +691,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     onBaseRefChange={(baseRef) => setWorktreeSel({ ...worktreeSel, baseRef })}
                     baseTouched={worktreeSel.baseTouched}
                     onBaseTouchedChange={(baseTouched) => setWorktreeSel({ ...worktreeSel, baseTouched })}
+                    showBase={!reusingWorktree}
                     idPrefix="plan-worktree"
                   />
+                  {reusingWorktree && sourceWorktree !== null && (
+                    <p className="mt-2 truncate font-mono text-[10px] text-ink-faint" title={sourceWorktree.path}>
+                      {sourceWorktree.path}
+                    </p>
+                  )}
                 </div>
               </fieldset>
             )}
@@ -725,9 +757,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   {ultrathink && " · ultrathink"}
                   {orchestrate && " · orchestrate"}
                   {workflowz && " · workflowz"}
-                  {context === "worktree" && worktreeSel !== null && (
+                  {context === "worktree" && worktreeSel !== null ? (
                     <>{" · "}{worktreeSel.branch.trim() || "new branch"}</>
-                  )}
+                  ) : context === "fresh" && sourceWorktree !== null ? (
+                    <>{" · "}{sourceWorktree.branch}</>
+                  ) : null}
                 </p>
               </div>
             )}
@@ -778,9 +812,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 {workflowz && " · workflowz"}
                 {context === "worktree" && worktreeSel !== null ? (
                   <>{" · "}{worktreeSel.branch.trim() || "new branch"}</>
-                ) : (
-                  branch.summary !== null && <>{" · "}{branch.summary}</>
-                )}
+                ) : context === "fresh" && sourceWorktree !== null ? (
+                  <>{" · "}{sourceWorktree.branch}</>
+                ) : branch.summary !== null ? (
+                  <>{" · "}{branch.summary}</>
+                ) : null}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">

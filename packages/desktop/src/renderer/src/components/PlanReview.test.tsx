@@ -52,6 +52,10 @@ const backendMock = {
   listBranches: vi.fn(async () => branches),
   checkoutBranch: vi.fn(async () => {}),
   suggestBranchName: vi.fn(async (): Promise<string | null> => null),
+  // A pinned fresh dispatch (issue #316) reaches the real executePlan, which
+  // fires the fresh implementation spawn; resolve it so the fire-and-forget
+  // path settles instead of rejecting on a missing mock.
+  spawnSession: vi.fn(async () => ({ tabId: "fresh-tab" })),
   // The review panel loads advisor defaults on mount; the store's staged
   // model/advisor paths call the setters below.
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
@@ -142,13 +146,13 @@ function stateWithSessions(
 }
 
 /** The standard seed: one gate-blocked review tab on a git-backed project. */
-function seed(): void {
+function seed(worktrees: Record<string, SessionWorktree> = {}): void {
   useStore.setState({
     tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
     advisorDefaults: {},
     branches: { "/p": branches },
     rpc: { [TAB]: tabState() },
-    state: stateWithSessions({ [TAB]: "Planning session" }),
+    state: stateWithSessions({ [TAB]: "Planning session" }, worktrees),
   });
 }
 
@@ -614,6 +618,58 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     const second = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
     expect(second).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
     expect(second).not.toBe(first);
+  });
+
+  it("picking the worktree context from a worktree planning session prefills the planning branch and hides the base (issue #316)", async () => {
+    seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
+    render();
+    await act(async () => contextRow("worktree session").click());
+
+    const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
+    // Prefilled with the planning branch, not a fresh mint.
+    expect(input.value).toBe("omp-ui/planning1");
+    // Nothing is cut from a base while the branch matches: the select hides.
+    expect(document.body.querySelector("#plan-worktree-base")).toBeNull();
+    expect(document.body.textContent).toContain("reuses this checkout in place");
+    // The Git-branch fieldset is a project-checkout concern: hidden here.
+    expect(document.body.textContent).not.toContain("Git branch");
+  });
+
+  it("editing the branch away from the planning branch restores the base select (issue #316)", async () => {
+    seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
+    render();
+    await act(async () => contextRow("worktree session").click());
+    const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
+    expect(document.body.querySelector("#plan-worktree-base")).toBeNull();
+
+    await typeInto(input, "omp-ui/fresh-cut");
+
+    expect(document.body.querySelector("#plan-worktree-base")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("reuses this checkout in place");
+  });
+
+  it("a fresh context from a worktree planning session hides the git-branch section and dispatches without a checkout (issue #316)", async () => {
+    seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
+    render();
+    await act(async () => contextRow("fresh session").click());
+
+    // The pinned destination is named: hint and ready-to-dispatch line.
+    expect(document.body.textContent).toContain("in this session's worktree");
+    expect(document.body.textContent).toContain("omp-ui/planning1");
+    expect(document.body.textContent).not.toContain("Git branch");
+
+    await act(async () => buttonByText("execute in fresh session").click());
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+    // The fresh session runs in the planning checkout: the project's
+    // working tree is never moved.
+    expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+  });
+
+  it("a fresh context from a non-worktree planning session keeps the git-branch section (issue #316)", async () => {
+    render();
+    await act(async () => contextRow("fresh session").click());
+    // No planning worktree: the project-checkout branch dance still applies.
+    expect(document.body.textContent).toContain("Git branch");
   });
 });
 
