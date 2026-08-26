@@ -1,9 +1,28 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanItem } from "../lib/transcript";
 import { PlanCard } from "./PlanCard";
+
+const planVerification = vi.hoisted(() => ({ failure: null as string | null }));
+
+vi.mock("../lib/plan-document", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../lib/plan-document")>();
+  return {
+    ...original,
+    // Partial mock: existing cases run the real pipeline (structural pass +
+    // inconclusive probe in jsdom); setting `failure` forces the verified
+    // failed state for the fallback case (issue #312). The original hook is
+    // always called so the hook order stays stable.
+    usePreparedPlanDocument: (html: string | null) => {
+      const state = original.usePreparedPlanDocument(html);
+      return planVerification.failure !== null
+        ? { status: "failed" as const, reason: planVerification.failure }
+        : state;
+    },
+  };
+});
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -93,5 +112,25 @@ describe("PlanCard mermaid diagrams (issue #285)", () => {
     expect(planFrame()).toBeNull();
     expect(document.body.textContent).toContain("Fix");
     expect(document.body.textContent).toContain("steps");
+  });
+
+  it("shows the named failure and raw source instead of the iframe when verification fails (issue #312)", async () => {
+    planVerification.failure = "prepared document rendered empty";
+    try {
+      render(htmlPlanItem("<html><body></body></html>"));
+
+      const disclosure = document.body.querySelector<HTMLButtonElement>("button")!;
+      await act(async () => disclosure.click());
+      await until(() => document.body.textContent!.includes("could not be displayed"));
+
+      expect(planFrame()).toBeNull();
+      expect(document.body.textContent).toContain("could not be displayed as a document");
+      expect(document.body.textContent).toContain("prepared document rendered empty");
+      expect(document.body.querySelector("pre[data-selectable]")!.textContent).toContain(
+        "<html><body></body></html>",
+      );
+    } finally {
+      planVerification.failure = null;
+    }
   });
 });

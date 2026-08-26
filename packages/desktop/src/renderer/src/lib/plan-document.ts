@@ -166,27 +166,182 @@ export async function preparePlanDocument(html: string): Promise<string> {
 
   return `${PLAN_GUARDRAIL_STYLESHEET}${html}`;
 }
+
+/** Prepared-document state exposed to the two plan surfaces (issue #312). */
+export type PreparedPlanState =
+  | { status: "pending" }
+  | { status: "ready"; doc: string }
+  | { status: "failed"; reason: string };
+
+/** Layout probe result. "inconclusive" always passes through. */
+export type LayoutProbeResult = "visible" | "empty" | "inconclusive";
+export type LayoutProbe = (doc: string) => Promise<LayoutProbeResult>;
+
+const DIAGRAM_PLACEHOLDER = /<!--omp-ui-diagram-\d+-->/;
+
+/**
+ * Structural verification of a prepared plan document (issue #312): asserts
+ * the invariants a renderable plan satisfies, using the same tree
+ * construction the review iframe would apply. Returns a human-readable
+ * failure reason, or null when the document passes.
+ */
+export function verifyPlanStructure(prepared: string): string | null {
+  if (DIAGRAM_PLACEHOLDER.test(prepared)) {
+    return "a diagram placeholder survived substitution";
+  }
+
+  const doc = new DOMParser().parseFromString(prepared, "text/html");
+
+  // Injection guarantees the guardrail <style> by construction; absence means
+  // an authored document carried the marker id on a non-style element and
+  // dodged injection. tagName check instead of instanceof: HTMLStyleElement
+  // is realm-bound and unavailable across realms in jsdom.
+  const guardrail = doc.getElementById(GUARDRAIL_ID);
+  if (guardrail === null || guardrail.tagName !== "STYLE") {
+    return "the readability guardrail stylesheet is missing";
+  }
+
+  // Visible-content check: catches content swallowed by an unclosed comment
+  // (the parser turns the remainder into a comment node) and content the
+  // parser relocated into <head>. Threshold is deliberately > 0, not
+  // "substantial": every observed blank-frame class produces exactly zero.
+  const clone = doc.body.cloneNode(true) as HTMLElement;
+  for (const hidden of clone.querySelectorAll("script, style, template, noscript")) {
+    hidden.remove();
+  }
+  const hasText = (clone.textContent ?? "").trim().length > 0;
+  const hasMedia = doc.body.querySelector("svg, img, canvas, video") !== null;
+  if (!hasText && !hasMedia) {
+    return "the document body has no visible content";
+  }
+
+  return null;
+}
+
+const PROBE_TIMEOUT_MS = 4000;
+
+// Whether this environment performs real layout. jsdom lays out nothing (all
+// rects are zero) and its iframe srcdoc load semantics are unreliable, so a
+// layout-less environment resolves "inconclusive" without creating a frame —
+// otherwise every jsdom test running the real pipeline would stall on the
+// probe timeout or fail on false "empty" verdicts.
+let layoutCapable: boolean | undefined;
+
+function canMeasureLayout(): boolean {
+  if (layoutCapable === undefined) {
+    const el = document.createElement("div");
+    el.textContent = "x";
+    el.style.cssText = "position:absolute;visibility:hidden";
+    document.body.appendChild(el);
+    layoutCapable = el.getBoundingClientRect().height > 0;
+    el.remove();
+  }
+  return layoutCapable;
+}
+
+/**
+ * Authoritative layout pass (issue #312): loads the prepared document into a
+ * hidden, throwaway iframe and measures that the body laid out visible
+ * content. The frame grants allow-same-origin but never allow-scripts — the
+ * framed document cannot execute, so the grant is a one-way parent→child
+ * measurement channel. Only a definitive "loaded and measured empty" fails;
+ * timeout, measurement error, or a layout-less environment resolve
+ * "inconclusive" so the probe can never false-positive-block a valid plan.
+ */
+export const probePlanLayout: LayoutProbe = (doc) => {
+  if (!canMeasureLayout()) return Promise.resolve("inconclusive");
+
+  const { promise, resolve } = Promise.withResolvers<LayoutProbeResult>();
+  const frame = document.createElement("iframe");
+  let settled = false;
+  const done = (result: LayoutProbeResult) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    frame.remove();
+    resolve(result);
+  };
+  const timer = setTimeout(() => done("inconclusive"), PROBE_TIMEOUT_MS);
+
+  frame.setAttribute("sandbox", "allow-same-origin");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  frame.style.cssText =
+    "position:absolute;left:-10000px;top:0;width:800px;height:600px;visibility:hidden;pointer-events:none;border:0";
+  frame.addEventListener("load", () => {
+    try {
+      const body = frame.contentDocument?.body;
+      if (!body) return done("inconclusive");
+      const rect = body.getBoundingClientRect();
+      const text = (body.innerText ?? body.textContent ?? "").trim();
+      const visible =
+        rect.height > 0 &&
+        (text.length > 0 || body.querySelector("svg, img, canvas, video") !== null);
+      done(visible ? "visible" : "empty");
+    } catch {
+      done("inconclusive");
+    }
+  });
+  frame.srcdoc = doc;
+  document.body.appendChild(frame);
+  return promise;
+};
+
+/**
+ * Full review pipeline (issue #312): prepare → structural verify → layout
+ * probe. Never rejects — every failure mode settles as a `failed` state with
+ * a human-readable reason, so the surfaces always have something to present
+ * instead of a silent white void.
+ */
+export async function preparePlanForReview(
+  html: string,
+  probe: LayoutProbe = probePlanLayout,
+): Promise<Exclude<PreparedPlanState, { status: "pending" }>> {
+  let prepared: string;
+  try {
+    prepared = await preparePlanDocument(html);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { status: "failed", reason: `document preparation failed: ${message}` };
+  }
+
+  const structural = verifyPlanStructure(prepared);
+  if (structural !== null) return { status: "failed", reason: structural };
+
+  let layout: LayoutProbeResult;
+  try {
+    layout = await probe(prepared);
+  } catch {
+    layout = "inconclusive";
+  }
+  if (layout === "empty") {
+    return { status: "failed", reason: "prepared document rendered empty" };
+  }
+  return { status: "ready", doc: prepared };
+}
+
 /**
  * Prepared-document state for the two plan surfaces (PlanReview dock and the
- * transcript PlanCard): runs `preparePlanDocument` whenever the input changes
- * and returns the last resolved document — `null` while the first render is
- * in flight, the previous document while a re-render is in flight, so the
- * iframe never blanks mid-review.
+ * transcript PlanCard): runs the full verification pipeline whenever the
+ * input changes — `pending` while the first run is in flight, the previous
+ * settled state while a re-run is in flight, so the iframe never blanks
+ * mid-review. Any settled result (ready or failed) replaces the previous
+ * state: a stale document is never shown for a plan that has changed.
  */
-export function usePreparedPlanDocument(html: string | null): string | null {
-  const [doc, setDoc] = useState<string | null>(null);
+export function usePreparedPlanDocument(html: string | null): PreparedPlanState {
+  const [state, setState] = useState<PreparedPlanState>({ status: "pending" });
   useEffect(() => {
     if (html === null) {
-      setDoc(null);
+      setState({ status: "pending" });
       return;
     }
     let alive = true;
-    void preparePlanDocument(html).then((prepared) => {
-      if (alive) setDoc(prepared);
+    void preparePlanForReview(html).then((settled) => {
+      if (alive) setState(settled);
     });
     return () => {
       alive = false;
     };
   }, [html]);
-  return doc;
+  return state;
 }

@@ -12,6 +12,7 @@ import { shortLabel, splitRole } from "./AdvisorControl";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
+import { PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 
 /**
@@ -79,7 +80,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const planText = useStore((s) => s.rpc[tabId]?.planText);
   /** Present only when the session planned in html format and the file read. */
   const planHtml = useStore((s) => s.rpc[tabId]?.planHtml);
-  const preparedPlanHtml = usePreparedPlanDocument(planHtml ?? null);
+  const prepared = usePreparedPlanDocument(planHtml ?? null);
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
@@ -291,15 +292,23 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             {(!compact || compactStep === "review") && (
               <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
                 {planHtml ? (
-                  // sandbox="" is the empty token list: no scripts, no same-origin
-                  // access, no forms, no popups, no navigation. srcDoc keeps the
-                  // read on the confined plan:read channel rather than a file:// URL.
-                  <iframe
-                    title="proposed plan"
-                    sandbox=""
-                    srcDoc={preparedPlanHtml ?? ""}
-                    className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
-                  />
+                  prepared.status === "failed" ? (
+                    <PlanFallback
+                      reason={prepared.reason}
+                      source={planText ?? planHtml}
+                      className="min-h-0 flex-1"
+                    />
+                  ) : (
+                    // sandbox="" is the empty token list: no scripts, no same-origin
+                    // access, no forms, no popups, no navigation. srcDoc keeps the
+                    // read on the confined plan:read channel rather than a file:// URL.
+                    <iframe
+                      title="proposed plan"
+                      sandbox=""
+                      srcDoc={prepared.status === "ready" ? prepared.doc : ""}
+                      className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
+                    />
+                  )
                 ) : planText ? (
                   <Markdown text={planText} />
                 ) : (

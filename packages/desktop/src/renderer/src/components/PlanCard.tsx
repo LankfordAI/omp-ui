@@ -2,6 +2,7 @@ import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import { usePreparedPlanDocument } from "../lib/plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
+import { PlanFallback } from "./PlanFallback";
 import { Chip, Disclosure, Label, Panel } from "./ui";
 
 /**
@@ -10,7 +11,7 @@ import { Chip, Disclosure, Label, Panel } from "./ui";
  * this card is the chronological trace, collapsed by default.
  */
 export function PlanCard({ item }: { item: PlanItem }) {
-  const preparedHtml = usePreparedPlanDocument(
+  const prepared = usePreparedPlanDocument(
     item.text !== null && isHtmlPlanPath(item.planFilePath) ? item.text : null,
   );
   return (
@@ -29,14 +30,22 @@ export function PlanCard({ item }: { item: PlanItem }) {
           <Disclosure summary={<Label>show plan</Label>}>
             <div className="mt-1">
               {isHtmlPlanPath(item.planFilePath) ? (
-                // Same empty sandbox as the review modal: no scripts, no
-                // same-origin access, no navigation (ADR-0007).
-                <iframe
-                  title="proposed plan"
-                  sandbox=""
-                  srcDoc={preparedHtml ?? ""}
-                  className="h-[28rem] w-full rounded-md border border-line bg-white"
-                />
+                prepared.status === "failed" ? (
+                  <PlanFallback
+                    reason={prepared.reason}
+                    source={item.text}
+                    className="h-[28rem]"
+                  />
+                ) : (
+                  // Same empty sandbox as the review modal: no scripts, no
+                  // same-origin access, no navigation (ADR-0007).
+                  <iframe
+                    title="proposed plan"
+                    sandbox=""
+                    srcDoc={prepared.status === "ready" ? prepared.doc : ""}
+                    className="h-[28rem] w-full rounded-md border border-line bg-white"
+                  />
+                )
               ) : (
                 <Markdown text={item.text} />
               )}
