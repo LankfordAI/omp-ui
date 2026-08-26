@@ -24,6 +24,7 @@ interface RegistrySettings {
   dismissedAppUpdateVersion: string | null;
   dismissedOmpUpdateVersion: string | null;
   themeId: string;
+  fontFamilyId: string;
   appUpdateCheckOnLaunch: boolean;
   ompUpdateCheckOnLaunch: boolean;
   remoteEnabled: boolean;
@@ -89,6 +90,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
     themeId: "graphite",
+    fontFamilyId: "default",
     appUpdateCheckOnLaunch: true,
     ompUpdateCheckOnLaunch: true,
     remoteEnabled: false,

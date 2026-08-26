@@ -459,3 +459,14 @@ switched at runtime by writing CSS variables on the document root. Every theme
 keeps the signal accent reserved for agent liveness (ADR-0004); a theme is a
 fixed set, never a free-form colour picker.
 _Avoid_: color scheme, skin, palette
+
+**Font family**:
+The Settings → Appearance choice between the app's own typeface (Bricolage
+Grotesque for display, Instrument Sans for text, JetBrains Mono for code) and
+the Ubuntu family (Ubuntu for display and text, Ubuntu Mono for code). It
+persists in the registry like the theme id and repoints the `--font-display`,
+`--font-sans`, and `--font-mono` tokens on the document root, so every font
+utility, code block, and xterm surface (terminal tabs, console drawer) follows
+one switch without a CSS rebuild. A fixed set of choices, never a free-form
+picker.
+_Avoid_: font switch, typeface theme, font skin

@@ -102,6 +102,7 @@ const backendMock = {
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
+  setFontFamilyId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
@@ -997,4 +998,42 @@ describe("Settings page footer dispatch (issue #300)", () => {
       else expect(footer?.textContent).toContain(marker);
     });
   }
+});
+
+describe("Settings Appearance page font family (issue #315)", () => {
+  const seedAppearance = (fontFamilyId: string): void => {
+    useStore.setState({
+      settingsPage: "appearance",
+      state: backendState({ fontFamilyId }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const fontCard = (id: string): HTMLButtonElement =>
+    document.querySelector<HTMLButtonElement>(
+      `button[aria-label="${id} font family"]`,
+    )!;
+
+  it("shows the persisted family and persists a switch to Ubuntu", async () => {
+    seedAppearance("default");
+    await renderSettings();
+    expect(document.body.textContent).toContain("Font family");
+    expect(fontCard("Default").getAttribute("aria-pressed")).toBe("true");
+    expect(fontCard("Ubuntu").getAttribute("aria-pressed")).toBe("false");
+
+    click(fontCard("Ubuntu"));
+    expect(backendMock.setFontFamilyId).toHaveBeenCalledWith("ubuntu");
+    expect(document.documentElement.style.getPropertyValue("--font-sans")).toContain("Ubuntu");
+    expect(document.documentElement.style.getPropertyValue("--font-mono")).toContain("Ubuntu Mono");
+  });
+
+  it("reflects a persisted ubuntu setting", async () => {
+    seedAppearance("ubuntu");
+    await renderSettings();
+    expect(fontCard("Ubuntu").getAttribute("aria-pressed")).toBe("true");
+    expect(fontCard("Default").getAttribute("aria-pressed")).toBe("false");
+  });
 });

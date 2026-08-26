@@ -6,6 +6,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { useTheme } from "../lib/themes";
+import { useFontFamily } from "../lib/font-families";
 import { findRecord, registerShellWriter, sessionCwd, useStore } from "../store";
 import { Button } from "./ui";
 
@@ -25,6 +26,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   /** Handoff key already spawned into this PTY; a newer key forces a respawn. */
   const handoffKeyRef = useRef<number | null>(null);
   const theme = useTheme();
+  const font = useFontFamily();
   const projectCwd = useStore(
     (s) =>
       sessionCwd(findRecord(s.state, tabId)) ??
@@ -41,7 +43,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     const host = hostRef.current;
     if (!host) return;
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace',
+      fontFamily: font.mono,
       fontSize: 12.5,
       lineHeight: 1.45,
       cursorBlink: true,
@@ -128,15 +130,19 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       });
   }, [visible, tabId, projectCwd, clearShellExited, handoff?.key]);
 
-  // Re-theme a live terminal in place. Deliberately NOT a dep of the mount
-  // effect: rebuilding the terminal would drop the scrollback and the PTY
-  // writer registration. The spread is required — xterm compares the options
-  // object by reference, so mutating the retrieved theme is ignored
-  // (@xterm/xterm/typings/xterm.d.ts:881-889).
+  // Re-theme and re-font a live terminal in place. Deliberately NOT a dep of
+  // the mount effect: rebuilding the terminal would drop the scrollback and
+  // the PTY writer registration. The spread is required — xterm compares the
+  // options object by reference, so mutating the retrieved theme is ignored
+  // (@xterm/xterm/typings/xterm.d.ts:881-889). The refresh repaints the
+  // canvas with the new font's metrics without waiting for the next keystroke.
   useEffect(() => {
     const term = termRef.current?.term;
-    if (term) term.options.theme = { ...theme.term } as ITheme;
-  }, [theme]);
+    if (!term) return;
+    term.options.theme = { ...theme.term } as ITheme;
+    term.options.fontFamily = font.mono;
+    term.refresh(0, term.rows - 1);
+  }, [theme, font]);
 
   // Main's kill-first makes this a clean replacement; scrollback is kept.
   const restart = (): void => {

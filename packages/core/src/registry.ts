@@ -40,6 +40,8 @@ export interface RegistrySettings {
   dismissedOmpUpdateVersion: string | null;
   /** Active theme id (see renderer lib/themes.ts). */
   themeId: string;
+  /** Active font family id (see renderer lib/font-families.ts). */
+  fontFamilyId: string;
   /** Check for a newer omp-ui release at launch. */
   appUpdateCheckOnLaunch: boolean;
   /** Check for a newer omp binary at launch. */
@@ -159,6 +161,12 @@ export const SETTINGS: SettingDescriptors = {
   // renderer's own table, so registries written by newer builds remain intact.
   themeId: validatedSetting(
     () => "graphite",
+    (value): value is string => typeof value === "string" && value !== "",
+  ),
+  // Any non-empty string is kept as-is: font family ids are validated by the
+  // renderer's own table, so registries written by newer builds remain intact.
+  fontFamilyId: validatedSetting(
+    () => "default",
     (value): value is string => typeof value === "string" && value !== "",
   ),
   appUpdateCheckOnLaunch: validatedSetting(

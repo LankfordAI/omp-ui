@@ -7,6 +7,7 @@ import type {
 import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
+import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
@@ -115,6 +116,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (t.id !== currentThemeId()) applyTheme(t);
   };
 
+  /**
+   * Repaints the document to match the registry's persisted fontFamilyId —
+   * the same registry-authoritative, localStorage-mirror split as syncTheme.
+   * The id guard stops a redundant broadcast from re-writing the three
+   * font properties on every state change.
+   */
+  const syncFontFamily = (s: BackendState): void => {
+    const f = resolveFontFamily(s.fontFamilyId);
+    if (f.id !== currentFontFamilyId()) applyFontFamily(f);
+  };
+
   return {
     ...createViewSlice(set, get, api),
     ...createSettingsSlice(set, get, api),
@@ -149,6 +161,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
         }));
         syncTheme(state);
+        syncFontFamily(state);
         reconcilePlanGates(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
@@ -193,6 +206,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       ]);
       set({ state, appUpdate, ompUpdate, remote });
       syncTheme(state);
+      syncFontFamily(state);
       reconcilePlanGates(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);

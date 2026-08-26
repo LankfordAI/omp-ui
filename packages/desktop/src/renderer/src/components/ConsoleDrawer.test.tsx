@@ -32,6 +32,7 @@ vi.mock("@xterm/xterm", () => ({
       return { dispose() {} };
     }
     write() {}
+    refresh() {}
     dispose() {}
   },
 }));

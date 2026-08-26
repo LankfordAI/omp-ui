@@ -411,6 +411,10 @@ export class MainBackend {
           this.registry.setSetting("themeId", id);
           await this.broadcast();
         },
+        [CH.setFontFamilyId]: async (id: string) => {
+          this.registry.setSetting("fontFamilyId", id);
+          await this.broadcast();
+        },
         [CH.setAppUpdateCheckOnLaunch]: async (on: boolean) => {
           this.registry.setSetting("appUpdateCheckOnLaunch", on);
           await this.broadcast();
@@ -810,6 +814,7 @@ export class MainBackend {
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
       themeId: this.registry.getSetting("themeId"),
+      fontFamilyId: this.registry.getSetting("fontFamilyId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),

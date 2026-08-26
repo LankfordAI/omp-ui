@@ -12,6 +12,7 @@ import { cn } from "../lib/cn";
 import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
 import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
+import { useFontFamily } from "../lib/font-families";
 import { registerTermWriter, useStore } from "../store";
 import { FindBar } from "./FindBar";
 import { Button, IconButton, IconClose } from "./ui";
@@ -47,6 +48,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   const termRef = useRef<{ term: Terminal; fit: FitAddon; search: SearchAddon } | null>(null);
   const imagePickerRef = useRef<HTMLInputElement>(null);
   const theme = useTheme();
+  const font = useFontFamily();
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
   const searchOpen = useStore((s) => s.searchOpen[tabId] === true);
@@ -120,7 +122,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     const host = hostRef.current;
     if (!host) return;
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace',
+      fontFamily: font.mono,
       fontSize: 12.5,
       lineHeight: 1.45,
       cursorBlink: true,
@@ -202,15 +204,19 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     };
   }, [tabId, pasteImages]);
 
-  // Re-theme a live terminal in place. Deliberately NOT a dep of the mount
-  // effect: rebuilding the terminal would drop the scrollback and the PTY
-  // writer registration. The spread is required — xterm compares the options
-  // object by reference, so mutating the retrieved theme is ignored
-  // (@xterm/xterm/typings/xterm.d.ts:881-889).
+  // Re-theme and re-font a live terminal in place. Deliberately NOT a dep of
+  // the mount effect: rebuilding the terminal would drop the scrollback and
+  // the PTY writer registration. The spread is required — xterm compares the
+  // options object by reference, so mutating the retrieved theme is ignored
+  // (@xterm/xterm/typings/xterm.d.ts:881-889). The refresh repaints the
+  // canvas with the new font's metrics without waiting for the next keystroke.
   useEffect(() => {
     const term = termRef.current?.term;
-    if (term) term.options.theme = { ...theme.term } as ITheme;
-  }, [theme]);
+    if (!term) return;
+    term.options.theme = { ...theme.term } as ITheme;
+    term.options.fontFamily = font.mono;
+    term.refresh(0, term.rows - 1);
+  }, [theme, font]);
 
   // Find within the session (issue #270): re-issue the search as the query
   // changes. A theme switch first clears the old-colour decorations so the

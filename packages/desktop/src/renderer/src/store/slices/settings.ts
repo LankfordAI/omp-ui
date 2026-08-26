@@ -2,6 +2,7 @@ import { compactionSettingsFromEntries } from "@omp-ui/core/compaction-threshold
 import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
 import { applyTheme, currentThemeId, resolveTheme } from "../../lib/themes";
+import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "../../lib/font-families";
 import type { SettingsSlice, UiStore } from "../types";
 
 const DEFAULT_REMOTE: SettingsSlice["remote"] = {
@@ -179,6 +180,17 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       await backend.setThemeId(id);
     } catch (err) {
       applyTheme(resolveTheme(previousId));
+      alertError(err);
+    }
+  },
+
+  async setFontFamilyId(id) {
+    const previousId = currentFontFamilyId();
+    applyFontFamily(resolveFontFamily(id));
+    try {
+      await backend.setFontFamilyId(id);
+    } catch (err) {
+      applyFontFamily(resolveFontFamily(previousId));
       alertError(err);
     }
   },

@@ -18,6 +18,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     modelFavorites: [],
     skipDeleteConfirmation: false,
     themeId: "graphite",
+    fontFamilyId: "default",
     appUpdateCheckOnLaunch: true,
     ompUpdateCheckOnLaunch: true,
     dismissedAppUpdateVersion: null,
