@@ -513,6 +513,15 @@ export interface McpServerEntry {
   shadowedBy?: string;
   state: "enabled" | "disabled";
   disabledBy?: "config" | "denylist";
+  /**
+   * Set when the user-level allowlist (`enabledServers`) is the only reason
+   * this row is ON — its own source says `enabled: false`. omp's suppression
+   * rule (`loadAllMCPConfigs`) reads that list solely from the user file, so
+   * a project-scope disable of such a row can only take effect by clearing
+   * the global force-enable, which also drops the server in every other
+   * project that does not enable it itself.
+   */
+  enabledBy?: "allowlist";
   /** native | mcp-json files are writable; tool-owned files are not. */
   writable: boolean;
 }

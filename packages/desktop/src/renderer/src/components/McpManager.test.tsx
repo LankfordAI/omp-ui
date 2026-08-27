@@ -407,6 +407,60 @@ describe("McpManager", () => {
     }
   });
 
+  it("keeps an allowlist-force-enabled row togglable and warns that the pin clears", async () => {
+    const pinnedOn: McpServerEntry = {
+      ...toolRow,
+      name: "forced-one",
+      state: "enabled",
+      enabledBy: "allowlist",
+    };
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [pinnedOn, toolRow],
+      errors: [],
+    } satisfies McpServersResult);
+    await renderManager();
+
+    // The toggle must still control this project (#324) — omp only honours
+    // the allowlist at the user level, so the disable clears it.
+    const forced = switchFor("disable forced-one");
+    expect(forced.disabled).toBe(false);
+    expect(forced.title).toContain("clears that global override");
+    // A row without the pin keeps the plain project-override wording.
+    expect(switchFor("disable cursor-one").title).toBe(
+      "writes a project-only override to .omp/mcp.json",
+    );
+
+    backendMock.setMcpServerEnabled.mockResolvedValue({
+      servers: [
+        // Shape core actually returns: the project skeleton is now the winner.
+        {
+          ...pinnedOn,
+          state: "disabled",
+          disabledBy: "config",
+          enabledBy: undefined,
+          scope: "project",
+          source: "native",
+          sourcePath: "/proj/.omp/mcp.json",
+          writable: true,
+        },
+        toolRow,
+      ],
+      errors: [],
+    } satisfies McpServersResult);
+    await act(async () => {
+      forced.click();
+    });
+    expect(backendMock.setMcpServerEnabled).toHaveBeenCalledWith({
+      projectCwd: PROJECT,
+      name: "forced-one",
+      sourcePath: undefined,
+      enabled: false,
+    });
+    // The disable took effect for this project — the row comes back off, with
+    // no pin left to re-enable it.
+    expect(switchFor("enable forced-one").disabled).toBe(false);
+  });
+
   it("keeps a live switch on a project-disabled row and describes the override write", async () => {
     const projectDisabled: McpServerEntry = {
       ...writableRow,

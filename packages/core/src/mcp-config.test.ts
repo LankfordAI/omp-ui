@@ -109,12 +109,30 @@ describe("resolveMcpServers", () => {
     const { servers } = await resolveMcpServers(project, env);
     const byName = new Map(servers.map((s) => [s.name, s]));
     expect(byName.get("denied")).toMatchObject({ state: "disabled", disabledBy: "denylist" });
-    // The allowlist force-enables a source's `enabled: false`…
+    expect(byName.get("denied")!.enabledBy).toBeUndefined();
+    // The allowlist force-enables a source's `enabled: false`, and that pin is
+    // the only thing holding the row on — the flag the UI warns from.
     expect(byName.get("forced")!.state).toBe("enabled");
     expect(byName.get("forced")!.disabledBy).toBeUndefined();
+    expect(byName.get("forced")!.enabledBy).toBe("allowlist");
     // …but never overrides the denylist.
     expect(byName.get("both")).toMatchObject({ state: "disabled", disabledBy: "denylist" });
+    expect(byName.get("both")!.enabledBy).toBeUndefined();
     expect(byName.get("plainOff")).toMatchObject({ state: "disabled", disabledBy: "config" });
+    expect(byName.get("plainOff")!.enabledBy).toBeUndefined();
+  });
+
+  it("leaves enabledBy unset when the allowlist pin is redundant", async () => {
+    const { env, agent, project } = fixture();
+    writeJson(path.join(agent, "mcp.json"), {
+      mcpServers: { u: { command: "u" } },
+      enabledServers: ["u"],
+    });
+    const { servers } = await resolveMcpServers(project, env);
+    // The source never said `enabled: false`, so the pin changes nothing and
+    // clearing it on a project disable costs other projects nothing either.
+    expect(servers.find((s) => s.name === "u")).toMatchObject({ state: "enabled" });
+    expect(servers.find((s) => s.name === "u")!.enabledBy).toBeUndefined();
   });
 
   it("reports a malformed file in errors and keeps the other providers", async () => {
@@ -471,6 +489,106 @@ describe("setMcpServerEnabled (project scope)", () => {
     ).rejects.toThrow(/disabled in its source config/);
     expect(fs.readFileSync(cursorFile, "utf8")).toBe(before);
     expect(fs.existsSync(path.join(project, ".omp", "mcp.json"))).toBe(false);
+  });
+
+  it("disables an allowlist-pinned server by clearing the pin, and keeps other projects on", async () => {
+    const { env, agent, project } = fixture();
+    const otherProject = tmpDir();
+    const userFile = path.join(agent, "mcp.json");
+    writeJson(userFile, {
+      mcpServers: { u: { command: "u" } },
+      enabledServers: ["u"],
+    });
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "u", enabled: false },
+      env,
+    );
+
+    // omp ignores `enabled: false` for any allowlisted name, so the pin has to
+    // go for the project write to decide anything at all (#324).
+    const userAfter = JSON.parse(fs.readFileSync(userFile, "utf8"));
+    expect(userAfter.enabledServers).toBeUndefined();
+    expect(userAfter.mcpServers).toEqual({ u: { command: "u" } });
+    expect(
+      JSON.parse(fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8")).mcpServers.u,
+    ).toEqual({ command: "u", enabled: false });
+    expect(result.servers.find((s) => s.name === "u" && s.effective)).toMatchObject({
+      state: "disabled",
+      disabledBy: "config",
+      scope: "project",
+    });
+
+    // The pin was redundant here (the source never said off), so no other
+    // project changes: the blast radius is this project only.
+    const elsewhere = await resolveMcpServers(otherProject, env);
+    expect(elsewhere.servers.find((s) => s.name === "u")).toMatchObject({ state: "enabled" });
+  });
+
+  it("clearing the pin keeps the denylist and every unrelated key intact", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    writeJson(userFile, {
+      mcpServers: { u: { command: "u" }, other: { command: "o" } },
+      disabledServers: ["gone"],
+      enabledServers: ["keep", "u"],
+      someOtherRootKey: { nested: true },
+    });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "u", enabled: false }, env);
+
+    const userAfter = JSON.parse(fs.readFileSync(userFile, "utf8"));
+    expect(userAfter.enabledServers).toEqual(["keep"]);
+    expect(userAfter.disabledServers).toEqual(["gone"]);
+    expect(userAfter.someOtherRootKey).toEqual({ nested: true });
+    expect(Object.keys(userAfter.mcpServers)).toEqual(["u", "other"]);
+  });
+
+  it("disables a load-bearing allowlist pin, flipping the tool row off everywhere", async () => {
+    const { env, home, agent, project } = fixture();
+    const otherProject = tmpDir();
+    writeJson(path.join(home, ".cursor", "mcp.json"), {
+      mcpServers: { x: { command: "x-bin", enabled: false } },
+    });
+    writeJson(path.join(agent, "mcp.json"), { enabledServers: ["x"] });
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "x", enabled: false },
+      env,
+    );
+
+    expect(result.servers.find((s) => s.name === "x" && s.effective)).toMatchObject({
+      state: "disabled",
+    });
+    // Honest consequence, documented in setProjectServerEnabled: the pin was
+    // the only thing enabling a source-disabled row, and omp has no
+    // project-scoped override for it, so other projects go off too.
+    const elsewhere = await resolveMcpServers(otherProject, env);
+    expect(elsewhere.servers.find((s) => s.name === "x")).toMatchObject({
+      state: "disabled",
+      disabledBy: "config",
+    });
+  });
+
+  it("clears the pin when the winner is a project file flipped in place", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    writeJson(userFile, { enabledServers: ["p"] });
+    const projectFile = path.join(project, ".omp", "mcp.json");
+    writeJson(projectFile, { mcpServers: { p: { command: "p-bin" } } });
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "p", enabled: false },
+      env,
+    );
+
+    // An in-place flip is just as powerless against the pin as a skeleton is.
+    expect(JSON.parse(fs.readFileSync(projectFile, "utf8")).mcpServers.p.enabled).toBe(false);
+    expect(JSON.parse(fs.readFileSync(userFile, "utf8")).enabledServers).toBeUndefined();
+    expect(result.servers.find((s) => s.name === "p" && s.effective)).toMatchObject({
+      state: "disabled",
+      disabledBy: "config",
+    });
   });
 
   it("enabling an already-enabled outside server is an idempotent no-op", async () => {

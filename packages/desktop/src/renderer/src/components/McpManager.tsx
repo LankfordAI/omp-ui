@@ -13,11 +13,14 @@ import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
  * lives in core — the renderer only ever sees the redacted DTO. The modal is
  * pinned to a tab (`tabId`) only when opened from a session.
  *
- * Toggle scope follows the modal's scope (#223): project toggles write only
- * project files (an in-place flip, or a suppression override in
- * `.omp/mcp.json`) and never user-level state — rows that only a global
- * write could enable render a pinned switch instead. Global toggles use
- * omp's own user-level write algorithm.
+ * Toggle scope follows the modal's scope (#223): a project toggle decides
+ * that project — an in-place flip, or a suppression override in
+ * `.omp/mcp.json` — and writes no user-level definition. Rows that only a
+ * global write could enable render a pinned switch instead. A row the
+ * user-level allowlist force-enables (`enabledBy: "allowlist"`) stays
+ * togglable, because omp honours that list at the user level only: its title
+ * says the disable clears that global override too (#324). Global toggles
+ * use omp's own user-level write algorithm.
  *
  * omp has no MCP RPC verbs and no config watching, so a toggle takes effect
  * on the next session spawn; the footer says so and offers an in-place
@@ -119,9 +122,11 @@ function Row({
             projectScoped
               ? pinnedGlobally
                 ? "disabled at the user level — enable it globally from Settings → MCP servers"
-                : entry.scope === "project" && entry.writable
-                  ? inPlaceTitle
-                  : "writes a project-only override to .omp/mcp.json"
+                : entry.enabledBy === "allowlist"
+                  ? "force-enabled for every project by the user-level allowlist — disabling clears that global override, then suppresses it in this project"
+                  : entry.scope === "project" && entry.writable
+                    ? inPlaceTitle
+                    : "writes a project-only override to .omp/mcp.json"
               : entry.writable
                 ? inPlaceTitle
                 : "tool-owned file — toggled via omp's user-level override lists"

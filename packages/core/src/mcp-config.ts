@@ -333,6 +333,11 @@ export async function resolveMcpServers(
         } else if (enabled === false && !allowlist.has(name)) {
           entry.state = "disabled";
           entry.disabledBy = "config";
+        } else if (enabled === false) {
+          // Reaching here means the allowlist is the only reason this row is
+          // ON. omp honours that list at the user level only, so disabling
+          // this server for one project has to clear the global pin (#324).
+          entry.enabledBy = "allowlist";
         }
         claimed.set(name, entry);
         servers.push(entry);
@@ -379,6 +384,26 @@ function readStringList(config: McpConfigFile, key: "disabledServers" | "enabled
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
+/**
+ * Drops one name from the user-level `enabledServers`, leaving the deny list
+ * and every unrelated key untouched; the key itself disappears once the list
+ * empties, exactly as omp's own writer leaves it.
+ *
+ * This is the single user-level write the project toggle performs. It is
+ * unavoidable: omp's `loadAllMCPConfigs` suppresses a server when
+ * `denylisted || (enabled === false && !allowlisted)`, and it reads both
+ * lists from the user file alone — a project file's own list keys are never
+ * consulted. So while a name sits in `enabledServers`, no `enabled: false`
+ * written anywhere inside a project can suppress it.
+ */
+async function clearUserAllowlistEntry(userPath: string, name: string): Promise<void> {
+  const config = await readMcpConfigFile(userPath);
+  const allow = readStringList(config, "enabledServers").filter((entry) => entry !== name);
+  const updated: McpConfigFile = { ...config };
+  if (allow.length > 0) updated.enabledServers = allow.sort();
+  else delete updated.enabledServers;
+  await writeMcpConfigFile(userPath, updated);
+}
 
 /**
  * Flips one server's enabled state and resolves with the refreshed server
@@ -538,10 +563,12 @@ function disableSkeleton(provider: McpServerSource, raw: RawServer): RawServer {
 
 /**
  * Project-scope toggle — a deliberate divergence from omp's writer. The
- * invariant: a toggle writes ONLY inside the project (its `.omp/mcp.json`, or
- * a project-scope writable file that already defines the server). It NEVER
- * touches the user-level `mcp.json` — neither definitions nor the
- * `disabledServers`/`enabledServers` lists.
+ * invariant: a toggle decides THIS project and writes inside it (its
+ * `.omp/mcp.json`, or a project-scope writable file that already defines the
+ * server). It never writes a user-level *definition*, and never touches the
+ * user denylist. The single exception is forced by omp's suppression rule
+ * (see the disable bullet): clearing an `enabledServers` pin, because
+ * nothing written inside a project can override it.
  *
  * A single priority walk mirrors resolution (which also avoids the latent
  * candidate-loop flaw of flipping a *shadowed* entry while a higher-priority
@@ -557,6 +584,15 @@ function disableSkeleton(provider: McpServerSource, raw: RawServer): RawServer {
  *   project's `.omp/mcp.json` (a project entry with `enabled: false`
  *   suppresses the name for this project only; omp honours suppression, not
  *   drop).
+ * - Disabling an allowlisted name → {@link clearUserAllowlistEntry} runs
+ *   first. omp suppresses on `denylisted || (enabled === false &&
+ *   !allowlisted)` and reads both lists from the user file only, so the
+ *   project write alone is a silent no-op (#324); omp's own `/mcp disable`
+ *   clears the pin for the same reason. When the pin was load-bearing (the
+ *   winner's source says `enabled: false` — surfaced to the UI as
+ *   `enabledBy: "allowlist"`), clearing it also drops the server in other
+ *   projects that do not enable it themselves; omp offers no project-scoped
+ *   override, so the alternative is a toggle that cannot work.
  * - Winner elsewhere, enabling → nothing project-local can beat the user
  *   denylist or a source's `enabled: false` without copying secrets into a
  *   possibly-committed project file, so those states reject with a pointer
@@ -572,6 +608,18 @@ async function setProjectServerEnabled(
   const winner = defs[0];
   if (winner === undefined) {
     throw new Error(`Server "${name}" is not defined in any config source.`);
+  }
+
+  // Both directions consult the user lists; read them once. omp reads them
+  // from this file alone, which is also the only place a pin can be cleared.
+  const userPath = path.join(getOmpAgentDir(env), "mcp.json");
+  const errors: McpServersResult["errors"] = [];
+  const { denylist, allowlist } = await readServerLists(userPath, errors);
+
+  // The pin outranks anything a project file can say, so a project-scope
+  // disable clears it before the write below decides this project.
+  if (!enabled && allowlist.has(name)) {
+    await clearUserAllowlistEntry(userPath, name);
   }
 
   if (winner.file.scope === "project" && winner.file.writable) {
@@ -603,11 +651,6 @@ async function setProjectServerEnabled(
 
   // Enabling a server defined outside the project: mirror resolution's state
   // derivation to reject the states no project-local write can change.
-  const errors: McpServersResult["errors"] = [];
-  const { denylist, allowlist } = await readServerLists(
-    path.join(getOmpAgentDir(env), "mcp.json"),
-    errors,
-  );
   if (denylist.has(name)) {
     throw new Error(
       `"${name}" is disabled by the user-level denylist — enable it globally from Settings → MCP servers.`,
