@@ -1,0 +1,106 @@
+name: macOS Package
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Package version, with or without a leading v.
+        required: true
+        type: string
+      notarize:
+        description: Notarize and staple the signed package.
+        required: true
+        type: boolean
+      targets:
+        description: JSON matrix whose include entries contain arch and runner.
+        required: true
+        type: string
+    outputs:
+      targets:
+        description: The target matrix used to build the packages.
+        value: ${{ jobs.package.outputs.targets }}
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.targets) }}
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      targets: ${{ steps.targets.outputs.value }}
+    steps:
+      - id: targets
+        shell: bash
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: echo "value=$TARGETS" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Stamp package version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION#v}"
+          current="$(node -p 'require("./packages/desktop/package.json").version')"
+          if [ "$current" = "$version" ]; then
+            echo "package.json already at $current — nothing to stamp"
+          else
+            npm version "$version" --no-git-tag-version --workspace @omp-ui/desktop
+          fi
+      - name: Rebuild node-pty
+        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
+      - name: Package signed macOS build (with retries, notarization deferred)
+        shell: bash
+        run: |
+          # dmgbuild can exhaust its own detach retries while the runner still
+          # holds the fresh volume (issue #278). A bounded step retry recovers.
+          status=0
+          for attempt in 1 2 3; do
+            if npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never --config.mac.notarize=false; then
+              status=0
+              break
+            else
+              status=$?
+            fi
+            if (( attempt >= 3 )); then
+              break
+            fi
+            echo "::warning::package:mac attempt $attempt failed (exit $status); retrying in 15s"
+            sleep 15
+          done
+          exit "$status"
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      - name: Notarize macOS build (notarytool with retries)
+        if: ${{ inputs.notarize }}
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash packages/desktop/scripts/notarize-macos-preview.sh "${{ matrix.arch }}"
+      - name: Verify signed macOS package
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: >-
+          bash packages/desktop/scripts/verify-macos-package.sh
+          "${{ matrix.arch }}"
+          "${{ inputs.notarize && 'full' || 'signed-only' }}"
+      - name: Stage macOS package for caller
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-package-${{ matrix.arch }}
+          path: |
+            packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.dmg
+            packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.zip
+            packages/desktop/dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1

@@ -24,5 +24,6 @@ jobs:
           npm install --package-lock-only
           git diff --exit-code package-lock.json
       - run: npm run typecheck
+      - run: node --test scripts/release-artifacts.test.mjs
       - run: npm test
       - run: npm run build

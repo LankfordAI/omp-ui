@@ -79,76 +79,29 @@ jobs:
             "${appimages[0]}" \
             latest-linux.yml
 
-  release-macos:
+  package-macos:
     needs: release-linux
+    uses: ./.github/workflows/macos-package.yml
+    with:
+      version: ${{ github.ref_name }}
+      notarize: true
+      targets: >-
+        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15-intel"}]}
+    secrets: inherit
+
+  release-macos:
+    needs: package-macos
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: x64
-            runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+      matrix: ${{ fromJSON(needs.package-macos.outputs.targets) }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Download packaged macOS release
+        uses: actions/download-artifact@v4
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Test fd sweep on macOS
-        run: npm test --workspace @omp-ui/core -- src/fd-sweep.test.ts
-      - name: Stamp version from tag
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          current="$(node -p 'require("./packages/desktop/package.json").version')"
-          if [ "$current" = "$tag" ]; then
-            echo "package.json already at $current — nothing to stamp"
-          else
-            npm version "$tag" --no-git-tag-version --workspace @omp-ui/desktop
-          fi
-      - name: Rebuild node-pty
-        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
-      - name: Package signed macOS release (with retries, notarization deferred to next step)
-        shell: bash
-        run: |
-          # Retry the DMG build: dmgbuild's own 5-attempt hdiutil-detach loop
-          # (~20 s backoff) can exhaust while the runner still holds the fresh
-          # volume (hdiutil EBUSY). electron-builder 26.15.3 passes no
-          # --detach-retries to the bundled dmgbuild, so the in-repo mitigation
-          # is this bounded step retry. A no-change rerun recovers (issue #278).
-          status=0
-          for attempt in 1 2 3; do
-            if npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never --config.mac.notarize=false; then
-              status=0
-              break
-            else
-              status=$?
-            fi
-            if (( attempt >= 3 )); then
-              break
-            fi
-            echo "::warning::package:mac attempt $attempt failed (exit $status); retrying in 15s"
-            sleep 15
-          done
-          exit "$status"
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      - name: Notarize macOS release (notarytool with retries)
-        shell: bash
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash packages/desktop/scripts/notarize-macos-preview.sh "${{ matrix.arch }}"
-      - name: Verify signed and notarized macOS package
-        shell: bash
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash packages/desktop/scripts/verify-macos-package.sh "${{ matrix.arch }}"
-      - name: Upload macOS preview to release
+          name: macos-package-${{ matrix.arch }}
+          path: packages/desktop/dist
+      - name: Upload macOS assets to release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -158,6 +111,8 @@ jobs:
           dist="packages/desktop/dist"
           dmgs=("$dist"/*-mac-preview-${{ matrix.arch }}.dmg)
           zips=("$dist"/*-mac-preview-${{ matrix.arch }}.zip)
+          (( ${#dmgs[@]} == 1 ))
+          (( ${#zips[@]} == 1 ))
           gh release upload "$GITHUB_REF_NAME" --clobber \
             "${dmgs[0]}" \
             "${zips[0]}" \
@@ -240,14 +195,15 @@ jobs:
             latest.yml
 
   release-manifest:
-    needs: [release-linux, release-macos, release-windows]
-    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
+    needs: [release-linux, package-macos, release-macos, release-windows]
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - name: Download release packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -258,70 +214,37 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
-      - name: Generate and upload canonical checksums
+      - name: Plan release artifacts and generate metadata
+        shell: bash
+        env:
+          MACOS_TARGETS: ${{ needs.package-macos.outputs.targets }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          macos_arches="$(node -e 'process.stdout.write(JSON.parse(process.env.MACOS_TARGETS).include.map(({arch}) => arch).join(","))')"
+          node scripts/release-artifacts.mjs \
+            --dir release-assets --platform linux --version "$version" --arches x64 \
+            --out-dir release-manifest/linux
+          node scripts/release-artifacts.mjs \
+            --dir release-assets --platform mac --version "$version" --arches "$macos_arches" \
+            --out-dir release-manifest/mac
+          node scripts/release-artifacts.mjs \
+            --dir release-assets --platform win --version "$version" --arches x64 \
+            --out-dir release-manifest/win
+      - name: Generate and upload canonical metadata
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
+          cat release-manifest/*/checksum-inputs.txt | sort -u > release-assets/checksum-inputs.txt
           cd release-assets
-          appimages=(*.AppImage)
-          dmgs=(*-mac-preview-*.dmg)
-          zips=(*-mac-preview-*.zip)
-          installers=(*-windows-preview-x64-setup.exe)
-          (( ${#appimages[@]} == 1 ))
-          (( ${#dmgs[@]} == 2 ))
-          (( ${#zips[@]} == 2 ))
-          (( ${#installers[@]} == 1 ))
-          files=("${appimages[@]}" "${dmgs[@]}" "${zips[@]}" "${installers[@]}")
-          expected=$(( 2 + ${#dmgs[@]} + ${#zips[@]} ))
-          test "$(printf '%s\n' "${files[@]}" | sort -u | wc -l)" -eq "$expected"
-          sha256sum "${files[@]}" | sort -k2 > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq "$expected"
-          gh release upload "$GITHUB_REF_NAME" --clobber SHA256SUMS.txt
-      - name: Generate and upload the macOS update feed
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          cd release-assets
-          node <<'NODE'
-          const crypto = require("node:crypto");
-          const fs = require("node:fs");
-
-          const digest = async (file) => {
-            const sha512 = crypto.createHash("sha512");
-            await new Promise((resolve, reject) => {
-              fs.createReadStream(file)
-                .on("data", (chunk) => sha512.update(chunk))
-                .on("end", resolve)
-                .on("error", reject);
-            });
-            return { file, size: fs.statSync(file).size, sha512: sha512.digest("base64") };
-          };
-
-          async function main() {
-            const version = (process.env.GITHUB_REF_NAME || "").replace(/^v/, "");
-            if (!version) throw new Error("GITHUB_REF_NAME is not a version tag");
-            const files = [];
-            for (const arch of ["arm64", "x64"]) {
-              files.push(await digest(`omp-ui-${version}-mac-preview-${arch}.dmg`));
-              files.push(await digest(`omp-ui-${version}-mac-preview-${arch}.zip`));
-            }
-            const lines = [`version: ${version}`, "files:"];
-            for (const f of files) {
-              lines.push(`  - url: ${f.file}`, `    sha512: ${f.sha512}`, `    size: ${f.size}`);
-            }
-            lines.push(`path: ${files[0].file}`, `sha512: ${files[0].sha512}`);
-            lines.push(`releaseDate: '${new Date().toISOString()}'`);
-            fs.writeFileSync("latest-mac.yml", lines.join("\n") + "\n");
-          }
-
-          main().catch((err) => { console.error(err); process.exit(1); });
-          NODE
-          gh release upload "$GITHUB_REF_NAME" --clobber latest-mac.yml
+          while IFS= read -r file; do
+            sha256sum "$file"
+          done < checksum-inputs.txt > SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            SHA256SUMS.txt \
+            ../release-manifest/mac/latest-mac.yml
       - name: Assert release metadata and asset boundary
         shell: bash
         env:
@@ -341,10 +264,6 @@ jobs:
           grep -Fq "$installer" release-metadata/latest.yml
           grep -q "sha512" release-metadata/latest-mac.yml
           grep -q "^version: ${ver}$" release-metadata/latest-mac.yml
-          for name in "omp-ui-${ver}-mac-preview-arm64.dmg" "omp-ui-${ver}-mac-preview-arm64.zip" \
-                      "omp-ui-${ver}-mac-preview-x64.dmg" "omp-ui-${ver}-mac-preview-x64.zip"; do
-            grep -Fq "$name" release-metadata/latest-mac.yml
-          done
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
