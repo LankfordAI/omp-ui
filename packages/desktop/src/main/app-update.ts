@@ -113,16 +113,231 @@ const defaultAutoUpdaterFactory = async (): Promise<AutoUpdaterLike> => {
   return autoUpdater;
 };
 
+// ---------------------------------------------------------------------------
+// Updater internal machine. The renderer only ever sees the frozen
+// AppUpdateState (core/types.ts); everything below is main-process
+// bookkeeping behind it. Every state transition routes through
+// deriveAppUpdateState so the whole machine is one testable table; the class
+// holds the snapshot and applies the side effects (IPC send, quit
+// authorization) around it.
+// ---------------------------------------------------------------------------
+
+/**
+ * The updater's private snapshot:
+ * - state: the AppUpdateState the renderer sees.
+ * - release: the release behind the current offer, kept for notes and
+ *   downloads; only dismiss drops it.
+ * - stage: null = idle; {visible} = an electron-updater stage is in flight
+ *   (visible = it began from a manual check, so its progress and failures
+ *   reach the card). Invariant V⇒S: a visible stage is a stage.
+ * The class additionally holds the latches no transition derives from
+ * events: autoUpdaterHooked (listener-registration latch), restarting
+ * (irreversible installer-handoff guard), installOnQuitArmed (retained user
+ * intent, survives every status transition).
+ */
+export interface AppUpdateMachine {
+  state: AppUpdateState;
+  release: AppReleaseInfo | null;
+  /** null = idle; {visible} = a stage is in flight (invariant: visible ⇒ staging). */
+  stage: null | { visible: boolean };
+}
+
+/** One transition of the machine. See deriveAppUpdateState for the meaning. */
+export type AppUpdateEvent =
+  | { t: "disabled" }
+  | { t: "check-begin" }
+  | { t: "unreachable"; manual: boolean }
+  | { t: "up-to-date"; manual: boolean }
+  | { t: "offer-dismissed" }
+  | { t: "available"; release: AppReleaseInfo; format: AppPackageFormat }
+  | { t: "stage-enter"; visible: boolean; release: AppReleaseInfo; format: AutoUpdateFormat }
+  | { t: "stage-progress"; percent: number }
+  | { t: "stage-complete"; version: string }
+  | { t: "stage-empty"; visible: boolean }
+  | { t: "stage-failed"; visible: boolean; message: string }
+  | { t: "installing" }
+  | { t: "apply-failed"; message: string }
+  | { t: "install-on-quit"; on: boolean }
+  | { t: "asset-missing" }
+  | { t: "checksums-missing" }
+  | { t: "asset-download-begin" }
+  | { t: "asset-download-progress"; percent: number | null }
+  | { t: "asset-download-failed"; message: string }
+  | { t: "asset-downloaded"; path: string }
+  | { t: "dismiss" };
+
+/**
+ * The pure transition table. Each case returns the full next snapshot; the
+ * state half merges exactly as the historical partial `set({...})` patches
+ * did, so fields a transition does not name are deliberately RETAINED —
+ * quirks included, kept verbatim from before this table existed:
+ * - idle transitions ("unreachable"/"up-to-date"/"offer-dismissed" quiet
+ *   arms, quiet stage-failed) keep stale release metadata, and the quiet
+ *   stage-failed arm even keeps the stale error string.
+ * - "available" keeps a stale downloadedPath/error from an earlier manual
+ *   download in the same session.
+ * - a visible "stage-failed" keeps the stale progress number.
+ * - "asset-download-failed" keeps the last progress; "asset-downloaded"
+ *   keeps a stale error (the following check-begin clears it).
+ * - "dismiss" clears the offer but keeps currentVersion, format, and
+ *   installOnQuit — and drops only `release`: a background stage still in
+ *   flight keeps running (stage untouched), so a dismissed mid-staging
+ *   snapshot is {release: null, stage: {visible?: …}} and a later
+ *   "stage-complete" re-surfaces the card. That is today's behavior.
+ * - "stage-empty" reports from the visible FLAG THE CALL BEGAN WITH
+ *   (`event.visible`), not the stage's current visibility — a reentrant
+ *   reveal during the in-flight call must not change how the original
+ *   caller settles. Kept from the pre-table code deliberately.
+ */
+export function deriveAppUpdateState(
+  prev: AppUpdateMachine,
+  event: AppUpdateEvent,
+): AppUpdateMachine {
+  // Merge semantics of the historical `set(patch)`: unpatched fields survive.
+  const state = (patch: Partial<AppUpdateState>): AppUpdateState => ({
+    ...prev.state,
+    ...patch,
+  });
+  const next = (
+    state: AppUpdateState,
+    over: Partial<Omit<AppUpdateMachine, "state">> = {},
+  ): AppUpdateMachine => ({
+    state,
+    release: prev.release,
+    stage: prev.stage,
+    ...over,
+  });
+
+  switch (event.t) {
+    // Dev/unversioned build, manual check only.
+    case "disabled":
+      return next(state({ status: "disabled" }));
+    case "check-begin":
+      return next(state({ status: "checking", error: null, progress: null }));
+    case "unreachable":
+      return next(
+        state(
+          event.manual
+            ? { status: "error", error: "could not reach GitHub" }
+            : { status: "idle" },
+        ),
+      );
+    case "up-to-date":
+      return next(state({ status: event.manual ? "up-to-date" : "idle" }));
+    case "offer-dismissed":
+      return next(state({ status: "idle" }));
+    case "available":
+      return next(
+        state({
+          status: "available",
+          latestVersion: event.release.version,
+          releaseUrl: event.release.url,
+          releaseName: event.release.name,
+          format: event.format,
+        }),
+        { release: event.release },
+      );
+    // Beginning a stage — or a manual check revealing an in-flight quiet
+    // one (visible=true): the release becomes the current offer and the
+    // stage is in flight. A visible stage shows "downloading"; a quiet one
+    // stays on "idle".
+    case "stage-enter":
+      return next(
+        state({
+          status: event.visible ? "downloading" : "idle",
+          latestVersion: event.release.version,
+          releaseUrl: event.release.url,
+          releaseName: event.release.name,
+          format: event.format,
+        }),
+        { release: event.release, stage: { visible: event.visible } },
+      );
+    case "stage-progress":
+      return next(state({ status: "downloading", progress: event.percent }));
+    case "stage-complete":
+      return next(
+        state({
+          status: "downloaded",
+          latestVersion: event.version,
+          progress: null,
+          error: null,
+        }),
+        { stage: null },
+      );
+    case "stage-empty":
+      return next(
+        state({ status: event.visible ? "up-to-date" : "idle" }),
+        { stage: null },
+      );
+    case "stage-failed":
+      return next(
+        state(
+          event.visible
+            ? { status: "error", error: event.message }
+            : { status: "idle" },
+        ),
+        { stage: null },
+      );
+    // Installer handoff transitions. The `restarting` latch itself and the
+    // quit authorization are class-side side effects applied around these
+    // events (an error during the handoff also revokes authorization there).
+    case "installing":
+      return next(state({ status: "installing", progress: null, error: null }));
+    case "apply-failed":
+      return next(
+        state({
+          status: "error",
+          progress: null,
+          error: `could not apply update: ${event.message}`,
+        }),
+      );
+    case "install-on-quit":
+      return next(state({ installOnQuit: event.on }));
+    case "asset-missing":
+      return next(
+        state({ status: "error", error: "expected asset missing from release" }),
+      );
+    case "checksums-missing":
+      return next(
+        state({ status: "error", error: "release checksums unavailable" }),
+      );
+    case "asset-download-begin":
+      return next(state({ status: "downloading", progress: null }));
+    case "asset-download-progress":
+      return next(state({ status: "downloading", progress: event.percent }));
+    case "asset-download-failed":
+      return next(state({ status: "error", error: event.message }));
+    case "asset-downloaded":
+      return next(
+        state({ status: "downloaded", downloadedPath: event.path, progress: null }),
+      );
+    case "dismiss":
+      return next(
+        state({
+          status: "idle",
+          latestVersion: null,
+          releaseUrl: null,
+          releaseName: null,
+          progress: null,
+          downloadedPath: null,
+          error: null,
+        }),
+        { release: null },
+      );
+  }
+}
+
 export class AppUpdater extends UpdateController<AppUpdateState> {
   /** Dev/unversioned builds never check: off unless packaged AND semver-stamped. */
   private readonly enabled: boolean;
-  /** The release behind the current offer/stage, kept for notes and downloads. */
-  private release: AppReleaseInfo | null = null;
+  /** The machine snapshot (state + current offer + in-flight stage). */
+  private machine: AppUpdateMachine;
   private autoUpdater: AutoUpdaterLike | null = null;
+  /** electron-updater listener-registration latch. */
   private autoUpdaterHooked = false;
-  private autoUpdateStaging = false;
-  private autoUpdateStageVisible = false;
+  /** Retained user intent ("install on next quit"); survives transitions. */
   private installOnQuitArmed = false;
+  /** Irreversible installer-handoff guard while quitAndInstall is in flight. */
   private restarting = false;
 
   constructor(private readonly deps: AppUpdaterDeps) {
@@ -148,8 +363,20 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     // The running version is fixed for this process, so stale dismissal
     // reaping happens once at construction.
     this.reapDismissed(deps.currentVersion);
+    this.machine = { state: this.state, release: null, stage: null };
   }
 
+  /**
+   * The one route from an event to the renderer: derive the next snapshot
+   * and publish its COMPLETE state through the controller's generic set().
+   * No other method calls set() directly (dismiss excepted — the base
+   * persistence policy rides on its dismissState, which receives the full
+   * derived state as its patch).
+   */
+  private publish(event: AppUpdateEvent): void {
+    this.machine = deriveAppUpdateState(this.machine, event);
+    this.set(this.machine.state);
+  }
 
   /**
    * One check against the latest stable GitHub release. `manual` (palette)
@@ -158,38 +385,31 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    */
   async checkNow(manual: boolean): Promise<AppUpdateState> {
     if (!this.enabled) {
-      if (manual) this.set({ status: "disabled" });
+      if (manual) this.publish({ t: "disabled" });
       return this.state;
     }
-    this.set({ status: "checking", error: null, progress: null });
+    this.publish({ t: "check-begin" });
     const release = await fetchLatestAppRelease(this.deps.fetchImpl);
     if (release === null) {
-      this.set(manual ? { status: "error", error: "could not reach GitHub" } : { status: "idle" });
+      this.publish({ t: "unreachable", manual });
       return this.state;
     }
     if (compareVersions(this.deps.currentVersion, release.version) >= 0) {
-      this.set(manual ? { status: "up-to-date" } : { status: "idle" });
+      this.publish({ t: "up-to-date", manual });
       return this.state;
     }
     // "Later" stays quiet for that release on background checks; an explicit
     // manual check is the user asking, so it always answers.
     if (this.offerIsDismissed(release.version, manual)) {
-      this.set({ status: "idle" });
+      this.publish({ t: "offer-dismissed" });
       return this.state;
     }
-    this.release = release;
     const format = detectPackageFormat(this.deps.env, this.deps.exists, this.deps.platform);
     if (isAutoUpdateFormat(format)) {
       await this.stageAutoUpdate(release, format, manual);
       return this.state;
     }
-    this.set({
-      status: "available",
-      latestVersion: release.version,
-      releaseUrl: release.url,
-      releaseName: release.name,
-      format,
-    });
+    this.publish({ t: "available", release, format });
     return this.state;
   }
 
@@ -204,23 +424,14 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     format: AutoUpdateFormat,
     visible: boolean,
   ): Promise<void> {
-    const releaseState = {
-      latestVersion: release.version,
-      releaseUrl: release.url,
-      releaseName: release.name,
-      format,
-    };
-
-    if (this.autoUpdateStaging) {
-      if (visible && !this.autoUpdateStageVisible) {
-        this.autoUpdateStageVisible = true;
-        this.set({ status: "downloading", ...releaseState });
+    if (this.machine.stage !== null) {
+      if (visible && !this.machine.stage.visible) {
+        this.publish({ t: "stage-enter", visible: true, release, format });
       }
       return;
     }
 
-    this.autoUpdateStaging = true;
-    this.autoUpdateStageVisible = visible;
+    this.publish({ t: "stage-enter", visible, release, format });
     try {
       this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
       const autoUpdater = this.autoUpdater;
@@ -232,64 +443,49 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       if (!this.autoUpdaterHooked) {
         this.autoUpdaterHooked = true;
         autoUpdater.on("download-progress", (p) => {
-          if (this.autoUpdateStageVisible) {
-            this.set({ status: "downloading", progress: Math.floor(p.percent) });
+          if (this.machine.stage?.visible) {
+            this.publish({ t: "stage-progress", percent: Math.floor(p.percent) });
           }
         });
         autoUpdater.on("update-downloaded", (info) => {
-          this.autoUpdateStaging = false;
-          this.autoUpdateStageVisible = false;
-          this.set({
-            status: "downloaded",
-            latestVersion: info.version,
-            progress: null,
-            error: null,
-          });
+          this.publish({ t: "stage-complete", version: info.version });
         });
         autoUpdater.on("error", (err) => {
           if (this.restarting) {
             this.restarting = false;
             this.deps.setQuitAuthorized(false);
-            this.set({
-              status: "error",
-              progress: null,
-              error: `could not apply update: ${err.message}`,
-            });
+            this.publish({ t: "apply-failed", message: err.message });
             return;
           }
-          if (!this.autoUpdateStaging) return;
-          const wasVisible = this.autoUpdateStageVisible;
-          this.autoUpdateStaging = false;
-          this.autoUpdateStageVisible = false;
-          this.set(wasVisible ? { status: "error", error: err.message } : { status: "idle" });
+          // An error outside an in-flight stage is someone else's problem:
+          // the restart arm above owns handoff failures, and a late event
+          // after the stage already settled must not overwrite its result.
+          if (this.machine.stage === null) return;
+          this.publish({ t: "stage-failed", visible: this.machine.stage.visible, message: err.message });
         });
       }
 
-      this.set(
-        visible
-          ? { status: "downloading", ...releaseState }
-          : { status: "idle", ...releaseState },
-      );
       const result = await autoUpdater.checkForUpdates();
       if (result?.isUpdateAvailable) {
         await autoUpdater.downloadUpdate();
       } else {
-        this.autoUpdateStaging = false;
-        this.autoUpdateStageVisible = false;
-        this.set(visible ? { status: "up-to-date" } : { status: "idle" });
+        // Reports from the flag this call began with, not the stage's
+        // current visibility — a reentrant reveal mid-call must not change
+        // how the original caller settles.
+        this.publish({ t: "stage-empty", visible });
       }
     } catch (error) {
       // electron-updater normally emits "error" before rejecting. Only own
       // the fallback when that event did not already settle this stage.
-      if (!this.autoUpdateStaging) return;
-      const wasVisible = this.autoUpdateStageVisible;
-      this.autoUpdateStaging = false;
-      this.autoUpdateStageVisible = false;
-      this.set(
-        wasVisible
-          ? { status: "error", error: error instanceof Error ? error.message : String(error) }
-          : { status: "idle" },
-      );
+      // stage-enter (and updater callbacks) mutate the snapshot across the
+      // await; TypeScript retains the stale pre-await null narrowing.
+      const currentStage = (this.machine as AppUpdateMachine).stage;
+      if (currentStage === null) return;
+      this.publish({
+        t: "stage-failed",
+        visible: currentStage.visible,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -299,8 +495,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    * installer. Auto-update staging begins in checkNow().
    */
   async download(): Promise<void> {
-    if (this.state.status !== "available" || this.release === null) return;
-    const release = this.release;
+    if (this.state.status !== "available" || this.machine.release === null) return;
+    const release = this.machine.release;
     const format = this.state.format;
     if (format === "unknown") {
       await this.openReleaseNotes(); // nothing downloadable — show the release page
@@ -311,7 +507,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     // deb / rpm / flatpak: verified download + system-installer handoff.
     const name = selectAsset(release, format);
     if (name === null) {
-      this.set({ status: "error", error: "expected asset missing from release" });
+      this.publish({ t: "asset-missing" });
       return;
     }
     const sums = await fetchSha256Sums(release.tag, this.deps.fetchImpl);
@@ -319,10 +515,10 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     if (expectedSha256 === undefined) {
       // Fail closed: every release cut after this updater shipped carries
       // SHA256SUMS.txt; never run an unverified installer.
-      this.set({ status: "error", error: "release checksums unavailable" });
+      this.publish({ t: "checksums-missing" });
       return;
     }
-    this.set({ status: "downloading", progress: null });
+    this.publish({ t: "asset-download-begin" });
     const targetPath = join(this.deps.downloadsDir, name);
     try {
       await downloadAppAsset({
@@ -330,13 +526,16 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
         targetPath,
         expectedSha256,
         fetchImpl: this.deps.downloadFetchImpl,
-        onProgress: (p) => this.set({ status: "downloading", progress: p }),
+        onProgress: (p) => this.publish({ t: "asset-download-progress", percent: p }),
       });
     } catch (e) {
-      this.set({ status: "error", error: e instanceof Error ? e.message : String(e) });
+      this.publish({
+        t: "asset-download-failed",
+        message: e instanceof Error ? e.message : String(e),
+      });
       return;
     }
-    this.set({ status: "downloaded", downloadedPath: targetPath, progress: null });
+    this.publish({ t: "asset-downloaded", path: targetPath });
     // Best-effort installer handoff; the downloaded card keeps "Show in
     // folder" as the escape hatch when the system handler declines.
     await shell.openPath(targetPath).catch(() => "");
@@ -365,7 +564,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     if (this.autoUpdater === null) return "unavailable";
     if (this.deps.hasLiveSessions() && !confirmed) return "confirmation-required";
     this.restarting = true;
-    this.set({ status: "installing", progress: null, error: null });
+    this.publish({ t: "installing" });
     this.deps.setQuitAuthorized(true);
     try {
       if (this.state.format === "nsis") this.autoUpdater.quitAndInstall(true, true);
@@ -373,11 +572,9 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     } catch (error) {
       this.restarting = false;
       this.deps.setQuitAuthorized(false);
-      const message = error instanceof Error ? error.message : String(error);
-      this.set({
-        status: "error",
-        progress: null,
-        error: `could not apply update: ${message}`,
+      this.publish({
+        t: "apply-failed",
+        message: error instanceof Error ? error.message : String(error),
       });
       return "unavailable";
     }
@@ -398,24 +595,17 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       this.autoUpdater.autoInstallOnAppQuit = on;
       if (on) this.autoUpdater.addQuitHandler();
     }
-    this.set({ installOnQuit: on });
+    this.publish({ t: "install-on-quit", on });
   }
 
   /**
-   * Hides the card. `remember` persists the version so background checks stay
-   * quiet for that release; a transient hide (`remember: false`) clears only
-   * the visible state.
+   * Hides the card. `remember` persists the version so background checks
+   * stay quiet for that release; a transient hide (`remember: false`)
+   * clears only the visible state. The persistence policy mirrors
+   * UpdateController's dismissState, applied before the publish.
    */
   dismiss(version: string, remember: boolean): void {
-    this.release = null;
-    this.dismissState(version, remember, {
-      status: "idle",
-      latestVersion: null,
-      releaseUrl: null,
-      releaseName: null,
-      progress: null,
-      downloadedPath: null,
-      error: null,
-    });
+    if (remember && version !== "") this.deps.setDismissed(version);
+    this.publish({ t: "dismiss" });
   }
 }
