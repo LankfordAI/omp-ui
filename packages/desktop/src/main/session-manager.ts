@@ -10,29 +10,26 @@ import {
   forkSessionFile,
   mintLineageDirName,
   mintWorktreePath,
-  isWithin,
   linkProjectOmpDir,
+  isWithin,
   mcpRuntimeStatusMessage,
   planMessage,
   planHandoffDescendants,
+  reclaimCheckouts as reclaimWorktreeCheckouts,
   settledWithin,
   type ProviderKeys,
   type Registry,
-  removeWorktree,
-  removeWorktreeBranch,
   resolveSessionLocation,
   RpcClient,
   spawnOmp,
-  spawnOmpTui,
-  spawnShell,
   writeImageToScratch,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
   type DeleteSessionPreview,
+  type DeleteSessionResult,
   type ImageAttachment,
   type OwnedSessionRecord,
   type PlanImplementationSource,
-  type PtyHandle,
   type RpcFrame,
   type SessionMode,
   type SessionWorktree,
@@ -49,9 +46,8 @@ import { StallWatchdog } from "./stall-watchdog";
 import { TurnCounter } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
+import { ShellHost } from "./shell-host";
 
-
-/** How long omp gets to exit on its own before the delete escalates. */
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
 
@@ -64,47 +60,25 @@ export interface SessionManagerDependencies {
   getWorktreesRoot: () => string;
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
-  /** OS-attention hooks for background sessions (issue #271); omitted in tests. */
   attention?: Attention;
 }
 
 type OpKind = "spawn" | "delete" | "hibernate" | "relaunch";
 
-/** The sole owner of live session children and their supporting process state. */
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
-  /** Running turns per tab — the cross-concern datum (hibernation + stall). */
   private readonly turns = new TurnCounter();
-  /** Console-drawer shells keyed by tabId (issue #42) — outside `live` on purpose. */
-  private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
-  /** Lineage-dir watchers and their throttled sidebar broadcast (issue #187). */
+  private readonly shellHost: ShellHost;
   private readonly watcherHub: WatcherHub;
-  /** Fresh tab:viewed reports keyed by renderer clientId (issue #266). */
-  private readonly viewTracker: ViewTracker;
-  /**
-   * Per-tab serialized op chain (issue #297): spawn, delete, hibernate, and
-   * relaunch for one tab never overlap. Replaces the `spawning`/`hibernating`
-   * maps; a newcomer enqueues behind the in-flight op instead of waiting on
-   * a promise it cannot reason about.
-   */
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
-  /**
-   * Live plan-review gates, owned by the tracker (issue #215). In-memory:
-   * they die with the process, so a gate can never outlive its agent.
-   */
+  private readonly viewTracker: ViewTracker;
   private readonly planGates: PlanGateTracker;
-  /**
-   * Frame-dispatch observers, dispatched in array order before the renderer
-   * fan-out (issue #297). The order is the contract: each tracker sees
-   * every frame and acts on a frame before any later tracker or the broadcast does.
-   */
   private readonly frameObservers: FrameObserver[] = [];
-  /** Idle hibernation, owned by the tracker (issue #246). */
   private readonly hibernation: HibernationTracker;
-  /** Model-stream stall watchdog (issue #248): the sweep and the per-tab silence records. */
   private readonly stallWatchdog: StallWatchdog;
 
   constructor(private readonly deps: SessionManagerDependencies) {
+    this.shellHost = new ShellHost({ getOmpPath: deps.getOmpPath, send: deps.send });
     this.watcherHub = new WatcherHub({
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
@@ -165,22 +139,15 @@ export class SessionManager {
     this.watcherHub.stopForProject(projectCwd);
   }
 
-  /** Kills every owned child and closes every lineage watcher. */
   killAll(): void {
     for (const entry of this.live.values()) this.killLive(entry);
     this.live.clear();
-    for (const tabId of [...this.shells.keys()]) this.killShell(tabId);
-    // Lineage watchers hold inotify fds; quit is the one path that must not
-    // leave them to the OS — a cancelled quit keeps the app alive without them.
+    this.shellHost.killAll();
     this.watcherHub.disposeAll();
     this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
   }
 
-  /**
-   * Kills a live session's child and detaches its data listener first, so a
-   * dying process's final output cannot land in a successor's renderer state.
-   */
   private killLive(entry: LiveEntry): void {
     entry.detachPtyData?.();
     entry.detachPtyData = undefined;
@@ -188,18 +155,8 @@ export class SessionManager {
     entry.rpc?.kill();
   }
 
-  /**
-   * Both spawn paths' child-exit plumbing in one place. When this entry is
-   * still the tab's live one it is removed from `live` and the per-concern
-   * bookkeeping it owned is cleared; a successor that already replaced it
-   * (mode-switch respawn) keeps the tab. The exit is only reported when not
-   * suppressed (mode-switch kill, delete), and the sidebar rebuilds either
-   * way.
-   */
   private handleExit(tabId: string, entry: LiveEntry, exitCode: number): void {
     entry.markExited();
-    // Identity-checked: a mode-switch respawn may already have replaced
-    // this entry — deleting then would orphan the new live session.
     if (this.live.get(tabId) === entry) {
       this.live.delete(tabId);
       this.turns.clear(tabId);
@@ -210,12 +167,6 @@ export class SessionManager {
     void this.deps.broadcast();
   }
 
-  /**
-   * SIGTERM → grace → SIGKILL against a live entry. Resolves true once the
-   * child's exit has been observed; false if it outlived both signals. Owns
-   * the escalation timing alone: callers own `suppressExit` and their
-   * post-reap policy (warn / hibernated event / throw).
-   */
   private async reapWithEscalation(entry: LiveEntry): Promise<boolean> {
     this.killLive(entry);
     if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return true;
@@ -225,13 +176,6 @@ export class SessionManager {
     return false;
   }
 
-  /**
-   * Terminate shares killAndReap's escalation machine — a wedged omp that
-   * ignores SIGTERM must not hold its pipes/pty (and its MCP grandchildren)
-   * forever (issue #182, the #64 residual). Unlike killAndReap this never
-   * suppresses the exit and never throws: the renderer still learns the
-   * session ended via the normal onExit → broadcast.
-   */
   private async escalateOnTerminate(tabId: string, entry: LiveEntry): Promise<void> {
     if (await this.reapWithEscalation(entry)) return;
     console.warn(
@@ -240,12 +184,6 @@ export class SessionManager {
     );
   }
 
-  /**
-   * A plan handoff is valid only for a fresh native implementation session.
-   * Resolve its source before spawn performs any storage or process mutation,
-   * then copy the request snapshot so registry ownership begins atomically
-   * with the child record.
-   */
   private validatePlanImplementationSource(req: SpawnRequest): PlanImplementationSource | null {
     const snapshot = req.planImplementationSource ?? null;
     if (snapshot === null) return null;
@@ -277,12 +215,6 @@ export class SessionManager {
     return { ...snapshot };
   }
 
-  /**
-   * A worktree reuse (plan handoff, issue #316) is valid only for a fresh
-   * session into a checkout that still exists under the worktrees root:
-   * the record's field is the source of truth, and a vanished checkout
-   * fails loudly the way a worktree-session resume does (ADR-0018).
-   */
   private validateWorktreeReuse(req: SpawnRequest): SessionWorktree | null {
     const reuse = req.worktreeReuse;
     if (reuse === undefined) return null;
@@ -309,16 +241,10 @@ export class SessionManager {
     return { ...reuse };
   }
 
-  /** The tab's current op, if any; its kind decides how a newcomer behaves. */
   private pendingOp(tabId: string): { kind: OpKind; chain: Promise<void> } | undefined {
     return this.ops.get(tabId);
   }
 
-  /**
-   * Runs `work` after any pending op for the tab settles. The stored chain
-   * swallows rejection so a failed op never poisons the next one (mirrors
-   * remote-server's #enqueue); the caller keeps the real result or error.
-   */
   private enqueueOp<T>(tabId: string, kind: OpKind, work: () => Promise<T>): Promise<T> {
     const prev = this.ops.get(tabId)?.chain;
     const run: Promise<T> = prev === undefined ? work() : prev.then(() => work());
@@ -327,7 +253,6 @@ export class SessionManager {
       () => undefined,
     );
     this.ops.set(tabId, { kind, chain });
-    // Drop the entry once this chain is no longer the head of the tab's.
     void chain.then(() => {
       if (this.ops.get(tabId)?.chain === chain) this.ops.delete(tabId);
     });
@@ -338,103 +263,158 @@ export class SessionManager {
     if (!req.resumeTabId) return this.spawnInner(req);
     const tabId = req.resumeTabId;
     const pending = this.pendingOp(tabId);
-    // A resume during an in-flight spawn dedupes: the first click owns the
-    // process (double-click race).
     if (pending?.kind === "spawn") return { tabId };
-    // A resume during a pending delete/hibernate/relaunch queues behind it:
-    // a spawn queued behind a delete learns "unknown session tab" from the
-    // registry, not from a half-gone live map.
     if (pending === undefined && this.live.has(tabId)) return { tabId };
     return this.enqueueOp(tabId, "spawn", () => this.spawnInner(req));
   }
 
-  /** The spawn proper: runs behind any pending op for the tab. */
   private async spawnInner(req: SpawnRequest): Promise<{ tabId: string }> {
     const planImplementationSource = this.validatePlanImplementationSource(req);
     const worktreeReuse = this.validateWorktreeReuse(req);
     const ompPath = this.requireOmpPath();
-
-    // A new session cannot run without a model credential — omp would crash
-    // moments after spawn with no explanation. Resuming an existing session
-    // is allowed through (its process may already be keyless but viewable).
     if (!req.resumeTabId && !this.deps.providerKeys.hasModelProvider(req.projectCwd)) {
       throw new Error(
         "No model provider is configured. Add an API key under Settings → Providers before starting a session.",
       );
     }
 
-    let record: OwnedSessionRecord;
-    if (req.resumeTabId) {
-      // A resume queued behind a relaunch collapses to a dedupe: the
-      // relaunch's own spawn already owns the respawn.
-      if (this.live.has(req.resumeTabId)) return { tabId: req.resumeTabId };
-      const existing = this.deps.registry.sessions.find((s) => s.tabId === req.resumeTabId);
-      if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
-      record = await prepareResumeRecord(existing, {
-        sessionsRoot: this.deps.getSessionsRoot(),
-        archiveRoot: this.deps.getArchiveRoot(),
-        updateSession: (tabId, patch) => this.deps.registry.updateSession(tabId, patch),
-      });
-    } else {
-      let worktree: SessionWorktree | null = null;
-      if (worktreeReuse !== null) {
-        // A plan handoff from a worktree planning session reuses the
-        // planning checkout in place (issue #316): the record carries the
-        // descriptor verbatim, no mint, no canonical re-derivation.
-        worktree = worktreeReuse;
-      } else if (req.worktree) {
-        const worktreePath = mintWorktreePath(
-          this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
-        const base = await addWorktree(
-          req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
-        worktree = { path: worktreePath, branch: req.worktree.branch, base };
+    const fresh = req.resumeTabId === undefined;
+    const freshTabId = fresh ? randomUUID() : null;
+    let mintedWorktree: SessionWorktree | null = null;
+    let record: OwnedSessionRecord | undefined;
+    try {
+      if (req.resumeTabId) {
+        if (this.live.has(req.resumeTabId)) return { tabId: req.resumeTabId };
+        const existing = this.deps.registry.sessions.find((s) => s.tabId === req.resumeTabId);
+        if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
+        record = await prepareResumeRecord(existing, {
+          sessionsRoot: this.deps.getSessionsRoot(),
+          archiveRoot: this.deps.getArchiveRoot(),
+          updateSession: (tabId, patch) => this.deps.registry.updateSession(tabId, patch),
+        });
+      } else {
+        let worktree: SessionWorktree | null = worktreeReuse;
+        if (req.worktree) {
+          const worktreePath = mintWorktreePath(
+            this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
+          const base = await addWorktree(
+            req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
+          mintedWorktree = { path: worktreePath, branch: req.worktree.branch, base };
+          worktree = mintedWorktree;
+        }
+        const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
+        record = this.deps.registry.addSession({
+          tabId: freshTabId!,
+          sessionId: null,
+          lineageDir: mintLineageDirName(req.projectCwd),
+          projectCwd: req.projectCwd,
+          worktree,
+          planImplementationSource,
+          launchedAt: new Date().toISOString(),
+          mode: req.mode,
+          agentMode: "build",
+          compactionMethod:
+            req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
+          model: project?.defaultModel ?? project?.lastModel ?? null,
+          thinkingLevel: project?.lastThinkingLevel ?? null,
+          advisor: req.advisor,
+          advisorModel: req.advisorModel ?? null,
+          cachedTitle: null,
+          cachedModified: null,
+        });
+        this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
       }
-      const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
-      // agentMode starts at the parse-time normalization default; the plan
-      // extension overwrites it when its first incarnation report lands.
-      record = this.deps.registry.addSession({
-        tabId: randomUUID(),
-        sessionId: null,
-        lineageDir: mintLineageDirName(req.projectCwd),
-        projectCwd: req.projectCwd,
-        worktree,
-        planImplementationSource,
-        launchedAt: new Date().toISOString(),
-        mode: req.mode,
-        agentMode: "build",
-        compactionMethod:
-          req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
-        model: project?.defaultModel ?? project?.lastModel ?? null,
-        thinkingLevel: project?.lastThinkingLevel ?? null,
-        advisor: req.advisor,
-        advisorModel: req.advisorModel ?? null,
-        cachedTitle: null,
-        cachedModified: null,
-      });
-      // The launched values are now the project's last session parameters,
-      // even when they originated in omp config rather than an explicit click.
-      this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
+      const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
+      if (record.mode !== req.mode) patch.mode = req.mode;
+      if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
+        patch.advisorModel = req.advisorModel;
+      }
+      if (req.advisor !== record.advisor && req.resumeTabId) patch.advisor = req.advisor;
+      if (Object.keys(patch).length > 0) {
+        record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
+      }
+      const startInPlanMode =
+        req.startInPlanMode ??
+        (fresh
+          ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
+          : record.agentMode === "plan");
+      return req.mode === "rpc-ui"
+        ? await this.spawnRpc(record, startInPlanMode, ompPath)
+        : await this.spawnPty(record, req, ompPath);
+    } catch (cause) {
+      const rollbackTabId = record?.tabId ?? freshTabId ?? req.resumeTabId;
+      if (!rollbackTabId || (!record && !mintedWorktree)) throw cause;
+      return this.rollbackSpawn(rollbackTabId, req.projectCwd, fresh, mintedWorktree, cause);
     }
-    const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
-    if (record.mode !== req.mode) patch.mode = req.mode;
-    // A resume carries the caller's advisor intent; `undefined` means "keep
-    // whatever the record already says" so a plain reopen is not a reset.
-    if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
-      patch.advisorModel = req.advisorModel;
-    }
-    if (req.advisor !== record.advisor && req.resumeTabId) patch.advisor = req.advisor;
-    if (Object.keys(patch).length > 0) {
-      record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
-    }
+  }
 
-    const startInPlanMode =
-      req.startInPlanMode ??
-      (req.resumeTabId === undefined
-        ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
-        : record.agentMode === "plan");
-    return req.mode === "rpc-ui"
-      ? await this.spawnRpc(record, startInPlanMode, ompPath)
-      : await this.spawnPty(record, req, ompPath);
+  private async rollbackSpawn(
+    tabId: string,
+    projectCwd: string,
+    fresh: boolean,
+    mintedWorktree: SessionWorktree | null,
+    cause: unknown,
+  ): Promise<never> {
+    const failures: Array<{ step: string; error: unknown }> = [];
+    const fail = (step: string, error: unknown): void => { failures.push({ step, error }); };
+    const entry = this.live.get(tabId);
+    let childStopped = true;
+    if (entry) {
+      try {
+        await this.killAndReap(tabId, entry);
+      } catch (error) {
+        childStopped = false;
+        fail("stop spawned child", error);
+      }
+    }
+    if (childStopped) {
+      let watcherStopped = true;
+      try {
+        this.watcherHub.stop(tabId);
+      } catch (error) {
+        watcherStopped = false;
+        fail("stop lineage watcher", error);
+      }
+      if (watcherStopped) {
+        this.stallWatchdog.dispose(tabId);
+        this.hibernation.dispose(tabId);
+        if (fresh) {
+          if (this.deps.registry.sessions.some((session) => session.tabId === tabId)) {
+            try {
+              this.deps.registry.removeSession(tabId);
+            } catch (error) {
+              fail("remove spawned session record", error);
+            }
+          }
+          if (mintedWorktree && !this.deps.registry.sessions.some((session) => session.tabId === tabId)) {
+            const [cleanup] = await this.reclaimCheckouts([{ projectCwd, worktree: mintedWorktree }]);
+            if (!cleanup || cleanup.checkoutKept !== null || (cleanup.branchOutcome !== "removed" && cleanup.branchOutcome !== "already-gone")) {
+              const outcome = cleanup ? `checkout ${cleanup.checkoutKept ?? "removed"}; branch ${cleanup.branchOutcome}` : "no cleanup outcome";
+              fail("reclaim minted worktree", new Error(outcome));
+            }
+          }
+        } else {
+          const existing = this.deps.registry.sessions.find((session) => session.tabId === tabId);
+          if (existing) {
+            try {
+              this.watcherHub.start(existing);
+            } catch (error) {
+              fail("restore lineage watcher", error);
+            }
+          }
+        }
+      }
+    }
+    if (failures.length === 0) throw cause;
+    const originalMessage = cause instanceof Error ? cause.message : String(cause);
+    const detail = failures
+      .map(({ step, error }) => `${step}: ${error instanceof Error ? error.message : String(error)}`)
+      .join("; ");
+    throw new AggregateError(
+      failures.map(({ error }) => error),
+      `spawn failed: ${originalMessage}; cleanup failed: ${detail}`,
+      { cause },
+    );
   }
 
   private async spawnPty(
@@ -443,10 +423,6 @@ export class SessionManager {
     ompPath: string,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
-    // A worktree session runs in its checkout, so omp resolves project-scope
-    // config there; link the project's `.omp/` in so a project MCP toggle
-    // reaches this session (issue #325). Every route into a checkout —
-    // fresh spawn, convert, plan handoff, resume, relaunch — passes here.
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
@@ -488,16 +464,12 @@ export class SessionManager {
         message: mcpRuntimeStatusMessage(),
       });
     }
-    // Always published, plan or build — the plan extension is the
-    // authoritative session-mode status source on every spawn (issue #142);
-    // #242's rewrite briefly made this conditional (issue #256).
     initialCommands.push({
       type: "prompt",
       id: `omp-ui-initial-mode-${randomUUID()}`,
       message: planMessage(startInPlanMode, this.deps.registry.getSetting("planFormat")),
     });
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath);
-    // See spawnPty: the checkout is where omp resolves project scope (#325).
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
@@ -520,11 +492,10 @@ export class SessionManager {
     });
     this.live.set(record.tabId, entry);
     this.watcherHub.start(record);
-    void this.deps.broadcast();
+    await this.deps.broadcast();
     return { tabId: record.tabId };
   }
 
-  /** Re-pins a session's advisor, relaunching a live child to apply it. */
   async setSessionAdvisor(
     tabId: string,
     advisor: boolean,
@@ -541,7 +512,6 @@ export class SessionManager {
       }
       const entry = this.live.get(tabId);
       if (!entry) {
-        // Dormant: the next launch picks the new values up from the record.
         await this.deps.broadcast();
         return;
       }
@@ -557,7 +527,6 @@ export class SessionManager {
     });
   }
 
-  /** Restarts a live session in place so it picks up process-start config. */
   async restart(tabId: string): Promise<void> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -575,14 +544,6 @@ export class SessionManager {
     });
   }
 
-  /**
-   * Converts an unprompted session to a worktree session (issue #225): mints
-   * the checkout, records it on the session, and respawns in place so the
-   * first prompt lands in the worktree. Create-before-kill: a failed
-   * `git worktree add` leaves the live session untouched and surfaces git's
-   * own message. A respawn failure after the record update leaves a
-   * resumable worktree session rather than rolling back into the project root.
-   */
   async convertToWorktree(tabId: string, branch: string, baseRef: string | null): Promise<void> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -596,8 +557,6 @@ export class SessionManager {
       });
       const entry = this.live.get(tabId);
       if (!entry) {
-        // A dormant restored tab: its next resume picks the worktree up from
-        // the record.
         await this.deps.broadcast();
         return;
       }
@@ -613,20 +572,6 @@ export class SessionManager {
     });
   }
 
-  /**
-   * Returns a worktree session to its project checkout (issue #334), the
-   * inverse of {@link convertToWorktree}: nulls the record's worktree, reclaims
-   * the checkout and the now-merged branch, and respawns in place with
-   * `--resume`. The session, its transcript, its lineage and its tab all
-   * survive — only where it runs changes, and after a merge-back the project
-   * checkout is already on the branch the worktree was cut from.
-   *
-   * Kill-before-demote: the child is reaped first, because the checkout cannot
-   * be removed under it and `git branch -d` refuses a branch checked out
-   * elsewhere. A child that will not die leaves the session a worktree session,
-   * retryable. Cleanup failures are warnings, never fatal — the session must
-   * come back up either way.
-   */
   async releaseWorktree(tabId: string): Promise<WorktreeReleaseResult> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -640,12 +585,10 @@ export class SessionManager {
       const demote = async (): Promise<void> => {
         this.killShell(tabId);
         this.deps.registry.updateSession(tabId, { worktree: null });
-        cleanup = await this.reclaimWorktree(record.projectCwd, wt, tabId);
+        cleanup = await this.reclaimWorktree(record.projectCwd, wt);
       };
       const entry = this.live.get(tabId);
       if (!entry) {
-        // A dormant restored tab: nothing holds the checkout, and its next
-        // resume lands in the project checkout.
         await demote();
         await this.deps.broadcast();
       } else {
@@ -672,7 +615,6 @@ export class SessionManager {
     });
   }
 
-  /** Delivers a pasted image to a PTY session as a scratch-file path. */
   async ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void> {
     const pty = this.live.get(tabId)?.pty;
     if (!pty) throw new Error("session is not running in terminal mode");
@@ -681,14 +623,8 @@ export class SessionManager {
     }
     const file = writeImageToScratch(image);
     pty.write(bracketedImagePaste(file));
-    // The scratch file outlives this call on purpose: omp reads it after the
-    // paste is delivered, and it also backs the transcript's image blob.
   }
 
-  /**
-   * The single omp-path failure both spawn paths speak with: a session spawn
-   * and a console-drawer TUI handoff must fail with the same guidance.
-   */
   private requireOmpPath(): string {
     const ompPath = this.deps.getOmpPath();
     if (!ompPath) {
@@ -699,7 +635,6 @@ export class SessionManager {
     return ompPath;
   }
 
-  /** Launches the console drawer's program in a session project. */
   launchShell(
     tabId: string,
     cwd: string,
@@ -707,91 +642,52 @@ export class SessionManager {
     rows: number,
     program: ConsoleProgram = "shell",
   ): void {
-    this.killShell(tabId);
-    // A handoff replaces whatever the drawer was running; the exit guard below
-    // keeps the killed program from reporting shell:exit over its successor.
-    const handle =
-      program === "omp-tui"
-        ? spawnOmpTui({ id: tabId, cwd, cols, rows, ompPath: this.requireOmpPath() })
-        : spawnShell({ id: tabId, cwd, cols, rows });
-    const detachData = handle.onData((data) => this.deps.send(CH.onShellData, tabId, data));
-    this.shells.set(tabId, { handle, detachData });
-    handle.onExit(({ exitCode }) => {
-      const current = this.shells.get(tabId);
-      if (!current || current.handle !== handle) return;
-      this.shells.delete(tabId);
-      current.detachData();
-      this.deps.send(CH.onShellExit, tabId, exitCode);
-    });
+    this.shellHost.launch(tabId, cwd, cols, rows, program);
   }
-
   shellWrite(tabId: string, data: string): void {
-    this.shells.get(tabId)?.handle.write(data);
+    this.shellHost.write(tabId, data);
   }
-
   shellResize(tabId: string, cols: number, rows: number): void {
-    this.shells.get(tabId)?.handle.resize(cols, rows);
+    this.shellHost.resize(tabId, cols, rows);
   }
-
   ptyWrite(tabId: string, data: string): void {
     this.live.get(tabId)?.pty?.write(data);
   }
-
   ptyResize(tabId: string, cols: number, rows: number): void {
     this.live.get(tabId)?.pty?.resize(cols, rows);
   }
 
-  /** Read by MainBackend.summarize; undefined when the tab never proposed. */
   planGate(tabId: string): PlanGate | undefined {
     return this.planGates.gate(tabId);
   }
 
-  /** Renderer reports the tab it currently has in view, or null (issue #266). */
   setViewedTab(clientId: string, tabId: string | null): void {
     this.viewTracker.setViewedTab(clientId, tabId);
   }
 
-  /** Marks the clientId the desktop renderer reports under (issue #271). */
   noteDesktopClientId(clientId: string): void {
     this.viewTracker.noteDesktopClientId(clientId);
   }
 
-  /** True while the desktop renderer's fresh viewed report names this tab (issue #271). */
   isViewedInDesktop(tabId: string): boolean {
     return this.viewTracker.isViewedInDesktop(tabId);
   }
 
-  // --- Hibernation: idle rpc-ui sessions are killed and left dormant, then
-  // --- woken through the ordinary resume path (issue #246). ---
-
-  /** Whether the stall watchdog has aborted a turn on this live process. */
   isStreamStalled(tabId: string): boolean {
     return this.stallWatchdog.isStreamStalled(tabId);
   }
 
-  /** True while plan review or a renderer-routed dialog awaits the user. */
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
     return this.hibernation.hasOpenRequests(tabId);
   }
 
-  /**
-   * Hibernates an idle planning source after a fresh implementation prompt
-   * was accepted. The persisted handoff relation is the authorization
-   * boundary; viewed-tab and post-verdict guards apply only to ordinary
-   * idle hibernation.
-   */
   hibernatePlanSource(sourceTabId: string, implementationTabId: string): Promise<boolean> {
     return this.enqueueOp(sourceTabId, "hibernate", () =>
       this.hibernation.attemptHandoff(sourceTabId, implementationTabId),
     );
   }
 
-  /**
-   * SIGTERM → grace → SIGKILL. Emits `session:hibernated` only after the reap
-   * succeeds, so a renderer that sees it never races a live process. If the
-   * child outlives SIGKILL the outcome goes back to the normal exit path.
-   */
   private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {
     entry.suppressExit = true;
     if (await this.reapWithEscalation(entry)) {
@@ -813,13 +709,7 @@ export class SessionManager {
   }
 
   killShell(tabId: string): void {
-    const shell = this.shells.get(tabId);
-    if (!shell) return;
-    this.shells.delete(tabId);
-    // Detach before kill: the dying shell's final output must not land in the
-    // replacement's terminal (respawn) or a closed drawer (kill).
-    shell.detachData();
-    shell.handle.kill();
+    this.shellHost.kill(tabId);
   }
 
   terminate(tabId: string): void {
@@ -827,32 +717,40 @@ export class SessionManager {
     const entry = this.live.get(tabId);
     if (!entry) return;
     void this.escalateOnTerminate(tabId, entry);
-    // The record stays; the broadcast fires on process exit.
   }
 
-  /**
-   * Erases a session's record and files after its child is fully reaped.
-   * With `cascade`, erases every plan-handoff descendant too (issue #309) —
-   * each behind its own tab's op queue, so a pending resume of a live
-   * descendant is not raced, and a per-session file failure leaves exactly
-   * that record retryable.
-   */
-  async deleteSession(tabId: string, cascade: boolean): Promise<void> {
-    const descendants = cascade
-      ? planHandoffDescendants(this.deps.registry.sessions, tabId)
-      : [];
-    await Promise.all(
-      [tabId, ...descendants].map((id) =>
-        this.enqueueOp(id, "delete", () => this.deleteInner(id)),
-      ),
+  async deleteSession(tabId: string, cascade: boolean): Promise<DeleteSessionResult> {
+    const ids = [
+      tabId,
+      ...(cascade ? planHandoffDescendants(this.deps.registry.sessions, tabId) : []),
+    ];
+    const checkouts = ids.flatMap((id) => {
+      const record = this.deps.registry.sessions.find((session) => session.tabId === id);
+      return record?.worktree ? [{ projectCwd: record.projectCwd, worktree: record.worktree }] : [];
+    });
+    const settled = await Promise.allSettled(
+      ids.map((id) => this.enqueueOp(id, "delete", () => this.deleteInner(id))),
     );
+    await this.reclaimCheckouts(checkouts);
+    if (!cascade) {
+      const only = settled[0]!;
+      if (only.status === "rejected") throw only.reason;
+      return { deleted: [tabId], failed: [] };
+    }
+    const result: DeleteSessionResult = { deleted: [], failed: [] };
+    settled.forEach((outcome, index) => {
+      const id = ids[index]!;
+      if (outcome.status === "fulfilled") result.deleted.push(id);
+      else {
+        result.failed.push({
+          tabId: id,
+          message: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+        });
+      }
+    });
+    return result;
   }
 
-  /**
-   * Delete preview (issue #309): the descendants that would be erased with
-   * `tabId`. Pure registry read; an unknown `tabId` resolves to no
-   * descendants.
-   */
   deleteSessionPreview(tabId: string): DeleteSessionPreview {
     const descendants = planHandoffDescendants(this.deps.registry.sessions, tabId);
     return {
@@ -867,58 +765,25 @@ export class SessionManager {
     };
   }
 
-  /**
-   * Removes a session's worktree checkout and deletes its branch, with the two
-   * guards both callers need: another record still referencing the same
-   * checkout (a fork, or a `worktreeReuse` plan handoff) keeps it, and a
-   * non-canonical path is left for manual removal so a corrupt registry value
-   * cannot steer the recursive fallback inside removeWorktree (branch ".."
-   * mints to the root itself — isWithin rejects that).
-   *
-   * Never throws: the delete must finish and the release must come back up in
-   * the project checkout either way, and the boot-time sweep
-   * (sweepOrphanWorktrees) reclaims anything left behind.
-   */
-  private async reclaimWorktree(
-    projectCwd: string,
-    wt: SessionWorktree,
-    tabId: string,
-  ): Promise<Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome">> {
-    const worktreesRoot = this.deps.getWorktreesRoot();
-    const canonical =
-      wt.path === mintWorktreePath(worktreesRoot, projectCwd, wt.branch) &&
-      isWithin(worktreesRoot, wt.path);
-    if (!canonical) {
-      console.warn(
-        `[sessions] worktree path ${wt.path} does not match its minted location — leaving it for manual removal`,
-      );
-      return { checkoutKept: "non-canonical", branchOutcome: "not-attempted" };
-    }
-    const shared = this.deps.registry.sessions.some(
-      (s) => s.tabId !== tabId && s.worktree?.path === wt.path,
-    );
-    if (shared) return { checkoutKept: "shared", branchOutcome: "not-attempted" };
-    try {
-      await removeWorktree(projectCwd, wt.path);
-    } catch (err) {
-      console.warn(`[sessions] worktree cleanup failed for ${wt.path}:`, err);
-      return { checkoutKept: "failed", branchOutcome: "not-attempted" };
-    }
-    try {
-      const outcome = await removeWorktreeBranch(projectCwd, wt.branch, wt.base);
-      if (outcome.kind !== "removed") {
-        console.warn(
-          `[sessions] worktree branch ${wt.branch} kept (${outcome.kind}${outcome.detail ? `: ${outcome.detail}` : ""})`,
-        );
-      }
-      return { checkoutKept: null, branchOutcome: outcome.kind };
-    } catch (err) {
-      console.warn(`[sessions] worktree branch cleanup failed for ${wt.branch}:`, err);
-      return { checkoutKept: null, branchOutcome: "not-attempted" };
-    }
+  private reclaimCheckouts(
+    checkouts: ReadonlyArray<{ projectCwd: string; worktree: SessionWorktree }>,
+  ) {
+    return reclaimWorktreeCheckouts(checkouts, {
+      worktreesRoot: this.deps.getWorktreesRoot(),
+      survivingSessions: this.deps.registry.sessions,
+    });
   }
 
-  /** The delete proper: runs behind any pending op for the tab. */
+  private async reclaimWorktree(
+    projectCwd: string,
+    worktree: SessionWorktree,
+  ): Promise<Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome">> {
+    const [result] = await this.reclaimCheckouts([{ projectCwd, worktree }]);
+    return result
+      ? { checkoutKept: result.checkoutKept, branchOutcome: result.branchOutcome }
+      : { checkoutKept: "failed", branchOutcome: "not-attempted" };
+  }
+
   private async deleteInner(tabId: string): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return;
@@ -928,8 +793,6 @@ export class SessionManager {
     this.hibernation.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
-    // Files first: a failed delete must leave the record so the row stays
-    // visible and retryable, rather than orphaning the transcript on disk.
     try {
       await deleteSessionFiles(
         this.deps.getSessionsRoot(),
@@ -940,14 +803,10 @@ export class SessionManager {
       this.watcherHub.start(record);
       throw err;
     }
-    if (record.worktree) {
-      await this.reclaimWorktree(record.projectCwd, record.worktree, tabId);
-    }
     this.deps.registry.removeSession(tabId);
     await this.deps.broadcast();
   }
 
-  /** Branches a session by copying its transcript into a fresh lineage. */
   async forkSession(tabId: string): Promise<{ tabId: string }> {
     const source = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!source) throw new Error(`unknown session tab ${tabId}`);
@@ -989,7 +848,6 @@ export class SessionManager {
     return { tabId: fork.tabId };
   }
 
-  /** Stops a live child and waits for it to be reaped, escalating once. */
   private async killAndReap(tabId: string, entry: LiveEntry): Promise<void> {
     entry.suppressExit = true;
     if (await this.reapWithEscalation(entry)) return;
@@ -1019,11 +877,6 @@ export class SessionManager {
     });
   }
 
-  /**
-   * Reaps a live session and then spawns it again with `--resume`. `between`
-   * runs after the child is dead and before the respawn — the only window in
-   * which a session's checkout can be removed from under it.
-   */
   private async relaunch(
     entry: LiveEntry,
     req: SpawnRequest,
@@ -1036,7 +889,6 @@ export class SessionManager {
     try {
       await this.spawnInner(req);
     } catch (err) {
-      // -1 is the same code spawnRpc's own exit path uses for "no status".
       this.deps.send(CH.onPtyExit, tabId, -1);
       await this.deps.broadcast();
       throw err;

@@ -16,6 +16,7 @@ import {
   resolveMergeDestination,
   sweepOrphanWorktrees,
 } from "./worktree";
+import { reclaimCheckouts } from "./worktree-lifecycle";
 
 const cleanups: string[] = [];
 afterEach(() => {
@@ -669,6 +670,55 @@ describe("removeWorktree", () => {
 
     expect(fs.existsSync(wtPath)).toBe(false);
     expect(fs.readFileSync(path.join(dir, ".omp", "mcp.json"), "utf8")).toBe("{}\n");
+  });
+});
+
+describe("reclaimCheckouts", () => {
+  it("uses the explicit survivor snapshot and reclaims a distinct checkout once", async () => {
+    const project = await tmpRepo();
+    const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
+    cleanups.push(worktreesRoot);
+    const branch = mintWorktreeBranch();
+    const worktreePath = mintWorktreePath(worktreesRoot, project, branch);
+    const base = await addWorktree(project, worktreePath, branch, null);
+    const checkout = { projectCwd: project, worktree: { path: worktreePath, branch, base } };
+
+    await expect(
+      reclaimCheckouts([checkout], {
+        worktreesRoot,
+        survivingSessions: [{ worktree: checkout.worktree }],
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ checkoutKept: "shared", branchOutcome: "not-attempted" }),
+    ]);
+    expect(fs.existsSync(worktreePath)).toBe(true);
+
+    const reclaimed = await reclaimCheckouts([checkout, checkout], {
+      worktreesRoot,
+      survivingSessions: [],
+    });
+    expect(reclaimed).toHaveLength(1);
+    expect(reclaimed[0]).toEqual(
+      expect.objectContaining({ checkoutKept: null, branchOutcome: "removed" }),
+    );
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    expect((await git(project, ["branch", "--list", branch])).trim()).toBe("");
+  });
+
+  it("never removes a checkout whose descriptor is non-canonical", async () => {
+    const project = await tmpRepo();
+    const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
+    cleanups.push(worktreesRoot);
+    const branch = mintWorktreeBranch();
+    const worktreePath = path.join(worktreesRoot, "not-the-minted-path");
+    await addWorktree(project, worktreePath, branch, null);
+
+    const [result] = await reclaimCheckouts(
+      [{ projectCwd: project, worktree: { path: worktreePath, branch, base: "main" } }],
+      { worktreesRoot, survivingSessions: [], warn: () => {} },
+    );
+    expect(result?.checkoutKept).toBe("non-canonical");
+    expect(fs.existsSync(worktreePath)).toBe(true);
   });
 });
 

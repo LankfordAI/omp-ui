@@ -170,6 +170,12 @@ export interface DeleteSessionPreview {
   descendants: PlanHandoffDescendant[];
 }
 
+/** Per-tab outcome of session deletion, including cascade partial success. */
+export interface DeleteSessionResult {
+  deleted: string[];
+  failed: Array<{ tabId: string; message: string }>;
+}
+
 export interface OwnedSessionRecord {
   tabId: string;
   /** UUIDv7 — null until the session materializes on disk (lazy materialization). */

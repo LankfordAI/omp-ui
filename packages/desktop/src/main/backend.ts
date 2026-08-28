@@ -23,9 +23,7 @@ import {
   readMemoryOverview,
   readMergeBackStatus,
   pullBranch,
-  mintWorktreePath,
-  isWithin,
-  removeWorktree,
+  reclaimCheckouts,
   sweepOrphanWorktrees,
   listProjectFiles,
   resolveFileMentions,
@@ -286,25 +284,20 @@ export class MainBackend {
             throw new Error("project has live sessions — terminate them first");
           }
           this.sessions.stopProjectWatchers(projectPath);
-          const worktreePaths = new Set(
-            this.registry.sessions
-              .filter(
-                (s) =>
-                  s.projectCwd === projectPath &&
-                  s.worktree &&
-                  // Only the canonical minted path inside the worktrees
-                  // root: a corrupt registry value must not steer the
-                  // recursive fallback inside removeWorktree.
-                  s.worktree.path ===
-                    mintWorktreePath(this.worktreesRoot, projectPath, s.worktree.branch) &&
-                  isWithin(this.worktreesRoot, s.worktree.path),
-              )
-              .map((s) => s.worktree!.path),
+          const sessions = this.registry.sessions;
+          const checkouts = sessions.flatMap((session) =>
+            session.projectCwd === projectPath && session.worktree !== null
+              ? [{ projectCwd: projectPath, worktree: session.worktree }]
+              : [],
           );
-          for (const wt of worktreePaths) {
-            try { await removeWorktree(projectPath, wt); }
-            catch (err) { console.warn(`[backend] worktree cleanup failed for ${wt}:`, err); }
-          }
+          await reclaimCheckouts(checkouts, {
+            worktreesRoot: this.worktreesRoot,
+            survivingSessions: sessions.filter((session) => session.projectCwd !== projectPath),
+            warn: (message, error) =>
+              error === undefined
+                ? console.warn(`[backend] ${message}`)
+                : console.warn(`[backend] ${message}`, error),
+          });
           this.registry.removeProject(projectPath);
           await this.broadcast();
         },

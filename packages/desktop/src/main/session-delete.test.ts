@@ -303,7 +303,10 @@ describe("session:delete", () => {
 
   it("is a no-op for an unknown tab", async () => {
     setup();
-    await expect(invoke(CH.deleteSession, "nope", false)).resolves.toBeUndefined();
+    await expect(invoke(CH.deleteSession, "nope", false)).resolves.toEqual({
+      deleted: ["nope"],
+      failed: [],
+    });
     expect(readRegistry().sessions).toHaveLength(1);
   });
 });
@@ -508,14 +511,13 @@ describe("session:delete cascade (issue #309)", () => {
       return realRm(target, options);
     });
 
-    await expect(invoke(CH.deleteSession, "tab-s", true)).rejects.toThrow(/EBUSY/);
+    await expect(invoke(CH.deleteSession, "tab-s", true)).resolves.toEqual({
+      deleted: ["tab-s", "tab-i1"],
+      failed: [{ tabId: "tab-i2", message: "EBUSY: resource busy" }],
+    });
     rm.mockRestore();
 
-    // The failed tab's op rejects Promise.all immediately; the siblings
-    // finish their per-session deletes in the background.
-    await vi.waitFor(() => {
-      expect(sessionIds()).toEqual(["tab-i2", "tab-u"]);
-    });
+    expect(sessionIds()).toEqual(["tab-i2", "tab-u"]);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_S))).toBe(false);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE_I1))).toBe(false);
     // The failed session's files survive for the retry.

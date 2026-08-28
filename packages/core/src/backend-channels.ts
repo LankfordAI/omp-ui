@@ -9,6 +9,7 @@ import type {
   BranchListOptions,
   ConsoleProgram,
   DeleteSessionPreview,
+  DeleteSessionResult,
   DirBrowseResult,
   ImageAttachment,
   McpServersResult,
@@ -300,7 +301,7 @@ export const BACKEND_CHANNELS = {
    */
   deleteSession: {
     channel: "session:delete",
-    ...request<[tabId: string, cascade: boolean], void>(),
+    ...request<[tabId: string, cascade: boolean], DeleteSessionResult>(),
   },
   /**
    * Full-fidelity branch (issue #83): copies the session's transcript into a

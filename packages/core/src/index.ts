@@ -158,6 +158,12 @@ export {
   type SessionLocation,
 } from "./archive";
 export { forkSessionFile } from "./fork";
+export {
+  reclaimCheckouts,
+  type ReclaimCheckoutsOptions,
+  type ReclaimedCheckout,
+  type WorktreeCheckoutDescriptor,
+} from "./worktree-lifecycle";
 export { rebindSessionCwd } from "./session-rebind";
 export {
   RpcChunkReassembler,

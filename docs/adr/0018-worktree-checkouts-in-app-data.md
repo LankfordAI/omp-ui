@@ -215,3 +215,23 @@ the user made.
 - **Rejected: keep the checkout and the branch.** Then `git branch -d` can
   never run, worktree checkouts accumulate in app data, and "finished" is
   indistinguishable from "still working".
+
+## Lifecycle atomicity addendum
+
+- **A fresh spawn is rolled back in dependency order.** Once a checkout is
+  minted, every later failure unwinds the spawned child and lineage watcher
+  before removing the new registry record. The minted checkout is reclaimed
+  only after that record was removed (or was never persisted), so a registry
+  write failure can never leave a surviving record pointing at a checkout the
+  rollback deleted. A reused checkout is borrowed state and is never reclaimed
+  by spawn rollback.
+- **Cascade deletion settles records before reclaiming checkouts.** Every member
+  still enters its ordinary per-tab delete queue, and all members are allowed
+  to settle. Checkout descriptors are captured first, deduplicated by path,
+  then reclaimed against the explicit post-settle registry survivors. A failed
+  descendant therefore stays retryable and protects a shared checkout, while a
+  fully deleted closure reclaims that checkout exactly once.
+- **Checkout policy lives in core.** `reclaimCheckouts` owns canonical-path,
+  survivor, checkout-removal, and branch-removal policy for delete, release,
+  and rollback. Desktop supplies the current survivor snapshot; it does not
+  duplicate those guards.

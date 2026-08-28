@@ -244,20 +244,23 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
  * project's current branch when it contains that commit; (3) else null with
  * "base-gone" (deleted name / unknown SHA) or "no-branch-match".
  */
-export async function resolveMergeDestination(
+async function currentBranch(projectCwd: string): Promise<string> {
+  try {
+    return (await git(projectCwd, ["branch", "--show-current"])).trim();
+  } catch {
+    return "";
+  }
+}
+
+async function resolveMergeDestinationForCurrent(
   projectCwd: string,
   base: string | null,
+  current: string,
 ): Promise<{ destination: string | null; reason: MergeBackStatus["reason"] }> {
   const baseIsBranch =
     base !== null &&
     !/^[0-9a-f]{40}$/.test(base) &&
     (await hasRef(projectCwd, `refs/heads/${base}`));
-  let current: string;
-  try {
-    current = (await git(projectCwd, ["branch", "--show-current"])).trim();
-  } catch {
-    current = "";
-  }
   let destination: string | null = null;
   let reason: MergeBackStatus["reason"] = "base-gone";
   if (baseIsBranch) {
@@ -296,6 +299,13 @@ export async function resolveMergeDestination(
   return { destination, reason };
 }
 
+export async function resolveMergeDestination(
+  projectCwd: string,
+  base: string | null,
+): Promise<{ destination: string | null; reason: MergeBackStatus["reason"] }> {
+  return resolveMergeDestinationForCurrent(projectCwd, base, await currentBranch(projectCwd));
+}
+
 /**
  * Merge-back feasibility (issue #272). Never throws: an unreadable repo
  * resolves to destination null, reason "no-repo". Destination resolution:
@@ -324,23 +334,12 @@ export async function readMergeBackStatus(
     };
   }
 
-  const branchExists = await hasRef(projectCwd, `refs/heads/${branch}`);
-  let current: string;
-  try {
-    current = (await git(projectCwd, ["branch", "--show-current"])).trim();
-  } catch {
-    current = "";
-  }
-  let mergeInProgress = false;
-  try {
-    await git(projectCwd, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
-    mergeInProgress = true;
-  } catch {
-    // No merge in progress.
-  }
-
-  const { destination, reason } = await resolveMergeDestination(projectCwd, base);
-
+  const current = await currentBranch(projectCwd);
+  const [branchExists, mergeInProgress, { destination, reason }] = await Promise.all([
+    hasRef(projectCwd, `refs/heads/${branch}`),
+    hasRef(projectCwd, "MERGE_HEAD"),
+    resolveMergeDestinationForCurrent(projectCwd, base, current),
+  ]);
   let alreadyMerged = false;
   let ahead = 0;
   if (destination !== null && branchExists) {

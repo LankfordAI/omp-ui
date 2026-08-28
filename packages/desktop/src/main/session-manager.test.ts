@@ -1159,6 +1159,95 @@ describe("worktree sessions (issue #224)", () => {
     expect(call.cwd).toBe(worktreePath);
   });
 
+  it("rolls back a spawned child, record, watcher, and minted checkout when publication fails", async () => {
+    const { manager, registry, broadcast } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-spawn-rollback";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const publicationFailure = new Error("state publication failed");
+    nextPtyDiesOn = "default";
+    broadcast.mockRejectedValueOnce(publicationFailure);
+
+    await expect(
+      manager.spawn({
+        projectCwd: project,
+        mode: "pty",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: { branch, baseRef: null },
+      }),
+    ).rejects.toBe(publicationFailure);
+
+    expect(fakePtys.at(-1)?.signals).toEqual(["default"]);
+    expect(registry.sessions.some((record) => record.worktree?.path === worktreePath)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    expect((await execFileP("git", ["branch", "--list", branch], { cwd: project })).stdout.trim()).toBe("");
+    expect(watcherDisposes.at(-1)).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the record and minted checkout when record rollback cannot persist", async () => {
+    const { manager, registry, broadcast } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-spawn-rollback-record-failure";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const publicationFailure = new Error("state publication failed");
+    const removalFailure = new Error("registry write failed");
+    nextPtyDiesOn = "default";
+    broadcast.mockRejectedValueOnce(publicationFailure);
+    const removeSession = vi.spyOn(registry, "removeSession").mockImplementationOnce(() => {
+      throw removalFailure;
+    });
+
+    const error = await manager
+      .spawn({
+        projectCwd: project,
+        mode: "pty",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: { branch, baseRef: null },
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).cause).toBe(publicationFailure);
+    expect((error as Error).message).toContain(
+      "remove spawned session record: registry write failed",
+    );
+    expect(registry.sessions.some((record) => record.worktree?.path === worktreePath)).toBe(true);
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    removeSession.mockRestore();
+  });
+
+  it("never reclaims a reused checkout during spawn rollback", async () => {
+    const { manager, registry, broadcast } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-spawn-rollback-reuse";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const baseRef = await Core.addWorktree(project, worktreePath, branch, null);
+    nextPtyDiesOn = "default";
+    broadcast.mockRejectedValueOnce(new Error("state publication failed"));
+
+    await expect(
+      manager.spawn({
+        projectCwd: project,
+        mode: "pty",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktreeReuse: { path: worktreePath, branch, base: baseRef },
+      }),
+    ).rejects.toThrow("state publication failed");
+
+    expect(registry.sessions.some((record) => record.worktree?.path === worktreePath)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    expect((await execFileP("git", ["branch", "--list", branch], { cwd: project })).stdout).toContain(branch);
+  });
+
   it("links the project's .omp into the checkout, so project MCP config reaches the session (issue #325)", async () => {
     const { manager, registry } = setup();
     const project = await gitProject(base);
@@ -1370,6 +1459,95 @@ describe("worktree sessions (issue #224)", () => {
       cwd: project,
     });
     expect(branches).toContain(branch);
+  });
+
+  it("reclaims one shared checkout after every cascade member settles", async () => {
+    const { manager, registry, sessionsRoot } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-cascade";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    const worktree = registry.sessions.find((record) => record.tabId === tabId)!.worktree!;
+    const childLineage = "omp-ui--project--11111111-2222-4333-8444-555555555555";
+    fs.mkdirSync(path.join(sessionsRoot, childLineage), { recursive: true });
+    registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-cascade-child",
+        lineageDir: childLineage,
+        projectCwd: project,
+        worktree,
+        planImplementationSource: {
+          sourceTabId: tabId,
+          planTitle: "Shared checkout plan",
+          planFilePath: "local://shared-plan.md",
+        },
+      }),
+    );
+
+    await expect(manager.deleteSession(tabId, true)).resolves.toEqual({
+      deleted: [tabId, "tab-cascade-child"],
+      failed: [],
+    });
+    expect(registry.sessions.some((record) => record.worktree?.path === worktreePath)).toBe(false);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+  });
+
+  it("keeps a shared checkout when one cascade member remains retryable", async () => {
+    const { manager, registry, sessionsRoot } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-cascade-failed-child";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    const worktree = registry.sessions.find((record) => record.tabId === tabId)!.worktree!;
+    const childLineage = "omp-ui--project--failed-cascade-child";
+    fs.mkdirSync(path.join(sessionsRoot, childLineage), { recursive: true });
+    registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-failed-cascade-child",
+        lineageDir: childLineage,
+        projectCwd: project,
+        worktree,
+        planImplementationSource: {
+          sourceTabId: tabId,
+          planTitle: "Shared checkout plan",
+          planFilePath: "local://shared-plan.md",
+        },
+      }),
+    );
+    const realDelete = deleteSessionFilesMock.getMockImplementation()!;
+    deleteSessionFilesMock.mockImplementation(async (sessionsRoot_, archiveRoot, lineageDir) => {
+      if (lineageDir === childLineage) throw new Error("EBUSY: child transcript is busy");
+      return realDelete(sessionsRoot_, archiveRoot, lineageDir);
+    });
+
+    const result = await manager.deleteSession(tabId, true);
+    deleteSessionFilesMock.mockImplementation(realDelete);
+
+    expect(result).toEqual({
+      deleted: [tabId],
+      failed: [{ tabId: "tab-failed-cascade-child", message: "EBUSY: child transcript is busy" }],
+    });
+    expect(registry.sessions.some((record) => record.tabId === tabId)).toBe(false);
+    expect(registry.sessions.some((record) => record.tabId === "tab-failed-cascade-child")).toBe(true);
+    expect(fs.existsSync(worktreePath)).toBe(true);
   });
 
   it("deletes a merged worktree branch when the last record is deleted (issue #323)", async () => {
