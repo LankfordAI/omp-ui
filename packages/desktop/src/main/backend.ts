@@ -547,14 +547,12 @@ export class MainBackend {
           const problem = validateRemotePassword(password);
           if (problem !== null) throw new Error(problem);
           const { salt, hash } = hashRemotePassword(password);
-          this.registry.setSetting("remotePasswordHash", hash);
-          this.registry.setSetting("remotePasswordSalt", salt);
+          this.registry.setSettings({ remotePasswordHash: hash, remotePasswordSalt: salt });
           // apply(), not restart(): the new hash/salt already makes sameTarget false.
           await this.remote.apply();
         },
         [CH.clearRemotePassword]: async () => {
-          this.registry.setSetting("remotePasswordHash", "");
-          this.registry.setSetting("remotePasswordSalt", "");
+          this.registry.setSettings({ remotePasswordHash: "", remotePasswordSalt: "" });
           await this.remote.apply();
         },
       },

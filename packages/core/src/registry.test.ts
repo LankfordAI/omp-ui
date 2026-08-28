@@ -39,6 +39,16 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
   };
 }
 
+function rejectAtomicReplaces(file: string): () => void {
+  const saved = `${file}.saved`;
+  fs.renameSync(file, saved);
+  fs.mkdirSync(file);
+  return () => {
+    fs.rmSync(file, { recursive: true });
+    fs.renameSync(saved, file);
+  };
+}
+
 describe("SETTINGS", () => {
   it("describes every persisted setting with its exact value type", () => {
     type ExpectedDescriptors = {
@@ -561,16 +571,51 @@ describe("Registry persistence", () => {
     }
   });
 
-  it("round-trips the remote password hash and salt across a reload", () => {
+  it("writes settings patches as one transaction", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    reg.setSetting("remotePasswordHash", "deadbeef");
-    reg.setSetting("remotePasswordSalt", "0011");
+    reg.setSettings({ remotePasswordHash: "deadbeef", remotePasswordSalt: "0011" });
     expect(reg.getSetting("remotePasswordHash")).toBe("deadbeef");
     expect(reg.getSetting("remotePasswordSalt")).toBe("0011");
     const reloaded = Registry.load(file);
     expect(reloaded.getSetting("remotePasswordHash")).toBe("deadbeef");
     expect(reloaded.getSetting("remotePasswordSalt")).toBe("0011");
+  });
+
+  it("keeps a credential pair unchanged when its write fails, then permits retry", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord());
+    reg.setSettings({ remotePasswordHash: "old-hash", remotePasswordSalt: "old-salt" });
+    const projectsBefore = reg.projects;
+    const sessionsBefore = reg.sessions;
+    const restore = rejectAtomicReplaces(file);
+
+    expect(() =>
+      reg.setSettings({ remotePasswordHash: "new-hash", remotePasswordSalt: "new-salt" }),
+    ).toThrow();
+    expect(reg.projects).toEqual(projectsBefore);
+    expect(reg.sessions).toEqual(sessionsBefore);
+    expect(reg.getSetting("remotePasswordHash")).toBe("old-hash");
+    expect(reg.getSetting("remotePasswordSalt")).toBe("old-salt");
+
+    restore();
+    reg.setSettings({ remotePasswordHash: "new-hash", remotePasswordSalt: "new-salt" });
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("remotePasswordHash")).toBe("new-hash");
+    expect(reloaded.getSetting("remotePasswordSalt")).toBe("new-salt");
+  });
+
+  it("does not write an unchanged settings patch", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setSettings({ remotePasswordHash: "same-hash", remotePasswordSalt: "same-salt" });
+    const restore = rejectAtomicReplaces(file);
+    expect(() =>
+      reg.setSettings({ remotePasswordHash: "same-hash", remotePasswordSalt: "same-salt" }),
+    ).not.toThrow();
+    restore();
   });
 
   it("uses Object.is when comparing setting values", () => {
@@ -636,13 +681,16 @@ describe("Registry mutations", () => {
     expect(reg.projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
   });
 
-  it("moveProject is a stable no-op when the project already sits before its target", () => {
-    const reg = Registry.load(tmpFile());
+  it("moveProject writes nothing when the project already sits before its target", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
     reg.addProject("/abs/a");
     reg.addProject("/abs/b");
     reg.addProject("/abs/c");
-    reg.moveProject("/abs/a", "/abs/b");
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+    const restore = rejectAtomicReplaces(file);
+    expect(() => reg.moveProject("/abs/a", "/abs/b")).not.toThrow();
+    expect(reg.projects.map((project) => project.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+    restore();
   });
 
   it("moveProject leaves the order alone when the target is the project itself", () => {
@@ -861,6 +909,34 @@ describe("Registry mutations", () => {
     reg.addSession(sessionRecord({ tabId: "t-2" }));
     reg.removeSession("t-1");
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-2"]);
+  });
+
+  it("leaves session, project, and settings memory unchanged after a failed write and retries", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addSession(sessionRecord());
+    reg.setSetting("themeId", "paper");
+    const projectsBefore = reg.projects;
+    const sessionsBefore = reg.sessions;
+    const restore = rejectAtomicReplaces(file);
+
+    expect(() => reg.setSessionModel("tab-1", "provider/model", "high")).toThrow();
+    expect(reg.projects).toEqual(projectsBefore);
+    expect(reg.sessions).toEqual(sessionsBefore);
+    expect(reg.getSetting("themeId")).toBe("paper");
+
+    restore();
+    reg.setSessionModel("tab-1", "provider/model", "high");
+    expect(reg.sessions[0]).toMatchObject({ model: "provider/model", thinkingLevel: "high" });
+    expect(reg.projects[0]).toMatchObject({
+      lastModel: "provider/model",
+      lastThinkingLevel: "high",
+    });
+    expect(Registry.load(file).sessions[0]).toMatchObject({
+      model: "provider/model",
+      thinkingLevel: "high",
+    });
   });
 });
 
