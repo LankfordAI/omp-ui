@@ -9,10 +9,14 @@ import { loginPage } from "./login-page";
 import { LoginThrottle } from "./login-throttle";
 import {
   encodeBinaryEvent,
+  makeServerEventFrame,
+  makeServerResponseErr,
+  makeServerResponseOk,
   parseClientFrame,
   REMOTE_COOKIE,
   REMOTE_TOKEN_PARAM,
   REMOTE_WS_PATH,
+  type ServerFrame,
 } from "./protocol";
 import {
   passwordSessionCredential,
@@ -143,9 +147,9 @@ function withToken(urls: string[], token: string): string[] {
 }
 
 /** null rather than a throw: a missing path is a routing decision here, not an error. */
-function statOrNull(file: string): fs.Stats | null {
+async function statOrNull(file: string): Promise<fs.Stats | null> {
   try {
-    return fs.statSync(file);
+    return await fs.promises.stat(file);
   } catch {
     return null;
   }
@@ -175,7 +179,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   // documented v1 behavior.
   const loginThrottle = new LoginThrottle();
 
-  const serveStatic = (res: ServerResponse, pathname: string): void => {
+  const serveStatic = async (res: ServerResponse, pathname: string): Promise<void> => {
     if (webBundleMissing) {
       send(res, 503, 'omp-ui web bundle not built — run "npm run build:web"');
       return;
@@ -196,22 +200,32 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       return;
     }
     let file = resolved;
-    let stat = statOrNull(file);
+    let stat = await statOrNull(file);
     // SPA fallback: an extensionless unknown path is a client route, not a missing asset.
     if (stat?.isDirectory() || (stat === null && path.extname(file) === "")) {
       file = indexFile;
-      stat = statOrNull(file);
+      stat = await statOrNull(file);
     }
     if (!stat?.isFile()) {
       send(res, 404, "not found");
       return;
     }
-    const body = fs.readFileSync(file);
-    res.writeHead(200, {
-      "Content-Type": MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream",
-      "Content-Length": body.length,
+
+    const contentLength = stat.size;
+    const stream = fs.createReadStream(file);
+    stream.once("open", () => {
+      res.writeHead(200, {
+        "Content-Type": MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream",
+        "Content-Length": contentLength,
+      });
+      stream.pipe(res);
     });
-    res.end(body);
+    stream.once("error", (err) => {
+      // Opening can lose a race with replacement/deletion after stat. Before headers this is a
+      // normal missing-file response; once streaming has begun the only honest response is reset.
+      if (!res.headersSent) send(res, 404, "not found");
+      else res.destroy(err);
+    });
   };
 
   const handleLogin = (req: IncomingMessage, res: ServerResponse): void => {
@@ -231,16 +245,14 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_LOGIN_BODY) {
+        // Deliberately reset instead of replying: continuing to read an oversized unauthenticated
+        // body wastes resources, while destroying the request prevents its `end` handler running.
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
     req.on("end", () => {
-      if (size > MAX_LOGIN_BODY) {
-        send(res, 400, "request too large");
-        return;
-      }
       const contentType = req.headers["content-type"] ?? "";
       if (!contentType.includes("application/x-www-form-urlencoded")) {
         send(res, 400, "expected form-encoded body");
@@ -296,7 +308,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
         send(res, 200, manifest(password ? null : token), "application/manifest+json");
         return;
       }
-      serveStatic(res, url.pathname);
+      void serveStatic(res, url.pathname);
       return;
     }
 
@@ -376,17 +388,10 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       const id = frame.id;
       void dispatchRequest(table, frame.ch, frame.args)
         .then((value) => {
-          // JSON.stringify turns an undefined return into null, which every Promise<void>
-          // caller ignores.
-          reply(ws, { t: "res", id, ok: true, value: value ?? null });
+          reply(ws, makeServerResponseOk(id, value));
         })
         .catch((err: unknown) => {
-          reply(ws, {
-            t: "res",
-            id,
-            ok: false,
-            message: err instanceof Error ? err.message : String(err),
-          });
+          reply(ws, makeServerResponseErr(id, err instanceof Error ? err.message : String(err)));
         });
     });
   });
@@ -403,7 +408,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     const frame =
       payload instanceof Uint8Array && typeof args[0] === "string"
         ? encodeBinaryEvent(channel, args[0], payload)
-        : JSON.stringify({ t: "ev", ch: channel, args });
+        : JSON.stringify(makeServerEventFrame(channel, args));
     for (const client of wss.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
       client.send(frame);
@@ -450,7 +455,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   });
 }
 
-function reply(ws: WebSocket, frame: unknown): void {
+function reply(ws: WebSocket, frame: ServerFrame): void {
   if (ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(frame));
 }

@@ -605,10 +605,27 @@ describe("startRemoteServer static bundle", () => {
     const js = await fetch(`${base}/assets/app.js?t=${TOKEN}`);
     expect(js.status).toBe(200);
     expect(js.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-
+    expect(js.headers.get("content-length")).toBe(String(Buffer.byteLength("export const x = 1;\n")));
+    expect(await js.text()).toBe("export const x = 1;\n");
     const png = await fetch(`${base}/icon.png?t=${TOKEN}`);
     expect(png.status).toBe(200);
     expect(png.headers.get("content-type")).toBe("image/png");
+  });
+
+  it.skipIf(
+    process.platform === "win32" || typeof process.getuid !== "function" || process.getuid() === 0,
+  )("404s when a statted asset cannot be opened before headers", async () => {
+    const root = webRoot();
+    const file = path.join(root, "assets", "app.js");
+    fs.chmodSync(file, 0o000);
+    try {
+      const { base } = await serve({ webRoot: root });
+      const res = await fetch(`${base}/assets/app.js?t=${TOKEN}`);
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe("not found");
+    } finally {
+      fs.chmodSync(file, 0o600);
+    }
   });
 
   it("falls back to index.html for an extensionless client route", async () => {

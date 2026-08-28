@@ -135,8 +135,8 @@ require_x64() {
 }
 
 # The Electron binary inside the AppImage links system GUI libraries the
-# AppImage does not bundle. A no-root installer cannot install them, so verify
-# resolution and fail with the exact fix command BEFORE touching the install.
+# AppImage does not bundle. A no-root installer cannot install them, so report
+# the host resolver's result before touching the existing install.
 check_prerequisites() {
     local root="$1"
     local bin="$root/omp-ui"          # executableName from electron-builder.yml
@@ -149,121 +149,20 @@ check_prerequisites() {
         return 0
     fi
 
-    local so pkg mapped=() unmapped=()
-    while IFS= read -r so; do
-        [ -n "$so" ] || continue
-        pkg="$(so_to_package "$so")"
-        if [ -n "$pkg" ]; then mapped+=("$pkg"); else unmapped+=("$so"); fi
-    done < <(ldd "$bin" 2>/dev/null | awk '/not found/ {print $1}')
+    local resolver_output unresolved
+    resolver_output="$(ldd "$bin" 2>&1 || true)"
+    unresolved="$(printf '%s\n' "$resolver_output" | awk '/not found/ {print $1}')"
+    [ -n "$unresolved" ] || return 0
 
-    if [ ${#mapped[@]} -eq 0 ] && [ ${#unmapped[@]} -eq 0 ]; then
-        return 0
-    fi
+    die "omp-ui is missing system libraries this machine must provide.
 
-    local pkgs
-    pkgs="$(printf '%s\n' "${mapped[@]}" 2>/dev/null | sort -u)"
-    if command -v dpkg >/dev/null 2>&1; then
-        die "omp-ui is missing system libraries this machine must provide.
-Install them with your admin user, then re-run this installer:
+Dependency resolver output:
+$resolver_output
 
-  sudo apt install $(printf '%s\n' "$pkgs" | tr '\n' ' ' | sed 's/ $//')
-
-Libraries: $(ldd "$bin" 2>/dev/null | awk '/not found/ {print $1}' | sort -u | tr '\n' ' ')"
-    else
-        die "omp-ui is missing system libraries this machine must provide
-(install the package that provides each, then re-run this installer):
-
-$(printf '%s\n' "${mapped[@]}" "${unmapped[@]}" 2>/dev/null | sort -u | sed 's/^/  /')"
-    fi
-}
-
-# .so name -> Debian/Ubuntu package. Table derived from ldd of the shipped
-# Electron binary (packages/desktop devDependency). Targets Ubuntu 24.04+
-# (t64 names); on older releases the same packages exist without the t64 suffix.
-so_to_package() {
-    case "$1" in
-        libnss3.so|libnssutil3.so|libsmime3.so|libplc4.so|libplds4.so) echo libnss3 ;;
-        libnspr4.so) echo libnspr4 ;;
-        libatk-1.0.so.0) echo libatk1.0-0t64 ;;
-        libatk-bridge-2.0.so.0) echo libatk-bridge2.0-0t64 ;;
-        libatspi.so.0) echo libatspi2.0-0t64 ;;
-        libcups.so.2) echo libcups2t64 ;;
-        libdbus-1.so.3) echo libdbus-1-3 ;;
-        libcairo.so.2|libcairo-gobject.so.2) echo libcairo2 ;;
-        libgdk-3.so.0|libgtk-3.so.0) echo libgtk-3-0t64 ;;
-        libgdk_pixbuf-2.0.so.0) echo libgdk-pixbuf-2.0-0 ;;
-        libpango-1.0.so.0) echo libpango-1.0-0 ;;
-        libpangocairo-1.0.so.0) echo libpangocairo-1.0-0 ;;
-        libpangoft2-1.0.so.0) echo libpangoft2-1.0-0 ;;
-        libglib-2.0.so.0|libgobject-2.0.so.0|libgio-2.0.so.0|libgmodule-2.0.so.0) echo libglib2.0-0t64 ;;
-        libX11.so.6) echo libx11-6 ;;
-        libXext.so.6) echo libxext6 ;;
-        libXfixes.so.3) echo libxfixes3 ;;
-        libXcomposite.so.1) echo libxcomposite1 ;;
-        libXdamage.so.1) echo libxdamage1 ;;
-        libXrandr.so.2) echo libxrandr2 ;;
-        libXrender.so.1) echo libxrender1 ;;
-        libXi.so.6) echo libxi6 ;;
-        libXcursor.so.1) echo libxcursor1 ;;
-        libXinerama.so.1) echo libxinerama1 ;;
-        libXau.so.6) echo libxau6 ;;
-        libxcb.so.1) echo libxcb1 ;;
-        libxcb-render.so.0) echo libxcb-render0 ;;
-        libxcb-shm.so.0) echo libxcb-shm0 ;;
-        libgbm.so.1) echo libgbm1 ;;
-        libxkbcommon.so.0) echo libxkbcommon0 ;;
-        libasound.so.2) echo libasound2t64 ;;
-        libwayland-client.so.0) echo libwayland-client0 ;;
-        libwayland-cursor.so.0) echo libwayland-cursor0 ;;
-        libwayland-egl.so.1) echo libwayland-egl1 ;;
-        libepoxy.so.0) echo libepoxy0 ;;
-        libdrm.so.2) echo libdrm2 ;;
-        libudev.so.1) echo libudev1 ;;
-        libexpat.so.1) echo libexpat1 ;;
-        libfontconfig.so.1) echo libfontconfig1 ;;
-        libfreetype.so.6) echo libfreetype6 ;;
-        libpixman-1.so.0) echo libpixman-1-0 ;;
-        libharfbuzz.so.0) echo libharfbuzz0b ;;
-        libfribidi.so.0) echo libfribidi0 ;;
-        libthai.so.0) echo libthai0 ;;
-        libdatrie.so.1) echo libdatrie1 ;;
-        libgraphite2.so.3) echo libgraphite2-3 ;;
-        liblcms2.so.2) echo liblcms2-2 ;;
-        libpng16.so.16) echo libpng16-16 ;;
-        libxml2.so.2) echo libxml2 ;;
-        libselinux.so.1) echo libselinux1 ;;
-        libseccomp.so.2) echo libseccomp2 ;;
-        libsystemd.so.0) echo libsystemd0 ;;
-        libavahi-common.so.3) echo libavahi-common3 ;;
-        libavahi-client.so.3) echo libavahi-client3 ;;
-        libgnutls.so.30) echo libgnutls30t64 ;;
-        libp11-kit.so.0) echo libp11-kit0 ;;
-        libidn2.so.0) echo libidn2-0 ;;
-        libunistring.so.5) echo libunistring5 ;;
-        libtasn1.so.6) echo libtasn1-6 ;;
-        libnettle.so.8) echo libnettle8 ;;
-        libhogweed.so.6) echo libhogweed6 ;;
-        libgmp.so.10) echo libgmp10 ;;
-        libcrypto.so.3|libssl.so.3) echo libssl3t64 ;;
-        libkrb5.so.3|libk5crypto.so.3|libkrb5support.so.0|libgssapi_krb5.so.2) echo libkrb5-3 ;;
-        libcom_err.so.2) echo libcom-err2 ;;
-        libkeyutils.so.1) echo libkeyutils1 ;;
-        libjson-glib-1.0.so.0) echo libjson-glib-1.0-0 ;;
-        libtinysparql-3.0.so.0) echo libtinysparql-3.0-0 ;;
-        libcloudproviders.so.0) echo libcloudproviders0 ;;
-        libglycin-2.so.0) echo libglycin2 ;;
-        libsqlite3.so.0) echo libsqlite3-0 ;;
-        libffi.so.8) echo libffi8 ;;
-        libpcre2-8.so.0) echo libpcre2-8-0 ;;
-        libcap.so.2) echo libcap2 ;;
-        libmount.so.1) echo libmount1 ;;
-        libblkid.so.1) echo libblkid1 ;;
-        libz.so.1) echo zlib1g ;;
-        libbz2.so.1) echo libbz2-1.0 ;;
-        liblzma.so.5) echo liblzma5 ;;
-        libbrotlidec.so.1|libbrotlicommon.so.1) echo libbrotli1 ;;
-        *) echo "" ;;
-    esac
+Install the missing dependencies through your distribution, then re-run this installer.
+For Debian or Ubuntu package repair, use: sudo apt-get install -f
+For a local RPM package, use: sudo rpm -Uvh <package.rpm>
+The resolver output identifies the missing libraries; omp-ui cannot provide an exact package command for every distribution."
 }
 
 # Copies icons from $1 (the AppImage extraction root) into the per-user
