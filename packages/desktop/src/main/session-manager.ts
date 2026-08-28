@@ -38,7 +38,13 @@ import {
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
-import { liveEntry, type LiveEntry } from "./live-entry";
+import {
+  createPtyLiveEntry,
+  createRpcLiveEntry,
+  type LiveEntry,
+  wirePtyData,
+  wireRpc,
+} from "./live-entry";
 import { HibernationTracker } from "./hibernation-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
@@ -50,6 +56,12 @@ import { ShellHost } from "./shell-host";
 
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
+
+const NOOP_DETACH_PTY_DATA = (): void => {};
+
+function unreachableLiveEntry(_entry: never): never {
+  throw new Error("unreachable live entry kind");
+}
 
 export interface SessionManagerDependencies {
   registry: Registry;
@@ -149,10 +161,20 @@ export class SessionManager {
   }
 
   private killLive(entry: LiveEntry): void {
-    entry.detachPtyData?.();
-    entry.detachPtyData = undefined;
-    entry.pty?.kill();
-    entry.rpc?.kill();
+    switch (entry.kind) {
+      case "pty": {
+        const detachPtyData = entry.detachPtyData;
+        entry.detachPtyData = NOOP_DETACH_PTY_DATA;
+        detachPtyData();
+        entry.pty.kill();
+        return;
+      }
+      case "rpc-ui":
+        entry.rpc?.kill();
+        return;
+      default:
+        unreachableLiveEntry(entry);
+    }
   }
 
   private handleExit(tabId: string, entry: LiveEntry, exitCode: number): void {
@@ -170,8 +192,16 @@ export class SessionManager {
   private async reapWithEscalation(entry: LiveEntry): Promise<boolean> {
     this.killLive(entry);
     if (await settledWithin(entry.exited, GRACEFUL_EXIT_MS)) return true;
-    entry.pty?.kill("SIGKILL");
-    entry.rpc?.kill("SIGKILL");
+    switch (entry.kind) {
+      case "pty":
+        entry.pty.kill("SIGKILL");
+        break;
+      case "rpc-ui":
+        entry.rpc?.kill("SIGKILL");
+        break;
+      default:
+        unreachableLiveEntry(entry);
+    }
     if (await settledWithin(entry.exited, SIGKILL_EXIT_MS)) return true;
     return false;
   }
@@ -437,9 +467,9 @@ export class SessionManager {
       advisor: record.advisor,
       configOverlays: writeSessionOverlays(record, absLineageDir),
     });
-    const entry = liveEntry({ kind: "pty", pty: ptyHandle, record });
+    const entry = createPtyLiveEntry(record, ptyHandle);
     this.live.set(record.tabId, entry);
-    entry.detachPtyData = ptyHandle.onData((data) =>
+    wirePtyData(entry, ptyHandle, (data) =>
       this.deps.send(CH.onPtyData, record.tabId, data),
     );
     ptyHandle.onExit(({ exitCode }) => this.handleExit(record.tabId, entry, exitCode));
@@ -454,7 +484,7 @@ export class SessionManager {
     ompPath: string,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
-    const entry = liveEntry({ kind: "rpc-ui", record });
+    const entry = createRpcLiveEntry(record);
     const { paths: extensions, mcpStatusLoaded } = writeRpcExtensions(absLineageDir);
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
     if (mcpStatusLoaded) {
@@ -473,7 +503,7 @@ export class SessionManager {
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
-    entry.rpc = new RpcClient({
+    const rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
       ompPath,
@@ -490,6 +520,7 @@ export class SessionManager {
       onError: (msg) =>
         this.deps.send(CH.onRpcFrame, record.tabId, { type: "omp_ui_error", message: msg }),
     });
+    wireRpc(entry, rpc);
     this.live.set(record.tabId, entry);
     this.watcherHub.start(record);
     await this.deps.broadcast();
@@ -616,8 +647,9 @@ export class SessionManager {
   }
 
   async ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void> {
-    const pty = this.live.get(tabId)?.pty;
-    if (!pty) throw new Error("session is not running in terminal mode");
+    const entry = this.live.get(tabId);
+    if (entry?.kind !== "pty") throw new Error("session is not running in terminal mode");
+    const pty = entry.pty;
     if (base64Bytes(image.data) > MAX_IMAGE_BYTES) {
       throw new Error(`image is over omp's ${MAX_IMAGE_BYTES / (1024 * 1024)} MB input limit`);
     }
@@ -651,10 +683,30 @@ export class SessionManager {
     this.shellHost.resize(tabId, cols, rows);
   }
   ptyWrite(tabId: string, data: string): void {
-    this.live.get(tabId)?.pty?.write(data);
+    const entry = this.live.get(tabId);
+    if (!entry) return;
+    switch (entry.kind) {
+      case "pty":
+        entry.pty.write(data);
+        return;
+      case "rpc-ui":
+        return;
+      default:
+        unreachableLiveEntry(entry);
+    }
   }
   ptyResize(tabId: string, cols: number, rows: number): void {
-    this.live.get(tabId)?.pty?.resize(cols, rows);
+    const entry = this.live.get(tabId);
+    if (!entry) return;
+    switch (entry.kind) {
+      case "pty":
+        entry.pty.resize(cols, rows);
+        return;
+      case "rpc-ui":
+        return;
+      default:
+        unreachableLiveEntry(entry);
+    }
   }
 
   planGate(tabId: string): PlanGate | undefined {
@@ -705,7 +757,17 @@ export class SessionManager {
     for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
     if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId))
       this.stallWatchdog.humanAnswered(tabId);
-    this.live.get(tabId)?.rpc?.send(cmd);
+    const entry = this.live.get(tabId);
+    if (!entry) return;
+    switch (entry.kind) {
+      case "rpc-ui":
+        entry.rpc?.send(cmd);
+        return;
+      case "pty":
+        return;
+      default:
+        unreachableLiveEntry(entry);
+    }
   }
 
   killShell(tabId: string): void {

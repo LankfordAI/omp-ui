@@ -327,10 +327,14 @@ export class HibernationTracker implements FrameObserver {
    * onFrame; null on timeout or failure — never kill on our own
    * uncertainty (a wedged session stays with the renderer's stall UX).
    */
-  private probeState(tabId: string, entry: LiveEntry): Promise<{ parked: number; streaming: boolean } | null> {
+  private probeState(
+    tabId: string,
+    entry: LiveEntry,
+  ): Promise<{ parked: number; streaming: boolean } | null> {
     const rec = this.recordFor(tabId);
+    if (entry.kind !== "rpc-ui") return Promise.resolve(null);
     const rpc = entry.rpc;
-    if (rpc === undefined) return Promise.resolve(null);
+    if (rpc === null) return Promise.resolve(null);
     // Executor form (not Promise.withResolvers): the node tsconfig lib is
     // ES2022.
     const id = randomUUID();

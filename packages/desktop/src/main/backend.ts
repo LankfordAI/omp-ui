@@ -24,6 +24,7 @@ import {
   readMergeBackStatus,
   pullBranch,
   reclaimCheckouts,
+  isWithin,
   sweepOrphanWorktrees,
   listProjectFiles,
   resolveFileMentions,

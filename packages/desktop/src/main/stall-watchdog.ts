@@ -5,7 +5,7 @@ import {
   type RpcFrame,
 } from "@omp-ui/core";
 import type { FrameObserver } from "./frame-observer";
-import type { LiveEntry } from "./live-entry";
+import type { LiveEntry, RpcLiveEntry } from "./live-entry";
 import { TurnCounter } from "./turns";
 
 /**
@@ -126,13 +126,13 @@ export class StallWatchdog implements FrameObserver {
 
   private abortStalledTurn(
     tabId: string,
-    entry: LiveEntry,
+    entry: RpcLiveEntry,
     rec: StallRecord,
     quietMs: number,
     thresholdSeconds: number,
   ): void {
     const rpc = entry.rpc;
-    if (rpc === undefined) return;
+    if (rpc === null) return;
     // First fire wins: the notice quotes the silence observed at abort time.
     // Resetting the clock now is also what stops a refused abort from
     // re-firing every tick.
