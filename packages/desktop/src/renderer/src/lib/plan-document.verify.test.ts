@@ -46,6 +46,7 @@ afterEach(() => {
 });
 
 const NORMAL_PLAN = "<html><head><title>Plan</title></head><body><h1>Plan</h1></body></html>";
+const MARKER = 'id="omp-ui-plan-guardrails"';
 
 describe("verifyPlanStructure", () => {
   it("passes a prepared normal plan", async () => {
@@ -79,15 +80,23 @@ describe("verifyPlanStructure", () => {
     expect(verifyPlanStructure(prepared)).toBeNull();
   });
 
-  it("fails when the marker id sits on a non-style element and dodged injection", async () => {
-    // Mirrors the injection-skip case: preparePlanDocument returns the
-    // document unchanged, so no guardrail <style> exists.
-    const marked = "<article ID='omp-ui-plan-guardrails'>leave unchanged</article>";
-    const prepared = await preparePlanDocument(marked);
-    expect(prepared).toBe(marked);
-    expect(verifyPlanStructure(prepared)).toBe(
+  it("fails when the prepared document carries no guardrail stylesheet", async () => {
+    // The reason stays reachable for bytes that never went through
+    // preparation; verifyPlanStructure takes prepared bytes as its input.
+    expect(verifyPlanStructure(NORMAL_PLAN)).toBe(
       "the readability guardrail stylesheet is missing",
     );
+  });
+
+  it("passes when a non-style element shares the marker id with the stylesheet", async () => {
+    // Duplicate ids: an id lookup returns the <meta> that parses first and
+    // would mask the injected stylesheet, so the check queries style[id=…].
+    const prepared = await preparePlanDocument(
+      `<html><head><meta ${MARKER} name="x"></head><body><h1>Plan</h1></body></html>`,
+    );
+
+    expect(prepared).toContain(`<style ${MARKER}>`);
+    expect(verifyPlanStructure(prepared)).toBeNull();
   });
 
   it("fails a body swallowed by an unclosed comment", async () => {
