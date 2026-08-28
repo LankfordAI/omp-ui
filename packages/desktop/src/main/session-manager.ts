@@ -15,6 +15,7 @@ import {
   mcpRuntimeStatusMessage,
   planMessage,
   planHandoffDescendants,
+  settledWithin,
   type ProviderKeys,
   type Registry,
   removeWorktree,
@@ -49,16 +50,6 @@ import { TurnCounter } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
 
-/** True when `p` settles inside `ms`. Bounded wait, no dangling timer. */
-function settledWithin(p: Promise<void>, ms: number): Promise<boolean> {
-  let timer: NodeJS.Timeout | undefined;
-  return Promise.race([
-    p.then(() => true),
-    new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
 
 /** How long omp gets to exit on its own before the delete escalates. */
 const GRACEFUL_EXIT_MS = 3_000;

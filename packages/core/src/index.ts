@@ -36,6 +36,7 @@ export * from "./backend-channels";
 export { Registry, planHandoffDescendants } from "./registry";
 export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
+export { settledWithin } from "./promise-utils";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";

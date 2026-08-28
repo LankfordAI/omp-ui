@@ -53,6 +53,8 @@ interface HibernateRecord {
   probeId: string | null;
   /** Settles the probe's promise; null on timeout or failure. */
   probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
+  /** The probe's fallback timer; owned by the record, cleared on settle or teardown. */
+  probeTimer: NodeJS.Timeout | undefined;
 }
 
 export interface HibernationTrackerDeps {
@@ -122,6 +124,8 @@ export class HibernationTracker implements FrameObserver {
     // attempt by its own probe.
     if (frame.type === "response" && rec.probeId !== null && frame.id === rec.probeId) {
       rec.probeId = null;
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
       const resolve = rec.probeResolve;
       rec.probeResolve = null;
       if (resolve === null) return;
@@ -130,14 +134,20 @@ export class HibernationTracker implements FrameObserver {
         return;
       }
       // Command responses nest their payload under `data` (same tolerant
-      // unwrap as the renderer's respData).
+      // unwrap as the renderer's respData). Strictness is the documented
+      // intent (see probeState): a missing or malformed field means "cannot
+      // verify idle" → null → no-kill, never a defaulted "idle".
       const data = isObject(frame.data) ? frame.data : frame;
-      const parked =
-        typeof data.queuedMessageCount === "number" &&
-        Number.isFinite(data.queuedMessageCount)
-          ? data.queuedMessageCount
-          : 0;
-      resolve({ parked, streaming: data.isStreaming === true });
+      const parked = data.queuedMessageCount;
+      const streaming = data.isStreaming;
+      if (
+        !(typeof parked === "number" && Number.isFinite(parked)) ||
+        typeof streaming !== "boolean"
+      ) {
+        resolve(null);
+        return;
+      }
+      resolve({ parked, streaming });
       return;
     }
     switch (frame.type) {
@@ -196,6 +206,8 @@ export class HibernationTracker implements FrameObserver {
     // to a no-kill verdict, never to a kill on our own uncertainty.
     const rec = this.records.get(tabId);
     if (rec !== undefined) {
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
       rec.probeResolve?.(null);
       rec.probeId = null;
       rec.probeResolve = null;
@@ -220,13 +232,20 @@ export class HibernationTracker implements FrameObserver {
     this.timers.clear();
     this.openRequests.clear();
     this.inFlight.clear();
+    for (const rec of this.records.values()) clearTimeout(rec.probeTimer);
     this.records.clear();
   }
 
   private recordFor(tabId: string): HibernateRecord {
     let rec = this.records.get(tabId);
     if (rec === undefined) {
-      rec = { armed: false, settleSuspendedUntil: null, probeId: null, probeResolve: null };
+      rec = {
+        armed: false,
+        settleSuspendedUntil: null,
+        probeId: null,
+        probeResolve: null,
+        probeTimer: undefined,
+      };
       this.records.set(tabId, rec);
     }
     return rec;
@@ -320,12 +339,18 @@ export class HibernationTracker implements FrameObserver {
     return new Promise((resolve) => {
       rec.probeId = id;
       rec.probeResolve = resolve;
-      setTimeout(() => {
+      // The fallback timer is owned by the record (same bounded-wait posture
+      // as core's settledWithin): the matching response frame or a teardown
+      // clears it, so an early settle never leaves a dangling 5 s handle.
+      const timer = setTimeout(() => {
+        rec.probeTimer = undefined;
         if (rec.probeId !== id) return; // settled in the meantime
         rec.probeId = null;
         rec.probeResolve = null;
         resolve(null);
       }, HIBERNATE_PROBE_TIMEOUT_MS);
+      if (typeof timer.unref === "function") timer.unref();
+      rec.probeTimer = timer;
       rpc.send({ type: "get_state", id });
     });
   }

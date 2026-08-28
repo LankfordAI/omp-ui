@@ -124,7 +124,9 @@ function parseObject(text: string | undefined): Record<string, unknown> | null {
   } catch {
     return null;
   }
-  return parsed !== null && typeof parsed === "object"
+  // An array is `typeof "object"` and would otherwise be cast to a record,
+  // fabricating a plan status from `[...]`.
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : null;
 }

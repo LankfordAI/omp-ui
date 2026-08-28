@@ -2799,6 +2799,65 @@ describe("hibernation (issue #246)", () => {
     }
   });
 
+  for (const [label, data] of [
+    ["an empty payload", {}],
+    ["a non-numeric queuedMessageCount", { queuedMessageCount: "0" }],
+    ["an absent isStreaming", { queuedMessageCount: 0 }],
+  ] as const) {
+    it(`refuses to hibernate on a malformed get_state reply (${label})`, async () => {
+      vi.useFakeTimers();
+      try {
+        const { manager, registry } = setup({ mode: "rpc-ui" });
+        addNewerSibling(registry);
+        await resumeRpc(manager);
+        const rpc = rpcInstances[0]!;
+        rpc.frame({ type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(WINDOW);
+        rpc.frame({
+          type: "response",
+          id: lastProbeId(rpc),
+          command: "get_state",
+          success: true,
+          data,
+        });
+        await flush();
+        // Malformed state reads as "cannot verify idle" — the documented
+        // no-kill path — and the tab stays live for a later window.
+        expect(rpc.kill).not.toHaveBeenCalled();
+        expect(manager.isLive(TAB)).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it("leaves no dangling probe timer when the probe answer arrives early", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW); // arms the probe + its 5 s fallback
+      // Parked work keeps the verdict at "rearm": the only surviving timer is
+      // the re-armed idle window. The 5 s fallback must have been cleared by
+      // the early response — if it leaked it would show here.
+      rpc.frame({
+        type: "response",
+        id: lastProbeId(rpc),
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 1, isStreaming: false },
+      });
+      await flush();
+      expect(vi.getTimerCount()).toBe(1);
+      expect(rpc.kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-probes a quiet session every window when the probe never answers, never killing on silence", async () => {
     vi.useFakeTimers();
     try {

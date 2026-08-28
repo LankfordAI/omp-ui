@@ -674,23 +674,24 @@ function rawGetWithHeader(
   target: string,
   header: string,
 ): Promise<{ status: number; body: string }> {
-  const { promise, resolve, reject } = Promise.withResolvers<{ status: number; body: string }>();
-  const socket = net.connect(port, "127.0.0.1", () => {
-    socket.write(
-      `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${header}\r\nConnection: close\r\n\r\n`,
-    );
+  // Executor form (not Promise.withResolvers): the node tsconfig lib is ES2022.
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => {
+      socket.write(
+        `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${header}\r\nConnection: close\r\n\r\n`,
+      );
+    });
+    let raw = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      raw += chunk;
+    });
+    socket.on("error", reject);
+    socket.on("close", () => {
+      const status = Number(raw.slice(9, 12));
+      resolve({ status, body: raw.slice(raw.indexOf("\r\n\r\n") + 4) });
+    });
   });
-  let raw = "";
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
-    raw += chunk;
-  });
-  socket.on("error", reject);
-  socket.on("close", () => {
-    const status = Number(raw.slice(9, 12));
-    resolve({ status, body: raw.slice(raw.indexOf("\r\n\r\n") + 4) });
-  });
-  return promise;
 }
 
 /**
@@ -698,24 +699,24 @@ function rawGetWithHeader(
  * Resolves only if bytes arrive (a leaked reply); rejects when the socket dies silent.
  */
 function rawUpgrade(port: number, target: string): Promise<never> {
-  const { promise, resolve, reject } = Promise.withResolvers<never>();
-  const socket = net.connect(port, "127.0.0.1", () => {
-    socket.write(
-      `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n` +
-        "Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
-    );
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => {
+      socket.write(
+        `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n` +
+          "Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+      );
+    });
+    let raw = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      raw += chunk;
+    });
+    socket.on("error", () => {
+      /* destroyed by the server: the expected path; close settles */
+    });
+    socket.on("close", () => {
+      if (raw.length > 0) resolve(raw as never);
+      else reject(new Error("socket destroyed without a response"));
+    });
   });
-  let raw = "";
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk: string) => {
-    raw += chunk;
-  });
-  socket.on("error", () => {
-    /* destroyed by the server: the expected path; close settles */
-  });
-  socket.on("close", () => {
-    if (raw.length > 0) resolve(raw as never);
-    else reject(new Error("socket destroyed without a response"));
-  });
-  return promise;
 }
