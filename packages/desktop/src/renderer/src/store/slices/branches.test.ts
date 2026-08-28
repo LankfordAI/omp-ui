@@ -302,7 +302,6 @@ describe("branch switching (issue #35)", () => {
 
 describe("merge-back (issue #272)", () => {
   const BR = "omp-ui/abcd1234";
-  const ff: MergeBackResult = { kind: "ff", destination: "main", commits: 2, files: [] };
   const merged: MergeBackResult = {
     kind: "merged",
     destination: "main",
@@ -335,15 +334,16 @@ describe("merge-back (issue #272)", () => {
     upstreamRefreshError: null,
   };
 
-  it("ff: calls the backend, locally refreshes the listing, and returns the result", async () => {
-    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(ff);
+  it("merged: calls the backend, locally refreshes the listing, and returns the result", async () => {
+    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(merged);
     h.mockBackend.listBranches.mockResolvedValueOnce(listing);
     h.useStore.setState({ branches: {}, branchActivity: {} });
 
     const result = await h.useStore.getState().mergeWorktreeBranch("/p", BR, "main");
 
-    expect(result).toEqual(ff);
+    expect(result).toEqual(merged);
     expect(h.mockBackend.mergeWorktreeBranch).toHaveBeenCalledWith("/p", BR, "main");
+    expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
     expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", {
       fetchUpstream: false,
     });
@@ -352,21 +352,6 @@ describe("merge-back (issue #272)", () => {
       refreshing: false,
       pulling: false,
     });
-  });
-
-  it("merged: refreshes locally without fetching upstream", async () => {
-    h.mockBackend.mergeWorktreeBranch.mockResolvedValueOnce(merged);
-    h.mockBackend.listBranches.mockResolvedValueOnce(listing);
-    h.useStore.setState({ branches: {}, branchActivity: {} });
-
-    const result = await h.useStore.getState().mergeWorktreeBranch("/p", BR, "main");
-
-    expect(result).toEqual(merged);
-    expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
-    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", {
-      fetchUpstream: false,
-    });
-    expect(h.useStore.getState().branches["/p"]).toEqual(listing);
   });
 
   it("conflicts: keeps the result, leaves the listing untouched", async () => {

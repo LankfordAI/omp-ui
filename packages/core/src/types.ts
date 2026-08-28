@@ -107,7 +107,7 @@ export interface MergeBackStatus {
 
 /** Outcome of a merge-back (issue #272). */
 export interface MergeBackResult {
-  kind: "ff" | "merged" | "already-merged" | "conflicts";
+  kind: "merged" | "already-merged" | "conflicts";
   destination: string;
   /** Commits folded into destination; 0 for already-merged. */
   commits: number;

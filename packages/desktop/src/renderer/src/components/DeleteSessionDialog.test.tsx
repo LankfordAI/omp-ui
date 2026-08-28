@@ -441,12 +441,12 @@ describe("DeleteSessionDialog", () => {
     unmountDialog();
   });
 
-  it("merges first and deletes when the fast-forward succeeds", async () => {
+  it("merges first and deletes when the merge succeeds", async () => {
     const confirmDeleteSession = vi.fn(async () => {});
     backendMock.getMergeBackStatus.mockReset().mockResolvedValue(mergeableStatus);
     backendMock.mergeWorktreeBranch
       .mockReset()
-      .mockResolvedValue({ kind: "ff", destination: "main", commits: 3, files: [] });
+      .mockResolvedValue({ kind: "merged", destination: "main", commits: 3, files: [] });
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),

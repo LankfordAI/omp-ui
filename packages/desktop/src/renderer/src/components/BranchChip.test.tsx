@@ -990,7 +990,7 @@ describe("BranchChip merge-back (issue #322)", () => {
       rpc: { "tab-0": rpcTabState() },
     });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
-      kind: "ff",
+      kind: "merged",
       destination: "main",
       commits: 3,
       files: [],
@@ -1021,28 +1021,6 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(false);
     expect(useStore.getState().rpc["tab-0"]).toBeUndefined();
     expect(dialog()).toBeNull();
-  });
-
-  it("closes the worktree on a real merge commit too", async () => {
-    seedWorktreeRecord();
-    useStore.setState({
-      tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
-      rpc: { "tab-0": rpcTabState() },
-    });
-    backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
-      kind: "merged",
-      destination: "main",
-      commits: 5,
-      files: [],
-    });
-    renderMergeChip();
-    await openMergePopover();
-    await act(async () => mergeRow()!.click());
-    await act(async () => dialogButton("merge & close")!.click());
-    await settle();
-
-    expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-0", false);
-    expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(false);
   });
 
   it("cancelling the modal makes no merge or close call and keeps the popover", async () => {
@@ -1301,7 +1279,7 @@ describe("BranchChip merge-back (issue #322)", () => {
       ],
     });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
-      kind: "ff",
+      kind: "merged",
       destination: "main",
       commits: 3,
       files: [],
@@ -1331,7 +1309,7 @@ describe("BranchChip merge-back (issue #322)", () => {
       rpc: { "tab-0": rpcTabState() },
     });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
-      kind: "ff",
+      kind: "merged",
       destination: "main",
       commits: 3,
       files: [],
@@ -1357,7 +1335,7 @@ describe("BranchChip merge-back (issue #322)", () => {
   it("confirms inline while a session is mid-turn in the project, and merges on merge & close anyway", async () => {
     seedBusy();
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
-      kind: "ff",
+      kind: "merged",
       destination: "main",
       commits: 3,
       files: [],
@@ -1469,7 +1447,7 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(dialogButton("merging…")).toBeDefined();
 
     await act(async () => {
-      pending.resolve({ kind: "ff", destination: "main", commits: 3, files: [] });
+      pending.resolve({ kind: "merged", destination: "main", commits: 3, files: [] });
     });
     await settle();
 

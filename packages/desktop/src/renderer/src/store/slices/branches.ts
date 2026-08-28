@@ -152,7 +152,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     destination: string,
   ): Promise<MergeBackResult> => {
     const result = await backend.mergeWorktreeBranch(projectCwd, branch, destination);
-    if (result.kind === "ff" || result.kind === "merged") {
+    if (result.kind === "merged") {
       await get().refreshBranches(projectCwd, { fetchUpstream: false });
     }
     return result;

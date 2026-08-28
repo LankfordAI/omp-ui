@@ -66,9 +66,9 @@ the user made.
 - **The destination resolves from the recorded `base`**: a local branch
   named by it, else — when `base` resolves to a commit — the unique local
   branch pointing at it, else the project's current branch when it
-  contains that cut commit. The merge fast-forwards when history allows,
-  otherwise creates a real merge commit; only committed work on the
-  branch is included.
+  contains that cut commit. The merge always writes a `--no-ff` merge
+  commit (see the merge-commit addendum, issue #333); only committed work
+  on the branch is included.
 - **The metadata was refined to match**: `base` now records the project
   checkout's branch name at creation, and a SHA only when the checkout is
   detached (SHA bases resolve through the same rules).
@@ -140,3 +140,22 @@ the user made.
 - **Rejected: point omp at the project with a flag.** omp derives
   project scope from its cwd; the cwd must stay the checkout, because
   that is what makes the session's edits land on its own branch.
+
+## Merge-commit addendum (issue #333)
+
+- **Merge-back always writes a merge commit.** `git merge --no-ff -m ...`,
+  never a fast-forward, even when the destination is an ancestor. A
+  fast-forward left no trace that a worktree session landed, and the branch
+  is deleted moments later, so nothing in the base branch said the work
+  arrived through one. `git log --first-parent` now reads one entry per
+  merged session.
+- **The message is generated from the folded commits**: the borrowed subject
+  of a single commit, or a count plus their subjects; then every GitHub
+  closing reference (`Fixes #12`, `owner/repo#12`, `GH-12`) found in their
+  bodies, re-emitted as one `Fixes <ref>` line each. GitHub already scans
+  those same references in the individual commits, so this adds a readable
+  record, not new closing behavior.
+- **Nothing is pushed.** Merge-back moves the local base branch only; the
+  issues close when the user pushes it. omp-ui has no push path.
+- **Rejected: squash-merge.** It destroys the session's own commits, which
+  are the record the merge commit points at.

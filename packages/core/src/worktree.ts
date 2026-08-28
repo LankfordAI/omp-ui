@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
+import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
 import type { MergeBackResult, MergeBackStatus, WorktreeBranchRemoval } from "./types";
 
@@ -367,13 +368,48 @@ export async function readMergeBackStatus(
 }
 
 /**
- * Merges `branch` into `destination` in the project checkout (issue #272).
- * Fast-forwards when history allows; otherwise a real `--no-ff --no-edit`
- * merge commit. A conflicted merge stops with the conflicts left in the
- * project checkout (kind "conflicts" + files) — never resolved, never
- * aborted by omp-ui. Throws with git's own message when the branch or
- * destination no longer exists, when destination is not the checkout's
- * current branch, or when git refuses the merge (dirty overlap, identity, ...).
+ * Full messages of the non-merge commits `destination` lacks, oldest first.
+ * NUL-delimited so bodies with blank lines survive the split. Never fatal: a
+ * failed read degrades to a bare "Merge <branch> into <destination>" subject
+ * rather than blocking the merge.
+ */
+async function foldedCommitMessages(
+  projectCwd: string,
+  destination: string,
+  branch: string,
+): Promise<string[]> {
+  let out: string;
+  try {
+    out = await git(projectCwd, [
+      "log",
+      "--no-merges",
+      "--reverse",
+      "--format=%B%x00",
+      `${destination}..${branch}`,
+    ]);
+  } catch {
+    return [];
+  }
+  return out
+    .split("\0")
+    .map((message) => message.trim())
+    .filter((message) => message !== "");
+}
+
+/**
+ * Merges `branch` into `destination` in the project checkout (issue #272),
+ * always as a `--no-ff` merge commit whose message records the session's work
+ * (issue #333): the folded commits' subjects and every closing reference they
+ * carry. A fast-forward would leave no trace that a worktree session landed —
+ * and finishing a worktree deletes the branch — so the merge commit is the
+ * only durable record.
+ *
+ * A conflicted merge stops with the conflicts left in the project checkout
+ * (kind "conflicts" + files) — never resolved, never aborted by omp-ui; the
+ * generated message waits in MERGE_MSG for `git merge --continue`. Throws with
+ * git's own message when the branch or destination no longer exists, when
+ * destination is not the checkout's current branch, or when git refuses the
+ * merge (dirty overlap, unresolvable committer identity, ...).
  */
 export async function mergeWorktreeBranch(
   projectCwd: string,
@@ -396,14 +432,18 @@ export async function mergeWorktreeBranch(
   const commits = Number(
     (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
   );
-  if (await isAncestor(projectCwd, destination, branch)) {
-    await git(projectCwd, ["merge", "--ff-only", branch], { timeoutMs: MERGE_TIMEOUT_MS });
-    return { kind: "ff", destination, commits, files: [] };
-  }
+  const message = buildMergeMessage({
+    branch,
+    destination,
+    messages: await foldedCommitMessages(projectCwd, destination, branch),
+  });
+  // `--no-edit` alongside `-m` so a repo with merge.edit set cannot park the
+  // merge in an editor no one can see.
+  const args = ["merge", "--no-ff", "--no-edit", "-m", message.subject];
+  if (message.body !== "") args.push("-m", message.body);
+  args.push(branch);
   try {
-    await git(projectCwd, ["merge", "--no-ff", "--no-edit", branch], {
-      timeoutMs: MERGE_TIMEOUT_MS,
-    });
+    await git(projectCwd, args, { timeoutMs: MERGE_TIMEOUT_MS });
   } catch (error) {
     let conflicted: string[] = [];
     try {

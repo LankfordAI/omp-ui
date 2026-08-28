@@ -344,20 +344,57 @@ describe("readMergeBackStatus", () => {
 });
 
 describe("mergeWorktreeBranch", () => {
-  it("fast-forwards when the destination is an ancestor of the branch", async () => {
+  it("writes a merge commit even when the destination is an ancestor", async () => {
     const dir = await tmpRepo();
     const branch = mintWorktreeBranch();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
-    await commitFile(wt, "two.txt", "two\n", "two");
+    await commitFile(wt, "two.txt", "two\n", "two (Fixes #7)");
+    const before = (await git(dir, ["rev-parse", "main"])).trim();
     const tip = (await git(wt, ["rev-parse", "HEAD"])).trim();
+
     const result = await mergeWorktreeBranch(dir, branch, "main");
-    expect(result).toEqual({ kind: "ff", destination: "main", commits: 2, files: [] });
-    expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(tip);
-    // A fast-forward has no merge commit: the tip has a single parent.
-    expect((await git(dir, ["log", "--format=%P", "-1", "main"])).trim()).toMatch(
-      /^[0-9a-f]{40}$/,
+
+    expect(result).toEqual({ kind: "merged", destination: "main", commits: 2, files: [] });
+    // No fast-forward: two parents, the old destination first.
+    const parents = (await git(dir, ["log", "--format=%P", "-1", "main"])).trim().split(" ");
+    expect(parents).toEqual([before, tip]);
+    expect((await git(dir, ["log", "--format=%B", "-1", "main"])).trim()).toBe(
+      `Merge ${branch} into main (2 commits)\n\n- one\n- two (Fixes #7)\n\nFixes #7`,
+    );
+  });
+
+  it("borrows the subject of a single folded commit", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "only.txt", "only\n", "fix: only change\n\nCloses #12\n");
+
+    const result = await mergeWorktreeBranch(dir, branch, "main");
+
+    expect(result).toEqual({ kind: "merged", destination: "main", commits: 1, files: [] });
+    expect((await git(dir, ["log", "--format=%B", "-1", "main"])).trim()).toBe(
+      `Merge ${branch}: fix: only change\n\nFixes #12`,
+    );
+  });
+
+  it("excludes merge commits on the branch from the message", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await commitFile(dir, "two.txt", "two\n", "two");
+    // The session syncs main in: that merge commit is not its own work.
+    await git(wt, ["merge", "-q", "--no-ff", "-m", "sync main", "main"]);
+
+    const result = await mergeWorktreeBranch(dir, branch, "main");
+
+    expect(result.kind).toBe("merged");
+    expect((await git(dir, ["log", "--format=%B", "-1", "main"])).trim()).toBe(
+      `Merge ${branch}: one`,
     );
   });
 
@@ -395,6 +432,10 @@ describe("mergeWorktreeBranch", () => {
     });
     expect(fs.existsSync(path.join(dir, ".git", "MERGE_HEAD"))).toBe(true);
     expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
+    // The generated message waits for the user's `git merge --continue`.
+    expect(fs.readFileSync(path.join(dir, ".git", "MERGE_MSG"), "utf8")).toContain(
+      `Merge ${branch} into main (2 commits)`,
+    );
   });
 
   it("reports already-merged without touching the destination", async () => {

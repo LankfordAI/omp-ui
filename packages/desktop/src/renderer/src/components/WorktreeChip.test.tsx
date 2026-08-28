@@ -65,7 +65,12 @@ const status = (patch: Partial<MergeBackStatus> = {}): MergeBackStatus => ({
   ...patch,
 });
 
-const ffResult: MergeBackResult = { kind: "ff", destination: "main", commits: 3, files: [] };
+const mergedResult: MergeBackResult = {
+  kind: "merged",
+  destination: "main",
+  commits: 3,
+  files: [],
+};
 
 let root: Root | null = null;
 
@@ -449,7 +454,7 @@ describe("WorktreeChip merge-back (issue #272)", () => {
 
   it("confirms the close in the rose modal, merges, and closes the worktree", async () => {
     seedStore({ tabs: [tabInfo({ tabId: TAB_ID })], rpc: { [TAB_ID]: rpcTabState() } });
-    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(ffResult);
+    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(mergedResult);
     render();
     await openPopover();
     await act(async () => mergeRow()!.click());
@@ -476,24 +481,6 @@ describe("WorktreeChip merge-back (issue #272)", () => {
     expect(useStore.getState().tabs.some((t) => t.tabId === TAB_ID)).toBe(false);
     expect(useStore.getState().rpc[TAB_ID]).toBeUndefined();
     expect(dialog()).toBeNull();
-  });
-
-  it("closes the worktree on a real merge commit too", async () => {
-    seedStore({ tabs: [tabInfo({ tabId: TAB_ID })], rpc: { [TAB_ID]: rpcTabState() } });
-    backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
-      kind: "merged",
-      destination: "main",
-      commits: 5,
-      files: [],
-    });
-    render();
-    await openPopover();
-    await act(async () => mergeRow()!.click());
-    await act(async () => dialogButton("merge & close")!.click());
-    await settle();
-
-    expect(backendMock.deleteSession).toHaveBeenCalledWith(TAB_ID, false);
-    expect(useStore.getState().tabs.some((t) => t.tabId === TAB_ID)).toBe(false);
   });
 
   it("cancelling the modal makes no merge or close call", async () => {
@@ -730,7 +717,7 @@ describe("WorktreeChip merge-back (issue #272)", () => {
         { tabId: "tab-desc-2", title: "Impl two", running: true },
       ],
     });
-    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(ffResult);
+    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(mergedResult);
     render();
     await openPopover();
     await act(async () => mergeRow()!.click());
@@ -751,7 +738,7 @@ describe("WorktreeChip merge-back (issue #272)", () => {
   it("keeps the session open when the close preview fails", async () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     seedStore({ tabs: [tabInfo({ tabId: TAB_ID })], rpc: { [TAB_ID]: rpcTabState() } });
-    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(ffResult);
+    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(mergedResult);
     backendMock.deleteSessionPreview.mockRejectedValue(new Error("preview failed"));
     render();
     await openPopover();
@@ -772,7 +759,7 @@ describe("WorktreeChip merge-back (issue #272)", () => {
 
   it("confirms inline while a session is mid-turn in the project, and merges on merge & close anyway", async () => {
     seedBusy();
-    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(ffResult);
+    backendMock.mergeWorktreeBranch.mockResolvedValueOnce(mergedResult);
     render();
     await openPopover();
     await act(async () => mergeRow()!.click());
@@ -825,7 +812,7 @@ describe("WorktreeChip merge-back (issue #272)", () => {
     expect(dialogButton("merging…")).toBeDefined();
 
     await act(async () => {
-      pending.resolve(ffResult);
+      pending.resolve(mergedResult);
     });
     await settle();
 
