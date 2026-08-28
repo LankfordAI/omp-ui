@@ -11,6 +11,7 @@ import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
+import { normalizeControlFrame } from "@omp-ui/core/rpc/control-frames";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { backend } from "../../backend";
 import { formatDuration } from "../../lib/duration";
@@ -354,10 +355,16 @@ export function createFrameReductionSlice(
   const handleRpcFrame = (tabId: string, frame: object): void => {
       if (frame === null || typeof frame !== "object") return;
       const type = "type" in frame ? frame.type : undefined;
+      // Control frames (the grammar core's normalizeControlFrame owns: the
+      // command response, ready, the extension request/response, the rpc
+      // error) dispatch exhaustively here; everything below is an
+      // agent-event/data frame whose fields stay `unknown` to the per-domain
+      // parsers.
+      const control = normalizeControlFrame(frame);
       // ready can beat the spawn IPC response that inserts the renderer tab.
       // bootRpcTab creates its own runtime slot, so it bypasses the ordinary
       // unknown-tab guard.
-      if (type === "ready") {
+      if (control?.kind === "ready") {
         void get().bootRpcTab(tabId);
         return;
       }
@@ -366,33 +373,55 @@ export function createFrameReductionSlice(
       // Liveness evidence for the late-ack budget: any frame proves the
       // process is alive, even when the command chain is slow (issue #335).
       lastFrameAt.set(tabId, Date.now());
-      switch (type) {
-        case "response": {
-          const id =
-            "id" in frame && typeof frame.id === "string" ? frame.id : null;
-          const pending = id ? tab.pendingCommands.get(id) : undefined;
-          if (!pending) {
-            // The budget expired first: this late response is the completion
-            // observation the timeout attribution waits for (issue #302).
-            if (id) retireTimedOutCommand(tabId, id);
-            return;
-          }
-          clearTimeout(pending.timer);
-          tab.pendingCommands.delete(id!);
-          // The chain is FIFO: this completion proves every earlier-started
-          // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
-          if (pending.command !== "bash") retireTimedOutEarlierThan(tabId, pending.startedAt);
-          if ("success" in frame && frame.success === false) {
-            const message =
-              "error" in frame && typeof frame.error === "string"
-                ? frame.error
-                : "command failed";
-            pending.reject(new Error(message));
-          } else {
-            pending.resolve(frame);
-          }
+      if (control?.kind === "response") {
+        const id = typeof control.id === "string" ? control.id : null;
+        const pending = id ? tab.pendingCommands.get(id) : undefined;
+        if (!pending) {
+          // The budget expired first: this late response is the completion
+          // observation the timeout attribution waits for (issue #302).
+          if (id) retireTimedOutCommand(tabId, id);
           return;
         }
+        clearTimeout(pending.timer);
+        tab.pendingCommands.delete(id!);
+        // The chain is FIFO: this completion proves every earlier-started
+        // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
+        if (pending.command !== "bash") retireTimedOutEarlierThan(tabId, pending.startedAt);
+        if (control.success === false) {
+          const message =
+            typeof control.error === "string" ? control.error : "command failed";
+          pending.reject(new Error(message));
+        } else {
+          pending.resolve(control.frame);
+        }
+        return;
+      }
+      if (control?.kind === "omp_ui_error") {
+        const liveState = findRecord(get().state, tabId)?.live;
+        // The process died mid-tool, so no agent_end will settle running
+        // cards. Settle the effective items — frames still pending in the
+        // batch are part of the transcript up to the failure (issue #187).
+        const settledItems = settleRunningTools(m.effectiveItems(tabId), "aborted");
+        m.cancelTranscriptBatch(tabId);
+        compactionUsageGenerations.delete(tabId);
+        m.patchRpc(tabId, {
+          status: "error",
+          failure: {
+            message: control.message,
+            kind: "process",
+            fatal: true,
+            sessionStatus: "error",
+            ...(liveState !== undefined ? { liveState } : {}),
+            recovery:
+              "The live session process stopped. Resume the session to continue.",
+          },
+          items: settledItems,
+          // Process death is terminal for this run (issue #228).
+          streamStallMs: undefined,
+        });
+        return;
+      }
+      switch (type) {
         case "rpc_chunk":
           return; // reassembled in main — never expected here
         case "session_info_update":
@@ -495,9 +524,10 @@ export function createFrameReductionSlice(
           return;
         }
         case "extension_ui_request": {
-          // Plan mode rides the extension channel, so it is claimed before the
-          // generic routing: the review dialog must reach the plan pane rather
-          // than the raw select dialog, and the status frame is state, not text.
+          // The id/method narrowing is normalizeControlFrame's; payload
+          // internals (title, statusKey, url) stay unknown into the
+          // per-domain parsers below.
+          const frameId = control?.kind === "ext_request" ? control.id : undefined;
           const review = parsePlanReviewTitle(strField(frame, "title"));
           if (review) {
             m.patchRpc(tabId, {
@@ -557,7 +587,7 @@ export function createFrameReductionSlice(
           }
           if (action.action === "open-url") {
             const url = strField(frame, "url");
-            const id = "id" in frame ? frame.id : undefined;
+            const id = frameId;
             if (url === undefined || url === "") {
               backend.rpcSend(tabId, extensionCancelResponse(id));
               return;
@@ -591,12 +621,12 @@ export function createFrameReductionSlice(
             else extensionStatus[entry.key] = entry.text;
             m.patchRpc(tabId, { extensionStatus });
           }
-          backend.rpcSend(
-            tabId,
-            extensionCancelResponse("id" in frame ? frame.id : undefined),
-          );
+          backend.rpcSend(tabId, extensionCancelResponse(frameId));
           if (!entry) {
-            const method = strField(frame, "method") ?? "?";
+            const method =
+              control?.kind === "ext_request" && typeof control.method === "string"
+                ? control.method
+                : "?";
             m.appendItem(tabId, markerItem(`extension ${method} auto-cancelled`));
           }
           return;
@@ -633,32 +663,6 @@ export function createFrameReductionSlice(
           // feeds auto-continue instead (issue #254).
           if (strField(frame, "reason") === "stall-abort")
             m.patchRpc(tabId, { stallAbortPending: true });
-          return;
-        }
-        case "omp_ui_error": {
-          const message = strField(frame, "message") ?? "omp rpc error";
-          const liveState = findRecord(get().state, tabId)?.live;
-          // The process died mid-tool, so no agent_end will settle running
-          // cards. Settle the effective items — frames still pending in the
-          // batch are part of the transcript up to the failure (issue #187).
-          const settledItems = settleRunningTools(m.effectiveItems(tabId), "aborted");
-          m.cancelTranscriptBatch(tabId);
-          compactionUsageGenerations.delete(tabId);
-          m.patchRpc(tabId, {
-            status: "error",
-            failure: {
-              message,
-              kind: "process",
-              fatal: true,
-              sessionStatus: "error",
-              ...(liveState !== undefined ? { liveState } : {}),
-              recovery:
-                "The live session process stopped. Resume the session to continue.",
-            },
-            items: settledItems,
-            // Process death is terminal for this run (issue #228).
-            streamStallMs: undefined,
-          });
           return;
         }
         case "host_tool_call":

@@ -14,7 +14,10 @@
     "./advisor-stats": "./src/advisor-stats.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
-    "./stream-activity": "./src/stream-activity.ts"
+    "./stream-activity": "./src/stream-activity.ts",
+    "./extension-dialog": "./src/extension-dialog.ts",
+    "./rpc/control-frames": "./src/rpc/control-frames.ts",
+    "./guards": "./src/guards.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

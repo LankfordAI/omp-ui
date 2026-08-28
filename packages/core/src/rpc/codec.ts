@@ -11,9 +11,18 @@ export type RpcFrame = {
   [key: string]: unknown;
 };
 
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
+import { isObject } from "../guards";
+
+// Re-exports: the canonical guard lives in guards.ts, and the control-frame
+// grammar in rpc/control-frames.ts — split out so the web build (no node
+// globals; this file references Buffer) can normalize frames too. The names
+// stay importable from here for the node side.
+export { isObject };
+export {
+  normalizeControlFrame,
+  type RpcControlFrame,
+  type WireRecord,
+} from "./control-frames";
 
 const DEFAULT_MAX_REASSEMBLED_BYTES = 64 * 1024 * 1024;
 

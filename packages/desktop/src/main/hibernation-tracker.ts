@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  isBlockingDialogMethod,
   isObject,
   type OwnedSessionRecord,
   type Registry,
@@ -15,20 +16,6 @@ import { TurnCounter } from "./turns";
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
-/**
- * Renderer-routed dialogs whose unanswered requests suppress hibernation and
- * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
- * other method (notify, setStatus, setWidget, ...) is fire-and-forget state
- * the renderer consumes without a reply, so tracking it would suppress both
- * lifecycle guards forever.
- */
-const BLOCKING_DIALOG_METHODS: Record<string, true> = {
-  select: true,
-  confirm: true,
-  input: true,
-  editor: true,
-};
-
 /**
  * The no-kill verdicts of the shared hibernation attempt. `rearm`: a guard is
  * in force or the probe said "not idle" — re-examine next window (issue #247).
@@ -118,18 +105,24 @@ export class HibernationTracker implements FrameObserver {
     const entry = this.deps.getLive(tabId);
     if (!entry || entry.kind !== "rpc-ui") return;
     if (typeof frame !== "object" || frame === null) return;
+    const control = normalizeControlFrame(frame);
     const rec = this.recordFor(tabId);
     // The probe's own response: settle it and do NOT reset the idle clock —
     // probe traffic is our own, and resetting would postpone every hibernation
     // attempt by its own probe.
-    if (frame.type === "response" && rec.probeId !== null && frame.id === rec.probeId) {
+    if (
+      control !== null &&
+      control.kind === "response" &&
+      rec.probeId !== null &&
+      control.id === rec.probeId
+    ) {
       rec.probeId = null;
       clearTimeout(rec.probeTimer);
       rec.probeTimer = undefined;
       const resolve = rec.probeResolve;
       rec.probeResolve = null;
       if (resolve === null) return;
-      if (frame.success === false) {
+      if (control.success === false) {
         resolve(null);
         return;
       }
@@ -137,7 +130,7 @@ export class HibernationTracker implements FrameObserver {
       // unwrap as the renderer's respData). Strictness is the documented
       // intent (see probeState): a missing or malformed field means "cannot
       // verify idle" → null → no-kill, never a defaulted "idle".
-      const data = isObject(frame.data) ? frame.data : frame;
+      const data = isObject(control.data) ? control.data : control.frame;
       const parked = data.queuedMessageCount;
       const streaming = data.isStreaming;
       if (
@@ -165,18 +158,21 @@ export class HibernationTracker implements FrameObserver {
           this.deps.attention?.turnEnded(tabId);
         break;
       }
-      case "extension_ui_request":
-        // Only user-answer dialogs block hibernation; the other methods are
-        // fire-and-forget state frames the renderer never replies to.
-        if (typeof frame.id === "string" && BLOCKING_DIALOG_METHODS[String(frame.method)] === true) {
-          let open = this.openRequests.get(tabId);
-          if (open === undefined) {
-            open = new Set<string>();
-            this.openRequests.set(tabId, open);
-          }
-          open.add(frame.id);
-        }
-        break;
+    }
+    if (
+      control !== null &&
+      control.kind === "ext_request" &&
+      // Only user-answer dialogs block hibernation; the other methods are
+      // fire-and-forget state frames the renderer never replies to.
+      typeof control.id === "string" &&
+      isBlockingDialogMethod(control.method)
+    ) {
+      let open = this.openRequests.get(tabId);
+      if (open === undefined) {
+        open = new Set<string>();
+        this.openRequests.set(tabId, open);
+      }
+      open.add(control.id);
     }
     // Responses to dialogs are commands (rpcSend), not frames: onSend
     // clears the bookkeeping. Any real frame re-arms the clock.
@@ -187,8 +183,9 @@ export class HibernationTracker implements FrameObserver {
   onSend(tabId: string, cmd: RpcFrame): void {
     // Responses to dialogs are commands, not frames: this is where the
     // blocking-dialog bookkeeping clears.
-    if (cmd.type === "extension_ui_response" && typeof cmd.id === "string") {
-      this.openRequests.get(tabId)?.delete(cmd.id);
+    const control = normalizeControlFrame(cmd);
+    if (control !== null && control.kind === "ext_response" && typeof control.id === "string") {
+      this.openRequests.get(tabId)?.delete(control.id);
     }
   }
 

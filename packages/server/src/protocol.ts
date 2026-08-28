@@ -30,6 +30,56 @@ export type ServerFrame =
   | { t: "res"; id: number; ok: false; message: string }
   | { t: "ev"; ch: string; args: unknown[] };
 
+/**
+ * The one narrowing for inbound server frames — mirror of parseClientFrame's
+ * posture: normalize, return null, never throw. The browser client's hand-
+ * written field checks used to be a second copy of this grammar.
+ */
+export function parseServerFrame(frame: unknown): ServerFrame | null {
+  if (frame === null || typeof frame !== "object") return null;
+  const f = frame as {
+    t?: unknown;
+    id?: unknown;
+    ch?: unknown;
+    ok?: unknown;
+    value?: unknown;
+    message?: unknown;
+    args?: unknown;
+  };
+  if (f.t === "ev" && typeof f.ch === "string") {
+    return { t: "ev", ch: f.ch, args: Array.isArray(f.args) ? f.args : [] };
+  }
+  if (f.t !== "res" || typeof f.id !== "number") return null;
+  if (f.ok === true) return { t: "res", id: f.id, ok: true, value: f.value };
+  return {
+    t: "res",
+    id: f.id,
+    ok: false,
+    message: typeof f.message === "string" ? f.message : "remote call failed",
+  };
+}
+
+/** The one builders set — every send site composes through these, so wire drift fails typecheck in this file alone. */
+export function makeClientRequestFrame(id: number, ch: string, args: unknown[]): ClientFrame {
+  return { t: "req", id, ch, args };
+}
+
+export function makeClientNotifyFrame(ch: string, args: unknown[]): ClientFrame {
+  return { t: "notify", ch, args };
+}
+
+export function makeServerResponseOk(id: number, value: unknown): ServerFrame {
+  return { t: "res", id, ok: true, value: value ?? null };
+}
+
+export function makeServerResponseErr(id: number, message: string): ServerFrame {
+  return { t: "res", id, ok: false, message };
+}
+
+export function makeServerEventFrame(ch: string, args: unknown[]): ServerFrame {
+  return { t: "ev", ch, args };
+}
+
 /** Path the WebSocket upgrade must target. */
 export const REMOTE_WS_PATH = "/ws";
 /** Cookie the server sets after a successful `?t=` request. */
