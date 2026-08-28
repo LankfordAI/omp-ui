@@ -32,6 +32,7 @@ import {
   type StoreMachinery,
   type Watchers,
 } from "./shared";
+import { rpcCommandMachinery } from "./rpc-command";
 import { findRecord, sessionCwd } from "./view";
 import type { UiStore } from "../types";
 
@@ -74,6 +75,67 @@ export interface SessionParamsDeps extends Watchers {
 
 /** Whole parameter actions, including their authoritative registry write. */
 const pendingSessionParameterActions = new Map<string, Set<Promise<void>>>();
+
+type LocalCommandResult = false | void | Promise<void>;
+
+interface LocalCommand {
+  readonly match: RegExp;
+  run(tabId: string, get: GetState): LocalCommandResult;
+}
+
+/** Renderer-owned commands, in the order they take precedence over omp. */
+const localCommands: readonly LocalCommand[] = [
+  {
+    // omp-ui's own /new: a new live session in a new tab, not omp's in-process
+    // lineage switch (that stays on the HUD's new-session button and in terminal
+    // tabs' TUI). Bare command only — "/new …" still reaches omp verbatim.
+    match: /^\/new$/,
+    run(tabId, get) {
+      const projectCwd = get().tabs.find(
+        (tab) => tab.tabId === tabId,
+      )?.projectCwd;
+      // A composer only exists for a mounted tab; without one, keep the old path.
+      if (projectCwd === undefined) return false;
+      return get().newSession(projectCwd);
+    },
+  },
+  // omp-ui's plan toggle: omp's /plan is TUI-only, so over rpc it would
+  // reach the model as literal prompt text and start an agent turn
+  // (ADR-0007). Bare forms only — "/plan …" with any other argument still
+  // reaches omp verbatim, and a pty tab's TUI owns its own /plan.
+  {
+    match: /^\/plan(?:\s+on)?$/,
+    run(tabId, get) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      return get().setPlanMode(tabId, true);
+    },
+  },
+  {
+    match: /^\/(?:plan\s+off|no-plan)$/,
+    run(tabId, get) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      return get().setPlanMode(tabId, false);
+    },
+  },
+  {
+    // omp-ui's MCP manager already owns the /mcp list surface. Bare forms
+    // only — every other subcommand (reauth, add, …) works over rpc and
+    // reaches omp verbatim with the normal command lifecycle. The manager
+    // opens at the session's own working tree — a worktree session's
+    // checkout (#325) — falling back to the tab's project root when no
+    // record is loaded yet.
+    match: /^\/mcp(?:\s+list)?$/,
+    run(tabId, get) {
+      const scopeCwd =
+        sessionCwd(findRecord(get().state, tabId)) ??
+        get().tabs.find((tab) => tab.tabId === tabId)?.projectCwd;
+      if (scopeCwd === undefined) return false;
+      get().openMcpManager(scopeCwd, tabId);
+    },
+  },
+];
 
 export function createSessionParamsSlice(
   set: SetState,
@@ -208,11 +270,9 @@ export function createSessionParamsSlice(
       const previousStatus = tab.status;
       const previousStreaming = tab.session.isStreaming;
       const previousPlan = tab.plan;
-      const commandIds = new Set(
-        [...tab.pendingCommands.entries()]
-          .filter(([, pending]) => !pending.quiet)
-          .map(([id]) => id),
-      );
+      const commandIds = rpcCommandMachinery.snapshotPending(tabId, {
+        includeQuiet: false,
+      });
       const parameterActions = [
         ...(pendingSessionParameterActions.get(tabId) ?? []),
       ];
@@ -222,7 +282,7 @@ export function createSessionParamsSlice(
         tabId,
         (current) =>
           current !== undefined &&
-          [...commandIds].every((id) => !current.pendingCommands.has(id)),
+          [...commandIds].every((id) => !rpcCommandMachinery.hasPending(tabId, id)),
         RPC_COMMAND_TIMEOUT_MS + 1_000,
       );
       const remainingMs = Math.max(0, deadline - Date.now());
@@ -235,7 +295,7 @@ export function createSessionParamsSlice(
       const current = get().rpc[tabId];
       const commandsRemain =
         current === undefined ||
-        [...commandIds].some((id) => current.pendingCommands.has(id));
+        [...commandIds].some((id) => rpcCommandMachinery.hasPending(tabId, id));
       const parametersRemain = parameterActions.some((action) =>
         pendingSessionParameterActions.get(tabId)?.has(action),
       );
@@ -426,46 +486,13 @@ export function createSessionParamsSlice(
 
   const runSlashCommand = async (tabId: string, line: string): Promise<void> => {
     const message = line.startsWith("/") ? line : `/${line}`;
-    if (message.trim() === "/") return;
-    // omp-ui's own /new: a new live session in a new tab, not omp's in-process
-    // lineage switch (that stays on the HUD's new-session button and in terminal
-    // tabs' TUI). Bare command only — "/new …" still reaches omp verbatim.
-    if (message.trim() === "/new") {
-      const projectCwd = get().tabs.find(
-        (t) => t.tabId === tabId,
-      )?.projectCwd;
-      // A composer only exists for a mounted tab; without one, keep the old path.
-      if (projectCwd !== undefined) {
-        await get().newSession(projectCwd);
-        return;
-      }
-    }
-    // omp-ui's plan toggle: omp's /plan is TUI-only, so over rpc it would
-    // reach the model as literal prompt text and start an agent turn
-    // (ADR-0007). Bare forms only — "/plan …" with any other argument still
-    // reaches omp verbatim, and a pty tab's TUI owns its own /plan.
     const trimmed = message.trim();
-    const planOn = /^\/plan(?:\s+on)?$/.test(trimmed);
-    const planOff = /^\/(?:plan\s+off|no-plan)$/.test(trimmed);
-    if (planOn || planOff) {
-      const tab = get().tabs.find((t) => t.tabId === tabId);
-      if (tab?.mode === "rpc-ui") {
-        await get().setPlanMode(tabId, planOn);
-        return;
-      }
-    }
-    // omp-ui's MCP manager already owns the /mcp list surface. Bare forms
-    // only — every other subcommand (reauth, add, …) works over rpc and
-    // reaches omp verbatim with the normal command lifecycle. The manager
-    // opens at the session's own working tree — a worktree session's
-    // checkout (#325) — falling back to the tab's project root when no
-    // record is loaded yet.
-    if (/^\/mcp(?:\s+list)?$/.test(trimmed)) {
-      const scopeCwd =
-        sessionCwd(findRecord(get().state, tabId)) ??
-        get().tabs.find((t) => t.tabId === tabId)?.projectCwd;
-      if (scopeCwd !== undefined) {
-        get().openMcpManager(scopeCwd, tabId);
+    if (trimmed === "/") return;
+    const localCommand = localCommands.find(({ match }) => match.test(trimmed));
+    if (localCommand !== undefined) {
+      const result = localCommand.run(tabId, get);
+      if (result !== false) {
+        if (result !== undefined) await result;
         return;
       }
     }
@@ -488,9 +515,7 @@ export function createSessionParamsSlice(
     // emits them for builtin replies too).
     const item = commandItem(name, args);
     m.appendItem(tabId, item);
-    const byRequest =
-      m.slashCommandItems.get(tabId) ?? new Map<string, string>();
-    m.slashCommandItems.set(tabId, byRequest);
+    const byRequest = m.runtime(tabId).slashCommandItems;
     let requestId: string | undefined;
     const resp = await m.runCommand(
       tabId,

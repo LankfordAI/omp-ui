@@ -8,6 +8,7 @@ import type {
   AppUpdateState,
   BackendState,
   DeleteSessionPreview,
+  DeleteSessionResult,
   LiveState,
   OmpSettingsSnapshot,
   OmpUpdateState,
@@ -133,7 +134,10 @@ const mockBackend = {
     }),
   ),
   switchMode: vi.fn(),
-  deleteSession: vi.fn(),
+  deleteSession: vi.fn(async (tabId: string): Promise<DeleteSessionResult> => ({
+    deleted: [tabId],
+    failed: [],
+  })),
   deleteSessionPreview: vi.fn(async (): Promise<DeleteSessionPreview> => ({ descendants: [] })),
   forkSession: vi.fn(),
   toggleFavorite: vi.fn(),
@@ -230,6 +234,8 @@ const {
   STREAM_STALL_TICK_MS,
   useStore,
 } = await import("../store");
+const { rpcCommandMachinery } = await import("../store/slices/rpc-command");
+const { resetTabRuntimesForTests } = await import("../store/slices/shared");
 
 /** Deterministic event-drain for promise chains (no wall-clock waiting). */
 const flushMicrotasks = async (): Promise<void> => {
@@ -318,9 +324,9 @@ async function driveBoot(
 ): Promise<string[]> {
   const boot = useStore.getState().bootRpcTab(tabId);
   const answered: string[] = [];
-  // Commands arrive in waves: get_state is awaited first, then
-  // models/messages — drain and answer each wave deterministically.
-  for (let wave = 0; wave < 3; wave++) {
+  // Commands arrive in waves: subscription/get_state, models/messages, then
+  // the fire-and-forget advisor-stat arm.
+  for (let wave = 0; wave < 4; wave++) {
     await flushMicrotasks();
     for (const { cmd } of sent.splice(0)) {
       answered.push(
@@ -335,6 +341,8 @@ async function driveBoot(
 }
 
 beforeEach(() => {
+  rpcCommandMachinery.resetForTests();
+  resetTabRuntimesForTests();
   sent.length = 0;
   prompts.length = 0;
   alerts.length = 0;
@@ -376,6 +384,7 @@ export const h = {
   deriveSidebarSessionState,
   isLateAckCommand,
   registerShellWriter,
+  rpcCommandMachinery,
   sent,
   prompts,
   alerts,

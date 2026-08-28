@@ -125,12 +125,14 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().runSlashCommand(h.TAB, "/new");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: true,
       advisorModel: null,
       cols: 80,
       rows: 24,
+      worktree: null,
     });
     expect(h.sent).toEqual([]); // nothing reached omp
     expect(h.useStore.getState().activeTabId).toBe("fresh-tab");
@@ -610,7 +612,7 @@ describe("prompting, slash commands, and session ops", () => {
           /may still complete.*resending can duplicate work/,
         ),
       });
-      expect(h.useStore.getState().rpc[h.TAB]!.pendingCommands.size).toBe(1);
+      expect(h.rpcCommandMachinery.snapshotPending(h.TAB).size).toBe(1);
       expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(true);
       expect(warn).toHaveBeenCalledOnce();
 
@@ -1064,12 +1066,14 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().newSession("/p");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: false,
       advisorModel: "openrouter/a/b:high",
       cols: 80,
       rows: 24,
+      worktree: null,
     });
   });
 
@@ -1087,12 +1091,14 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().newSession("/p", "pty");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "pty",
       advisor: true,
       advisorModel: "openrouter/a/b:high",
       cols: 80,
       rows: 24,
+      worktree: null,
     });
     expect(h.mockBackend.setDefaultMode).not.toHaveBeenCalled();
   });
@@ -1109,12 +1115,14 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().newSession("/p");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "pty",
       advisor: true,
       advisorModel: "openrouter/a/b:high",
       cols: 80,
       rows: 24,
+      worktree: null,
     });
   });
 
@@ -1128,12 +1136,14 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().newSession("/p");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: true,
       advisorModel: null,
       cols: 80,
       rows: 24,
+      worktree: null,
     });
   });
 
@@ -1149,12 +1159,14 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().newSession("/p");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: false,
       advisorModel: null,
       cols: 80,
       rows: 24,
+      worktree: null,
     });
   });
 
@@ -1382,13 +1394,12 @@ describe("prompting, slash commands, and session ops", () => {
 
     expect(h.mockBackend.forkSession).toHaveBeenCalledWith(h.TAB);
     // The fork opens through the normal resume path and takes focus.
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resumeTabId: "tab-fork",
-        projectCwd: "/p",
-        mode: "rpc-ui",
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: "tab-fork",
+      cols: 80,
+      rows: 24,
+    });
     expect(h.useStore.getState().activeTabId).toBe("tab-fork");
     expect(h.useStore.getState().tabs.map((t) => t.tabId)).toEqual([
       h.TAB,
@@ -1503,12 +1514,14 @@ describe("project default models (issue #257)", () => {
     await h.useStore.getState().newSession("/p");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: true,
       advisorModel: "pin/advisor:high",
       cols: 80,
       rows: 24,
+      worktree: null,
     });
   });
 
@@ -1526,9 +1539,16 @@ describe("project default models (issue #257)", () => {
 
     await h.useStore.getState().newSession("/p");
 
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ advisor: true, advisorModel: "last/advisor" }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: "last/advisor",
+      cols: 80,
+      rows: 24,
+      worktree: null,
+    });
   });
 
   it("newSession falls back to omp's configured advisor model when no app state exists", async () => {
@@ -1540,9 +1560,16 @@ describe("project default models (issue #257)", () => {
 
     await h.useStore.getState().newSession("/p");
 
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ advisor: true, advisorModel: "openrouter/a/b:high" }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "pty",
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+      cols: 80,
+      rows: 24,
+      worktree: null,
+    });
   });
 
   it("keeps the pinned advisor model while the on/off chain resolves off", async () => {
@@ -1561,12 +1588,14 @@ describe("project default models (issue #257)", () => {
     await h.useStore.getState().newSession("/p");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
       projectCwd: "/p",
       mode: "rpc-ui",
       advisor: false,
       advisorModel: "p/pin",
       cols: 80,
       rows: 24,
+      worktree: null,
     });
   });
 
@@ -1588,9 +1617,22 @@ describe("project default models (issue #257)", () => {
     });
     await h.flushMicrotasks();
 
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ advisor: true, advisorModel: "staged/advisor" }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: "staged/advisor",
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
   });
 
   it("plan dispatch in a fresh session: the pin wins the fallback branch", async () => {
@@ -1609,9 +1651,22 @@ describe("project default models (issue #257)", () => {
     h.useStore.getState().executePlan(h.TAB, "fresh");
     await h.flushMicrotasks();
 
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ advisor: false, advisorModel: "pin/advisor" }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: "pin/advisor",
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
   });
 
   it("plan dispatch in a worktree session: the spec and staged advisor ride one spawn", async () => {
@@ -1633,14 +1688,22 @@ describe("project default models (issue #257)", () => {
     });
     await h.flushMicrotasks();
 
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
-        startInPlanMode: false,
-        advisor: true,
-        advisorModel: "staged/advisor",
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: "staged/advisor",
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/cafebabe", baseRef: "main" } },
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
   });
 
   it("pin setters forward to the backend channel", async () => {

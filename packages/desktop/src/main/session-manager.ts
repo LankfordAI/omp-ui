@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CH,
+  parseSpawnRequest,
   addWorktree,
   base64Bytes,
   bracketedImagePaste,
@@ -29,8 +30,8 @@ import {
   type DeleteSessionResult,
   type ImageAttachment,
   type OwnedSessionRecord,
-  type PlanImplementationSource,
   type RpcFrame,
+  type ResumeSpawnRequest,
   type SessionMode,
   type SessionWorktree,
   type SpawnRequest,
@@ -59,8 +60,8 @@ const SIGKILL_EXIT_MS = 2_000;
 
 const NOOP_DETACH_PTY_DATA = (): void => {};
 
-function unreachableLiveEntry(_entry: never): never {
-  throw new Error("unreachable live entry kind");
+function unreachableLiveEntry(entry: never): never {
+  throw new Error(`unreachable live entry kind: ${String(entry)}`);
 }
 
 export interface SessionManagerDependencies {
@@ -214,61 +215,34 @@ export class SessionManager {
     );
   }
 
-  private validatePlanImplementationSource(req: SpawnRequest): PlanImplementationSource | null {
-    const snapshot = req.planImplementationSource ?? null;
-    if (snapshot === null) return null;
-    if (req.resumeTabId !== undefined) {
-      throw new Error("a plan implementation source cannot be attached when resuming a session");
-    }
-    if (req.mode !== "rpc-ui") {
-      throw new Error("a plan implementation source requires rpc-ui mode");
-    }
-    if (typeof snapshot.sourceTabId !== "string" || snapshot.sourceTabId === "") {
-      throw new Error("plan implementation source sourceTabId must be a non-empty string");
-    }
-    if (typeof snapshot.planTitle !== "string" || snapshot.planTitle === "") {
-      throw new Error("plan implementation source planTitle must be a non-empty string");
-    }
-    if (typeof snapshot.planFilePath !== "string" || snapshot.planFilePath === "") {
-      throw new Error("plan implementation source planFilePath must be a non-empty string");
-    }
-    const source = this.deps.registry.sessions.find(
-      (record) => record.tabId === snapshot.sourceTabId,
-    );
-    if (!source) throw new Error(`unknown plan source tab ${snapshot.sourceTabId}`);
-    if (source.projectCwd !== req.projectCwd) {
-      throw new Error("a plan implementation source must belong to the same project");
-    }
-    if (source.mode !== "rpc-ui") {
-      throw new Error("a plan implementation source must use rpc-ui mode");
-    }
-    return { ...snapshot };
-  }
+  private validateSpawnSemantics(req: SpawnRequest): void {
+    if (req.origin === "resume") return;
 
-  private validateWorktreeReuse(req: SpawnRequest): SessionWorktree | null {
-    const reuse = req.worktreeReuse;
-    if (reuse === undefined) return null;
-    if (req.resumeTabId !== undefined) {
-      throw new Error("a worktree reuse cannot be attached when resuming a session");
-    }
-    if (req.worktree !== undefined) {
-      throw new Error("worktree and worktreeReuse are mutually exclusive");
-    }
-    if (typeof reuse.path !== "string" || reuse.path === "") {
-      throw new Error("worktree reuse path must be a non-empty string");
-    }
-    if (typeof reuse.branch !== "string" || reuse.branch === "") {
-      throw new Error("worktree reuse branch must be a non-empty string");
-    }
-    if (reuse.base !== null && typeof reuse.base !== "string") {
-      throw new Error("worktree reuse base must be a string or null");
-    }
-    if (!isWithin(this.deps.getWorktreesRoot(), reuse.path) || !fs.existsSync(reuse.path)) {
-      throw new Error(
-        "the planning session's worktree checkout is gone — delete the planning session from the sidebar",
+    const snapshot = req.planImplementationSource ?? null;
+    if (snapshot !== null) {
+      if (req.mode !== "rpc-ui") {
+        throw new Error("a plan implementation source requires rpc-ui mode");
+      }
+      const source = this.deps.registry.sessions.find(
+        (record) => record.tabId === snapshot.sourceTabId,
       );
+      if (!source) throw new Error(`unknown plan source tab ${snapshot.sourceTabId}`);
+      if (source.projectCwd !== req.projectCwd) {
+        throw new Error("a plan implementation source must belong to the same project");
+      }
+      if (source.mode !== "rpc-ui") {
+        throw new Error("a plan implementation source must use rpc-ui mode");
+      }
     }
-    return { ...reuse };
+
+    if (req.worktree !== null && "reuse" in req.worktree) {
+      const reuse = req.worktree.reuse;
+      if (!isWithin(this.deps.getWorktreesRoot(), reuse.path) || !fs.existsSync(reuse.path)) {
+        throw new Error(
+          "the planning session's worktree checkout is gone — delete the planning session from the sidebar",
+        );
+      }
+    }
   }
 
   private pendingOp(tabId: string): { kind: OpKind; chain: Promise<void> } | undefined {
@@ -289,8 +263,13 @@ export class SessionManager {
     return run;
   }
 
+  async spawnFromWire(raw: unknown): Promise<{ tabId: string }> {
+    return this.spawn(parseSpawnRequest(raw));
+  }
+
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
-    if (!req.resumeTabId) return this.spawnInner(req);
+    this.validateSpawnSemantics(req);
+    if (req.origin === "new") return this.spawnInner(req);
     const tabId = req.resumeTabId;
     const pending = this.pendingOp(tabId);
     if (pending?.kind === "spawn") return { tabId };
@@ -299,47 +278,56 @@ export class SessionManager {
   }
 
   private async spawnInner(req: SpawnRequest): Promise<{ tabId: string }> {
-    const planImplementationSource = this.validatePlanImplementationSource(req);
-    const worktreeReuse = this.validateWorktreeReuse(req);
     const ompPath = this.requireOmpPath();
-    if (!req.resumeTabId && !this.deps.providerKeys.hasModelProvider(req.projectCwd)) {
+    if (req.origin === "new" && !this.deps.providerKeys.hasModelProvider(req.projectCwd)) {
       throw new Error(
         "No model provider is configured. Add an API key under Settings → Providers before starting a session.",
       );
     }
 
-    const fresh = req.resumeTabId === undefined;
-    const freshTabId = fresh ? randomUUID() : null;
+    const fresh = req.origin === "new";
+    let freshTabId: string | undefined;
+    let projectCwd: string | undefined;
     let mintedWorktree: SessionWorktree | null = null;
     let record: OwnedSessionRecord | undefined;
     try {
-      if (req.resumeTabId) {
+      if (req.origin === "resume") {
         if (this.live.has(req.resumeTabId)) return { tabId: req.resumeTabId };
         const existing = this.deps.registry.sessions.find((s) => s.tabId === req.resumeTabId);
         if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
+        projectCwd = existing.projectCwd;
         record = await prepareResumeRecord(existing, {
           sessionsRoot: this.deps.getSessionsRoot(),
           archiveRoot: this.deps.getArchiveRoot(),
           updateSession: (tabId, patch) => this.deps.registry.updateSession(tabId, patch),
         });
       } else {
-        let worktree: SessionWorktree | null = worktreeReuse;
-        if (req.worktree) {
-          const worktreePath = mintWorktreePath(
-            this.deps.getWorktreesRoot(), req.projectCwd, req.worktree.branch);
-          const base = await addWorktree(
-            req.projectCwd, worktreePath, req.worktree.branch, req.worktree.baseRef);
-          mintedWorktree = { path: worktreePath, branch: req.worktree.branch, base };
-          worktree = mintedWorktree;
+        projectCwd = req.projectCwd;
+        freshTabId = randomUUID();
+        let worktree: SessionWorktree | null = null;
+        if (req.worktree !== null) {
+          if ("reuse" in req.worktree) {
+            worktree = { ...req.worktree.reuse };
+          } else {
+            const { branch, baseRef } = req.worktree.mint;
+            const worktreePath = mintWorktreePath(
+              this.deps.getWorktreesRoot(), req.projectCwd, branch);
+            const base = await addWorktree(req.projectCwd, worktreePath, branch, baseRef);
+            mintedWorktree = { path: worktreePath, branch, base };
+            worktree = mintedWorktree;
+          }
         }
         const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
         record = this.deps.registry.addSession({
-          tabId: freshTabId!,
+          tabId: freshTabId,
           sessionId: null,
           lineageDir: mintLineageDirName(req.projectCwd),
           projectCwd: req.projectCwd,
           worktree,
-          planImplementationSource,
+          planImplementationSource:
+            req.planImplementationSource == null
+              ? null
+              : { ...req.planImplementationSource },
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           agentMode: "build",
@@ -354,27 +342,33 @@ export class SessionManager {
         });
         this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
       }
-      const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
-      if (record.mode !== req.mode) patch.mode = req.mode;
-      if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
-        patch.advisorModel = req.advisorModel;
+
+      const mode = req.origin === "resume" ? (req.mode ?? record.mode) : req.mode;
+      if (req.origin === "resume") {
+        const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
+        if (record.mode !== mode) patch.mode = mode;
+        if (req.advisor !== undefined && req.advisor !== record.advisor) {
+          patch.advisor = req.advisor;
+        }
+        if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
+          patch.advisorModel = req.advisorModel;
+        }
+        if (Object.keys(patch).length > 0) {
+          record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
+        }
       }
-      if (req.advisor !== record.advisor && req.resumeTabId) patch.advisor = req.advisor;
-      if (Object.keys(patch).length > 0) {
-        record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
-      }
-      const startInPlanMode =
-        req.startInPlanMode ??
+      const planMode =
+        req.planMode ??
         (fresh
           ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
           : record.agentMode === "plan");
-      return req.mode === "rpc-ui"
-        ? await this.spawnRpc(record, startInPlanMode, ompPath)
+      return mode === "rpc-ui"
+        ? await this.spawnRpc(record, planMode, ompPath)
         : await this.spawnPty(record, req, ompPath);
     } catch (cause) {
-      const rollbackTabId = record?.tabId ?? freshTabId ?? req.resumeTabId;
-      if (!rollbackTabId || (!record && !mintedWorktree)) throw cause;
-      return this.rollbackSpawn(rollbackTabId, req.projectCwd, fresh, mintedWorktree, cause);
+      const rollbackTabId = record?.tabId ?? freshTabId ?? (req.origin === "resume" ? req.resumeTabId : undefined);
+      if (!rollbackTabId || projectCwd === undefined || (!record && !mintedWorktree)) throw cause;
+      return this.rollbackSpawn(rollbackTabId, projectCwd, fresh, mintedWorktree, cause);
     }
   }
 
@@ -480,7 +474,7 @@ export class SessionManager {
 
   private async spawnRpc(
     record: OwnedSessionRecord,
-    startInPlanMode: boolean,
+    planMode: boolean,
     ompPath: string,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
@@ -497,7 +491,7 @@ export class SessionManager {
     initialCommands.push({
       type: "prompt",
       id: `omp-ui-initial-mode-${randomUUID()}`,
-      message: planMessage(startInPlanMode, this.deps.registry.getSetting("planFormat")),
+      message: planMessage(planMode, this.deps.registry.getSetting("planFormat")),
     });
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath);
     if (record.worktree !== null) {
@@ -547,13 +541,12 @@ export class SessionManager {
         return;
       }
       await this.relaunch(entry, {
-        projectCwd: record.projectCwd,
-        mode: record.mode,
+        origin: "resume",
+        resumeTabId: tabId,
         advisor,
         advisorModel,
         cols: 80,
         rows: 24,
-        resumeTabId: tabId,
       });
     });
   }
@@ -564,13 +557,10 @@ export class SessionManager {
       const entry = this.live.get(tabId);
       if (!record || !entry) throw new Error("session is not live");
       await this.relaunch(entry, {
-        projectCwd: record.projectCwd,
-        mode: record.mode,
-        advisor: record.advisor,
-        advisorModel: record.advisorModel,
+        origin: "resume",
+        resumeTabId: tabId,
         cols: 80,
         rows: 24,
-        resumeTabId: tabId,
       });
     });
   }
@@ -592,13 +582,10 @@ export class SessionManager {
         return;
       }
       await this.relaunch(entry, {
-        projectCwd: record.projectCwd,
-        mode: record.mode,
-        advisor: record.advisor,
-        advisorModel: record.advisorModel,
+        origin: "resume",
+        resumeTabId: tabId,
         cols: 80,
         rows: 24,
-        resumeTabId: tabId,
       });
     });
   }
@@ -626,13 +613,10 @@ export class SessionManager {
         await this.relaunch(
           entry,
           {
-            projectCwd: record.projectCwd,
-            mode: record.mode,
-            advisor: record.advisor,
-            advisorModel: record.advisorModel,
+            origin: "resume",
+            resumeTabId: tabId,
             cols: 80,
             rows: 24,
-            resumeTabId: tabId,
           },
           demote,
         );
@@ -929,22 +913,21 @@ export class SessionManager {
         return;
       }
       await this.relaunch(entry, {
-        projectCwd: record.projectCwd,
+        origin: "resume",
+        resumeTabId: tabId,
         mode,
-        advisor: record.advisor,
         cols: 80,
         rows: 24,
-        resumeTabId: tabId,
       });
     });
   }
 
   private async relaunch(
     entry: LiveEntry,
-    req: SpawnRequest,
+    req: ResumeSpawnRequest,
     between?: () => Promise<void>,
   ): Promise<void> {
-    const tabId = req.resumeTabId!;
+    const { resumeTabId: tabId } = req;
     await this.killAndReap(tabId, entry);
     this.live.delete(tabId);
     if (between) await between();

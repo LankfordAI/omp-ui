@@ -171,25 +171,23 @@ describe("native RPC relaunch preparation", () => {
       };
       const rpc = staleRpc();
       rpc.plan = priorPlan;
-      rpc.pendingCommands.set("blocked", {
-        resolve: vi.fn(),
-        reject: vi.fn(),
-        timer: 0,
-        quiet: false,
-        lateAck: false,
-        command: "prompt",
-        startedAt: Date.now(),
-        timeoutMs: 60_000,
-      });
       h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpc } });
+      const blocked = h.useStore
+        .getState()
+        .rpcCommand(h.TAB, { type: "compact" });
+      const blockedCommand = h.sent.pop()!.cmd;
 
       const relaunch = h.useStore.getState().setSessionAdvisor(h.TAB, true, "openrouter/a/b:high");
       expectPrepared();
-      await vi.advanceTimersByTimeAsync(31_000);
+      await vi.advanceTimersByTimeAsync(25_000);
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "session_info_update" });
+      await vi.advanceTimersByTimeAsync(6_000);
       await relaunch;
 
       expect(h.useStore.getState().rpc[h.TAB]!.plan).toEqual(priorPlan);
       expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
+      h.respond(h.TAB, blockedCommand, {});
+      await blocked;
     } finally {
       vi.useRealTimers();
     }
@@ -303,6 +301,7 @@ describe("bootRpcTab", () => {
       expect.objectContaining({ kind: "user", text: "hi" }),
     ]);
     expect(commands).toContain("set_subagent_subscription");
+    expect(tab.subagentAckLevel).toBe("progress");
   });
 
   it("delivers a notice raised across the relaunch after history loads (issue #334)", async () => {
@@ -333,7 +332,7 @@ describe("bootRpcTab", () => {
     h.useStore.setState({ state: h.backendState });
     const levels: unknown[] = [];
     const boot = h.useStore.getState().bootRpcTab(h.TAB);
-    for (let wave = 0; wave < 3; wave++) {
+    for (let wave = 0; wave < 4; wave++) {
       await h.flushMicrotasks();
       for (const { cmd } of h.sent.splice(0)) {
         if (cmd.type === "set_subagent_subscription") levels.push(cmd.level);
@@ -345,6 +344,7 @@ describe("bootRpcTab", () => {
     await boot;
     expect(levels).toEqual(["progress"]);
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
+    expect(h.useStore.getState().rpc[h.TAB]!.subagentAckLevel).toBeUndefined();
   });
 
   it("fetches backend state when store state is null, then loads history", async () => {
@@ -492,15 +492,9 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
         .getState()
         .rpcCommand(h.TAB, { type: "prompt", message: "private" });
       const cmd = h.sent.pop()!.cmd;
-      const pending = h.useStore
-        .getState()
-        .rpc[h.TAB]!.pendingCommands.get(String(cmd.id));
-      expect(pending).toMatchObject({
-        command: "prompt",
-        startedAt: expect.any(Number),
-        timeoutMs: 30_000,
-        quiet: false,
-      });
+      expect(
+        h.rpcCommandMachinery.hasPending(h.TAB, String(cmd.id)),
+      ).toBe(true);
       const typed = expect(promise).rejects.toBeInstanceOf(
         h.RpcCommandTimeoutError,
       );
@@ -513,7 +507,7 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
       await vi.advanceTimersByTimeAsync(30_000);
       await Promise.all([typed, fields]);
 
-      expect(h.useStore.getState().rpc[h.TAB]!.pendingCommands.size).toBe(0);
+      expect(h.rpcCommandMachinery.snapshotPending(h.TAB).size).toBe(0);
       expect(warn).toHaveBeenCalledOnce();
       expect(warn).toHaveBeenCalledWith("[rpc] command timeout", {
         tabId: h.TAB,
@@ -645,7 +639,7 @@ describe("late-ack silence budget (issue #335)", () => {
 
       expect(settled).toBe(false);
       expect(warn).not.toHaveBeenCalled();
-      expect(h.useStore.getState().rpc[h.TAB]!.pendingCommands.size).toBe(1);
+      expect(h.rpcCommandMachinery.snapshotPending(h.TAB).size).toBe(1);
 
       h.respond(h.TAB, cmd, { summary: "…" });
       await expect(promise).resolves.toMatchObject({ type: "response" });
@@ -726,7 +720,7 @@ describe("pending commands are abandoned when the process goes away (issue #338)
       await vi.advanceTimersByTimeAsync(60_000);
 
       expect(store.getState().rpc[h.TAB]?.failure).toBeUndefined();
-      expect(store.getState().rpc[h.TAB]?.pendingCommands.size ?? 0).toBe(0);
+      expect(store.getState().rpc[h.TAB]?.busy).toBe(false);
       expect(warn).not.toHaveBeenCalledWith(
         "[rpc] command timeout",
         expect.anything(),
@@ -1308,7 +1302,7 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     expect(buffer.at(-1)).toMatchObject({ text: "note 504" });
   });
 
-  it("opening a detail escalates the subscription to events; closing drops back, without redundant sends", () => {
+  it("opening a detail escalates the subscription to events; closing drops back, without redundant sends", async () => {
     const levels = () =>
       h.sent
         .filter((s) => s.cmd.type === "set_subagent_subscription")
@@ -1317,6 +1311,8 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     expect(h.useStore.getState().rpc[h.TAB]!.selectedSubagent).toBe("a");
     h.useStore.getState().openSubagent(h.TAB, "a");
     expect(levels()).toEqual(["events"]);
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await h.flushMicrotasks();
     h.useStore.getState().closeSubagent(h.TAB);
     h.useStore.getState().closeSubagent(h.TAB);
     expect(levels()).toEqual(["events", "progress"]);
@@ -1333,7 +1329,7 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
       rpc: {
         [REBOOT_TAB]: rpcTabState({
           selectedSubagent: "a",
-          subagentLevel: "events",
+          subagentAckLevel: "events",
         }),
       },
     });
@@ -1349,6 +1345,7 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     await boot;
     expect(levels).toEqual(["progress", "events"]);
     expect(h.useStore.getState().rpc[REBOOT_TAB]!.selectedSubagent).toBe("a");
+    expect(h.useStore.getState().rpc[REBOOT_TAB]!.subagentAckLevel).toBe("events");
   });
 
   it("openSubagent backfills the run's history from its transcript file", async () => {

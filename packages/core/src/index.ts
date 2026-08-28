@@ -32,6 +32,7 @@ export * from "./omp-update";
 export * from "./app-update";
 export * from "./session-file";
 export * from "./types";
+export { parseSpawnRequest } from "./spawn-request";
 export * from "./backend-channels";
 export { Registry, planHandoffDescendants } from "./registry";
 export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";

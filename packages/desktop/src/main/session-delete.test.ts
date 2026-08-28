@@ -134,12 +134,10 @@ const readRegistry = (): { sessions: unknown[] } =>
 async function launchLive(diesOn: "default" | "SIGKILL" | "never"): Promise<string[]> {
   nextDiesOn = diesOn;
   await invoke(CH.spawnSession, {
-    projectCwd: "/proj",
-    mode: "pty",
-    advisor: false,
+    origin: "resume",
+    resumeTabId: "tab-1",
     cols: 80,
     rows: 24,
-    resumeTabId: "tab-1",
   });
   return spawnedSignals.at(-1)!;
 }
@@ -272,12 +270,10 @@ describe("session:delete", () => {
     });
 
     const spawning = invoke(CH.spawnSession, {
-      projectCwd: "/proj",
-      mode: "pty",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: "tab-1",
       cols: 80,
       rows: 24,
-      resumeTabId: "tab-1",
     }) as Promise<unknown>;
     await started;
     const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
@@ -426,12 +422,10 @@ function setupCascade(): {
 
 const launchTab = async (tabId: string): Promise<string[]> => {
   await invoke(CH.spawnSession, {
-    projectCwd: "/proj",
-    mode: "pty",
-    advisor: false,
+    origin: "resume",
+    resumeTabId: tabId,
     cols: 80,
     rows: 24,
-    resumeTabId: tabId,
   });
   return spawnedSignals.at(-1)!;
 };

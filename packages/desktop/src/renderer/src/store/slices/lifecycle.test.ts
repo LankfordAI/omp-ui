@@ -391,6 +391,10 @@ describe("deleteSession", () => {
     h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
       descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
     });
+    h.mockBackend.deleteSession.mockResolvedValueOnce({
+      deleted: [h.TAB, "child-1"],
+      failed: [],
+    });
     h.useStore.setState({
       state: h.stateWithRecord("sess-1", "dormant"),
       tabs: [
@@ -414,6 +418,39 @@ describe("deleteSession", () => {
     expect(st.exited[h.TAB]).toBeUndefined();
     expect(st.exited["child-1"]).toBeUndefined();
     expect(st.activeTabId).toBe("other");
+  });
+
+  it("removes successful cascade members and leaves failed tabs mounted", async () => {
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
+    });
+    h.mockBackend.deleteSession.mockResolvedValueOnce({
+      deleted: [h.TAB],
+      failed: [{ tabId: "child-1", message: "EBUSY: transcript is busy" }],
+    });
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "dormant"),
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: "child-1", mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: h.TAB,
+      exited: { [h.TAB]: 1, "child-1": 2 },
+      rpc: { [h.TAB]: rpcTabState(), "child-1": rpcTabState() },
+    });
+
+    await h.useStore.getState().deleteSession(h.TAB);
+    await h.useStore.getState().confirmDeleteSession(false);
+
+    const state = h.useStore.getState();
+    expect(state.tabs.map((tab) => tab.tabId)).toEqual(["child-1"]);
+    expect(state.rpc[h.TAB]).toBeUndefined();
+    expect(state.rpc["child-1"]).toBeDefined();
+    expect(state.exited[h.TAB]).toBeUndefined();
+    expect(state.exited["child-1"]).toBe(2);
+    expect(h.alerts).toEqual([
+      "Some sessions could not be deleted:\nchild-1: EBUSY: transcript is busy",
+    ]);
   });
 
   it("surfaces a preview failure and stages nothing", async () => {
@@ -559,6 +596,16 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     const st = h.useStore.getState();
     expect(st.focusedTabByProject["/p"]).toBe("fresh");
     expect(st.activeTabId).toBe("fresh");
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+    });
   });
 
   it("openSession on a dormant record resumes and records focus", async () => {
@@ -571,14 +618,12 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     const st = h.useStore.getState();
     expect(st.focusedTabByProject["/p"]).toBe(h.TAB);
     expect(st.activeTabId).toBe(h.TAB);
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        mode: "rpc-ui",
-        advisor: false,
-        resumeTabId: h.TAB,
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+    });
   });
 
   it("openSession on an existing tab unhides and records focus without reseeding", async () => {
@@ -628,13 +673,12 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     const st = h.useStore.getState();
     expect(st.focusedTabByProject["/p"]).toBe(h.TAB);
     expect(st.activeTabId).toBe(h.TAB);
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resumeTabId: h.TAB,
-        projectCwd: "/p",
-        mode: "rpc-ui",
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+    });
   });
 
   it("resumeDead behind a hibernated tab wakes it and clears the flag", async () => {
@@ -654,9 +698,12 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     const st = h.useStore.getState();
     expect(st.exited[h.TAB]).toBeUndefined();
     expect(st.hibernated[h.TAB]).toBeUndefined();
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({ resumeTabId: h.TAB, projectCwd: "/p", mode: "rpc-ui" }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+    });
   });
 });
 

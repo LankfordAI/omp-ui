@@ -60,19 +60,6 @@ export interface RpcFailure {
   recovery: string;
 }
 
-export interface PendingCommand {
-  resolve: (value: unknown) => void;
-  reject: (err: Error) => void;
-  timer: number;
-  /** Background sync — must never drive the busy sweep. */
-  quiet: boolean;
-  /** Budget measures omp's silence, not the command's duration (issue #335). */
-  lateAck: boolean;
-  /** Command name only — never retain the command payload in diagnostics. */
-  command: string;
-  startedAt: number;
-  timeoutMs: number;
-}
 
 /** Optional revision instructions sent back to the planner on refine. */
 export interface PlanRevisionNotes {
@@ -103,9 +90,8 @@ export interface RpcTabState {
   subagentItems?: Record<string, RenderItem[]>;
   selectedSubagent?: string | null;
   subagentMarkers?: Map<string, string>;
-  subagentLevel?: "progress" | "events";
+  subagentAckLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
-  pendingCommands: Map<string, PendingCommand>;
   /** Renderer-observed request/model progress; never local tool execution. */
   streamCheckpoint?: { at: number; label: string };
   /**

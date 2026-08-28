@@ -187,12 +187,10 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
 
 const resume = (manager: SessionManager): Promise<{ tabId: string }> =>
   manager.spawn({
-    projectCwd: "/proj",
-    mode: "pty",
-    advisor: false,
+    origin: "resume",
+    resumeTabId: TAB,
     cols: 80,
     rows: 24,
-    resumeTabId: TAB,
   });
 
 beforeEach(() => {
@@ -252,15 +250,26 @@ describe("MCP runtime status bridge", () => {
     ["resumed", true],
   ] as const)("loads and flushes the bridge for an %s rpc-ui spawn", async (_case, resumed) => {
     const { manager } = setup({ mode: "rpc-ui" });
-    await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      startInPlanMode: false,
-      ...(resumed ? { resumeTabId: TAB } : {}),
-    });
+    await manager.spawn(
+      resumed
+        ? {
+            origin: "resume",
+            resumeTabId: TAB,
+            cols: 80,
+            rows: 24,
+            planMode: false,
+          }
+        : {
+            origin: "new",
+            projectCwd: "/proj",
+            mode: "rpc-ui",
+            advisor: false,
+            cols: 80,
+            rows: 24,
+            worktree: null,
+            planMode: false,
+          },
+    );
 
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
@@ -276,14 +285,12 @@ describe("MCP runtime status bridge", () => {
 
   it("flushes MCP status before entering initial Plan mode", async () => {
     const { manager } = setup({ mode: "rpc-ui" });
-    await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      startInPlanMode: true,
-    });
+    await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24,
+    planMode: true, });
 
     const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands as
       | Array<{ message?: unknown }>
@@ -300,14 +307,12 @@ describe("MCP runtime status bridge", () => {
       throw new Error("read-only lineage");
     });
     const { manager } = setup({ mode: "rpc-ui" });
-    await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      startInPlanMode: true,
-    });
+    await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24,
+    planMode: true, });
 
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).not.toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
@@ -329,13 +334,11 @@ describe("default compaction method (issue #268)", () => {
   it("captures a fresh native preference and promotes it in the lineage overlay", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("defaultCompactionMethod", "soft");
-    const { tabId } = await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
     const record = registry.sessions.find((session) => session.tabId === tabId)!;
     expect(record.compactionMethod).toBe("soft");
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
@@ -351,13 +354,11 @@ describe("default compaction method (issue #268)", () => {
   it("never captures or supplies the overlay for a fresh terminal session", async () => {
     const { manager, registry } = setup();
     registry.setSetting("defaultCompactionMethod", "soft");
-    const { tabId } = await manager.spawn({
-      projectCwd: "/proj",
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
     expect(registry.sessions.find((session) => session.tabId === tabId)?.compactionMethod).toBeNull();
     expect(readOmpCompactionMethodsMock).not.toHaveBeenCalled();
     expect(spawnCalls.at(-1)?.configOverlays).not.toContainEqual(
@@ -368,13 +369,11 @@ describe("default compaction method (issue #268)", () => {
 
 describe("project default model pins (issue #257)", () => {
   const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
-    manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
 
   it("spawns a fresh session on the pinned model, ahead of last-used memory", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
@@ -453,14 +452,12 @@ describe("plan implementation handoff persistence (issue #238)", () => {
       if (child) broadcastSources.push(child.planImplementationSource);
     });
 
-    const { tabId } = await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      planImplementationSource: handoff,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24,
+    planImplementationSource: handoff, });
 
     const child = registry.sessions.find((session) => session.tabId === tabId)!;
     expect(child.lineageDir).not.toBe(LINEAGE);
@@ -484,18 +481,17 @@ describe("plan implementation handoff persistence (issue #238)", () => {
       const directoriesBefore = fs.readdirSync(sessionsRoot);
 
       await expect(
-        manager.spawn({
+        manager.spawnFromWire({
+          origin: "new",
           projectCwd: "/proj",
           mode: "rpc-ui",
           advisor: false,
           cols: 80,
           rows: 24,
-          planImplementationSource:
-            malformedHandoff as unknown as Core.PlanImplementationSource,
+          worktree: null,
+          planImplementationSource: malformedHandoff,
         }),
-      ).rejects.toThrow(
-        `plan implementation source ${field} must be a non-empty string`,
-      );
+      ).rejects.toThrow(field);
 
       expect(addSession).not.toHaveBeenCalled();
       expect(registry.sessions.map((session) => session.tabId)).toEqual(tabIdsBefore);
@@ -510,14 +506,12 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const directoriesBefore = fs.readdirSync(sessionsRoot);
 
     await expect(
-      manager.spawn({
-        projectCwd: "/proj",
-        mode: "rpc-ui",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        planImplementationSource: { ...handoff, sourceTabId: "missing-source" },
-      }),
+      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      planImplementationSource: { ...handoff, sourceTabId: "missing-source" }, }),
     ).rejects.toThrow("unknown plan source tab missing-source");
 
     expect(addSession).not.toHaveBeenCalled();
@@ -531,14 +525,12 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const directoriesBefore = fs.readdirSync(sessionsRoot);
 
     await expect(
-      manager.spawn({
-        projectCwd: "/other-project",
-        mode: "rpc-ui",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        planImplementationSource: handoff,
-      }),
+      manager.spawn({ origin: "new", worktree: null, projectCwd: "/other-project",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      planImplementationSource: handoff, }),
     ).rejects.toThrow("must belong to the same project");
 
     expect(addSession).not.toHaveBeenCalled();
@@ -551,14 +543,12 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const addSession = vi.spyOn(registry, "addSession");
 
     await expect(
-      manager.spawn({
-        projectCwd: "/proj",
-        mode: "rpc-ui",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        planImplementationSource: handoff,
-      }),
+      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      planImplementationSource: handoff, }),
     ).rejects.toThrow("plan implementation source must use rpc-ui mode");
 
     expect(addSession).not.toHaveBeenCalled();
@@ -568,13 +558,11 @@ describe("plan implementation handoff persistence (issue #238)", () => {
   it("keeps an ordinary fresh spawn unlinked", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
 
-    const { tabId } = await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
 
     expect(registry.sessions.find((session) => session.tabId === tabId)!.planImplementationSource)
       .toBeNull();
@@ -585,14 +573,12 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const addSession = vi.spyOn(registry, "addSession");
 
     await expect(
-      manager.spawn({
-        projectCwd: "/proj",
-        mode: "pty",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        planImplementationSource: handoff,
-      }),
+      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      planImplementationSource: handoff, }),
     ).rejects.toThrow("requires rpc-ui mode");
 
     expect(addSession).not.toHaveBeenCalled();
@@ -604,16 +590,14 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const addSession = vi.spyOn(registry, "addSession");
 
     await expect(
-      manager.spawn({
-        projectCwd: "/proj",
-        mode: "rpc-ui",
-        advisor: false,
+      manager.spawnFromWire({
+        origin: "resume",
+        resumeTabId: TAB,
         cols: 80,
         rows: 24,
-        resumeTabId: TAB,
         planImplementationSource: handoff,
       }),
-    ).rejects.toThrow("cannot be attached when resuming");
+    ).rejects.toThrow(/planImplementationSource/);
 
     expect(addSession).not.toHaveBeenCalled();
     expect(RpcClientMock).not.toHaveBeenCalled();
@@ -900,12 +884,10 @@ describe("plan-review gate (issue #215)", () => {
 
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB,
     });
 
   it("records a proposal as its frame passes through, and broadcasts it", async () => {
@@ -993,12 +975,10 @@ describe("plan-review gate (issue #215)", () => {
 describe("OS attention hooks (issue #271)", () => {
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB,
     });
 
   const attention = (): Attention =>
@@ -1141,14 +1121,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-spawn";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
     // base is the project's current branch at spawn time (issue #272; SHA when detached).
@@ -1170,14 +1147,11 @@ describe("worktree sessions (issue #224)", () => {
     broadcast.mockRejectedValueOnce(publicationFailure);
 
     await expect(
-      manager.spawn({
-        projectCwd: project,
-        mode: "pty",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        worktree: { branch, baseRef: null },
-      }),
+      manager.spawn({ origin: "new", projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24, worktree: { mint: { branch, baseRef: null } },  }),
     ).rejects.toBe(publicationFailure);
 
     expect(fakePtys.at(-1)?.signals).toEqual(["default"]);
@@ -1201,15 +1175,11 @@ describe("worktree sessions (issue #224)", () => {
       throw removalFailure;
     });
 
-    const error = await manager
-      .spawn({
-        projectCwd: project,
-        mode: "pty",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        worktree: { branch, baseRef: null },
-      })
+    const error = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  })
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(AggregateError);
@@ -1233,14 +1203,11 @@ describe("worktree sessions (issue #224)", () => {
     broadcast.mockRejectedValueOnce(new Error("state publication failed"));
 
     await expect(
-      manager.spawn({
-        projectCwd: project,
-        mode: "pty",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        worktreeReuse: { path: worktreePath, branch, base: baseRef },
-      }),
+      manager.spawn({ origin: "new", projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24, worktree: { reuse: { path: worktreePath, branch, base: baseRef } },  }),
     ).rejects.toThrow("state publication failed");
 
     expect(registry.sessions.some((record) => record.worktree?.path === worktreePath)).toBe(false);
@@ -1260,14 +1227,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-omp-link";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
-    await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
 
     // omp resolves project scope from its cwd, and that cwd is the checkout —
     // which lives outside the project and carries no `.omp/` of its own.
@@ -1298,14 +1262,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-detached";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
 
     // No current branch to record: the detached commit itself is the base.
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
@@ -1322,14 +1283,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-baseref";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: "cut-point" },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: "cut-point" } },  });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
     expect(record.worktree).toEqual({ path: worktreePath, branch, base: "cut-point" });
@@ -1353,12 +1311,10 @@ describe("worktree sessions (issue #224)", () => {
     );
 
     const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: record.tabId,
       cols: 80,
       rows: 24,
-      resumeTabId: record.tabId,
     });
 
     expect(tabId).toBe(record.tabId);
@@ -1375,14 +1331,11 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     expect(fs.existsSync(worktreePath)).toBe(true);
     // A branch-side commit: the branch is unmerged, so it must survive.
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
@@ -1411,14 +1364,11 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     // forkSessionFile reads the source transcript — seed one in the lineage dir.
     const source = registry.sessions.find((s) => s.tabId === tabId)!;
     const transcript = path.join(
@@ -1468,14 +1418,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-cascade";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     const worktree = registry.sessions.find((record) => record.tabId === tabId)!.worktree!;
     const childLineage = "omp-ui--project--11111111-2222-4333-8444-555555555555";
     fs.mkdirSync(path.join(sessionsRoot, childLineage), { recursive: true });
@@ -1508,14 +1455,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-cascade-failed-child";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     const worktree = registry.sessions.find((record) => record.tabId === tabId)!.worktree!;
     const childLineage = "omp-ui--project--failed-cascade-child";
     fs.mkdirSync(path.join(sessionsRoot, childLineage), { recursive: true });
@@ -1558,14 +1502,11 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     // Land the branch's work in main, so the delete can verify the merge.
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
@@ -1592,14 +1533,11 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -1622,14 +1560,11 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -1692,12 +1627,10 @@ describe("worktree sessions (issue #224)", () => {
 
     await expect(
       manager.spawn({
-        projectCwd: project,
-        mode: "pty",
-        advisor: false,
+        origin: "resume",
+        resumeTabId: record.tabId,
         cols: 80,
         rows: 24,
-        resumeTabId: record.tabId,
       }),
     ).rejects.toThrow("worktree checkout is gone");
     expect(spawnOmpMock).not.toHaveBeenCalled();
@@ -1710,14 +1643,11 @@ describe("worktree sessions (issue #224)", () => {
     const branch = "omp-ui/wt-rpc";
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
     expect(record.worktree).toEqual({ path: worktreePath, branch, base: "main" });
@@ -1734,14 +1664,11 @@ describe("worktree sessions (issue #224)", () => {
     const before = registry.sessions.length;
 
     await expect(
-      manager.spawn({
-        projectCwd: project,
-        mode: "pty",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        worktree: { branch, baseRef: null },
-      }),
+      manager.spawn({ origin: "new", projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24, worktree: { mint: { branch, baseRef: null } },  }),
     ).rejects.toThrow(/already exists/);
 
     expect(registry.sessions.length).toBe(before);
@@ -1773,7 +1700,7 @@ describe("worktree sessions (issue #224)", () => {
     expect(registry.sessions.some((s) => s.tabId === "tab-wt-bad")).toBe(false);
   });
 
-  it("spawns a fresh session into an existing checkout via worktreeReuse (issue #316)", async () => {
+  it("spawns a fresh session into an existing checkout via the reuse arm (issue #316)", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     const project = await gitProject(base);
     registry.addProject(project);
@@ -1781,14 +1708,11 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
     await Core.addWorktree(project, worktreePath, branch, null);
 
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktreeReuse: { path: worktreePath, branch, base: "main" },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { reuse: { path: worktreePath, branch, base: "main" } },  });
 
     // The record carries the source descriptor verbatim — no mint.
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
@@ -1803,7 +1727,7 @@ describe("worktree sessions (issue #224)", () => {
     expect(fs.readdirSync(projectDir)).toEqual([path.basename(worktreePath)]);
   });
 
-  it("rejects a worktreeReuse whose checkout vanished from disk (issue #316)", async () => {
+  it("rejects a reuse arm whose checkout vanished from disk (issue #316)", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     const project = await gitProject(base);
     registry.addProject(project);
@@ -1814,20 +1738,17 @@ describe("worktree sessions (issue #224)", () => {
     const before = registry.sessions.length;
 
     await expect(
-      manager.spawn({
-        projectCwd: project,
-        mode: "rpc-ui",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        worktreeReuse: { path: worktreePath, branch, base: "main" },
-      }),
+      manager.spawn({ origin: "new", projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24, worktree: { reuse: { path: worktreePath, branch, base: "main" } },  }),
     ).rejects.toThrow(/worktree checkout is gone/);
     expect(registry.sessions.length).toBe(before);
     expect(RpcClientMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a worktreeReuse outside the worktrees root (issue #316)", async () => {
+  it("rejects a reuse arm outside the worktrees root (issue #316)", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     const project = await gitProject(base);
     registry.addProject(project);
@@ -1836,14 +1757,11 @@ describe("worktree sessions (issue #224)", () => {
     const before = registry.sessions.length;
 
     await expect(
-      manager.spawn({
-        projectCwd: project,
-        mode: "rpc-ui",
-        advisor: false,
-        cols: 80,
-        rows: 24,
-        worktreeReuse: { path: outside, branch: "omp-ui/wt-outside", base: "main" },
-      }),
+      manager.spawn({ origin: "new", projectCwd: project,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24, worktree: { reuse: { path: outside, branch: "omp-ui/wt-outside", base: "main" } },  }),
     ).rejects.toThrow(/worktree checkout is gone/);
     expect(registry.sessions.length).toBe(before);
     expect(RpcClientMock).not.toHaveBeenCalled();
@@ -1857,22 +1775,16 @@ describe("worktree sessions (issue #224)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
-    const { tabId: reuseTabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktreeReuse: { path: worktreePath, branch, base: "main" },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    const { tabId: reuseTabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { reuse: { path: worktreePath, branch, base: "main" } },  });
 
     await manager.deleteSession(tabId, false);
     expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
@@ -1900,13 +1812,11 @@ describe("convert to worktree (issue #225)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
     const predecessor = fakePtys[0]!;
 
     await manager.convertToWorktree(tabId, branch, null);
@@ -1932,13 +1842,11 @@ describe("convert to worktree (issue #225)", () => {
     registry.addProject(project);
     const branch = "omp-ui/wt-taken";
     await execFileP("git", ["branch", branch], { cwd: project });
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
     const predecessor = fakePtys[0]!;
 
     await expect(manager.convertToWorktree(tabId, branch, null)).rejects.toThrow(
@@ -2009,14 +1917,11 @@ describe("release worktree (issue #334)", () => {
     registry.addProject(project);
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -2154,14 +2059,11 @@ describe("release worktree (issue #334)", () => {
     const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
 
     nextPtyDiesOn = "default";
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: { branch, baseRef: null },
-    });
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -2180,13 +2082,11 @@ describe("release worktree (issue #334)", () => {
     const { manager, registry } = setup();
     const project = await gitProject(base);
     registry.addProject(project);
-    const { tabId } = await manager.spawn({
-      projectCwd: project,
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
 
     await expect(manager.releaseWorktree(tabId)).rejects.toThrow(
       "session does not run in a worktree",
@@ -2203,12 +2103,10 @@ describe("stream-stall watchdog (issue #248)", () => {
 
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB,
     });
 
   const stallNotices = (sent: { channel: string; args: unknown[] }[]): unknown[] =>
@@ -2657,12 +2555,10 @@ describe("stream-stall watchdog (issue #248)", () => {
 describe("agent mode persistence (issue #263)", () => {
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB,
     });
 
   const planStatusFrame = (id: string, enabled: boolean) => ({
@@ -2679,6 +2575,55 @@ describe("agent mode persistence (issue #263)", () => {
         | Array<{ message?: unknown }>
         | undefined
     )?.map((command) => command.message) ?? [];
+
+  it("retains persisted mode and advisor values when resume overrides are omitted", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.updateSession(TAB, {
+      advisor: true,
+      advisorModel: "openrouter/advisor",
+      agentMode: "plan",
+    });
+
+    await resumeRpc(manager);
+
+    expect(registry.sessions[0]).toMatchObject({
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: "openrouter/advisor",
+      agentMode: "plan",
+    });
+    expect(RpcClientMock.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ advisor: true }),
+    );
+    expect(lastSpawnMessages()).toContain(Core.planMessage(true, "html"));
+  });
+
+  it("applies explicit mode and advisor overrides on resume", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.updateSession(TAB, {
+      advisor: true,
+      advisorModel: "openrouter/advisor",
+    });
+
+    await manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      mode: "pty",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(registry.sessions[0]).toMatchObject({
+      mode: "pty",
+      advisor: false,
+      advisorModel: null,
+    });
+    expect(spawnOmpMock.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ advisor: false }),
+    );
+  });
 
   it("persists the Plan mode the extension publishes", async () => {
     const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
@@ -2731,17 +2676,15 @@ describe("agent mode persistence (issue #263)", () => {
     expect(lastSpawnMessages()).toContain(Core.planMessage(true, "html"));
   });
 
-  it("lets an explicit startInPlanMode override the persisted record", async () => {
+  it("lets an explicit planMode override the persisted record", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.updateSession(TAB, { agentMode: "plan" });
     await manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB,
-      startInPlanMode: false,
+      planMode: false,
     });
     expect(lastSpawnMessages()).toContain(Core.planMessage(false, "html"));
   });
@@ -2762,12 +2705,10 @@ describe("hibernation (issue #246)", () => {
 
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB,
     });
 
   const planStatusFrame = (id: string, enabled: boolean) => ({

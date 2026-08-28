@@ -42,7 +42,7 @@ const backendMock = {
   deleteSessionPreview: vi.fn<(tabId: string) => Promise<{ descendants: Array<{ tabId: string; title: string; running: boolean }> }>>(
     async () => ({ descendants: [] }),
   ),
-  deleteSession: vi.fn<(tabId: string, cascade: boolean) => Promise<void>>(async () => {}),
+  deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
   releaseWorktree: vi.fn<(tabId: string) => Promise<WorktreeReleaseResult>>(),
 };
 Object.assign(window, { ompBackend: backendMock });
@@ -303,7 +303,10 @@ beforeEach(() => {
   backendMock.deleteSessionPreview.mockReset();
   backendMock.deleteSessionPreview.mockResolvedValue({ descendants: [] });
   backendMock.deleteSession.mockReset();
-  backendMock.deleteSession.mockResolvedValue(undefined);
+  backendMock.deleteSession.mockImplementation(async (tabId) => ({
+    deleted: [tabId],
+    failed: [],
+  }));
   backendMock.releaseWorktree.mockReset();
   backendMock.releaseWorktree.mockResolvedValue(releaseResult);
   seedStore();
