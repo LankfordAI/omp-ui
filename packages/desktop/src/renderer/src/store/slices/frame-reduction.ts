@@ -38,6 +38,7 @@ import {
 import {
   bumpCompactionUsageGeneration,
   compactionUsageGenerations,
+  lastFrameAt,
   pendingNotices,
   respData,
   retireTimedOutCommand,
@@ -362,6 +363,9 @@ export function createFrameReductionSlice(
       }
       const tab = get().rpc[tabId];
       if (!tab) return;
+      // Liveness evidence for the late-ack budget: any frame proves the
+      // process is alive, even when the command chain is slow (issue #335).
+      lastFrameAt.set(tabId, Date.now());
       switch (type) {
         case "response": {
           const id =

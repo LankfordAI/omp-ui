@@ -59,6 +59,7 @@ export {
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,
   deriveSidebarSessionState,
+  isLateAckCommand,
   registerShellWriter,
   registerTermWriter,
 } from "./store/slices/shared";

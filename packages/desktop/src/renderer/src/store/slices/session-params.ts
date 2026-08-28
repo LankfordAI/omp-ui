@@ -363,13 +363,15 @@ export function createSessionParamsSlice(
     await m.runCommand(tabId, { type: "abort_retry" });
   };
 
-  const compactSession = async (tabId: string): Promise<void> => {
+  /** Resolves true only when omp acknowledged the compaction (issue #336). */
+  const compactSession = async (tabId: string): Promise<boolean> => {
     m.appendItem(tabId, markerItem("compacting context", "copper"));
     const resp = await m.runCommand(tabId, { type: "compact" });
-    if (resp === null) return;
+    if (resp === null) return false;
     // `data.summary` is the entire compacted history — noted, never rendered.
     m.appendItem(tabId, markerItem("context compacted", "copper"));
     await m.refreshUsage(tabId);
+    return true;
   };
 
   const exportHtml = async (tabId: string): Promise<void> => {

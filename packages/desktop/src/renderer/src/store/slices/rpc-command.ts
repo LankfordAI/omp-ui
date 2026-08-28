@@ -21,6 +21,8 @@ import {
   RpcCommandTimeoutError,
   compactionUsageGenerations,
   handedOffPlanSources,
+  isLateAckCommand,
+  lastFrameAt,
   respData,
   pendingNotices,
   timedOutCommands,
@@ -127,6 +129,10 @@ export function createRpcCommandSlice(
       // detail view and the retained buffers behind it survive the process
       // restart, and the subscription re-escalates after boot (issue #63).
       const prior = get().rpc[tabId];
+      // Fresh state gets a fresh pendingCommands map; the old map's timers
+      // stay armed and would paint a banner against this new process 30 s
+      // from now (issue #338).
+      m.abandonPendingCommands(tabId, "the session was relaunched");
       m.patchRpc(tabId, {
         ...freshRpcTabState(get().state?.advisorAutoReply ?? true),
         selectedSubagent: prior?.selectedSubagent ?? null,
@@ -262,13 +268,25 @@ export function createRpcCommandSlice(
     const command = typeof cmd.type === "string" ? cmd.type : "unknown";
     const startedAt = Date.now();
     const timeoutMs = RPC_COMMAND_TIMEOUT_MS;
+    const lateAck = isLateAckCommand(cmd);
     // Quiet commands are background sync (usage ticks, subagent roster
     // heartbeats). They never touch `busy`: each round-trip would otherwise
     // strobe the progress sweeps for a few ms, jittering the transcript.
     const quiet = opts?.quiet ?? false;
     // Executor form required: the pending entry must exist before send.
     const promise = new Promise<unknown>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
+      const expire = (): void => {
+        const entry = tab.pendingCommands.get(id);
+        if (!entry) return;
+        // A late-ack command's window measures omp's silence: while frames
+        // keep arriving the process is alive and merely slow, so re-arm for
+        // the remainder of the quiet window instead of failing a healthy
+        // session (issue #335).
+        const quietFor = Date.now() - (lastFrameAt.get(tabId) ?? startedAt);
+        if (lateAck && quietFor < timeoutMs) {
+          entry.timer = window.setTimeout(expire, timeoutMs - quietFor);
+          return;
+        }
         // Remove before settling so the map remains the authoritative ref
         // count when `finally` recomputes busy.
         tab.pendingCommands.delete(id);
@@ -286,6 +304,8 @@ export function createRpcCommandSlice(
           command,
           timeoutMs,
           elapsedMs: Date.now() - startedAt,
+          lateAck,
+          quietForMs: quietFor,
           pendingCommandCount: tab.pendingCommands.size,
           pending: [...tab.pendingCommands.values()].map((p) => ({
             command: p.command,
@@ -297,13 +317,21 @@ export function createRpcCommandSlice(
           liveState: liveState ?? null,
         };
         console.warn("[rpc] command timeout", details);
-        reject(new RpcCommandTimeoutError(command, timeoutMs, startedAt));
-      }, timeoutMs);
+        reject(
+          new RpcCommandTimeoutError(
+            command,
+            timeoutMs,
+            startedAt,
+            lateAck ? "silence" : "response",
+          ),
+        );
+      };
       tab.pendingCommands.set(id, {
         resolve,
         reject,
-        timer,
+        timer: window.setTimeout(expire, timeoutMs),
         quiet,
+        lateAck,
         command,
         startedAt,
         timeoutMs,

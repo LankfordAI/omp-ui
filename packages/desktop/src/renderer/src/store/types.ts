@@ -66,6 +66,8 @@ export interface PendingCommand {
   timer: number;
   /** Background sync — must never drive the busy sweep. */
   quiet: boolean;
+  /** Budget measures omp's silence, not the command's duration (issue #335). */
+  lateAck: boolean;
   /** Command name only — never retain the command payload in diagnostics. */
   command: string;
   startedAt: number;
@@ -388,7 +390,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
   abortRetry(tabId: string): Promise<void>;
-  compactSession(tabId: string): Promise<void>;
+  /** Resolves true only when omp acknowledged the compaction (issue #336). */
+  compactSession(tabId: string): Promise<boolean>;
   exportHtml(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;

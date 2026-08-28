@@ -734,6 +734,32 @@ describe("prompting, slash commands, and session ops", () => {
     }
   });
 
+  it("the loud banner names the command holding omp's chain (issue #337)", async () => {
+    const T = "wedge-tab-loud";
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // compact t=0 (holds the chain), a second loud command t=5, compact
+      // budget t=30, second budget t=35.
+      const held = h.useStore.getState().compactSession(T);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const queued = h.useStore.getState().setSteeringMode(T, "manual");
+      await vi.advanceTimersByTimeAsync(25_000);
+      await held;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await queued;
+
+      expect(h.useStore.getState().rpc[T]!.failure!.message).toBe(
+        'RPC command "set_steering_mode" timed out after its 30.0s response budget' +
+          " — queued behind compact (timed out 5.0s ago, response not yet observed)",
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("re-arms the quiet-failure notice on a quiet success; loud failures survive quiet timeouts (issue #302)", async () => {
     const T = "wedge-tab-4";
     h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [T]: rpcTabState() } });
@@ -1163,6 +1189,23 @@ describe("prompting, slash commands, and session ops", () => {
     const { items } = h.useStore.getState().rpc[h.TAB]!;
     expect(items.map((i) => i.kind)).toEqual(["marker", "marker"]);
     expect(JSON.stringify(items)).not.toContain("xxxx");
+  });
+
+  it("compactSession reports whether omp acknowledged the compaction (issue #336)", async () => {
+    const acked = h.useStore.getState().compactSession(h.TAB);
+    await settleAll({ summary: "…" });
+    await expect(acked).resolves.toBe(true);
+
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const held = h.useStore.getState().compactSession(h.TAB);
+      await vi.advanceTimersByTimeAsync(31_000);
+      await expect(held).resolves.toBe(false);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   describe("automatic compaction usage convergence", () => {

@@ -15,7 +15,7 @@ const TAB = "tab-mobile";
 const BUILD_MODE_TOOLTIP = "Build mode — working-tree writes and state-changing commands are allowed";
 const PLAN_MODE_TOOLTIP_WITH_PATH = "Plan mode — read-only exploration — /plan.md";
 const PLAN_MODE_TOOLTIP_WITHOUT_PATH = "Plan mode — read-only exploration — no plan drafted";
-const compactSession = vi.fn(async () => {});
+const compactSession = vi.fn(async () => true);
 const exportHtml = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
 const newSession = vi.fn(async () => {});

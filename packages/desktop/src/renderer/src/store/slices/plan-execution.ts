@@ -64,6 +64,11 @@ const EXECUTION_PROMPT =
   "The plan review is complete — execute the approved plan now. It is set as this " +
   "session's reference.";
 
+/** Compaction did not settle, so the implementation prompt was never sent. */
+const COMPACTION_HELD_NOTICE =
+  "compaction did not finish — the implementation prompt was held. " +
+  "Refresh state, then compact and send it again from this session.";
+
 /**
  * Records a freshly proposed plan in the session's history. Keyed by the plan
  * artifact path: a refined-and-reproposed plan updates its one pending entry
@@ -289,7 +294,10 @@ export function createPlanExecutionSlice(
             get().exited[tabId] !== undefined,
         );
         if (get().rpc[tabId]?.status !== "ready") return;
-        if (context === "compacted") await get().compactSession(tabId);
+        if (context === "compacted" && !(await get().compactSession(tabId))) {
+          m.appendItem(tabId, noticeItem(COMPACTION_HELD_NOTICE, "warn"));
+          return;
+        }
         await ensureBuildMode(tabId);
         await get().sendPrompt(tabId, message, "prompt");
       })();
@@ -304,7 +312,13 @@ export function createPlanExecutionSlice(
         // `compact` runs between turns, so the just-accepted plan turn must end
         // before compacting, then prompt the implementer.
         await m.pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
-        await get().compactSession(tabId);
+        if (!(await get().compactSession(tabId))) {
+          // Compaction never acknowledged: omp is still busy or wedged, and a
+          // prompt sent now queues behind it and fails the same way. Hold the
+          // dispatch and say what to do instead of stacking banners (#336).
+          m.appendItem(tabId, noticeItem(COMPACTION_HELD_NOTICE, "warn"));
+          return;
+        }
         await ensureBuildMode(tabId);
         await get().sendPrompt(tabId, message, "prompt");
         return;

@@ -230,3 +230,77 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     );
   });
 });
+
+describe("compacted execution context holds the prompt when compaction stalls (issue #336)", () => {
+  const planReviewFrame = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title:
+      "omp-ui:plan-review:" +
+      JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+  });
+
+  const executeCompacted = (id: string): void => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame(id));
+    h.sent.splice(0);
+    h.useStore.getState().executePlan(h.TAB, "compacted");
+  };
+
+  const implementationPrompts = () =>
+    h.sent.filter(
+      (s) =>
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+
+  it("sends no prompt and posts a warn notice when compaction never settles", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      executeCompacted("c1");
+      await h.flushMicrotasks();
+      expect(h.sent.some((s) => s.cmd.type === "compact")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(31_000);
+      await h.flushMicrotasks();
+
+      expect(implementationPrompts()).toHaveLength(0);
+      expect(
+        h.sent.some((s) => String(s.cmd.message ?? "").includes("/omp-ui-plan off")),
+      ).toBe(false);
+      const notices = h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.filter((i) => i.kind === "notice");
+      expect(notices.at(-1)).toMatchObject({
+        level: "warn",
+        text: expect.stringContaining("compaction did not finish"),
+      });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("dispatches the implementation prompt exactly once when compaction lands", async () => {
+    executeCompacted("c2");
+    await h.flushMicrotasks();
+    const compact = h.sent.find((s) => s.cmd.type === "compact")!;
+    h.respond(h.TAB, compact.cmd, { summary: "…" });
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent.filter((s) => s.cmd.type !== "prompt")) {
+        h.respond(tabId, cmd, {});
+      }
+    }
+
+    expect(implementationPrompts()).toHaveLength(1);
+    const notices = h.useStore
+      .getState()
+      .rpc[h.TAB]!.items.filter((i) => i.kind === "notice");
+    expect(notices.some((n) => n.text.includes("compaction did not finish"))).toBe(
+      false,
+    );
+  });
+});

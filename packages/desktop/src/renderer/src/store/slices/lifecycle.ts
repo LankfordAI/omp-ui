@@ -23,6 +23,7 @@ import {
   dropHibernated,
   dropTuiHandoff,
   handedOffPlanSources,
+  lastFrameAt,
   pendingNotices,
   quietWedgeNotified,
   timedOutCommands,
@@ -111,9 +112,16 @@ export function createLifecycleSlice(
     // rather than waiting for its next tick (issue #228).
     m.stopStreamStallTimer(tabId);
     // A fresh process has no wedge memory: re-arm the quiet-failure notice
-    // and drop the attribution memory (issue #302).
+    // and drop the attribution memory (issue #302) and the liveness clock
+    // (issue #335). Pending waits are NOT abandoned here: this runs before
+    // the process is killed, and setSessionAdvisor's drain (session-params)
+    // depends on an unsettled loud command still being observable so it can
+    // cancel the relaunch instead of losing the command. The waits die at
+    // the real boundary — teardownExited/teardownHibernated, or bootRpcTab
+    // when the fresh process announces itself (issue #338).
     quietWedgeNotified.delete(tabId);
     timedOutCommands.delete(tabId);
+    lastFrameAt.delete(tabId);
     m.patchRpc(tabId, {
       status: "starting",
       plan: null,
@@ -150,15 +158,8 @@ export function createLifecycleSlice(
       compactionUsageGenerations.delete(id);
       handedOffPlanSources.delete(id);
       quietWedgeNotified.delete(id);
-      timedOutCommands.delete(id);
       pendingNotices.delete(id);
-      const tab = get().rpc[id];
-      if (tab) {
-        for (const pending of tab.pendingCommands.values()) {
-          clearTimeout(pending.timer);
-          pending.reject(new Error("session deleted"));
-        }
-      }
+      m.abandonPendingCommands(id, "the session was deleted");
     }
     set((s) => {
       const rpc = { ...s.rpc };

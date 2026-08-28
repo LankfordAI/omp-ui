@@ -73,25 +73,103 @@ export interface StoreMachinery {
   ensureStreamStallTimer(tabId: string): void;
   teardownExited(tabId: string, code: number): void;
   teardownHibernated(tabId: string): void;
+  /** Rejects every in-flight wait on a process that can no longer answer. */
+  abandonPendingCommands(tabId: string, reason: string): void;
 }
 
 /** The RPC response budget, shared by rpc-command and the advisor relaunch. */
 export const RPC_COMMAND_TIMEOUT_MS = 30_000;
+
+/**
+ * omp answers on one serial chain (rpc-mode.ts `RpcInputDispatcher`). These
+ * handlers are awaited before the ack and have no useful upper bound: a model
+ * call (`compact`, `handoff`), a provider refresh (`set_model`, `cycle_model`,
+ * `get_available_models`), a turn unwind (`abort`, `abort_and_prompt`), file or
+ * network work (`export_html`, `login`), a UI round-trip (`new_session`,
+ * `switch_session`, `branch`), or arbitrary shell (`bash`, which bypasses the
+ * chain). For them, lateness is not failure (issue #335).
+ */
+const LATE_ACK_COMMANDS: Record<string, true> = {
+  compact: true,
+  handoff: true,
+  abort: true,
+  abort_and_prompt: true,
+  export_html: true,
+  login: true,
+  new_session: true,
+  switch_session: true,
+  branch: true,
+  set_model: true,
+  cycle_model: true,
+  get_available_models: true,
+  bash: true,
+};
+
+/** Mirrors omp's own skill-command match: start of message or after whitespace. */
+const SKILL_COMMAND_RE = /(^|\s)\/skill:[^\s/]+(\s|$)/;
+
+/**
+ * True when omp cannot ack before real work finishes, so the budget must
+ * measure the process's silence rather than the command's duration.
+ *
+ * `prompt`: omp awaits `tryRunRpcSkillCommand` (a `/skill:` message runs the
+ * whole agent turn inside the handler) and the builtin slash dispatcher (whose
+ * handler may open an `extension_ui_request` and await the human) before it
+ * acks. A plain-text prompt acks immediately and stays strict.
+ */
+export function isLateAckCommand(cmd: Record<string, unknown>): boolean {
+  const type = typeof cmd.type === "string" ? cmd.type : "";
+  if (LATE_ACK_COMMANDS[type] === true) return true;
+  if (type !== "prompt") return false;
+  const message = typeof cmd.message === "string" ? cmd.message : "";
+  return message.trimStart().startsWith("/") || SKILL_COMMAND_RE.test(message);
+}
 
 /** A renderer-side RPC wait expired; the process may still finish the command. */
 export class RpcCommandTimeoutError extends Error {
   readonly command: string;
   readonly timeoutMs: number;
   readonly startedAt: number;
+  /**
+   * `response` — omp owed an immediate ack and did not send one: the serial
+   * chain is wedged. `silence` — a late-ack command's window elapsed with no
+   * frame at all: the process itself went quiet (issue #335).
+   */
+  readonly kind: "response" | "silence";
 
-  constructor(command: string, timeoutMs: number, startedAt: number) {
+  constructor(
+    command: string,
+    timeoutMs: number,
+    startedAt: number,
+    kind: "response" | "silence" = "response",
+  ) {
     super(
-      `RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`,
+      kind === "silence"
+        ? `RPC command "${command}" stopped responding — no session activity for ${formatDuration(
+            timeoutMs,
+          )} (sent ${formatDuration(Date.now() - startedAt)} ago)`
+        : `RPC command "${command}" timed out after its ${formatDuration(timeoutMs)} response budget`,
     );
     this.name = "RpcCommandTimeoutError";
     this.command = command;
     this.timeoutMs = timeoutMs;
     this.startedAt = startedAt;
+    this.kind = kind;
+  }
+}
+
+/**
+ * The pending wait was dropped because its process went away (exit,
+ * hibernation, relaunch, erase) — never a diagnostic. The dead overlay, the
+ * hibernated badge, or the fresh boot already tells the story, so `runCommand`
+ * records no failure for it (issue #338).
+ */
+export class RpcCommandAbandonedError extends Error {
+  readonly command: string;
+  constructor(command: string, reason: string) {
+    super(`RPC command "${command}" was dropped: ${reason}`);
+    this.name = "RpcCommandAbandonedError";
+    this.command = command;
   }
 }
 
@@ -237,6 +315,14 @@ export interface TimedOutCommand {
   timedOutAt: number;
 }
 export const timedOutCommands = new Map<string, TimedOutCommand[]>();
+
+/**
+ * Wall-clock of the last rpc frame observed for a tab. The late-ack budget's
+ * liveness evidence: omp is alive and the chain is merely slow, not wedged
+ * (issue #335). Written by handleRpcFrame; dropped on relaunch, boot, and
+ * erase. Bounded by tab count, like `quietWedgeNotified`.
+ */
+export const lastFrameAt = new Map<string, number>();
 
 /**
  * Notices appended while a tab is booting, delivered once its transcript has
@@ -390,6 +476,55 @@ export function createMachinery(
     patchRpc(tabId, { items: [...tab.items, item] });
   };
   /**
+   * What was ahead of a timed-out command in omp's chain (issue #302). Entries
+   * are appended in send order, so the first started before the victim is the
+   * chain's current holder; the rest merely queue behind it. Returns the text
+   * after the em dash, or null when there is nothing to attribute.
+   */
+  const wedgeSuffix = (
+    tabId: string,
+    err: RpcCommandTimeoutError,
+  ): string | null => {
+    const holder = (timedOutCommands.get(tabId) ?? []).find(
+      (e) => e.startedAt < err.startedAt,
+    );
+    if (holder)
+      return `queued behind ${holder.command} (timed out ${formatDuration(
+        Date.now() - holder.timedOutAt,
+      )} ago, response not yet observed)`;
+    const pending = get().rpc[tabId]?.pendingCommands;
+    const inFlight = pending
+      ? [...pending.values()].map((p) =>
+          p.quiet
+            ? `${p.command} (bg, ${formatDuration(Date.now() - p.startedAt)})`
+            : `${p.command} (${formatDuration(Date.now() - p.startedAt)})`,
+        )
+      : [];
+    return inFlight.length > 0
+      ? `other commands still in flight: ${inFlight.join(", ")}`
+      : null;
+  };
+
+  /**
+   * Drops every wait on a process that can no longer answer. Without this a
+   * command in flight at exit/hibernate/relaunch fires its budget 30 s later
+   * and paints a banner against the fresh session, with recovery text claiming
+   * the command "may still complete in the live session" (issue #338).
+   */
+  const abandonPendingCommands = (tabId: string, reason: string): void => {
+    const tab = get().rpc[tabId];
+    timedOutCommands.delete(tabId);
+    lastFrameAt.delete(tabId);
+    if (!tab || tab.pendingCommands.size === 0) return;
+    const pending = [...tab.pendingCommands.values()];
+    tab.pendingCommands.clear();
+    for (const p of pending) {
+      clearTimeout(p.timer);
+      p.reject(new RpcCommandAbandonedError(p.command, reason));
+    }
+  };
+
+  /**
    * Quiet commands are background sync (heartbeats, usage ticks): their
    * failure means the session is congested, not that it failed. Never paint
    * the session-level failure — one dim, coalesced transcript notice per
@@ -397,34 +532,15 @@ export function createMachinery(
    * attribution memory has one (issue #302).
    */
   const noteQuietWedge = (tabId: string, command: string, err: unknown): void => {
+    // A teardown must not consume the wedge-episode slot (issue #338).
+    if (err instanceof RpcCommandAbandonedError) return;
     if (quietWedgeNotified.get(tabId)) return;
     quietWedgeNotified.set(tabId, true);
     const text =
       err instanceof RpcCommandTimeoutError
-        ? (() => {
-            const budget = formatDuration(err.timeoutMs);
-            // Entries are appended in send order (one shared budget), so the
-            // first started before the victim is the chain's current holder;
-            // the rest merely queue behind it (issue #302).
-            const holder = (timedOutCommands.get(tabId) ?? []).find(
-              (e) => e.startedAt < err.startedAt,
-            );
-            if (holder)
-              return `background "${command}" timed out after ${budget} — queued behind ${holder.command} (timed out ${formatDuration(
-                Date.now() - holder.timedOutAt,
-              )} ago, response not yet observed)`;
-            const pending = get().rpc[tabId]?.pendingCommands;
-            const inFlight = pending
-              ? [...pending.values()].map((p) =>
-                  p.quiet
-                    ? `${p.command} (bg, ${formatDuration(Date.now() - p.startedAt)})`
-                    : `${p.command} (${formatDuration(Date.now() - p.startedAt)})`,
-                )
-              : [];
-            return inFlight.length > 0
-              ? `background "${command}" timed out after ${budget} — other commands still in flight: ${inFlight.join(", ")}`
-              : `background "${command}" timed out after ${budget} — no other command in flight`;
-          })()
+        ? `background "${command}" timed out after ${formatDuration(err.timeoutMs)} — ${
+            wedgeSuffix(tabId, err) ?? "no other command in flight"
+          }`
         : `background "${command}" failed: ${err instanceof Error ? err.message : String(err)}`;
     appendItem(tabId, noticeItem(text, "info"));
   };
@@ -497,6 +613,8 @@ export function createMachinery(
       return resp;
     } catch (err) {
       const tab = get().rpc[tabId];
+      // The process went away; its overlay already says so (issue #338).
+      if (err instanceof RpcCommandAbandonedError) return null;
       if (tab?.failure?.fatal) return null;
       // Background sync never paints the session-level failure: one dim,
       // coalesced notice per wedge episode instead (issue #302).
@@ -505,13 +623,18 @@ export function createMachinery(
         return null;
       }
       const timedOut = err instanceof RpcCommandTimeoutError;
-      const message = err instanceof Error ? err.message : String(err);
+      const base = err instanceof Error ? err.message : String(err);
+      // Name what was ahead of it in omp's chain: the banner is the surface a
+      // user actually reads, and it is the one that lacked attribution (#337).
+      const suffix = timedOut ? wedgeSuffix(tabId, err) : null;
       const liveState = findRecord(get().state, tabId)?.live;
       patchRpc(tabId, {
         failure: {
           message: timedOut
-            ? message
-            : `RPC command "${command}" failed: ${message}`,
+            ? suffix
+              ? `${base} — ${suffix}`
+              : base
+            : `RPC command "${command}" failed: ${base}`,
           kind: "command",
           fatal: false,
           command,
@@ -661,6 +784,7 @@ export function createMachinery(
    * stop now.
    */
   const teardownExited = (tabId: string, code: number): void => {
+    abandonPendingCommands(tabId, "the session process exited");
     // An rpc-mode omp that dies mid-tool sends no agent_end or
     // omp_ui_error frame — this exit is the only signal, so running
     // tool cards are settled here (issue #93). Settle from the effective
@@ -709,6 +833,7 @@ export function createMachinery(
    * Keep this teardown in sync with the onPtyExit handler above.
    */
   const teardownHibernated = (tabId: string): void => {
+    abandonPendingCommands(tabId, "the session was hibernated");
     const before = get().rpc[tabId];
     const settled = before
       ? settleRunningTools(effectiveItems(tabId), "aborted")
@@ -760,5 +885,6 @@ export function createMachinery(
     ensureStreamStallTimer,
     teardownExited,
     teardownHibernated,
+    abandonPendingCommands,
   };
 }

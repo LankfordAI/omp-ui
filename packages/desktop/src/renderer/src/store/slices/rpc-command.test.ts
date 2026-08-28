@@ -1,5 +1,5 @@
 // RPC command slice tests (moved verbatim from store.test.ts for #295).
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { generateTitleFromPrompt } from "../../lib/session-title";
 import { rpcTabState } from "../../test/fixtures";
@@ -176,6 +176,7 @@ describe("native RPC relaunch preparation", () => {
         reject: vi.fn(),
         timer: 0,
         quiet: false,
+        lateAck: false,
         command: "prompt",
         startedAt: Date.now(),
         timeoutMs: 60_000,
@@ -520,6 +521,10 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
         command: "prompt",
         timeoutMs: 30_000,
         elapsedMs: 30_000,
+        lateAck: false,
+        // The silence clock is per tab and outlives a single case; the
+        // re-arm contract itself is asserted in the late-ack budget suite.
+        quietForMs: expect.any(Number),
         pendingCommandCount: 0,
         pending: [],
         sessionStatus: "running",
@@ -563,6 +568,243 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
         (entry) => entry.tabId === earlyTab && entry.cmd.type === "get_state",
       ),
     ).toBe(true);
+  });
+});
+
+describe("late-ack command classification (issue #335)", () => {
+  it("classifies commands omp awaits before its ack as late-ack", () => {
+    // omp awaits these handlers before acking: a model call, a provider
+    // refresh, a turn unwind, file/network work, or a UI round-trip.
+    for (const type of [
+      "compact",
+      "handoff",
+      "abort",
+      "abort_and_prompt",
+      "export_html",
+      "login",
+      "new_session",
+      "switch_session",
+      "branch",
+      "set_model",
+      "cycle_model",
+      "get_available_models",
+      "bash",
+    ]) {
+      expect(h.isLateAckCommand({ type })).toBe(true);
+    }
+  });
+
+  it("keeps commands omp answers from memory strict", () => {
+    for (const type of [
+      "get_state",
+      "get_session_stats",
+      "get_subagents",
+      "get_messages",
+      "get_available_commands",
+      "set_todos",
+      "set_thinking_level",
+      "set_steering_mode",
+    ]) {
+      expect(h.isLateAckCommand({ type })).toBe(false);
+    }
+  });
+
+  it("splits prompt by message: slash and /skill: are late-ack, plain text is not", () => {
+    // omp awaits tryRunRpcSkillCommand and the builtin slash dispatcher before
+    // acking a prompt; a plain-text prompt acks immediately.
+    expect(h.isLateAckCommand({ type: "prompt", message: "/skill:research go" })).toBe(true);
+    expect(h.isLateAckCommand({ type: "prompt", message: "please run /skill:tdd now" })).toBe(true);
+    expect(h.isLateAckCommand({ type: "prompt", message: "/usage" })).toBe(true);
+    expect(h.isLateAckCommand({ type: "prompt", message: "  /compact" })).toBe(true);
+    expect(h.isLateAckCommand({ type: "prompt", message: "fix the bug" })).toBe(false);
+    expect(h.isLateAckCommand({ type: "prompt", message: "use http://x/y" })).toBe(false);
+    expect(h.isLateAckCommand({ type: "prompt" })).toBe(false);
+  });
+});
+
+describe("late-ack silence budget (issue #335)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  it("keeps a late-ack command pending while the process keeps emitting frames", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const promise = h.useStore.getState().rpcCommand(h.TAB, { type: "compact" });
+      let settled = false;
+      void promise.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+      const cmd = h.sent.pop()!.cmd;
+      await vi.advanceTimersByTimeAsync(25_000);
+      // Any frame proves omp is alive and the chain is merely slow.
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      expect(settled).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+      expect(h.useStore.getState().rpc[h.TAB]!.pendingCommands.size).toBe(1);
+
+      h.respond(h.TAB, cmd, { summary: "…" });
+      await expect(promise).resolves.toMatchObject({ type: "response" });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails a late-ack command once the process has been silent for a full window", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const promise = h.useStore.getState().rpcCommand(h.TAB, { type: "compact" });
+      const typed = expect(promise).rejects.toMatchObject({
+        name: "RpcCommandTimeoutError",
+        command: "compact",
+        kind: "silence",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      await vi.advanceTimersByTimeAsync(41_000);
+      await typed;
+      await expect(promise).rejects.toThrow(
+        /stopped responding — no session activity for 30\.0s/,
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not re-arm a strict command when frames arrive", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const promise = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
+      const typed = expect(promise).rejects.toMatchObject({
+        name: "RpcCommandTimeoutError",
+        command: "get_state",
+        kind: "response",
+      });
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      }
+      await typed;
+      await expect(promise).rejects.toThrow(
+        'RPC command "get_state" timed out after its 30.0s response budget',
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("pending commands are abandoned when the process goes away (issue #338)", () => {
+  /**
+   * Sends a loud prompt on `store`, tears its process down, then outlives the
+   * budget: an orphaned wait would fire here and paint a phantom banner.
+   */
+  const outliveBudget = async (
+    store: typeof h.useStore,
+    teardown: () => void,
+  ): Promise<void> => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const promise = store
+        .getState()
+        .rpcCommand(h.TAB, { type: "prompt", message: "do the thing" });
+      const rejected = expect(promise).rejects.toMatchObject({
+        name: "RpcCommandAbandonedError",
+        command: "prompt",
+      });
+      teardown();
+      await rejected;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(store.getState().rpc[h.TAB]?.failure).toBeUndefined();
+      expect(store.getState().rpc[h.TAB]?.pendingCommands.size ?? 0).toBe(0);
+      expect(warn).not.toHaveBeenCalledWith(
+        "[rpc] command timeout",
+        expect.anything(),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  };
+
+  /** init latches per module evaluation, so a listener capture needs a fresh one. */
+  const freshStoreWithListeners = async (): Promise<{
+    store: typeof h.useStore;
+    exit: (tabId: string, code: number) => void;
+    hibernate: (tabId: string) => void;
+  }> => {
+    vi.resetModules();
+    const { useStore: fresh } = await import("../../store");
+    fresh.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    const init = fresh.getState().init();
+    const exit = h.mockBackend.onPtyExit.mock.calls.at(-1)![0] as (
+      tabId: string,
+      code: number,
+    ) => void;
+    const hibernate = h.mockBackend.onSessionHibernated.mock.calls.at(-1)![0] as (
+      tabId: string,
+    ) => void;
+    await init;
+    return { store: fresh, exit, hibernate };
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("drops the wait on process exit with no banner", async () => {
+    const { store, exit } = await freshStoreWithListeners();
+    await outliveBudget(store, () => exit(h.TAB, 1));
+  });
+
+  it("drops the wait on hibernation with no banner", async () => {
+    const { store, hibernate } = await freshStoreWithListeners();
+    await outliveBudget(store, () => hibernate(h.TAB));
+  });
+
+  it("drops the wait when a relaunched process boots", async () => {
+    // prepareRpcRelaunch runs while the old process is still alive (the
+    // advisor drain depends on that); the wait dies when the fresh process
+    // announces itself and boots.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      h.backendState = h.stateWithRecord(null);
+      h.useStore.setState({ state: h.backendState });
+      const promise = h.useStore
+        .getState()
+        .rpcCommand(h.TAB, { type: "prompt", message: "do the thing" });
+      const rejected = expect(promise).rejects.toMatchObject({
+        name: "RpcCommandAbandonedError",
+        command: "prompt",
+      });
+      h.sent.splice(0);
+      await h.driveBoot(h.TAB);
+      await rejected;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
+      expect(warn).not.toHaveBeenCalledWith(
+        "[rpc] command timeout",
+        expect.anything(),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 describe("auto-title gating (setInitialPrompt)", () => {
