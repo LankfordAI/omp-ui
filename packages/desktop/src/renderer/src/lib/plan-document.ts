@@ -149,8 +149,14 @@ a:active {
 </style>`;
 }
 
+// Recognizing an already-prepared document is a structural test, not a text
+// scan: a plan that documents this id in prose or in an inline <code> chip —
+// exactly what a plan about the plan renderer does — must not be read as
+// prepared, skip injection, and then fail verification (issue #331).
+// Anchored to the opening tag like MERMAID_BLOCK and PRE_BLOCK; `[^>]*` cannot
+// cross `>`, so only an attribute of a real <style> element can match.
 const GUARDRAIL_MARKER = new RegExp(
-  `\\bid\\s*=\\s*(?:["']${GUARDRAIL_ID}["']|${GUARDRAIL_ID}(?=[\\s>]))`,
+  `<style\\b[^>]*\\bid\\s*=\\s*(?:["']${GUARDRAIL_ID}["']|${GUARDRAIL_ID}(?=[\\s>]))`,
   "i",
 );
 const CLOSING_HEAD = /<\/head\s*>/i;
@@ -220,11 +226,11 @@ export function verifyPlanStructure(prepared: string): string | null {
   const doc = new DOMParser().parseFromString(prepared, "text/html");
 
   // Injection guarantees the guardrail <style> by construction; absence means
-  // an authored document carried the marker id on a non-style element and
-  // dodged injection. tagName check instead of instanceof: HTMLStyleElement
-  // is realm-bound and unavailable across realms in jsdom.
-  const guardrail = doc.getElementById(GUARDRAIL_ID);
-  if (guardrail === null || guardrail.tagName !== "STYLE") {
+  // the bytes never went through preparation. Queried as `style[id=…]` rather
+  // than getElementById plus a tagName check: ids are not unique in authored
+  // HTML, and getElementById returns whichever element parses first, so an
+  // authored element sharing the id could mask a stylesheet that is present.
+  if (doc.querySelector(`style[id="${GUARDRAIL_ID}"]`) === null) {
     return "the readability guardrail stylesheet is missing";
   }
 

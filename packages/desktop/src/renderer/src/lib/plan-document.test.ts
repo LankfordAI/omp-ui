@@ -90,9 +90,21 @@ describe("preparePlanDocument injection", () => {
     expect(await preparePlanDocument(once)).toBe(once);
   });
 
-  it("recognizes the stable marker with alternate quoting and casing", async () => {
-    const marked = "<article ID='omp-ui-plan-guardrails'>leave unchanged</article>";
+  it("recognizes the marker on a style element with an odd-cased attribute name", async () => {
+    const marked =
+      `<html><head><style ID="omp-ui-plan-guardrails">p{color:#111}</style></head>` +
+      `<body>Plan</body></html>`;
     expect(await preparePlanDocument(marked)).toBe(marked);
+  });
+
+  it("injects guardrails into a plan that documents the marker as content", async () => {
+    // A plan about the plan renderer quotes this id in prose and in inline
+    // code chips; that text must never read as "already prepared" (issue #331).
+    const body = `<body><p>The renderer injects <code>${MARKER}</code>.</p></body>`;
+    const prepared = await preparePlanDocument(`<html><head></head>${body}</html>`);
+
+    expect(prepared).toContain(`<style ${MARKER}>`);
+    expect(prepared.endsWith(`</style></head>${body}</html>`)).toBe(true);
   });
 });
 
