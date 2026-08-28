@@ -13,7 +13,7 @@ import { SessionHud } from "./components/SessionHud";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
-import { Button, Chevron, IconButton } from "./components/ui";
+import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
 import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
@@ -44,23 +44,6 @@ const HINTS: [combo: string, what: string][] = [
 const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
 const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
 
-/** Plus — new session, matching the sidebar's per-project `+` affordances. */
-function IconPlus() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 3.5v9M3.5 8h9" />
-    </svg>
-  );
-}
 
 /** Folder-plus — add project, distinct from the adjacent new-session glyph. */
 function IconFolderPlus() {

@@ -17,7 +17,7 @@ import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconPlus, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -39,22 +39,6 @@ function IconSearch() {
   );
 }
 
-function IconPlus() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 3.5v9M3.5 8h9" />
-    </svg>
-  );
-}
 
 function IconGear() {
   return (

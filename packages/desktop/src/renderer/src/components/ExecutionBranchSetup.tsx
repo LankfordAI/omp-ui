@@ -138,7 +138,7 @@ export function useExecutionBranch({
     : null;
 
   const resolve = useCallback(async (): Promise<boolean> => {
-    if (!isRepo || branchChoice === "current") return true;
+    if (!isRepo || projectCwd === undefined || branchChoice === "current") return true;
     const name = branchChoice === "new" ? newName.trim() : existingName;
     if (name === null || name === "") return false; // unreachable — the button is disabled
     if (branchChoice === "existing" && name === branchInfo?.current) return true;
@@ -151,7 +151,7 @@ export function useExecutionBranch({
     setCheckingOut(true);
     setBranchError(null);
     const err = await checkoutGitBranch(
-      projectCwd!,
+      projectCwd,
       name,
       branchChoice === "new" ? { create: true } : undefined,
     );
