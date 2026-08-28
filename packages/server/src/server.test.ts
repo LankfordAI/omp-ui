@@ -518,6 +518,64 @@ describe("startRemoteServer lifecycle", () => {
   });
 });
 
+describe("startRemoteServer malformed requests", () => {
+  // One malformed escape anywhere in attacker-controlled text must never crash main: the
+  // process installs no uncaughtException handler, so a throw here would kill the whole app.
+
+  function tempWebRoot(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-malformed-"));
+    fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html><div id=root></div>");
+    return dir;
+  }
+
+  it("401s a cookie with a malformed percent-escape and keeps serving", async () => {
+    const root = tempWebRoot();
+    try {
+      const { handle } = await serve({ webRoot: root });
+      // Cookie-only (no query token): the malformed value must fail as a credential, not throw.
+      const bad = await rawGetWithHeader(handle.port, "/", "Cookie: omp_ui_token=%ZZ");
+      expect(bad.status).toBe(401);
+      const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+      expect(good.status).toBe(200);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("400s a malformed percent-escape in the path and keeps serving", async () => {
+    const root = tempWebRoot();
+    try {
+      const { handle } = await serve({ webRoot: root });
+      const bad = await rawGet(handle.port, `/%ZZ?t=${TOKEN}`);
+      expect(bad.status).toBe(400);
+      expect(bad.body).toBe("bad request");
+      const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+      expect(good.status).toBe(200);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("400s a target Node's parser accepts but WHATWG URL rejects", async () => {
+    // An invalid bracketed IPv6 authority in absolute form: llhttp keeps it verbatim in
+    // req.url (verified), `new URL` then throws TypeError inside requestUrl().
+    const { handle } = await serve();
+    const bad = await rawGet(handle.port, "http://[bad/");
+    expect(bad.status).toBe(400);
+    expect(bad.body).toBe("bad request");
+    const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+    expect(good.status).toBe(200);
+  });
+
+  it("destroys the socket on an upgrade whose target WHATWG URL rejects", async () => {
+    const { handle } = await serve();
+    // The upgrade handler's catch path: no 401 write, no TypeError escaping — just a dead socket.
+    await expect(rawUpgrade(handle.port, "http://[bad/")).rejects.toThrow();
+    const good = await rawGet(handle.port, `/healthz?t=${TOKEN}`);
+    expect(good.status).toBe(200);
+  });
+});
+
 describe("startRemoteServer static bundle", () => {
   const roots: string[] = [];
 
@@ -547,10 +605,27 @@ describe("startRemoteServer static bundle", () => {
     const js = await fetch(`${base}/assets/app.js?t=${TOKEN}`);
     expect(js.status).toBe(200);
     expect(js.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-
+    expect(js.headers.get("content-length")).toBe(String(Buffer.byteLength("export const x = 1;\n")));
+    expect(await js.text()).toBe("export const x = 1;\n");
     const png = await fetch(`${base}/icon.png?t=${TOKEN}`);
     expect(png.status).toBe(200);
     expect(png.headers.get("content-type")).toBe("image/png");
+  });
+
+  it.skipIf(
+    process.platform === "win32" || typeof process.getuid !== "function" || process.getuid() === 0,
+  )("404s when a statted asset cannot be opened before headers", async () => {
+    const root = webRoot();
+    const file = path.join(root, "assets", "app.js");
+    fs.chmodSync(file, 0o000);
+    try {
+      const { base } = await serve({ webRoot: root });
+      const res = await fetch(`${base}/assets/app.js?t=${TOKEN}`);
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe("not found");
+    } finally {
+      fs.chmodSync(file, 0o600);
+    }
   });
 
   it("falls back to index.html for an extensionless client route", async () => {
@@ -606,6 +681,59 @@ function rawGet(port: number, target: string): Promise<{ status: number; body: s
     socket.on("close", () => {
       const status = Number(raw.slice(9, 12));
       resolve({ status, body: raw.slice(raw.indexOf("\r\n\r\n") + 4) });
+    });
+  });
+}
+
+/** `rawGet` with one extra header line (used to forge a cookie without a fetch credential store). */
+function rawGetWithHeader(
+  port: number,
+  target: string,
+  header: string,
+): Promise<{ status: number; body: string }> {
+  // Executor form (not Promise.withResolvers): the node tsconfig lib is ES2022.
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => {
+      socket.write(
+        `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${header}\r\nConnection: close\r\n\r\n`,
+      );
+    });
+    let raw = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      raw += chunk;
+    });
+    socket.on("error", reject);
+    socket.on("close", () => {
+      const status = Number(raw.slice(9, 12));
+      resolve({ status, body: raw.slice(raw.indexOf("\r\n\r\n") + 4) });
+    });
+  });
+}
+
+/**
+ * An upgrade request whose socket the server is expected to destroy without a response.
+ * Resolves only if bytes arrive (a leaked reply); rejects when the socket dies silent.
+ */
+function rawUpgrade(port: number, target: string): Promise<never> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => {
+      socket.write(
+        `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n` +
+          "Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+      );
+    });
+    let raw = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      raw += chunk;
+    });
+    socket.on("error", () => {
+      /* destroyed by the server: the expected path; close settles */
+    });
+    socket.on("close", () => {
+      if (raw.length > 0) resolve(raw as never);
+      else reject(new Error("socket destroyed without a response"));
     });
   });
 }

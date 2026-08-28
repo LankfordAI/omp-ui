@@ -2,6 +2,7 @@
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
 import { backend } from "../../backend";
+import { formatDuration } from "../../lib/duration";
 import { arrField } from "../../lib/fields";
 import { randomId } from "../../lib/random-id";
 import {
@@ -18,14 +19,11 @@ import {
 import { historyToItems, noticeItem } from "../../lib/transcript";
 import {
   RPC_COMMAND_TIMEOUT_MS,
+  RpcCommandAbandonedError,
   RpcCommandTimeoutError,
-  compactionUsageGenerations,
   handedOffPlanSources,
   isLateAckCommand,
-  lastFrameAt,
   respData,
-  pendingNotices,
-  timedOutCommands,
   type GetState,
   type SetState,
   type StoreMachinery,
@@ -43,6 +41,238 @@ export interface RpcCommandDeps extends Watchers {
   reconcilePlanGates(state: BackendState): void;
 }
 
+interface PendingCommand {
+  resolve: (value: unknown) => void;
+  reject: (err: Error) => void;
+  timer: number;
+  /** Background sync — must never drive the busy sweep. */
+  quiet: boolean;
+  /** Budget measures omp's silence, not the command's duration (issue #335). */
+  lateAck: boolean;
+  /** Command name only — never retain the command payload in diagnostics. */
+  command: string;
+  startedAt: number;
+  timeoutMs: number;
+}
+
+const pendingCommands = new Map<string, Map<string, PendingCommand>>();
+
+function commandAttribution(
+  tabId: string,
+  startedAt: number,
+  m: StoreMachinery,
+): string | null {
+  const holder = m
+    .runtime(tabId)
+    .timedOutCommands.find((entry) => entry.startedAt < startedAt);
+  if (holder)
+    return `queued behind ${holder.command} (timed out ${formatDuration(
+      Date.now() - holder.timedOutAt,
+    )} ago, response not yet observed)`;
+  const inFlight = [...(pendingCommands.get(tabId)?.values() ?? [])].map((p) =>
+    p.quiet
+      ? `${p.command} (bg, ${formatDuration(Date.now() - p.startedAt)})`
+      : `${p.command} (${formatDuration(Date.now() - p.startedAt)})`,
+  );
+  return inFlight.length > 0
+    ? `other commands still in flight: ${inFlight.join(", ")}`
+    : null;
+}
+
+/** The command bus owns its correlation map; consumers see operations only. */
+export const rpcCommandMachinery = {
+  begin(
+    tabId: string,
+    cmd: Record<string, unknown>,
+    opts: { quiet?: boolean; captureId?: (id: string) => void } | undefined,
+    get: GetState,
+    m: StoreMachinery,
+  ): Promise<unknown> {
+    const id = randomId();
+    const command = typeof cmd.type === "string" ? cmd.type : "unknown";
+    const startedAt = Date.now();
+    const timeoutMs = RPC_COMMAND_TIMEOUT_MS;
+    const lateAck = isLateAckCommand(cmd);
+    // Quiet commands are background sync (usage ticks, subagent roster
+    // heartbeats). They never touch `busy`: each round-trip would otherwise
+    // strobe the progress sweeps for a few ms, jittering the transcript.
+    const quiet = opts?.quiet ?? false;
+    const tabPending = pendingCommands.get(tabId) ?? new Map<string, PendingCommand>();
+    pendingCommands.set(tabId, tabPending);
+    // Executor form required: the pending entry must exist before send.
+    const promise = new Promise<unknown>((resolve, reject) => {
+      const expire = (): void => {
+        const entry = tabPending.get(id);
+        if (!entry) return;
+        // A late-ack command's window measures omp's silence: while frames
+        // keep arriving the process is alive and merely slow, so re-arm for
+        // the remainder of the quiet window instead of failing a healthy
+        // session (issue #335).
+        const quietFor = Date.now() - (m.runtime(tabId).lastFrameAt ?? startedAt);
+        if (lateAck && quietFor < timeoutMs) {
+          entry.timer = window.setTimeout(expire, timeoutMs - quietFor);
+          return;
+        }
+        // Remove before settling so the map remains the authoritative ref
+        // count when `finally` recomputes busy.
+        tabPending.delete(id);
+        if (tabPending.size === 0) pendingCommands.delete(tabId);
+        // Attribution memory: the entry outlives the budget until a
+        // completion response is observed, so a later quiet timeout can
+        // name the command holding the chain (issue #302).
+        const timedOutCommands = [
+          ...m.runtime(tabId).timedOutCommands,
+          { id, command, startedAt, timedOutAt: Date.now() },
+        ];
+        m.patchRuntime(tabId, { timedOutCommands });
+        const runtime = get().rpc[tabId];
+        const liveState = findRecord(get().state, tabId)?.live;
+        const details = {
+          tabId,
+          commandId: id,
+          command,
+          timeoutMs,
+          elapsedMs: Date.now() - startedAt,
+          lateAck,
+          quietForMs: quietFor,
+          pendingCommandCount: tabPending.size,
+          pending: [...tabPending.values()].map((p) => ({
+            command: p.command,
+            quiet: p.quiet,
+            elapsedMs: Date.now() - p.startedAt,
+          })),
+          sessionStatus: runtime?.status ?? null,
+          isStreaming: runtime?.session.isStreaming ?? null,
+          liveState: liveState ?? null,
+        };
+        console.warn("[rpc] command timeout", details);
+        reject(
+          new RpcCommandTimeoutError(
+            command,
+            timeoutMs,
+            startedAt,
+            lateAck ? "silence" : "response",
+            commandAttribution(tabId, startedAt, m),
+          ),
+        );
+      };
+      tabPending.set(id, {
+        resolve,
+        reject,
+        timer: window.setTimeout(expire, timeoutMs),
+        quiet,
+        lateAck,
+        command,
+        startedAt,
+        timeoutMs,
+      });
+    });
+    if (!quiet) m.patchRpc(tabId, { busy: true });
+    // Callers correlating async frames (prompt_result) with this command
+    // learn the wire id before the first byte leaves.
+    opts?.captureId?.(id);
+    backend.rpcSend(tabId, { ...cmd, id });
+    // The map is the ref count: both settle paths remove their entry before
+    // settling, so concurrent commands can't clear `busy` for each other.
+    // Only loud entries count — a lingering quiet heartbeat must not pin
+    // `busy`, and a settling quiet one must not clear it early either way.
+    return promise.finally(() => {
+      let loud = 0;
+      for (const p of pendingCommands.get(tabId)?.values() ?? [])
+        if (!p.quiet) loud++;
+      if (loud === 0 && get().rpc[tabId]?.busy) {
+        m.patchRpc(tabId, { busy: false });
+      }
+    });
+  },
+
+  settle(
+    tabId: string,
+    id: string,
+    response: { success: boolean; frame: unknown; error?: unknown },
+    m: StoreMachinery,
+  ): void {
+    const tabPending = pendingCommands.get(tabId);
+    const pending = tabPending?.get(id);
+    if (!pending) {
+      // The budget expired first: this late response is the completion
+      // observation the timeout attribution waits for (issue #302).
+      const timedOutCommands = m
+        .runtime(tabId)
+        .timedOutCommands.filter((entry) => entry.id !== id);
+      m.patchRuntime(tabId, { timedOutCommands });
+      return;
+    }
+    clearTimeout(pending.timer);
+    tabPending!.delete(id);
+    if (tabPending!.size === 0) pendingCommands.delete(tabId);
+    // The chain is FIFO: this completion proves every earlier-started
+    // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
+    if (pending.command !== "bash") {
+      const timedOutCommands = m
+        .runtime(tabId)
+        .timedOutCommands.filter((entry) => entry.startedAt >= pending.startedAt);
+      m.patchRuntime(tabId, { timedOutCommands });
+    }
+    if (!response.success) {
+      const message =
+        typeof response.error === "string" ? response.error : "command failed";
+      pending.reject(new Error(message));
+    } else {
+      pending.resolve(response.frame);
+    }
+  },
+
+  abandon(tabId: string, reason: string, m: StoreMachinery): void {
+    m.patchRuntime(tabId, { timedOutCommands: [], lastFrameAt: undefined });
+    const tabPending = pendingCommands.get(tabId);
+    if (tabPending === undefined || tabPending.size === 0) return;
+    pendingCommands.delete(tabId);
+    for (const pending of tabPending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new RpcCommandAbandonedError(pending.command, reason));
+    }
+  },
+
+  snapshotPending(
+    tabId: string,
+    opts?: { includeQuiet?: boolean },
+  ): ReadonlySet<string> {
+    const includeQuiet = opts?.includeQuiet ?? true;
+    return new Set(
+      [...(pendingCommands.get(tabId)?.entries() ?? [])]
+        .filter(([, pending]) => includeQuiet || !pending.quiet)
+        .map(([id]) => id),
+    );
+  },
+
+  hasPending(tabId: string, id: string): boolean {
+    return pendingCommands.get(tabId)?.has(id) === true;
+  },
+
+  /** Test seam: store tests replace state wholesale, so clear the private bus too. */
+  resetForTests(): void {
+    for (const commands of pendingCommands.values()) {
+      for (const pending of commands.values()) clearTimeout(pending.timer);
+    }
+    pendingCommands.clear();
+  },
+};
+
+/** Cancels every process-local dependency before removing its runtime. */
+export function disposeTabRuntime(
+  tabId: string,
+  reason: string,
+  deps: Watchers,
+  m: StoreMachinery,
+): void {
+  deps.concern.cancel(tabId);
+  deps.advisorReply.cancel(tabId);
+  deps.stall.cancel(tabId);
+  rpcCommandMachinery.abandon(tabId, reason, m);
+  m.discardTabRuntime(tabId);
+}
+
 function freshRpcTabState(advisorReply: boolean): RpcTabState {
   return {
     status: "starting",
@@ -57,9 +287,8 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     subagentItems: {},
     selectedSubagent: null,
     subagentMarkers: new Map(),
-    subagentLevel: "progress",
+    subagentAckLevel: undefined,
     extensionStatus: {},
-    pendingCommands: new Map(),
     streamCheckpoint: undefined,
     streamStallMs: undefined,
     stallAbortPending: undefined,
@@ -93,7 +322,6 @@ export function createRpcCommandSlice(
 ): RpcCommandSlice {
   // The bodies moved from the root closure keep their original names.
   const {
-    concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
     stall: stallContinueWatcher,
   } = deps;
@@ -104,9 +332,9 @@ export function createRpcCommandSlice(
     // pre-history items would clobber it on the next flush. Per-agent marker
     // memory must not outlive the render items it was deduping against.
     m.cancelTranscriptBatch(tabId);
-    get().rpc[tabId]?.subagentMarkers?.clear();
     m.patchRpc(tabId, {
       items: historyToItems(arrField(respData(resp), "messages")),
+      subagentMarkers: new Map(),
     });
     // A resumed transcript's advisories are history, not a live review: the
     // baseline moves past them so nothing here is ever answered.
@@ -119,20 +347,16 @@ export function createRpcCommandSlice(
     if (rpcBooting.has(tabId)) return;
     rpcBooting.add(tabId);
     try {
-      // A pending concern handoff belongs to the session that just went away.
-      concernWatcher.cancel(tabId);
-      advisorReplyWatcher.cancel(tabId);
-      stallContinueWatcher.cancel(tabId);
-      m.cancelTranscriptBatch(tabId);
-      compactionUsageGenerations.delete(tabId);
       // A re-boot must not slam the Agents pane's drill-down shut: the open
       // detail view and the retained buffers behind it survive the process
       // restart, and the subscription re-escalates after boot (issue #63).
       const prior = get().rpc[tabId];
-      // Fresh state gets a fresh pendingCommands map; the old map's timers
-      // stay armed and would paint a banner against this new process 30 s
-      // from now (issue #338).
-      m.abandonPendingCommands(tabId, "the session was relaunched");
+      const pendingNotices = m.runtime(tabId).pendingNotices;
+      disposeTabRuntime(tabId, "the session was relaunched", deps, m);
+      // Ready can beat the spawn IPC response. The renderer-only owner must
+      // exist synchronously before any command can produce another frame.
+      m.createTabRuntime(tabId);
+      m.patchRuntime(tabId, { pendingNotices });
       m.patchRpc(tabId, {
         ...freshRpcTabState(get().state?.advisorAutoReply ?? true),
         selectedSubagent: prior?.selectedSubagent ?? null,
@@ -147,6 +371,17 @@ export function createRpcCommandSlice(
           },
         }));
       }
+      // Subscribe first, but do not serialize boot behind this optional bus.
+      // The ack field records only what this process has actually accepted.
+      const subagentSubscription = get()
+        .rpcCommand(tabId, {
+          type: "set_subagent_subscription",
+          level: "progress",
+        })
+        .then(
+          () => m.patchRpc(tabId, { subagentAckLevel: "progress" }),
+          () => {},
+        );
       // Boot can outrun init()'s first getState — the record decides whether
       // history (get_messages) is fetched, so don't read it from thin air.
       if (!get().state) set({ state: await backend.getState() });
@@ -165,6 +400,7 @@ export function createRpcCommandSlice(
       // allSettled, not all: a missing subagent bus or a slow stats read must
       // never leave the tab stuck in "starting".
       const boots: Promise<unknown>[] = [
+        subagentSubscription,
         get()
           .rpcCommand(tabId, { type: "get_available_models" })
           .then((resp) => {
@@ -182,22 +418,12 @@ export function createRpcCommandSlice(
           .then((resp) => {
             m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) });
           }),
-        // "progress" | "events" are the only legal levels; progress is the
-        // cheap one — per-agent status, not every subagent token.
-        get().rpcCommand(tabId, {
-          type: "set_subagent_subscription",
-          level: "progress",
-        }),
       ];
       if (rec?.sessionId) boots.push(loadHistory(tabId));
       await Promise.allSettled(boots);
-      // The fresh process just heard "progress" — reflect that in the
-      // tracked level, then re-escalate if a detail view is still open.
-      const runtime = get().rpc[tabId];
-      if (runtime) {
-        runtime.subagentLevel = "progress";
+      // Re-escalate only when a detail view survived the process restart.
+      if (get().rpc[tabId]?.selectedSubagent)
         m.syncSubagentSubscription(tabId);
-      }
       // Arm the advisor-stats extension (its first slash run sets its `ui`
       // channel, after which it auto-publishes at each turn end). Armed for
       // every session, not just advisor-on ones: the extension is always loaded,
@@ -231,10 +457,11 @@ export function createRpcCommandSlice(
         // History is in and the tab is live: notices staged across the
         // relaunch land now, after everything that would have dropped them
         // (issue #334).
-        for (const notice of pendingNotices.get(tabId) ?? []) {
+        const runtime = m.runtime(tabId);
+        for (const notice of runtime.pendingNotices) {
           m.appendItem(tabId, noticeItem(notice.text, notice.level));
         }
-        pendingNotices.delete(tabId);
+        m.patchRuntime(tabId, { pendingNotices: [] });
       }
     } catch (err) {
       const liveState = findRecord(get().state, tabId)?.live;
@@ -262,98 +489,9 @@ export function createRpcCommandSlice(
     cmd: Record<string, unknown>,
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown> => {
-    const tab = get().rpc[tabId];
-    if (!tab) return Promise.reject(new Error("rpc tab not initialized"));
-    const id = randomId();
-    const command = typeof cmd.type === "string" ? cmd.type : "unknown";
-    const startedAt = Date.now();
-    const timeoutMs = RPC_COMMAND_TIMEOUT_MS;
-    const lateAck = isLateAckCommand(cmd);
-    // Quiet commands are background sync (usage ticks, subagent roster
-    // heartbeats). They never touch `busy`: each round-trip would otherwise
-    // strobe the progress sweeps for a few ms, jittering the transcript.
-    const quiet = opts?.quiet ?? false;
-    // Executor form required: the pending entry must exist before send.
-    const promise = new Promise<unknown>((resolve, reject) => {
-      const expire = (): void => {
-        const entry = tab.pendingCommands.get(id);
-        if (!entry) return;
-        // A late-ack command's window measures omp's silence: while frames
-        // keep arriving the process is alive and merely slow, so re-arm for
-        // the remainder of the quiet window instead of failing a healthy
-        // session (issue #335).
-        const quietFor = Date.now() - (lastFrameAt.get(tabId) ?? startedAt);
-        if (lateAck && quietFor < timeoutMs) {
-          entry.timer = window.setTimeout(expire, timeoutMs - quietFor);
-          return;
-        }
-        // Remove before settling so the map remains the authoritative ref
-        // count when `finally` recomputes busy.
-        tab.pendingCommands.delete(id);
-        // Attribution memory: the entry outlives the budget until a
-        // completion response is observed, so a later quiet timeout can
-        // name the command holding the chain (issue #302).
-        const timedOut = timedOutCommands.get(tabId) ?? [];
-        timedOut.push({ id, command, startedAt, timedOutAt: Date.now() });
-        timedOutCommands.set(tabId, timedOut);
-        const runtime = get().rpc[tabId];
-        const liveState = findRecord(get().state, tabId)?.live;
-        const details = {
-          tabId,
-          commandId: id,
-          command,
-          timeoutMs,
-          elapsedMs: Date.now() - startedAt,
-          lateAck,
-          quietForMs: quietFor,
-          pendingCommandCount: tab.pendingCommands.size,
-          pending: [...tab.pendingCommands.values()].map((p) => ({
-            command: p.command,
-            quiet: p.quiet,
-            elapsedMs: Date.now() - p.startedAt,
-          })),
-          sessionStatus: runtime?.status ?? null,
-          isStreaming: runtime?.session.isStreaming ?? null,
-          liveState: liveState ?? null,
-        };
-        console.warn("[rpc] command timeout", details);
-        reject(
-          new RpcCommandTimeoutError(
-            command,
-            timeoutMs,
-            startedAt,
-            lateAck ? "silence" : "response",
-          ),
-        );
-      };
-      tab.pendingCommands.set(id, {
-        resolve,
-        reject,
-        timer: window.setTimeout(expire, timeoutMs),
-        quiet,
-        lateAck,
-        command,
-        startedAt,
-        timeoutMs,
-      });
-    });
-    if (!quiet) m.patchRpc(tabId, { busy: true });
-    // Callers correlating async frames (prompt_result) with this command
-    // learn the wire id before the first byte leaves.
-    opts?.captureId?.(id);
-    backend.rpcSend(tabId, { ...cmd, id });
-    // The map is the ref count: both settle paths remove their entry before
-    // settling, so concurrent commands can't clear `busy` for each other.
-    // Only loud entries count — a lingering quiet heartbeat must not pin
-    // `busy`, and a settling quiet one must not clear it early either way.
-    return promise.finally(() => {
-      const pending = get().rpc[tabId]?.pendingCommands;
-      let loud = 0;
-      if (pending) for (const p of pending.values()) if (!p.quiet) loud++;
-      if (loud === 0 && get().rpc[tabId]?.busy) {
-        m.patchRpc(tabId, { busy: false });
-      }
-    });
+    if (!get().rpc[tabId])
+      return Promise.reject(new Error("rpc tab not initialized"));
+    return rpcCommandMachinery.begin(tabId, cmd, opts, get, m);
   };
 
   const setInitialPrompt = (tabId: string, prompt: string): void => {

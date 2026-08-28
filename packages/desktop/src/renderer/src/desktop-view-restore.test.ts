@@ -83,7 +83,7 @@ const mockBackend = {
   terminateSession: vi.fn(),
   hibernatePlanSource: vi.fn(async () => true),
   switchMode: vi.fn(),
-  deleteSession: vi.fn(),
+  deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
   deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),
   forkSession: vi.fn(),
   toggleFavorite: vi.fn(),
@@ -231,21 +231,17 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     await store.useStore.getState().init();
 
     expect(mockBackend.spawnSession).toHaveBeenCalledTimes(2);
-    expect(mockBackend.spawnSession.mock.calls[0]![0]).toMatchObject({
-      projectCwd: "/p/a",
-      mode: "pty",
-      advisor: false,
-      cols: 80,
-      rows: 24,
+    expect(mockBackend.spawnSession.mock.calls[0]![0]).toEqual({
+      origin: "resume",
       resumeTabId: "pty-1",
-    });
-    expect(mockBackend.spawnSession.mock.calls[1]![0]).toMatchObject({
-      projectCwd: "/p/b",
-      mode: "rpc-ui",
-      advisor: true,
       cols: 80,
       rows: 24,
+    });
+    expect(mockBackend.spawnSession.mock.calls[1]![0]).toEqual({
+      origin: "resume",
       resumeTabId: "rpc-1",
+      cols: 80,
+      rows: 24,
     });
     // Missing-on-disk and absent records never spawn.
     const seen = mockBackend.spawnSession.mock.calls.map((c) => c[0]!.resumeTabId);

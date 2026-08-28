@@ -1,4 +1,5 @@
 import {
+  normalizeControlFrame,
   parsePlanReviewTitle,
   parsePlanStatus,
   PLAN_EXECUTE,
@@ -70,11 +71,12 @@ export class PlanGateTracker implements FrameObserver {
 
   /** Records a proposal as its frame passes through the session. */
   private seePlanFrame(tabId: string, frame: RpcFrame): void {
-    if (typeof frame !== "object" || frame === null) return;
-    if (frame.type !== "extension_ui_request") return;
-    const review = parsePlanReviewTitle(typeof frame.title === "string" ? frame.title : undefined);
+    const control = normalizeControlFrame(frame);
+    if (control === null || control.kind !== "ext_request") return;
+    const wire = control.frame;
+    const review = parsePlanReviewTitle(typeof wire.title === "string" ? wire.title : undefined);
     if (review === null) return;
-    const frameId = typeof frame.id === "string" ? frame.id : "";
+    const frameId = typeof control.id === "string" ? control.id : "";
     this.gates.set(tabId, {
       pending: {
         title: review.title,
@@ -94,10 +96,12 @@ export class PlanGateTracker implements FrameObserver {
    * restores it (issue #263).
    */
   private observePlanStatus(tabId: string, frame: RpcFrame): void {
-    if (typeof frame !== "object" || frame === null) return;
-    if (frame.type !== "extension_ui_request" || frame.method !== "setStatus") return;
-    if (frame.statusKey !== PLAN_STATUS_KEY) return;
-    const status = parsePlanStatus(typeof frame.statusText === "string" ? frame.statusText : undefined);
+    const control = normalizeControlFrame(frame);
+    if (control === null || control.kind !== "ext_request") return;
+    if (control.method !== "setStatus") return;
+    const wire = control.frame;
+    if (wire.statusKey !== PLAN_STATUS_KEY) return;
+    const status = parsePlanStatus(typeof wire.statusText === "string" ? wire.statusText : undefined);
     if (status === null) return; // malformed payload, never trusted over the record
     const next: AgentMode = status.enabled ? "plan" : "build";
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -108,13 +112,14 @@ export class PlanGateTracker implements FrameObserver {
 
   /** Settles the gate when its select answer comes back from any renderer. */
   private notePlanVerdict(tabId: string, cmd: RpcFrame): void {
-    if (cmd.type !== "extension_ui_response") return;
-    const id = typeof cmd.id === "string" ? cmd.id : null;
+    const control = normalizeControlFrame(cmd);
+    if (control === null || control.kind !== "ext_response") return;
+    const id = typeof control.id === "string" ? control.id : null;
     const gate = this.gates.get(tabId);
     if (id === null || !gate || gate.pending === null || gate.pending.frameId !== id) return;
     this.gates.set(tabId, {
       pending: null,
-      settle: { frameId: id, verdict: cmd.value === PLAN_EXECUTE ? "executed" : "refined" },
+      settle: { frameId: id, verdict: control.value === PLAN_EXECUTE ? "executed" : "refined" },
     });
     this.deps.attention?.planSettled(tabId);
     // Between the verdict and the implementation prompt the process is

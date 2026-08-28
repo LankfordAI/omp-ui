@@ -222,10 +222,13 @@ describe("lineage watcher teardown (issue #64)", () => {
 describe("live session teardown (issue #64)", () => {
   const spawnPtySession = async (): Promise<string> => {
     const res = (await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "pty",
+      advisor: false,
       cols: 80,
       rows: 24,
+      worktree: null,
     })) as { tabId: string };
     return res.tabId;
   };
@@ -324,14 +327,34 @@ describe("live session teardown (issue #64)", () => {
     },
   );
 
+  it("rejects a malformed wire request before starting a process", async () => {
+    setup();
+
+    await expect(
+      invoke(CH.spawnSession, {
+        origin: "new",
+        projectCwd: "/proj",
+        mode: "pty",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+      }),
+    ).rejects.toThrow(/worktree/);
+
+    expect(spawnOmpMock).not.toHaveBeenCalled();
+    expect(RpcClientMock).not.toHaveBeenCalled();
+  });
+
   it("queues Plan mode during the handshake for a genuinely new rpc-ui session (issue #140)", async () => {
     setup();
     await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
       rows: 24,
+      worktree: null,
     });
 
     expect(RpcClientMock).toHaveBeenCalledWith(
@@ -347,11 +370,13 @@ describe("live session teardown (issue #64)", () => {
     setup();
     await invoke(CH.setDefaultAgentMode, "build");
     await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
       rows: 24,
+      worktree: null,
     });
 
     expect(RpcClientMock).toHaveBeenCalledWith(
@@ -366,12 +391,14 @@ describe("live session teardown (issue #64)", () => {
   it("queues Build for a plan-execution spawn even when Plan is the default (issue #165)", async () => {
     setup();
     await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
       rows: 24,
-      startInPlanMode: false,
+      worktree: null,
+      planMode: false,
     });
 
     expect(RpcClientMock).toHaveBeenCalledWith(
@@ -386,10 +413,13 @@ describe("live session teardown (issue #64)", () => {
   it("mode switch away from rpc-ui waits for the rpc child to exit before spawning PTY", async () => {
     setup();
     const res = (await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "rpc-ui",
+      advisor: false,
       cols: 80,
       rows: 24,
+      worktree: null,
     })) as { tabId: string };
     const predecessor = rpcInstances[0]!;
 
@@ -407,10 +437,13 @@ describe("live session teardown (issue #64)", () => {
   it("sessionDelete kills the rpc child and reaps it before removing files", async () => {
     setup();
     const res = (await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "rpc-ui",
+      advisor: false,
       cols: 80,
       rows: 24,
+      worktree: null,
     })) as { tabId: string };
     const rpc = rpcInstances[0]!;
     // The child honours the kill: killAndReap must not need the SIGKILL escalation.
@@ -439,10 +472,13 @@ describe("live session teardown (issue #64)", () => {
 describe("terminate escalation (issue #182)", () => {
   const spawnRpcSession = async (): Promise<string> => {
     const res = (await invoke(CH.spawnSession, {
+      origin: "new",
       projectCwd: "/proj",
       mode: "rpc-ui",
+      advisor: false,
       cols: 80,
       rows: 24,
+      worktree: null,
     })) as { tabId: string };
     return res.tabId;
   };

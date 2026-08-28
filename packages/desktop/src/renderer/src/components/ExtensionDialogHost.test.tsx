@@ -10,14 +10,14 @@ const rpcSend = vi.fn();
 Object.assign(window, { ompBackend: { rpcSend } });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
-const { ExtensionDialogHost } = await import("./ExtensionDialogHost");
+const { ExtensionDialogHost, INITIAL_EXTENSION_DIALOG_STATE, reduceExtensionDialog } = await import("./ExtensionDialogHost");
 
 const TAB = "tab-question";
 let root: Root | null = null;
 
 function runtime(queue: unknown[]): RpcTabState {
   return { status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
-    session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {}, pendingCommands: new Map(),
+    session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
     plan: null, planReview: null,
     planHtml: null, planText: null, planDeferred: false, plans: [], advisorStats: null, mcpStatus: null, advisorReply: true };
@@ -42,6 +42,32 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
+});
+
+describe("reduceExtensionDialog", () => {
+  it("purely carries a confirmed multi-select toggle into the next frame", () => {
+    const initial = { ...INITIAL_EXTENSION_DIALOG_STATE, inputValue: "draft" };
+    const first = reduceExtensionDialog(initial, {
+      type: "request",
+      current: { method: "select", title: "Tools? (1/2)" },
+      method: "select",
+    });
+    const pending = reduceExtensionDialog(first, {
+      type: "pick",
+      pending: "Alpha",
+    });
+    const next = reduceExtensionDialog(pending, {
+      type: "request",
+      current: { method: "select", title: "(1 selected) Tools? (1/2)" },
+      method: "select",
+    });
+
+    expect(initial.inputValue).toBe("draft");
+    expect(first.inputValue).toBe("");
+    expect(pending.lastSent).toBe("Alpha");
+    expect(next.picked).toEqual(["Alpha"]);
+    expect(next.lastSent).toBeNull();
+  });
 });
 
 describe("compact ExtensionDialogHost", () => {
@@ -96,6 +122,21 @@ describe("compact ExtensionDialogHost", () => {
     const done = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === "done selecting")!;
     act(() => done.click());
     expect(lastFrame()).toMatchObject({ id: "m2", value: "✔ Done selecting" });
+  });
+
+  it("subscribes to window keydown once across request transitions", () => {
+    const add = vi.spyOn(window, "addEventListener");
+    try {
+      renderRequest({ id: "one", method: "select", title: "One", options: ["A"] });
+      act(() =>
+        useStore.setState({
+          rpc: { [TAB]: runtime([{ id: "two", method: "select", title: "Two", options: ["B"] }]) },
+        }),
+      );
+      expect(add.mock.calls.filter(([type]) => type === "keydown")).toHaveLength(1);
+    } finally {
+      add.mockRestore();
+    }
   });
 });
 

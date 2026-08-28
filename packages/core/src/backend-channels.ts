@@ -9,6 +9,7 @@ import type {
   BranchListOptions,
   ConsoleProgram,
   DeleteSessionPreview,
+  DeleteSessionResult,
   DirBrowseResult,
   ImageAttachment,
   McpServersResult,
@@ -57,17 +58,17 @@ const NOTIFY = { kind: "notify" } as const;
 const EVENT = { kind: "event" } as const;
 
 /** Declares a request/reply channel's argument tuple and result. */
-export function request<Args extends unknown[], Result>(): RequestChannel<Args, Result> {
+function request<Args extends unknown[], Result>(): RequestChannel<Args, Result> {
   return REQUEST;
 }
 
 /** Declares a fire-and-forget notification channel's argument tuple. */
-export function notify<Args extends unknown[]>(): NotifyChannel<Args> {
+function notify<Args extends unknown[]>(): NotifyChannel<Args> {
   return NOTIFY;
 }
 
 /** Declares a backend event channel's callback argument tuple. */
-export function event<Args extends unknown[]>(): EventChannel<Args> {
+function event<Args extends unknown[]>(): EventChannel<Args> {
   return EVENT;
 }
 
@@ -300,7 +301,7 @@ export const BACKEND_CHANNELS = {
    */
   deleteSession: {
     channel: "session:delete",
-    ...request<[tabId: string, cascade: boolean], void>(),
+    ...request<[tabId: string, cascade: boolean], DeleteSessionResult>(),
   },
   /**
    * Full-fidelity branch (issue #83): copies the session's transcript into a

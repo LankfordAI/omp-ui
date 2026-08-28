@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getOmpAgentDir } from "./omp-config";
+import * as atomicWrite from "./atomic-write";
 import type {
   McpServerEntry,
   McpServerSource,
@@ -28,10 +29,10 @@ import type {
  *   the `enabled` flag written back in place; tool-owned files are NEVER
  *   mutated — toggling those servers goes through the user-level
  *   `disabledServers`/`enabledServers` lists in the agent dir's `mcp.json`.
- *   Project scope deliberately diverges: a toggle writes ONLY inside the
- *   project (its own writable file, or a secret-free suppression entry in
- *   `.omp/mcp.json`), never user-level state — see
- *   {@link setProjectServerEnabled}.
+ *   Project scope deliberately diverges: its effective decision stays inside
+ *   the project (an existing writable file or a secret-free suppression entry
+ *   in `.omp/mcp.json`). The one unavoidable user-level change is releasing
+ *   an allowlist pin that would otherwise override every project-local write.
  *
  * Redaction is a boundary rule, not a display choice: the DTO never carries
  * `env`, `headers`, `auth`, or `oauth` values, and http/sse endpoints are
@@ -73,6 +74,17 @@ interface ProviderFile {
   maps: (root: RawServer, projectCwd: string | null) => unknown[];
 }
 
+interface ProviderLocations {
+  home: string;
+  xdg: string;
+  agentDir: string;
+  projectCwd: string | null;
+}
+
+interface ProviderFileMetadata extends Omit<ProviderFile, "path"> {
+  path: (locations: ProviderLocations) => string;
+}
+
 function asRecord(value: unknown): RawServer | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as RawServer)
@@ -81,70 +93,62 @@ function asRecord(value: unknown): RawServer | undefined {
 
 /** `root.mcpServers` — the map shape every mcp.json-flavoured file shares. */
 const mcpServersMap = (root: RawServer): unknown[] => [root.mcpServers];
+const openCodeMap = (root: RawServer): unknown[] => [root.mcp];
+const claudeUserMaps = (root: RawServer, cwd: string | null): unknown[] =>
+  cwd === null
+    ? [root.mcpServers]
+    : [root.mcpServers, asRecord(asRecord(root.projects)?.[cwd])?.mcpServers];
 
-/** The provider table, in omp's enumeration order (first definition wins). */
-function providerFiles(projectCwd: string | null, env: NodeJS.ProcessEnv): ProviderFile[] {
+/** Provider metadata in omp's enumeration order (first definition wins). */
+const providerFiles: ProviderFileMetadata[] = [
+  { provider: "native", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".omp", "mcp.json"), writable: true, maps: mcpServersMap },
+  { provider: "native", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".omp", ".mcp.json"), writable: true, maps: mcpServersMap },
+  { provider: "native", scope: "user", path: ({ agentDir }) => path.join(agentDir, "mcp.json"), writable: true, maps: mcpServersMap },
+  { provider: "native", scope: "user", path: ({ agentDir }) => path.join(agentDir, ".mcp.json"), writable: true, maps: mcpServersMap },
+  { provider: "claude", scope: "user", path: ({ home }) => path.join(home, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
+  { provider: "claude", scope: "user", path: ({ home }) => path.join(home, ".claude.json"), writable: false, maps: claudeUserMaps },
+  { provider: "claude", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
+  { provider: "claude", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".claude", ".mcp.json"), writable: false, maps: mcpServersMap },
+  { provider: "gemini", scope: "user", path: ({ home }) => path.join(home, ".gemini", "settings.json"), writable: false, maps: mcpServersMap },
+  { provider: "gemini", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".gemini", "settings.json"), writable: false, maps: mcpServersMap },
+  { provider: "opencode", scope: "user", path: ({ xdg }) => path.join(xdg, "opencode", "opencode.json"), writable: false, maps: openCodeMap },
+  { provider: "opencode", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, "opencode.json"), writable: false, maps: openCodeMap },
+  { provider: "cursor", scope: "user", path: ({ home }) => path.join(home, ".cursor", "mcp.json"), writable: false, maps: mcpServersMap },
+  { provider: "cursor", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".cursor", "mcp.json"), writable: false, maps: mcpServersMap },
+  { provider: "windsurf", scope: "user", path: ({ home }) => path.join(home, ".codeium", "windsurf", "mcp_config.json"), writable: false, maps: mcpServersMap },
+  { provider: "windsurf", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".windsurf", "mcp_config.json"), writable: false, maps: mcpServersMap },
+  { provider: "vscode", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".vscode", "mcp.json"), writable: false, maps: mcpServersMap },
+  { provider: "mcp-json", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, "mcp.json"), writable: true, maps: mcpServersMap },
+  { provider: "mcp-json", scope: "project", path: ({ projectCwd }) => path.join(projectCwd!, ".mcp.json"), writable: true, maps: mcpServersMap },
+];
+
+function getProviderFiles(projectCwd: string | null, env: NodeJS.ProcessEnv): ProviderFile[] {
   const home = env.HOME ?? os.homedir();
-  const xdg = env.XDG_CONFIG_HOME ?? path.join(home, ".config");
-  const agentDir = getOmpAgentDir(env);
-
-  const userNative = [
-    { provider: "native", scope: "user", path: path.join(agentDir, "mcp.json"), writable: true, maps: mcpServersMap },
-    { provider: "native", scope: "user", path: path.join(agentDir, ".mcp.json"), writable: true, maps: mcpServersMap },
-  ] as const;
-  // ~/.claude.json carries the global map plus a per-project one; global mode
-  // contributes only the global map.
-  const userClaudeJson: ProviderFile = {
-    provider: "claude",
-    scope: "user",
-    path: path.join(home, ".claude.json"),
-    writable: false,
-    maps: (root: RawServer, cwd: string | null): unknown[] =>
-      cwd === null
-        ? [root.mcpServers]
-        : [root.mcpServers, asRecord(asRecord(root.projects)?.[cwd])?.mcpServers],
+  const locations: ProviderLocations = {
+    home,
+    xdg: env.XDG_CONFIG_HOME ?? path.join(home, ".config"),
+    agentDir: getOmpAgentDir(env),
+    projectCwd,
   };
+  return providerFiles
+    .filter((file) => projectCwd !== null || file.scope === "user")
+    .map((file) => ({ ...file, path: file.path(locations) }));
+}
 
-  if (projectCwd === null) {
-    return [
-      userNative[0],
-      userNative[1],
-      { provider: "claude", scope: "user", path: path.join(home, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
-      userClaudeJson,
-      { provider: "gemini", scope: "user", path: path.join(home, ".gemini", "settings.json"), writable: false, maps: mcpServersMap },
-      { provider: "opencode", scope: "user", path: path.join(xdg, "opencode", "opencode.json"), writable: false, maps: (root) => [root.mcp] },
-      { provider: "cursor", scope: "user", path: path.join(home, ".cursor", "mcp.json"), writable: false, maps: mcpServersMap },
-      { provider: "windsurf", scope: "user", path: path.join(home, ".codeium", "windsurf", "mcp_config.json"), writable: false, maps: mcpServersMap },
-    ];
+interface ProviderSnapshot {
+  file: ProviderFile;
+  root: RawServer;
+}
+
+/** One provider read/parse shared by resolution and definition lookup. */
+async function loadProviderSnapshot(file: ProviderFile): Promise<ProviderSnapshot | undefined> {
+  let text: string;
+  try {
+    text = await fs.promises.readFile(file.path, "utf8");
+  } catch {
+    return undefined;
   }
-
-  return [
-    // native — omp's own files; project enumerates before user (project wins).
-    { provider: "native", scope: "project", path: path.join(projectCwd, ".omp", "mcp.json"), writable: true, maps: mcpServersMap },
-    { provider: "native", scope: "project", path: path.join(projectCwd, ".omp", ".mcp.json"), writable: true, maps: mcpServersMap },
-    userNative[0],
-    userNative[1],
-    // claude — translated providers enumerate user files before project files.
-    { provider: "claude", scope: "user", path: path.join(home, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
-    userClaudeJson,
-    { provider: "claude", scope: "project", path: path.join(projectCwd, ".claude", "mcp.json"), writable: false, maps: mcpServersMap },
-    { provider: "claude", scope: "project", path: path.join(projectCwd, ".claude", ".mcp.json"), writable: false, maps: mcpServersMap },
-    // gemini — settings.json carries the mcpServers key.
-    { provider: "gemini", scope: "user", path: path.join(home, ".gemini", "settings.json"), writable: false, maps: mcpServersMap },
-    { provider: "gemini", scope: "project", path: path.join(projectCwd, ".gemini", "settings.json"), writable: false, maps: mcpServersMap },
-    // opencode — the `mcp` key, in its own shape (mapped in normalizeServer).
-    { provider: "opencode", scope: "user", path: path.join(xdg, "opencode", "opencode.json"), writable: false, maps: (root) => [root.mcp] },
-    { provider: "opencode", scope: "project", path: path.join(projectCwd, "opencode.json"), writable: false, maps: (root) => [root.mcp] },
-    // cursor / windsurf / vscode.
-    { provider: "cursor", scope: "user", path: path.join(home, ".cursor", "mcp.json"), writable: false, maps: mcpServersMap },
-    { provider: "cursor", scope: "project", path: path.join(projectCwd, ".cursor", "mcp.json"), writable: false, maps: mcpServersMap },
-    { provider: "windsurf", scope: "user", path: path.join(home, ".codeium", "windsurf", "mcp_config.json"), writable: false, maps: mcpServersMap },
-    { provider: "windsurf", scope: "project", path: path.join(projectCwd, ".windsurf", "mcp_config.json"), writable: false, maps: mcpServersMap },
-    { provider: "vscode", scope: "project", path: path.join(projectCwd, ".vscode", "mcp.json"), writable: false, maps: mcpServersMap },
-    // Root mcp.json fallback — lowest priority, but writable like native.
-    { provider: "mcp-json", scope: "project", path: path.join(projectCwd, "mcp.json"), writable: true, maps: mcpServersMap },
-    { provider: "mcp-json", scope: "project", path: path.join(projectCwd, ".mcp.json"), writable: true, maps: mcpServersMap },
-  ];
+  return { file, root: asRecord(JSON.parse(text)) ?? {} };
 }
 
 /**
@@ -283,21 +287,16 @@ export async function resolveMcpServers(
   const agentDir = getOmpAgentDir(env);
   const { denylist, allowlist } = await readServerLists(path.join(agentDir, "mcp.json"), errors);
 
-  for (const file of providerFiles(projectCwd, env)) {
-    let text: string;
+  for (const file of getProviderFiles(projectCwd, env)) {
+    let snapshot: ProviderSnapshot | undefined;
     try {
-      text = await fs.promises.readFile(file.path, "utf8");
-    } catch {
-      continue; // absent/unreadable files simply contribute nothing
-    }
-    let root: RawServer;
-    try {
-      root = asRecord(JSON.parse(text)) ?? {};
+      snapshot = await loadProviderSnapshot(file);
     } catch (err) {
       errors.push({ path: file.path, message: err instanceof Error ? err.message : String(err) });
       continue;
     }
-    for (const map of file.maps(root, projectCwd)) {
+    if (snapshot === undefined) continue;
+    for (const map of snapshot.file.maps(snapshot.root, projectCwd)) {
       const record = asRecord(map);
       if (!record) continue;
       for (const [name, raw] of Object.entries(record)) {
@@ -365,33 +364,82 @@ export async function resolveMcpServers(
 
 /* ----------------------------------------------------------------- writer */
 
-/** Missing file → empty config (omp's readMCPConfigFile); malformed JSON throws. */
-async function readMcpConfigFile(filePath: string): Promise<McpConfigFile> {
-  try {
-    const text = await fs.promises.readFile(filePath, "utf8");
-    return JSON.parse(text) as McpConfigFile;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { mcpServers: {} };
-    throw err;
-  }
+interface FileSnapshot {
+  existed: boolean;
+  text: string;
+  config: McpConfigFile;
 }
 
 /**
- * Whole-file write, the way omp writes (and the way strict JSON round-trips
- * safely: no comments to lose, so a parse/spread/stringify preserves every
- * unrelated key). `$schema` comes first; tmp + rename keeps it atomic. No file
- * locking — omp-ui is single-instance and the only writer besides a hand-edit.
+ * A compensating write set for one toggle. Planning reads every original and
+ * computes every final byte before commit begins. Commits are individually
+ * atomic and sequential; a caught failure restores completed paths in reverse
+ * order. This protects against ordinary reported I/O failures, not process or
+ * machine crashes between commits — it is deliberately not crash consistency.
  */
-async function writeMcpConfigFile(filePath: string, config: McpConfigFile): Promise<void> {
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const tmp = `${filePath}.${process.pid}.tmp`;
-  const content = JSON.stringify({ $schema: config.$schema ?? MCP_CONFIG_SCHEMA_URL, ...config }, null, 2);
-  try {
-    await fs.promises.writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
-    await fs.promises.rename(tmp, filePath);
-  } catch (err) {
-    await fs.promises.rm(tmp, { force: true }).catch(() => {});
-    throw err;
+class McpConfigWriteSet {
+  private readonly snapshots = new Map<string, FileSnapshot>();
+  private readonly writes = new Map<string, string>();
+  private readonly configs = new Map<string, McpConfigFile>();
+
+  async readConfig(filePath: string): Promise<McpConfigFile> {
+    const planned = this.configs.get(filePath);
+    if (planned !== undefined) return planned;
+
+    let snapshot: FileSnapshot;
+    try {
+      const text = await fs.promises.readFile(filePath, "utf8");
+      snapshot = { existed: true, text, config: JSON.parse(text) as McpConfigFile };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      snapshot = { existed: false, text: "", config: { mcpServers: {} } };
+    }
+    this.snapshots.set(filePath, snapshot);
+    this.configs.set(filePath, snapshot.config);
+    return snapshot.config;
+  }
+
+  async stageConfig(filePath: string, config: McpConfigFile): Promise<void> {
+    if (!this.snapshots.has(filePath)) await this.readConfig(filePath);
+    this.configs.set(filePath, config);
+    this.writes.set(
+      filePath,
+      JSON.stringify({ $schema: config.$schema ?? MCP_CONFIG_SCHEMA_URL, ...config }, null, 2),
+    );
+  }
+
+  commit(): void {
+    const committed: string[] = [];
+    try {
+      for (const [filePath, text] of this.writes) {
+        atomicWrite.writeTextAtomic(filePath, text);
+        committed.push(filePath);
+      }
+    } catch (originalError) {
+      const rollbackFailures: Array<{ path: string; error: unknown }> = [];
+      for (const filePath of committed.reverse()) {
+        const snapshot = this.snapshots.get(filePath)!;
+        try {
+          if (snapshot.existed) atomicWrite.writeTextAtomic(filePath, snapshot.text);
+          else fs.rmSync(filePath, { force: true });
+        } catch (error) {
+          rollbackFailures.push({ path: filePath, error });
+        }
+      }
+      if (rollbackFailures.length > 0) {
+        const details = rollbackFailures
+          .map(({ path: failedPath, error }) =>
+            `${failedPath}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          .join("; ");
+        throw new AggregateError(
+          rollbackFailures.map(({ error }) => error),
+          `Failed to roll back MCP config writes: ${details}`,
+          { cause: originalError },
+        );
+      }
+      throw originalError;
+    }
   }
 }
 
@@ -401,24 +449,20 @@ function readStringList(config: McpConfigFile, key: "disabledServers" | "enabled
 }
 
 /**
- * Drops one name from the user-level `enabledServers`, leaving the deny list
- * and every unrelated key untouched; the key itself disappears once the list
- * empties, exactly as omp's own writer leaves it.
- *
- * This is the single user-level write the project toggle performs. It is
- * unavoidable: omp's `loadAllMCPConfigs` suppresses a server when
- * `denylisted || (enabled === false && !allowlisted)`, and it reads both
- * lists from the user file alone — a project file's own list keys are never
- * consulted. So while a name sits in `enabledServers`, no `enabled: false`
- * written anywhere inside a project can suppress it.
+ * Plans removal of one user-level allowlist name while preserving every other
+ * list member and unrelated key.
  */
-async function clearUserAllowlistEntry(userPath: string, name: string): Promise<void> {
-  const config = await readMcpConfigFile(userPath);
+async function stageClearUserAllowlistEntry(
+  writes: McpConfigWriteSet,
+  userPath: string,
+  name: string,
+): Promise<void> {
+  const config = await writes.readConfig(userPath);
   const allow = readStringList(config, "enabledServers").filter((entry) => entry !== name);
   const updated: McpConfigFile = { ...config };
   if (allow.length > 0) updated.enabledServers = allow.sort();
   else delete updated.enabledServers;
-  await writeMcpConfigFile(userPath, updated);
+  await writes.stageConfig(userPath, updated);
 }
 
 /**
@@ -427,21 +471,22 @@ async function clearUserAllowlistEntry(userPath: string, name: string): Promise<
  * rejects; nothing is half-reported.
  *
  * Global scope (`projectCwd: null`) is a faithful port of omp's
- * `setMcpServerEnabled` (src/mcp/config-writer.ts) — see
- * {@link setGlobalServerEnabled}. Project scope deliberately diverges: the
- * toggle writes only inside the project and NEVER touches user-level state —
- * see {@link setProjectServerEnabled}. `req.sourcePath` is honoured in global
- * scope only; the project writer resolves the winning definition itself.
+ * `setMcpServerEnabled` (src/mcp/config-writer.ts). Project scope deliberately
+ * diverges: the toggle writes only inside the project except when it must
+ * release an allowlist pin; `req.sourcePath` is honoured in global scope only,
+ * while the project writer resolves the winning definition itself.
  */
 export async function setMcpServerEnabled(
   req: McpSetEnabledRequest,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<McpServersResult> {
+  const writes = new McpConfigWriteSet();
   if (req.projectCwd === null) {
-    await setGlobalServerEnabled(req.name, req.enabled, req.sourcePath, env);
+    await stageGlobalServerEnabled(writes, req.name, req.enabled, req.sourcePath, env);
   } else {
-    await setProjectServerEnabled(req.projectCwd, req.name, req.enabled, env);
+    await stageProjectServerEnabled(writes, req.projectCwd, req.name, req.enabled, env);
   }
+  writes.commit();
   return resolveMcpServers(req.projectCwd, env);
 }
 
@@ -465,7 +510,8 @@ export async function setMcpServerEnabled(
  * final write carries the list state and (when the user file was itself the
  * updated candidate) the entry flip together.
  */
-async function setGlobalServerEnabled(
+async function stageGlobalServerEnabled(
+  writes: McpConfigWriteSet,
   name: string,
   enabled: boolean,
   sourcePath: string | undefined,
@@ -474,20 +520,20 @@ async function setGlobalServerEnabled(
   const userPath = path.join(getOmpAgentDir(env), "mcp.json");
   // Read the user file once up front: it always supplies the deny/allow
   // lists, and it may be the winning candidate below.
-  let userConfig = await readMcpConfigFile(userPath);
+  let userConfig = await writes.readConfig(userPath);
   const candidatePaths = [...new Set([sourcePath, userPath].filter((p) => p !== undefined))];
   let updatedInConfig = false;
 
   for (const filePath of candidatePaths) {
-    const config = filePath === userPath ? userConfig : await readMcpConfigFile(filePath);
+    const config = filePath === userPath ? userConfig : await writes.readConfig(filePath);
     const server = config.mcpServers?.[name];
     if (server === undefined) continue;
     const written: McpConfigFile = {
       ...config,
       mcpServers: { ...config.mcpServers, [name]: { ...server, enabled } },
     };
-    await writeMcpConfigFile(filePath, written);
-    if (filePath === userPath) userConfig = written; // keep the snapshot current
+    await writes.stageConfig(filePath, written);
+    if (filePath === userPath) userConfig = written;
     updatedInConfig = true;
     break;
   }
@@ -515,7 +561,7 @@ async function setGlobalServerEnabled(
     else delete updated.disabledServers;
     if (allowList.length > 0) updated.enabledServers = allowList;
     else delete updated.enabledServers;
-    await writeMcpConfigFile(userPath, updated);
+    await writes.stageConfig(userPath, updated);
   }
 }
 
@@ -527,21 +573,16 @@ async function findDefinitions(
 ): Promise<Array<{ file: ProviderFile; raw: RawServer }>> {
   const defs: Array<{ file: ProviderFile; raw: RawServer }> = [];
   for (const file of files) {
-    let text: string;
+    let snapshot: ProviderSnapshot | undefined;
     try {
-      text = await fs.promises.readFile(file.path, "utf8");
-    } catch {
-      continue; // absent/unreadable files simply contribute nothing
-    }
-    let root: RawServer;
-    try {
-      root = asRecord(JSON.parse(text)) ?? {};
+      snapshot = await loadProviderSnapshot(file);
     } catch {
       continue; // the resolution pass already reports malformed files
     }
-    for (const map of file.maps(root, projectCwd)) {
+    if (snapshot === undefined) continue;
+    for (const map of snapshot.file.maps(snapshot.root, projectCwd)) {
       const raw = asRecord(asRecord(map)?.[name]);
-      if (raw) defs.push({ file, raw });
+      if (raw) defs.push({ file: snapshot.file, raw });
     }
   }
   return defs;
@@ -557,7 +598,7 @@ async function globalWinner(
   name: string,
   env: NodeJS.ProcessEnv,
 ): Promise<{ file: ProviderFile; raw: RawServer } | undefined> {
-  return (await findDefinitions(name, providerFiles(null, env), null))[0];
+  return (await findDefinitions(name, getProviderFiles(null, env), null))[0];
 }
 
 /**
@@ -613,23 +654,25 @@ function disableSkeleton(provider: McpServerSource, raw: RawServer): RawServer {
  *   project's `.omp/mcp.json` (a project entry with `enabled: false`
  *   suppresses the name for this project only; omp honours suppression, not
  *   drop).
- * - Disabling an allowlisted name → the pin is released first. omp suppresses
- *   on `denylisted || (enabled === false && !allowlisted)` and reads both
- *   lists from the user file only, so the project write alone is a silent
- *   no-op (#324); omp's own `/mcp disable` clears the pin for the same
- *   reason. Clearing it alone would also drop the server in every other
- *   project whose global winner says `enabled: false`, so when that winner
- *   is a file omp-ui may write, it is flipped to `enabled: true` first and
- *   the pin becomes redundant instead of load-bearing (#326). A tool-owned
- *   winner has no such lever — omp-ui never mutates another tool's config,
- *   and omp offers no project-scoped allowlist — so that case stays global
- *   and the UI warns (`disableReach: "global"`).
+ * - Disabling an allowlisted name → the pin is released in the same
+ *   compensating write set. omp suppresses on
+ *   `denylisted || (enabled === false && !allowlisted)` and reads both lists
+ *   from the user file only, so the project write alone is a silent no-op
+ *   (#324); omp's own `/mcp disable` clears the pin for the same reason.
+ *   Clearing it alone would also drop the server in every other project whose
+ *   global winner says `enabled: false`, so when that winner is a file omp-ui
+ *   may write, it is flipped to `enabled: true` and the pin becomes redundant
+ *   instead of load-bearing (#326). A tool-owned winner has no such lever —
+ *   omp-ui never mutates another tool's config, and omp offers no
+ *   project-scoped allowlist — so that case stays global and the UI warns
+ *   (`disableReach: "global"`).
  * - Winner elsewhere, enabling → nothing project-local can beat the user
  *   denylist or a source's `enabled: false` without copying secrets into a
  *   possibly-committed project file, so those states reject with a pointer
  *   to the global manager; an already-enabled server is an idempotent no-op.
  */
-async function setProjectServerEnabled(
+async function stageProjectServerEnabled(
+  writes: McpConfigWriteSet,
   /** The working tree whose project-scope config decides — a worktree
    *  session's checkout, not the project root it is registered under. */
   projectCwd: string,
@@ -637,7 +680,7 @@ async function setProjectServerEnabled(
   enabled: boolean,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
-  const defs = await findDefinitions(name, providerFiles(projectCwd, env), projectCwd);
+  const defs = await findDefinitions(name, getProviderFiles(projectCwd, env), projectCwd);
   const winner = defs[0];
   if (winner === undefined) {
     throw new Error(`Server "${name}" is not defined in any config source.`);
@@ -649,64 +692,57 @@ async function setProjectServerEnabled(
   const errors: McpServersResult["errors"] = [];
   const { denylist, allowlist } = await readServerLists(userPath, errors);
 
-  // The pin outranks anything a project file can say, so a project-scope
-  // disable clears it before the write below decides this project. Clearing
-  // it alone also drops the server in every other project whose winner says
-  // `enabled: false` — so when that winner is a file omp-ui may write, enable
-  // it there first and the pin becomes redundant instead of load-bearing.
-  // A tool-owned winner has no such lever: omp-ui never mutates another
-  // tool's config, and omp offers no project-scoped allowlist, so that case
-  // stays global and the UI warns (entry.disableReach === "global").
-  if (!enabled && allowlist.has(name)) {
-    const global = await globalWinner(name, env);
-    if (global !== undefined && global.raw.enabled === false && global.file.writable) {
-      const config = await readMcpConfigFile(global.file.path);
-      await writeMcpConfigFile(global.file.path, {
-        ...config,
-        mcpServers: { ...config.mcpServers, [name]: { ...global.raw, enabled: true } },
-      });
-    }
-    await clearUserAllowlistEntry(userPath, name);
-  }
-
+  // Stage the project-local decision first. Apart from making the write set
+  // read naturally, this means a caught later failure can remove a newly
+  // created override rather than leaving an inert file behind.
   if (winner.file.scope === "project" && winner.file.writable) {
-    const config = await readMcpConfigFile(winner.file.path);
+    const config = await writes.readConfig(winner.file.path);
     if (enabled && isDisableSkeleton(winner.raw) && defs.length > 1) {
       const { [name]: _removed, ...rest } = config.mcpServers ?? {};
-      await writeMcpConfigFile(winner.file.path, { ...config, mcpServers: rest });
-      return;
+      await writes.stageConfig(winner.file.path, { ...config, mcpServers: rest });
+    } else {
+      await writes.stageConfig(winner.file.path, {
+        ...config,
+        mcpServers: { ...config.mcpServers, [name]: { ...winner.raw, enabled } },
+      });
     }
-    await writeMcpConfigFile(winner.file.path, {
-      ...config,
-      mcpServers: { ...config.mcpServers, [name]: { ...winner.raw, enabled } },
-    });
-    return;
-  }
-
-  if (!enabled) {
+  } else if (!enabled) {
     const overridePath = path.join(projectCwd, ".omp", "mcp.json");
-    const config = await readMcpConfigFile(overridePath);
-    await writeMcpConfigFile(overridePath, {
+    const config = await writes.readConfig(overridePath);
+    await writes.stageConfig(overridePath, {
       ...config,
       mcpServers: {
         ...config.mcpServers,
         [name]: disableSkeleton(winner.file.provider, winner.raw),
       },
     });
-    return;
+  } else {
+    // Enabling a server defined outside the project: mirror resolution's state
+    // derivation to reject the states no project-local write can change.
+    if (denylist.has(name)) {
+      throw new Error(
+        `"${name}" is disabled by the user-level denylist — enable it globally from Settings → MCP servers.`,
+      );
+    }
+    if (winner.raw.enabled === false && !allowlist.has(name)) {
+      throw new Error(
+        `"${name}" is disabled in its source config — enable it globally from Settings → MCP servers.`,
+      );
+    }
+    // Already effectively enabled — idempotent no-op, no write.
   }
 
-  // Enabling a server defined outside the project: mirror resolution's state
-  // derivation to reject the states no project-local write can change.
-  if (denylist.has(name)) {
-    throw new Error(
-      `"${name}" is disabled by the user-level denylist — enable it globally from Settings → MCP servers.`,
-    );
+  // The pin outranks anything a project file can say. Releasing a load-bearing
+  // pin also turns on a writable global winner so other projects stay served.
+  if (!enabled && allowlist.has(name)) {
+    const global = await globalWinner(name, env);
+    if (global !== undefined && global.raw.enabled === false && global.file.writable) {
+      const config = await writes.readConfig(global.file.path);
+      await writes.stageConfig(global.file.path, {
+        ...config,
+        mcpServers: { ...config.mcpServers, [name]: { ...global.raw, enabled: true } },
+      });
+    }
+    await stageClearUserAllowlistEntry(writes, userPath, name);
   }
-  if (winner.raw.enabled === false && !allowlist.has(name)) {
-    throw new Error(
-      `"${name}" is disabled in its source config — enable it globally from Settings → MCP servers.`,
-    );
-  }
-  // Already effectively enabled — idempotent no-op, no write.
 }

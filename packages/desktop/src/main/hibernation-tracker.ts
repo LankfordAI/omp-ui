@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  isBlockingDialogMethod,
   isObject,
+  normalizeControlFrame,
   type OwnedSessionRecord,
   type Registry,
   type RpcFrame,
@@ -15,20 +17,6 @@ import { TurnCounter } from "./turns";
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
-/**
- * Renderer-routed dialogs whose unanswered requests suppress hibernation and
- * stream-stall detection. Mirrors DIALOG_METHODS (extension-router.ts): every
- * other method (notify, setStatus, setWidget, ...) is fire-and-forget state
- * the renderer consumes without a reply, so tracking it would suppress both
- * lifecycle guards forever.
- */
-const BLOCKING_DIALOG_METHODS: Record<string, true> = {
-  select: true,
-  confirm: true,
-  input: true,
-  editor: true,
-};
-
 /**
  * The no-kill verdicts of the shared hibernation attempt. `rearm`: a guard is
  * in force or the probe said "not idle" — re-examine next window (issue #247).
@@ -53,6 +41,8 @@ interface HibernateRecord {
   probeId: string | null;
   /** Settles the probe's promise; null on timeout or failure. */
   probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
+  /** The probe's fallback timer; owned by the record, cleared on settle or teardown. */
+  probeTimer: NodeJS.Timeout | undefined;
 }
 
 export interface HibernationTrackerDeps {
@@ -116,28 +106,42 @@ export class HibernationTracker implements FrameObserver {
     const entry = this.deps.getLive(tabId);
     if (!entry || entry.kind !== "rpc-ui") return;
     if (typeof frame !== "object" || frame === null) return;
+    const control = normalizeControlFrame(frame);
     const rec = this.recordFor(tabId);
     // The probe's own response: settle it and do NOT reset the idle clock —
     // probe traffic is our own, and resetting would postpone every hibernation
     // attempt by its own probe.
-    if (frame.type === "response" && rec.probeId !== null && frame.id === rec.probeId) {
+    if (
+      control !== null &&
+      control.kind === "response" &&
+      rec.probeId !== null &&
+      control.id === rec.probeId
+    ) {
       rec.probeId = null;
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
       const resolve = rec.probeResolve;
       rec.probeResolve = null;
       if (resolve === null) return;
-      if (frame.success === false) {
+      if (control.success === false) {
         resolve(null);
         return;
       }
       // Command responses nest their payload under `data` (same tolerant
-      // unwrap as the renderer's respData).
-      const data = isObject(frame.data) ? frame.data : frame;
-      const parked =
-        typeof data.queuedMessageCount === "number" &&
-        Number.isFinite(data.queuedMessageCount)
-          ? data.queuedMessageCount
-          : 0;
-      resolve({ parked, streaming: data.isStreaming === true });
+      // unwrap as the renderer's respData). Strictness is the documented
+      // intent (see probeState): a missing or malformed field means "cannot
+      // verify idle" → null → no-kill, never a defaulted "idle".
+      const data = isObject(control.data) ? control.data : control.frame;
+      const parked = data.queuedMessageCount;
+      const streaming = data.isStreaming;
+      if (
+        !(typeof parked === "number" && Number.isFinite(parked)) ||
+        typeof streaming !== "boolean"
+      ) {
+        resolve(null);
+        return;
+      }
+      resolve({ parked, streaming });
       return;
     }
     switch (frame.type) {
@@ -155,18 +159,21 @@ export class HibernationTracker implements FrameObserver {
           this.deps.attention?.turnEnded(tabId);
         break;
       }
-      case "extension_ui_request":
-        // Only user-answer dialogs block hibernation; the other methods are
-        // fire-and-forget state frames the renderer never replies to.
-        if (typeof frame.id === "string" && BLOCKING_DIALOG_METHODS[String(frame.method)] === true) {
-          let open = this.openRequests.get(tabId);
-          if (open === undefined) {
-            open = new Set<string>();
-            this.openRequests.set(tabId, open);
-          }
-          open.add(frame.id);
-        }
-        break;
+    }
+    if (
+      control !== null &&
+      control.kind === "ext_request" &&
+      // Only user-answer dialogs block hibernation; the other methods are
+      // fire-and-forget state frames the renderer never replies to.
+      typeof control.id === "string" &&
+      isBlockingDialogMethod(control.method)
+    ) {
+      let open = this.openRequests.get(tabId);
+      if (open === undefined) {
+        open = new Set<string>();
+        this.openRequests.set(tabId, open);
+      }
+      open.add(control.id);
     }
     // Responses to dialogs are commands (rpcSend), not frames: onSend
     // clears the bookkeeping. Any real frame re-arms the clock.
@@ -177,8 +184,9 @@ export class HibernationTracker implements FrameObserver {
   onSend(tabId: string, cmd: RpcFrame): void {
     // Responses to dialogs are commands, not frames: this is where the
     // blocking-dialog bookkeeping clears.
-    if (cmd.type === "extension_ui_response" && typeof cmd.id === "string") {
-      this.openRequests.get(tabId)?.delete(cmd.id);
+    const control = normalizeControlFrame(cmd);
+    if (control !== null && control.kind === "ext_response" && typeof control.id === "string") {
+      this.openRequests.get(tabId)?.delete(control.id);
     }
   }
 
@@ -196,6 +204,8 @@ export class HibernationTracker implements FrameObserver {
     // to a no-kill verdict, never to a kill on our own uncertainty.
     const rec = this.records.get(tabId);
     if (rec !== undefined) {
+      clearTimeout(rec.probeTimer);
+      rec.probeTimer = undefined;
       rec.probeResolve?.(null);
       rec.probeId = null;
       rec.probeResolve = null;
@@ -220,13 +230,20 @@ export class HibernationTracker implements FrameObserver {
     this.timers.clear();
     this.openRequests.clear();
     this.inFlight.clear();
+    for (const rec of this.records.values()) clearTimeout(rec.probeTimer);
     this.records.clear();
   }
 
   private recordFor(tabId: string): HibernateRecord {
     let rec = this.records.get(tabId);
     if (rec === undefined) {
-      rec = { armed: false, settleSuspendedUntil: null, probeId: null, probeResolve: null };
+      rec = {
+        armed: false,
+        settleSuspendedUntil: null,
+        probeId: null,
+        probeResolve: null,
+        probeTimer: undefined,
+      };
       this.records.set(tabId, rec);
     }
     return rec;
@@ -310,22 +327,32 @@ export class HibernationTracker implements FrameObserver {
    * onFrame; null on timeout or failure — never kill on our own
    * uncertainty (a wedged session stays with the renderer's stall UX).
    */
-  private probeState(tabId: string, entry: LiveEntry): Promise<{ parked: number; streaming: boolean } | null> {
+  private probeState(
+    tabId: string,
+    entry: LiveEntry,
+  ): Promise<{ parked: number; streaming: boolean } | null> {
     const rec = this.recordFor(tabId);
+    if (entry.kind !== "rpc-ui") return Promise.resolve(null);
     const rpc = entry.rpc;
-    if (rpc === undefined) return Promise.resolve(null);
+    if (rpc === null) return Promise.resolve(null);
     // Executor form (not Promise.withResolvers): the node tsconfig lib is
     // ES2022.
     const id = randomUUID();
     return new Promise((resolve) => {
       rec.probeId = id;
       rec.probeResolve = resolve;
-      setTimeout(() => {
+      // The fallback timer is owned by the record (same bounded-wait posture
+      // as core's settledWithin): the matching response frame or a teardown
+      // clears it, so an early settle never leaves a dangling 5 s handle.
+      const timer = setTimeout(() => {
+        rec.probeTimer = undefined;
         if (rec.probeId !== id) return; // settled in the meantime
         rec.probeId = null;
         rec.probeResolve = null;
         resolve(null);
       }, HIBERNATE_PROBE_TIMEOUT_MS);
+      if (typeof timer.unref === "function") timer.unref();
+      rec.probeTimer = timer;
       rpc.send({ type: "get_state", id });
     });
   }

@@ -40,7 +40,7 @@ const backendMock = {
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
-  deleteSession: vi.fn(),
+  deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
   deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),
   forkSession: vi.fn(),
   setSessionAdvisor: vi.fn(),
@@ -324,7 +324,10 @@ describe("DeleteSessionDialog", () => {
   });
 
   it("erases immediately when the skip flag is set and the session has no worktree", async () => {
-    backendMock.deleteSession.mockReset();
+    backendMock.deleteSession.mockReset().mockResolvedValue({
+      deleted: ["tab-1"],
+      failed: [],
+    });
     useStore.setState({
       deleteConfirmation: null,
       state: stateWith(summary({ worktree: null }), true),

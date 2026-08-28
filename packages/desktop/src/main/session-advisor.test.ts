@@ -129,24 +129,24 @@ const readRegistry = (): {
 
 const resume = async (): Promise<void> => {
   await invoke(CH.spawnSession, {
-    projectCwd: "/proj",
-    mode: "rpc-ui",
-    advisor: true,
+    origin: "resume",
+    resumeTabId: TAB,
     cols: 80,
     rows: 24,
-    resumeTabId: TAB,
   });
 };
 
-const fresh = async (startInPlanMode?: boolean): Promise<void> => {
+const fresh = async (planMode?: boolean): Promise<void> => {
   const req: Record<string, unknown> = {
+    origin: "new",
     projectCwd: "/proj",
     mode: "rpc-ui",
     advisor: true,
     cols: 80,
     rows: 24,
+    worktree: null,
   };
-  if (startInPlanMode !== undefined) req.startInPlanMode = startInPlanMode;
+  if (planMode !== undefined) req.planMode = planMode;
   await invoke(CH.spawnSession, req);
 };
 

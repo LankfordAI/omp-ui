@@ -88,6 +88,17 @@ OMP's JSONL files are authoritative for session identity, transcript content, ti
 - **Worktree session.** A worktree session keeps its registered `projectCwd` for grouping and project-scoped settings, but runs OMP in a dedicated checkout under the app-data worktrees root. The checkout is its effective working tree for diffs, branches, file mentions, and its console shell. The session record persists the branch's cut point (`base`), which the branch diff pane uses to keep committed session work visible via merge-base. Deleting the session removes the checkout on a best-effort basis; the branch and commits remain in the project repository. Finishing a worktree instead **releases** it (issue #334): the record's `worktree` is cleared and the session respawns in the project checkout with `--resume`, keeping its transcript, tab, and lineage, while the same reclaim path removes the checkout and deletes the merged branch. At startup the main process sweeps checkout directories under the worktrees root that no session record references.
 - **Compaction method overlay.** The app default seeds only fresh native `OwnedSessionRecord` values. At each later native process spawn, core reads supported methods from the installed OMP binary's pristine `compaction.methodOrder` and the effective fallback order for the session working directory. SessionManager writes a per-lineage overlay that promotes the captured method and preserves those fallbacks. Unsupported or unreadable captures remove the overlay and defer to OMP. Terminal-origin sessions keep a null capture and never receive this overlay.
 
+
+Session lifecycle mutations are dependency-ordered rather than compensating
+blindly. A failed fresh spawn stops its child and watcher before removing its
+record, and reclaims only a checkout minted by that spawn after the record is
+confirmed absent; a checkout borrowed through plan handoff is never owned by
+the rollback. Cascade deletion runs each member through its normal per-tab queue,
+settles the full closure, then asks core's `reclaimCheckouts` to deduplicate the
+captured descriptors against an explicit snapshot of surviving records. The
+console drawer follows the same ownership boundary through a separate
+`ShellHost`; it is not part of the live OMP child map.
+
 See [Session storage and encoding](session-encoding.md) for the verified JSONL, title-slot, artifacts, root-resolution, and archive formats. Directory encoding is diagnostic only. Code must read the JSONL header instead of reconstructing a project path from a directory name.
 
 ## Feature seams

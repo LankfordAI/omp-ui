@@ -14,9 +14,11 @@ export type AgentMode = "plan" | "build";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
 /**
- * How the agent is asked to author plans for review: `html` adds a rich,
- * self-contained HTML rendition beside the canonical markdown plan, `md`
- * keeps markdown only. See core/plan-extension.ts.
+ * How the agent is asked to author plans for review: `html` writes the plan
+ * AS a single self-contained HTML document (no markdown is written at all),
+ * `md` writes the plan as a single markdown document. One artifact either
+ * way — its extension is the format; there is never a companion file (see
+ * core/plan.ts's PlanReviewRequest and ADR-0014). See core/plan-extension.ts.
  */
 export type PlanFormat = "html" | "md";
 
@@ -166,6 +168,12 @@ export interface PlanHandoffDescendant {
 /** The sessions that would be erased with a deleted session (issue #309). */
 export interface DeleteSessionPreview {
   descendants: PlanHandoffDescendant[];
+}
+
+/** Per-tab outcome of session deletion, including cascade partial success. */
+export interface DeleteSessionResult {
+  deleted: string[];
+  failed: Array<{ tabId: string; message: string }>;
 }
 
 export interface OwnedSessionRecord {
@@ -354,40 +362,55 @@ export interface BranchList {
   upstreamRefreshError: string | null;
 }
 
-export interface SpawnRequest {
+export type SpawnWorktree =
+  | { mint: { branch: string; baseRef: string | null } }
+  | { reuse: SessionWorktree }
+  | null;
+
+interface NewSpawnRequestBase {
+  origin: "new";
   projectCwd: string;
-  mode: SessionMode;
   advisor: boolean;
   /** omp `model[:level]` selector for the advisor role; null uses omp's config. */
   advisorModel?: string | null;
   cols: number;
   rows: number;
-  resumeTabId?: string;
-  /**
-   * Create a dedicated git worktree and run the session in it. Only read when
-   * resumeTabId is absent — resumes take the worktree from the record.
-   * baseRef null starts from the project checkout's HEAD.
-   */
-  worktree?: { branch: string; baseRef: string | null };
-  /**
-   * Reuse an existing worktree checkout for this new session instead of
-   * minting one (plan handoff, issue #316): the source record's
-   * `SessionWorktree` verbatim. Only read when resumeTabId is absent, and
-   * mutually exclusive with `worktree` — main rejects a request carrying
-   * either both or a reuse on a resume. Main validates that the path sits
-   * under the worktrees root and still exists, then records it unchanged.
-   */
-  worktreeReuse?: SessionWorktree;
+  worktree: SpawnWorktree;
   /** Provenance to persist on a fresh implementation session. */
   planImplementationSource?: PlanImplementationSource | null;
-  /**
-   * Initial Plan/Build posture for an rpc-ui spawn. Omitted new sessions follow
-   * Default agent mode; omitted resumes follow the record's persisted
-   * `agentMode` (issue #263). The fresh implementation spawn passes false so
-   * the implementation session is never born read-only (issue #165).
-   */
-  startInPlanMode?: boolean;
 }
+
+export interface NewPtySpawnRequest extends NewSpawnRequestBase {
+  mode: "pty";
+  planMode?: never;
+}
+
+export interface NewRpcSpawnRequest extends NewSpawnRequestBase {
+  mode: "rpc-ui";
+  /** Omitted fresh sessions follow the configured default agent mode. */
+  planMode?: boolean;
+}
+
+interface ResumeSpawnRequestBase {
+  origin: "resume";
+  resumeTabId: string;
+  cols: number;
+  rows: number;
+  /** Omitted overrides retain the persisted session value. */
+  advisor?: boolean;
+  advisorModel?: string | null;
+  projectCwd?: never;
+  worktree?: never;
+  planImplementationSource?: never;
+}
+
+export type ResumeSpawnRequest = ResumeSpawnRequestBase &
+  (
+    | { mode: "pty"; planMode?: never }
+    | { mode?: "rpc-ui"; planMode?: boolean }
+  );
+
+export type SpawnRequest = NewPtySpawnRequest | NewRpcSpawnRequest | ResumeSpawnRequest;
 
 /** omp's own advisor defaults, read from its config (see core/omp-config.ts). */
 export interface AdvisorDefaults {

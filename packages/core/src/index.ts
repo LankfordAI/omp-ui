@@ -32,10 +32,13 @@ export * from "./omp-update";
 export * from "./app-update";
 export * from "./session-file";
 export * from "./types";
+export { parseSpawnRequest } from "./spawn-request";
 export * from "./backend-channels";
 export { Registry, planHandoffDescendants } from "./registry";
 export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
+export { settledWithin } from "./promise-utils";
+export { BLOCKING_DIALOG_METHODS, isBlockingDialogMethod } from "./extension-dialog";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
@@ -156,8 +159,20 @@ export {
   type SessionLocation,
 } from "./archive";
 export { forkSessionFile } from "./fork";
+export {
+  reclaimCheckouts,
+  type ReclaimCheckoutsOptions,
+  type ReclaimedCheckout,
+  type WorktreeCheckoutDescriptor,
+} from "./worktree-lifecycle";
 export { rebindSessionCwd } from "./session-rebind";
-export { RpcChunkReassembler, isObject, type RpcFrame } from "./rpc/codec";
+export {
+  RpcChunkReassembler,
+  isObject,
+  normalizeControlFrame,
+  type RpcControlFrame,
+  type RpcFrame,
+} from "./rpc/codec";
 export { modelStreamCheckpointLabel } from "./stream-activity";
 export {
   RpcClient,

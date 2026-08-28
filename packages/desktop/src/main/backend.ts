@@ -23,9 +23,8 @@ import {
   readMemoryOverview,
   readMergeBackStatus,
   pullBranch,
-  mintWorktreePath,
+  reclaimCheckouts,
   isWithin,
-  removeWorktree,
   sweepOrphanWorktrees,
   listProjectFiles,
   resolveFileMentions,
@@ -57,7 +56,6 @@ import {
   type RpcFrame,
   type SessionMode,
   type SessionSummary,
-  type SpawnRequest,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
 import { OmpUpdater } from "./omp-update";
@@ -286,25 +284,20 @@ export class MainBackend {
             throw new Error("project has live sessions — terminate them first");
           }
           this.sessions.stopProjectWatchers(projectPath);
-          const worktreePaths = new Set(
-            this.registry.sessions
-              .filter(
-                (s) =>
-                  s.projectCwd === projectPath &&
-                  s.worktree &&
-                  // Only the canonical minted path inside the worktrees
-                  // root: a corrupt registry value must not steer the
-                  // recursive fallback inside removeWorktree.
-                  s.worktree.path ===
-                    mintWorktreePath(this.worktreesRoot, projectPath, s.worktree.branch) &&
-                  isWithin(this.worktreesRoot, s.worktree.path),
-              )
-              .map((s) => s.worktree!.path),
+          const sessions = this.registry.sessions;
+          const checkouts = sessions.flatMap((session) =>
+            session.projectCwd === projectPath && session.worktree !== null
+              ? [{ projectCwd: projectPath, worktree: session.worktree }]
+              : [],
           );
-          for (const wt of worktreePaths) {
-            try { await removeWorktree(projectPath, wt); }
-            catch (err) { console.warn(`[backend] worktree cleanup failed for ${wt}:`, err); }
-          }
+          await reclaimCheckouts(checkouts, {
+            worktreesRoot: this.worktreesRoot,
+            survivingSessions: sessions.filter((session) => session.projectCwd !== projectPath),
+            warn: (message, error) =>
+              error === undefined
+                ? console.warn(`[backend] ${message}`)
+                : console.warn(`[backend] ${message}`, error),
+          });
           this.registry.removeProject(projectPath);
           await this.broadcast();
         },
@@ -415,7 +408,7 @@ export class MainBackend {
           this.registry.setSessionModel(tabId, model, thinkingLevel);
           void this.broadcast();
         },
-        [CH.spawnSession]: (req: SpawnRequest) => this.sessions.spawn(req),
+        [CH.spawnSession]: (raw: unknown) => this.sessions.spawnFromWire(raw),
         [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
@@ -547,14 +540,12 @@ export class MainBackend {
           const problem = validateRemotePassword(password);
           if (problem !== null) throw new Error(problem);
           const { salt, hash } = hashRemotePassword(password);
-          this.registry.setSetting("remotePasswordHash", hash);
-          this.registry.setSetting("remotePasswordSalt", salt);
+          this.registry.setSettings({ remotePasswordHash: hash, remotePasswordSalt: salt });
           // apply(), not restart(): the new hash/salt already makes sameTarget false.
           await this.remote.apply();
         },
         [CH.clearRemotePassword]: async () => {
-          this.registry.setSetting("remotePasswordHash", "");
-          this.registry.setSetting("remotePasswordSalt", "");
+          this.registry.setSettings({ remotePasswordHash: "", remotePasswordSalt: "" });
           await this.remote.apply();
         },
       },

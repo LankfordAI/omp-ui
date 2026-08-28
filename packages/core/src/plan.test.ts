@@ -48,13 +48,12 @@ describe("parsePlanStatus", () => {
     expect(parsePlanStatus(undefined)).toBeNull();
     expect(parsePlanStatus("")).toBeNull();
     expect(parsePlanStatus("not json")).toBeNull();
-    expect(parsePlanStatus("[]")).toEqual({
-      enabled: false,
-      planFilePath: null,
-      planAbsPath: null,
-      approved: false,
-      unavailable: undefined,
-    });
+    // An array passes a `typeof "object"` guard but fabricates no record:
+    // there is no field to read, so it must not default into a fake status.
+    expect(parsePlanStatus("[]")).toBeNull();
+    expect(parsePlanStatus("[1,2]")).toBeNull();
+    expect(parsePlanStatus("null")).toBeNull();
+    expect(parsePlanStatus("7")).toBeNull();
   });
 
   it("never reports enabled from a non-boolean truthy value", () => {

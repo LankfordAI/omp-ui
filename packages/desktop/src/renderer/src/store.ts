@@ -31,7 +31,6 @@ export type {
   CompactSurface,
   CompactionMethodsLoad,
   DeleteConfirmation,
-  PendingCommand,
   PlanRecord,
   PlanRevisionNotes,
   RpcFailure,
@@ -171,8 +170,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
         reconcilePlanGates(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
-      backend.onPtyExit((tabId, code) => m.teardownExited(tabId, code));
-      backend.onSessionHibernated((tabId) => m.teardownHibernated(tabId));
+      backend.onPtyExit((tabId, code) =>
+        lifecycle.teardownProcess(tabId, code),
+      );
+      backend.onSessionHibernated((tabId) =>
+        lifecycle.teardownProcess(tabId, 0, true),
+      );
       // OS notification click (issue #271): resurface the session's tab —
       // openSession is the hide/resurface path; main dedupes the resume
       // against a live process, so a late-joining renderer never

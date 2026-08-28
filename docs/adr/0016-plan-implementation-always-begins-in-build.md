@@ -16,20 +16,21 @@ nothing verified Build before dispatching the implementation prompt.
 
 ## Decision
 
-`SpawnRequest` gains an optional `startInPlanMode` field
-(`packages/core/src/types.ts`). Omitted, it keeps the current behavior —
-a brand-new rpc-ui session arms Plan when the Default agent mode is Plan, and
-a resume or mode switch never arms. The renderer's plan-execution path passes
-`false`, so the implementation session is born in Build and no arm prompt
-ever runs.
+`SpawnRequest`'s discriminated rpc-ui arms carry an optional `planMode`
+override (`packages/core/src/types.ts`). Omitted on a fresh session, the
+configured Default agent mode decides; omitted on a resume or mode switch,
+the persisted session mode is retained. The renderer's plan-execution path
+passes `false`, so the implementation session is born in Build and no arm
+prompt ever runs. The pty arms cannot carry `planMode` at the type or wire
+parser boundary.
 
 Enforcement points:
 
-- **Fresh context** — `spawnFreshImplementation` passes
-  `startInPlanMode: false` on `backend.spawnSession`
-  (`packages/desktop/src/renderer/src/store.ts`); the main process honors it
-  in `SessionManager.spawn` (`packages/desktop/src/main/session-manager.ts`).
-  The channel, preload, and wrapper plumbing carry the extra field verbatim.
+- **Fresh context** — `spawnFreshImplementation` passes `planMode: false` in
+  an explicit `{ origin: "new", mode: "rpc-ui" }` request to
+  `backend.spawnSession` (`packages/desktop/src/renderer/src/store.ts`); the
+  main process parses the wire shape and honors it in `SessionManager.spawn`
+  (`packages/desktop/src/main/session-manager.ts`).
 - **Same-session / compacted contexts** — the store's `ensureBuildMode`
   helper waits (bounded, 15 s) for the extension's exit status frame
   (`plan.enabled === false`). In the healthy path the verdict-time,

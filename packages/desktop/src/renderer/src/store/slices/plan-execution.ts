@@ -105,6 +105,26 @@ export function createPlanExecutionSlice(
   m: StoreMachinery,
   deps: PlanExecutionDeps,
 ): PlanExecutionSlice & PlanRuntime {
+  /** Settles every renderer-owned representation of a reviewed plan together. */
+  const settlePlanReview = (
+    tabId: string,
+    key: string,
+    verdict: Exclude<PlanRecord["status"], "pending">,
+  ): void => {
+    m.patchRpc(tabId, {
+      plans: settlePlan(get().rpc[tabId]?.plans ?? [], key, verdict),
+      planReview: null,
+      planText: null,
+      planHtml: null,
+      planDeferred: false,
+    });
+    m.patchItems(tabId, (i) =>
+      i.kind === "plan" && i.planFilePath === key && i.status === "pending"
+        ? { ...i, status: verdict }
+        : i,
+    );
+  };
+
   /**
    * Reconciles each open rpc tab's plan-review gate against the
    * main-process-owned record on the session summary (issue #215). The
@@ -155,19 +175,7 @@ export function createPlanExecutionSlice(
       const settle = rec.planSettle;
       if (settle !== null && settle.frameId === localId) {
         const key = review.request.planFilePath;
-        m.patchRpc(tabId, {
-          plans: settlePlan(tab.plans, key, settle.verdict),
-          planReview: null,
-          planText: null,
-          planHtml: null,
-          planDeferred: false,
-        });
-        // The same item settle executePlan/refinePlan perform locally.
-        m.patchItems(tabId, (i) =>
-          i.kind === "plan" && i.planFilePath === key && i.status === "pending"
-            ? { ...i, status: settle.verdict }
-            : i,
-        );
+        settlePlanReview(tabId, key, settle.verdict);
       } else {
         // Gate lost without an observed verdict (process died, mode switch):
         // close the pane; the plan row stays a dimmed pending record.
@@ -261,31 +269,51 @@ export function createPlanExecutionSlice(
     // What the receiving session runs today — only staged *changes* are applied.
     const tab = get().rpc[tabId];
     const rec = findRecord(get().state, tabId);
-    const stagedModel = options?.model ?? null;
-    const modelChanged = stagedModel !== null &&
-      `${stagedModel.provider}/${stagedModel.id}` !==
-      (tab?.model ? `${tab.model.provider}/${tab.model.id}` : null);
-    const thinkingChanged =
-      options?.thinkingLevel != null &&
-      options.thinkingLevel !== (tab?.session.thinkingLevel ?? null);
+    const stagedModel = options?.model;
+    const stagedThinkingLevel = options?.thinkingLevel;
+    const stagedAdvisor = options?.advisor;
     const advisorChanged =
-      options?.advisor !== undefined &&
+      stagedAdvisor !== undefined &&
       rec !== undefined &&
-      (rec.advisor !== options.advisor ||
-        (rec.advisorModel ?? null) !== (options.advisorModel ?? null));
+      (rec.advisor !== stagedAdvisor ||
+        (rec.advisorModel ?? null) !== (options?.advisorModel ?? null));
 
-    if (advisorChanged) {
-      // omp binds the advisor at process start, so the change is a relaunch and
-      // the implementation prompt must wait for the booted session — a queued
-      // follow-up would die with the old process. The plan turn ends first so
-      // the kill cannot orphan the verdict's tool result.
-      void (async () => {
+    void (async () => {
+      // Only work that cannot run under the drafting turn waits for it:
+      // advisor relaunch and between-turn compaction. A plain follow-up must
+      // still dispatch synchronously in the verdict frame (issue #165).
+      if (advisorChanged || context === "compacted") {
         await m.pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
-        if (modelChanged) await get().setModel(tabId, stagedModel!);
-        if (thinkingChanged)
-          await get().setThinkingLevel(tabId, options!.thinkingLevel!);
-        await get().setSessionAdvisor(tabId, options!.advisor!, options!.advisorModel ?? null);
-        // A failed relaunch alerts and leaves the tab dead — never prompt it.
+      }
+      if (
+        stagedModel != null &&
+        `${stagedModel.provider}/${stagedModel.id}` !==
+          (tab?.model ? `${tab.model.provider}/${tab.model.id}` : null)
+      ) {
+        await get().setModel(tabId, stagedModel);
+      }
+      if (
+        stagedThinkingLevel != null &&
+        stagedThinkingLevel !== (tab?.session.thinkingLevel ?? null)
+      ) {
+        await get().setThinkingLevel(tabId, stagedThinkingLevel);
+      }
+
+      let relaunched = false;
+      if (advisorChanged && stagedAdvisor !== undefined) {
+        // omp binds the advisor at process start, so the change is a relaunch.
+        await get().setSessionAdvisor(
+          tabId,
+          stagedAdvisor,
+          options?.advisorModel ?? null,
+        );
+        relaunched = true;
+      }
+
+      // A relaunched process must boot before receiving the implementation;
+      // plain follow-ups target the current process and keep the synchronous
+      // dispatch path that queues behind the accepted plan turn.
+      if (relaunched) {
         await m.pollUntil(
           tabId,
           (t) =>
@@ -294,43 +322,23 @@ export function createPlanExecutionSlice(
             get().exited[tabId] !== undefined,
         );
         if (get().rpc[tabId]?.status !== "ready") return;
-        if (context === "compacted" && !(await get().compactSession(tabId))) {
-          m.appendItem(tabId, noticeItem(COMPACTION_HELD_NOTICE, "warn"));
-          return;
-        }
-        await ensureBuildMode(tabId);
-        await get().sendPrompt(tabId, message, "prompt");
-      })();
-      return;
-    }
+      }
 
-    void (async () => {
-      if (modelChanged) await get().setModel(tabId, stagedModel!);
-      if (thinkingChanged)
-        await get().setThinkingLevel(tabId, options!.thinkingLevel!);
-      if (context === "compacted") {
-        // `compact` runs between turns, so the just-accepted plan turn must end
-        // before compacting, then prompt the implementer.
-        await m.pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
-        if (!(await get().compactSession(tabId))) {
-          // Compaction never acknowledged: omp is still busy or wedged, and a
-          // prompt sent now queues behind it and fails the same way. Hold the
-          // dispatch and say what to do instead of stacking banners (#336).
-          m.appendItem(tabId, noticeItem(COMPACTION_HELD_NOTICE, "warn"));
-          return;
-        }
-        await ensureBuildMode(tabId);
-        await get().sendPrompt(tabId, message, "prompt");
+      if (context === "compacted" && !(await get().compactSession(tabId))) {
+        // Compaction never acknowledged: omp is still busy or wedged, and a
+        // prompt sent now queues behind it and fails the same way. Hold the
+        // dispatch and say what to do instead of stacking banners (#336).
+        m.appendItem(tabId, noticeItem(COMPACTION_HELD_NOTICE, "warn"));
         return;
       }
-      // Existing context: followUp queues the prompt until the current turn
-      // ends, so it races nothing — the implementer runs in this same session.
-      // The gate only yields for a genuinely armed session: an unarmed one is
-      // already Build and must dispatch in the same synchronous frame the
-      // verdict lands in (issue #165).
-      if (get().rpc[tabId]?.plan?.enabled === true)
+      if (get().rpc[tabId]?.plan?.enabled === true) {
         await ensureBuildMode(tabId);
-      await get().sendPrompt(tabId, message, "follow_up");
+      }
+      await get().sendPrompt(
+        tabId,
+        message,
+        relaunched ? "prompt" : "follow_up",
+      );
     })();
   };
 
@@ -451,18 +459,7 @@ export function createPlanExecutionSlice(
     ) {
       return;
     }
-    if (planKey) {
-      m.patchRpc(tabId, {
-        plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "executed"),
-      });
-      m.patchItems(tabId, (i) =>
-        i.kind === "plan" &&
-        i.planFilePath === planKey &&
-        i.status === "pending"
-          ? { ...i, status: "executed" }
-          : i,
-      );
-    }
+    if (planKey) settlePlanReview(tabId, planKey, "executed");
     // The drafting turn's review lands after the verdict, so hold dispatch
     // for it when the user wants the advisor's concerns actioned. Execute
     // only: the execute ToolResult tells the agent to stop and wait, so this
@@ -492,18 +489,7 @@ export function createPlanExecutionSlice(
   const refinePlan = (tabId: string, notes?: PlanRevisionNotes): void => {
     const planKey = get().rpc[tabId]?.planReview?.request.planFilePath;
     if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
-    if (planKey) {
-      m.patchRpc(tabId, {
-        plans: settlePlan(get().rpc[tabId]?.plans ?? [], planKey, "refined"),
-      });
-      m.patchItems(tabId, (i) =>
-        i.kind === "plan" &&
-        i.planFilePath === planKey &&
-        i.status === "pending"
-          ? { ...i, status: "refined" }
-          : i,
-      );
-    }
+    if (planKey) settlePlanReview(tabId, planKey, "refined");
     const text = notes?.text?.trim() ?? "";
     const images = notes?.images;
     if (text === "" && !images?.length) return;

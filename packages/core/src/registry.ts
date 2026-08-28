@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeTextAtomic } from "./atomic-write";
 import type {
   AgentMode,
   OwnedSessionRecord,
@@ -401,15 +402,8 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-/**
- * mkdir → tmp-write → rename: a crash mid-write leaves the tmp beside the
- * registry instead of a truncated registry behind the reader.
- */
-function writeAtomically(file: string, data: RegistryData): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
-  fs.renameSync(tmp, file);
+function writeRegistry(file: string, data: RegistryData): void {
+  writeTextAtomic(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 /**
@@ -428,17 +422,18 @@ function moveBefore<T>(
   if (beforeKey === key) return false;
   const from = list.findIndex((item) => keyOf(item) === key);
   if (from === -1) return false;
+  const before = beforeKey === null ? -1 : list.findIndex((item) => keyOf(item) === beforeKey);
+  const appends = beforeKey === null || before === -1;
+  if ((appends && from === list.length - 1) || before === from + 1) return false;
   const [moved] = list.splice(from, 1);
   // `to` is looked up after the splice, so indices have already shifted —
   // "insert before the removed element's neighbour" stays correct.
-  if (beforeKey !== null) {
+  if (!appends) {
     const to = list.findIndex((item) => keyOf(item) === beforeKey);
-    if (to !== -1) {
-      list.splice(to, 0, moved);
-      return true;
-    }
+    list.splice(to, 0, moved);
+  } else {
+    list.push(moved);
   }
-  list.push(moved);
   return true;
 }
 
@@ -463,7 +458,7 @@ function seedSessionOrder(file: string, data: RegistryData): void {
   ordered.push(...data.sessions.filter((s) => !known.has(s.projectCwd)).sort(recencyDesc));
   data.sessions = ordered;
   data.settings.sessionOrderFrozen = true;
-  writeAtomically(file, data);
+  writeRegistry(file, data);
 }
 
 /**
@@ -507,8 +502,12 @@ export class Registry {
     return new Registry(file, emptyRegistry());
   }
 
-  #save(): void {
-    writeAtomically(this.#file, this.#data);
+  #transaction(mutate: (draft: RegistryData) => boolean): boolean {
+    const draft = structuredClone(this.#data);
+    if (!mutate(draft)) return false;
+    writeRegistry(this.#file, draft);
+    this.#data = draft;
+    return true;
   }
 
   /**
@@ -528,9 +527,23 @@ export class Registry {
    * no-op: nothing is written.
    */
   setSetting<K extends SettingKey>(key: K, value: RegistrySettings[K]): void {
-    if (Object.is(this.#data.settings[key], value)) return;
-    this.#data.settings[key] = value;
-    this.#save();
+    this.#transaction((draft) => {
+      if (Object.is(draft.settings[key], value)) return false;
+      draft.settings[key] = value;
+      return true;
+    });
+  }
+
+  /** Writes a set of preferences as one persisted transaction. */
+  setSettings(patch: Partial<RegistrySettings>): void {
+    this.#transaction((draft) => {
+      const changed = SETTING_KEYS.some(
+        (key) => key in patch && !Object.is(draft.settings[key], patch[key]),
+      );
+      if (!changed) return false;
+      Object.assign(draft.settings, patch);
+      return true;
+    });
   }
 
   get projects(): readonly ProjectRecord[] {
@@ -543,7 +556,7 @@ export class Registry {
 
 
   addProject(projectPath: string): ProjectRecord {
-    const existing = this.#data.projects.find((p) => p.path === projectPath);
+    const existing = this.#data.projects.find((project) => project.path === projectPath);
     if (existing) return structuredClone(existing);
     const record: ProjectRecord = {
       path: projectPath,
@@ -556,16 +569,22 @@ export class Registry {
       defaultModel: null,
       defaultAdvisorModel: null,
     };
-    this.#data.projects.push(record);
-    this.#save();
+    this.#transaction((draft) => {
+      draft.projects.push(record);
+      return true;
+    });
     return structuredClone(record);
   }
 
   /** Cascades to the project's session records; files on disk are never touched. */
   removeProject(projectPath: string): void {
-    this.#data.projects = this.#data.projects.filter((p) => p.path !== projectPath);
-    this.#data.sessions = this.#data.sessions.filter((s) => s.projectCwd !== projectPath);
-    this.#save();
+    this.#transaction((draft) => {
+      const projectCount = draft.projects.length;
+      const sessionCount = draft.sessions.length;
+      draft.projects = draft.projects.filter((project) => project.path !== projectPath);
+      draft.sessions = draft.sessions.filter((session) => session.projectCwd !== projectPath);
+      return draft.projects.length !== projectCount || draft.sessions.length !== sessionCount;
+    });
   }
 
   /**
@@ -576,80 +595,96 @@ export class Registry {
    * equal to it, are no-ops (no save).
    */
   moveProject(projectPath: string, beforePath: string | null): void {
-    if (moveBefore(this.#data.projects, (p) => p.path, projectPath, beforePath)) this.#save();
+    this.#transaction((draft) =>
+      moveBefore(draft.projects, (project) => project.path, projectPath, beforePath),
+    );
   }
 
   /** Records an advisor choice for this session and the next one in its project. */
   setSessionAdvisor(tabId: string, advisor: boolean, advisorModel: string | null): void {
-    const record = this.#data.sessions.find((s) => s.tabId === tabId);
-    if (!record) return;
-    const project = this.#data.projects.find((p) => p.path === record.projectCwd);
-    if (
-      record.advisor === advisor &&
-      record.advisorModel === advisorModel &&
-      project?.lastAdvisor === advisor &&
-      project.lastAdvisorModel === advisorModel
-    ) return;
-    record.advisor = advisor;
-    record.advisorModel = advisorModel;
-    if (project) {
-      project.lastAdvisor = advisor;
-      project.lastAdvisorModel = advisorModel;
-    }
-    this.#save();
+    this.#transaction((draft) => {
+      const record = draft.sessions.find((session) => session.tabId === tabId);
+      if (!record) return false;
+      const project = draft.projects.find((candidate) => candidate.path === record.projectCwd);
+      if (
+        record.advisor === advisor &&
+        record.advisorModel === advisorModel &&
+        (!project ||
+          (project.lastAdvisor === advisor && project.lastAdvisorModel === advisorModel))
+      ) return false;
+      record.advisor = advisor;
+      record.advisorModel = advisorModel;
+      if (project) {
+        project.lastAdvisor = advisor;
+        project.lastAdvisorModel = advisorModel;
+      }
+      return true;
+    });
   }
 
   /** Records the main model choice for this session and the next one in its project. */
   setSessionModel(tabId: string, model: string | null, thinkingLevel: string | null): void {
-    const record = this.#data.sessions.find((s) => s.tabId === tabId);
-    if (!record) return;
-    const project = this.#data.projects.find((p) => p.path === record.projectCwd);
-    if (
-      record.model === model &&
-      record.thinkingLevel === thinkingLevel &&
-      project?.lastModel === model &&
-      project.lastThinkingLevel === thinkingLevel
-    ) return;
-    record.model = model;
-    record.thinkingLevel = thinkingLevel;
-    if (project) {
-      project.lastModel = model;
-      project.lastThinkingLevel = thinkingLevel;
-    }
-    this.#save();
+    this.#transaction((draft) => {
+      const record = draft.sessions.find((session) => session.tabId === tabId);
+      if (!record) return false;
+      const project = draft.projects.find((candidate) => candidate.path === record.projectCwd);
+      if (
+        record.model === model &&
+        record.thinkingLevel === thinkingLevel &&
+        (!project ||
+          (project.lastModel === model && project.lastThinkingLevel === thinkingLevel))
+      ) return false;
+      record.model = model;
+      record.thinkingLevel = thinkingLevel;
+      if (project) {
+        project.lastModel = model;
+        project.lastThinkingLevel = thinkingLevel;
+      }
+      return true;
+    });
   }
 
   /** Pins (or clears) the project's default main model for new sessions (issue #257). */
   setProjectDefaultModel(projectPath: string, model: string | null): void {
-    const project = this.#data.projects.find((p) => p.path === projectPath);
-    if (!project || project.defaultModel === model) return;
-    project.defaultModel = model;
-    this.#save();
+    this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project || project.defaultModel === model) return false;
+      project.defaultModel = model;
+      return true;
+    });
   }
 
   /** Pins (or clears) the project's default advisor model for new sessions (issue #257). */
   setProjectDefaultAdvisorModel(projectPath: string, model: string | null): void {
-    const project = this.#data.projects.find((p) => p.path === projectPath);
-    if (!project || project.defaultAdvisorModel === model) return;
-    project.defaultAdvisorModel = model;
-    this.#save();
+    this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project || project.defaultAdvisorModel === model) return false;
+      project.defaultAdvisorModel = model;
+      return true;
+    });
   }
 
   addSession(record: OwnedSessionRecord): OwnedSessionRecord {
-    // New sessions take the TOP of their project (#274): splice ahead of the
-    // first record of the same project; a project's first session just appends.
-    // Cross-project interleaving in the array is irrelevant — grouping filters
-    // per project — but within-project order is the persisted sidebar order.
-    const first = this.#data.sessions.findIndex((s) => s.projectCwd === record.projectCwd);
-    if (first === -1) this.#data.sessions.push(structuredClone(record));
-    else this.#data.sessions.splice(first, 0, structuredClone(record));
-    this.#save();
+    this.#transaction((draft) => {
+      // New sessions take the TOP of their project (#274): splice ahead of the
+      // first record of the same project; a project's first session just appends.
+      // Cross-project interleaving in the array is irrelevant — grouping filters
+      // per project — but within-project order is the persisted sidebar order.
+      const first = draft.sessions.findIndex((session) => session.projectCwd === record.projectCwd);
+      const stored = structuredClone(record);
+      if (first === -1) draft.sessions.push(stored);
+      else draft.sessions.splice(first, 0, stored);
+      return true;
+    });
     return structuredClone(record);
   }
 
   removeSession(tabId: string): void {
-    this.#data.sessions = this.#data.sessions.filter((s) => s.tabId !== tabId);
-    this.#save();
+    this.#transaction((draft) => {
+      const count = draft.sessions.length;
+      draft.sessions = draft.sessions.filter((session) => session.tabId !== tabId);
+      return draft.sessions.length !== count;
+    });
   }
 
   /**
@@ -661,18 +696,27 @@ export class Registry {
    * by their root's position regardless of array adjacency.
    */
   moveSession(tabId: string, beforeTabId: string | null): void {
-    if (moveBefore(this.#data.sessions, (s) => s.tabId, tabId, beforeTabId)) this.#save();
+    this.#transaction((draft) =>
+      moveBefore(draft.sessions, (session) => session.tabId, tabId, beforeTabId),
+    );
   }
 
   updateSession(
     tabId: string,
     patch: Partial<Omit<OwnedSessionRecord, "tabId">>,
   ): OwnedSessionRecord | undefined {
-    const record = this.#data.sessions.find((s) => s.tabId === tabId);
-    if (!record) return undefined;
-    Object.assign(record, patch);
-    this.#save();
-    return structuredClone(record);
+    const existing = this.#data.sessions.find((session) => session.tabId === tabId);
+    if (!existing) return undefined;
+    this.#transaction((draft) => {
+      const record = draft.sessions.find((session) => session.tabId === tabId)!;
+      const changed = (Object.keys(patch) as Array<keyof typeof patch>).some(
+        (key) => !Object.is(record[key], patch[key]),
+      );
+      if (!changed) return false;
+      Object.assign(record, patch);
+      return true;
+    });
+    return structuredClone(this.#data.sessions.find((session) => session.tabId === tabId)!);
   }
 
   getFavorites(): string[] {
@@ -680,11 +724,13 @@ export class Registry {
   }
 
   toggleFavorite(key: string): void {
-    const current = this.#data.settings.modelFavorites;
-    const idx = current.indexOf(key);
-    this.#data.settings.modelFavorites =
-      idx === -1 ? [...current, key] : current.filter((k) => k !== key);
-    this.#save();
+    this.#transaction((draft) => {
+      const current = draft.settings.modelFavorites;
+      const index = current.indexOf(key);
+      draft.settings.modelFavorites =
+        index === -1 ? [...current, key] : current.filter((favorite) => favorite !== key);
+      return true;
+    });
   }
 }
 

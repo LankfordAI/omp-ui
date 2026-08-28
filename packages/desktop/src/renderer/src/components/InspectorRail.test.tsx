@@ -126,7 +126,6 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     stats: null,
     subagents: [{ id: "agent-1", name: "worker", status: "working" }],
     extensionStatus: {},
-    pendingCommands: new Map(),
     extensionQueue: [],
     busy: false,
     initialPrompt: null,

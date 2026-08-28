@@ -25,6 +25,57 @@ import {
   rpcTabState,
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
+import { reduceAgentEvent } from "./reduce-agent-event";
+
+describe("reduceAgentEvent", () => {
+  const runtime = (slashCommandItems = new Map<string, string>()) => ({
+    quietWedgeNotified: false,
+    timedOutCommands: [],
+    pendingNotices: [],
+    slashCommandItems,
+    lastFrameAt: 1_000,
+  });
+
+  it("returns agent_start intents without mutating its inputs", () => {
+    const tab = rpcTabState({
+      status: "ready",
+      lastTurn: { stopReason: "error" },
+    });
+    const slashCommandItems = new Map([["request-1", "item-1"]]);
+    const observedRuntime = runtime(slashCommandItems);
+
+    const reduced = reduceAgentEvent(tab, observedRuntime, {
+      type: "agent_start",
+    });
+
+    expect(tab.status).toBe("ready");
+    expect(tab.lastTurn).toEqual({ stopReason: "error" });
+    expect(slashCommandItems).toEqual(
+      new Map([["request-1", "item-1"]]),
+    );
+    expect(reduced.patch.rpc).toMatchObject({
+      status: "running",
+      lastTurn: undefined,
+    });
+    expect(reduced.patch.runtime.slashCommandItems).toEqual(new Map());
+    expect(reduced.effects.map(({ phase, type }) => `${phase}:${type}`)).toEqual([
+      "before-commit:feed-concern-watcher",
+      "before-commit:feed-advisor-reply-watcher",
+      "after-commit:restart-stream-stall-timer",
+      "after-commit:clear-queue-settle-timer",
+      "after-commit:settle-slash-command-items",
+    ]);
+  });
+
+  it("leaves agent state unchanged for an unknown event type", () => {
+    const frame = { type: "future_event", payload: { opaque: true } };
+    const reduced = reduceAgentEvent(rpcTabState(), runtime(), frame);
+
+    expect(reduced.patch).toEqual({ runtime: { lastFrameAt: 1_000 } });
+    expect(reduced.transcript).toEqual({ frame, stall: null });
+  });
+});
+
 describe("handleRpcFrame routing", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
@@ -948,18 +999,22 @@ describe("handleRpcFrame routing", () => {
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p7", value: "execute" });
     await h.flushMicrotasks();
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        mode: "rpc-ui",
-        startInPlanMode: false,
-        planImplementationSource: {
-          sourceTabId: h.TAB,
-          planTitle: "t",
-          planFilePath: "local://p.md",
-        },
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
     h.useStore.setState({
       rpc: {
@@ -1157,19 +1212,22 @@ describe("handleRpcFrame routing", () => {
     expect(response?.cmd).toMatchObject({ id: "p-wt", value: "execute" });
     await h.flushMicrotasks();
     // The worktree spec rides the same spawn as the plan provenance.
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        mode: "rpc-ui",
-        startInPlanMode: false,
-        worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
-        planImplementationSource: {
-          sourceTabId: h.TAB,
-          planTitle: "t",
-          planFilePath: "local://p.md",
-        },
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/cafebabe", baseRef: "main" } },
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     // Boot the worktree tab to ready — resolves the spawn's readiness wait.
     h.useStore.setState((state) => ({
       rpc: {
@@ -1233,9 +1291,22 @@ describe("handleRpcFrame routing", () => {
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "handoff-reuse-fresh", value: "execute" });
     // The spawn reuses the planning checkout — no mint spec alongside.
-    const call = h.mockBackend.spawnSession.mock.calls.at(-1)![0] as Record<string, unknown>;
-    expect(call).toEqual(expect.objectContaining({ worktreeReuse: REUSE_WT }));
-    expect(call.worktree).toBeUndefined();
+    expect(h.mockBackend.spawnSession.mock.calls.at(-1)![0]).toEqual({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { reuse: REUSE_WT },
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     // Boot the fresh tab to ready and let the seed prompt land.
     h.useStore.setState((state) => ({
       rpc: {
@@ -1272,9 +1343,22 @@ describe("handleRpcFrame routing", () => {
       worktree: { branch: "omp-ui/deadbeef", baseRef: "main" },
     });
     await h.flushMicrotasks();
-    const call = h.mockBackend.spawnSession.mock.calls.at(-1)![0] as Record<string, unknown>;
-    expect(call).toEqual(expect.objectContaining({ worktreeReuse: REUSE_WT }));
-    expect(call.worktree).toBeUndefined();
+    expect(h.mockBackend.spawnSession.mock.calls.at(-1)![0]).toEqual({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { reuse: REUSE_WT },
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
   });
 
   it("a worktree dispatch renaming the branch still mints (issue #316)", async () => {
@@ -1286,11 +1370,22 @@ describe("handleRpcFrame routing", () => {
       worktree: { branch: "omp-ui/renamed", baseRef: "main" },
     });
     await h.flushMicrotasks();
-    const call = h.mockBackend.spawnSession.mock.calls.at(-1)![0] as Record<string, unknown>;
-    expect(call).toEqual(
-      expect.objectContaining({ worktree: { branch: "omp-ui/renamed", baseRef: "main" } }),
-    );
-    expect(call.worktreeReuse).toBeUndefined();
+    expect(h.mockBackend.spawnSession.mock.calls.at(-1)![0]).toEqual({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/renamed", baseRef: "main" } },
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
   });
 
   it("a vanished reused checkout alerts, seeds nothing, and hibernates nothing (issue #316)", async () => {
@@ -1845,18 +1940,22 @@ describe("handleRpcFrame routing", () => {
         advisorReviewFrame("pin the toolchain", "concern", "ops"),
       );
     await h.flushMicrotasks();
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        mode: "rpc-ui",
-        planImplementationSource: {
-          sourceTabId: h.TAB,
-          planTitle: "t",
-          planFilePath: "local://p.md",
-        },
-        startInPlanMode: false,
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
     h.useStore.setState({
       rpc: {
@@ -1888,14 +1987,22 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "fresh");
     await h.flushMicrotasks();
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        mode: "rpc-ui",
-        advisor: true,
-        startInPlanMode: false,
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     h.useStore.setState({
       rpc: {
         ...h.useStore.getState().rpc,
@@ -1917,14 +2024,22 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "fresh");
     await h.flushMicrotasks();
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        mode: "rpc-ui",
-        advisor: false,
-        startInPlanMode: false,
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     h.useStore.setState({
       rpc: {
         ...h.useStore.getState().rpc,
@@ -2240,12 +2355,22 @@ describe("handleRpcFrame routing", () => {
       thinkingLevel: "high",
     });
     await h.flushMicrotasks();
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        advisor: true,
-        advisorModel: "openrouter/a/b:high",
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: "openrouter/a/b:high",
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      planImplementationSource: {
+        sourceTabId: h.TAB,
+        planTitle: "t",
+        planFilePath: "local://p.md",
+      },
+    });
     h.useStore.setState({
       rpc: {
         ...h.useStore.getState().rpc,

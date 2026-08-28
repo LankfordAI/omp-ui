@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { field, strField } from "../lib/fields";
@@ -46,30 +46,108 @@ function fromTextField(e: KeyboardEvent): boolean {
   );
 }
 
+export interface ExtensionDialogState {
+  inputValue: string;
+  active: number;
+  picked: string[] | null;
+  series: SeriesState | null;
+  reviewing: number | null;
+  loopBase: string | null;
+  lastSent: string | null;
+}
+
+export type ExtensionDialogAction =
+  | { type: "request"; current: unknown; method: string }
+  | { type: "input"; value: string }
+  | { type: "active"; value: number }
+  | { type: "review"; page: number | null }
+  | { type: "record"; entry: SeriesEntry }
+  | { type: "pick"; pending: string | null; entry?: SeriesEntry }
+  | { type: "finish"; entry?: SeriesEntry };
+
+export const INITIAL_EXTENSION_DIALOG_STATE: ExtensionDialogState = {
+  inputValue: "",
+  active: 0,
+  picked: [],
+  series: null,
+  reviewing: null,
+  loopBase: null,
+  lastSent: null,
+};
+
+/** Pure state transition for request arrival and local dialog interaction. */
+export function reduceExtensionDialog(
+  state: ExtensionDialogState,
+  action: ExtensionDialogAction,
+): ExtensionDialogState {
+  if (action.type === "input") return { ...state, inputValue: action.value };
+  if (action.type === "active") return { ...state, active: action.value };
+  if (action.type === "review") return { ...state, reviewing: action.page };
+  if (action.type === "record") {
+    return state.series === null
+      ? state
+      : { ...state, series: recordAnswer(state.series, action.entry) };
+  }
+  if (action.type === "pick" || action.type === "finish") {
+    const series =
+      action.entry !== undefined && state.series !== null
+        ? recordAnswer(state.series, action.entry)
+        : state.series;
+    return {
+      ...state,
+      series,
+      lastSent: action.type === "pick" ? action.pending : null,
+    };
+  }
+
+  if (!action.current) return { ...state, inputValue: "" };
+  const title = strField(action.current, "title") ?? "";
+  const frame = parsePage(
+    action.method === "select"
+      ? planSelect(title, []).base
+      : title.split("\n", 1)[0],
+  );
+  const series =
+    frame.page !== null
+      ? nextSeries(state.series, frame)
+      : action.method === "editor"
+        ? state.series
+        : null;
+  const common = { ...state, inputValue: "", series, reviewing: null };
+  if (action.method !== "select") return { ...common, active: 0 };
+
+  const parsed = planSelect(title, []);
+  if (parsed.count === null || parsed.base !== state.loopBase) {
+    return {
+      ...common,
+      active: 0,
+      picked: parsed.count === null ? [] : null,
+      loopBase: parsed.base,
+      lastSent: null,
+    };
+  }
+  const next = state.lastSent === null ? state.picked : togglePick(state.picked, state.lastSent);
+  return {
+    ...common,
+    picked: next !== null && next.length === parsed.count ? next : null,
+    lastSent: null,
+  };
+}
+
 export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   const queue = useStore((s) => s.rpc[tabId]?.extensionQueue) ?? [];
   const answerExtension = useStore((s) => s.answerExtension);
   const current = queue[0];
 
-  const [inputValue, setInputValue] = useState("");
-  const [active, setActive] = useState(0);
-  /**
-   * The reconstructed multi-select set for the loop in progress; null when
-   * the host lost track (count mismatch, attach mid-loop). Keyed off the
-   * question text via the plan's `base` — a different question resets it.
-   */
-  const [picked, setPicked] = useState<string[] | null>([]);
-  /** The question series in progress; null for unpaged single dialogs. */
-  const [series, setSeries] = useState<SeriesState | null>(null);
-  /** The page under read-only review; null while on the live question. */
-  const [reviewing, setReviewing] = useState<number | null>(null);
-  /** The base question of the loop `picked` belongs to. */
-  const loopBase = useRef<string | null>(null);
-  /** The last toggle sent, pending confirmation by the next loop frame. */
-  const lastSent = useRef<string | null>(null);
+  const [dialog, dispatch] = useReducer(
+    reduceExtensionDialog,
+    INITIAL_EXTENSION_DIALOG_STATE,
+  );
+  const { inputValue, active, picked, series, reviewing } = dialog;
   const priorFocus = useRef<HTMLElement | null>(null);
   const firstChoice = useRef<HTMLButtonElement | null>(null);
   const hadRequest = useRef(false);
+  const keydown = useRef<(event: KeyboardEvent) => void>(() => {});
   const compact = useCompactShell();
 
   const method = strField(current, "method") ?? "";
@@ -80,58 +158,10 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   /** Multi-select is only recognizable from the loop frames omp sends. */
   const inMultiLoop = plan !== null && plan.count !== null;
 
-  /** Records one page's answer into the series history (pure updater). */
-  const record = (entry: SeriesEntry) =>
-    setSeries((prev) => (prev ? recordAnswer(prev, entry) : prev));
-
-  // Each request gets its own draft — a queued second dialog must not
-  // inherit the first one's half-typed answer. The multi-select set instead
-  // *survives* across frames of the same question: the arriving frame is the
-  // loop continuing, and the toggle we sent for the previous frame is folded
-  // in here, then verified against omp's count.
+  // Each request gets its own draft. The pure reducer keeps multi-select and
+  // question-series continuity together, without refs mutated from a state updater.
   useEffect(() => {
-    setInputValue("");
-    if (!current) return;
-    // Series tracking: the page marker rides the count-stripped base of a
-    // select frame. An editor frame ("Other") usually arrives marker-less and
-    // continues the live page, so only non-editor frames without a marker
-    // end the series. Reviewing always returns to the live request — which
-    // also covers omp auto-resolving a timed-out request mid-review.
-    const frame = parsePage(
-      method === "select"
-        ? planSelect(strField(current, "title") ?? "", []).base
-        : (strField(current, "title") ?? "").split("\n", 1)[0],
-    );
-    if (frame.page !== null) setSeries((prev) => nextSeries(prev, frame));
-    else if (method !== "editor") setSeries(null);
-    setReviewing(null);
-    if (method !== "select") {
-      // An editor frame ("Other") belongs to the same ask loop — keep the
-      // set so the panel still shows it when the loop resumes.
-      setActive(0);
-      return;
-    }
-    const parsed = planSelect(strField(current, "title") ?? "", []);
-    // Consume the pending toggle outside setPicked — updaters must stay pure
-    // (StrictMode invokes them twice).
-    const sent = lastSent.current;
-    lastSent.current = null;
-    if (parsed.count === null || parsed.base !== loopBase.current) {
-      // A fresh question (or a single-select) starts a new, empty set; a
-      // loop frame for a question we never saw the start of stays unknown.
-      loopBase.current = parsed.base;
-      setPicked(parsed.count === null ? [] : null);
-      setActive(0);
-      return;
-    }
-    // Same question, next loop frame: fold in the toggle we sent, then let
-    // omp's count arbitrate. A mismatch means missed frames — show count
-    // only. The cursor deliberately survives — resetting it would yank the
-    // highlight to the top after every toggle.
-    setPicked((prev) => {
-      const next = sent === null ? prev : togglePick(prev, sent);
-      return next !== null && next.length === parsed.count ? next : null;
-    });
+    dispatch({ type: "request", current, method });
   }, [current, method]);
 
   useEffect(() => {
@@ -149,63 +179,62 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
     if (current && method === "select") firstChoice.current?.focus({ preventScroll: true });
   }, [current, method]);
 
-  useEffect(() => {
-    if (!current) return;
+  keydown.current = (e) => {
+    if (!current || fromTextField(e)) return;
     const listed = plan?.listed ?? [];
-    const onKey = (e: KeyboardEvent) => {
-      if (fromTextField(e)) return;
-      if (reviewing !== null) {
-        // Review swallows every key — the live options stay untouched, and
-        // Escape must NOT send {cancelled:true}: it returns to the question.
-        const answeredPages =
-          series?.entries.filter((en) => en.answer.length > 0).map((en) => en.page) ?? [];
-        const idx = answeredPages.indexOf(reviewing);
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setReviewing(null);
-        } else if (e.key === "ArrowLeft" && idx > 0) {
-          e.preventDefault();
-          setReviewing(answeredPages[idx - 1]);
-        } else if (e.key === "ArrowRight" && idx !== -1) {
-          e.preventDefault();
-          // Past the last answered page → back to the live question.
-          if (idx + 1 < answeredPages.length) setReviewing(answeredPages[idx + 1]);
-          else setReviewing(null);
-        }
-        return;
-      }
+    if (reviewing !== null) {
+      // Review swallows every key — the live options stay untouched, and
+      // Escape must NOT send {cancelled:true}: it returns to the question.
+      const answeredPages =
+        series?.entries.filter((entry) => entry.answer.length > 0).map((entry) => entry.page) ?? [];
+      const index = answeredPages.indexOf(reviewing);
       if (e.key === "Escape") {
         e.preventDefault();
-        answerExtension(tabId, current, { cancelled: true });
-        return;
+        dispatch({ type: "review", page: null });
+      } else if (e.key === "ArrowLeft" && index > 0) {
+        e.preventDefault();
+        dispatch({ type: "review", page: answeredPages[index - 1] });
+      } else if (e.key === "ArrowRight" && index !== -1) {
+        e.preventDefault();
+        dispatch({
+          type: "review",
+          page: index + 1 < answeredPages.length ? answeredPages[index + 1] : null,
+        });
       }
-      if (plan === null || listed.length === 0) return;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActive((i) => (i + 1) % listed.length);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActive((i) => (i - 1 + listed.length) % listed.length);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        // In a multi loop Enter finishes; the highlighted option is toggled
-        // with Space instead — matching the checkbox mental model and
-        // keeping "Enter = answer" truthful.
-        if (plan.doneValue !== null) {
-          finishMulti();
-          return;
-        }
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      answerExtension(tabId, current, { cancelled: true });
+      return;
+    }
+    if (plan === null || listed.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      dispatch({ type: "active", value: (active + 1) % listed.length });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      dispatch({ type: "active", value: (active - 1 + listed.length) % listed.length });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (plan.doneValue !== null) finishMulti();
+      else {
         const choice = listed[active];
         if (choice) pick(choice.value);
-      } else if (e.key === " " && plan.doneValue !== null) {
-        e.preventDefault();
-        const choice = listed[active];
-        if (choice) pick(choice.value);
       }
-    };
+    } else if (e.key === " " && plan.doneValue !== null) {
+      e.preventDefault();
+      const choice = listed[active];
+      if (choice) pick(choice.value);
+    }
+  };
+
+  // One subscription for the host's lifetime; the ref supplies current state.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => keydown.current(event);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, []);
 
   if (!current) return null;
 
@@ -224,53 +253,59 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
    */
   function pick(value: string): void {
     if (current === undefined) return;
-    lastSent.current = value === OTHER_OPTION ? null : value;
-    // Series history: a single-select pick completes the page, while in a
-    // multi loop an option click is a toggle — only the loop's done records
-    // the answer. "Other" parks an options-only placeholder (dot stays
-    // un-answered) that the editor submit completes.
-    if (series !== null && plan !== null && (plan.doneValue === null || value === OTHER_OPTION)) {
-      record({
-        page: series.current,
-        title: series.currentTitle,
-        options: plan.listed,
-        answer:
-          value === OTHER_OPTION
-            ? []
-            : [plan.listed.find((o) => o.value === value)?.label ?? value],
-        multi: false,
-      });
-    }
+    const entry =
+      series !== null && plan !== null && (plan.doneValue === null || value === OTHER_OPTION)
+        ? {
+            page: series.current,
+            title: series.currentTitle,
+            options: plan.listed,
+            answer:
+              value === OTHER_OPTION
+                ? []
+                : [plan.listed.find((option) => option.value === value)?.label ?? value],
+            multi: false,
+          }
+        : undefined;
+    dispatch({
+      type: "pick",
+      pending: value === OTHER_OPTION ? null : value,
+      entry,
+    });
     answerExtension(tabId, current, { value });
   }
 
   /** Finishes a multi-select loop page and records the picked set. */
   function finishMulti(): void {
     if (current === undefined || plan === null || plan.doneValue === null) return;
-    lastSent.current = null;
-    // When the picked set was lost (or empty) the review falls back to the
-    // frame's count text rather than faking checkmarks.
-    if (series !== null) {
-      record({
-        page: series.current,
-        title: series.currentTitle,
-        options: plan.listed,
-        answer: picked !== null && picked.length > 0 ? [...picked] : [`${plan.count ?? 0} selected`],
-        multi: true,
-      });
-    }
+    const entry =
+      series === null
+        ? undefined
+        : {
+            page: series.current,
+            title: series.currentTitle,
+            options: plan.listed,
+            answer:
+              picked !== null && picked.length > 0
+                ? [...picked]
+                : [`${plan.count ?? 0} selected`],
+            multi: true,
+          };
+    dispatch({ type: "finish", entry });
     answerExtension(tabId, current, { value: plan.doneValue });
   }
 
   /** Records an editor submit as the live page's free-text answer. */
   function recordEditorAnswer(): void {
     if (method !== "editor" || series === null) return;
-    record({
-      page: series.current,
-      title: series.currentTitle,
-      options: [],
-      answer: [inputValue],
-      multi: false,
+    dispatch({
+      type: "record",
+      entry: {
+        page: series.current,
+        title: series.currentTitle,
+        options: [],
+        answer: [inputValue],
+        multi: false,
+      },
     });
   }
 
@@ -286,8 +321,8 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
           <SeriesRail
             state={series}
             reviewing={reviewing}
-            onReview={setReviewing}
-            onJumpToCurrent={() => setReviewing(null)}
+            onReview={(page) => dispatch({ type: "review", page })}
+            onJumpToCurrent={() => dispatch({ type: "review", page: null })}
           />
         )}
         <div className="flex items-start gap-2">
@@ -360,7 +395,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
               <span className="text-[10px] text-ink-faint">
                 answers are final once sent · Esc back
               </span>
-              <Button variant="outline" size="xs" onClick={() => setReviewing(null)}>
+              <Button variant="outline" size="xs" onClick={() => dispatch({ type: "review", page: null })}>
                 back to question {series.current}
               </Button>
             </div>
@@ -400,7 +435,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
                       ref={i === 0 ? firstChoice : undefined}
                       key={`${option.value}:${i}`}
                       type="button"
-                      onMouseEnter={() => setActive(i)}
+                      onMouseEnter={() => dispatch({ type: "active", value: i })}
                       onClick={() => pick(option.value)}
                       className={cn(
                         "flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
@@ -501,7 +536,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
                     rows={3}
                     value={inputValue}
                     aria-label={message || title}
-                    onChange={(e) => setInputValue(e.target.value)}
+                    onChange={(e) => dispatch({ type: "input", value: e.target.value })}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
                         e.preventDefault();
@@ -519,7 +554,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
                     autoFocus
                     value={inputValue}
                     aria-label={message || title}
-                    onChange={(e) => setInputValue(e.target.value)}
+                    onChange={(e) => dispatch({ type: "input", value: e.target.value })}
                     onKeyDown={(e) => {
                       // The window listener skips text fields, so Escape-to-dismiss
                       // is restored here for the panel's own input.

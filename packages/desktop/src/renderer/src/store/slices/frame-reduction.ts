@@ -1,6 +1,5 @@
-// Frame reduction domain (decomposed for #295): the handleRpcFrame dispatch,
-// its stall diagnostics, the throttled usage/roster refreshes, and the
-// queue-settle re-fetch.
+// Frame reduction domain (decomposed for #295): control/data dispatch,
+// agent-event effect execution, throttled roster refreshes, and queue settle.
 import {
   parsePlanReviewTitle,
   parsePlanStatus,
@@ -11,14 +10,13 @@ import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
-import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
+import { normalizeControlFrame } from "@omp-ui/core/rpc/control-frames";
 import { backend } from "../../backend";
-import { formatDuration } from "../../lib/duration";
 import {
   extensionCancelResponse,
   routeExtensionRequest,
 } from "../../lib/extension-router";
-import { arrField, boolField, field, numField, strField } from "../../lib/fields";
+import { arrField, boolField, field, strField } from "../../lib/fields";
 import {
   parseCommandList,
   parseModelInfo,
@@ -32,24 +30,17 @@ import {
   planProposalItem,
   settleRunningTools,
   type CommandItem,
-  type NoticeItem,
   type RenderItem,
 } from "../../lib/transcript";
+import { respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
 import {
-  bumpCompactionUsageGeneration,
-  compactionUsageGenerations,
-  lastFrameAt,
-  pendingNotices,
-  respData,
-  retireTimedOutCommand,
-  retireTimedOutEarlierThan,
-  type GetState,
-  type StoreMachinery,
-  type Watchers,
-} from "./shared";
+  reduceAgentEvent,
+  type AgentEventEffect,
+} from "./reduce-agent-event";
+import { disposeTabRuntime, rpcCommandMachinery } from "./rpc-command";
 import { upsertPlan } from "./plan-execution";
 import { findRecord } from "./view";
-import type { LastTurnMeta, RpcTabState, UiStore } from "../types";
+import type { UiStore } from "../types";
 
 export type FrameReductionSlice = Pick<
   UiStore,
@@ -63,67 +54,9 @@ export type FrameReductionSlice = Pick<
  */
 const COMMAND_OUTPUT_CAP = 64 * 1024;
 
-/** pi-ai's StreamTimeoutError classifier bit (Flag.Timeout, pi-ai error/flags.ts). */
-const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
-/** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
-const STALL_MESSAGE_RE =
-  /stream (stalled|timed out) while waiting for the (next|first) event/i;
-
-/**
- * The per-stall diagnostic notice (issue #100), or null when this retry is
- * not a stream stall. Detection prefers omp's Timeout errorId bit, falling
- * back to the stable watchdog message text; either alone suffices.
- */
-function stallNotice(tab: RpcTabState, frame: object): NoticeItem | null {
-  const errorMessage = strField(frame, "errorMessage") ?? "";
-  const errorId = numField(frame, "errorId") ?? 0;
-  const watchdogMatch = STALL_MESSAGE_RE.exec(errorMessage);
-  if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && watchdogMatch === null)
-    return null;
-
-  tab.stallCount = (tab.stallCount ?? 0) + 1;
-  const checkpoint = tab.streamCheckpoint;
-  const stage =
-    watchdogMatch?.[2]?.toLowerCase() === "first"
-      ? "first-event"
-      : watchdogMatch
-        ? "idle"
-        : null;
-  const upstream = errorMessage ? ` Upstream error: ${errorMessage}` : "";
-  let detail: string;
-  if (stage === null) {
-    detail =
-      "OMP classified the retry as a stream timeout but supplied no watchdog stage. Review Settings → omp → Providers.";
-  } else if (checkpoint === undefined) {
-    detail = `the ${stage} watchdog fired, but no model-stream checkpoint was observed in this tab before it fired. Review Settings → omp → Providers.`;
-  } else {
-    detail = `${stage} watchdog fired after ${formatDuration(Date.now() - checkpoint.at)} since ${checkpoint.label}. Review Settings → omp → Providers.`;
-  }
-  return noticeItem(
-    `provider stream stall #${tab.stallCount} — ${detail}${upstream}`,
-    "warn",
-  );
-}
-
-/** A turn's terminal message ended in a stream stall/timeout, not a user interrupt or other error. */
-function isStreamStallEnd(lt: LastTurnMeta): boolean {
-  if (lt.stopReason !== "error") return false;
-  return (
-    ((lt.errorId ?? 0) & OMP_ERROR_FLAG_TIMEOUT) !== 0 ||
-    STALL_MESSAGE_RE.test(lt.errorMessage ?? "")
-  );
-}
-
-/**
- * Minimum gap between mid-run get_state/get_session_stats refreshes, keyed by
- * tab. Context and spend only grow at turn boundaries, and an agent run fires
- * several per-turn message_ends in quick succession — throttle to one
- * authoritative snapshot per boundary window instead of one rpc call per frame.
- */
-export const USAGE_REFRESH_MS = 500;
+export { USAGE_REFRESH_MS } from "./reduce-agent-event";
 export const COMPACTION_USAGE_RETRY_MS = 100;
 export const COMPACTION_USAGE_MAX_ATTEMPTS = 6;
-const lastUsageRefresh = new Map<string, number>();
 /**
  * One-shot delayed get_state after a turn ends with a nonzero queue count.
  * omp reclaims parked advice and flushes deferred messages on settle, which
@@ -238,14 +171,14 @@ export function createFrameReductionSlice(
   };
 
   const refreshCompactionUsage = (tabId: string, tokensBefore: number): void => {
-    const generation = bumpCompactionUsageGeneration(tabId);
+    const generation = m.bumpCompactionUsageGeneration(tabId);
 
     const isCurrent = (): boolean =>
       get().rpc[tabId] !== undefined &&
-      compactionUsageGenerations.get(tabId) === generation;
+      m.runtime(tabId).compactionUsageGeneration === generation;
     const finish = (): void => {
-      if (compactionUsageGenerations.get(tabId) === generation)
-        compactionUsageGenerations.delete(tabId);
+      if (m.runtime(tabId).compactionUsageGeneration === generation)
+        m.patchRuntime(tabId, { compactionUsageGeneration: undefined });
     };
 
     void get()
@@ -304,31 +237,6 @@ export function createFrameReductionSlice(
     attempt(1);
   };
 
-  /**
-   * Live usage tick: context meter AND spend. Fired on each per-turn
-   * `message_end` while the agent is mid-run, so the HUD tracks the growing
-   * context and cost instead of only snapping to the final values at
-   * `agent_end`. Same get_state/get_session_stats sources as the closing
-   * refresh — just throttled so a burst of turn boundaries costs one snapshot,
-   * not one per frame. get_session_stats is a synchronous message fold in omp,
-   * so the extra call is as cheap as get_state.
-   */
-  const refreshLiveUsage = (tabId: string): void => {
-    const now = Date.now();
-    if (now - (lastUsageRefresh.get(tabId) ?? -Infinity) < USAGE_REFRESH_MS)
-      return;
-    lastUsageRefresh.set(tabId, now);
-    void get()
-      .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-      .then((resp) => m.applyRpcState(tabId, resp))
-      .catch(() => {});
-    void get()
-      .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
-      .then((resp) =>
-        m.patchRpc(tabId, { stats: parseSessionStats(respData(resp)) }),
-      )
-      .catch(() => {});
-  };
 
   const scheduleQueueSettleRefresh = (tabId: string): void => {
     const tab = get().rpc[tabId];
@@ -351,48 +259,143 @@ export function createFrameReductionSlice(
     );
   };
 
+  const runAgentEventEffect = (
+    tabId: string,
+    effect: AgentEventEffect,
+  ): void => {
+    switch (effect.type) {
+      case "ensure-stream-stall-timer":
+        m.ensureStreamStallTimer(tabId);
+        return;
+      case "refresh-compaction-usage":
+        if (effect.tokensBefore === undefined) void m.refreshUsage(tabId);
+        else refreshCompactionUsage(tabId, effect.tokensBefore);
+        return;
+      case "feed-concern-watcher":
+        concernWatcher.feed(tabId);
+        return;
+      case "feed-advisor-reply-watcher":
+        advisorReplyWatcher.feed(tabId);
+        return;
+      case "set-session-model":
+        void backend
+          .setSessionModel(tabId, effect.model, effect.thinkingLevel)
+          .catch(() => {});
+        return;
+      case "restart-stream-stall-timer":
+        m.stopStreamStallTimer(tabId);
+        m.ensureStreamStallTimer(tabId);
+        return;
+      case "clear-queue-settle-timer": {
+        const pending = queueSettleTimers.get(tabId);
+        if (pending !== undefined) {
+          window.clearTimeout(pending);
+          queueSettleTimers.delete(tabId);
+        }
+        return;
+      }
+      case "settle-slash-command-items":
+        m.patchItems(tabId, (item) =>
+          item.kind === "command" &&
+          item.status === "running" &&
+          effect.itemIds.has(item.id)
+            ? { ...item, status: "agent" }
+            : item,
+        );
+        return;
+      case "refresh-usage":
+        if (effect.settleQueue)
+          void m.refreshUsage(tabId, () => scheduleQueueSettleRefresh(tabId));
+        else void m.refreshUsage(tabId);
+        return;
+      case "rename-session":
+        get().renameSession(tabId);
+        return;
+      case "append-transcript-item":
+        m.appendItem(tabId, effect.item);
+        return;
+      case "trigger-stall-continue":
+        if (
+          get().rpc[tabId] !== undefined &&
+          get().state?.stallAutoContinue !== false
+        )
+          stallContinueWatcher.trigger(tabId);
+        return;
+    }
+  };
+
+  const runAgentEventEffects = (
+    tabId: string,
+    effects: AgentEventEffect[],
+    phase: AgentEventEffect["phase"],
+  ): void => {
+    for (const effect of effects)
+      if (effect.phase === phase) runAgentEventEffect(tabId, effect);
+  };
+
   const handleRpcFrame = (tabId: string, frame: object): void => {
       if (frame === null || typeof frame !== "object") return;
       const type = "type" in frame ? frame.type : undefined;
+      // Control frames (the grammar core's normalizeControlFrame owns: the
+      // command response, ready, the extension request/response, the rpc
+      // error) dispatch exhaustively here; everything below is an
+      // agent-event/data frame whose fields stay `unknown` to the per-domain
+      // parsers.
+      const control = normalizeControlFrame(frame);
       // ready can beat the spawn IPC response that inserts the renderer tab.
       // bootRpcTab creates its own runtime slot, so it bypasses the ordinary
       // unknown-tab guard.
-      if (type === "ready") {
+      if (control?.kind === "ready") {
         void get().bootRpcTab(tabId);
         return;
       }
       const tab = get().rpc[tabId];
       if (!tab) return;
+      const runtime = m.runtime(tabId);
       // Liveness evidence for the late-ack budget: any frame proves the
       // process is alive, even when the command chain is slow (issue #335).
-      lastFrameAt.set(tabId, Date.now());
-      switch (type) {
-        case "response": {
-          const id =
-            "id" in frame && typeof frame.id === "string" ? frame.id : null;
-          const pending = id ? tab.pendingCommands.get(id) : undefined;
-          if (!pending) {
-            // The budget expired first: this late response is the completion
-            // observation the timeout attribution waits for (issue #302).
-            if (id) retireTimedOutCommand(tabId, id);
-            return;
-          }
-          clearTimeout(pending.timer);
-          tab.pendingCommands.delete(id!);
-          // The chain is FIFO: this completion proves every earlier-started
-          // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
-          if (pending.command !== "bash") retireTimedOutEarlierThan(tabId, pending.startedAt);
-          if ("success" in frame && frame.success === false) {
-            const message =
-              "error" in frame && typeof frame.error === "string"
-                ? frame.error
-                : "command failed";
-            pending.reject(new Error(message));
-          } else {
-            pending.resolve(frame);
-          }
-          return;
+      const observedAt = Date.now();
+      m.patchRuntime(tabId, { lastFrameAt: observedAt });
+      if (control?.kind === "response") {
+        if (typeof control.id === "string") {
+          rpcCommandMachinery.settle(
+            tabId,
+            control.id,
+            {
+              success: control.success !== false,
+              frame: control.frame,
+              error: control.error,
+            },
+            m,
+          );
         }
+        return;
+      }
+      if (control?.kind === "omp_ui_error") {
+        const liveState = findRecord(get().state, tabId)?.live;
+        // The process died mid-tool, so no agent_end will settle running
+        // cards. Settle the effective items — frames still pending in the
+        // batch are part of the transcript up to the failure (issue #187).
+        const settledItems = settleRunningTools(m.effectiveItems(tabId), "aborted");
+        disposeTabRuntime(tabId, "the session process stopped", deps, m);
+        m.patchRpc(tabId, {
+          status: "error",
+          failure: {
+            message: control.message,
+            kind: "process",
+            fatal: true,
+            sessionStatus: "error",
+            ...(liveState !== undefined ? { liveState } : {}),
+            recovery:
+              "The live session process stopped. Resume the session to continue.",
+          },
+          items: settledItems,
+          // Process death is terminal for this run (issue #228).
+          streamStallMs: undefined,
+        });
+        return;
+      }
+      switch (type) {
         case "rpc_chunk":
           return; // reassembled in main — never expected here
         case "session_info_update":
@@ -438,9 +441,10 @@ export function createFrameReductionSlice(
           // Per-agent marker coalescing: a heartbeat repeats its label
           // forever, so only a genuine transition stamps a marker — no
           // matter how several agents' frames interleave.
-          const markers = (tab.subagentMarkers ??= new Map());
+          const markers = new Map(tab.subagentMarkers ?? []);
           if (markers.get(key) !== label) {
             markers.set(key, label);
+            m.patchRpc(tabId, { subagentMarkers: markers });
             m.appendItem(tabId, markerItem(label, "copper"));
           }
           // Per-agent buffer for the subagent view and the Agents pane
@@ -495,9 +499,10 @@ export function createFrameReductionSlice(
           return;
         }
         case "extension_ui_request": {
-          // Plan mode rides the extension channel, so it is claimed before the
-          // generic routing: the review dialog must reach the plan pane rather
-          // than the raw select dialog, and the status frame is state, not text.
+          // The id/method narrowing is normalizeControlFrame's; payload
+          // internals (title, statusKey, url) stay unknown into the
+          // per-domain parsers below.
+          const frameId = control?.kind === "ext_request" ? control.id : undefined;
           const review = parsePlanReviewTitle(strField(frame, "title"));
           if (review) {
             m.patchRpc(tabId, {
@@ -557,7 +562,7 @@ export function createFrameReductionSlice(
           }
           if (action.action === "open-url") {
             const url = strField(frame, "url");
-            const id = "id" in frame ? frame.id : undefined;
+            const id = frameId;
             if (url === undefined || url === "") {
               backend.rpcSend(tabId, extensionCancelResponse(id));
               return;
@@ -591,12 +596,12 @@ export function createFrameReductionSlice(
             else extensionStatus[entry.key] = entry.text;
             m.patchRpc(tabId, { extensionStatus });
           }
-          backend.rpcSend(
-            tabId,
-            extensionCancelResponse("id" in frame ? frame.id : undefined),
-          );
+          backend.rpcSend(tabId, extensionCancelResponse(frameId));
           if (!entry) {
-            const method = strField(frame, "method") ?? "?";
+            const method =
+              control?.kind === "ext_request" && typeof control.method === "string"
+                ? control.method
+                : "?";
             m.appendItem(tabId, markerItem(`extension ${method} auto-cancelled`));
           }
           return;
@@ -605,7 +610,7 @@ export function createFrameReductionSlice(
           // Settles a slash-command row whose response carried no
           // `agentInvoked` (older runtime): the wire id maps back to the item.
           const id = "id" in frame && typeof frame.id === "string" ? frame.id : null;
-          const byRequest = m.slashCommandItems.get(tabId);
+          const byRequest = m.runtime(tabId).slashCommandItems;
           const itemId = id !== null ? byRequest?.get(id) : undefined;
           if (byRequest !== undefined && id !== null && itemId !== undefined) {
             byRequest.delete(id);
@@ -635,32 +640,6 @@ export function createFrameReductionSlice(
             m.patchRpc(tabId, { stallAbortPending: true });
           return;
         }
-        case "omp_ui_error": {
-          const message = strField(frame, "message") ?? "omp rpc error";
-          const liveState = findRecord(get().state, tabId)?.live;
-          // The process died mid-tool, so no agent_end will settle running
-          // cards. Settle the effective items — frames still pending in the
-          // batch are part of the transcript up to the failure (issue #187).
-          const settledItems = settleRunningTools(m.effectiveItems(tabId), "aborted");
-          m.cancelTranscriptBatch(tabId);
-          compactionUsageGenerations.delete(tabId);
-          m.patchRpc(tabId, {
-            status: "error",
-            failure: {
-              message,
-              kind: "process",
-              fatal: true,
-              sessionStatus: "error",
-              ...(liveState !== undefined ? { liveState } : {}),
-              recovery:
-                "The live session process stopped. Resume the session to continue.",
-            },
-            items: settledItems,
-            // Process death is terminal for this run (issue #228).
-            streamStallMs: undefined,
-          });
-          return;
-        }
         case "host_tool_call":
           // No host tools are registered — answer with an error, never hang the agent.
           backend.rpcSend(tabId, {
@@ -678,168 +657,34 @@ export function createFrameReductionSlice(
           });
           return;
         default: {
-          // Renderer-observed request/model progress for stall diagnosis. Local
-          // tool execution and settlement frames deliberately do not reset it.
-          const checkpointLabel = modelStreamCheckpointLabel(frame);
-          if (checkpointLabel !== null) {
-            tab.streamCheckpoint = { at: Date.now(), label: checkpointLabel };
-          }
-          // Late-joining clients see frames while "running" without an
-          // agent_start — arm the stall clock on any such frame (issue #228).
-          if (tab.status === "running") m.ensureStreamStallTimer(tabId);
-          // The AgentSessionEvent stream — the actual transcript. Reduction is
-          // eager (frame-exact for the watchers below) but the render commit is
-          // coalesced — one Zustand set per burst instead of per frame, so the
-          // renderer keeps servicing input mid-stream (issue #187).
-          const stall =
-            type === "auto_retry_start" ? stallNotice(tab, frame) : null;
-          m.queueTranscriptFrame(tabId, frame, stall);
-          if (type === "auto_compaction_start")
-            compactionUsageGenerations.delete(tabId);
-          if (type === "auto_compaction_end") {
-            const result = field(frame, "result");
-            const tokensBefore = numField(result, "tokensBefore");
-            const aborted = boolField(frame, "aborted") === true;
-            if (
-              !aborted &&
-              tokensBefore !== undefined &&
-              Number.isFinite(tokensBefore) &&
-              tokensBefore > 0
-            )
-              refreshCompactionUsage(tabId, tokensBefore);
-            else void m.refreshUsage(tabId);
-          }
-          // A pending plan-concerns wait settles the moment a fresh advisor
-          // finding lands after the verdict (or its bounded deadline fires).
-          concernWatcher.feed(tabId);
-          // A review that lands with the session idle has nothing carrying it
-          // back to the main model — answer it (issue #104).
-          //
-          // This position is load-bearing; do not move it. The agent_start /
-          // agent_end status patches below run AFTER this call, so on the
-          // agent_end frame the tab still reads "running": canReply refuses,
-          // and the cursor simply advances past the `agent finished` marker.
-          // The advisory arriving on a later frame is then above that cursor,
-          // with the tab finally "ready" — which is exactly the case to answer.
-          advisorReplyWatcher.feed(tabId);
-          if (type === "thinking_level_changed") {
-            const level = strField(frame, "thinkingLevel");
-            if (level) {
-              m.patchSession(tabId, { thinkingLevel: level });
-              const model = get().rpc[tabId]?.model;
-              if (model) {
-                void backend
-                  .setSessionModel(
-                    tabId,
-                    `${model.provider}/${model.id}`,
-                    level,
-                  )
-                  .catch(() => {});
-              }
-            }
-          }
-          if (type === "agent_start") {
-            m.patchRpc(tabId, { status: "running", lastTurn: undefined });
-            // A stale entry from a prior run (its tick has not fired yet)
-            // must not block the fresh arm.
-            m.stopStreamStallTimer(tabId);
-            m.ensureStreamStallTimer(tabId);
-            const pending = queueSettleTimers.get(tabId);
-            if (pending !== undefined) {
-              window.clearTimeout(pending);
-              queueSettleTimers.delete(tabId);
-            }
-            // A slash command still awaiting its verdict (response carried no
-            // `agentInvoked`) is what started this turn — mark it so.
-            const byRequest = m.slashCommandItems.get(tabId);
-            if (byRequest !== undefined && byRequest.size > 0) {
-              const tracked = new Set(byRequest.values());
-              byRequest.clear();
-              m.patchItems(tabId, (i) =>
-                i.kind === "command" && i.status === "running" && tracked.has(i.id)
-                  ? { ...i, status: "agent" }
-                  : i,
-              );
-            }
-          }
-          // Context and spend grow at turn boundaries — tick the HUD meter and
-          // cost counter live while the agent is still mid-run, not just once
-          // at agent_end.
-          if (type === "message_end") {
-            const message = field(frame, "message");
-            if (
-              message !== null &&
-              typeof message === "object" &&
-              strField(message, "role") === "assistant"
-            ) {
-              // The turn's terminal message end: drives the agent_end settle
-              // target and the stall classification below.
-              m.patchRpc(tabId, {
-                lastTurn: {
-                  stopReason: strField(message, "stopReason"),
-                  errorMessage: strField(message, "errorMessage"),
-                  errorId: numField(message, "errorId"),
-                },
-              });
-            }
-            if (tab.status === "running") refreshLiveUsage(tabId);
-          }
-          if (type === "agent_end") {
-            // The tick self-terminates on the next pass; the explicit clear
-            // keeps the field from lingering up to a second after the run.
-            if (tab.status === "running")
-              m.patchRpc(tabId, { status: "ready", streamStallMs: undefined });
+          const reduction = reduceAgentEvent(
+            tab,
+            { ...runtime, lastFrameAt: observedAt },
+            frame,
+          );
 
-            // Retry net: a rename that failed at prompt time (hasRenamed was
-            // released) gets another shot at the next turn boundary.
-            if (tab.initialPrompt && !tab.hasRenamed)
-              get().renameSession(tabId);
+          runAgentEventEffects(
+            tabId,
+            reduction.effects,
+            "before-transcript",
+          );
+          // Transcript reduction stays eager for watcher reads, while its
+          // render commit remains coalesced by the machinery (issue #187).
+          m.queueTranscriptFrame(
+            tabId,
+            reduction.transcript.frame,
+            reduction.transcript.stall,
+          );
+          // agent_end watcher feeds intentionally observe the pre-status tab;
+          // this explicit phase preserves that load-bearing cursor ordering.
+          runAgentEventEffects(tabId, reduction.effects, "before-commit");
 
-            // Refresh todoPhases/contextUsage/isStreaming after each agent run.
-            void get()
-              .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-              .then((resp) => {
-                m.applyRpcState(tabId, resp);
-                scheduleQueueSettleRefresh(tabId);
-              })
-              // The refresh itself was lost — if the last-known count is
-              // nonzero it may be frozen; the settle timer is the one retry.
-              .catch(() => scheduleQueueSettleRefresh(tabId));
+          m.patchRuntime(tabId, reduction.patch.runtime);
+          if (reduction.patch.rpc !== undefined)
+            m.patchRpc(tabId, reduction.patch.rpc);
 
-            // Session cost/token totals live on get_session_stats, which is
-            // fetched once at boot — a fresh session reads $0 there. Refresh
-            // it per run so the HUD cost counter updates instead of freezing
-            // at $0.0000 for the whole session.
-            void get().refreshStats(tabId);
-            // (C) The provider-stall diagnostic posts at every
-            // stall-classified error turn-end (issue #250). A watchdog abort
-            // (issue #254) posted its own notice from main already.
-            // (B) The continue prompt is gated on the app switch (issue #251).
-            const lastTurn = get().rpc[tabId]?.lastTurn;
-            const providerStall =
-              lastTurn !== undefined && isStreamStallEnd(lastTurn);
-            if (providerStall) {
-              // The ready patch above replaced the stored tab, and stallNotice
-              // bumps its stall counter in place — re-fetch the live object so
-              // the increment does not land on a detached one.
-              const liveTab = get().rpc[tabId];
-              if (liveTab !== undefined) {
-                const notice = stallNotice(liveTab, {
-                  errorMessage: lastTurn.errorMessage,
-                  errorId: lastTurn.errorId,
-                });
-                if (notice) m.appendItem(tabId, notice);
-              }
-            }
-            const watchdogAbort = get().rpc[tabId]?.stallAbortPending === true;
-            if (watchdogAbort) m.patchRpc(tabId, { stallAbortPending: false });
-            if (
-              (providerStall || watchdogAbort) &&
-              get().rpc[tabId] !== undefined &&
-              get().state?.stallAutoContinue !== false
-            )
-              stallContinueWatcher.trigger(tabId);
-          }
+          runAgentEventEffects(tabId, reduction.effects, "after-commit");
+          return;
         }
       }
   };
@@ -855,7 +700,10 @@ export function createFrameReductionSlice(
     level?: "info" | "warn" | "error",
   ): void => {
     if (get().rpc[tabId]?.status === "starting") {
-      pendingNotices.set(tabId, [...(pendingNotices.get(tabId) ?? []), { text, level }]);
+      const runtime = m.runtime(tabId);
+      m.patchRuntime(tabId, {
+        pendingNotices: [...runtime.pendingNotices, { text, level }],
+      });
       return;
     }
     m.appendItem(tabId, noticeItem(text, level));

@@ -17,7 +17,6 @@ import {
 import {
   noticeItem,
   reduceEvent,
-  settleRunningTools,
   type NoticeItem,
   type RenderItem,
 } from "../../lib/transcript";
@@ -42,8 +41,45 @@ export interface Watchers {
   stall: StallContinueWatcher;
 }
 
+export interface TranscriptBatch {
+  items: RenderItem[];
+  raf?: number;
+  timer?: number;
+}
+
+export interface PendingNotice {
+  text: string;
+  level?: "info" | "warn" | "error";
+}
+
+export interface TimedOutCommand {
+  id: string;
+  command: string;
+  startedAt: number;
+  timedOutAt: number;
+}
+
+/** Renderer-only process state. One entry owns every per-tab side channel. */
+export interface TabRuntime {
+  quietWedgeNotified: boolean;
+  timedOutCommands: TimedOutCommand[];
+  lastFrameAt?: number;
+  pendingNotices: PendingNotice[];
+  transcriptBatch?: TranscriptBatch;
+  slashCommandItems: Map<string, string>;
+  streamStallTimer?: number;
+  compactionUsageGeneration?: number;
+  lastUsageRefresh?: number;
+  subagentPendingLevel?: "progress" | "events";
+}
+
 export interface StoreMachinery {
   patchRpc(tabId: string, patch: Partial<RpcTabState>): void;
+  runtime(tabId: string): TabRuntime;
+  patchRuntime(tabId: string, patch: Partial<TabRuntime>): void;
+  createTabRuntime(tabId: string): TabRuntime;
+  discardTabRuntime(tabId: string): void;
+  bumpCompactionUsageGeneration(tabId: string): number;
   patchSession(tabId: string, patch: Partial<SessionRuntime>): void;
   effectiveItems(tabId: string): RenderItem[];
   queueTranscriptFrame(
@@ -55,7 +91,6 @@ export interface StoreMachinery {
   cancelTranscriptBatch(tabId: string): void;
   appendItem(tabId: string, item: RenderItem): void;
   patchItems(tabId: string, map: (item: RenderItem) => RenderItem): void;
-  slashCommandItems: Map<string, Map<string, string>>;
   runCommand(
     tabId: string,
     cmd: Record<string, unknown>,
@@ -68,13 +103,9 @@ export interface StoreMachinery {
   ): Promise<void>;
   syncSubagentSubscription(tabId: string): void;
   applyRpcState(tabId: string, resp: unknown): void;
-  refreshUsage(tabId: string): Promise<void>;
+  refreshUsage(tabId: string, afterState?: () => void): Promise<void>;
   stopStreamStallTimer(tabId: string): void;
   ensureStreamStallTimer(tabId: string): void;
-  teardownExited(tabId: string, code: number): void;
-  teardownHibernated(tabId: string): void;
-  /** Rejects every in-flight wait on a process that can no longer answer. */
-  abandonPendingCommands(tabId: string, reason: string): void;
 }
 
 /** The RPC response budget, shared by rpc-command and the advisor relaunch. */
@@ -130,6 +161,8 @@ export class RpcCommandTimeoutError extends Error {
   readonly command: string;
   readonly timeoutMs: number;
   readonly startedAt: number;
+  /** What was ahead of this command when its budget expired. */
+  readonly attribution: string | null;
   /**
    * `response` — omp owed an immediate ack and did not send one: the serial
    * chain is wedged. `silence` — a late-ack command's window elapsed with no
@@ -142,6 +175,7 @@ export class RpcCommandTimeoutError extends Error {
     timeoutMs: number,
     startedAt: number,
     kind: "response" | "silence" = "response",
+    attribution: string | null = null,
   ) {
     super(
       kind === "silence"
@@ -155,6 +189,7 @@ export class RpcCommandTimeoutError extends Error {
     this.timeoutMs = timeoutMs;
     this.startedAt = startedAt;
     this.kind = kind;
+    this.attribution = attribution;
   }
 }
 
@@ -267,19 +302,37 @@ export { alertError };
 export const handedOffPlanSources = new Set<string>();
 
 /**
- * Compaction-usage refresh generations, keyed by tab: a relaunch or erase
- * bumps the generation so a stale retry loop dies instead of patching fresh
- * state.
+ * The one renderer-only runtime entry per rpc tab. `bootRpcTab` creates the
+ * entry synchronously before it sends a command, so every subsequent frame
+ * has one owner for timers, correlations, and process-local diagnostics.
  */
-export const compactionUsageGenerations = new Map<string, number>();
+const tabRuntimes = new Map<string, TabRuntime>();
 let nextCompactionUsageGeneration = 0;
 
-/** Allocates the tab's next compaction-usage generation and records it. */
-export function bumpCompactionUsageGeneration(tabId: string): number {
-  const generation = ++nextCompactionUsageGeneration;
-  compactionUsageGenerations.set(tabId, generation);
-  return generation;
+function freshTabRuntime(): TabRuntime {
+  return {
+    quietWedgeNotified: false,
+    timedOutCommands: [],
+    pendingNotices: [],
+    slashCommandItems: new Map(),
+  };
 }
+/** Test seam for the renderer store harness's whole-state reset. */
+export function resetTabRuntimesForTests(): void {
+  for (const runtime of tabRuntimes.values()) {
+    if (runtime.transcriptBatch?.raf !== undefined) {
+      window.cancelAnimationFrame(runtime.transcriptBatch.raf);
+    }
+    if (runtime.transcriptBatch?.timer !== undefined) {
+      window.clearTimeout(runtime.transcriptBatch.timer);
+    }
+    if (runtime.streamStallTimer !== undefined) {
+      window.clearInterval(runtime.streamStallTimer);
+    }
+  }
+  tabRuntimes.clear();
+}
+
 
 /**
  * Live stream-stall detection (issue #228). Clock: the renderer-observed
@@ -289,75 +342,6 @@ export function bumpCompactionUsageGeneration(tabId: string): number {
  */
 export const STREAM_STALL_THRESHOLD_MS = 30_000;
 export const STREAM_STALL_TICK_MS = 1_000;
-
-/**
- * Quiet-failure notice coalescing (issue #302): one dim transcript notice per
- * wedge episode per tab. Set by the first quiet failure (timeout or error),
- * re-armed by any quiet success, reset on relaunch. Tabs hide rather than
- * close, so the map is bounded by tab count and needs no teardown (same
- * posture as `subagentRefresh`).
- */
-export const quietWedgeNotified = new Map<string, boolean>();
-/**
- * Renderer-side timed-out commands whose completion response has not yet
- * been observed (issue #302). A command ahead of a victim in omp's serial
- * chain cannot still be in `pendingCommands` — it shares the same response
- * budget, so its entry left at its own, earlier timeout. The holder is the
- * earliest such command started before the victim: in a FIFO chain it is
- * the one executing while the rest merely queue behind it. Entries retire
- * when a late response for the command arrives, when any non-`bash` success
- * proves the chain drained past them, or on relaunch/erase.
- */
-export interface TimedOutCommand {
-  id: string;
-  command: string;
-  startedAt: number;
-  timedOutAt: number;
-}
-export const timedOutCommands = new Map<string, TimedOutCommand[]>();
-
-/**
- * Wall-clock of the last rpc frame observed for a tab. The late-ack budget's
- * liveness evidence: omp is alive and the chain is merely slow, not wedged
- * (issue #335). Written by handleRpcFrame; dropped on relaunch, boot, and
- * erase. Bounded by tab count, like `quietWedgeNotified`.
- */
-export const lastFrameAt = new Map<string, number>();
-
-/**
- * Notices appended while a tab is booting, delivered once its transcript has
- * loaded (issue #334). `bootRpcTab` resets `items` and `loadHistory` replaces
- * them wholesale, so a notice raised across a relaunch — a worktree release is
- * one, and it is the only durable record of where the session moved — would be
- * dropped. Bounded by tab count; cleared on erase, drained on boot.
- */
-export interface PendingNotice {
-  text: string;
-  level?: "info" | "warn" | "error";
-}
-export const pendingNotices = new Map<string, PendingNotice[]>();
-
-/** A late response for a timed-out command: the chain provably moved past it (issue #302). */
-const retireTimedOutCommand = (tabId: string, id: string): void => {
-  const list = timedOutCommands.get(tabId);
-  if (!list) return;
-  const at = list.findIndex((e) => e.id === id);
-  if (at === -1) return;
-  list.splice(at, 1);
-  if (list.length === 0) timedOutCommands.delete(tabId);
-};
-
-/** A non-bash completion proves the FIFO chain drained past every earlier-started command (issue #302). */
-const retireTimedOutEarlierThan = (tabId: string, startedAt: number): void => {
-  const list = timedOutCommands.get(tabId);
-  if (!list) return;
-  const kept = list.filter((e) => e.startedAt >= startedAt);
-  if (kept.length === list.length) return;
-  if (kept.length === 0) timedOutCommands.delete(tabId);
-  else timedOutCommands.set(tabId, kept);
-};
-
-export { retireTimedOutCommand, retireTimedOutEarlierThan };
 
 /** Command responses nest their payload under `data`. */
 const respData = (resp: unknown): unknown =>
@@ -384,6 +368,45 @@ export function createMachinery(
     });
   };
 
+  const createTabRuntime = (tabId: string): TabRuntime => {
+    const runtime = freshTabRuntime();
+    tabRuntimes.set(tabId, runtime);
+    return runtime;
+  };
+
+  const runtime = (tabId: string): TabRuntime =>
+    tabRuntimes.get(tabId) ?? createTabRuntime(tabId);
+
+  const patchRuntime = (
+    tabId: string,
+    patch: Partial<TabRuntime>,
+  ): void => {
+    const current = tabRuntimes.get(tabId);
+    if (current === undefined) return;
+    tabRuntimes.set(tabId, { ...current, ...patch });
+  };
+
+  const discardTabRuntime = (tabId: string): void => {
+    const current = tabRuntimes.get(tabId);
+    if (current === undefined) return;
+    const batch = current.transcriptBatch;
+    if (
+      batch?.raf !== undefined &&
+      typeof window.cancelAnimationFrame === "function"
+    )
+      window.cancelAnimationFrame(batch.raf);
+    if (batch?.timer !== undefined) window.clearTimeout(batch.timer);
+    if (current.streamStallTimer !== undefined)
+      window.clearInterval(current.streamStallTimer);
+    tabRuntimes.delete(tabId);
+  };
+
+  const bumpCompactionUsageGeneration = (tabId: string): number => {
+    const generation = ++nextCompactionUsageGeneration;
+    patchRuntime(tabId, { compactionUsageGeneration: generation });
+    return generation;
+  };
+
   /**
    * Per-tab pending transcript commit (issue #187). AgentSessionEvent frames
    * are reduced eagerly onto the batch's `items` — the reduce is cheap and the
@@ -394,30 +417,17 @@ export function createMachinery(
    * instead of one per frame is what keeps the renderer able to service input.
    */
   const TRANSCRIPT_FLUSH_MS = 50;
-  interface TranscriptBatch {
-    items: RenderItem[];
-    raf?: number;
-    timer?: number;
-  }
-  const transcriptBatches = new Map<string, TranscriptBatch>();
-
-  const streamStallTimers = new Map<string, number>();
-
-  /**
-   * Slash-command echo correlation: request id → CommandItem id, per tab.
-   * Entries live only while the item may still settle off a late
-   * `prompt_result`/`agent_start` (the response carried no `agentInvoked`).
-   */
-  const slashCommandItems = new Map<string, Map<string, string>>();
 
   /** Committed items plus anything reduced but not yet flushed. */
   const effectiveItems = (tabId: string): RenderItem[] =>
-    transcriptBatches.get(tabId)?.items ?? get().rpc[tabId]?.items ?? [];
+    tabRuntimes.get(tabId)?.transcriptBatch?.items ??
+    get().rpc[tabId]?.items ??
+    [];
 
   const cancelTranscriptBatch = (tabId: string): void => {
-    const batch = transcriptBatches.get(tabId);
+    const batch = tabRuntimes.get(tabId)?.transcriptBatch;
     if (!batch) return;
-    transcriptBatches.delete(tabId);
+    patchRuntime(tabId, { transcriptBatch: undefined });
     if (
       batch.raf !== undefined &&
       typeof window.cancelAnimationFrame === "function"
@@ -428,7 +438,7 @@ export function createMachinery(
   };
 
   const flushTranscriptBatch = (tabId: string): void => {
-    const batch = transcriptBatches.get(tabId);
+    const batch = tabRuntimes.get(tabId)?.transcriptBatch;
     if (!batch) return;
     cancelTranscriptBatch(tabId);
     const tab = get().rpc[tabId];
@@ -444,13 +454,13 @@ export function createMachinery(
     if (!get().rpc[tabId]) return;
     const reduced = reduceEvent(effectiveItems(tabId), frame);
     const items = stall ? [...reduced, stall] : reduced;
-    let batch = transcriptBatches.get(tabId);
-    if (batch) {
-      batch.items = items;
+    const current = runtime(tabId).transcriptBatch;
+    if (current) {
+      patchRuntime(tabId, { transcriptBatch: { ...current, items } });
       return;
     }
-    batch = { items };
-    transcriptBatches.set(tabId, batch);
+    const batch: TranscriptBatch = { items };
+    patchRuntime(tabId, { transcriptBatch: batch });
     if (typeof window.requestAnimationFrame === "function") {
       batch.raf = window.requestAnimationFrame(() =>
         flushTranscriptBatch(tabId),
@@ -468,62 +478,15 @@ export function createMachinery(
     if (!tab) return;
     // A pending transcript batch owns the next commit — append onto it so the
     // item keeps its arrival position instead of being overwritten by the flush.
-    const batch = transcriptBatches.get(tabId);
+    const batch = tabRuntimes.get(tabId)?.transcriptBatch;
     if (batch) {
-      batch.items = [...batch.items, item];
+      patchRuntime(tabId, {
+        transcriptBatch: { ...batch, items: [...batch.items, item] },
+      });
       return;
     }
     patchRpc(tabId, { items: [...tab.items, item] });
   };
-  /**
-   * What was ahead of a timed-out command in omp's chain (issue #302). Entries
-   * are appended in send order, so the first started before the victim is the
-   * chain's current holder; the rest merely queue behind it. Returns the text
-   * after the em dash, or null when there is nothing to attribute.
-   */
-  const wedgeSuffix = (
-    tabId: string,
-    err: RpcCommandTimeoutError,
-  ): string | null => {
-    const holder = (timedOutCommands.get(tabId) ?? []).find(
-      (e) => e.startedAt < err.startedAt,
-    );
-    if (holder)
-      return `queued behind ${holder.command} (timed out ${formatDuration(
-        Date.now() - holder.timedOutAt,
-      )} ago, response not yet observed)`;
-    const pending = get().rpc[tabId]?.pendingCommands;
-    const inFlight = pending
-      ? [...pending.values()].map((p) =>
-          p.quiet
-            ? `${p.command} (bg, ${formatDuration(Date.now() - p.startedAt)})`
-            : `${p.command} (${formatDuration(Date.now() - p.startedAt)})`,
-        )
-      : [];
-    return inFlight.length > 0
-      ? `other commands still in flight: ${inFlight.join(", ")}`
-      : null;
-  };
-
-  /**
-   * Drops every wait on a process that can no longer answer. Without this a
-   * command in flight at exit/hibernate/relaunch fires its budget 30 s later
-   * and paints a banner against the fresh session, with recovery text claiming
-   * the command "may still complete in the live session" (issue #338).
-   */
-  const abandonPendingCommands = (tabId: string, reason: string): void => {
-    const tab = get().rpc[tabId];
-    timedOutCommands.delete(tabId);
-    lastFrameAt.delete(tabId);
-    if (!tab || tab.pendingCommands.size === 0) return;
-    const pending = [...tab.pendingCommands.values()];
-    tab.pendingCommands.clear();
-    for (const p of pending) {
-      clearTimeout(p.timer);
-      p.reject(new RpcCommandAbandonedError(p.command, reason));
-    }
-  };
-
   /**
    * Quiet commands are background sync (heartbeats, usage ticks): their
    * failure means the session is congested, not that it failed. Never paint
@@ -534,12 +497,13 @@ export function createMachinery(
   const noteQuietWedge = (tabId: string, command: string, err: unknown): void => {
     // A teardown must not consume the wedge-episode slot (issue #338).
     if (err instanceof RpcCommandAbandonedError) return;
-    if (quietWedgeNotified.get(tabId)) return;
-    quietWedgeNotified.set(tabId, true);
+    const current = runtime(tabId);
+    if (current.quietWedgeNotified) return;
+    patchRuntime(tabId, { quietWedgeNotified: true });
     const text =
       err instanceof RpcCommandTimeoutError
         ? `background "${command}" timed out after ${formatDuration(err.timeoutMs)} — ${
-            wedgeSuffix(tabId, err) ?? "no other command in flight"
+            err.attribution ?? "no other command in flight"
           }`
         : `background "${command}" failed: ${err instanceof Error ? err.message : String(err)}`;
     appendItem(tabId, noticeItem(text, "info"));
@@ -552,16 +516,17 @@ export function createMachinery(
   ): void => {
     const tab = get().rpc[tabId];
     if (!tab) return;
-    const base = transcriptBatches.get(tabId)?.items ?? tab.items;
+    const batch = tabRuntimes.get(tabId)?.transcriptBatch;
+    const base = batch?.items ?? tab.items;
     const items = base.map(map);
     if (!items.some((item, i) => item !== base[i])) return;
-    const batch = transcriptBatches.get(tabId);
     if (batch) {
-      batch.items = items;
+      patchRuntime(tabId, { transcriptBatch: { ...batch, items } });
       return;
     }
     patchRpc(tabId, { items });
   };
+
 
   /**
    * Sends set_subagent_subscription when — and only when — the tab's desired
@@ -572,13 +537,22 @@ export function createMachinery(
     const tab = get().rpc[tabId];
     if (!tab) return;
     const level = tab.selectedSubagent ? "events" : "progress";
-    if (tab.subagentLevel === level) return;
-    tab.subagentLevel = level;
+    const runtimeState = runtime(tabId);
+    if (tab.subagentAckLevel === level || runtimeState.subagentPendingLevel === level) return;
+    patchRuntime(tabId, { subagentPendingLevel: level });
     void runCommand(
       tabId,
       { type: "set_subagent_subscription", level },
       { quiet: true },
-    );
+    ).then((response) => {
+      if (runtime(tabId).subagentPendingLevel === level) {
+        patchRuntime(tabId, { subagentPendingLevel: undefined });
+      }
+      if (response !== null) patchRpc(tabId, { subagentAckLevel: level });
+      const current = get().rpc[tabId];
+      const desired = current?.selectedSubagent ? "events" : "progress";
+      if (current !== undefined && desired !== level) syncSubagentSubscription(tabId);
+    });
   };
 
   /**
@@ -609,7 +583,8 @@ export function createMachinery(
       }
       // Any quiet success proves the queue is draining: re-arm the
       // wedge-episode notice for the next episode (issue #302).
-      if (opts?.quiet === true) quietWedgeNotified.delete(tabId);
+      if (opts?.quiet === true)
+        patchRuntime(tabId, { quietWedgeNotified: false });
       return resp;
     } catch (err) {
       const tab = get().rpc[tabId];
@@ -626,7 +601,7 @@ export function createMachinery(
       const base = err instanceof Error ? err.message : String(err);
       // Name what was ahead of it in omp's chain: the banner is the surface a
       // user actually reads, and it is the one that lacked attribution (#337).
-      const suffix = timedOut ? wedgeSuffix(tabId, err) : null;
+      const suffix = timedOut ? err.attribution : null;
       const liveState = findRecord(get().state, tabId)?.live;
       patchRpc(tabId, {
         failure: {
@@ -711,12 +686,16 @@ export function createMachinery(
     }
   };
 
-  const refreshUsage = async (tabId: string): Promise<void> => {
+  const refreshUsage = async (
+    tabId: string,
+    afterState?: () => void,
+  ): Promise<void> => {
     await Promise.all([
       get()
         .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
         .then((resp) => applyRpcState(tabId, resp))
-        .catch(() => {}),
+        .catch(() => {})
+        .finally(afterState),
       get()
         .rpcCommand(tabId, { type: "get_session_stats" }, { quiet: true })
         .then((resp) =>
@@ -725,12 +704,11 @@ export function createMachinery(
         .catch(() => {}),
     ]);
   };
-
   /** Stops the armed tab's interval, if any; idempotent. */
   const stopStreamStallTimer = (tabId: string): void => {
-    const id = streamStallTimers.get(tabId);
+    const id = tabRuntimes.get(tabId)?.streamStallTimer;
     if (id !== undefined) window.clearInterval(id);
-    streamStallTimers.delete(tabId);
+    patchRuntime(tabId, { streamStallTimer: undefined });
   };
 
   /**
@@ -771,103 +749,23 @@ export function createMachinery(
   };
 
   const ensureStreamStallTimer = (tabId: string): void => {
-    if (streamStallTimers.has(tabId)) return;
-    streamStallTimers.set(
-      tabId,
-      window.setInterval(() => streamStallTick(tabId), STREAM_STALL_TICK_MS),
-    );
-  };
-
-  /**
-   * Process-exit teardown (the onPtyExit handler's body, issue #93/#187): the
-   * dead process's final frames must not be lost, and its stall clock must
-   * stop now.
-   */
-  const teardownExited = (tabId: string, code: number): void => {
-    abandonPendingCommands(tabId, "the session process exited");
-    // An rpc-mode omp that dies mid-tool sends no agent_end or
-    // omp_ui_error frame — this exit is the only signal, so running
-    // tool cards are settled here (issue #93). Settle from the effective
-    // items: a batched stream commit may still be pending, and the dead
-    // process's final frames must not be lost (issue #187).
-    const before = get().rpc[tabId];
-    const settled = before
-      ? settleRunningTools(effectiveItems(tabId), "aborted")
-      : undefined;
-    cancelTranscriptBatch(tabId);
-    compactionUsageGenerations.delete(tabId);
-    // No frame may ever come again: stop the stall clock now instead of
-    // letting the next tick re-arm on the leftover open-assistant flag
-    // (issue #228).
-    stopStreamStallTimer(tabId);
-    set((s) => {
-      // The stall field must clear even when no tool cards were running
-      // — a pure-text stall settles to `settled === before.items`.
-      const clearStall = before?.streamStallMs !== undefined;
-      const rpc =
-        before &&
-        (clearStall ||
-          (settled !== undefined && settled !== before.items))
-          ? {
-              ...s.rpc,
-              [tabId]: {
-                ...before,
-                ...(clearStall ? { streamStallMs: undefined } : {}),
-                ...(settled !== undefined && settled !== before.items
-                  ? { items: settled }
-                  : {}),
-              },
-            }
-          : s.rpc;
-      return { exited: { ...s.exited, [tabId]: code }, rpc };
+    if (runtime(tabId).streamStallTimer !== undefined) return;
+    patchRuntime(tabId, {
+      streamStallTimer: window.setInterval(
+        () => streamStallTick(tabId),
+        STREAM_STALL_TICK_MS,
+      ),
     });
   };
 
-  /**
-   * Hibernation: the process was stopped on purpose after an idle window
-   * (issue #246). Same teardown as a process exit — no frame may ever
-   * come again, so settle running tools and stop the stall clock — but
-   * the framing is "stopped to free memory", not a crash. `exited` is
-   * set on purpose: every dead gate (composer, canReply, HUD) keys off
-   * it; `hibernated` only changes what the overlay and HUD say.
-   * Keep this teardown in sync with the onPtyExit handler above.
-   */
-  const teardownHibernated = (tabId: string): void => {
-    abandonPendingCommands(tabId, "the session was hibernated");
-    const before = get().rpc[tabId];
-    const settled = before
-      ? settleRunningTools(effectiveItems(tabId), "aborted")
-      : undefined;
-    cancelTranscriptBatch(tabId);
-    compactionUsageGenerations.delete(tabId);
-    stopStreamStallTimer(tabId);
-    set((s) => {
-      const clearStall = before?.streamStallMs !== undefined;
-      const rpc =
-        before &&
-        (clearStall ||
-          (settled !== undefined && settled !== before.items))
-          ? {
-              ...s.rpc,
-              [tabId]: {
-                ...before,
-                ...(clearStall ? { streamStallMs: undefined } : {}),
-                ...(settled !== undefined && settled !== before.items
-                  ? { items: settled }
-                  : {}),
-              },
-            }
-          : s.rpc;
-      return {
-        exited: { ...s.exited, [tabId]: 0 },
-        hibernated: { ...s.hibernated, [tabId]: true },
-        rpc,
-      };
-    });
-  };
 
   return {
     patchRpc,
+    runtime,
+    patchRuntime,
+    createTabRuntime,
+    discardTabRuntime,
+    bumpCompactionUsageGeneration,
     patchSession,
     effectiveItems,
     queueTranscriptFrame,
@@ -875,7 +773,6 @@ export function createMachinery(
     cancelTranscriptBatch,
     appendItem,
     patchItems,
-    slashCommandItems,
     runCommand,
     pollUntil,
     syncSubagentSubscription,
@@ -883,8 +780,5 @@ export function createMachinery(
     refreshUsage,
     stopStreamStallTimer,
     ensureStreamStallTimer,
-    teardownExited,
-    teardownHibernated,
-    abandonPendingCommands,
   };
 }

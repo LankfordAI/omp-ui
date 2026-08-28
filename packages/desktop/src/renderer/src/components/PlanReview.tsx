@@ -78,6 +78,61 @@ function KeywordLabel({ keyword }: { keyword: MagicKeyword }) {
   );
 }
 
+function DispatchSummary({
+  contextLabel,
+  model,
+  ultrathink,
+  orchestrate,
+  workflowz,
+  branch,
+  className,
+}: {
+  contextLabel: string;
+  model: ModelInfo | null;
+  ultrathink: boolean;
+  orchestrate: boolean;
+  workflowz: boolean;
+  branch: string | null;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <Label>ready to dispatch</Label>
+      <p className="mt-0.5 truncate text-[11px] text-ink-dim">
+        {contextLabel}
+        {model !== null && <>{" · "}{model.name || model.id}</>}
+        {ultrathink && " · ultrathink"}
+        {orchestrate && " · orchestrate"}
+        {workflowz && " · workflowz"}
+        {branch !== null && <>{" · "}{branch}</>}
+      </p>
+    </div>
+  );
+}
+
+function ExecutePlanButton({
+  contextLabel,
+  checkingOut,
+  disabled,
+  onExecute,
+}: {
+  contextLabel: string;
+  checkingOut: boolean;
+  disabled: boolean;
+  onExecute: () => void;
+}) {
+  return (
+    <Button
+      variant="solid"
+      tone="signal"
+      disabled={disabled}
+      onClick={onExecute}
+    >
+      {checkingOut ? "switching branch…" : `execute in ${contextLabel}`}
+    </Button>
+  );
+}
+
 export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: boolean }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
   const planText = useStore((s) => s.rpc[tabId]?.planText);
@@ -199,6 +254,18 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     availableModels.find((m) => `${m.provider}/${m.id}` === advisorSplit?.model) ?? null;
   const advisorEfforts = advisorModelInfo?.thinking?.efforts ?? [];
   const mainEfforts = stagedModel?.thinking?.efforts ?? [];
+
+  const contextLabel = CONTEXTS.find((candidate) => candidate.id === context)?.label ?? context;
+  const dispatchBranch =
+    context === "worktree" && worktreeSel !== null
+      ? worktreeSel.branch.trim() || "new branch"
+      : context === "fresh" && sourceWorktree !== null
+        ? sourceWorktree.branch
+        : branch.summary;
+  const executeDisabled =
+    context === "worktree"
+      ? worktreeSel === null || worktreeSel.branch.trim() === ""
+      : branch.checkingOut || branch.branchInvalid;
 
   const refine = () => {
     const notes = { text: changes, images: images.length ? images : undefined };
@@ -749,21 +816,15 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
         {compact ? (
           <footer className="plan-review-actions plan-review-actions-compact flex shrink-0 items-center justify-between gap-3 border-t border-line bg-overlay px-4 py-3">
             {compactStep === "setup" && (
-              <div className="min-w-0 flex-1">
-                <Label>ready to dispatch</Label>
-                <p className="mt-0.5 truncate text-[11px] text-ink-dim">
-                  {CONTEXTS.find((c) => c.id === context)?.label}
-                  {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
-                  {ultrathink && " · ultrathink"}
-                  {orchestrate && " · orchestrate"}
-                  {workflowz && " · workflowz"}
-                  {context === "worktree" && worktreeSel !== null ? (
-                    <>{" · "}{worktreeSel.branch.trim() || "new branch"}</>
-                  ) : context === "fresh" && sourceWorktree !== null ? (
-                    <>{" · "}{sourceWorktree.branch}</>
-                  ) : null}
-                </p>
-              </div>
+              <DispatchSummary
+                contextLabel={contextLabel}
+                model={stagedModel}
+                ultrathink={ultrathink}
+                orchestrate={orchestrate}
+                workflowz={workflowz}
+                branch={dispatchBranch}
+                className="flex-1"
+              />
             )}
             <div className="plan-review-action-buttons ml-auto flex shrink-0 items-center gap-2">
               {compactStep === "review" ? (
@@ -784,56 +845,35 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               ) : (
                 <>
                   <Button variant="ghost" onClick={() => setCompactStep("review")}>back to plan</Button>
-                  <Button
-                    variant="solid"
-                    tone="signal"
-                    disabled={
-                      context === "worktree"
-                        ? worktreeSel === null || worktreeSel.branch.trim() === ""
-                        : branch.checkingOut || branch.branchInvalid
-                    }
-                    onClick={() => void execute()}
-                  >
-                    {branch.checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
-                  </Button>
+                  <ExecutePlanButton
+                    contextLabel={contextLabel}
+                    checkingOut={branch.checkingOut}
+                    disabled={executeDisabled}
+                    onExecute={() => void execute()}
+                  />
                 </>
               )}
             </div>
           </footer>
         ) : (
           <footer className="plan-review-actions flex shrink-0 items-center justify-between gap-4 border-t border-line bg-overlay px-5 py-3">
-            <div className="min-w-0">
-              <Label>ready to dispatch</Label>
-              <p className="mt-0.5 truncate text-[11px] text-ink-dim">
-                {CONTEXTS.find((c) => c.id === context)?.label}
-                {stagedModel !== null && <>{" · "}{stagedModel.name || stagedModel.id}</>}
-                {ultrathink && " · ultrathink"}
-                {orchestrate && " · orchestrate"}
-                {workflowz && " · workflowz"}
-                {context === "worktree" && worktreeSel !== null ? (
-                  <>{" · "}{worktreeSel.branch.trim() || "new branch"}</>
-                ) : context === "fresh" && sourceWorktree !== null ? (
-                  <>{" · "}{sourceWorktree.branch}</>
-                ) : branch.summary !== null ? (
-                  <>{" · "}{branch.summary}</>
-                ) : null}
-              </p>
-            </div>
+            <DispatchSummary
+              contextLabel={contextLabel}
+              model={stagedModel}
+              ultrathink={ultrathink}
+              orchestrate={orchestrate}
+              workflowz={workflowz}
+              branch={dispatchBranch}
+            />
             <div className="flex shrink-0 items-center gap-2">
               <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>not now</Button>
               <Button onClick={() => void refine()}>refine</Button>
-              <Button
-                variant="solid"
-                tone="signal"
-                disabled={
-                  context === "worktree"
-                    ? worktreeSel === null || worktreeSel.branch.trim() === ""
-                    : branch.checkingOut || branch.branchInvalid
-                }
-                onClick={() => void execute()}
-              >
-                {branch.checkingOut ? "switching branch…" : `execute in ${CONTEXTS.find((c) => c.id === context)?.label}`}
-              </Button>
+              <ExecutePlanButton
+                contextLabel={contextLabel}
+                checkingOut={branch.checkingOut}
+                disabled={executeDisabled}
+                onExecute={() => void execute()}
+              />
             </div>
           </footer>
         )}

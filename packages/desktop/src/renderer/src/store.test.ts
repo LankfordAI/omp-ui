@@ -520,12 +520,11 @@ describe("notification click focus (issue #271)", () => {
     void cb(h.TAB);
     await h.flushMicrotasks();
 
-    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resumeTabId: h.TAB,
-        projectCwd: "/p",
-        mode: "rpc-ui",
-      }),
-    );
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+    });
   });
 });

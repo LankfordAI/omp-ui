@@ -114,6 +114,51 @@ describe("Sheet", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("restores an explicit target instead of the trigger", async () => {
+    const trigger = document.createElement("button");
+    const target = document.createElement("textarea");
+    document.body.append(trigger, target);
+    trigger.focus();
+    await render(
+      <Sheet
+        open
+        placement="left"
+        label="sessions"
+        onClose={() => {}}
+        restoreFocusTo={() => target}
+      >
+        body
+      </Sheet>,
+    );
+    act(() => root!.unmount());
+    root = null;
+    expect(document.activeElement).toBe(target);
+  });
+
+  it("hands focus to the new tab's composer when an overlay dispatch changes tabs", async () => {
+    const oldComposer = <textarea data-composer-input />;
+    const newComposer = <textarea data-composer-input />;
+    await render(
+      <>
+        <div data-tab-id="old" style={{ display: "block" }}>{oldComposer}</div>
+        <div data-tab-id="new" style={{ display: "none" }}>{newComposer}</div>
+        <Sheet open placement="left" label="sessions" onClose={() => {}}>body</Sheet>
+      </>,
+    );
+    act(() =>
+      root!.render(
+        <>
+          <div data-tab-id="old" style={{ display: "none" }}>{oldComposer}</div>
+          <div data-tab-id="new" style={{ display: "block" }}>{newComposer}</div>
+          <Sheet open={false} placement="left" label="sessions" onClose={() => {}}>body</Sheet>
+        </>,
+      ),
+    );
+    expect(document.activeElement).toBe(
+      document.querySelector<HTMLElement>('[data-tab-id="new"] [data-composer-input]'),
+    );
+  });
+
   it("defers a portalled menu Escape while still closing outside the menu", async () => {
     const close = vi.fn();
     const menuEscape = vi.fn();

@@ -1,6 +1,13 @@
 import { makeBackendClient } from "@omp-ui/core/backend-channels";
 import type { OmpBackend } from "@omp-ui/core/types";
-import { decodeBinaryEvent, REMOTE_TOKEN_PARAM, REMOTE_WS_PATH } from "@omp-ui/server/protocol";
+import {
+  decodeBinaryEvent,
+  makeClientNotifyFrame,
+  makeClientRequestFrame,
+  parseServerFrame,
+  REMOTE_TOKEN_PARAM,
+  REMOTE_WS_PATH,
+} from "@omp-ui/server/protocol";
 
 // The browser half owns only WebSocket lifecycle and wire decoding; method construction is shared
 // with preload through makeBackendClient.
@@ -47,26 +54,20 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     } catch {
       return;
     }
-    if (frame === null || typeof frame !== "object") return;
-    const f = frame as {
-      t?: unknown;
-      id?: unknown;
-      ch?: unknown;
-      ok?: unknown;
-      value?: unknown;
-      message?: unknown;
-      args?: unknown;
-    };
-    if (f.t === "ev" && typeof f.ch === "string") {
-      dispatch(f.ch, Array.isArray(f.args) ? f.args : []);
+    // One narrowing (protocol's parseServerFrame, the server's mirror) — the
+    // hand-written field checks this block used to carry were a second copy
+    // of the grammar.
+    const parsed = parseServerFrame(frame);
+    if (parsed === null) return;
+    if (parsed.t === "ev") {
+      dispatch(parsed.ch, parsed.args);
       return;
     }
-    if (f.t !== "res" || typeof f.id !== "number") return;
-    const entry = pending.get(f.id);
+    const entry = pending.get(parsed.id);
     if (!entry) return;
-    pending.delete(f.id);
-    if (f.ok === true) entry.resolve(f.value);
-    else entry.reject(new Error(typeof f.message === "string" ? f.message : "remote call failed"));
+    pending.delete(parsed.id);
+    if (parsed.ok === true) entry.resolve(parsed.value);
+    else entry.reject(new Error(parsed.message));
   });
 
   const request = <Args extends unknown[], Result>(
@@ -81,12 +82,12 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
       const id = nextId++;
       // Like IPC, requests have no arbitrary timeout; close settles every outstanding call.
       pending.set(id, { resolve: (value) => resolve(value as Result), reject });
-      ws.send(JSON.stringify({ t: "req", id, ch: channel, args }));
+      ws.send(JSON.stringify(makeClientRequestFrame(id, channel, args)));
     });
 
   const notify = <Args extends unknown[]>(channel: string, args: Args): void => {
     if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ t: "notify", ch: channel, args }));
+    ws.send(JSON.stringify(makeClientNotifyFrame(channel, args)));
   };
 
   const on = <Args extends unknown[]>(

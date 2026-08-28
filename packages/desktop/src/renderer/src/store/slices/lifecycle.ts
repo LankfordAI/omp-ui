@@ -3,9 +3,12 @@
 // console/search drawer toggles.
 import type {
   DeleteSessionPreview,
+  DeleteSessionResult,
   PlanImplementationSource,
   SessionMode,
   SessionWorktree,
+  SpawnRequest,
+  SpawnWorktree,
   WorktreeReleaseResult,
 } from "@omp-ui/core/types";
 import { backend } from "../../backend";
@@ -15,23 +18,19 @@ import {
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
 import { planSeedText } from "../../lib/plan-seed";
-import { noticeItem } from "../../lib/transcript";
+import { noticeItem, settleRunningTools } from "../../lib/transcript";
 import {
   alertError,
-  compactionUsageGenerations,
   dropExited,
   dropHibernated,
   dropTuiHandoff,
   handedOffPlanSources,
-  lastFrameAt,
-  pendingNotices,
-  quietWedgeNotified,
-  timedOutCommands,
   type GetState,
   type SetState,
   type StoreMachinery,
   type Watchers,
 } from "./shared";
+import { disposeTabRuntime } from "./rpc-command";
 import { findRecord, focusOn, forgetFocus } from "./view";
 import type { UiStore } from "../types";
 
@@ -72,11 +71,19 @@ export type LifecycleSlice = Pick<
   | "dismissTuiHandoff"
 > & {
   prepareRpcRelaunch(tabId: string): void;
-  resolveSpawnParams(projectCwd: string): Promise<{
+  resolveSpawnParams(
+    projectCwd: string,
+    overrides?: {
+      mode?: SessionMode;
+      advisor?: boolean;
+      advisorModel?: string | null;
+    },
+  ): Promise<{
     mode: SessionMode;
     advisor: boolean;
     advisorModel: string | null;
   }>;
+  teardownProcess(tabId: string, code: number, hibernated?: boolean): void;
   eraseSession(tabId: string, cascade?: readonly string[]): Promise<boolean>;
   spawnFreshImplementation(
     tabId: string,
@@ -97,7 +104,6 @@ export function createLifecycleSlice(
 ): LifecycleSlice {
   // The bodies moved from the root closure keep their original names.
   const {
-    concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
     stall: stallContinueWatcher,
   } = deps;
@@ -107,7 +113,7 @@ export function createLifecycleSlice(
     if (!tab) return;
     // A flush queued by the dying process must not land in the fresh state.
     m.cancelTranscriptBatch(tabId);
-    compactionUsageGenerations.delete(tabId);
+    m.patchRuntime(tabId, { compactionUsageGeneration: undefined });
     // No frames will come from the dying process: stop the stall clock now
     // rather than waiting for its next tick (issue #228).
     m.stopStreamStallTimer(tabId);
@@ -117,11 +123,13 @@ export function createLifecycleSlice(
     // the process is killed, and setSessionAdvisor's drain (session-params)
     // depends on an unsettled loud command still being observable so it can
     // cancel the relaunch instead of losing the command. The waits die at
-    // the real boundary — teardownExited/teardownHibernated, or bootRpcTab
-    // when the fresh process announces itself (issue #338).
-    quietWedgeNotified.delete(tabId);
-    timedOutCommands.delete(tabId);
-    lastFrameAt.delete(tabId);
+    // the real boundary — teardownProcess, or bootRpcTab when the fresh
+    // process announces itself (issue #338).
+    m.patchRuntime(tabId, {
+      quietWedgeNotified: false,
+      timedOutCommands: [],
+      lastFrameAt: undefined,
+    });
     m.patchRpc(tabId, {
       status: "starting",
       plan: null,
@@ -140,26 +148,78 @@ export function createLifecycleSlice(
     });
   };
 
-  const eraseSession = async (tabId: string, cascade: readonly string[] = []): Promise<boolean> => {
-    const gone = [tabId, ...cascade];
+  /** One terminal boundary for both unexpected exit and idle hibernation. */
+  const teardownProcess = (
+    tabId: string,
+    code: number,
+    hibernated = false,
+  ): void => {
+    // An rpc-mode omp that dies mid-tool sends no agent_end or
+    // omp_ui_error frame — this exit is the only signal, so running
+    // tool cards are settled here (issue #93). Settle from the effective
+    // items: a batched stream commit may still be pending, and the dead
+    // process's final frames must not be lost (issue #187).
+    const before = get().rpc[tabId];
+    const settled = before
+      ? settleRunningTools(m.effectiveItems(tabId), "aborted")
+      : undefined;
+    disposeTabRuntime(
+      tabId,
+      hibernated ? "the session was hibernated" : "the session process exited",
+      deps,
+      m,
+    );
+    set((s) => {
+      // The stall field must clear even when no tool cards were running
+      // — a pure-text stall settles to `settled === before.items`.
+      const clearStall = before?.streamStallMs !== undefined;
+      const rpc =
+        before &&
+        (clearStall || (settled !== undefined && settled !== before.items))
+          ? {
+              ...s.rpc,
+              [tabId]: {
+                ...before,
+                ...(clearStall ? { streamStallMs: undefined } : {}),
+                ...(settled !== undefined && settled !== before.items
+                  ? { items: settled }
+                  : {}),
+              },
+            }
+          : s.rpc;
+      return {
+        exited: { ...s.exited, [tabId]: code },
+        ...(hibernated
+          ? { hibernated: { ...s.hibernated, [tabId]: true } }
+          : {}),
+        rpc,
+      };
+    });
+  };
+
+  const eraseSession = async (
+    tabId: string,
+    cascade: readonly string[] = [],
+  ): Promise<boolean> => {
+    let result: DeleteSessionResult;
     try {
-      await backend.deleteSession(tabId, cascade.length > 0);
+      result = await backend.deleteSession(tabId, cascade.length > 0);
     } catch (err) {
       alertError(err);
       return false;
     }
+    if (result.failed.length > 0) {
+      window.alert(
+        `Some sessions could not be deleted:\n${result.failed
+          .map((failure) => `${failure.tabId}: ${failure.message}`)
+          .join("\n")}`,
+      );
+    }
+    const gone = result.deleted;
+    if (gone.length === 0) return false;
     for (const id of gone) {
-      // A dangling concern-wait timer must not fire into the dead tab's slot.
-      concernWatcher.cancel(id);
-      advisorReplyWatcher.cancel(id);
-      stallContinueWatcher.cancel(id);
-      m.cancelTranscriptBatch(id);
-      m.slashCommandItems.delete(id);
-      compactionUsageGenerations.delete(id);
+      disposeTabRuntime(id, "the session was deleted", deps, m);
       handedOffPlanSources.delete(id);
-      quietWedgeNotified.delete(id);
-      pendingNotices.delete(id);
-      m.abandonPendingCommands(id, "the session was deleted");
     }
     set((s) => {
       const rpc = { ...s.rpc };
@@ -178,7 +238,10 @@ export function createLifecycleSlice(
           s.focusedTabByProject,
         ),
         exited: gone.reduce((ex, id) => dropExited(ex, id), s.exited),
-        tuiHandoff: gone.reduce((th, id) => dropTuiHandoff(th, id), s.tuiHandoff),
+        tuiHandoff: gone.reduce(
+          (th, id) => dropTuiHandoff(th, id),
+          s.tuiHandoff,
+        ),
       };
     });
     return true;
@@ -213,37 +276,36 @@ export function createLifecycleSlice(
         : null;
     // A staged tuple (the modal always sends one) wins over the project's
     // last-used defaults; legacy callers keep the fallback chain.
-    await get().loadAdvisorDefaults(projectCwd);
-    const defaults = get().advisorDefaults[projectCwd];
-    const project = get().state?.projects.find(
-      (g) => g.project.path === projectCwd,
-    )?.project;
-    const advisor =
-      options?.advisor ??
-      project?.lastAdvisor ??
-      get().state?.defaultAdvisor ??
-      defaults?.enabled ??
-      false;
-    const advisorModel =
+    const { advisor, advisorModel } = await resolveSpawnParams(
+      projectCwd,
       options?.advisor !== undefined
-        ? (options.advisorModel ?? null)
-        : (project?.defaultAdvisorModel ??
-          project?.lastAdvisorModel ??
-          defaults?.model ??
-          null);
+        ? {
+            mode: "rpc-ui",
+            advisor: options.advisor,
+            advisorModel: options.advisorModel ?? null,
+          }
+        : { mode: "rpc-ui" },
+    );
+    const mode = "rpc-ui";
+    const worktree: SpawnWorktree =
+      reuse !== null
+        ? { reuse }
+        : minted !== null
+          ? { mint: minted }
+          : null;
     let freshId: string;
     try {
       ({ tabId: freshId } = await backend.spawnSession({
+        origin: "new",
         projectCwd,
-        mode: "rpc-ui",
+        mode,
         advisor,
         advisorModel,
         cols: 80,
         rows: 24,
-        startInPlanMode: false,
+        planMode: false,
         planImplementationSource,
-        ...(reuse !== null ? { worktreeReuse: reuse } : {}),
-        ...(reuse === null && minted !== null ? { worktree: minted } : {}),
+        worktree,
       }));
     } catch (err) {
       alertError(err);
@@ -252,7 +314,7 @@ export function createLifecycleSlice(
     set((s) => ({
       tabs: [
         ...s.tabs,
-        { tabId: freshId, mode: "rpc-ui", projectCwd, hidden: false },
+        { tabId: freshId, mode, projectCwd, hidden: false },
       ],
       ...focusOn(s, freshId, projectCwd),
       exited: dropExited(s.exited, freshId),
@@ -319,18 +381,20 @@ export function createLifecycleSlice(
     }
   };
 
-  /**
-   * Resolves the parameters every fresh session is spawned with: the default
-   * mode plus the project's complete last-used advisor tuple.
-   */
+  /** Resolves the single precedence chain used by every fresh spawn. */
   const resolveSpawnParams = async (
     projectCwd: string,
+    overrides?: {
+      mode?: SessionMode;
+      advisor?: boolean;
+      advisorModel?: string | null;
+    },
   ): Promise<{
     mode: SessionMode;
     advisor: boolean;
     advisorModel: string | null;
   }> => {
-    const mode = get().state?.defaultMode ?? "pty";
+    const mode = overrides?.mode ?? get().state?.defaultMode ?? "pty";
     // Carry the project's complete last-used advisor tuple into the new
     // session. Before any explicit choice, the app's own default decides;
     // omp's configured default only seeds while the app is not booted.
@@ -339,17 +403,21 @@ export function createLifecycleSlice(
     const project = get().state?.projects.find(
       (g) => g.project.path === projectCwd,
     )?.project;
-    // The pinned advisor model wins; on/off keeps its own chain (issue #257).
-    const advisorModel =
-      project?.defaultAdvisorModel ??
-      project?.lastAdvisorModel ??
-      defaults?.model ??
-      null;
     const advisor =
+      overrides?.advisor ??
       project?.lastAdvisor ??
       get().state?.defaultAdvisor ??
       defaults?.enabled ??
       false;
+    // An explicit advisor tuple owns its model, including explicit null.
+    // Otherwise the pinned project model wins its independent chain (#257).
+    const advisorModel =
+      overrides?.advisor !== undefined
+        ? (overrides.advisorModel ?? null)
+        : (project?.defaultAdvisorModel ??
+          project?.lastAdvisorModel ??
+          defaults?.model ??
+          null);
     return { mode, advisor, advisorModel };
   };
 
@@ -433,18 +501,34 @@ export function createLifecycleSlice(
     projectCwd: string,
     modeOverride?: SessionMode,
   ): Promise<void> => {
-    const { mode: defaultMode, advisor, advisorModel } =
-      await resolveSpawnParams(projectCwd);
-    const mode = modeOverride ?? defaultMode;
+    const { mode, advisor, advisorModel } = await resolveSpawnParams(
+      projectCwd,
+      { mode: modeOverride },
+    );
     try {
-      const { tabId } = await backend.spawnSession({
-        projectCwd,
-        mode,
-        advisor,
-        advisorModel,
-        cols: 80,
-        rows: 24,
-      });
+      const request: SpawnRequest =
+        mode === "pty"
+          ? {
+              origin: "new",
+              projectCwd,
+              mode: "pty",
+              advisor,
+              advisorModel,
+              cols: 80,
+              rows: 24,
+              worktree: null,
+            }
+          : {
+              origin: "new",
+              projectCwd,
+              mode: "rpc-ui",
+              advisor,
+              advisorModel,
+              cols: 80,
+              rows: 24,
+              worktree: null,
+            };
+      const { tabId } = await backend.spawnSession(request);
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
         ...focusOn(s, tabId, projectCwd),
@@ -461,15 +545,29 @@ export function createLifecycleSlice(
   ): Promise<void> => {
     const { mode, advisor, advisorModel } =
       await resolveSpawnParams(projectCwd);
-    const { tabId } = await backend.spawnSession({
-      projectCwd,
-      mode,
-      advisor,
-      advisorModel,
-      cols: 80,
-      rows: 24,
-      worktree: opts,
-    });
+    const request: SpawnRequest =
+      mode === "pty"
+        ? {
+            origin: "new",
+            projectCwd,
+            mode: "pty",
+            advisor,
+            advisorModel,
+            cols: 80,
+            rows: 24,
+            worktree: { mint: opts },
+          }
+        : {
+            origin: "new",
+            projectCwd,
+            mode: "rpc-ui",
+            advisor,
+            advisorModel,
+            cols: 80,
+            rows: 24,
+            worktree: { mint: opts },
+          };
+    const { tabId } = await backend.spawnSession(request);
     set((s) => ({
       tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
       ...focusOn(s, tabId, projectCwd),
@@ -511,12 +609,10 @@ export function createLifecycleSlice(
     if (!rec) return;
     try {
       await backend.spawnSession({
-        projectCwd: rec.projectCwd,
-        mode: rec.mode,
-        advisor: rec.advisor,
+        origin: "resume",
+        resumeTabId: tabId,
         cols: 80,
         rows: 24,
-        resumeTabId: tabId,
       });
       set((s) => ({
         tabs: [
@@ -611,12 +707,10 @@ export function createLifecycleSlice(
     try {
       if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
       await backend.spawnSession({
-        projectCwd: rec.projectCwd,
-        mode: rec.mode,
-        advisor: rec.advisor,
+        origin: "resume",
+        resumeTabId: tabId,
         cols: 80,
         rows: 24,
-        resumeTabId: tabId,
       });
       set((s) => ({
         tabs: s.tabs.map((t) =>
@@ -764,6 +858,7 @@ export function createLifecycleSlice(
     deleteConfirmation: null,
     prepareRpcRelaunch,
     resolveSpawnParams,
+    teardownProcess,
     eraseSession,
     spawnFreshImplementation,
     restartSession,

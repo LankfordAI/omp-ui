@@ -132,12 +132,16 @@ describe("NewWorktreeSessionDialog", () => {
       await flushMicrotasks();
     });
 
-    expect(backendMock.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        worktree: { branch: "feature/mine", baseRef: "feature/x" },
-      }),
-    );
+    expect(backendMock.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "pty",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "feature/mine", baseRef: "feature/x" } },
+    });
     expect(useStore.getState().worktreeDialogProject).toBeNull();
   });
 
@@ -168,12 +172,16 @@ describe("NewWorktreeSessionDialog", () => {
       await flushMicrotasks();
     });
 
-    expect(backendMock.spawnSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectCwd: "/p",
-        worktree: { branch: "omp-ui/detached", baseRef: null },
-      }),
-    );
+    expect(backendMock.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "pty",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/detached", baseRef: null } },
+    });
   });
 
   it("disables Create with a hint when the project isn't a git repo", async () => {

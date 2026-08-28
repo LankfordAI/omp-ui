@@ -325,12 +325,10 @@ describe("plan-review gate on the wire (issue #215)", () => {
     backend.registerIpc();
     backendRef.current = backend;
     await invoke(CH.spawnSession, {
-      projectCwd: "/p/a",
-      mode: "rpc-ui",
-      advisor: false,
+      origin: "resume",
+      resumeTabId: TAB_A,
       cols: 80,
       rows: 24,
-      resumeTabId: TAB_A,
     });
     return { manager, rpc: rpcInstances[0]! };
   };
