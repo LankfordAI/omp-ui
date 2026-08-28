@@ -13,12 +13,7 @@ import type {
   ImageAttachment,
   McpServersResult,
   McpSetEnabledRequest,
-  MemoryEditResult,
-  MemoryListOptions,
   MemoryOverview,
-  MemoryPage,
-  MemoryRow,
-  MemoryScope,
   MergeBackResult,
   MergeBackStatus,
   OmpSettingValue,
@@ -429,37 +424,6 @@ export const BACKEND_CHANNELS = {
   memoryOverview: {
     channel: "memory:overview",
     ...request<[projectCwd: string], MemoryOverview>(),
-  },
-  /** One page of a bank's memories, newest first; FTS search when opts.query is set. */
-  memoryList: {
-    channel: "memory:list",
-    ...request<[projectCwd: string, scope: MemoryScope, opts: MemoryListOptions], MemoryPage>(),
-  },
-  /** Point lookup with full, unclipped content — the pane's expand-on-demand fetch. */
-  memoryGet: {
-    channel: "memory:get",
-    ...request<[projectCwd: string, scope: MemoryScope, id: string], MemoryRow | null>(),
-  },
-  /** Inserts a durable user memory into the working store. */
-  memoryAdd: {
-    channel: "memory:add",
-    ...request<[projectCwd: string, scope: MemoryScope, content: string], MemoryRow>(),
-  },
-  /** Patches a working row's content/importance; episodic rows are not_editable. */
-  memoryUpdate: {
-    channel: "memory:update",
-    ...request<
-      [projectCwd: string, scope: MemoryScope, id: string, patch: { content?: string; importance?: number }],
-      MemoryEditResult
-    >(),
-  },
-  /**
-   * Deletes a working row and its sidecar artifacts; episodic rows are
-   * not_editable.
-   */
-  memoryForget: {
-    channel: "memory:forget",
-    ...request<[projectCwd: string, scope: MemoryScope, id: string], MemoryEditResult>(),
   },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd

@@ -5,6 +5,15 @@ focus session's project bank plus the shared global bank — by opening the bank
 SQLite files from the main process with Node's built-in `node:sqlite`. No omp
 process is involved in reading or writing memory.
 
+**Amended 2026-08-27 (#330):** the browse/edit pane was removed in #221, and
+its five channels (`memory:list`, `memory:get`, `memory:add`, `memory:update`,
+`memory:forget`), their `MainBackend` handlers, `requireBank`, and the
+`core/memory-store.ts` functions behind them were deleted in #330. What remains
+normative: the direct-SQLite rationale below, the read side of the concurrency
+contract, "Banks are discovered, never derived", and confinement by
+`projectCwd`. The only surviving channel is `memory:overview`, read by
+Settings → Memory.
+
 ## Why not the obvious routes
 
 Verified against omp 17.3.5 source (`can1357/oh-my-pi`, tag `v17.3.5`):
@@ -27,10 +36,9 @@ same contract. Electron 43 (Node 24) and Node 22 (vitest) both ship
 
 ## Concurrency contract
 
-- Reads open `{ readOnly: true }` — WAL gives snapshot reads beside a live omp
-  writer.
-- Writes open read-write with `PRAGMA busy_timeout=2000`; contention beyond 2s
-  surfaces as a rejected channel call and a renderer alert, never a retry loop.
+- Every connection opens `{ readOnly: true }` — WAL gives snapshot reads beside
+  a live omp writer. Since #330 there is no write path at all: the read-write
+  `PRAGMA busy_timeout=2000` connection went with the edit channels.
 - Connections are per-request and closed in `finally`; nothing is held open.
 
 ## Banks are discovered, never derived — and never created
@@ -47,6 +55,11 @@ state until the first session runs with memory enabled.
 
 ## Edit semantics mirror omp's `memory_edit`
 
+_Historical since #330: the code this section describes was deleted with the
+Memory pane's edit channels. The mnemopi-17.3.5 write-schema port is
+recoverable from `a91db16` and **must be re-verified against the then-current
+mnemopi** before any revival._
+
 - Working-store rows: edit, forget, add. Forget ports mnemopi's
   `purgeWorkingMemoryArtifacts` cascade (annotations, embeddings, `memoria_*`,
   `facts`, gists, graph edges), each statement guarded by a `tableExists`
@@ -59,6 +72,8 @@ state until the first session runs with memory enabled.
 
 ## User-added rows are pinned durable, FTS-recallable, vector-pending
 
+_Historical since #330: `memory:add` no longer exists — see the note above._
+
 `memory:add` inserts into `working_memory` with `consolidated_at` set (exempt
 from `trimWorkingMemory`'s TTL delete), `scope='global'` (session-independent
 for recall), `trust_tier='STATED'`/`veracity='stated'` (canonical enums), and
@@ -70,10 +85,11 @@ facts.
 
 ## Confinement
 
-The renderer never passes a path. Every channel takes `projectCwd`; the main
-process resolves the bank itself (`requireBank`), so a compromised renderer
-can only ever reach the two banks its project legitimately owns — the same
-discipline as ADR-0007's `plan:read`.
+The renderer never passes a path. `memory:overview` takes `projectCwd` and the
+main process resolves both banks itself (`readMemoryOverview`), so a
+compromised renderer can only ever reach the two banks its project legitimately
+owns — the same discipline as ADR-0007's `plan:read`. The dedicated
+`requireBank` guard went with the channels it confined (#330).
 
 ## Version coupling
 

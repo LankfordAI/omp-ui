@@ -643,17 +643,13 @@ export interface ProviderKeysSnapshot {
 }
 
 /**
- * Mnemopi memory browsing (issue #206). Read straight off the SQLite banks by
+ * Mnemopi memory overview (issue #206). Read straight off the SQLite banks by
  * the main process (see core/memory-store.ts) — omp exposes no runtime surface
- * for memory, so the pane reads what omp itself persisted.
+ * for memory, so Settings → Memory reports the banks omp itself persisted.
  */
 export type MemoryBackendKind = "off" | "local" | "hindsight" | "mnemopi";
 /** omp's `mnemopi.scoping` setting; unrecognised values fall back to "per-project". */
 export type MemoryScoping = "global" | "per-project" | "per-project-tagged";
-/** Which bank a pane request addresses: the project's discovered bank or the global one. */
-export type MemoryScope = "project" | "global";
-/** Which mnemopi store a row lives in. */
-export type MemoryStore = "working" | "episodic";
 
 /** One bank's on-disk facts for the overview header. */
 export interface MemoryBankInfo {
@@ -677,47 +673,6 @@ export interface MemoryOverview {
   project: MemoryBankInfo | null;
   /** Any resolution failure lands here instead of throwing. */
   error: string | null;
-}
-
-/** One memory row as the pane sees it. */
-export interface MemoryRow {
-  id: string;
-  store: MemoryStore;
-  /** Clipped to MEMORY_CLIP_CHARS in list responses; getMemory returns it whole. */
-  content: string;
-  /** True when `content` was clipped — the pane fetches the full row on expand. */
-  truncated: boolean;
-  source: string | null;
-  timestamp: string | null;
-  createdAt: string | null;
-  importance: number | null;
-  memoryType: string | null;
-  veracity: string | null;
-  sessionId: string | null;
-}
-
-export interface MemoryListOptions {
-  /** FTS query; null/empty lists by recency instead. */
-  query: string | null;
-  offset: number;
-  /** Clamped to 1..200 in core. */
-  limit: number;
-}
-
-/** One page of memories from a single bank. */
-export interface MemoryPage {
-  scope: MemoryScope;
-  bank: string;
-  rows: MemoryRow[];
-  total: number;
-  offset: number;
-  limit: number;
-}
-
-/** Edit outcomes: episodic rows are visible but not editable. */
-export type MemoryEditStatus = "ok" | "not_found" | "not_editable";
-export interface MemoryEditResult {
-  status: MemoryEditStatus;
 }
 
 export type { OmpBackend } from "./backend-channels";

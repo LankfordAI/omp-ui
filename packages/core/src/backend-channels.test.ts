@@ -10,7 +10,7 @@ import {
   type ChannelTable,
   type OmpBackend,
 } from "./backend-channels";
-import type { MemoryListOptions, MemoryPage, MemoryScope } from "./types";
+import type { MergeBackStatus } from "./types";
 
 type SpecChannel<Kind extends BackendChannelSpec[keyof BackendChannelSpec]["kind"]> = {
   [Method in keyof BackendChannelSpec]: BackendChannelSpec[Method]["kind"] extends Kind
@@ -69,12 +69,12 @@ describe("BACKEND_CHANNELS", () => {
     expectTypeOf<ChannelTable["request"]["project:open"]>().toEqualTypeOf<
       (projectPath: string, target: "vscode" | "files" | "terminal") => void | Promise<void>
     >();
-    expectTypeOf<ChannelTable["request"]["memory:list"]>().toEqualTypeOf<
+    expectTypeOf<ChannelTable["request"]["branch:mergeStatus"]>().toEqualTypeOf<
       (
         projectCwd: string,
-        scope: MemoryScope,
-        opts: MemoryListOptions,
-      ) => MemoryPage | Promise<MemoryPage>
+        branch: string,
+        base: string | null,
+      ) => MergeBackStatus | Promise<MergeBackStatus>
     >();
     expectTypeOf<ChannelTable["notify"]["pty:resize"]>().toEqualTypeOf<
       (tabId: string, cols: number, rows: number) => void

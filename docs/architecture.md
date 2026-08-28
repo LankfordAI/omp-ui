@@ -45,7 +45,7 @@ The browser path does not create a second application backend. `@omp-ui/server` 
 
 | Channel kind | Direction | Contract | Examples |
 |---|---|---|---|
-| Request | Renderer to backend, then one reply | Returns a promise that resolves a value or rejects with the backend error. | `state:get`, `session:spawn`, `plan:read`, `memory:list`, `app:updateCheck` |
+| Request | Renderer to backend, then one reply | Returns a promise that resolves a value or rejects with the backend error. | `state:get`, `session:spawn`, `plan:read`, `memory:overview`, `app:updateCheck` |
 | Notify | Renderer to backend | Fire-and-forget input with no reply path. A handler must not depend on acknowledgement. | `pty:write`, `pty:resize`, `rpc:send`, `shell:write` |
 | Event | Backend to every registered sink | Pushes state or process output to the desktop renderer and all connected browser clients. | `state:changed`, `pty:data`, `rpc:frame`, `shell:exit`, update and remote-state events |
 
@@ -148,7 +148,7 @@ Desktop main owns whether remote access is enabled, its bind address and port, i
 
 ### Memory
 
-OMP exposes no memory command over rpc-ui. Core therefore reads and edits mnemopi SQLite banks directly with `node:sqlite`, one connection per request. The renderer sends `projectCwd` and a project or global scope, never a database path; main resolves and confines the bank. Reads coexist with OMP's WAL writer. Writes use a 2 second busy timeout and surface contention instead of retrying indefinitely. omp-ui discovers existing project banks and does not derive or create their hashed names. The settings surface reports configured banks but does not claim to show the exact memories OMP injected into a running session. See [ADR-0017](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md).
+OMP exposes no memory command over rpc-ui. Core therefore reads mnemopi SQLite banks directly with `node:sqlite`, one read-only connection per request, and writes none. There is a single memory channel, `memory:overview`. The renderer sends `projectCwd`, never a database path; main resolves and confines both banks itself. Reads coexist with OMP's WAL writer. omp-ui discovers existing project banks and does not derive or create their hashed names. The settings surface reports configured banks but does not claim to show the exact memories OMP injected into a running session. See [ADR-0017](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md).
 
 ## ACP is deliberately unwrapped
 
@@ -182,7 +182,7 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [HTML plans are authored directly, as the one and only plan file](adr/0014-html-plans-authored-directly.md) | Treat the self-contained HTML artifact as the sole plan file when HTML plan format is selected. |
 | [Unsigned per-user NSIS for the Windows x64 preview](adr/0015-unsigned-windows-nsis-preview.md) | Distribute the Windows x64 preview as an unsigned per-user NSIS installer until publicly trusted signing is available. |
 | [Plan implementation always begins in Build mode](adr/0016-plan-implementation-always-begins-in-build.md) | Start every approved-plan implementation in Build mode regardless of the default mode for ordinary new sessions. |
-| [The Memory pane reads mnemopi's SQLite directly](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md) | Access mnemopi banks directly from main with confined SQLite operations because OMP exposes no runtime memory command. |
+| [The Memory pane reads mnemopi's SQLite directly](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md) | Read mnemopi banks directly from main with confined, read-only SQLite because OMP exposes no runtime memory command. |
 | [Worktree checkouts live in app data](adr/0018-worktree-checkouts-in-app-data.md) | Put worktree-session checkouts under app data and remove the checkout, but not its branch or commits, when deleting the session. |
 | [Stall auto-continue after stalled turns](adr/0019-stall-auto-continue-after-stalled-turns.md) | When a turn dies to a stream stall, post the diagnostic at the turn-end and dispatch a bounded continue prompt into the same idle rpc-ui session. |
 | [Plan-handoff descendants are deleted with their source](adr/0021-cascade-delete-of-plan-handoff-descendants.md) | Deleting a session erases its complete plan-handoff descendant closure; a session without descendants is deleted alone. |

@@ -1,19 +1,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  addMemory,
-  forgetMemory,
-  getMemory,
-  listMemories,
   readMemoryOverview,
   resolveGlobalBank,
   resolveMemoryBase,
   resolveProjectBank,
-  updateMemory,
-  type ResolvedBank,
 } from "./memory-store";
 import { readLayeredConfigScalar } from "./omp-config";
 
@@ -29,8 +23,7 @@ afterEach(() => {
 });
 
 // Port of mnemopi's initBeam subset (verified against omp 17.3.5) — the two
-// memory tables, both FTS mirrors with all six sync triggers, and the two
-// sidecar tables the store touches on update/forget.
+// memory tables and both FTS mirrors with all six sync triggers.
 const FIXTURE_DDL = `
 CREATE TABLE working_memory (
   id TEXT PRIMARY KEY, content TEXT NOT NULL, source TEXT, timestamp TEXT,
@@ -68,11 +61,6 @@ CREATE TRIGGER em_ad AFTER DELETE ON episodic_memory BEGIN
 END;
 `;
 
-const SIDECAR_DDL = `
-CREATE TABLE memory_embeddings (memory_id TEXT PRIMARY KEY, embedding BLOB);
-CREATE TABLE memoria_facts (id INTEGER PRIMARY KEY, source_memory_id TEXT, body TEXT);
-`;
-
 function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
   const db = new DatabaseSync(dbPath);
   try {
@@ -84,20 +72,7 @@ function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
 
 function createFixtureBank(dbPath: string): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  withDb(dbPath, (db) => db.exec(FIXTURE_DDL + SIDECAR_DDL));
-}
-
-/** A bank a foreign/older mnemopi wrote: no sidecar tables at all. */
-function createMinimalBank(dbPath: string): void {
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   withDb(dbPath, (db) => db.exec(FIXTURE_DDL));
-}
-
-/** Fresh fixture bank in its own tmp dir, addressed directly (no discovery). */
-function fixtureBank(): ResolvedBank {
-  const dbPath = path.join(tmpDir(), "mnemopi.db");
-  createFixtureBank(dbPath);
-  return { bank: "default", dbPath };
 }
 
 const NOW = "2026-08-16T12:00:00.000Z";
@@ -159,28 +134,6 @@ function insertEpisodic(dbPath: string, seed: Seed): void {
   );
 }
 
-function count(dbPath: string, sql: string, ...params: Array<string | number>): number {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-  try {
-    return Number(db.prepare(sql).get(...params)?.n);
-  } finally {
-    db.close();
-  }
-}
-
-function getRow(
-  dbPath: string,
-  sql: string,
-  ...params: Array<string | number>
-): Record<string, SQLOutputValue> | undefined {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-  try {
-    return db.prepare(sql).get(...params);
-  } finally {
-    db.close();
-  }
-}
-
 const MNEMOPI_CONFIG = "memory:\n  backend: mnemopi\nmnemopi:\n  scoping: per-project-tagged\n";
 
 interface Setup {
@@ -218,8 +171,6 @@ function makeBank(baseDir: string, name: string): string {
   createFixtureBank(dbPath);
   return dbPath;
 }
-
-const LIST = { query: null, offset: 0, limit: 50 } as const;
 
 describe("resolveMemoryBase / resolveGlobalBank", () => {
   it("reads the mnemopi backend and puts the default bank at the base dir root", () => {
@@ -337,203 +288,6 @@ describe("resolveProjectBank", () => {
 
     const base = resolveMemoryBase(project, env);
     expect(resolveProjectBank(base, project)).toEqual({ bank: "team-alpha-ab12", dbPath });
-  });
-});
-
-describe("listMemories / getMemory", () => {
-  it("interleaves both stores newest-first and excludes superseded rows", () => {
-    const bank = fixtureBank();
-    insertWorking(bank.dbPath, { id: "w-old", content: "oldest", timestamp: "2026-01-01T00:00:00.000Z" });
-    insertEpisodic(bank.dbPath, { id: "e-mid", content: "middle", timestamp: "2026-02-01T00:00:00.000Z" });
-    insertWorking(bank.dbPath, { id: "w-new", content: "newest", timestamp: "2026-03-01T00:00:00.000Z" });
-    insertWorking(bank.dbPath, {
-      id: "w-gone",
-      content: "replaced",
-      timestamp: "2026-04-01T00:00:00.000Z",
-      supersededBy: "w-new",
-    });
-    insertEpisodic(bank.dbPath, {
-      id: "e-gone",
-      content: "replaced too",
-      timestamp: "2026-05-01T00:00:00.000Z",
-      supersededBy: "e-mid",
-    });
-
-    const page = listMemories(bank, "global", { ...LIST });
-    expect(page.rows.map((r) => r.id)).toEqual(["w-new", "e-mid", "w-old"]);
-    expect(page.rows.map((r) => r.store)).toEqual(["working", "episodic", "working"]);
-    expect(page.total).toBe(3);
-    expect(page.scope).toBe("global");
-    expect(page.bank).toBe(bank.bank);
-  });
-
-  it("finds rows in both FTS mirrors, still recency-ordered", () => {
-    const bank = fixtureBank();
-    insertWorking(bank.dbPath, { id: "w1", content: "the striped zebra sleeps", timestamp: "2026-01-01T00:00:00.000Z" });
-    insertEpisodic(bank.dbPath, { id: "e1", content: "a zebra crossed the road", timestamp: "2026-02-01T00:00:00.000Z" });
-    insertWorking(bank.dbPath, { id: "w2", content: "unrelated giraffe", timestamp: "2026-03-01T00:00:00.000Z" });
-    insertWorking(bank.dbPath, {
-      id: "w-gone",
-      content: "zebra but superseded",
-      timestamp: "2026-04-01T00:00:00.000Z",
-      supersededBy: "w1",
-    });
-
-    const page = listMemories(bank, "global", { ...LIST, query: "zebra" });
-    expect(page.rows.map((r) => r.id)).toEqual(["e1", "w1"]);
-    expect(page.total).toBe(2);
-  });
-
-  it("survives a hostile FTS query instead of passing raw syntax through", () => {
-    const bank = fixtureBank();
-    insertWorking(bank.dbPath, { id: "w1", content: "anything" });
-    expect(() => listMemories(bank, "global", { ...LIST, query: '"a" OR (' })).not.toThrow();
-  });
-
-  it("clips long content in lists while getMemory returns it whole", () => {
-    const bank = fixtureBank();
-    const long = "needle " + "x".repeat(700);
-    insertWorking(bank.dbPath, { id: "w1", content: long });
-
-    const listed = listMemories(bank, "global", { ...LIST }).rows[0]!;
-    expect(listed.truncated).toBe(true);
-    expect(listed.content.length).toBeLessThan(long.length);
-    expect(listed.content.startsWith("needle")).toBe(true);
-
-    const full = getMemory(bank, "w1");
-    expect(full?.content).toBe(long);
-    expect(full?.truncated).toBe(false);
-    expect(full?.store).toBe("working");
-  });
-
-  it("looks up episodic rows by id and misses cleanly", () => {
-    const bank = fixtureBank();
-    insertEpisodic(bank.dbPath, { id: "e1", content: "short episode" });
-    expect(getMemory(bank, "e1")?.store).toBe("episodic");
-    expect(getMemory(bank, "nope")).toBeNull();
-  });
-});
-
-describe("addMemory", () => {
-  it("writes a consolidated STATED global-scope row that FTS finds immediately", () => {
-    const bank = fixtureBank();
-    const project = tmpDir();
-    const row = addMemory(bank, "project", project, "  the capital of atlantis is poseidonia  ");
-
-    expect(row.store).toBe("working");
-    expect(row.content).toBe("the capital of atlantis is poseidonia");
-
-    const raw = getRow(bank.dbPath, "SELECT * FROM working_memory WHERE id = ?", row.id)!;
-    // consolidated_at guards the row from mnemopi's TTL trim; scope/trust/veracity
-    // must be valid enums so recall treats it as a session-independent stated fact.
-    expect(typeof raw.consolidated_at).toBe("string");
-    expect(raw.scope).toBe("global");
-    expect(raw.trust_tier).toBe("STATED");
-    expect(raw.veracity).toBe("stated");
-    expect(JSON.parse(String(raw.metadata_json))).toEqual({
-      cwd: path.resolve(project),
-      origin: "omp-ui",
-    });
-
-    const hits = listMemories(bank, "project", { ...LIST, query: "poseidonia" });
-    expect(hits.rows.map((r) => r.id)).toContain(row.id);
-  });
-
-  it("omits the cwd tag for global-scope adds and rejects empty content", () => {
-    const bank = fixtureBank();
-    const row = addMemory(bank, "global", tmpDir(), "a global note");
-    const raw = getRow(bank.dbPath, "SELECT metadata_json FROM working_memory WHERE id = ?", row.id)!;
-    expect(JSON.parse(String(raw.metadata_json))).toEqual({ origin: "omp-ui" });
-
-    expect(() => addMemory(bank, "global", tmpDir(), "   ")).toThrow();
-  });
-});
-
-describe("updateMemory", () => {
-  function seedEmbedded(bank: ResolvedBank, id: string, content: string): void {
-    insertWorking(bank.dbPath, { id, content });
-    withDb(bank.dbPath, (db) =>
-      db.prepare("INSERT INTO memory_embeddings (memory_id, embedding) VALUES (?, NULL)").run(id),
-    );
-  }
-
-  it("re-indexes FTS and drops the stale embedding on a content change", () => {
-    const bank = fixtureBank();
-    seedEmbedded(bank, "w1", "ancient zebra migration");
-
-    expect(updateMemory(bank, "w1", { content: "modern quokka migration" })).toEqual({ status: "ok" });
-
-    expect(listMemories(bank, "global", { ...LIST, query: "quokka" }).rows.map((r) => r.id)).toEqual(["w1"]);
-    expect(listMemories(bank, "global", { ...LIST, query: "zebra" }).rows).toEqual([]);
-    expect(count(bank.dbPath, "SELECT COUNT(*) AS n FROM memory_embeddings WHERE memory_id = ?", "w1")).toBe(0);
-  });
-
-  it("keeps the embedding on an importance-only change", () => {
-    const bank = fixtureBank();
-    seedEmbedded(bank, "w1", "stable content");
-
-    expect(updateMemory(bank, "w1", { importance: 0.25 })).toEqual({ status: "ok" });
-
-    const raw = getRow(bank.dbPath, "SELECT content, importance FROM working_memory WHERE id = ?", "w1")!;
-    expect(raw.content).toBe("stable content");
-    expect(raw.importance).toBe(0.25);
-    expect(count(bank.dbPath, "SELECT COUNT(*) AS n FROM memory_embeddings WHERE memory_id = ?", "w1")).toBe(1);
-  });
-
-  it("clamps importance into [0, 1]", () => {
-    const bank = fixtureBank();
-    insertWorking(bank.dbPath, { id: "hi", content: "a" });
-    insertWorking(bank.dbPath, { id: "lo", content: "b" });
-
-    updateMemory(bank, "hi", { importance: 7 });
-    updateMemory(bank, "lo", { importance: -2 });
-
-    expect(getRow(bank.dbPath, "SELECT importance FROM working_memory WHERE id = ?", "hi")!.importance).toBe(1);
-    expect(getRow(bank.dbPath, "SELECT importance FROM working_memory WHERE id = ?", "lo")!.importance).toBe(0);
-  });
-
-  it("refuses episodic rows and reports unknown ids", () => {
-    const bank = fixtureBank();
-    insertEpisodic(bank.dbPath, { id: "e1", content: "an episode" });
-    expect(updateMemory(bank, "e1", { importance: 0.5 })).toEqual({ status: "not_editable" });
-    expect(updateMemory(bank, "missing", { importance: 0.5 })).toEqual({ status: "not_found" });
-  });
-});
-
-describe("forgetMemory", () => {
-  it("removes the row plus its FTS, embedding, and memoria_facts residue", () => {
-    const bank = fixtureBank();
-    insertWorking(bank.dbPath, { id: "w1", content: "forget this zebra" });
-    withDb(bank.dbPath, (db) => {
-      db.prepare("INSERT INTO memory_embeddings (memory_id, embedding) VALUES (?, NULL)").run("w1");
-      db.prepare("INSERT INTO memoria_facts (source_memory_id, body) VALUES (?, ?)").run("w1", "derived fact");
-    });
-
-    expect(forgetMemory(bank, "w1")).toEqual({ status: "ok" });
-
-    expect(count(bank.dbPath, "SELECT COUNT(*) AS n FROM working_memory WHERE id = ?", "w1")).toBe(0);
-    expect(count(bank.dbPath, "SELECT COUNT(*) AS n FROM fts_working WHERE id = ?", "w1")).toBe(0);
-    expect(count(bank.dbPath, "SELECT COUNT(*) AS n FROM memory_embeddings WHERE memory_id = ?", "w1")).toBe(0);
-    expect(count(bank.dbPath, "SELECT COUNT(*) AS n FROM memoria_facts WHERE source_memory_id = ?", "w1")).toBe(0);
-  });
-
-  it("tolerates a bank without any optional sidecar tables", () => {
-    // Foreign banks predate some sidecars; every optional DELETE is
-    // tableExists-guarded, so their absence must not abort the forget.
-    const dbPath = path.join(tmpDir(), "mnemopi.db");
-    createMinimalBank(dbPath);
-    const bank: ResolvedBank = { bank: "default", dbPath };
-    insertWorking(dbPath, { id: "w1", content: "bare bank row" });
-
-    expect(() => forgetMemory(bank, "w1")).not.toThrow();
-    expect(count(dbPath, "SELECT COUNT(*) AS n FROM working_memory WHERE id = ?", "w1")).toBe(0);
-  });
-
-  it("refuses episodic rows and reports unknown ids", () => {
-    const bank = fixtureBank();
-    insertEpisodic(bank.dbPath, { id: "e1", content: "an episode" });
-    expect(forgetMemory(bank, "e1")).toEqual({ status: "not_editable" });
-    expect(forgetMemory(bank, "missing")).toEqual({ status: "not_found" });
   });
 });
 
