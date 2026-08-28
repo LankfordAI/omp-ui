@@ -81,27 +81,27 @@ the user made.
 
 ## Worktree close addendum (issue #323)
 
-- **Merge-back is terminal: merge & close.** A successful merge from the
-  HUD worktree chip or the branch chip's merge-back row closes the
-  worktree in the same operation: the session is deleted (its agent
-  stopped, transcript and artifacts erased) and the checkout is removed —
-  the merge and the close are one deliberate action, and the confirm
-  dialog says so before it is taken.
+- **Merge-back is terminal: merge & close.** Superseded by the worktree
+  release addendum (issue #334): a successful merge no longer deletes the
+  session. It still finishes the worktree in the same operation — the
+  checkout is removed and the branch deleted — but the session moves back
+  to the project checkout instead of being erased.
 - **A conflicted merge stops both the merge and the close** — the project
   checkout is left with files to resolve and the worktree stays open, so
   nothing is deleted behind a merge the user still has to finish by hand.
-- **The already-merged state gains an actionable close.** When the status
+- **The already-merged state gains an actionable action.** When the status
   read reports the branch is already in the destination, the chips offer
-  "close the worktree" (the session delete behind it) instead of the old
-  inert "delete the session" note.
+  it directly instead of the old inert "delete the session" note — now
+  "return to <base>" (issue #334), originally "close the worktree".
 - **Branch deletion rides on the last-ref session delete.** When the
   session being deleted is the last record referencing its checkout, the
   delete path also attempts `git branch -d` for the worktree branch into
   its recorded base (the same destination the merge-back resolves). Plain
   `-d`, never force: git's own guards (branch checked out elsewhere,
-  not merged) keep the branch when they say so, and the close-on-merge
-  path can never hit the refusal because the merge required the
-  destination checked out in the project.
+  not merged) keep the branch when they say so, and the merge-first path
+  can never hit the refusal because the merge required the destination
+  checked out in the project. The release path (issue #334) shares this
+  reclaim with the delete rather than riding on it.
 - **The refusal is a warn, not a failure.** An unmerged branch, a base
   that no longer resolves, or a git refusal keeps the branch (commits
   survive, as before) and logs a warning; it never blocks or fails the
@@ -159,3 +159,43 @@ the user made.
   issues close when the user pushes it. omp-ui has no push path.
 - **Rejected: squash-merge.** It destroys the session's own commits, which
   are the record the merge commit points at.
+
+## Worktree release addendum (issue #334)
+
+- **Finishing a worktree releases it; it no longer deletes the session.**
+  The session, its record, its transcript, its lineage and its tab all
+  survive: `registry.updateSession(tabId, { worktree: null })` then a
+  `relaunch` with `--resume`. Spawn cwd is `record.worktree?.path ??
+  record.projectCwd`, so nulling the field is the whole move. This supersedes
+  "Merge-back is terminal: merge & close".
+- **The session lands on the base branch for free.** A merge-back already
+  requires the destination to be the project checkout's current branch, so
+  after the merge the project checkout is sitting on the branch the worktree
+  was cut from. No `git checkout` is performed.
+- **The order is forced by git and by the resume guard**: reap the child (and
+  its console shell) → null the record → `git worktree remove --force` →
+  `git branch -d` → respawn at `projectCwd`. `git branch -d` refuses a branch
+  checked out in a live worktree, and `prepareResumeRecord` throws on a record
+  whose checkout has vanished. A child that will not die aborts the release
+  and leaves a retryable worktree session.
+- **No other session is touched.** The plan-handoff cascade delete is gone
+  with the delete. A descendant or fork sharing the checkout keeps the
+  existing `shared` refcount true, so the checkout and its branch survive
+  until the last sharer leaves, and the confirm dialog says so. This
+  supersedes "Branch deletion rides on the last-ref session delete" for the
+  release path; the delete path is unchanged, and both now share one
+  `reclaimWorktree` with the same canonical/`isWithin` and `shared` guards.
+- **Cleanup failures are warnings, never fatal.** The session must come back
+  up in the project checkout either way; a leftover checkout is reclaimed by
+  the boot-time `sweepOrphanWorktrees`, and the notice tells the user what was
+  left behind.
+- **A released session starts counting against the project busy guard**
+  (`runningSessionTitleOnCheckout` compares `sessionCwd(...)`), so it can
+  now prompt the mid-turn confirm for another session's merge-back or branch
+  switch on the same checkout. That is correct: it really does run there now.
+- **Rejected: switch the checkout's own HEAD to the base branch.** git
+  refuses to check out a branch held by another worktree, and a detached
+  checkout would strand the session outside the project it belongs to.
+- **Rejected: keep the checkout and the branch.** Then `git branch -d` can
+  never run, worktree checkouts accumulate in app data, and "finished" is
+  indistinguishable from "still working".

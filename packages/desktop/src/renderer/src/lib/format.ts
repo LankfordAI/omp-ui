@@ -1,3 +1,5 @@
+import type { WorktreeReleaseResult } from "@omp-ui/core/types";
+
 /**
  * Number, cost, and ref formatting for display — the one home for count and
  * cost strings (ADR-0004: a formatter two components need lives here).
@@ -26,6 +28,41 @@ export function formatCost(cost: number): string {
 /** 40-hex git commit → first 8 chars; refs pass through. */
 export function shortBase(base: string): string {
   return /^[0-9a-f]{40}$/.test(base) ? base.slice(0, 8) : base;
+}
+
+/**
+ * The transcript notice for a worktree release (issue #334). The session
+ * survives, so this is the only durable record in the UI of where it moved and
+ * what happened to its checkout and branch. `commits` is the merge's folded
+ * count, or null when the branch was already merged.
+ */
+export function releaseNoticeText(
+  release: WorktreeReleaseResult,
+  commits: number | null,
+): string {
+  const merged =
+    commits === null
+      ? `${release.branch} was already in`
+      : `merged ${release.branch} (${commits} commit${commits === 1 ? "" : "s"}) into`;
+  const head = `${merged} the project checkout — this session now runs in ${release.projectCwd}`;
+  if (release.checkoutKept === "shared") {
+    return `${head}. The checkout ${release.worktreePath} and branch ${release.branch} are kept: another session still runs there.`;
+  }
+  if (release.checkoutKept !== null) {
+    return `${head}. The checkout ${release.worktreePath} could not be removed (${release.checkoutKept}) and the branch was kept — remove it by hand, or omp-ui sweeps it at next launch.`;
+  }
+  if (release.branchOutcome !== "removed" && release.branchOutcome !== "already-gone") {
+    return `${head}. The checkout is gone; branch ${release.branch} was kept (${release.branchOutcome}).`;
+  }
+  return `${head}. The checkout and branch ${release.branch} are gone.`;
+}
+
+/** info when everything was reclaimed, warn when something was left behind. */
+export function releaseNoticeLevel(release: WorktreeReleaseResult): "info" | "warn" {
+  return release.checkoutKept === null &&
+    (release.branchOutcome === "removed" || release.branchOutcome === "already-gone")
+    ? "info"
+    : "warn";
 }
 
 /**

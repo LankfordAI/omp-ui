@@ -1815,6 +1815,186 @@ describe("convert to worktree (issue #225)", () => {
   });
 });
 
+describe("release worktree (issue #334)", () => {
+  const worktreesRoot = (): string => path.join(base, "worktrees");
+
+  /**
+   * A live pty worktree session whose branch is already folded into main —
+   * the state a successful merge-back leaves behind.
+   */
+  async function mergedWorktreeSession(
+    manager: SessionManager,
+    registry: Core.Registry,
+    branch: string,
+  ): Promise<{ project: string; worktreePath: string; tabId: string }> {
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+    await execFileP("git", ["merge", "-q", "--no-ff", "-m", "fold", branch], { cwd: project });
+    return { project, worktreePath, tabId };
+  }
+
+  it("keeps a live session, moves it to the project checkout, and reclaims both", async () => {
+    const { manager, registry } = setup();
+    const { project, worktreePath, tabId } = await mergedWorktreeSession(
+      manager,
+      registry,
+      "omp-ui/wt-release",
+    );
+    const predecessor = fakePtys[0]!;
+
+    const result = await manager.releaseWorktree(tabId);
+
+    expect(result).toEqual({
+      worktreePath,
+      branch: "omp-ui/wt-release",
+      projectCwd: project,
+      checkoutKept: null,
+      branchOutcome: "removed",
+    });
+    // The child was reaped before the checkout was pulled out from under it…
+    expect(predecessor.signals).toEqual(["default"]);
+    // …the session survives, demoted to the project checkout…
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toBeNull();
+    // …and it respawned there with --resume.
+    expect(spawnOmpMock).toHaveBeenCalledTimes(2);
+    const call = spawnCalls[spawnCalls.length - 1]!;
+    expect(call.id).toBe(tabId);
+    expect(call.cwd).toBe(project);
+    expect(manager.isLive(tabId)).toBe(true);
+    // The checkout and the merged branch are gone.
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout } = await execFileP("git", ["branch", "--list", "omp-ui/wt-release"], {
+      cwd: project,
+    });
+    expect(stdout).not.toContain("omp-ui/wt-release");
+  });
+
+  it("demotes a dormant tab without killing or spawning", async () => {
+    const { manager, registry, broadcast } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-dormant";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const base_ = await Core.addWorktree(project, worktreePath, branch, null);
+    const record = registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-release-dormant",
+        projectCwd: project,
+        mode: "pty",
+        worktree: { path: worktreePath, branch, base: base_ },
+      }),
+    );
+
+    const result = await manager.releaseWorktree(record.tabId);
+
+    expect(result.checkoutKept).toBeNull();
+    expect(result.branchOutcome).toBe("removed");
+    expect(registry.sessions.find((s) => s.tabId === record.tabId)!.worktree).toBeNull();
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    expect(spawnOmpMock).not.toHaveBeenCalled();
+    expect(manager.isLive(record.tabId)).toBe(false);
+    expect(broadcast).toHaveBeenCalled();
+  });
+
+  it("keeps a shared checkout and its branch alive for the other session", async () => {
+    const { manager, registry } = setup();
+    const { project, worktreePath, tabId } = await mergedWorktreeSession(
+      manager,
+      registry,
+      "omp-ui/wt-release-shared",
+    );
+    const sharer = registry.sessions.find((s) => s.tabId === tabId)!.worktree!;
+    registry.addSession(
+      ownedSessionRecord({
+        tabId: "tab-sharer",
+        projectCwd: project,
+        mode: "pty",
+        worktree: sharer,
+      }),
+    );
+
+    const result = await manager.releaseWorktree(tabId);
+
+    expect(result.checkoutKept).toBe("shared");
+    expect(result.branchOutcome).toBe("not-attempted");
+    // The released session moved; the sharer keeps the checkout and branch.
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    expect(registry.sessions.find((s) => s.tabId === "tab-sharer")!.worktree).toEqual(sharer);
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    const { stdout } = await execFileP(
+      "git",
+      ["branch", "--list", "omp-ui/wt-release-shared"],
+      { cwd: project },
+    );
+    expect(stdout).toContain("omp-ui/wt-release-shared");
+    expect(spawnCalls[spawnCalls.length - 1]!.cwd).toBe(project);
+  });
+
+  it("removes the checkout but keeps an unmerged branch", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-unmerged";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+
+    const result = await manager.releaseWorktree(tabId);
+
+    expect(result.checkoutKept).toBeNull();
+    expect(result.branchOutcome).toBe("kept-unmerged");
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout } = await execFileP("git", ["branch", "--list", branch], { cwd: project });
+    expect(stdout).toContain(branch);
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+  });
+
+  it("rejects a plain project session and an unknown tab", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const { tabId } = await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+
+    await expect(manager.releaseWorktree(tabId)).rejects.toThrow(
+      "session does not run in a worktree",
+    );
+    await expect(manager.releaseWorktree("tab-nope")).rejects.toThrow("unknown session tab");
+    expect(manager.isLive(tabId)).toBe(true);
+    expect(spawnOmpMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("stream-stall watchdog (issue #248)", () => {
   /** Fixture default: 180s window; the sweep ticks every 15s. */
   const STALL_WINDOW = 180_000;

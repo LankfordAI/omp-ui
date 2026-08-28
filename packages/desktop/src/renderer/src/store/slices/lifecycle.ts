@@ -6,6 +6,7 @@ import type {
   PlanImplementationSource,
   SessionMode,
   SessionWorktree,
+  WorktreeReleaseResult,
 } from "@omp-ui/core/types";
 import { backend } from "../../backend";
 import {
@@ -58,7 +59,7 @@ export type LifecycleSlice = Pick<
   | "resumeDead"
   | "deleteSession"
   | "confirmDeleteSession"
-  | "closeWorktreeSession"
+  | "releaseWorktreeSession"
   | "cancelDeleteSession"
   | "clearShellExited"
   | "toggleConsole"
@@ -674,21 +675,24 @@ export function createLifecycleSlice(
   };
 
   /**
-   * Closes a worktree session after its merge-back (issue #323): recomputes
-   * the plan-handoff descendant closure in main, then erases the session and
-   * every descendant through the ordinary delete path (main performs the
-   * last-ref checkout removal and merged-branch deletion). Returns false when
-   * the preview failed and nothing was erased.
+   * Returns a worktree session to its project checkout after its merge-back
+   * (issue #334). Main nulls the record's worktree, reclaims the checkout and
+   * branch, and respawns in place; its broadcast drives the state here — no tab
+   * churn, no teardown. Resolves to the outcome so the caller can name what
+   * happened to the checkout and branch, or null when main rejected and the
+   * session is still a worktree session.
    */
-  const closeWorktreeSession = async (tabId: string): Promise<boolean> => {
-    let preview: DeleteSessionPreview;
+  const releaseWorktreeSession = async (
+    tabId: string,
+  ): Promise<WorktreeReleaseResult | null> => {
+    const rec = findRecord(get().state, tabId);
     try {
-      preview = await backend.deleteSessionPreview(tabId);
+      if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
+      return await backend.releaseWorktree(tabId);
     } catch (err) {
       alertError(err);
-      return false;
+      return null;
     }
-    return await eraseSession(tabId, preview.descendants.map((d) => d.tabId));
   };
 
   const cancelDeleteSession = (): void => {
@@ -778,7 +782,7 @@ export function createLifecycleSlice(
     resumeDead,
     deleteSession,
     confirmDeleteSession,
-    closeWorktreeSession,
+    releaseWorktreeSession,
     cancelDeleteSession,
     clearShellExited,
     toggleConsole,

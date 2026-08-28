@@ -36,6 +36,7 @@ import {
   type SessionMode,
   type SessionWorktree,
   type SpawnRequest,
+  type WorktreeReleaseResult,
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
@@ -621,6 +622,65 @@ export class SessionManager {
     });
   }
 
+  /**
+   * Returns a worktree session to its project checkout (issue #334), the
+   * inverse of {@link convertToWorktree}: nulls the record's worktree, reclaims
+   * the checkout and the now-merged branch, and respawns in place with
+   * `--resume`. The session, its transcript, its lineage and its tab all
+   * survive — only where it runs changes, and after a merge-back the project
+   * checkout is already on the branch the worktree was cut from.
+   *
+   * Kill-before-demote: the child is reaped first, because the checkout cannot
+   * be removed under it and `git branch -d` refuses a branch checked out
+   * elsewhere. A child that will not die leaves the session a worktree session,
+   * retryable. Cleanup failures are warnings, never fatal — the session must
+   * come back up either way.
+   */
+  async releaseWorktree(tabId: string): Promise<WorktreeReleaseResult> {
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) throw new Error(`unknown session tab ${tabId}`);
+      const wt = record.worktree;
+      if (!wt) throw new Error("session does not run in a worktree");
+      let cleanup: Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome"> = {
+        checkoutKept: "failed",
+        branchOutcome: "not-attempted",
+      };
+      const demote = async (): Promise<void> => {
+        this.killShell(tabId);
+        this.deps.registry.updateSession(tabId, { worktree: null });
+        cleanup = await this.reclaimWorktree(record.projectCwd, wt, tabId);
+      };
+      const entry = this.live.get(tabId);
+      if (!entry) {
+        // A dormant restored tab: nothing holds the checkout, and its next
+        // resume lands in the project checkout.
+        await demote();
+        await this.deps.broadcast();
+      } else {
+        await this.relaunch(
+          entry,
+          {
+            projectCwd: record.projectCwd,
+            mode: record.mode,
+            advisor: record.advisor,
+            advisorModel: record.advisorModel,
+            cols: 80,
+            rows: 24,
+            resumeTabId: tabId,
+          },
+          demote,
+        );
+      }
+      return {
+        worktreePath: wt.path,
+        branch: wt.branch,
+        projectCwd: record.projectCwd,
+        ...cleanup,
+      };
+    });
+  }
+
   /** Delivers a pasted image to a PTY session as a scratch-file path. */
   async ptyPasteImage(tabId: string, image: ImageAttachment): Promise<void> {
     const pty = this.live.get(tabId)?.pty;
@@ -816,6 +876,57 @@ export class SessionManager {
     };
   }
 
+  /**
+   * Removes a session's worktree checkout and deletes its branch, with the two
+   * guards both callers need: another record still referencing the same
+   * checkout (a fork, or a `worktreeReuse` plan handoff) keeps it, and a
+   * non-canonical path is left for manual removal so a corrupt registry value
+   * cannot steer the recursive fallback inside removeWorktree (branch ".."
+   * mints to the root itself — isWithin rejects that).
+   *
+   * Never throws: the delete must finish and the release must come back up in
+   * the project checkout either way, and the boot-time sweep
+   * (sweepOrphanWorktrees) reclaims anything left behind.
+   */
+  private async reclaimWorktree(
+    projectCwd: string,
+    wt: SessionWorktree,
+    tabId: string,
+  ): Promise<Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome">> {
+    const worktreesRoot = this.deps.getWorktreesRoot();
+    const canonical =
+      wt.path === mintWorktreePath(worktreesRoot, projectCwd, wt.branch) &&
+      isWithin(worktreesRoot, wt.path);
+    if (!canonical) {
+      console.warn(
+        `[sessions] worktree path ${wt.path} does not match its minted location — leaving it for manual removal`,
+      );
+      return { checkoutKept: "non-canonical", branchOutcome: "not-attempted" };
+    }
+    const shared = this.deps.registry.sessions.some(
+      (s) => s.tabId !== tabId && s.worktree?.path === wt.path,
+    );
+    if (shared) return { checkoutKept: "shared", branchOutcome: "not-attempted" };
+    try {
+      await removeWorktree(projectCwd, wt.path);
+    } catch (err) {
+      console.warn(`[sessions] worktree cleanup failed for ${wt.path}:`, err);
+      return { checkoutKept: "failed", branchOutcome: "not-attempted" };
+    }
+    try {
+      const outcome = await removeWorktreeBranch(projectCwd, wt.branch, wt.base);
+      if (outcome.kind !== "removed") {
+        console.warn(
+          `[sessions] worktree branch ${wt.branch} kept (${outcome.kind}${outcome.detail ? `: ${outcome.detail}` : ""})`,
+        );
+      }
+      return { checkoutKept: null, branchOutcome: outcome.kind };
+    } catch (err) {
+      console.warn(`[sessions] worktree branch cleanup failed for ${wt.branch}:`, err);
+      return { checkoutKept: null, branchOutcome: "not-attempted" };
+    }
+  }
+
   /** The delete proper: runs behind any pending op for the tab. */
   private async deleteInner(tabId: string): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -839,43 +950,7 @@ export class SessionManager {
       throw err;
     }
     if (record.worktree) {
-      const wt = record.worktree;
-      const shared = this.deps.registry.sessions.some(
-        (s) => s.tabId !== tabId && s.worktree?.path === wt.path,
-      );
-      // Only the canonical minted path, inside the worktrees root:
-      // worktree.path comes from the registry, and a corrupt value must
-      // not steer the recursive fallback inside removeWorktree (branch
-      // ".." mints to the root itself — isWithin rejects that).
-      const worktreesRoot = this.deps.getWorktreesRoot();
-      const canonical =
-        wt.path === mintWorktreePath(worktreesRoot, record.projectCwd, wt.branch) &&
-        isWithin(worktreesRoot, wt.path);
-      if (!canonical) {
-        console.warn(
-          `[sessions] worktree path ${wt.path} does not match its minted location — leaving it for manual removal`,
-        );
-      } else if (!shared) {
-        let checkoutGone = false;
-        try {
-          await removeWorktree(record.projectCwd, wt.path);
-          checkoutGone = true;
-        } catch (err) {
-          console.warn(`[sessions] worktree cleanup failed for ${wt.path}:`, err);
-        }
-        if (checkoutGone) {
-          try {
-            const outcome = await removeWorktreeBranch(record.projectCwd, wt.branch, wt.base);
-            if (outcome.kind !== "removed") {
-              console.warn(
-                `[sessions] worktree branch ${wt.branch} kept (${outcome.kind}${outcome.detail ? `: ${outcome.detail}` : ""})`,
-              );
-            }
-          } catch (err) {
-            console.warn(`[sessions] worktree branch cleanup failed for ${wt.branch}:`, err);
-          }
-        }
-      }
+      await this.reclaimWorktree(record.projectCwd, record.worktree, tabId);
     }
     this.deps.registry.removeSession(tabId);
     await this.deps.broadcast();
@@ -953,11 +1028,20 @@ export class SessionManager {
     });
   }
 
-  /** Reaps a live session and then spawns it again with `--resume`. */
-  private async relaunch(entry: LiveEntry, req: SpawnRequest): Promise<void> {
+  /**
+   * Reaps a live session and then spawns it again with `--resume`. `between`
+   * runs after the child is dead and before the respawn — the only window in
+   * which a session's checkout can be removed from under it.
+   */
+  private async relaunch(
+    entry: LiveEntry,
+    req: SpawnRequest,
+    between?: () => Promise<void>,
+  ): Promise<void> {
     const tabId = req.resumeTabId!;
     await this.killAndReap(tabId, entry);
     this.live.delete(tabId);
+    if (between) await between();
     try {
       await this.spawnInner(req);
     } catch (err) {

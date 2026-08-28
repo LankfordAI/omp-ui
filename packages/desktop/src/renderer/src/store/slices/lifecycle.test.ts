@@ -428,76 +428,58 @@ describe("deleteSession", () => {
   });
 });
 
-describe("closeWorktreeSession (issue #323)", () => {
-  it("closes the worktree session, cascades to descendants, and erases the tab", async () => {
-    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
-      descendants: [{ tabId: "tab-2", title: "Impl one", running: false }],
-    });
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "dormant"),
-      tabs: [
-        tabInfo({
-          tabId: h.TAB,
-          mode: "rpc-ui",
-          projectCwd: "/p",
-          hidden: false,
-        }),
-        tabInfo({
-          tabId: "tab-2",
-          mode: "rpc-ui",
-          projectCwd: "/p",
-          hidden: false,
-        }),
-      ],
-      activeTabId: h.TAB,
-      rpc: { [h.TAB]: rpcTabState() },
-    });
-    const ok = await h.useStore.getState().closeWorktreeSession(h.TAB);
+describe("releaseWorktreeSession (issue #334)", () => {
+  const release = {
+    worktreePath: "/wt/deadbeef",
+    branch: "omp-ui/deadbeef",
+    projectCwd: "/p",
+    checkoutKept: null,
+    branchOutcome: "removed",
+  } as const;
 
-    expect(ok).toBe(true);
-    expect(h.mockBackend.deleteSessionPreview).toHaveBeenCalledWith(h.TAB);
-    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, true);
-    const st = h.useStore.getState();
-    expect(st.tabs).toEqual([]);
-    expect(st.rpc[h.TAB]).toBeUndefined();
-    expect(st.activeTabId).toBeNull();
-  });
-
-  it("erases nothing and reports failure when the preview rejects", async () => {
-    h.mockBackend.deleteSessionPreview.mockRejectedValueOnce(new Error("boom"));
+  /** A live rpc-ui worktree session and one sibling tab, as the chips see it. */
+  const seed = (): void => {
     h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "dormant"),
+      state: h.stateWithRecord("sess-1", "live"),
       tabs: [
         tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: "tab-2", mode: "rpc-ui", projectCwd: "/p", hidden: false }),
       ],
       activeTabId: h.TAB,
       rpc: { [h.TAB]: rpcTabState() },
     });
+  };
 
-    const ok = await h.useStore.getState().closeWorktreeSession(h.TAB);
+  it("releases through the backend and keeps the tab and its rpc slot", async () => {
+    h.mockBackend.releaseWorktree.mockResolvedValueOnce(release);
+    seed();
 
-    expect(ok).toBe(false);
-    expect(h.alerts).toEqual(["boom"]);
+    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB);
+
+    expect(result).toEqual(release);
+    expect(h.mockBackend.releaseWorktree).toHaveBeenCalledWith(h.TAB);
+    // The session survives: no delete, no cascade preview, no tab teardown.
     expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
-    expect(h.useStore.getState().tabs.map((t) => t.tabId)).toEqual([h.TAB]);
+    expect(h.mockBackend.deleteSessionPreview).not.toHaveBeenCalled();
+    const st = h.useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB, "tab-2"]);
+    expect(st.rpc[h.TAB]).toBeDefined();
+    expect(st.activeTabId).toBe(h.TAB);
   });
 
-  it("keeps the tab and reports failure when the backend delete rejects", async () => {
-    h.mockBackend.deleteSession.mockRejectedValueOnce(new Error("EBUSY"));
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "dormant"),
-      tabs: [
-        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
-      ],
-      activeTabId: h.TAB,
-      rpc: { [h.TAB]: rpcTabState() },
-    });
+  it("alerts and resolves to null when main rejects, leaving the tab intact", async () => {
+    h.mockBackend.releaseWorktree.mockRejectedValueOnce(
+      new Error("session tab-1 did not exit — its files were left alone"),
+    );
+    seed();
 
-    const ok = await h.useStore.getState().closeWorktreeSession(h.TAB);
+    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB);
 
-    expect(ok).toBe(false);
-    expect(h.alerts).toEqual(["EBUSY"]);
-    expect(h.useStore.getState().tabs.map((t) => t.tabId)).toEqual([h.TAB]);
+    expect(result).toBeNull();
+    expect(h.alerts).toEqual(["session tab-1 did not exit — its files were left alone"]);
+    const st = h.useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB, "tab-2"]);
+    expect(st.rpc[h.TAB]).toBeDefined();
   });
 });
 

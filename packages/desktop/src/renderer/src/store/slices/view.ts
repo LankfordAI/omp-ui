@@ -328,6 +328,21 @@ export function sessionCwd(
 }
 
 /**
+ * Other sessions running in the same worktree checkout — a fork of this
+ * session, or a plan handoff that reused its checkout (issue #316). While any
+ * exist, releasing this session keeps the checkout and its branch.
+ */
+export function worktreeSharers(
+  state: BackendState | null,
+  tabId: string,
+  worktreePath: string,
+): SessionSummary[] {
+  return (state?.projects ?? []).flatMap((project) =>
+    project.sessions.filter((s) => s.tabId !== tabId && s.worktree?.path === worktreePath),
+  );
+}
+
+/**
  * The title of a session mid-turn on the given checkout, or null when none.
  * Matched on the effective cwd, so a running worktree session guards its own
  * checkout, not the project root its tab is registered under. `excludeTabId`

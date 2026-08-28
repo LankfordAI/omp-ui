@@ -13,6 +13,7 @@ import type {
   OmpUpdateState,
   RemoteState,
   SessionWorktree,
+  WorktreeReleaseResult,
 } from "@omp-ui/core/types";
 import { backendState as makeBackendState } from "./fixtures";
 
@@ -122,6 +123,15 @@ const mockBackend = {
   hibernatePlanSource: vi.fn(async () => true),
   restartSession: vi.fn(),
   convertToWorktree: vi.fn(async () => {}),
+  releaseWorktree: vi.fn(
+    async (): Promise<WorktreeReleaseResult> => ({
+      worktreePath: "/wt/deadbeef",
+      branch: "omp-ui/deadbeef",
+      projectCwd: "/p",
+      checkoutKept: null,
+      branchOutcome: "removed",
+    }),
+  ),
   switchMode: vi.fn(),
   deleteSession: vi.fn(),
   deleteSessionPreview: vi.fn(async (): Promise<DeleteSessionPreview> => ({ descendants: [] })),

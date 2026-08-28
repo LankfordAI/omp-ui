@@ -29,6 +29,7 @@ import type {
   ResolvedMentionContext,
   SessionMode,
   SpawnRequest,
+  WorktreeReleaseResult,
 } from "./types";
 import type { RpcFrame } from "./rpc/codec";
 
@@ -450,6 +451,17 @@ export const BACKEND_CHANNELS = {
   convertToWorktree: {
     channel: "session:convert-to-worktree",
     ...request<[tabId: string, branch: string, baseRef: string | null], void>(),
+  },
+  /**
+   * Returns a worktree session to its project checkout (issue #334) — the
+   * inverse of `session:convert-to-worktree`. Nulls the record's worktree,
+   * reclaims the checkout and branch, and respawns in place with `--resume`:
+   * the session, its transcript, its lineage and its tab all survive.
+   * Rejects when the tab is unknown or is not a worktree session.
+   */
+  releaseWorktree: {
+    channel: "session:release-worktree",
+    ...request<[tabId: string], WorktreeReleaseResult>(),
   },
   /**
    * Project-relative file listing for the composer's @ picker;

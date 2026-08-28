@@ -42,7 +42,12 @@ export type {
   TuiHandoff,
   UiStore,
 } from "./store/types";
-export { findRecord, runningSessionTitleOnCheckout, sessionCwd } from "./store/slices/view";
+export {
+  findRecord,
+  runningSessionTitleOnCheckout,
+  sessionCwd,
+  worktreeSharers,
+} from "./store/slices/view";
 export {
   USAGE_REFRESH_MS,
   QUEUE_SETTLE_REFRESH_MS,

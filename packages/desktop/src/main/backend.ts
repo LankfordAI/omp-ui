@@ -428,6 +428,7 @@ export class MainBackend {
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
         [CH.convertToWorktree]: (tabId: string, branch: string, baseRef: string | null) =>
           this.sessions.convertToWorktree(tabId, branch, baseRef),
+        [CH.releaseWorktree]: (tabId: string) => this.sessions.releaseWorktree(tabId),
         [CH.setSessionAdvisor]: (
           tabId: string,
           advisor: boolean,

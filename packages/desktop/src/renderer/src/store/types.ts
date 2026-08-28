@@ -19,6 +19,7 @@ import type {
   RemoteBind,
   RemoteState,
   SessionMode,
+  WorktreeReleaseResult,
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
@@ -344,7 +345,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   resumeDead(tabId: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
-  closeWorktreeSession(tabId: string): Promise<boolean>;
+  releaseWorktreeSession(tabId: string): Promise<WorktreeReleaseResult | null>;
   cancelDeleteSession(): void;
   bootRpcTab(tabId: string): Promise<void>;
   rpcCommand(

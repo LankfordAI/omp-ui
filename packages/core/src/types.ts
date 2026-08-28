@@ -127,6 +127,24 @@ export interface WorktreeBranchRemoval {
   detail?: string;
 }
 
+/**
+ * Outcome of returning a worktree session to its project checkout (issue
+ * #334). The session always survives; these fields report what happened to
+ * the checkout and the branch, which the chips turn into a notice.
+ */
+export interface WorktreeReleaseResult {
+  /** The checkout the session left. */
+  worktreePath: string;
+  /** The branch the session ran on. */
+  branch: string;
+  /** The project checkout the session now runs in. */
+  projectCwd: string;
+  /** Why the checkout survived; null when it was removed. */
+  checkoutKept: "shared" | "non-canonical" | "failed" | null;
+  /** What happened to the branch; "not-attempted" when the checkout stayed. */
+  branchOutcome: WorktreeBranchRemoval["kind"] | "not-attempted";
+}
+
 /** Saved provenance for a fresh implementation session created from an accepted plan. */
 export interface PlanImplementationSource {
   /** Planning session tab that dispatched the implementation. */

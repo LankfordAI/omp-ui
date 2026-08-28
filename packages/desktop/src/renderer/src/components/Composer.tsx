@@ -87,8 +87,9 @@ export function Composer({
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
-  // A session already running in a worktree has its workspace fixed for
-  // life — the branch chip's worktree section is never offered to it.
+  // A session running in a worktree cannot be pointed at a second one: the
+  // branch chip's worktree section is never offered to it. Finishing the
+  // worktree moves it back to the project checkout instead (issue #334).
   const hasWorktree = useStore((s) => findRecord(s.state, tabId)?.worktree != null);
   // The worktree section of the branch chip (issue #227) stands in for the
   // standalone workspace chip: offered only while the session is unprompted

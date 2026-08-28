@@ -1,11 +1,11 @@
 import { useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { MergeBackStatus, PlanHandoffDescendant, SessionWorktree } from "@omp-ui/core/types";
+import type { MergeBackStatus, SessionWorktree } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
-import { shortBase } from "../lib/format";
-import { runningSessionTitleOnCheckout, useStore } from "../store";
+import { releaseNoticeLevel, releaseNoticeText, shortBase } from "../lib/format";
+import { runningSessionTitleOnCheckout, useStore, worktreeSharers } from "../store";
 import { Button, Chip, ConfirmDialog, CopyButton, Panel } from "./ui";
 
 /**
@@ -48,29 +48,30 @@ export function WorktreeChip({
   /** null = not fetched yet, or the fetch rejected (see the error slot). */
   const [mergeStatus, setMergeStatus] = useState<MergeBackStatus | null>(null);
   const [merging, setMerging] = useState(false);
-  /** The merge & close confirm modal, portaled outside the popover. */
+  /** The merge & return confirm modal, portaled outside the popover. */
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** The inline busy-session sub-state of the open popover. */
   const [busyConfirm, setBusyConfirm] = useState(false);
-  /** The post-merge close phase. */
-  const [closing, setClosing] = useState(false);
-  /** The close-only confirm (already-merged), portaled outside the popover. */
+  /** The post-merge return phase. */
+  const [returning, setReturning] = useState(false);
+  /** The return-only confirm (already-merged), portaled outside the popover. */
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
-  /** Descendant preview for the confirm copy; null = preview failed. */
-  const [cascade, setCascade] = useState<PlanHandoffDescendant[] | null>(null);
   /** Files from a fresh conflicted merge; null when none. */
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
 
   const readMergeBackStatus = useStore((s) => s.readMergeBackStatus);
   const mergeWorktreeBranch = useStore((s) => s.mergeWorktreeBranch);
   const appendNotice = useStore((s) => s.appendNotice);
-  const closeWorktreeSession = useStore((s) => s.closeWorktreeSession);
+  const releaseWorktreeSession = useStore((s) => s.releaseWorktreeSession);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const consoleIsOpen = useStore((s) => s.consoleOpen[tabId] === true);
 
   // A session mid-turn in the project checkout: the merge moves the
   // destination branch out from under it. The self tab is excluded.
   const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd, tabId));
+  // Other sessions in this checkout (a fork, a plan handoff that reused it):
+  // while any exist the release keeps the checkout and its branch.
+  const sharers = useStore((s) => worktreeSharers(s.state, tabId, worktree.path).length);
 
   /** Wraps the trigger *and* the popover, so one containment test covers both. */
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -83,9 +84,8 @@ export function WorktreeChip({
     setMerging(false);
     setConfirmOpen(false);
     setBusyConfirm(false);
-    setClosing(false);
+    setReturning(false);
     setCloseConfirmOpen(false);
-    setCascade(null);
     setConflictFiles(null);
   };
 
@@ -104,15 +104,12 @@ export function WorktreeChip({
       });
   };
 
-  /**
-   * The confirm copy's descendant preview (issue #323); a rejection leaves
-   * the cascade null — the confirm renders without the cascade paragraph.
-   */
-  const fetchCascade = (): void => {
-    backend
-      .deleteSessionPreview(tabId)
-      .then((p) => setCascade(p.descendants))
-      .catch(() => setCascade(null));
+  /** Hands the session back to the project checkout and names the outcome. */
+  const runRelease = async (commits: number | null): Promise<boolean> => {
+    const release = await releaseWorktreeSession(tabId);
+    if (release === null) return false;
+    appendNotice(tabId, releaseNoticeText(release, commits), releaseNoticeLevel(release));
+    return true;
   };
 
   const toggle = (): void => {
@@ -168,14 +165,13 @@ export function WorktreeChip({
       return;
     }
     setConfirmOpen(true);
-    fetchCascade();
   };
 
   const runMerge = async (): Promise<void> => {
     const destination = mergeStatus?.destination;
     if (destination === null || destination === undefined) return;
     setMerging(true);
-    let closed = false;
+    let released = false;
     try {
       const result = await mergeWorktreeBranch(projectCwd, worktree.branch, destination);
       setConfirmOpen(false);
@@ -191,12 +187,12 @@ export function WorktreeChip({
           "warn",
         );
       } else {
-        // ff / merged / already-merged: the merge is in — close the worktree.
+        // merged / already-merged: the merge is in — hand the session back to
+        // the base branch. The record's worktree goes null, so this chip
+        // unmounts on the broadcast.
         setMerging(false);
-        setClosing(true);
-        closed = true;
-        const ok = await closeWorktreeSession(tabId);
-        if (!ok) closed = false;
+        setReturning(true);
+        released = await runRelease(result.kind === "already-merged" ? null : result.commits);
       }
     } catch (err: unknown) {
       setConfirmOpen(false);
@@ -204,10 +200,10 @@ export function WorktreeChip({
       setConflictFiles(null);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      // A closed tab is unmounted; only a failed close needs the reset.
-      if (!closed) {
+      // A released session's chip is about to unmount; only a failure resets.
+      if (!released) {
         setMerging(false);
-        setClosing(false);
+        setReturning(false);
         fetchStatus();
       }
     }
@@ -231,13 +227,13 @@ export function WorktreeChip({
         </button>
       );
     }
-    if (merging || closing) {
-      // The row survives the merge and the close it triggers: a row that
+    if (merging || returning) {
+      // The row survives the merge and the return it triggers: a row that
       // vanished mid-operation would read as a silent failure (the BranchChip
       // pull-row pattern).
       return (
         <button type="button" role="menuitem" className={rowText} disabled>
-          {closing ? "closing the worktree…" : "merging…"}
+          {returning ? "returning…" : "merging…"}
         </button>
       );
     }
@@ -306,12 +302,9 @@ export function WorktreeChip({
           type="button"
           role="menuitem"
           className={rowText}
-          onClick={() => {
-            setCloseConfirmOpen(true);
-            fetchCascade();
-          }}
+          onClick={() => setCloseConfirmOpen(true)}
         >
-          close the worktree
+          return to {mergeStatus.destination}
         </button>
       );
     }
@@ -320,17 +313,17 @@ export function WorktreeChip({
         <>
           <div className="px-2.5 py-1 text-[11px] leading-snug text-copper">
             session “{busyTitle}” is mid-turn in the project — merging moves{" "}
-            {mergeStatus.destination} under it. The merge also closes the worktree: this session
-            is deleted, and the checkout and branch are removed.
+            {mergeStatus.destination} under it. The merge also returns this session to{" "}
+            {mergeStatus.destination}: the checkout and branch are removed, the session is kept.
           </div>
           <div className="flex gap-1.5 px-2.5 pb-1.5">
             <Button
               size="xs"
               tone="copper"
-              disabled={merging || closing}
+              disabled={merging || returning}
               onClick={() => void runMerge()}
             >
-              {merging ? "merging…" : closing ? "closing…" : "merge & close anyway"}
+              {merging ? "merging…" : returning ? "returning…" : "merge & return anyway"}
             </Button>
             <Button size="xs" variant="ghost" onClick={() => setBusyConfirm(false)}>
               cancel
@@ -348,35 +341,12 @@ export function WorktreeChip({
           )}
         </button>
         <p className={quietNote}>
-          a successful merge closes the worktree — this session, the checkout, and the branch are
-          deleted
+          a successful merge returns this session to {mergeStatus.destination} — the checkout and
+          the branch are removed, the session and its transcript are kept
         </p>
       </>
     );
   };
-
-  /**
-   * The descendant list both confirms share (issue #323): the same shape as
-   * the DeleteSessionDialog's cascade block.
-   */
-  const cascadeList =
-    cascade !== null && cascade.length > 0 ? (
-      <div className="rounded-md border border-line bg-raised px-3 py-2.5">
-        <p className="text-xs font-medium text-ink">
-          Also closes {cascade.length} plan implementation descendant
-          {cascade.length === 1 ? "" : "s"}:
-        </p>
-        <ul className="mt-1.5 list-none space-y-0.5 text-xs text-ink-mid">
-          {cascade.slice(0, 4).map((d) => (
-            <li key={d.tabId} className="truncate">
-              {d.title}
-              {d.running ? " · running" : ""}
-            </li>
-          ))}
-          {cascade.length > 4 && <li>+{cascade.length - 4} more</li>}
-        </ul>
-      </div>
-    ) : null;
 
   return (
     <span ref={rootRef} className={cn("inline-flex", className)}>
@@ -445,7 +415,7 @@ export function WorktreeChip({
           kicker="Irreversible action"
           tone="rose"
           width="w-[28rem]"
-          title={`Merge ${worktree.branch} into ${mergeStatus.destination} and close the worktree?`}
+          title={`Merge ${worktree.branch} into ${mergeStatus.destination} and return this session to it?`}
           onClose={() => setConfirmOpen(false)}
           actions={
             <>
@@ -455,29 +425,34 @@ export function WorktreeChip({
               <Button
                 variant="solid"
                 tone="rose"
-                disabled={merging || closing}
+                disabled={merging || returning}
                 onClick={() => void runMerge()}
               >
-                {merging ? "merging…" : closing ? "closing…" : "merge & close"}
+                {merging ? "merging…" : returning ? "returning…" : "merge & return"}
               </Button>
             </>
           }
         >
           <div className="space-y-4">
             <p>
-              Fast-forwards when history allows, otherwise creates a merge commit in the project
-              checkout. Merges the {mergeStatus.ahead} committed change(s) on {worktree.branch};
-              uncommitted changes in the worktree are not included.
+              Writes a merge commit in the project checkout recording the {mergeStatus.ahead}{" "}
+              committed change(s) on {worktree.branch} — their subjects and any issues they close.
+              Uncommitted changes in the worktree are not included.
             </p>
             <p>
-              A successful merge closes the worktree: this session is deleted — its agent is
-              stopped and its transcript and artifacts are erased — the checkout {worktree.path} is
-              removed, and the branch {worktree.branch} is deleted from the project.
+              This session then returns to {mergeStatus.destination} in {projectCwd}: its agent
+              restarts there with its transcript intact. The checkout {worktree.path} is removed —
+              uncommitted changes there are lost — and the branch {worktree.branch} is deleted.
             </p>
-            {cascadeList}
+            {sharers > 0 && (
+              <p>
+                {sharers} other session(s) still run in this checkout, so it and the branch are kept
+                until they leave.
+              </p>
+            )}
             <p>
-              A conflicted merge stops both the merge and the close: the project checkout is left
-              with files to resolve, and the worktree stays open.
+              A conflicted merge stops both the merge and the return: the project checkout is left
+              with files to resolve, and this session stays on {worktree.branch}.
             </p>
           </div>
         </ConfirmDialog>
@@ -487,7 +462,7 @@ export function WorktreeChip({
           kicker="Irreversible action"
           tone="rose"
           width="w-[28rem]"
-          title="Close the worktree?"
+          title={`Return this session to ${mergeStatus.destination}?`}
           onClose={() => setCloseConfirmOpen(false)}
           actions={
             <>
@@ -497,20 +472,19 @@ export function WorktreeChip({
               <Button
                 variant="solid"
                 tone="rose"
-                disabled={closing}
+                disabled={returning}
                 onClick={() => {
                   void (async () => {
                     setCloseConfirmOpen(false);
-                    setClosing(true);
-                    const ok = await closeWorktreeSession(tabId);
-                    if (!ok) {
-                      setClosing(false);
+                    setReturning(true);
+                    if (!(await runRelease(null))) {
+                      setReturning(false);
                       fetchStatus();
                     }
                   })();
                 }}
               >
-                {closing ? "closing…" : "close the worktree"}
+                {returning ? "returning…" : `return to ${mergeStatus.destination}`}
               </Button>
             </>
           }
@@ -518,11 +492,16 @@ export function WorktreeChip({
           <div className="space-y-4">
             <p>The branch {worktree.branch} is already in {mergeStatus.destination}.</p>
             <p>
-              Closing deletes this session — its agent is stopped and its transcript and artifacts
-              are erased — removes the checkout {worktree.path} (uncommitted changes there are
-              lost), and deletes the branch {worktree.branch}.
+              This session returns to {mergeStatus.destination} in {projectCwd}: its agent restarts
+              there with its transcript intact. The checkout {worktree.path} is removed —
+              uncommitted changes there are lost — and the branch {worktree.branch} is deleted.
             </p>
-            {cascadeList}
+            {sharers > 0 && (
+              <p>
+                {sharers} other session(s) still run in this checkout, so it and the branch are kept
+                until they leave.
+              </p>
+            )}
           </div>
         </ConfirmDialog>
       )}
