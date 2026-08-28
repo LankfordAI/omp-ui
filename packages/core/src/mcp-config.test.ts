@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as atomicWrite from "./atomic-write";
 import { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 
 const tmpDirs: string[] = [];
@@ -12,6 +13,7 @@ function tmpDir(): string {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -654,6 +656,114 @@ describe("setMcpServerEnabled (project scope)", () => {
     expect(JSON.parse(fs.readFileSync(userFile, "utf8")).enabledServers).toBeUndefined();
     const elsewhere = await resolveMcpServers(otherProject, env);
     expect(elsewhere.servers.find((s) => s.name === "v")).toMatchObject({ state: "enabled" });
+  });
+
+  it("restores an existing first file when the second atomic commit fails", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    const projectFile = path.join(project, ".omp", "mcp.json");
+    writeJson(userFile, { enabledServers: ["p"] });
+    writeJson(projectFile, { mcpServers: { p: { command: "p-bin" } } });
+    const userBefore = fs.readFileSync(userFile, "utf8");
+    const projectBefore = fs.readFileSync(projectFile, "utf8");
+    const originalWrite = atomicWrite.writeTextAtomic;
+    const commitFailure = new Error("second commit failed");
+    const write = vi
+      .spyOn(atomicWrite, "writeTextAtomic")
+      .mockImplementationOnce(originalWrite)
+      .mockImplementationOnce(() => {
+        throw commitFailure;
+      });
+
+    await expect(
+      setMcpServerEnabled({ projectCwd: project, name: "p", enabled: false }, env),
+    ).rejects.toBe(commitFailure);
+
+    expect(fs.readFileSync(projectFile, "utf8")).toBe(projectBefore);
+    expect(fs.readFileSync(userFile, "utf8")).toBe(userBefore);
+    expect(write).toHaveBeenNthCalledWith(3, projectFile, projectBefore);
+  });
+
+  it("removes an originally absent first file when the second atomic commit fails", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    const overrideFile = path.join(project, ".omp", "mcp.json");
+    writeJson(userFile, {
+      mcpServers: { x: { command: "x-bin", enabled: false } },
+      enabledServers: ["x"],
+    });
+    const userBefore = fs.readFileSync(userFile, "utf8");
+    const originalWrite = atomicWrite.writeTextAtomic;
+    const commitFailure = new Error("second commit failed");
+    vi.spyOn(atomicWrite, "writeTextAtomic")
+      .mockImplementationOnce(originalWrite)
+      .mockImplementationOnce(() => {
+        throw commitFailure;
+      });
+
+    await expect(
+      setMcpServerEnabled({ projectCwd: project, name: "x", enabled: false }, env),
+    ).rejects.toBe(commitFailure);
+
+    expect(fs.existsSync(overrideFile)).toBe(false);
+    expect(fs.readFileSync(userFile, "utf8")).toBe(userBefore);
+  });
+
+  it("reports rollback failures as an AggregateError caused by the commit failure", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    const projectFile = path.join(project, ".omp", "mcp.json");
+    writeJson(userFile, { enabledServers: ["p"] });
+    writeJson(projectFile, { mcpServers: { p: { command: "p-bin" } } });
+    const originalWrite = atomicWrite.writeTextAtomic;
+    const commitFailure = new Error("second commit failed");
+    const rollbackFailure = new Error("rollback write failed");
+    vi.spyOn(atomicWrite, "writeTextAtomic")
+      .mockImplementationOnce(originalWrite)
+      .mockImplementationOnce(() => {
+        throw commitFailure;
+      })
+      .mockImplementationOnce(() => {
+        throw rollbackFailure;
+      });
+
+    let caught: unknown;
+    try {
+      await setMcpServerEnabled({ projectCwd: project, name: "p", enabled: false }, env);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    const aggregate = caught as AggregateError;
+    expect(aggregate.cause).toBe(commitFailure);
+    expect(aggregate.errors).toEqual([rollbackFailure]);
+    expect(aggregate.message).toContain(projectFile);
+    expect(aggregate.message).toContain("rollback write failed");
+  });
+
+  it("keeps successful multi-file output byte-for-byte compatible", async () => {
+    const { env, agent, project } = fixture();
+    const userFile = path.join(agent, "mcp.json");
+    const projectFile = path.join(project, ".omp", "mcp.json");
+    writeJson(userFile, { enabledServers: ["p"] });
+    writeJson(projectFile, { mcpServers: { p: { command: "p-bin" } } });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "p", enabled: false }, env);
+
+    const schema =
+      "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json";
+    expect(fs.readFileSync(projectFile, "utf8")).toBe(
+      JSON.stringify(
+        {
+          $schema: schema,
+          mcpServers: { p: { command: "p-bin", enabled: false } },
+        },
+        null,
+        2,
+      ),
+    );
+    expect(fs.readFileSync(userFile, "utf8")).toBe(JSON.stringify({ $schema: schema }, null, 2));
   });
 
   it("clears the pin when the winner is a project file flipped in place", async () => {
