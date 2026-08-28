@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanItem } from "../lib/transcript";
+import type { DiagramRenderer } from "../lib/plan-diagrams";
 import { PlanCard } from "./PlanCard";
 
 const planVerification = vi.hoisted(() => ({ failure: null as string | null }));
@@ -21,6 +22,24 @@ vi.mock("../lib/plan-document", async (importOriginal) => {
         ? { status: "failed" as const, reason: planVerification.failure }
         : state;
     },
+  };
+});
+
+// Issue #329: the mermaid leaf renderer sits behind a real dynamic import
+// (~440 ms in this environment), which raced this file's wait budget under
+// full-suite load. Stub it at its injection seam so the pipeline is
+// microtask-only; the substitution, guardrail and verification behaviour under
+// test all stay real. Real-engine coverage lives in
+// lib/plan-diagrams.smoke.test.ts.
+vi.mock("../lib/plan-diagrams", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
+  return {
+    ...original,
+    renderMermaidBlocks: (html: string, render?: DiagramRenderer) =>
+      original.renderMermaidBlocks(
+        html,
+        render ?? (async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`),
+      ),
   };
 });
 
@@ -48,15 +67,18 @@ function render(item: PlanItem): void {
   act(() => root!.render(<PlanCard item={item} />));
 }
 
-/** Pumps macrotasks until the predicate holds: the prepared document lands. */
+/**
+ * Flushes act until the predicate holds. With the leaf renderer stubbed the
+ * prepared-document pipeline is microtask-only, so each flush drains it
+ * wholesale: no wall-clock budget, so suite load cannot decide the outcome
+ * (issue #329). The trailing assertion names the real cause instead of letting
+ * a later `toContain` miss stand in for it.
+ */
 async function until(ok: () => boolean): Promise<void> {
-  for (let i = 0; i < 50 && !ok(); i += 1) {
-    await act(async () => {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      setTimeout(resolve, 10);
-      await promise;
-    });
+  for (let i = 0; i < 5 && !ok(); i += 1) {
+    await act(async () => {});
   }
+  expect(ok(), "the prepared plan document never settled").toBe(true);
 }
 
 afterEach(() => {

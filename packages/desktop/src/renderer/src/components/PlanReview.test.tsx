@@ -3,6 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
+import type { ThemedToken } from "shiki/core";
+import type { DiagramRenderer } from "../lib/plan-diagrams";
+import type { CodeTokenizer } from "../lib/plan-highlight";
+import type { Theme } from "../lib/themes";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 
 const clipboardImageMock = vi.hoisted(() => ({
@@ -29,6 +33,39 @@ vi.mock("../lib/plan-document", async (importOriginal) => {
         ? { status: "failed" as const, reason: planVerification.failure }
         : state;
     },
+  };
+});
+
+// Issue #329: both leaf renderers sit behind a real dynamic import (mermaid
+// ~440 ms, shiki ~110 ms in this environment), which raced this file's wait
+// budget under full-suite load. Stub both at their injection seams so the
+// pipeline is microtask-only; the substitution, guardrail, verification and
+// theme behaviour under test all stay real. Real-engine coverage lives in
+// lib/plan-diagrams.smoke.test.ts and lib/plan-highlight.smoke.test.ts.
+vi.mock("../lib/plan-diagrams", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
+  return {
+    ...original,
+    renderMermaidBlocks: (html: string, render?: DiagramRenderer) =>
+      original.renderMermaidBlocks(
+        html,
+        render ?? (async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`),
+      ),
+  };
+});
+
+vi.mock("../lib/plan-highlight", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../lib/plan-highlight")>();
+  // One coloured token per source line: enough for the `tk-N` spans and the
+  // token rule the case asserts, without loading a grammar.
+  const tokenizeStub: CodeTokenizer = async (source) =>
+    source
+      .split("\n")
+      .map((line) => [{ content: line, offset: 0, color: "#0000ff" } as ThemedToken]);
+  return {
+    ...original,
+    highlightCodeBlocks: (html: string, theme: Theme, tokenize?: CodeTokenizer) =>
+      original.highlightCodeBlocks(html, theme, tokenize ?? tokenizeStub),
   };
 });
 
@@ -165,6 +202,20 @@ function render(fill = false): void {
   document.body.appendChild(host);
   root = createRoot(host);
   act(() => root!.render(<PlanReview tabId={TAB} fill={fill} />));
+}
+
+/**
+ * Flushes act until the predicate holds. With the leaf renderers stubbed the
+ * prepared-document pipeline is microtask-only, so each flush drains it
+ * wholesale: no wall-clock budget, so suite load cannot decide the outcome
+ * (issue #329). The trailing assertion names the real cause instead of letting
+ * a later `toContain` miss stand in for it.
+ */
+async function until(ok: () => boolean): Promise<void> {
+  for (let i = 0; i < 5 && !ok(); i += 1) {
+    await act(async () => {});
+  }
+  expect(ok(), "the prepared plan document never settled").toBe(true);
 }
 
 const buttonByText = (text: string): HTMLButtonElement => {
@@ -1089,18 +1140,8 @@ describe("PlanReview mermaid diagrams (issue #285)", () => {
     // the smoke test covers real rendering. Here the block must be substituted
     // — rendered or failed — never left as raw source, and the guardrails must
     // still wrap the document with the diagram carve-out.
-    await act(async () => {});
-    // The hook resolves after a real dynamic import, so one microtask flush is
-    // not enough — pump macrotasks until srcdoc populates.
-    let srcdoc = frame.getAttribute("srcdoc")!;
-    for (let i = 0; i < 50 && srcdoc === ""; i += 1) {
-      await act(async () => {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, 10);
-        await promise;
-      });
-      srcdoc = frame.getAttribute("srcdoc")!;
-    }
+    await until(() => (frame.getAttribute("srcdoc") ?? "") !== "");
+    const srcdoc = frame.getAttribute("srcdoc")!;
     expect(srcdoc).not.toContain('<pre class="mermaid">');
     expect(srcdoc).toContain("<p>after the diagram</p>");
     expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
@@ -1128,17 +1169,10 @@ describe("PlanReview code highlighting (issue #319)", () => {
     render();
 
     const frame = planFrame()!;
-    // Real shiki loads behind dynamic imports, so pump macrotasks until
-    // srcdoc populates (same pattern as the mermaid case).
-    let srcdoc = frame.getAttribute("srcdoc")!;
-    for (let i = 0; i < 50 && srcdoc === ""; i += 1) {
-      await act(async () => {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, 10);
-        await promise;
-      });
-      srcdoc = frame.getAttribute("srcdoc")!;
-    }
+    // The tokenizer is stubbed at the module seam (issue #329); real shiki is
+    // covered by lib/plan-highlight.smoke.test.ts.
+    await until(() => (frame.getAttribute("srcdoc") ?? "") !== "");
+    const srcdoc = frame.getAttribute("srcdoc")!;
     expect(srcdoc).toContain('class="omp-ui-hl"');
     expect(srcdoc).toContain("tk-");
     expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');

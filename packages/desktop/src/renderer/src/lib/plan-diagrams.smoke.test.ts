@@ -28,6 +28,11 @@ svgProto.getBBox ??= () =>
 svgProto.getComputedTextLength ??= () => 40;
 
 describe("renderMermaid (real mermaid)", () => {
+  // The real mermaid graph transforms and evaluates per worker with no
+  // cross-worker module cache: ~440 ms idle, but measured at 9.5 s under
+  // full-suite contention, which exceeded vitest's 5 s default (issue #329).
+  // This is the only case that pays that cost, so the budget lives here
+  // rather than in a global testTimeout.
   it("renders a trivial flowchart to SVG through the dynamic-import path", async () => {
     const out = await renderMermaidBlocks(
       `<p>plan</p><pre class="mermaid">flowchart TD; A-->B</pre>`,
@@ -41,5 +46,5 @@ describe("renderMermaid (real mermaid)", () => {
     // at column-scaled widths (issue #303).
     expect(out).not.toContain("<foreignObject");
     expect(out).not.toContain('<pre class="mermaid">');
-  });
+  }, 30_000);
 });
