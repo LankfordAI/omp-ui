@@ -76,7 +76,8 @@ function cookieToken(header: string | undefined): string | null {
     const eq = part.indexOf("=");
     if (eq === -1) continue;
     if (part.slice(0, eq).trim() !== REMOTE_COOKIE) continue;
-    return decodeURIComponent(part.slice(eq + 1).trim());
+    // A malformed escape in the cookie is a failed credential, not a crash.
+    return safeDecode(part.slice(eq + 1).trim());
   }
   return null;
 }
@@ -98,6 +99,15 @@ function requestUrl(req: IncomingMessage): URL {
   // The host header only shapes the URL object we parse against; nothing is echoed back to
   // the client from it, so a forged Host cannot poison a response.
   return new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+}
+
+/** `decodeURIComponent` throws on malformed escapes — attacker-controlled text must never crash main. */
+function safeDecode(s: string): string | null {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
 }
 
 function manifest(token: string | null): string {
@@ -170,7 +180,15 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       send(res, 503, 'omp-ui web bundle not built — run "npm run build:web"');
       return;
     }
-    const rel = decodeURIComponent(pathname).replace(/^\/+/, "");
+    // Safety ordering (server.test.ts proves it): decode first, then path.resolve, then the
+    // containment check below. WHATWG URL keeps percent-escapes verbatim, so encoded separators
+    // only become separators here — the check after this line is what rejects them.
+    const decoded = safeDecode(pathname);
+    if (decoded === null) {
+      send(res, 400, "bad request");
+      return;
+    }
+    const rel = decoded.replace(/^\/+/, "");
     const resolved = path.resolve(webRoot, rel);
     const root = path.resolve(webRoot);
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
@@ -251,7 +269,13 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   };
 
   const server: Server = createServer((req, res) => {
-    const url = requestUrl(req);
+    let url: URL;
+    try {
+      url = requestUrl(req);
+    } catch {
+      send(res, 400, "bad request");
+      return;
+    }
     const { value, from } = presentedToken(req, url);
 
     if (credentialMatches(value)) {
@@ -314,7 +338,13 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = requestUrl(req);
+    let url: URL;
+    try {
+      url = requestUrl(req);
+    } catch {
+      socket.destroy();
+      return;
+    }
     const { value } = presentedToken(req, url);
     if (url.pathname !== REMOTE_WS_PATH || !credentialMatches(value)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
