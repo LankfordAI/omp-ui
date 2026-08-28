@@ -77,6 +77,12 @@ Object.assign(window, { ompBackend: backendMock });
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
 const { BranchChip } = await import("./BranchChip");
+/**
+ * A release relaunches the tab, so the store stages its notice until the fresh
+ * process boots (issue #334). These tests assert the chip's own contract — the
+ * text it raises — with a spy, and restore the real action between tests.
+ */
+const realAppendNotice = useStore.getState().appendNotice;
 
 const WORKTREE = { path: "/wt/deadbeef", branch: "omp-ui/deadbeef", base: "main" };
 
@@ -379,6 +385,7 @@ beforeEach(() => {
     tabs: [],
     rpc: {},
     state: null,
+    appendNotice: realAppendNotice,
   });
 });
 
@@ -1010,6 +1017,8 @@ describe("BranchChip merge-back (issue #322)", () => {
 
   it("confirms in the rose modal, merges, and returns the session to the base branch", async () => {
     seedWorktreeRecord();
+    const appendNotice = vi.fn();
+    useStore.setState({ appendNotice });
     useStore.setState({
       tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
       rpc: { "tab-0": rpcTabState() },
@@ -1056,14 +1065,13 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(backendMock.deleteSession).not.toHaveBeenCalled();
     expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(true);
     expect(useStore.getState().rpc["tab-0"]).toBeDefined();
-    expect(notices()).toEqual([
-      {
-        text:
-          "merged omp-ui/deadbeef (3 commits) into the project checkout — this session now runs " +
-          "in /p. The checkout and branch omp-ui/deadbeef are gone.",
-        level: "info",
-      },
-    ]);
+    // The relaunch stages the notice, so assert the text the chip raised.
+    expect(appendNotice).toHaveBeenCalledWith(
+      "tab-0",
+      "merged omp-ui/deadbeef (3 commits) into the project checkout — this session now runs " +
+        "in /p. The checkout and branch omp-ui/deadbeef are gone.",
+      "info",
+    );
     expect(dialog()).toBeNull();
   });
 
@@ -1228,6 +1236,8 @@ describe("BranchChip merge-back (issue #322)", () => {
 
   it("offers an actionable return row for an already-merged branch", async () => {
     seedWorktreeRecord();
+    const appendNotice = vi.fn();
+    useStore.setState({ appendNotice });
     useStore.setState({
       tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
       rpc: { "tab-0": rpcTabState() },
@@ -1262,14 +1272,12 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(backendMock.releaseWorktree).toHaveBeenCalledWith("tab-0");
     expect(backendMock.deleteSession).not.toHaveBeenCalled();
     expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(true);
-    expect(notices()).toEqual([
-      {
-        text:
-          "omp-ui/deadbeef was already in the project checkout — this session now runs in /p. " +
-          "The checkout and branch omp-ui/deadbeef are gone.",
-        level: "info",
-      },
-    ]);
+    expect(appendNotice).toHaveBeenCalledWith(
+      "tab-0",
+      "omp-ui/deadbeef was already in the project checkout — this session now runs in /p. " +
+        "The checkout and branch omp-ui/deadbeef are gone.",
+      "info",
+    );
   });
 
   it("notes an in-progress merge in the project with the console escape hatch", async () => {
@@ -1364,6 +1372,8 @@ describe("BranchChip merge-back (issue #322)", () => {
 
   it("warns in the notice when the checkout was kept for a sharer", async () => {
     seedWorktreeRecord({ sharer: true });
+    const appendNotice = vi.fn();
+    useStore.setState({ appendNotice });
     useStore.setState({
       tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
       rpc: { "tab-0": rpcTabState() },
@@ -1385,15 +1395,13 @@ describe("BranchChip merge-back (issue #322)", () => {
     await act(async () => dialogButton("merge & return")!.click());
     await settle();
 
-    expect(notices()).toEqual([
-      {
-        text:
-          "merged omp-ui/deadbeef (3 commits) into the project checkout — this session now runs " +
-          "in /p. The checkout /wt/deadbeef and branch omp-ui/deadbeef are kept: another session " +
-          "still runs there.",
-        level: "warn",
-      },
-    ]);
+    expect(appendNotice).toHaveBeenCalledWith(
+      "tab-0",
+      "merged omp-ui/deadbeef (3 commits) into the project checkout — this session now runs " +
+        "in /p. The checkout /wt/deadbeef and branch omp-ui/deadbeef are kept: another session " +
+        "still runs there.",
+      "warn",
+    );
   });
 
   it("confirms inline while a session is mid-turn in the project, and merges on merge & return anyway", async () => {

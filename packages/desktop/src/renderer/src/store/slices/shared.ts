@@ -238,6 +238,19 @@ export interface TimedOutCommand {
 }
 export const timedOutCommands = new Map<string, TimedOutCommand[]>();
 
+/**
+ * Notices appended while a tab is booting, delivered once its transcript has
+ * loaded (issue #334). `bootRpcTab` resets `items` and `loadHistory` replaces
+ * them wholesale, so a notice raised across a relaunch — a worktree release is
+ * one, and it is the only durable record of where the session moved — would be
+ * dropped. Bounded by tab count; cleared on erase, drained on boot.
+ */
+export interface PendingNotice {
+  text: string;
+  level?: "info" | "warn" | "error";
+}
+export const pendingNotices = new Map<string, PendingNotice[]>();
+
 /** A late response for a timed-out command: the chain provably moved past it (issue #302). */
 const retireTimedOutCommand = (tabId: string, id: string): void => {
   const list = timedOutCommands.get(tabId);

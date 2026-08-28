@@ -4,6 +4,7 @@ import {
   hydrateSessionFile,
   parseModelRole,
   resolveSessionLocation,
+  rebindSessionCwd,
   unarchiveSession,
   readOmpCompactionMethods,
   type OwnedSessionRecord,
@@ -150,6 +151,13 @@ export async function prepareResumeRecord(
       if (sessionId !== record.sessionId) {
         record = deps.updateSession(record.tabId, { sessionId }) ?? record;
       }
+      const restored = await resolveSessionLocation(
+        deps.sessionsRoot,
+        deps.archiveRoot,
+        record.lineageDir,
+        sessionId,
+      );
+      if (restored.where === "active") await rebindCwd(restored.filePath, record);
       return record;
     }
     // Active: adopt the file's header id when it differs (stale or null id).
@@ -166,5 +174,21 @@ export async function prepareResumeRecord(
     } catch {
       // Head unreadable — spawn proceeds without --resume.
     }
+    await rebindCwd(loc.filePath, record);
     return record;
   }
+
+/**
+ * Keeps the session file's recorded directory equal to the record's effective
+ * working tree. omp refuses `--resume` for a session whose header `cwd` no
+ * longer exists, which is exactly what releasing a worktree leaves behind
+ * (issue #334): the checkout is gone and the session now runs in the project.
+ * Never fatal — a failed rewrite loses the resume, not the session.
+ */
+async function rebindCwd(filePath: string, record: OwnedSessionRecord): Promise<void> {
+  try {
+    await rebindSessionCwd(filePath, record.worktree?.path ?? record.projectCwd);
+  } catch (err) {
+    console.warn(`[sessions] could not rebind ${filePath} to its working tree:`, err);
+  }
+}

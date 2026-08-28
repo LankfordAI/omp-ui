@@ -23,6 +23,7 @@ import {
   dropHibernated,
   dropTuiHandoff,
   handedOffPlanSources,
+  pendingNotices,
   quietWedgeNotified,
   timedOutCommands,
   type GetState,
@@ -150,6 +151,7 @@ export function createLifecycleSlice(
       handedOffPlanSources.delete(id);
       quietWedgeNotified.delete(id);
       timedOutCommands.delete(id);
+      pendingNotices.delete(id);
       const tab = get().rpc[id];
       if (tab) {
         for (const pending of tab.pendingCommands.values()) {

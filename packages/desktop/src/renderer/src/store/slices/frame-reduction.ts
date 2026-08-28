@@ -38,6 +38,7 @@ import {
 import {
   bumpCompactionUsageGeneration,
   compactionUsageGenerations,
+  pendingNotices,
   respData,
   retireTimedOutCommand,
   retireTimedOutEarlierThan,
@@ -839,11 +840,20 @@ export function createFrameReductionSlice(
       }
   };
 
+  /**
+   * A notice raised while the tab is booting is staged, not appended: the boot
+   * resets `items` and replaces them with fetched history, which would drop it
+   * (issue #334). `bootRpcTab` drains the queue once that history is in.
+   */
   const appendNotice = (
     tabId: string,
     text: string,
     level?: "info" | "warn" | "error",
   ): void => {
+    if (get().rpc[tabId]?.status === "starting") {
+      pendingNotices.set(tabId, [...(pendingNotices.get(tabId) ?? []), { text, level }]);
+      return;
+    }
     m.appendItem(tabId, noticeItem(text, level));
   };
 

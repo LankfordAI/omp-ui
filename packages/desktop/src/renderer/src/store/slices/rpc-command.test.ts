@@ -304,6 +304,29 @@ describe("bootRpcTab", () => {
     expect(commands).toContain("set_subagent_subscription");
   });
 
+  it("delivers a notice raised across the relaunch after history loads (issue #334)", async () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ status: "starting" }) },
+    });
+    // The worktree release appends its notice while the respawn is in flight;
+    // boot resets `items` and replaces them with fetched history.
+    h.useStore.getState().appendNotice(h.TAB, "merged omp-ui/deadbeef", "info");
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+
+    await h.driveBoot(h.TAB, {
+      get_messages: {
+        data: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+      },
+    });
+
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
+      expect.objectContaining({ kind: "user", text: "hi" }),
+      expect.objectContaining({ kind: "notice", text: "merged omp-ui/deadbeef", level: "info" }),
+    ]);
+  });
+
   it("subscribes to subagent progress and never wedges boot on a failed extra", async () => {
     h.backendState = h.stateWithRecord(null);
     h.useStore.setState({ state: h.backendState });

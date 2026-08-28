@@ -156,6 +156,7 @@ export {
   type SessionLocation,
 } from "./archive";
 export { forkSessionFile } from "./fork";
+export { rebindSessionCwd } from "./session-rebind";
 export { RpcChunkReassembler, isObject, type RpcFrame } from "./rpc/codec";
 export { modelStreamCheckpointLabel } from "./stream-activity";
 export {

@@ -15,13 +15,14 @@ import {
   isLowSignalTitleInput,
   isUntitled,
 } from "../../lib/session-title";
-import { historyToItems } from "../../lib/transcript";
+import { historyToItems, noticeItem } from "../../lib/transcript";
 import {
   RPC_COMMAND_TIMEOUT_MS,
   RpcCommandTimeoutError,
   compactionUsageGenerations,
   handedOffPlanSources,
   respData,
+  pendingNotices,
   timedOutCommands,
   type GetState,
   type SetState,
@@ -221,6 +222,13 @@ export function createRpcCommandSlice(
         // gate on the record hydrates now instead of being clobbered.
         const bootedState = get().state;
         if (bootedState !== null) deps.reconcilePlanGates(bootedState);
+        // History is in and the tab is live: notices staged across the
+        // relaunch land now, after everything that would have dropped them
+        // (issue #334).
+        for (const notice of pendingNotices.get(tabId) ?? []) {
+          m.appendItem(tabId, noticeItem(notice.text, notice.level));
+        }
+        pendingNotices.delete(tabId);
       }
     } catch (err) {
       const liveState = findRecord(get().state, tabId)?.live;

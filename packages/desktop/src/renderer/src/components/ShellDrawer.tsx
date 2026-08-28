@@ -23,6 +23,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const spawnedRef = useRef(false);
+  /** Working tree the current shell was spawned in; a move forces a respawn. */
+  const spawnedCwdRef = useRef<string | null>(null);
   /** Handoff key already spawned into this PTY; a newer key forces a respawn. */
   const handoffKeyRef = useRef<number | null>(null);
   const theme = useTheme();
@@ -101,7 +103,10 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   // (display:none → real box degenerates fit, same as TerminalTab's refit).
   // A staged handoff key the PTY has not seen yet spawns omp's TUI client
   // instead of the login shell; main kills the previous program first, so the
-  // respawn is a clean replacement rather than a second process.
+  // respawn is a clean replacement rather than a second process. A session that
+  // moved working tree — a released worktree (issue #334) — respawns for the
+  // same reason: the drawer runs in the session's tree, not the one it started
+  // in, and its old shell is already dead.
   useEffect(() => {
     const key = handoff?.key ?? null;
     // Dismissing drops the record, so the next staging restarts numbering at 1.
@@ -113,17 +118,20 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     if (!t || !visible || projectCwd === undefined) return;
     t.fit.fit();
     const staged = key !== null && key !== handoffKeyRef.current;
-    if (spawnedRef.current && !staged) {
+    const moved = spawnedCwdRef.current !== null && spawnedCwdRef.current !== projectCwd;
+    if (spawnedRef.current && !staged && !moved) {
       backend.shellResize(tabId, t.term.cols, t.term.rows);
       return;
     }
     spawnedRef.current = true;
+    spawnedCwdRef.current = projectCwd;
     handoffKeyRef.current = key;
     void backend
       .shellSpawn(tabId, projectCwd, t.term.cols, t.term.rows, staged ? "omp-tui" : "shell")
       .then(() => clearShellExited(tabId))
       .catch((err: unknown) => {
         spawnedRef.current = false; // next visible flip retries
+        spawnedCwdRef.current = null;
         handoffKeyRef.current = null; // and retries as the same program
         const msg = err instanceof Error ? err.message : String(err);
         t.term.write(`\x1b[31m${staged ? "omp" : "shell"} failed to start: ${msg}\x1b[0m\r\n`);

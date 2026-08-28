@@ -1883,6 +1883,30 @@ describe("release worktree (issue #334)", () => {
     expect(stdout).not.toContain("omp-ui/wt-release");
   });
 
+  it("rebinds the session file's cwd so omp will resume it in the project", async () => {
+    const { manager, registry } = setup();
+    const { project, worktreePath, tabId } = await mergedWorktreeSession(
+      manager,
+      registry,
+      "omp-ui/wt-release-rebind",
+    );
+    // omp binds a session to the directory it was created in; the header cwd
+    // must move with the session or `--resume` dies on omp's own guard.
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    const lineage = path.join(base, "sessions", record.lineageDir);
+    fs.mkdirSync(lineage, { recursive: true });
+    const file = path.join(lineage, "2026-08-13T00-00-00-000Z_wt-release-rebind.jsonl");
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify({ type: "session", version: 3, id: "wt-release-rebind", cwd: worktreePath })}\n`,
+    );
+
+    await manager.releaseWorktree(tabId);
+
+    const header = JSON.parse(fs.readFileSync(file, "utf8").trim()) as { cwd: string };
+    expect(header.cwd).toBe(project);
+  });
+
   it("demotes a dormant tab without killing or spawning", async () => {
     const { manager, registry, broadcast } = setup();
     const project = await gitProject(base);

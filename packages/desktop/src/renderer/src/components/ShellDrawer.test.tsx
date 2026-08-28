@@ -118,6 +118,7 @@ beforeEach(() => {
   mocks.shellExited = {};
   mocks.shellSpawn.mockResolvedValue(undefined);
   mocks.restartSession.mockResolvedValue(true);
+  mocks.CWD = "/tmp/project";
 });
 
 afterEach(async () => {
@@ -146,6 +147,32 @@ describe("ShellDrawer handoff respawn", () => {
 
     expect(mocks.shellSpawn).toHaveBeenCalledTimes(2);
     expect(spawnPrograms()).toEqual(["omp-tui", "omp-tui"]);
+  });
+
+  it("respawns in the new working tree when the session moves (issue #334)", async () => {
+    await render(true);
+    expect(mocks.shellSpawn).toHaveBeenLastCalledWith(mocks.TAB, "/tmp/project", 80, 24, "shell");
+
+    // A released worktree session runs in the project checkout now, and main
+    // already killed the shell that sat in the removed checkout.
+    mocks.CWD = "/tmp/project-root";
+    await render(true);
+
+    expect(mocks.shellSpawn).toHaveBeenCalledTimes(2);
+    expect(mocks.shellSpawn).toHaveBeenLastCalledWith(
+      mocks.TAB,
+      "/tmp/project-root",
+      80,
+      24,
+      "shell",
+    );
+
+    // A later visible flip in the same tree resizes instead of respawning.
+    await render(false);
+    await render(true);
+
+    expect(mocks.shellSpawn).toHaveBeenCalledTimes(2);
+    expect(mocks.shellResize).toHaveBeenCalled();
   });
 });
 
