@@ -178,6 +178,22 @@ the user made.
   checked out in a live worktree, and `prepareResumeRecord` throws on a record
   whose checkout has vanished. A child that will not die aborts the release
   and leaves a retryable worktree session.
+- **omp binds a session to the directory it was created in**, so the move is
+  not just a spawn cwd. The session file's `"type":"session"` header carries
+  `cwd`, and `omp --resume` refuses a session whose directory no longer
+  exists — which is exactly what a release leaves behind. `prepareResumeRecord`
+  therefore keeps that header equal to the record's effective working tree on
+  every resume (`rebindSessionCwd` rewrites the header line alone; line 1 may
+  be omp's fixed-width title slot, whose byte length is load bearing). Enforced
+  at the resume seam, not in the release, so a dormant release is covered by
+  the same invariant.
+- **The release notice outlives the relaunch.** It is the only durable record
+  in the UI of where the session went, and boot resets the transcript then
+  replaces it with fetched history. Notices raised while a tab is booting are
+  staged and delivered after that history lands.
+- **The console drawer follows the session.** Its shell is killed with the
+  checkout, and the drawer respawns when the session's working tree changes
+  rather than resizing a dead terminal.
 - **No other session is touched.** The plan-handoff cascade delete is gone
   with the delete. A descendant or fork sharing the checkout keeps the
   existing `shared` refcount true, so the checkout and its branch survive
