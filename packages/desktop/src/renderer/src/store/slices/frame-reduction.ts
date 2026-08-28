@@ -534,9 +534,12 @@ export function createFrameReductionSlice(
               const key = `${failure.kind}\u0000${failure.serverName}`;
               if (observed.has(key)) continue;
               observed.add(key);
+              // The manager's footer offers `/mcp reload`, which rebinds the
+              // live session's MCP tools in place (#327) — the restart this
+              // copy used to name is no longer the lever.
               const text = failure.kind === "auth"
-                ? `MCP server “${failure.serverName}” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then restart the session.`
-                : `MCP server “${failure.serverName}” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then restart the session.`;
+                ? `MCP server “${failure.serverName}” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then reload MCP in this session.`
+                : `MCP server “${failure.serverName}” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then reload MCP in this session.`;
               m.appendItem(tabId, noticeItem(text, "warn"));
             }
             m.patchRpc(tabId, { mcpStatus });

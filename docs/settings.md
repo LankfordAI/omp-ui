@@ -70,7 +70,7 @@ The first available source wins. Within the project source, `.env.local` overrid
 
 Keys saved in omp-ui are encrypted through the operating system credential store. Stored plaintext is never returned to the renderer. Provider-status reads contain only a fixed mask and the last four characters, and the edit field is never prefilled. omp-ui supplies the resolved credential to the omp processes it launches. If the operating system has no secure credential store, omp-ui refuses to save a key rather than write it insecurely. Export the environment variable from your shell profile instead.
 
-omp reads provider credentials when its process starts. A saved or removed key affects the next session spawn, not an already running process. Restart a session from its MCP panel to apply the change to that session.
+omp reads provider credentials when its process starts. A saved or removed key affects the next session spawn, not an already running process; to apply it to an existing session, stop its agent from the Session HUD or sidebar and open the session again.
 
 ## Memory
 
@@ -88,9 +88,9 @@ This page is a schema-driven view over omp-ui's curated allowlist of omp configu
 
 With a session focused, the page resolves values as that project would see them. With no focused session, it shows global configuration. A `project` badge means the focused project's `.omp/config.yml` supplies the effective value. A `global` badge means omp's global file supplies it. Defaults remain unbadged.
 
-Every edit runs through `omp config set`, uses omp's own validation, and writes only the global layer. Project configuration still wins. omp regenerates its global YAML on write, so comments in that file are dropped. Model-role and advisor values bind when the omp process starts; they take effect on the next session spawn. Restart a session from its MCP panel to apply them there. For other settings, follow the timing in the description supplied by the installed omp version.
+Every edit runs through `omp config set`, uses omp's own validation, and writes only the global layer. Project configuration still wins. omp regenerates its global YAML on write, so comments in that file are dropped. Model-role and advisor values bind when the omp process starts; they take effect on the next session spawn, or on an existing session after you stop its agent and open it again. For other settings, follow the timing in the description supplied by the installed omp version.
 
-**MCP servers** opens the manager pinned to the focused session's project and is unavailable without a focused session. **Global MCP servers** opens the list that applies to every project. Opening either manager closes Settings.
+**MCP servers** opens the manager pinned to the focused session's own working tree — its worktree checkout when it has one, otherwise its project root — and is unavailable without a focused session. **Global MCP servers** opens the list that applies to every project. Opening either manager closes Settings.
 
 ## About
 

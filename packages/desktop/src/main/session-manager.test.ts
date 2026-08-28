@@ -1159,6 +1159,48 @@ describe("worktree sessions (issue #224)", () => {
     expect(call.cwd).toBe(worktreePath);
   });
 
+  it("links the project's .omp into the checkout, so project MCP config reaches the session (issue #325)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(project, ".omp", "mcp.json"),
+      JSON.stringify({ mcpServers: { ctx: { command: "ctx-bin" } } }),
+    );
+    const branch = "omp-ui/wt-omp-link";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    await manager.spawn({
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { branch, baseRef: null },
+    });
+
+    // omp resolves project scope from its cwd, and that cwd is the checkout —
+    // which lives outside the project and carries no `.omp/` of its own.
+    expect(spawnCalls[spawnCalls.length - 1]!.cwd).toBe(worktreePath);
+    expect(fs.lstatSync(path.join(worktreePath, ".omp")).isSymbolicLink()).toBe(true);
+    const isolated = {
+      HOME: base,
+      XDG_CONFIG_HOME: base,
+      PI_CODING_AGENT_DIR: path.join(base, "agent"),
+    };
+    const { servers } = await Core.resolveMcpServers(worktreePath, isolated);
+    expect(servers).toEqual([
+      expect.objectContaining({
+        name: "ctx",
+        scope: "project",
+        source: "native",
+        sourcePath: path.join(worktreePath, ".omp", "mcp.json"),
+        state: "enabled",
+      }),
+    ]);
+  });
+
   it("records the detached HEAD commit as base when the project is detached (issue #272)", async () => {
     const { manager, registry } = setup();
     const project = await gitProject(base);

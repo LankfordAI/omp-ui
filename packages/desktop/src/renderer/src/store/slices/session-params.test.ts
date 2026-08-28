@@ -479,20 +479,66 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("bare /mcp and /mcp list open the MCP manager instead of prompting omp", async () => {
     h.useStore.setState({
+      // A record without a worktree: sessionCwd is its project root.
+      state: h.stateWithRecord("sess-1", "live", null),
       mcpManager: null,
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
     expect(h.sent).toHaveLength(0);
     expect(h.useStore.getState().mcpManager).toEqual({
-      projectCwd: "/p",
+      scopeCwd: "/p",
       tabId: h.TAB,
     });
     h.useStore.getState().closeMcpManager();
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
     expect(h.sent).toHaveLength(0);
     expect(h.useStore.getState().mcpManager).toEqual({
-      projectCwd: "/p",
+      scopeCwd: "/p",
+      tabId: h.TAB,
+    });
+    h.useStore.getState().closeMcpManager();
+  });
+
+  it("bare /mcp in a worktree session opens the manager at the checkout (issue #325)", async () => {
+    h.backendState = h.stateWithRecord("sess-1", "live", {
+      path: "/wt",
+      branch: "omp-ui/abc",
+      base: "main",
+    });
+    h.useStore.setState({
+      state: h.backendState,
+      mcpManager: null,
+      // The tab still carries the project root, so only the record's
+      // worktree can produce /wt here.
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+    });
+    await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().mcpManager).toEqual({
+      scopeCwd: "/wt",
+      tabId: h.TAB,
+    });
+    h.useStore.getState().closeMcpManager();
+    await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().mcpManager).toEqual({
+      scopeCwd: "/wt",
+      tabId: h.TAB,
+    });
+    h.useStore.getState().closeMcpManager();
+  });
+
+  it("bare /mcp falls back to the tab's project root when no record is loaded", async () => {
+    h.useStore.setState({
+      state: null,
+      mcpManager: null,
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+    });
+    await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().mcpManager).toEqual({
+      scopeCwd: "/p",
       tabId: h.TAB,
     });
     h.useStore.getState().closeMcpManager();

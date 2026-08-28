@@ -6,6 +6,7 @@ import { git } from "./git";
 import {
   addWorktree,
   isWithin,
+  linkProjectOmpDir,
   mergeWorktreeBranch,
   mintWorktreeBranch,
   mintWorktreePath,
@@ -610,6 +611,24 @@ describe("removeWorktree", () => {
     ).toEqual([path.normalize(`worktree ${fs.realpathSync.native(dir)}`)]);
     expect((await git(dir, ["branch", "--list", branch])).trim()).toBe(branch);
   });
+
+  it("unlinks a linked project .omp instead of deleting through it (issue #325)", async () => {
+    const dir = await tmpRepo();
+    const wtPath = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wtPath, mintWorktreeBranch(), "main");
+    fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
+    await linkProjectOmpDir(dir, wtPath);
+    // Break the checkout's git metadata so `git worktree remove` fails and the
+    // recursive-rm fallback runs with the symlink still in place — the branch
+    // that would delete the user's project config if it ever traversed.
+    fs.rmSync(path.join(wtPath, ".git"), { force: true });
+
+    await removeWorktree(dir, wtPath);
+
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(fs.readFileSync(path.join(dir, ".omp", "mcp.json"), "utf8")).toBe("{}\n");
+  });
 });
 
 describe("sweepOrphanWorktrees", () => {
@@ -656,5 +675,88 @@ describe("sweepOrphanWorktrees", () => {
   it("resolves to [] when the root does not exist", async () => {
     const root = path.join(tmpRoot(), "never-created");
     expect(await sweepOrphanWorktrees(root, new Set())).toEqual([]);
+  });
+
+  it("unlinks a linked project .omp instead of deleting through it (issue #325)", async () => {
+    const root = tmpRoot();
+    const project = tmpRoot();
+    const leaf = path.join(root, "proj--cccc3333", "leaf");
+    fs.mkdirSync(leaf, { recursive: true });
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(project, ".omp", "mcp.json"), "{}\n");
+    await linkProjectOmpDir(project, leaf);
+
+    const removed = await sweepOrphanWorktrees(root, new Set());
+
+    expect(removed).toEqual([path.join(path.resolve(root), "proj--cccc3333", "leaf")]);
+    expect(fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8")).toBe("{}\n");
+  });
+});
+
+describe("linkProjectOmpDir", () => {
+  /** A project dir and a checkout dir outside it — the link is pure fs. */
+  function pair(): { project: string; checkout: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-omp-link-"));
+    cleanups.push(dir);
+    const project = path.join(dir, "project");
+    const checkout = path.join(dir, "worktrees", "proj--aaaa1111", "branch");
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(checkout, { recursive: true });
+    return { project, checkout };
+  }
+
+  it("links the project's .omp into the checkout, so a write there lands on the project file", async () => {
+    const { project, checkout } = pair();
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(project, ".omp", "mcp.json"), '{"mcpServers":{}}\n');
+
+    await linkProjectOmpDir(project, checkout);
+
+    const link = path.join(checkout, ".omp");
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    // One source of truth: omp reads the project's file in the checkout, and a
+    // write through the link is the project's own file, not a drifting copy.
+    expect(fs.readFileSync(path.join(link, "mcp.json"), "utf8")).toBe('{"mcpServers":{}}\n');
+    fs.writeFileSync(path.join(link, "mcp.json"), '{"mcpServers":{"a":{}}}\n');
+    expect(fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8")).toBe(
+      '{"mcpServers":{"a":{}}}\n',
+    );
+  });
+
+  it("leaves a checkout that already owns a real .omp alone", async () => {
+    const { project, checkout } = pair();
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(project, ".omp", "mcp.json"), "project\n");
+    // A repo that tracks `.omp/` checks its own copy out; the branch's config
+    // is what omp reads there, so the link must not shadow it.
+    fs.mkdirSync(path.join(checkout, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(checkout, ".omp", "mcp.json"), "tracked\n");
+
+    await linkProjectOmpDir(project, checkout);
+
+    expect(fs.lstatSync(path.join(checkout, ".omp")).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(checkout, ".omp", "mcp.json"), "utf8")).toBe("tracked\n");
+  });
+
+  it("is a no-op without a project .omp, and idempotent when there is one", async () => {
+    const { project, checkout } = pair();
+
+    await linkProjectOmpDir(project, checkout);
+    expect(fs.existsSync(path.join(checkout, ".omp"))).toBe(false);
+
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    await linkProjectOmpDir(project, checkout);
+    await linkProjectOmpDir(project, checkout);
+    expect(fs.lstatSync(path.join(checkout, ".omp")).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(path.join(checkout, ".omp"))).toBe(path.join(project, ".omp"));
+  });
+
+  it("skips a project .omp that is a file rather than a directory", async () => {
+    const { project, checkout } = pair();
+    fs.writeFileSync(path.join(project, ".omp"), "not a directory\n");
+
+    await linkProjectOmpDir(project, checkout);
+
+    expect(fs.existsSync(path.join(checkout, ".omp"))).toBe(false);
   });
 });

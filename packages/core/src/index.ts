@@ -15,6 +15,7 @@ export {
 export {
   addWorktree,
   isWithin,
+  linkProjectOmpDir,
   mergeWorktreeBranch,
   mintWorktreeBranch,
   mintWorktreePath,

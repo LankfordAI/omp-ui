@@ -95,6 +95,9 @@ const { McpManager } = await import("./McpManager");
 
 const PROJECT = "/proj";
 const TAB = "tab-1";
+/** A worktree session's checkout — deliberately sharing no substring with PROJECT. */
+const CHECKOUT = "/wt/feat-x";
+const BRANCH = "omp/feat-x";
 
 const writableRow: McpServerEntry = {
   name: "native-one",
@@ -159,7 +162,7 @@ const liveState = backendState({
           projectCwd: PROJECT,
           launchedAt: "t",
           mode: "rpc-ui",
-worktree: null,
+          worktree: null,
           planImplementationSource: null,
           agentMode: "build",
           compactionMethod: null,
@@ -198,7 +201,7 @@ function pinnedState(session: Partial<typeof liveSession>) {
 function Gate() {
   const mcpManager = useStore((s) => s.mcpManager);
   return mcpManager ? (
-    <McpManager projectCwd={mcpManager.projectCwd} tabId={mcpManager.tabId} />
+    <McpManager scopeCwd={mcpManager.scopeCwd} tabId={mcpManager.tabId} />
   ) : null;
 }
 
@@ -226,10 +229,19 @@ function authenticateButtons(): HTMLButtonElement[] {
   );
 }
 
+/** The footer's `/mcp reload` control, absent unless the pinned tab is live. */
+function reloadButton(): HTMLButtonElement | null {
+  return (
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "reload MCP in this session" || b.textContent === "reloading…",
+    ) ?? null
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
-  useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null, rpc: {} });
+  useStore.setState({ mcpManager: { scopeCwd: PROJECT, tabId: TAB }, state: null, rpc: {} });
 });
 
 afterEach(() => {
@@ -324,8 +336,8 @@ describe("McpManager", () => {
     ).toBeNull();
   });
 
-  it("renders global scope for null projectCwd", async () => {
-    useStore.setState({ mcpManager: { projectCwd: null }, state: null });
+  it("renders global scope for null scopeCwd", async () => {
+    useStore.setState({ mcpManager: { scopeCwd: null }, state: null });
     backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow, userNativeRow], errors: [] } satisfies McpServersResult);
     await renderManager();
     expect(backendMock.getMcpServers).toHaveBeenCalledWith(null);
@@ -333,7 +345,7 @@ describe("McpManager", () => {
     expect(body).toContain("Global integrations");
     expect(body).toContain("Global — user-level configuration");
     expect(body).toContain("Changes apply to new sessions in every project.");
-    expect(body).not.toContain("restart session to apply");
+    expect(reloadButton()).toBeNull();
     backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [toolRow, userNativeRow], errors: [] } satisfies McpServersResult);
     await act(async () => {
       switchFor("disable cursor-one").click();
@@ -355,19 +367,128 @@ describe("McpManager", () => {
     });
   });
 
-  it("shows the restart button only when opened from a live tab", async () => {
-    // Live tab → the footer offers the in-place restart.
-    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
+  it("reloads MCP in a live native session with /mcp reload, never a restart", async () => {
+    const runSlashCommand = vi.fn<(tabId: string, line: string) => Promise<void>>(async () => {});
+    const restartSession = vi.fn<(tabId: string) => Promise<boolean>>(async () => true);
+    useStore.setState({
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
+      state: liveState,
+      runSlashCommand,
+      restartSession,
+    });
     await renderManager();
-    expect(document.body.textContent).toContain("restart session to apply");
+
+    const button = reloadButton();
+    expect(button?.textContent).toBe("reload MCP in this session");
+    expect(button?.title).toBe(
+      "run /mcp reload in this session so it picks up the current MCP config",
+    );
+    await act(async () => {
+      button!.click();
+    });
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/mcp reload");
+    // omp rebinds its MCP tools in place, so the session survives (#327).
+    expect(restartSession).not.toHaveBeenCalled();
+    // The reload settled; the modal that asked for it steps aside.
+    expect(useStore.getState().mcpManager).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("types /mcp reload into a live terminal session's TUI", async () => {
+    const runSlashCommand = vi.fn<(tabId: string, line: string) => Promise<void>>(async () => {});
+    useStore.setState({
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
+      state: pinnedState({ mode: "pty" }),
+      runSlashCommand,
+    });
+    await renderManager();
+
+    expect(reloadButton()?.textContent).toBe("reload MCP in this session");
+    await act(async () => {
+      reloadButton()!.click();
+    });
+    expect(backendMock.ptyWrite).toHaveBeenCalledWith(TAB, "/mcp reload\r");
+    // A pty tab has no rpc channel to run the command over.
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    expect(useStore.getState().mcpManager).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("waits out a running native turn, but never a running terminal one", async () => {
+    // A native reload would queue behind the turn; a pty tab only receives the
+    // typed line, so its control stays live.
+    useStore.setState({
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
+      state: liveState,
+      rpc: { [TAB]: rpcTabState({ status: "running" }) },
+    });
+    await renderManager();
+    const native = reloadButton();
+    expect(native?.disabled).toBe(true);
+    expect(native?.title).toBe("wait for the current turn to finish");
     act(() => root?.unmount());
     root = null;
     document.body.innerHTML = "";
 
-    // Same opener, no live state → passive footer only.
-    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: null });
+    useStore.setState({
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
+      state: pinnedState({ mode: "pty" }),
+      rpc: { [TAB]: rpcTabState({ status: "running" }) },
+    });
     await renderManager();
-    expect(document.body.textContent).not.toContain("restart session to apply");
+    expect(reloadButton()?.disabled).toBe(false);
+  });
+
+  it("offers no reload unless the pinned tab is live", async () => {
+    useStore.setState({
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
+      state: pinnedState({ live: "dormant" }),
+    });
+    await renderManager();
+    expect(reloadButton()).toBeNull();
+    act(() => root?.unmount());
+    root = null;
+    document.body.innerHTML = "";
+
+    // Same opener, no loaded state → passive footer only.
+    useStore.setState({ mcpManager: { scopeCwd: PROJECT, tabId: TAB }, state: null });
+    await renderManager();
+    expect(reloadButton()).toBeNull();
+  });
+
+  it("names the checkout a worktree session resolved in and the project it writes through to", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [writableRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({
+      mcpManager: { scopeCwd: CHECKOUT, tabId: TAB },
+      state: pinnedState({ worktree: { path: CHECKOUT, branch: BRANCH, base: "main" } }),
+    });
+    await renderManager();
+
+    // The panel resolves in the checkout the store captured (#325), not the
+    // project root the session is registered under.
+    expect(backendMock.getMcpServers).toHaveBeenCalledWith(CHECKOUT);
+    const header = document.body.querySelector("header")?.textContent ?? "";
+    expect(header).toContain(BRANCH);
+    expect(header).toContain(PROJECT);
+  });
+
+  it("renders no checkout caption for a session running at the project root", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [writableRow],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
+      state: pinnedState({ worktree: null }),
+    });
+    await renderManager();
+
+    const header = document.body.querySelector("header")?.textContent ?? "";
+    expect(header).not.toContain(BRANCH);
+    expect(header).not.toContain("resolved in this session");
   });
 
   it("pins user-level-disabled rows in project scope, but not in global scope", async () => {
@@ -400,7 +521,7 @@ describe("McpManager", () => {
     document.body.innerHTML = "";
 
     // Global scope: the same rows toggle through omp's user-level algorithm.
-    useStore.setState({ mcpManager: { projectCwd: null }, state: null });
+    useStore.setState({ mcpManager: { scopeCwd: null }, state: null });
     await renderManager();
     for (const label of ["enable denied-one", "enable off-one"]) {
       expect(switchFor(label).disabled).toBe(false);
@@ -413,6 +534,8 @@ describe("McpManager", () => {
       name: "forced-one",
       state: "enabled",
       enabledBy: "allowlist",
+      // Tool-owned winner → core reports the disable reaches every project.
+      disableReach: "global",
     };
     backendMock.getMcpServers.mockResolvedValue({
       servers: [pinnedOn, toolRow],
@@ -438,6 +561,7 @@ describe("McpManager", () => {
           state: "disabled",
           disabledBy: "config",
           enabledBy: undefined,
+          disableReach: undefined,
           scope: "project",
           source: "native",
           sourcePath: "/proj/.omp/mcp.json",
@@ -459,6 +583,35 @@ describe("McpManager", () => {
     // The disable took effect for this project — the row comes back off, with
     // no pin left to re-enable it.
     expect(switchFor("enable forced-one").disabled).toBe(false);
+  });
+
+  it("reports the disable reach core computed for each allowlist row", async () => {
+    const globalReach: McpServerEntry = {
+      ...toolRow,
+      name: "reach-global",
+      enabledBy: "allowlist",
+      disableReach: "global",
+    };
+    const projectReach: McpServerEntry = {
+      ...toolRow,
+      name: "reach-project",
+      enabledBy: "allowlist",
+      disableReach: "project",
+    };
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [globalReach, projectReach],
+      errors: [],
+    } satisfies McpServersResult);
+    await renderManager();
+
+    // Tool-owned winner: nothing project-local can hold it, so the disable
+    // clears the global override (#326).
+    expect(switchFor("disable reach-global").title).toContain("source config is tool-owned");
+    // Writable winner: core flips it on in its own config first, so only this
+    // project turns off.
+    expect(switchFor("disable reach-project").title).toContain(
+      "enables it in its own config first",
+    );
   });
 
   it("keeps a live switch on a project-disabled row and describes the override write", async () => {
@@ -491,7 +644,7 @@ describe("McpManager", () => {
       servers: [writableRow, toolRow],
       errors: [],
     } satisfies McpServersResult);
-    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
+    useStore.setState({ mcpManager: { scopeCwd: PROJECT, tabId: TAB }, state: liveState });
     await renderManager();
 
     const buttons = authenticateButtons();
@@ -511,7 +664,7 @@ describe("McpManager", () => {
       errors: [],
     } satisfies McpServersResult);
     useStore.setState({
-      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -545,7 +698,7 @@ describe("McpManager", () => {
   it("shows no live failure state in the global manager", async () => {
     backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow], errors: [] } satisfies McpServersResult);
     useStore.setState({
-      mcpManager: { projectCwd: null },
+      mcpManager: { scopeCwd: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -568,7 +721,7 @@ describe("McpManager", () => {
       errors: [],
     } satisfies McpServersResult);
     useStore.setState({
-      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
       state: liveState,
       startTuiHandoff,
     });
@@ -588,7 +741,7 @@ describe("McpManager", () => {
       servers: [writableRow, userNativeRow],
       errors: [],
     } satisfies McpServersResult);
-    useStore.setState({ mcpManager: { projectCwd: PROJECT, tabId: TAB }, state: liveState });
+    useStore.setState({ mcpManager: { scopeCwd: PROJECT, tabId: TAB }, state: liveState });
     await renderManager();
     expect(authenticateButtons()).toHaveLength(0);
   });
@@ -598,7 +751,7 @@ describe("McpManager", () => {
       servers: [toolRow],
       errors: [],
     } satisfies McpServersResult);
-    useStore.setState({ mcpManager: { projectCwd: null }, state: liveState });
+    useStore.setState({ mcpManager: { scopeCwd: null }, state: liveState });
     await renderManager();
     expect(authenticateButtons()).toHaveLength(0);
   });
@@ -611,7 +764,7 @@ describe("McpManager", () => {
     // Live, but terminal-mode: the tab is already an omp TUI, so there is no
     // ConsoleDrawer to host the handoff and the button would be a dead control.
     useStore.setState({
-      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
       state: pinnedState({ mode: "pty" }),
     });
     await renderManager();
@@ -625,7 +778,7 @@ describe("McpManager", () => {
     } satisfies McpServersResult);
     // Native, so the mode gate passes; the dormant session is what must refuse.
     useStore.setState({
-      mcpManager: { projectCwd: PROJECT, tabId: TAB },
+      mcpManager: { scopeCwd: PROJECT, tabId: TAB },
       state: pinnedState({ live: "dormant" }),
     });
     await renderManager();

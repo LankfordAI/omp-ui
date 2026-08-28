@@ -47,8 +47,10 @@ the user made.
   `.env`-only provider keys don't reach a worktree session. Stored, env,
   and shell-captured keys do — they ride `process.env` into the child.
   The spawn provider-keys gate stays on `projectCwd`.
-- **A project-scope MCP toggle (issue #220) reaches a live worktree
-  session only after the config change lands in the branch.**
+- **Project-scope `.omp/` config reaches a worktree session through a
+  symlink** — see the addendum below (issue #325). Other project-scope
+  provider files (`.cursor/mcp.json`, `opencode.json`, …) are tracked
+  repo files, so the checkout legitimately carries its branch's copies.
 - **Disk cost is user-visible** — a full checkout per worktree session —
   and is reclaimed on session delete.
 - **A vanished checkout (manual rm) fails resume loudly** — it never
@@ -104,3 +106,37 @@ the user made.
   that no longer resolves, or a git refusal keeps the branch (commits
   survive, as before) and logs a warning; it never blocks or fails the
   session delete.
+
+## Project-scope config addendum (issue #325)
+
+- **The checkout carries a `.omp` symlink to the project's own
+  directory.** omp resolves project-scope config — `.omp/mcp.json`,
+  `config.yml`, skills, rules — from its cwd, and a worktree session's cwd
+  is the checkout, which lives outside the project. `.omp/` is gitignored
+  in most repos, so the checkout had none and every project-scope setting
+  silently vanished for those sessions. The link is created in the
+  process-construction path (`SessionManager.spawnPty` / `spawnRpc`), so
+  every route into a checkout is covered by one seam: fresh spawn,
+  convert-to-worktree, plan handoff, resume, and relaunch — including a
+  checkout minted before the project ever had an `.omp/`.
+- **A symlink, not a copy.** One source of truth: omp-ui's project writes
+  land on the project's real file through it, and no copy can drift. It
+  also means the MCP manager, scoped to the session's own working tree,
+  writes the project's file even though it resolves in the checkout.
+- **Idempotent and never fatal.** Skipped when the project has no
+  `.omp/`, when the checkout already owns one (a repo that tracks it —
+  then the branch's own config wins, which is what omp reads there), and
+  when the platform refuses the link (Windows without developer mode),
+  where a warning is logged and the session runs on omp's user-level
+  config as before.
+- **Deletion must unlink, never traverse.** `removeWorktree`'s
+  filesystem fallback and `sweepOrphanWorktrees` both use Node's
+  recursive `fs.rm`, which lstats and unlinks symlinks. That invariant is
+  load-bearing — breaking it deletes the user's project config — so both
+  paths carry a regression test.
+- **Rejected: copy `.omp/` into the checkout at spawn.** It drifts the
+  moment either side is edited, and a project toggle would then have to
+  decide which copy is authoritative.
+- **Rejected: point omp at the project with a flag.** omp derives
+  project scope from its cwd; the cwd must stay the checkout, because
+  that is what makes the session's edits land on its own branch.

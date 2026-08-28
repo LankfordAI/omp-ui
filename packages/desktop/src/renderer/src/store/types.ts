@@ -286,7 +286,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   deleteConfirmation: DeleteConfirmation | null;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
-  mcpManager: { projectCwd: string | null; tabId?: string } | null;
+  /** The working tree the MCP manager resolves and writes at (a worktree
+   *  session's checkout, else the project root); null = global scope. */
+  mcpManager: { scopeCwd: string | null; tabId?: string } | null;
 	projectSettings: { projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -296,7 +298,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   init(): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
-  openMcpManager(projectCwd: string | null, tabId?: string): void;
+  openMcpManager(scopeCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
 	openProjectSettings(projectCwd: string): void;
 	closeProjectSettings(): void;

@@ -36,7 +36,8 @@ import type {
  * Redaction is a boundary rule, not a display choice: the DTO never carries
  * `env`, `headers`, `auth`, or `oauth` values, and http/sse endpoints are
  * stripped to origin + pathname. omp has no MCP RPC verbs, so this is a
- * config-effective view only — changes take effect on session (re)spawn.
+ * config-effective view only: a live session picks a write up when it
+ * re-reads its MCP config (omp's `/mcp reload`), otherwise on respawn.
  */
 
 /** omp's own `$schema` default for mcp.json files (mcp/types.ts). */
@@ -260,11 +261,15 @@ async function readServerLists(
 }
 
 /**
- * Every MCP server omp resolves for `projectCwd`; `null` means global scope —
- * user-scope sources only, in provider-priority order.
+ * Every MCP server omp resolves for `projectCwd` — the working tree whose
+ * project-scope config decides, which for a worktree session is its checkout
+ * rather than the project root; `null` means global scope — user-scope
+ * sources only, in provider-priority order.
  * The first occurrence of a name is the effective row; later same-name rows
  * follow immediately with `effective: false` and a `shadowedBy` pointer. One
  * malformed file lands in `errors` and never blocks the rest.
+ * Allowlist-pinned rows carry `disableReach`: how far a project-scope disable
+ * of that row would reach (issue #326).
  */
 export async function resolveMcpServers(
   projectCwd: string | null,
@@ -343,6 +348,17 @@ export async function resolveMcpServers(
         servers.push(entry);
       }
     }
+  }
+  // How far a project-scope disable of each pinned row reaches (#326). Pinned
+  // rows are rare (zero to a couple), and the loop reads nothing when there
+  // are none.
+  for (const entry of servers) {
+    if (!entry.effective || entry.enabledBy !== "allowlist") continue;
+    const winner = await globalWinner(entry.name, env);
+    entry.disableReach =
+      winner === undefined || winner.raw.enabled !== false || winner.file.writable
+        ? "project"
+        : "global";
   }
   return { servers, errors };
 }
@@ -532,6 +548,19 @@ async function findDefinitions(
 }
 
 /**
+ * The definition every other project resolves for `name`, absent its own
+ * project-scope override: the global-scope winner. Used to decide whether
+ * dropping a user-level allowlist pin costs other projects the server
+ * (issue #326).
+ */
+async function globalWinner(
+  name: string,
+  env: NodeJS.ProcessEnv,
+): Promise<{ file: ProviderFile; raw: RawServer } | undefined> {
+  return (await findDefinitions(name, providerFiles(null, env), null))[0];
+}
+
+/**
  * The mcp.json schema is closed (`additionalProperties: false`), so skeleton
  * detection is structural: `enabled === false` and no keys beyond the
  * transport identity. Known accepted edge: a user-authored project entry
@@ -584,21 +613,25 @@ function disableSkeleton(provider: McpServerSource, raw: RawServer): RawServer {
  *   project's `.omp/mcp.json` (a project entry with `enabled: false`
  *   suppresses the name for this project only; omp honours suppression, not
  *   drop).
- * - Disabling an allowlisted name → {@link clearUserAllowlistEntry} runs
- *   first. omp suppresses on `denylisted || (enabled === false &&
- *   !allowlisted)` and reads both lists from the user file only, so the
- *   project write alone is a silent no-op (#324); omp's own `/mcp disable`
- *   clears the pin for the same reason. When the pin was load-bearing (the
- *   winner's source says `enabled: false` — surfaced to the UI as
- *   `enabledBy: "allowlist"`), clearing it also drops the server in other
- *   projects that do not enable it themselves; omp offers no project-scoped
- *   override, so the alternative is a toggle that cannot work.
+ * - Disabling an allowlisted name → the pin is released first. omp suppresses
+ *   on `denylisted || (enabled === false && !allowlisted)` and reads both
+ *   lists from the user file only, so the project write alone is a silent
+ *   no-op (#324); omp's own `/mcp disable` clears the pin for the same
+ *   reason. Clearing it alone would also drop the server in every other
+ *   project whose global winner says `enabled: false`, so when that winner
+ *   is a file omp-ui may write, it is flipped to `enabled: true` first and
+ *   the pin becomes redundant instead of load-bearing (#326). A tool-owned
+ *   winner has no such lever — omp-ui never mutates another tool's config,
+ *   and omp offers no project-scoped allowlist — so that case stays global
+ *   and the UI warns (`disableReach: "global"`).
  * - Winner elsewhere, enabling → nothing project-local can beat the user
  *   denylist or a source's `enabled: false` without copying secrets into a
  *   possibly-committed project file, so those states reject with a pointer
  *   to the global manager; an already-enabled server is an idempotent no-op.
  */
 async function setProjectServerEnabled(
+  /** The working tree whose project-scope config decides — a worktree
+   *  session's checkout, not the project root it is registered under. */
   projectCwd: string,
   name: string,
   enabled: boolean,
@@ -617,8 +650,22 @@ async function setProjectServerEnabled(
   const { denylist, allowlist } = await readServerLists(userPath, errors);
 
   // The pin outranks anything a project file can say, so a project-scope
-  // disable clears it before the write below decides this project.
+  // disable clears it before the write below decides this project. Clearing
+  // it alone also drops the server in every other project whose winner says
+  // `enabled: false` — so when that winner is a file omp-ui may write, enable
+  // it there first and the pin becomes redundant instead of load-bearing.
+  // A tool-owned winner has no such lever: omp-ui never mutates another
+  // tool's config, and omp offers no project-scoped allowlist, so that case
+  // stays global and the UI warns (entry.disableReach === "global").
   if (!enabled && allowlist.has(name)) {
+    const global = await globalWinner(name, env);
+    if (global !== undefined && global.raw.enabled === false && global.file.writable) {
+      const config = await readMcpConfigFile(global.file.path);
+      await writeMcpConfigFile(global.file.path, {
+        ...config,
+        mcpServers: { ...config.mcpServers, [name]: { ...global.raw, enabled: true } },
+      });
+    }
     await clearUserAllowlistEntry(userPath, name);
   }
 

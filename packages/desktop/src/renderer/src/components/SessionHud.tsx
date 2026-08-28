@@ -7,7 +7,7 @@ import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
 import type { ContextUsage } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { findRecord, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -557,6 +557,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
+  // The manager resolves and writes where omp does: this session's own working
+  // tree, which for a worktree session is its checkout (#325).
+  const scopeCwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
   const openMcpManager = useStore((s) => s.openMcpManager);
   const compact = useCompactShell();
   const surface = useStore((s) => s.compactSurface);
@@ -654,7 +657,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
-                {projectCwd !== undefined && <Button onClick={() => openMcpManager(projectCwd, tabId)} className={sheetAction}><IconMcp />MCP{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{mcpFailureCount} failed</Chip>}</Button>}
+                {scopeCwd !== undefined && <Button onClick={() => openMcpManager(scopeCwd, tabId)} className={sheetAction}><IconMcp />MCP{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{mcpFailureCount} failed</Chip>}</Button>}
                 <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />branch</Button>
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />new</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />refresh</Button>
@@ -755,11 +758,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <IconButton label="export transcript as html" onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>
-        {projectCwd !== undefined && (
+        {scopeCwd !== undefined && (
           <span className="relative shrink-0">
             <IconButton
               label={mcpFailureCount > 0 ? `manage MCP servers (${mcpFailureCount} failed)` : "manage MCP servers"}
-              onClick={() => openMcpManager(projectCwd, tabId)}
+              onClick={() => openMcpManager(scopeCwd, tabId)}
             >
               <IconMcp />
             </IconButton>

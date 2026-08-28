@@ -360,7 +360,9 @@ export function ProjectSettings({
             <h3 id="project-settings-mcp" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
               MCP servers
             </h3>
-            <McpServersPanel projectCwd={project.path} />
+            {/* A project dialog pins no session, so the project root is the
+                scope — no checkout to resolve through. */}
+            <McpServersPanel scopeCwd={project.path} />
             <p className="px-4 pt-2 text-[11px] text-ink-faint">
               Changes apply to new sessions in this project.
             </p>

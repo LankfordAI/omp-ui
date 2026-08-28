@@ -32,7 +32,7 @@ import {
   type StoreMachinery,
   type Watchers,
 } from "./shared";
-import { findRecord } from "./view";
+import { findRecord, sessionCwd } from "./view";
 import type { UiStore } from "../types";
 
 export type SessionParamsSlice = Pick<
@@ -454,13 +454,16 @@ export function createSessionParamsSlice(
     }
     // omp-ui's MCP manager already owns the /mcp list surface. Bare forms
     // only — every other subcommand (reauth, add, …) works over rpc and
-    // reaches omp verbatim with the normal command lifecycle.
+    // reaches omp verbatim with the normal command lifecycle. The manager
+    // opens at the session's own working tree — a worktree session's
+    // checkout (#325) — falling back to the tab's project root when no
+    // record is loaded yet.
     if (/^\/mcp(?:\s+list)?$/.test(trimmed)) {
-      const projectCwd = get().tabs.find(
-        (t) => t.tabId === tabId,
-      )?.projectCwd;
-      if (projectCwd !== undefined) {
-        get().openMcpManager(projectCwd, tabId);
+      const scopeCwd =
+        sessionCwd(findRecord(get().state, tabId)) ??
+        get().tabs.find((t) => t.tabId === tabId)?.projectCwd;
+      if (scopeCwd !== undefined) {
+        get().openMcpManager(scopeCwd, tabId);
         return;
       }
     }

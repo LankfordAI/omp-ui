@@ -518,10 +518,18 @@ export interface McpServerEntry {
    * this row is ON — its own source says `enabled: false`. omp's suppression
    * rule (`loadAllMCPConfigs`) reads that list solely from the user file, so
    * a project-scope disable of such a row can only take effect by clearing
-   * the global force-enable, which also drops the server in every other
-   * project that does not enable it itself.
+   * the global force-enable; `disableReach` says what that costs.
    */
   enabledBy?: "allowlist";
+  /**
+   * Only on an `enabledBy: "allowlist"` row: how far a project-scope disable
+   * reaches. "project" — nothing outside this project loses the server,
+   * because the global-scope winner is writable (the writer flips it to
+   * `enabled: true` before dropping the pin) or nothing outside depends on
+   * the pin at all. "global" — the global winner is a tool-owned file omp-ui
+   * never mutates, so dropping the pin turns the server off everywhere.
+   */
+  disableReach?: "project" | "global";
   /** native | mcp-json files are writable; tool-owned files are not. */
   writable: boolean;
 }
@@ -533,7 +541,11 @@ export interface McpServersResult {
 }
 
 export interface McpSetEnabledRequest {
-  /** null = global scope: user-level sources only, no project candidates. */
+  /**
+   * null = global scope: user-level sources only, no project candidates.
+   * Non-null names the working tree whose project-scope config decides —
+   * for a worktree session that is its checkout, not the project root.
+   */
   projectCwd: string | null;
   name: string;
   /**

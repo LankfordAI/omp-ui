@@ -469,7 +469,7 @@ export default function App() {
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
       {projectPickerOpen && <ProjectPicker />}
-      {mcpManager && <McpManager projectCwd={mcpManager.projectCwd} tabId={mcpManager.tabId} />}
+      {mcpManager && <McpManager scopeCwd={mcpManager.scopeCwd} tabId={mcpManager.tabId} />}
 			{projectSettingsProject !== null && (
 				<ProjectSettings project={projectSettingsProject} onClose={closeProjectSettings} />
 			)}

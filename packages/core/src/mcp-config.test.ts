@@ -135,6 +135,33 @@ describe("resolveMcpServers", () => {
     expect(servers.find((s) => s.name === "u")!.enabledBy).toBeUndefined();
   });
 
+  it("reports how far a project disable of a pinned row reaches", async () => {
+    const { env, home, agent, project } = fixture();
+    // toolOwned's global winner is cursor's user file — omp-ui never writes
+    // it, so dropping the pin is the only lever and it costs every project.
+    writeJson(path.join(home, ".cursor", "mcp.json"), {
+      mcpServers: { toolOwned: { command: "t", enabled: false } },
+    });
+    // writable's winner is omp's own user file: the writer flips it on there
+    // first, so only the toggling project loses the server (#326).
+    writeJson(path.join(agent, "mcp.json"), {
+      mcpServers: { writable: { command: "w", enabled: false }, plain: { command: "p" } },
+      enabledServers: ["toolOwned", "writable"],
+    });
+    const { servers } = await resolveMcpServers(project, env);
+    const byName = new Map(servers.map((s) => [s.name, s]));
+    expect(byName.get("toolOwned")).toMatchObject({
+      enabledBy: "allowlist",
+      disableReach: "global",
+    });
+    expect(byName.get("writable")).toMatchObject({
+      enabledBy: "allowlist",
+      disableReach: "project",
+    });
+    // The field is pinned-row-only: an unpinned row carries no reach.
+    expect(byName.get("plain")!.disableReach).toBeUndefined();
+  });
+
   it("reports a malformed file in errors and keeps the other providers", async () => {
     const { env, home, project } = fixture();
     const bad = path.join(home, ".cursor", "mcp.json");
@@ -547,9 +574,11 @@ describe("setMcpServerEnabled (project scope)", () => {
   it("disables a load-bearing allowlist pin, flipping the tool row off everywhere", async () => {
     const { env, home, agent, project } = fixture();
     const otherProject = tmpDir();
-    writeJson(path.join(home, ".cursor", "mcp.json"), {
+    const cursorFile = path.join(home, ".cursor", "mcp.json");
+    writeJson(cursorFile, {
       mcpServers: { x: { command: "x-bin", enabled: false } },
     });
+    const cursorBefore = fs.readFileSync(cursorFile, "utf8");
     writeJson(path.join(agent, "mcp.json"), { enabledServers: ["x"] });
 
     const result = await setMcpServerEnabled(
@@ -560,14 +589,71 @@ describe("setMcpServerEnabled (project scope)", () => {
     expect(result.servers.find((s) => s.name === "x" && s.effective)).toMatchObject({
       state: "disabled",
     });
-    // Honest consequence, documented in setProjectServerEnabled: the pin was
-    // the only thing enabling a source-disabled row, and omp has no
-    // project-scoped override for it, so other projects go off too.
+    // A tool-owned winner offers no lever — omp-ui never mutates another
+    // tool's config, so the file is byte-identical afterwards…
+    expect(fs.readFileSync(cursorFile, "utf8")).toBe(cursorBefore);
+    // …and the honest consequence, documented in setProjectServerEnabled and
+    // surfaced as disableReach: "global", is that other projects go off too.
     const elsewhere = await resolveMcpServers(otherProject, env);
     expect(elsewhere.servers.find((s) => s.name === "x")).toMatchObject({
       state: "disabled",
       disabledBy: "config",
     });
+  });
+
+  it("flips a writable global winner on before dropping the pin, keeping other projects served", async () => {
+    const { env, agent, project } = fixture();
+    const otherProject = tmpDir();
+    const userFile = path.join(agent, "mcp.json");
+    writeJson(userFile, {
+      mcpServers: { u: { command: "u", enabled: false } },
+      enabledServers: ["u"],
+      someOtherRootKey: { nested: true },
+    });
+
+    const result = await setMcpServerEnabled(
+      { projectCwd: project, name: "u", enabled: false },
+      env,
+    );
+
+    // The pin was load-bearing, but omp-ui may write its source: enabling it
+    // there makes the pin redundant, so clearing it costs nobody (#326).
+    const userAfter = JSON.parse(fs.readFileSync(userFile, "utf8"));
+    expect(userAfter.mcpServers.u).toEqual({ command: "u", enabled: true });
+    expect(userAfter.enabledServers).toBeUndefined();
+    expect(userAfter.someOtherRootKey).toEqual({ nested: true });
+    // This project is still decided inside itself, by a suppression entry.
+    expect(
+      JSON.parse(fs.readFileSync(path.join(project, ".omp", "mcp.json"), "utf8")).mcpServers.u,
+    ).toEqual({ command: "u", enabled: false });
+    expect(result.servers.find((s) => s.name === "u" && s.effective)).toMatchObject({
+      state: "disabled",
+      disabledBy: "config",
+      scope: "project",
+    });
+    const elsewhere = await resolveMcpServers(otherProject, env);
+    expect(elsewhere.servers.find((s) => s.name === "u")).toMatchObject({ state: "enabled" });
+  });
+
+  it("flips the winner in the user's .mcp.json — every writable global source has the lever", async () => {
+    const { env, agent, project } = fixture();
+    const otherProject = tmpDir();
+    const userFile = path.join(agent, "mcp.json");
+    const altFile = path.join(agent, ".mcp.json");
+    // The pin lives in the file omp reads its lists from; the definition lives
+    // in the lower-priority native user file, which is writable all the same.
+    writeJson(userFile, { enabledServers: ["v"] });
+    writeJson(altFile, { mcpServers: { v: { command: "v", enabled: false } } });
+
+    await setMcpServerEnabled({ projectCwd: project, name: "v", enabled: false }, env);
+
+    expect(JSON.parse(fs.readFileSync(altFile, "utf8")).mcpServers.v).toEqual({
+      command: "v",
+      enabled: true,
+    });
+    expect(JSON.parse(fs.readFileSync(userFile, "utf8")).enabledServers).toBeUndefined();
+    const elsewhere = await resolveMcpServers(otherProject, env);
+    expect(elsewhere.servers.find((s) => s.name === "v")).toMatchObject({ state: "enabled" });
   });
 
   it("clears the pin when the winner is a project file flipped in place", async () => {
@@ -585,6 +671,9 @@ describe("setMcpServerEnabled (project scope)", () => {
     // An in-place flip is just as powerless against the pin as a skeleton is.
     expect(JSON.parse(fs.readFileSync(projectFile, "utf8")).mcpServers.p.enabled).toBe(false);
     expect(JSON.parse(fs.readFileSync(userFile, "utf8")).enabledServers).toBeUndefined();
+    // No global-scope definition exists, so there is nothing to flip on: the
+    // writer must not mint a user-level definition to release the pin.
+    expect(JSON.parse(fs.readFileSync(userFile, "utf8")).mcpServers).toBeUndefined();
     expect(result.servers.find((s) => s.name === "p" && s.effective)).toMatchObject({
       state: "disabled",
       disabledBy: "config",

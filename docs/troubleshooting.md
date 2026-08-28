@@ -123,13 +123,13 @@ Use the timing category for the control you changed:
 | Live Plan or advisor control | The current session | Change it in the session controls. An advisor change respawns that session so `omp` can bind it at process start. |
 | omp model roles, omp advisor configuration, and Memory settings | The next session spawn | Settings writes the global layer. A `project` chip means the focused project's layer is still effective. Follow the installed omp description for other omp settings. |
 | Provider key | The next session spawn | Check the source chip for the focused project. |
-| MCP toggle | The next session spawn or an explicit restart | Check whether the MCP manager is scoped to the project or to global configuration. |
+| MCP toggle | The next session spawn, or immediately in a live session that reloads MCP | Check whether the MCP manager is scoped to a working tree or to global configuration. A worktree session's manager is scoped to its checkout, which resolves the project's `.omp/` through a symlink. |
 
 ### Fix
 
 For a live session, use its Plan and advisor controls instead of changing a default. For future sessions, change the matching General setting; toggle the advisor in a session from that project if you want to replace its remembered advisor state.
 
-Focus a session from the affected project before checking omp, Memory, Providers, or project MCP settings. If an omp or Memory row has a `project` chip, the global write succeeded but the project's `.omp/config.yml` still wins; change or remove that project override instead of editing omp-ui state. Spawn a new session after a process-bound omp, Memory, or provider change. For MCP, open the manager from the live session and choose **restart session to apply**, or apply the change to the next session.
+Focus a session from the affected project before checking omp, Memory, Providers, or project MCP settings. If an omp or Memory row has a `project` chip, the global write succeeded but the project's `.omp/config.yml` still wins; change or remove that project override instead of editing omp-ui state. Spawn a new session after a process-bound omp, Memory, or provider change. For MCP, open the manager from the live session and choose **reload MCP in this session**, or apply the change to the next session.
 
 See [Settings](settings.md) for layer and timing details and [User guide](user-guide.md) for live session controls.
 

@@ -4,7 +4,7 @@ import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
-import { findRecord, useStore } from "../store";
+import { findRecord, sessionCwd, useStore } from "../store";
 import { Chip, Dot, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
@@ -151,13 +151,16 @@ export function CommandPalette() {
           run: () => void switchMode(tab.tabId, other),
         },
       );
-      if (tab.projectCwd) {
+      // The manager pins to this tab, so it resolves at the session's own
+      // working tree — a worktree session's checkout (#325).
+      const scopeCwd = sessionCwd(findRecord(state, tab.tabId));
+      if (scopeCwd !== undefined) {
         out.push({
           id: "session:mcp",
           group: "Session",
           name: "MCP servers…",
-          desc: "inspect and toggle MCP servers for this project",
-          run: () => openMcpManager(tab.projectCwd, tab.tabId),
+          desc: "inspect and toggle MCP servers for this session's working tree",
+          run: () => openMcpManager(scopeCwd, tab.tabId),
         });
       }
     }

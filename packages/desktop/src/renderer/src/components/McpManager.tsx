@@ -8,25 +8,33 @@ import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
 
 /**
  * The MCP management modal (issue #17): every server omp resolves for one
- * scope — a project (`projectCwd`) or global (`null`, user-level sources
+ * scope — a working tree (`scopeCwd`) or global (`null`, user-level sources
  * only) — with its effective enabled state. All resolution and mutation
  * lives in core — the renderer only ever sees the redacted DTO. The modal is
  * pinned to a tab (`tabId`) only when opened from a session.
  *
+ * `scopeCwd` is the session's own working tree, not the project root it is
+ * registered under: a worktree session's omp resolves project scope in its
+ * checkout, so that is where the modal reads and writes (issue #325; the
+ * checkout's `.omp/` is a symlink to the project's, so a native write still
+ * lands on the project file).
+ *
  * Toggle scope follows the modal's scope (#223): a project toggle decides
- * that project — an in-place flip, or a suppression override in
+ * that working tree — an in-place flip, or a suppression override in
  * `.omp/mcp.json` — and writes no user-level definition. Rows that only a
  * global write could enable render a pinned switch instead. A row the
  * user-level allowlist force-enables (`enabledBy: "allowlist"`) stays
  * togglable, because omp honours that list at the user level only: its title
- * says the disable clears that global override too (#324). Global toggles
- * use omp's own user-level write algorithm.
+ * reports the reach core computed (`disableReach`) — project-only when the
+ * global winner is writable, global when it is tool-owned (#324, #326).
+ * Global toggles use omp's own user-level write algorithm.
  *
- * omp has no MCP RPC verbs and no config watching, so a toggle takes effect
- * on the next session spawn; the footer says so and offers an in-place
- * restart while the pinned tab is live. The store captures projectCwd
- * (+ tabId when session-opened) at open time, so a focus change mid-edit
- * cannot retarget a toggle at another project.
+ * omp has no MCP RPC verbs, but `/mcp reload` rebinds a live session's MCP
+ * tools (omp runs `disconnectAll → discoverAndConnect → refreshMCPTools` and
+ * answers without an agent turn), so the footer offers that rather than a
+ * process restart. The store captures the scope cwd (+ tabId when
+ * session-opened) at open time, so a focus change mid-edit cannot retarget a
+ * toggle at another working tree.
  *
  * omp refuses `/mcp reauth` outside its own TUI, so http/sse rows in a live
  * pinned tab offer a handoff instead of a reauth button: the modal stages the
@@ -48,7 +56,7 @@ function Row({
 }: {
   entry: McpServerEntry;
   failure?: McpRuntimeFailure;
-  /** True when the modal is scoped to a project (`projectCwd !== null`). */
+  /** True when the modal is scoped to a working tree (`scopeCwd !== null`). */
   projectScoped: boolean;
   pending: boolean;
   onToggle: (entry: McpServerEntry, next: boolean) => void;
@@ -123,7 +131,9 @@ function Row({
               ? pinnedGlobally
                 ? "disabled at the user level — enable it globally from Settings → MCP servers"
                 : entry.enabledBy === "allowlist"
-                  ? "force-enabled for every project by the user-level allowlist — disabling clears that global override, then suppresses it in this project"
+                  ? entry.disableReach === "global"
+                    ? "force-enabled for every project by the user-level allowlist, and its source config is tool-owned — disabling clears that global override, so the server also turns off in other projects"
+                    : "force-enabled for every project by the user-level allowlist — disabling enables it in its own config first, so only this project turns it off"
                   : entry.scope === "project" && entry.writable
                     ? inPlaceTitle
                     : "writes a project-only override to .omp/mcp.json"
@@ -143,16 +153,18 @@ function Row({
  * Resolved MCP servers for one scope, with per-server toggles. The
  * presentational core of McpManager: load/error/empty states, per-file config
  * errors, the toggle pipeline, and per-row failure/reauth affordances.
- * Session-scoped extras (restart, reauth handoff) engage only when a live
- * native `tabId` is pinned; the handoff reports back through `onAuthenticated`
- * so the owning dialog decides what to close.
+ * `scopeCwd` is the working tree whose project-scope config decides — a
+ * worktree session's checkout, else a project root — or `null` for global
+ * scope. Session-scoped extras (reload, reauth handoff) engage only when a
+ * live native `tabId` is pinned; the handoff reports back through
+ * `onAuthenticated` so the owning dialog decides what to close.
  */
 export function McpServersPanel({
-  projectCwd,
+  scopeCwd,
   tabId,
   onAuthenticated,
 }: {
-  projectCwd: string | null;
+  scopeCwd: string | null;
   tabId?: string;
   onAuthenticated?: () => void;
 }) {
@@ -180,7 +192,7 @@ export function McpServersPanel({
   useEffect(() => {
     const g = ++gen.current;
     setLoad({ status: "loading" });
-    backend.getMcpServers(projectCwd).then(
+    backend.getMcpServers(scopeCwd).then(
       (result) => {
         if (g === gen.current) setLoad({ status: "loaded", result });
       },
@@ -188,18 +200,18 @@ export function McpServersPanel({
         if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
       },
     );
-  }, [projectCwd, reloadKey]);
+  }, [scopeCwd, reloadKey]);
 
   const toggle = (entry: McpServerEntry, next: boolean): void => {
     setPendingName(entry.name);
     setToggleError(null);
     backend
       .setMcpServerEnabled({
-        projectCwd,
+        projectCwd: scopeCwd,
         name: entry.name,
         // Global scope only: the project-override writer (core/mcp-config.ts)
         // resolves the winning definition itself and ignores sourcePath.
-        sourcePath: projectCwd === null && entry.writable ? entry.sourcePath : undefined,
+        sourcePath: scopeCwd === null && entry.writable ? entry.sourcePath : undefined,
         enabled: next,
       })
       .then(
@@ -265,7 +277,7 @@ export function McpServersPanel({
           )}
           {result.servers.length === 0 ? (
             <Empty
-              title={projectCwd === null ? "No global MCP servers configured." : "No MCP servers configured for this project."}
+              title={scopeCwd === null ? "No global MCP servers configured." : "No MCP servers configured for this project."}
               hint="omp resolves native .omp/mcp.json files plus translated cursor, claude, gemini, opencode, windsurf, and vscode configs."
             />
           ) : (
@@ -274,7 +286,7 @@ export function McpServersPanel({
                 <Row
                   key={`${entry.source}:${entry.sourcePath}:${entry.name}`}
                   entry={entry}
-                  projectScoped={projectCwd !== null}
+                  projectScoped={scopeCwd !== null}
                   pending={pendingName === entry.name}
                   failure={failures.get(entry.name)}
                   onToggle={toggle}
@@ -289,24 +301,36 @@ export function McpServersPanel({
   );
 }
 
-export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; tabId?: string }) {
+export function McpManager({ scopeCwd, tabId }: { scopeCwd: string | null; tabId?: string }) {
   const closeMcpManager = useStore((s) => s.closeMcpManager);
-  const restartSession = useStore((s) => s.restartSession);
-  const live = useStore((s) =>
-    tabId === undefined ? false : findRecord(s.state, tabId)?.live === "live",
-  );
+  const runSlashCommand = useStore((s) => s.runSlashCommand);
+  const record = useStore((s) => (tabId === undefined ? undefined : findRecord(s.state, tabId)));
+  const live = record?.live === "live";
+  const native = record?.mode === "rpc-ui";
+  const worktree = record?.worktree ?? null;
+  // A native tab mid-turn would queue the reload behind the running turn; a
+  // PTY tab's TUI simply shows the typed line, so only the native path waits.
+  const busy = useStore((s) => (tabId === undefined ? false : s.rpc[tabId]?.status === "running"));
 
-  const [restarting, setRestarting] = useState(false);
+  const [reloading, setReloading] = useState(false);
 
-  const restart = (): void => {
+  const reload = (): void => {
     if (tabId === undefined) return;
-    setRestarting(true);
-    void restartSession(tabId).then((ok) => {
-      setRestarting(false);
-      // The relaunch recycles the process and transcript, so any lingering
-      // modal state would be stale; a failure keeps the modal open.
-      if (ok) closeMcpManager();
-    });
+    setReloading(true);
+    const done = (): void => {
+      setReloading(false);
+      closeMcpManager();
+    };
+    if (native) {
+      // omp handles /mcp reload itself (disconnectAll -> discoverAndConnect ->
+      // refreshMCPTools) and answers agentInvoked:false — no model turn. The
+      // command row in the transcript is the receipt, including on failure.
+      void runSlashCommand(tabId, "/mcp reload").then(done, done);
+    } else {
+      // A terminal tab is an omp TUI: type the command the user would type.
+      backend.ptyWrite(tabId, "/mcp reload\r");
+      done();
+    }
   };
 
   return (
@@ -314,22 +338,34 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
       <section role="dialog" aria-modal="true" aria-labelledby="mcp-manager-title">
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-            {projectCwd === null ? "Global integrations" : "Session integrations"}
+            {scopeCwd === null ? "Global integrations" : "Project integrations"}
           </p>
           <h2 id="mcp-manager-title" className="font-display text-base font-semibold text-ink">
             MCP servers
           </h2>
           <p
-            title={projectCwd ?? undefined}
+            title={scopeCwd ?? undefined}
             className="mt-1 truncate font-mono text-[11px] text-ink-dim"
           >
-            {projectCwd ?? "Global — user-level configuration"}
+            {scopeCwd ?? "Global — user-level configuration"}
           </p>
+          {/* Names the directory the rows were resolved from, so a checkout's
+              own tracked provider files (.cursor/mcp.json, opencode.json, …)
+              differing from the project's is explainable, not mysterious. */}
+          {worktree !== null && (
+            <p
+              className="mt-0.5 truncate font-mono text-[10px] text-ink-faint"
+              title={record?.projectCwd}
+            >
+              ⎇ {worktree.branch} — resolved in this session&apos;s checkout, written through it to{" "}
+              {record?.projectCwd}
+            </p>
+          )}
         </header>
 
         <div className="max-h-[24rem] overflow-y-auto">
           <McpServersPanel
-            projectCwd={projectCwd}
+            scopeCwd={scopeCwd}
             tabId={tabId}
             onAuthenticated={closeMcpManager}
           />
@@ -337,19 +373,26 @@ export function McpManager({ projectCwd, tabId }: { projectCwd: string | null; t
 
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">
-            {projectCwd === null ? "Changes apply to new sessions in every project." : "Changes apply to new sessions in this project."}{" "}
-            OAuth servers authenticate through omp's TUI: omp refuses reauth over rpc.
+            {scopeCwd === null
+              ? "Changes apply to new sessions in every project."
+              : "Changes apply to new sessions in this project."}{" "}
+            {live ? "Reload applies them to this session now." : ""}{" "}
+            OAuth servers authenticate through omp&apos;s TUI: omp refuses reauth over rpc.
           </p>
           {live && (
             <Button
               size="xs"
               variant="ghost"
               tone="copper"
-              disabled={restarting}
-              title="kill and --resume this session so it picks up the current MCP config"
-              onClick={restart}
+              disabled={reloading || (native && busy)}
+              title={
+                native && busy
+                  ? "wait for the current turn to finish"
+                  : "run /mcp reload in this session so it picks up the current MCP config"
+              }
+              onClick={reload}
             >
-              {restarting ? "restarting…" : "restart session to apply"}
+              {reloading ? "reloading…" : "reload MCP in this session"}
             </Button>
           )}
         </footer>

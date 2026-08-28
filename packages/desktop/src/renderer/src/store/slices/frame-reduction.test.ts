@@ -414,12 +414,12 @@ describe("handleRpcFrame routing", () => {
         expect.objectContaining({
           kind: "notice",
           level: "warn",
-          text: "MCP server “oauth-broken” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then restart the session.",
+          text: "MCP server “oauth-broken” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then reload MCP in this session.",
         }),
         expect.objectContaining({
           kind: "notice",
           level: "warn",
-          text: "MCP server “offline” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then restart the session.",
+          text: "MCP server “offline” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then reload MCP in this session.",
         }),
       ]);
       expect(tab.mcpStatus?.failedServers).toHaveLength(2);

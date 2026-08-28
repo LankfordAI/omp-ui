@@ -11,6 +11,7 @@ import {
   mintLineageDirName,
   mintWorktreePath,
   isWithin,
+  linkProjectOmpDir,
   mcpRuntimeStatusMessage,
   planMessage,
   planHandoffDescendants,
@@ -450,6 +451,13 @@ export class SessionManager {
     ompPath: string,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
+    // A worktree session runs in its checkout, so omp resolves project-scope
+    // config there; link the project's `.omp/` in so a project MCP toggle
+    // reaches this session (issue #325). Every route into a checkout —
+    // fresh spawn, convert, plan handoff, resume, relaunch — passes here.
+    if (record.worktree !== null) {
+      await linkProjectOmpDir(record.projectCwd, record.worktree.path);
+    }
     const ptyHandle = spawnOmp({
       id: record.tabId,
       cwd: record.worktree?.path ?? record.projectCwd,
@@ -497,6 +505,10 @@ export class SessionManager {
       message: planMessage(startInPlanMode, this.deps.registry.getSetting("planFormat")),
     });
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath);
+    // See spawnPty: the checkout is where omp resolves project scope (#325).
+    if (record.worktree !== null) {
+      await linkProjectOmpDir(record.projectCwd, record.worktree.path);
+    }
     entry.rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,

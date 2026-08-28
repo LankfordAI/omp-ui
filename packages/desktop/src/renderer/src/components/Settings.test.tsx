@@ -749,7 +749,7 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     expect(projectBtn!.disabled).toBe(true);
 
     click(globalBtn!);
-    expect(useStore.getState().mcpManager).toEqual({ projectCwd: null });
+    expect(useStore.getState().mcpManager).toEqual({ scopeCwd: null });
     expect(useStore.getState().settingsPage).toBeNull();
   });
 });

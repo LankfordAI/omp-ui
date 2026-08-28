@@ -31,7 +31,7 @@ export interface ViewSlice {
   restoringTabs: boolean;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
-  mcpManager: { projectCwd: string | null; tabId?: string } | null;
+  mcpManager: { scopeCwd: string | null; tabId?: string } | null;
 	projectSettings: { projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -42,7 +42,7 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;
-  openMcpManager(projectCwd: string | null, tabId?: string): void;
+  openMcpManager(scopeCwd: string | null, tabId?: string): void;
   closeMcpManager(): void;
 	openProjectSettings(projectCwd: string): void;
 	closeProjectSettings(): void;
@@ -277,8 +277,8 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   closeWorktreeDialog() {
     set({ worktreeDialogProject: null });
   },
-  openMcpManager(projectCwd, tabId) {
-    set({ mcpManager: tabId === undefined ? { projectCwd } : { projectCwd, tabId } });
+  openMcpManager(scopeCwd, tabId) {
+    set({ mcpManager: tabId === undefined ? { scopeCwd } : { scopeCwd, tabId } });
   },
   closeMcpManager() {
     set({ mcpManager: null });

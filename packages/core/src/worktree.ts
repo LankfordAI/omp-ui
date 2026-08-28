@@ -90,6 +90,58 @@ export function isWithin(root: string, candidate: string): boolean {
 }
 
 /**
+ * Links the project's `.omp/` into a worktree checkout (issue #325: project
+ * MCP toggles never reached worktree sessions).
+ *
+ * omp resolves project-scope config — `.omp/mcp.json`, `config.yml`, skills,
+ * rules — from its cwd, and a worktree session runs in the checkout, which
+ * lives outside the project. `.omp/` is gitignored in most repos, so the
+ * checkout has none and every project-scope setting silently vanished for
+ * those sessions. A directory symlink keeps one source of truth: omp-ui's
+ * project writes land on the project's real file through it, and no copy can
+ * drift.
+ *
+ * Idempotent and never fatal. Skipped when the project has no `.omp/`, when
+ * the checkout already owns one (a repo that tracks it), and when the
+ * platform refuses the link (Windows without developer mode) — a warning is
+ * logged and the session runs with omp's user-level config, exactly as it
+ * does today.
+ *
+ * Deletion safety is load-bearing: every teardown path must unlink this
+ * symlink, never traverse it. Node's recursive `fs.rm` lstats and unlinks
+ * symlinks, which is what {@link removeWorktree}'s fallback and
+ * {@link sweepOrphanWorktrees} rely on — regression-tested, because breaking
+ * it deletes the user's project config.
+ */
+export async function linkProjectOmpDir(
+  projectCwd: string,
+  worktreePath: string,
+): Promise<void> {
+  const src = path.resolve(projectCwd, ".omp");
+  const dest = path.join(worktreePath, ".omp");
+  try {
+    if (!(await fs.promises.stat(src)).isDirectory()) return;
+  } catch {
+    return; // no project .omp/ — nothing to link
+  }
+  try {
+    await fs.promises.lstat(dest);
+    return; // the checkout already has its own .omp (tracked, or linked earlier)
+  } catch {
+    // absent — link it below
+  }
+  try {
+    // "junction" is ignored on POSIX and is the unprivileged directory link
+    // on Windows; it requires the absolute target `src` already is.
+    await fs.promises.symlink(src, dest, "junction");
+  } catch (err) {
+    console.warn(
+      `[worktree] could not link ${dest} -> ${src}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
  * Removes the checkout at `worktreePath`. `--force` accepts dirty checkouts;
  * when git fails (e.g. the directory was already deleted) the leftover is
  * removed from disk and stale metadata pruned — pruning fails silently, as

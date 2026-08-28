@@ -4,7 +4,7 @@ import {
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
 } from "@omp-ui/core/omp-settings-keys";
-import { useStore } from "../../store";
+import { findRecord, sessionCwd, useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
@@ -26,6 +26,7 @@ export function OmpPage({
 }) {
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
+  const state = useStore((s) => s.state);
   const openMcpManager = useStore((s) => s.openMcpManager);
   const openSettings = useStore((s) => s.openSettings);
   const closeSettings = useStore((s) => s.closeSettings);
@@ -108,7 +109,10 @@ export function OmpPage({
     activeTabId === null
       ? undefined
       : tabs.find((t) => t.tabId === activeTabId);
-  const mcpReady = tab !== undefined && tab.projectCwd !== "";
+  // The manager pins to the focused tab, so it resolves at that session's own
+  // working tree — a worktree session's checkout (#325).
+  const scopeCwd = tab === undefined ? undefined : sessionCwd(findRecord(state, tab.tabId));
+  const mcpReady = scopeCwd !== undefined && scopeCwd !== "";
 
   return (
     <div className="pb-1.5">
@@ -204,10 +208,10 @@ export function OmpPage({
             disabled={!mcpReady}
             title={mcpReady ? undefined : "focus a session tab first — the manager pins to it"}
             onClick={() => {
-              if (tab === undefined) return;
+              if (tab === undefined || scopeCwd === undefined) return;
               // One modal at a time: stacked Escape listeners would close both.
               closeSettings();
-              openMcpManager(tab.projectCwd, tab.tabId);
+              openMcpManager(scopeCwd, tab.tabId);
             }}
           >
             MCP servers…

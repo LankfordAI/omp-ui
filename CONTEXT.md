@@ -367,9 +367,12 @@ worktrees root, sharing the repo's object store. While the session still sits
 at its empty-transcript hero, the cut is offered directly: the composer's
 branch chip worktree section, whose create button mints the checkout on
 demand, or the first prompt does. `projectCwd` still names the
-project (sidebar grouping, MCP scope, parameter memory); the worktree is the
+project (sidebar grouping, parameter memory); the worktree is the
 session's effective working tree, so the branch diff pane, branch chip,
-@-picker and console shell all read it. The record also carries what the
+@-picker, console shell and MCP manager all read it. omp resolves
+project-scope config from its cwd, so the checkout carries a `.omp` symlink
+to the project's own directory (issue #325) — one source of truth, no copy to
+drift. The record also carries what the
 branch was cut from (`base`: the picked ref, or the project checkout's
 branch at creation (its HEAD commit when detached)), which the branch diff
 pane and the HUD's worktree chip read; records from before this field show
@@ -393,13 +396,14 @@ _Avoid_: sandbox session, isolated session, branch session
 
 **MCP manager**:
 The modal listing every MCP server omp resolves for one scope — a session's
-project (from its Session HUD, the command palette, the /mcp command, or
-Settings → MCP) or global (user-level sources only) — with toggles that run
-omp's own enable/disable write algorithm in core. Toggles take effect on the
-next session spawn; the modal offers an in-place restart only while opened
-from a live tab; http/sse rows in a live native tab hand http/sse reauth to
-omp's own TUI. The DTO is redacted at the core boundary (issue #17, #36,
-#220).
+own working tree (from its Session HUD, the command palette, the /mcp command,
+or Settings → MCP; a worktree session's checkout, else its project root) or
+global (user-level sources only) — with toggles that run omp's own
+enable/disable write algorithm in core. Toggles take effect on the next
+session spawn; while opened from a live tab the modal also offers `/mcp
+reload`, which rebinds that session's MCP tools in place; http/sse rows in a
+live native tab hand http/sse reauth to omp's own TUI. The DTO is redacted at
+the core boundary (issue #17, #36, #220, #325, #327).
 _Avoid_: MCP settings page, integrations panel, server browser
 
 **Project settings**:
@@ -412,9 +416,9 @@ pins (main-model and advisor-model with their pickers and Clear actions).
 Toggles write through core's mcp-config module; pins through
 setProjectDefaultModel / setProjectDefaultAdvisorModel; both take effect on
 the next session spawn. Session-scoped surfaces keep the MCP manager itself:
-the Session HUD's per-tab MCP button (with in-place restart and TUI reauth
-handoff), the command palette, /mcp, and Settings → MCP including Global MCP
-servers.
+the Session HUD's per-tab MCP button (with in-place `/mcp reload` and TUI
+reauth handoff), the command palette, /mcp, and Settings → MCP including
+Global MCP servers.
 _Avoid_: project preferences, per-project settings page, project options
 
 **Memory settings**:
