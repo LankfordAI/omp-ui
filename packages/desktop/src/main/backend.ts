@@ -3,17 +3,14 @@ import * as path from "node:path";
 import { app, ipcMain, shell, type BrowserWindow } from "electron";
 import {
   CH,
-  addMemory,
   browseDirectories,
   checkoutBranch,
   dispatchNotify,
   dispatchRequest,
-  forgetMemory,
   formatModelRole,
   generateBranchNameWithOmp,
   generateTitleWithOmp,
   getArchiveRoot,
-  getMemory,
   getSessionsRoot,
   hydrateSessionFile,
   readOmpAdvisorDefaults,
@@ -22,7 +19,6 @@ import {
   readOmpCompactionMethods,
   readBranchDiff,
   listBranches,
-  listMemories,
   mergeWorktreeBranch,
   readMemoryOverview,
   readMergeBackStatus,
@@ -35,16 +31,12 @@ import {
   resolveFileMentions,
   resolveMcpServers,
   resolveProjectPath,
-  resolveGlobalBank,
-  resolveMemoryBase,
-  resolveProjectBank,
   setMcpServerEnabled,
   ProviderKeys,
   Registry,
   resolveOmpBinary,
   resolveSessionLocation,
   writeOmpSetting,
-  updateMemory,
   type AgentMode,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
@@ -55,8 +47,6 @@ import {
   type ImageAttachment,
   type McpSetEnabledRequest,
   type LiveState,
-  type MemoryListOptions,
-  type MemoryScope,
   type OmpSettingValue,
   type OwnedSessionRecord,
   type PlanFormat,
@@ -64,7 +54,6 @@ import {
   type ProjectOpenTarget,
   type ProviderKeysSnapshot,
   type RemoteBind,
-  type ResolvedBank,
   type RpcFrame,
   type SessionMode,
   type SessionSummary,
@@ -78,21 +67,6 @@ import { SessionManager } from "./session-manager";
 import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
-
-/**
- * Resolves the memory bank the renderer is allowed to touch. The renderer
- * never passes a db path — confinement mirrors the plan:read discipline
- * (ADR-0007): a compromised renderer can only reach the two banks its
- * project legitimately owns.
- */
-function requireBank(projectCwd: string, scope: MemoryScope): ResolvedBank {
-  const base = resolveMemoryBase(projectCwd);
-  if (base.backend !== "mnemopi") throw new Error("memory backend is not mnemopi");
-  if (scope === "global") return resolveGlobalBank(base);
-  const bank = resolveProjectBank(base, projectCwd);
-  if (bank === null) throw new Error(`no project memory bank for ${projectCwd}`);
-  return bank;
-}
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -490,23 +464,10 @@ export class MainBackend {
           readMergeBackStatus(projectCwd, branch, base),
         [CH.mergeWorktreeBranch]: (projectCwd: string, branch: string, destination: string) =>
           mergeWorktreeBranch(projectCwd, branch, destination),
-        // Memory handlers are stateless core calls like getBranchDiff:
-        // they touch no registry/BackendState field and never broadcast().
+        // The memory overview handler is a stateless core call like
+        // getBranchDiff: it touches no registry/BackendState field and never
+        // calls broadcast().
         [CH.memoryOverview]: (projectCwd: string) => readMemoryOverview(projectCwd),
-        [CH.memoryList]: (projectCwd: string, scope: MemoryScope, opts: MemoryListOptions) =>
-          listMemories(requireBank(projectCwd, scope), scope, opts),
-        [CH.memoryGet]: (projectCwd: string, scope: MemoryScope, id: string) =>
-          getMemory(requireBank(projectCwd, scope), id),
-        [CH.memoryAdd]: (projectCwd: string, scope: MemoryScope, content: string) =>
-          addMemory(requireBank(projectCwd, scope), scope, projectCwd, content),
-        [CH.memoryUpdate]: (
-          projectCwd: string,
-          scope: MemoryScope,
-          id: string,
-          patch: { content?: string; importance?: number },
-        ) => updateMemory(requireBank(projectCwd, scope), id, patch),
-        [CH.memoryForget]: (projectCwd: string, scope: MemoryScope, id: string) =>
-          forgetMemory(requireBank(projectCwd, scope), id),
         [CH.suggestBranchName]: (projectCwd: string, planContext: string) =>
           this.suggestBranchName(projectCwd, planContext),
         [CH.readOmpSettings]: (projectCwd: string | null) =>

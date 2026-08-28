@@ -423,10 +423,13 @@ _Avoid_: project preferences, per-project settings page, project options
 
 **Memory settings**:
 The Settings → Memory surface configures omp's memory backend and recall
-behavior and summarizes resolved bank locations for the focused project. The
-inspector rail deliberately exposes no Memory pane while omp has no narrow,
-typed runtime surface for the memories injected into a session; omp-ui neither
-substitutes the project/global bank view nor parses the full system prompt.
+behavior and summarizes resolved bank locations for the focused project. It is
+the only memory surface omp-ui has: there is no memory browse or edit surface
+at all, only that resolved-bank summary. The inspector rail deliberately
+exposes no Memory pane while omp has no narrow, typed runtime surface for the
+memories injected into a session; omp-ui neither substitutes the project/global
+bank view nor parses the full system prompt. The browse and edit channels were
+removed in #330, leaving `memory:overview` as the sole memory channel.
 _Avoid_: memory manager, knowledge base, memory browser tab
 
 **Update card**:
