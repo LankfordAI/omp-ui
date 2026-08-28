@@ -14,9 +14,11 @@ export type AgentMode = "plan" | "build";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
 /**
- * How the agent is asked to author plans for review: `html` adds a rich,
- * self-contained HTML rendition beside the canonical markdown plan, `md`
- * keeps markdown only. See core/plan-extension.ts.
+ * How the agent is asked to author plans for review: `html` writes the plan
+ * AS a single self-contained HTML document (no markdown is written at all),
+ * `md` writes the plan as a single markdown document. One artifact either
+ * way — its extension is the format; there is never a companion file (see
+ * core/plan.ts's PlanReviewRequest and ADR-0014). See core/plan-extension.ts.
  */
 export type PlanFormat = "html" | "md";
 
