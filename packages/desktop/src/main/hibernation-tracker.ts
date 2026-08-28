@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   isBlockingDialogMethod,
   isObject,
+  normalizeControlFrame,
   type OwnedSessionRecord,
   type Registry,
   type RpcFrame,
