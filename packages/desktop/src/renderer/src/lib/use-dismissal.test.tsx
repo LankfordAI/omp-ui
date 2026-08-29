@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useDismissal } from "./use-dismissal";
 
@@ -26,6 +27,25 @@ function Harness({ open, ...p }: HarnessProps & { open: boolean }) {
         <span data-testid="panel-item">item</span>
       </div>
       <div data-exempt data-testid="exempt">exempt</div>
+    </div>
+  );
+}
+
+/** Anchor plus a panel portaled to document.body, both tracked. */
+function PortalHarness({ open, ...p }: HarnessProps & { open: boolean }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDismissal({ open, refs: [anchorRef, panelRef], ...p });
+  return (
+    <div ref={anchorRef}>
+      <div data-testid="trigger">trigger</div>
+      {open &&
+        createPortal(
+          <div ref={panelRef} data-testid="portal-panel">
+            <span data-testid="portal-item">item</span>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -112,5 +132,19 @@ describe("useDismissal", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onEscape).not.toHaveBeenCalled();
+  });
+
+  it("ignores a pointerdown inside a portaled panel tracked by its own ref", () => {
+    const onClose = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<PortalHarness open onClose={onClose} />));
+
+    query("portal-item").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    outside();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

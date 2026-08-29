@@ -13,6 +13,12 @@ import { useEffect, useRef, type RefObject } from "react";
  * Callbacks are read from a latest-ref on every event, so passing fresh
  * closures with per-render state does not re-subscribe the listeners — only
  * `open` and `exemptSelector` are effect dependencies.
+ *
+ * Containment is a DOM test (`Node.contains`), not a React-tree test: a
+ * surface rendered through `createPortal` is not inside its trigger's ref.
+ * A portaled surface must therefore pass its own panel ref alongside the
+ * anchor — otherwise the first pointerdown on a row dismisses the surface
+ * and the click that follows never lands.
  */
 export interface DismissalOptions {
   /** The surface is dismissable while true; while false nothing is registered. */

@@ -55,9 +55,16 @@ export function WorktreeChip({
   const displayedError =
     error ?? (mergeBack.phase.s === "error" ? mergeBack.phase.message : null);
 
-  /** Wraps the trigger *and* the popover, so one containment test covers both. */
+  /** The trigger's wrapper; the portaled panel is tracked separately. */
   const rootRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  /**
+   * The portaled popover. useDismissal tests DOM containment and the panel
+   * lives under document.body — outside rootRef — so it must be its own ref;
+   * otherwise every pointerdown on a row dismisses the popover before the
+   * click can land (SessionHud's pattern).
+   */
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const close = (): void => {
     setOpen(false);
@@ -83,13 +90,14 @@ export function WorktreeChip({
   };
 
   // Click-outside / Escape dismissal, matching BranchChip. The trigger is
-  // inside rootRef, so a click on it is not an outside click — its own
-  // onClick toggles, and the popover closes exactly once. A pointerdown on
-  // the confirm modal (portaled outside rootRef) is not an outside click
-  // either: it is this popover's own decision surface.
+  // inside rootRef and the portaled panel is panelRef, so a pointerdown on
+  // either is not an outside click — the trigger's own onClick toggles, and
+  // the popover closes exactly once. A pointerdown on the confirm modal
+  // (portaled outside both) is not an outside click either: it is this
+  // popover's own decision surface.
   useDismissal({
     open,
-    refs: rootRef,
+    refs: [rootRef, panelRef],
     onClose: close,
     onEscape: close,
     restoreFocus: () => triggerRef.current?.focus(),
@@ -119,7 +127,7 @@ export function WorktreeChip({
       {open &&
         pos !== null &&
         createPortal(
-          <div role="menu" className="fixed z-50" style={{ left: pos.x, top: pos.y }}>
+          <div ref={panelRef} role="menu" className="fixed z-50" style={{ left: pos.x, top: pos.y }}>
             <Panel
               className={cn(
                 "edge-lit animate-rise w-64 p-1",

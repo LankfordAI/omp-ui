@@ -256,6 +256,22 @@ async function openPopover(): Promise<void> {
   await flushMicrotasks();
 }
 
+/**
+ * A real mouse activation. The pointerdown commits — and can dismiss —
+ * before the click lands, which `element.click()` alone never exercises.
+ * The two events are dispatched in separate `act` calls precisely so React
+ * flushes any dismissal between them, exactly as the browser does.
+ */
+async function press(el: HTMLElement): Promise<void> {
+  await act(async () => {
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  });
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await flushMicrotasks();
+}
+
 async function flushMicrotasks(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
@@ -417,6 +433,25 @@ describe("WorktreeChip (issue #260)", () => {
 
     act(() => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
     expect(menu()).toBeNull();
+  });
+
+  it("keeps the popover open on a pointerdown inside the portaled panel", async () => {
+    render();
+    await openPopover();
+
+    act(() => menu()!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+
+    expect(menu()).not.toBeNull();
+  });
+
+  it("opens the checkout on a full pointer press of Open in Files", async () => {
+    render();
+    await openPopover();
+
+    await press(menuItem("Open in Files")!);
+
+    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
+    expect(menu()).not.toBeNull();
   });
 
   it("renders the cut-from line verbatim for a ref base", async () => {
@@ -596,6 +631,16 @@ describe("WorktreeChip merge-back (issue #272)", () => {
     expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
     expect(backendMock.releaseWorktree).not.toHaveBeenCalled();
     expect(mergeRow()).toBeDefined();
+  });
+
+  it("opens the confirm modal on a full pointer press of the merge row", async () => {
+    render();
+    await openPopover();
+
+    await press(mergeRow()!);
+
+    expect(dialog()).not.toBeNull();
+    expect(menu()).not.toBeNull();
   });
 
   it("survives a pointerdown on the modal — the popover's own surface is not outside", async () => {
