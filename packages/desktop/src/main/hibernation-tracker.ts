@@ -11,7 +11,7 @@ import {
 import type { Attention } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
 import type { LiveEntry } from "./live-entry";
-import { TurnCounter } from "./turns";
+import type { TurnTracker } from "./turns";
 
 /** Pre-kill get_state probe bound; a wedged child is left to the stall UX, not killed. */
 const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
@@ -50,7 +50,7 @@ export interface HibernationTrackerDeps {
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
   attention?: Attention;
-  turns: TurnCounter;
+  turns: TurnTracker;
   getLive: (tabId: string) => LiveEntry | undefined;
   awaitingHumanAnswer: (tabId: string) => boolean;
   isViewed: (tabId: string) => boolean;
@@ -151,11 +151,12 @@ export class HibernationTracker implements FrameObserver {
         this.deps.attention?.turnStarted(tabId);
         break;
       case "agent_end": {
-        const running = this.deps.turns.end(tabId);
+        this.deps.turns.end(tabId);
         if (rec.settleSuspendedUntil !== null) rec.settleSuspendedUntil = null;
-        // The idle crossing announces the finished turn (issue #271); a
-        // pending plan gate or blocking answer owns the attention instead.
-        if (running === 0 && !this.deps.awaitingHumanAnswer(tabId))
+        // Public agent_end is authoritative idle. Only a terminal end
+        // announces completion; a pending plan gate or blocking answer owns
+        // attention instead.
+        if (frame.isTerminal !== false && !this.deps.awaitingHumanAnswer(tabId))
           this.deps.attention?.turnEnded(tabId);
         break;
       }
@@ -280,7 +281,7 @@ export class HibernationTracker implements FrameObserver {
     if (entry.kind !== "rpc-ui") return false;
     const rec = this.recordFor(tabId);
     if (!rec.armed) return false; // still booting
-    if (this.deps.turns.running(tabId) > 0) return false; // mid-turn
+    if (this.deps.turns.isRunning(tabId)) return false; // mid-turn
     if (this.deps.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
     if (policy === "plan-handoff") return true;
     if (this.deps.isViewed(tabId)) return false; // the tab is being looked at (issue #266)

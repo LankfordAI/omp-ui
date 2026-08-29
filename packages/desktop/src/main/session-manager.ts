@@ -49,7 +49,7 @@ import { HibernationTracker } from "./hibernation-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
-import { TurnCounter } from "./turns";
+import { TurnTracker } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
 import { ShellHost } from "./shell-host";
@@ -79,7 +79,7 @@ type OpKind = "spawn" | "delete" | "hibernate" | "relaunch";
 
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
-  private readonly turns = new TurnCounter();
+  private readonly turns = new TurnTracker();
   private readonly shellHost: ShellHost;
   private readonly watcherHub: WatcherHub;
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
