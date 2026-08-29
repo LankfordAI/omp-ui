@@ -12,7 +12,7 @@
  */
 
 /** Renders one diagram source to an SVG string. `id` is unique per block. */
-export type DiagramRenderer = (id: string, source: string) => Promise<string>;
+export type DiagramRenderer = (id: string, source: string, dark?: boolean) => Promise<string>;
 
 export interface MermaidBlock {
   /** Unique inert placeholder substituted into the document string. */
@@ -79,52 +79,89 @@ export async function renderMermaidBlocks(
   return out;
 }
 
-let ready: Promise<unknown> | null = null;
+/** Diagram palettes keyed by canvas darkness (issue #285 keeps the light plan
+ *  canvas; transcript diagrams follow the app theme, issue #361).
+ *  theme:"base" makes themeVariables apply. */
+const LIGHT_VARS = {
+  primaryColor: "#fef3c7",
+  primaryBorderColor: "#b45309",
+  primaryTextColor: "#1c1917",
+  lineColor: "#57534e",
+  secondaryColor: "#e0f2fe",
+  tertiaryColor: "#f5f5f4",
+} as const;
+const DARK_VARS = {
+  primaryColor: "#3a3223",
+  primaryBorderColor: "#c9963f",
+  primaryTextColor: "#f2ede3",
+  lineColor: "#a8a29a",
+  secondaryColor: "#22344a",
+  tertiaryColor: "#2e2a25",
+} as const;
 
-function ensureMermaid(): Promise<unknown> {
-  return (ready ??= import("mermaid").then(({ default: mermaid }) => {
-    // strict: sanitized labels, no click handlers — plan content is untrusted.
+let ready: Promise<unknown> | null = null;
+let readyDark: boolean | null = null;
+
+function ensureMermaid(dark: boolean): Promise<unknown> {
+  if (ready !== null && readyDark === dark) return ready;
+  ready = import("mermaid").then(({ default: mermaid }) => {
+    // strict: sanitized labels, no click handlers — plan/transcript content is
+    // untrusted.
     // htmlLabels:false (root level) renders labels as SVG <text> instead of
     // <foreignObject> HTML. strict does NOT disable HTML labels (it only
     // sanitizes them); FO labels re-wrap at the column-scaled SVG width and
     // clip at the FO's fixed height, and plan/guardrail CSS reaches into them
     // (issue #303). Root level is required: flowchart.htmlLabels is deprecated
     // and the root default overrides it (mermaid 11.17 config precedence).
-    // theme:"base" + themeVariables gives a warm, legible default on the plan's
-    // light canvas; the agent can still override per node with classDef/style
-    // (pure fill/stroke/color, allowed under strict — issue #286).
+    // theme:"base" + themeVariables gives a palette matched to the canvas the
+    // diagram lands on; the agent can still override per node with
+    // classDef/style (pure fill/stroke/color, allowed under strict — #286).
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
+      // On a parse error mermaid draws its own error SVG into a temporary div
+      // appended to document.body before throwing — both callers own their
+      // fallback (the plan callout, the transcript code block), so suppress
+      // it; the temp element otherwise leaks into the host DOM.
+      suppressErrorRendering: true,
       theme: "base",
       htmlLabels: false,
-      themeVariables: {
-        primaryColor: "#fef3c7",
-        primaryBorderColor: "#b45309",
-        primaryTextColor: "#1c1917",
-        lineColor: "#57534e",
-        secondaryColor: "#e0f2fe",
-        tertiaryColor: "#f5f5f4",
-      },
+      themeVariables: dark ? DARK_VARS : LIGHT_VARS,
       // Emit an explicit pixel width equal to the laid-out viewBox instead of
-      // width="100%". Combined with the guardrail's max-width cap this renders
-      // every diagram at its natural, readable size (issue #288) — node size
-      // no longer scales with the column, so tall charts stop ballooning.
+      // width="100%". Combined with the CSS max-width cap this renders every
+      // diagram at its natural, readable size (issue #288) — node size no
+      // longer scales with the column, so tall charts stop ballooning.
       flowchart: { useMaxWidth: false },
     });
-  }));
+    readyDark = dark;
+  });
+  return ready;
 }
 
+// mermaid's global initialize + render is not re-entrant-safe across one
+// instance (ADR-0020); plans render sequentially by loop, transcript blocks
+// mount concurrently from React effects — so both paths serialize here.
+let renderChain: Promise<unknown> = Promise.resolve();
+
 /**
- * Default renderer: bundled mermaid, loaded once on the first plan containing
- * a diagram (dynamic import keeps it out of the initial renderer chunk).
- * Render errors re-throw as-is; `renderMermaidBlocks` owns the failure callout.
+ * Default renderer: bundled mermaid, loaded on first use (dynamic import keeps
+ * it out of the initial renderer chunk). `dark` selects the transcript palette;
+ * plans omit it and keep the light canvas palette (issue #285).
+ * Render errors re-throw as-is; each caller owns its fallback. Every call
+ * serializes on the module chain — never call `mermaid.render` directly.
  */
-export const renderMermaid: DiagramRenderer = async (id, source) => {
-  await ensureMermaid();
-  const { default: mermaid } = await import("mermaid");
-  const { svg } = await mermaid.render(id, source);
-  return svg;
+export const renderMermaid: DiagramRenderer = (id, source, dark = false) => {
+  const run = renderChain.then(async () => {
+    await ensureMermaid(dark);
+    const { default: mermaid } = await import("mermaid");
+    const { svg } = await mermaid.render(id, source);
+    return svg;
+  });
+  renderChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 };
 
 export function decodeEntities(text: string): string {

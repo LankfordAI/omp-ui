@@ -38,6 +38,25 @@
   color: inherit;
 }
 
+/* Mermaid diagrams in the transcript (issue #361, counterpart of the plan
+   guardrail's .omp-ui-diagram rules for issues #288/#303): mermaid emits an
+   intrinsic pixel width with useMaxWidth:false; CSS overrides the
+   presentational width attribute, caps at the column, centers, never clips.
+   Wide charts scroll inside the block. */
+.md-diagram {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.5rem 0.25rem;
+}
+.md-diagram svg {
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
 /* Find wash (issue #270): quiet copper on matched rows, a stronger ring on the
    active match. The wrapper div carries the classes; rows inside keep their
    own surfaces. */

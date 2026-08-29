@@ -1,7 +1,8 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import katex from "katex";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
+import { useDiagramSvg } from "../lib/diagram";
 import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
 import { CopyButton } from "./ui";
 
@@ -251,31 +252,62 @@ function CodeBlock({
   lang: string | null;
   trailing?: ReactNode;
 }) {
-  const tokens = useHighlightTokens(text, lang ?? undefined, trailing === undefined);
+  const isDiagram = lang?.toLowerCase() === "mermaid";
+  const settled = trailing === undefined;
+  // The diagram hook is called unconditionally (hook rules); `enabled` gates
+  // the work, exactly like the `enabled` flag on useHighlightTokens. mermaid
+  // has no shiki grammar, so pass no language and the pre stays plain.
+  const svg = useDiagramSvg(text, isDiagram && settled);
+  const tokens = useHighlightTokens(text, isDiagram ? undefined : (lang ?? undefined), settled);
+  const [showSource, setShowSource] = useState(false);
+  const asDiagram = isDiagram && svg !== null && !showSource;
   return (
     <div className="overflow-hidden rounded-md border border-line bg-sunken">
       <div className="flex items-center justify-between border-b border-line-soft px-2 py-0.5">
         <span className="font-mono text-[10px] lowercase text-ink-dim">{lang ?? "text"}</span>
-        <CopyButton text={text} />
+        <span className="flex items-center gap-1">
+          {isDiagram && svg !== null && (
+            <button
+              type="button"
+              onClick={() => setShowSource((s) => !s)}
+              className="font-mono text-[10px] text-ink-dim transition-colors duration-150 hover:text-ink"
+            >
+              {asDiagram ? "source" : "diagram"}
+            </button>
+          )}
+          <CopyButton text={text} />
+        </span>
       </div>
-      <pre
-        data-selectable
-        className="overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-[1.6] text-ink"
-      >
-        {tokens
-          ? tokens.map((line, i) => (
-              <span key={i}>
-                {line.map((token, k) => (
-                  <span key={k} style={{ color: token.color }}>
-                    {token.content}
-                  </span>
-                ))}
-                {i < tokens.length - 1 ? "\n" : null}
-              </span>
-            ))
-          : text}
-        {trailing}
-      </pre>
+      {asDiagram ? (
+        // The sole HTML insertion for agent prose beyond KaTeX: `svg` is
+        // mermaid strict-mode sanitizer output (issue #285's posture), never
+        // source text. Scrolls/centers per .md-diagram in style.css.
+        <div
+          className="md-diagram"
+          role="img"
+          aria-label="mermaid diagram"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      ) : (
+        <pre
+          data-selectable
+          className="overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-[1.6] text-ink"
+        >
+          {tokens
+            ? tokens.map((line, i) => (
+                <span key={i}>
+                  {line.map((token, k) => (
+                    <span key={k} style={{ color: token.color }}>
+                      {token.content}
+                    </span>
+                  ))}
+                  {i < tokens.length - 1 ? "\n" : null}
+                </span>
+              ))
+            : text}
+          {trailing}
+        </pre>
+      )}
     </div>
   );
 }

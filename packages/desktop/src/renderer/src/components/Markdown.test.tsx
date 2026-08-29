@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { DiagramRenderer } from "../lib/plan-diagrams";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { linkify, Markdown } from "./Markdown";
@@ -85,6 +86,118 @@ describe("Markdown lists", () => {
     expect(leafTop[1]!.contains(leafCaret)).toBe(true);
     expect(leafTop[0]!.querySelector("ul")!.contains(leafCaret)).toBe(false);
     act(() => leaf.root.unmount());
+  });
+});
+
+// Issue #361: the transcript mermaid branch runs the real diagram hook
+// against a stubbed leaf renderer — the same injection seam the plan tests use
+// (issue #329) so nothing pays the real dynamic-import cost here. Real-engine
+// coverage lives in lib/diagram.smoke.test.ts.
+const mermaidRenders = vi.hoisted(() => ({ calls: [] as string[] }));
+
+vi.mock("../lib/plan-diagrams", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
+  const render: DiagramRenderer = async (id, source) => {
+    mermaidRenders.calls.push(`${id}\u0000${source}`);
+    // A source of "fail" models a mermaid parse rejection.
+    if (source === "fail") throw new Error("Parse error on line 1");
+    return `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`;
+  };
+  return { ...original, renderMermaid: render };
+});
+
+/** Unique source per case: diagram.ts caches rendered SVG module-wide, so
+ *  reused sources would skip the stub renderer and defeat call counting. */
+let srcSeq = 0;
+const uniq = (body: string) => `${body} // u${srcSeq++}`;
+const callsFor = (source: string) =>
+  mermaidRenders.calls.filter((c) => c.split("\u0000")[1] === source).length;
+
+describe("Markdown mermaid blocks (issue #361)", () => {
+  it("renders a settled mermaid fence to the diagram", async () => {
+    const src = uniq("flowchart TD; A-->B");
+    const { el, root } = render("```mermaid\n" + src + "\n```");
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram svg")).not.toBeNull();
+    const pre = el.querySelector("pre");
+    expect(pre).toBeNull();
+    expect(el.textContent).not.toContain(src);
+    act(() => root.unmount());
+  });
+
+  it("streams as a code block without calling mermaid", async () => {
+    const src = uniq("flowchart TD; A-->B");
+    const { el, root } = render("```mermaid\n" + src, <span data-testid="caret" />);
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain(src);
+    expect(el.querySelector('[data-testid="caret"]')).not.toBeNull();
+    expect(callsFor(src)).toBe(0);
+    act(() => root.unmount());
+  });
+
+  it("failed render falls back to the source with no toggle", async () => {
+    // The failing stub is keyed on the exact source "fail", so this fence's
+    // body must be exactly that (no uniq suffix).
+    const { el, root } = render("```mermaid\nfail\n```");
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain("fail");
+    const buttons = Array.from(el.querySelectorAll("button"));
+    // Only CopyButton chrome; no source/diagram toggle.
+    expect(buttons.some((b) => b.textContent === "source" || b.textContent === "diagram")).toBe(
+      false,
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    act(() => root.unmount());
+  });
+
+  it("toggles between diagram and source", async () => {
+    const src = uniq("flowchart TD; A-->B");
+    const { el, root } = render("```mermaid\n" + src + "\n```");
+    await act(async () => {});
+    const toggle = Array.from(el.querySelectorAll("button")).find(
+      (b) => b.textContent === "source",
+    );
+    expect(toggle).toBeDefined();
+    await act(async () => {
+      toggle!.click();
+    });
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain(src);
+    const back = Array.from(el.querySelectorAll("button")).find((b) => b.textContent === "diagram");
+    expect(back).toBeDefined();
+    await act(async () => {
+      back!.click();
+    });
+    expect(el.querySelector(".md-diagram svg")).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("renders once per source across messages, twice across distinct sources", async () => {
+    const srcA = uniq("flowchart LR; A-->B");
+    const one = render("```mermaid\n" + srcA + "\n```");
+    await act(async () => {});
+    const two = render("```mermaid\n" + srcA + "\n```");
+    await act(async () => {});
+    // Cache dedupe: the identical second source never re-enters the renderer.
+    expect(callsFor(srcA)).toBe(1);
+    const srcB = uniq("flowchart LR; A-->B");
+    const three = render("```mermaid\n" + srcB + "\n```");
+    await act(async () => {});
+    expect(callsFor(srcA)).toBe(1);
+    expect(callsFor(srcB)).toBe(1);
+    act(() => one.root.unmount());
+    act(() => two.root.unmount());
+    act(() => three.root.unmount());
+  });
+
+  it("leaves non-mermaid fences untouched", async () => {
+    const { el, root } = render("```ts\nconst x = 1\n```");
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain("const x = 1");
+    act(() => root.unmount());
   });
 });
 

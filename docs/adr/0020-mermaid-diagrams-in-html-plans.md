@@ -46,6 +46,15 @@ and ADR-0007's empty sandbox).
 > clip. Root-level `htmlLabels: false` (issue #303) is what renders labels as
 > pure SVG text, making this ADR's original "no HTML labels" intent true.
 
+> **Addendum (2026-08-28):** The same host-side rendering posture now covers
+> ` ```mermaid ` fences in transcript messages (issue #361): `CodeBlock` renders
+> settled fences through the shared `renderMermaid` — same strict config, same
+> serialized render chain — inserting the sanitizer's SVG in the trusted
+> renderer like KaTeX markup. Transcript diagrams follow the app theme
+> (`dark`-keyed `themeVariables`); a failed or streaming block stays the plain
+> code block with a source toggle, no callout (the source *is* readable
+> content there). The plan pipeline itself is byte-for-byte unchanged.
+
 ## Consequences
 
 - **`preparePlanDocument` is async.** The one callsite-visible change; both

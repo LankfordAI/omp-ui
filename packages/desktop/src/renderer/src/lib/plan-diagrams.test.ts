@@ -108,4 +108,19 @@ describe("renderMermaidBlocks", () => {
     expect(out).toContain('viewBox="0 0 10 10"');
     expect(out).not.toContain("max-width");
   });
+
+  it("leaves the optional dark argument undefined for plan blocks, so the default renderer keeps the light palette", async () => {
+    // Issue #361 widened DiagramRenderer with `dark?`; the plan path must not
+    // start passing it (plans stay on the fixed light canvas palette, #285).
+    const args: unknown[][] = [];
+    const render: DiagramRenderer = (...a: unknown[]) => {
+      args.push(a);
+      return Promise.resolve(stubSvg(a[0] as string));
+    };
+    const html = `<pre class="mermaid">graph TD; A-->B</pre>`;
+    const out = await renderMermaidBlocks(html, render);
+
+    expect(args).toEqual([["omp-ui-diagram-0", "graph TD; A-->B"]]);
+    expect(out).toBe(`<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-0")}</div>`);
+  });
 });
