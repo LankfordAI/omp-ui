@@ -182,7 +182,7 @@ describe("session:delete", () => {
     const before = (await invoke(CH.getState)) as { projects: { sessions: { title: string }[] }[] };
     expect(before.projects[0]!.sessions.map((s) => s.title)).toEqual(["Old session"]);
 
-    await invoke(CH.deleteSession, "tab-1");
+    await invoke(CH.deleteSession, "tab-1", false);
 
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
     expect(fs.existsSync(path.join(archiveRoot, LINEAGE))).toBe(false);
@@ -200,7 +200,7 @@ describe("session:delete", () => {
     const { sessionsRoot } = setup();
     const signals = await launchLive("default");
 
-    await invoke(CH.deleteSession, "tab-1");
+    await invoke(CH.deleteSession, "tab-1", false);
 
     expect(signals).toEqual(["default"]);
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE))).toBe(false);
@@ -216,7 +216,7 @@ describe("session:delete", () => {
       const { sessionsRoot } = setup();
       const signals = await launchLive("SIGKILL");
 
-      const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
+      const done = invoke(CH.deleteSession, "tab-1", false) as Promise<void>;
       await vi.advanceTimersByTimeAsync(3_000);
       await done;
 
@@ -236,7 +236,7 @@ describe("session:delete", () => {
       const { sessionsRoot } = setup();
       await launchLive("never");
 
-      const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
+      const done = invoke(CH.deleteSession, "tab-1", false) as Promise<void>;
       const settled = expect(done).rejects.toThrow(/did not exit/);
       await vi.advanceTimersByTimeAsync(5_000);
       await settled;
@@ -276,7 +276,7 @@ describe("session:delete", () => {
       rows: 24,
     }) as Promise<unknown>;
     await started;
-    const done = invoke(CH.deleteSession, "tab-1") as Promise<void>;
+    const done = invoke(CH.deleteSession, "tab-1", false) as Promise<void>;
     // Nothing may happen while resume is still resolving its transcript.
     await Promise.resolve();
     expect(fs.existsSync(path.join(sessionsRoot, LINEAGE, FILE_NAME))).toBe(true);

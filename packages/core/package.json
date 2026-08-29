@@ -9,6 +9,7 @@
     "./types": "./src/types.ts",
     "./model-role": "./src/model-role.ts",
     "./backend-channels": "./src/backend-channels.ts",
+    "./backend-arg-codecs": "./src/backend-arg-codecs.ts",
     "./plan": "./src/plan.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",
     "./advisor-stats": "./src/advisor-stats.ts",

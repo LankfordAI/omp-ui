@@ -213,7 +213,7 @@ describe("lineage watcher teardown (issue #64)", () => {
     await backend.hydrateAll();
     expect(watcherDisposes.length).toBeGreaterThan(0);
 
-    await invoke(CH.deleteSession, TAB);
+    await invoke(CH.deleteSession, TAB, false);
 
     expect(watcherDisposes[0]).toHaveBeenCalled();
   });
@@ -339,7 +339,7 @@ describe("live session teardown (issue #64)", () => {
         cols: 80,
         rows: 24,
       }),
-    ).rejects.toThrow(/worktree/);
+    ).rejects.toThrow(`invalid arguments for ${CH.spawnSession}: argument 0`);
 
     expect(spawnOmpMock).not.toHaveBeenCalled();
     expect(RpcClientMock).not.toHaveBeenCalled();
@@ -449,7 +449,7 @@ describe("live session teardown (issue #64)", () => {
     // The child honours the kill: killAndReap must not need the SIGKILL escalation.
     rpc.kill.mockImplementation(() => rpc.exit(0));
 
-    await invoke(CH.deleteSession, res.tabId);
+    await invoke(CH.deleteSession, res.tabId, false);
 
     expect(rpc.kill).toHaveBeenCalled();
     expect(rpc.kill).not.toHaveBeenCalledWith("SIGKILL");

@@ -8,9 +8,11 @@ import {
   type BackendChannelSpec,
   type BackendTransport,
   type ChannelTable,
+  type NotifyChannel,
   type OmpBackend,
+  type RequestChannel,
 } from "./backend-channels";
-import type { MergeBackStatus } from "./types";
+import type { MergeBackStatus, SpawnRequest } from "./types";
 
 type SpecChannel<Kind extends BackendChannelSpec[keyof BackendChannelSpec]["kind"]> = {
   [Method in keyof BackendChannelSpec]: BackendChannelSpec[Method]["kind"] extends Kind
@@ -18,13 +20,135 @@ type SpecChannel<Kind extends BackendChannelSpec[keyof BackendChannelSpec]["kind
     : never;
 }[keyof BackendChannelSpec];
 
+type InboundMethod = {
+  [Method in keyof BackendChannelSpec]: BackendChannelSpec[Method]["kind"] extends
+    | "request"
+    | "notify"
+    ? Method
+    : never;
+}[keyof BackendChannelSpec];
+
+type MethodArgs<Method extends InboundMethod> = BackendChannelSpec[Method] extends RequestChannel<
+  infer Args,
+  unknown
+>
+  ? Args
+  : BackendChannelSpec[Method] extends NotifyChannel<infer Args>
+    ? Args
+    : never;
+
 type RuntimeListener = (...args: never[]) => void;
+
+const spawnRequest: SpawnRequest = {
+  origin: "new",
+  mode: "rpc-ui",
+  projectCwd: "/project",
+  advisor: false,
+  cols: 120,
+  rows: 40,
+  worktree: null,
+};
+
+const VALID_ARGS = {
+  addProject: ["/project"],
+  browseDirectories: ["/project"],
+  checkAppUpdate: [],
+  checkOmpUpdate: [],
+  checkoutBranch: ["/project", "feature", { create: true }],
+  clearDismissedAppUpdate: [],
+  clearDismissedOmpUpdate: [],
+  clearProviderKey: ["OPENROUTER_API_KEY"],
+  clearRemotePassword: [],
+  convertToWorktree: ["tab-1", "feature", null],
+  deleteSession: ["tab-1", true],
+  deleteSessionPreview: ["tab-1"],
+  dismissAppUpdate: ["1.2.3", true],
+  dismissOmpUpdate: ["1.2.3", false],
+  downloadAppUpdate: [],
+  downloadOmpUpdate: [],
+  forkSession: ["tab-1"],
+  generateTitle: ["/project", "prompt"],
+  getAdvisorDefaults: ["/project"],
+  getAppUpdateState: [],
+  getBranchDiff: ["/project", "main"],
+  getMcpServers: [null],
+  getMergeBackStatus: ["/project", "feature", null],
+  getOmpUpdateState: [],
+  getProjectOpenAvailability: [],
+  getRemoteState: [],
+  getState: [],
+  hibernatePlanSource: ["source", "implementation"],
+  listBranches: ["/project", { fetchUpstream: true }],
+  listCompactionMethods: [],
+  listProjectFiles: ["/project"],
+  memoryOverview: ["/project"],
+  mergeWorktreeBranch: ["/project", "feature", "main"],
+  moveProject: ["/project", null],
+  moveSession: ["tab-1", null],
+  openAppUpdateReleaseNotes: [],
+  openPath: ["/tmp/transcript.html"],
+  openProject: ["/project", "files"],
+  ptyPasteImage: ["tab-1", { type: "image", data: "base64", mimeType: "image/png" }],
+  ptyResize: ["tab-1", 120, 40],
+  ptyWrite: ["tab-1", "input"],
+  pullBranch: ["/project"],
+  readOmpSettings: [null],
+  readPlanFile: ["tab-1", "/tmp/plan.html"],
+  readProviderKeys: [null],
+  regenerateRemoteToken: [],
+  releaseWorktree: ["tab-1"],
+  removeProject: ["/project"],
+  reportStallCap: ["tab-1", true],
+  resolveFileMentions: ["/project", "@file"],
+  restartForAppUpdate: [false],
+  restartSession: ["tab-1"],
+  rpcSend: ["tab-1", { type: "prompt", custom: undefined }],
+  setAdvisorAutoReply: [true],
+  setAppUpdateCheckOnLaunch: [true],
+  setAppUpdateInstallOnQuit: [false],
+  setDefaultAdvisor: [true],
+  setDefaultAgentMode: ["build"],
+  setDefaultCompactionMethod: [null],
+  setDefaultMode: ["rpc-ui"],
+  setDesktopNotifications: [true],
+  setFontFamilyId: ["mono"],
+  setHibernateIdleMinutes: [30],
+  setMcpServerEnabled: [{ projectCwd: null, name: "github", enabled: true }],
+  setOmpUpdateCheckOnLaunch: [true],
+  setPlanFormat: ["html"],
+  setProjectDefaultAdvisorModel: ["/project", null],
+  setProjectDefaultModel: ["/project", null],
+  setProviderKey: ["OPENROUTER_API_KEY", "key"],
+  setRemoteBind: ["localhost"],
+  setRemoteEnabled: [true],
+  setRemotePassword: ["password"],
+  setRemotePort: [8080],
+  setSessionAdvisor: ["tab-1", true, null],
+  setSessionModel: ["tab-1", null, null],
+  setSkipDeleteConfirmation: [true],
+  setStallAutoContinue: [true],
+  setStreamStallAbortSeconds: [45],
+  setThemeId: ["dark"],
+  setWindowChrome: ["#000", "#fff"],
+  shellKill: ["tab-1"],
+  shellResize: ["tab-1", 120, 40],
+  shellSpawn: ["tab-1", "/project", 120, 40, "shell"],
+  shellWrite: ["tab-1", "input"],
+  showAppUpdateDownload: [],
+  showPathInFolder: ["/tmp/file"],
+  spawnSession: [spawnRequest],
+  suggestBranchName: ["/project", "plan"],
+  switchMode: ["tab-1", "pty"],
+  tabViewed: ["client-1", null],
+  terminateSession: ["tab-1"],
+  toggleFavorite: ["model"],
+  writeOmpSetting: ["theme", { custom: true }],
+} satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {
   const requests: Array<{ channel: string; args: unknown[] }> = [];
   const notifications: Array<{ channel: string; args: unknown[] }> = [];
   const listeners = new Map<string, RuntimeListener>();
-
   const transport: BackendTransport = {
     request<Args extends unknown[], Result>(channel: string, args: Args): Promise<Result> {
       requests.push({ channel, args });
@@ -37,38 +161,49 @@ function recordingTransport() {
       listeners.set(channel, cb as unknown as RuntimeListener);
     },
   };
-
   return { transport, requests, notifications, listeners };
 }
 
-describe("BACKEND_CHANNELS", () => {
-  it("derives same-keyed CH values and keeps every wire string unique", () => {
-    const specEntries = Object.entries(BACKEND_CHANNELS);
-    const channelStrings = specEntries.map(([, descriptor]) => descriptor.channel);
+function recordingTable() {
+  const calls: Array<{ channel: string; args: unknown[] }> = [];
+  const request: Record<string, (...args: unknown[]) => unknown> = {};
+  const notify: Record<string, (...args: unknown[]) => void> = {};
+  for (const descriptor of Object.values(BACKEND_CHANNELS)) {
+    if (descriptor.kind === "request") {
+      request[descriptor.channel] = (...args) => {
+        calls.push({ channel: descriptor.channel, args });
+        return undefined;
+      };
+    } else if (descriptor.kind === "notify") {
+      notify[descriptor.channel] = (...args) => {
+        calls.push({ channel: descriptor.channel, args });
+      };
+    }
+  }
+  return { table: { request, notify } as unknown as ChannelTable, calls };
+}
 
-    expect(Object.keys(CH)).toEqual(specEntries.map(([method]) => method));
-    expect(Object.values(CH)).toEqual(channelStrings);
-    expect(new Set(channelStrings).size).toBe(channelStrings.length);
+describe("BACKEND_CHANNELS", () => {
+  it("derives unique channel names and runtime codecs for every inbound channel", () => {
+    const entries = Object.entries(BACKEND_CHANNELS);
+    const inbound = entries.filter(([, descriptor]) => descriptor.kind !== "event");
+    const events = entries.filter(([, descriptor]) => descriptor.kind === "event");
+    expect(Object.keys(CH)).toEqual(entries.map(([method]) => method));
+    expect(new Set(Object.values(CH)).size).toBe(entries.length);
+    expect(inbound).toHaveLength(93);
+    expect(events).toHaveLength(11);
+    for (const [, descriptor] of inbound) expect(descriptor).toHaveProperty("args");
+    for (const [, descriptor] of events) expect(descriptor).not.toHaveProperty("args");
   });
 
-  it("derives the complete public client and non-event handler table", () => {
+  it("derives the complete public client and handler table", () => {
     type Method = keyof BackendChannelSpec;
     type HandledChannel = keyof ChannelTable["request"] | keyof ChannelTable["notify"];
-
     expectTypeOf<keyof OmpBackend>().toEqualTypeOf<Method>();
     expectTypeOf<keyof typeof CH>().toEqualTypeOf<Method>();
     expectTypeOf<keyof ChannelTable["request"]>().toEqualTypeOf<SpecChannel<"request">>();
     expectTypeOf<keyof ChannelTable["notify"]>().toEqualTypeOf<SpecChannel<"notify">>();
-    expectTypeOf<HandledChannel>().toEqualTypeOf<
-      SpecChannel<"request"> | SpecChannel<"notify">
-    >();
     expectTypeOf<Extract<HandledChannel, SpecChannel<"event">>>().toEqualTypeOf<never>();
-    expectTypeOf<ChannelTable["request"]["project:move"]>().toEqualTypeOf<
-      (projectPath: string, beforePath: string | null) => void | Promise<void>
-    >();
-    expectTypeOf<ChannelTable["request"]["project:open"]>().toEqualTypeOf<
-      (projectPath: string, target: "vscode" | "files" | "terminal") => void | Promise<void>
-    >();
     expectTypeOf<ChannelTable["request"]["branch:mergeStatus"]>().toEqualTypeOf<
       (
         projectCwd: string,
@@ -76,149 +211,123 @@ describe("BACKEND_CHANNELS", () => {
         base: string | null,
       ) => MergeBackStatus | Promise<MergeBackStatus>
     >();
-    expectTypeOf<ChannelTable["notify"]["pty:resize"]>().toEqualTypeOf<
-      (tabId: string, cols: number, rows: number) => void
-    >();
   });
 });
 
 describe("makeBackendClient", () => {
-  it("routes every request and preserves its tuple args", async () => {
+  it("routes every method through its declared transport channel", async () => {
     const recorded = recordingTransport();
     const client = makeBackendClient(recorded.transport);
-    const expected: Array<{ channel: string; args: unknown[] }> = [];
-
     for (const [method, descriptor] of Object.entries(BACKEND_CHANNELS)) {
-      if (descriptor.kind !== "request") continue;
-      const args = [method, { channel: descriptor.channel }];
-      const invoke = Reflect.get(client, method) as (...args: never[]) => Promise<unknown>;
-      const result = await invoke(...(args as never[]));
-      expected.push({ channel: descriptor.channel, args });
-      expect(result).toEqual({ channel: descriptor.channel, args });
+      const invoke = Reflect.get(client, method) as (...args: never[]) => unknown;
+      if (descriptor.kind === "event") {
+        const listener = (): void => undefined;
+        invoke(listener as never);
+        expect(recorded.listeners.get(descriptor.channel)).toBe(listener);
+      } else {
+        const args = Reflect.get(VALID_ARGS, method) as never[];
+        await invoke(...args);
+        const records = descriptor.kind === "request" ? recorded.requests : recorded.notifications;
+        expect(records.at(-1)).toEqual({ channel: descriptor.channel, args });
+      }
     }
-
-    expect(recorded.requests).toEqual(expected);
-    expect(recorded.notifications).toEqual([]);
-  });
-
-  it("routes every notification and preserves its tuple args", () => {
-    const recorded = recordingTransport();
-    const client = makeBackendClient(recorded.transport);
-    const expected: Array<{ channel: string; args: unknown[] }> = [];
-
-    for (const [method, descriptor] of Object.entries(BACKEND_CHANNELS)) {
-      if (descriptor.kind !== "notify") continue;
-      const args = [method, { channel: descriptor.channel }];
-      const invoke = Reflect.get(client, method) as (...args: never[]) => void;
-      invoke(...(args as never[]));
-      expected.push({ channel: descriptor.channel, args });
-    }
-
-    expect(recorded.notifications).toEqual(expected);
-    expect(recorded.requests).toEqual([]);
-  });
-
-  it("registers every event on its channel and forwards tuple args unchanged", () => {
-    const recorded = recordingTransport();
-    const client = makeBackendClient(recorded.transport);
-    const received: Array<{ method: string; args: unknown[] }> = [];
-
-    for (const [method, descriptor] of Object.entries(BACKEND_CHANNELS)) {
-      if (descriptor.kind !== "event") continue;
-      const subscribe = Reflect.get(client, method) as (...args: never[]) => void;
-      const cb = (...args: unknown[]): void => {
-        received.push({ method, args });
-      };
-      subscribe(cb as never);
-
-      const args = [method, new Uint8Array([method.length])];
-      const listener = recorded.listeners.get(descriptor.channel);
-      expect(listener).toBe(cb);
-      listener?.(...(args as never[]));
-    }
-
-    const expected = Object.entries(BACKEND_CHANNELS)
-      .filter(([, descriptor]) => descriptor.kind === "event")
-      .map(([method]) => ({ method, args: [method, new Uint8Array([method.length])] }));
-    expect(received).toEqual(expected);
-  });
-
-  it("exposes tuple-typed methods for each routing mode", async () => {
-    const recorded = recordingTransport();
-    const client = makeBackendClient(recorded.transport);
-    const onData = (...args: [tabId: string, data: Uint8Array]): void => {
-      void args;
-    };
-
-    await client.moveProject("/project/a", null);
-    await client.openProject("/project/a", "files");
-    await client.setSessionAdvisor("tab-1", true, "openrouter/a/b:low");
-    client.ptyResize("tab-1", 120, 40);
-    client.onPtyData(onData);
-
-    expect(recorded.requests.at(-3)).toEqual({
-      channel: "project:move",
-      args: ["/project/a", null],
-    });
-    expect(recorded.requests.at(-2)).toEqual({
-      channel: "project:open",
-      args: ["/project/a", "files"],
-    });
-    expect(recorded.requests.at(-1)).toEqual({
-      channel: "session:setAdvisor",
-      args: ["tab-1", true, "openrouter/a/b:low"],
-    });
-    expect(recorded.notifications.at(-1)).toEqual({
-      channel: "pty:resize",
-      args: ["tab-1", 120, 40],
-    });
-    expect(recorded.listeners.get("pty:data")).toBe(onData);
   });
 });
 
-describe("transport dispatch (issue #301)", () => {
-  const noteCalls: unknown[][] = [];
-  const table = {
-    request: {
-      "echo:sync": (a: unknown, b: unknown) => [a, b],
-      "echo:async": async (v: unknown) => `async:${v}`,
-      "boom:sync": () => {
-        throw new Error("sync-throw");
-      },
-      "boom:async": async () => {
-        throw new Error("async-reject");
-      },
-    },
-    notify: {
-      note: (a: unknown, b: unknown) => {
-        noteCalls.push([a, b]);
-      },
-      "note:boom": () => {
-        throw new Error("notify-throw");
-      },
-    },
-  } as unknown as ChannelTable;
-
-  it("dispatchRequest resolves handler values and passes args in order", async () => {
-    await expect(dispatchRequest(table, "echo:sync", [1, "two"])).resolves.toEqual([1, "two"]);
-    await expect(dispatchRequest(table, "echo:async", ["v"])).resolves.toBe("async:v");
-  });
-
-  it("dispatchRequest rejects unknown channels by name", async () => {
-    await expect(dispatchRequest(table, "nope:nope", [])).rejects.toThrow(
-      "unknown channel nope:nope",
+describe("transport dispatch", () => {
+  it("decodes every valid inbound tuple and preserves values and order", async () => {
+    const { table, calls } = recordingTable();
+    for (const [method, args] of Object.entries(VALID_ARGS)) {
+      const descriptor = BACKEND_CHANNELS[method as InboundMethod];
+      if (descriptor.kind === "request") await dispatchRequest(table, descriptor.channel, args);
+      else dispatchNotify(table, descriptor.channel, args);
+    }
+    expect(calls).toHaveLength(93);
+    expect(calls.map(({ channel }) => channel)).toEqual(
+      Object.keys(VALID_ARGS).map((method) => BACKEND_CHANNELS[method as InboundMethod].channel),
     );
+    for (const call of calls) {
+      const method = Object.keys(VALID_ARGS).find(
+        (candidate) => BACKEND_CHANNELS[candidate as InboundMethod].channel === call.channel,
+      ) as InboundMethod;
+      expect(call.args).toEqual(VALID_ARGS[method]);
+    }
   });
 
-  it("dispatchRequest rejects with the handler's own error", async () => {
-    await expect(dispatchRequest(table, "boom:sync", [])).rejects.toThrow("sync-throw");
-    await expect(dispatchRequest(table, "boom:async", [])).rejects.toThrow("async-reject");
+  it.each([
+    [CH.openProject, ["/project"], "argument 1"],
+    [CH.addProject, [{ secret: "do-not-echo" }], "argument 0"],
+    [CH.openProject, ["/project", "secret-target"], "argument 1"],
+    [CH.ptyPasteImage, ["tab-1", { type: "secret-type", data: "x", mimeType: "x" }], "argument 1.type"],
+    [CH.setRemotePort, [Number.POSITIVE_INFINITY], "argument 0"],
+    [CH.getState, ["secret-extra"], "expected at most 0"],
+  ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
+    const { table, calls } = recordingTable();
+    await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);
+    expect(calls).toHaveLength(0);
+    try {
+      await dispatchRequest(table, channel, [...args]);
+    } catch (error) {
+      expect(String(error)).toContain(channel);
+      expect(String(error)).not.toContain("do-not-echo");
+      expect(String(error)).not.toContain("secret-target");
+      expect(String(error)).not.toContain("secret-type");
+      expect(String(error)).not.toContain("secret-extra");
+    }
   });
 
-  it("dispatchNotify invokes with args, ignores unknown channels, swallows throws", () => {
-    dispatchNotify(table, "note", ["x", 1]);
-    expect(noteCalls).toEqual([["x", 1]]);
-    expect(() => dispatchNotify(table, "nope:nope", [])).not.toThrow();
-    expect(() => dispatchNotify(table, "note:boom", [])).not.toThrow();
+  it("drops malformed notifications without invoking handlers or throwing", () => {
+    const { table, calls } = recordingTable();
+    expect(() => dispatchNotify(table, CH.ptyWrite, ["tab-1"])).not.toThrow();
+    expect(() => dispatchNotify(table, CH.ptyResize, ["tab-1", "wide", 40])).not.toThrow();
+    expect(() => dispatchNotify(table, CH.rpcSend, ["tab-1", []])).not.toThrow();
+    expect(() => dispatchNotify(table, CH.shellKill, ["tab-1", "extra"])).not.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("preserves omitted optional positions and normalizes present null", async () => {
+    const lengths: number[] = [];
+    const values: unknown[] = [];
+    const table = {
+      request: {
+        [CH.getBranchDiff]: function (_project: string, base?: string | null) {
+          lengths.push(arguments.length);
+          values.push(base);
+        },
+      },
+      notify: {},
+    } as unknown as ChannelTable;
+    await dispatchRequest(table, CH.getBranchDiff, ["/project"]);
+    await dispatchRequest(table, CH.getBranchDiff, ["/project", null]);
+    expect(lengths).toEqual([1, 2]);
+    expect(values).toEqual([undefined, undefined]);
+  });
+
+  it("rejects undeclared and inherited request channels and ignores notify equivalents", async () => {
+    const table = {
+      request: { rogue: () => "fail-open" },
+      notify: { rogue: () => undefined },
+    } as unknown as ChannelTable;
+    for (const channel of ["rogue", "constructor", "toString"]) {
+      await expect(dispatchRequest(table, channel, [])).rejects.toThrow(`unknown channel ${channel}`);
+      expect(() => dispatchNotify(table, channel, [])).not.toThrow();
+    }
+  });
+
+  it("preserves request handler failures and swallows notification handler failures", async () => {
+    const table = {
+      request: {
+        [CH.getState]: () => {
+          throw new Error("request-handler-failure");
+        },
+      },
+      notify: {
+        [CH.shellKill]: () => {
+          throw new Error("notify-handler-failure");
+        },
+      },
+    } as unknown as ChannelTable;
+    await expect(dispatchRequest(table, CH.getState, [])).rejects.toThrow("request-handler-failure");
+    expect(() => dispatchNotify(table, CH.shellKill, ["tab-1"])).not.toThrow();
   });
 });

@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CH,
-  parseSpawnRequest,
   addWorktree,
   base64Bytes,
   bracketedImagePaste,
@@ -263,9 +262,6 @@ export class SessionManager {
     return run;
   }
 
-  async spawnFromWire(raw: unknown): Promise<{ tabId: string }> {
-    return this.spawn(parseSpawnRequest(raw));
-  }
 
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
     this.validateSpawnSemantics(req);
