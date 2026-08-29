@@ -6,7 +6,7 @@ import {
 } from "@omp-ui/core";
 import type { FrameObserver } from "./frame-observer";
 import type { LiveEntry, RpcLiveEntry } from "./live-entry";
-import { TurnCounter } from "./turns";
+import type { TurnTracker } from "./turns";
 
 /**
  * Stream-stall watchdog sweep cadence (issue #248).
@@ -32,7 +32,7 @@ export interface StallWatchdogDeps {
   registry: Registry;
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
-  turns: TurnCounter;
+  turns: TurnTracker;
   getLive: (tabId: string) => LiveEntry | undefined;
   liveEntries: () => Iterable<[string, LiveEntry]>;
   awaitingHumanAnswer: (tabId: string) => boolean;
@@ -108,7 +108,7 @@ export class StallWatchdog implements FrameObserver {
     if (thresholdSeconds <= 0) return;
     for (const [tabId, entry] of this.deps.liveEntries()) {
       if (entry.kind !== "rpc-ui") continue;
-      if (this.deps.turns.running(tabId) === 0) continue;
+      if (!this.deps.turns.isRunning(tabId)) continue;
       if (this.deps.awaitingHumanAnswer(tabId)) continue;
       // A running local tool is legitimately quiet on the provider stream —
       // a build, a test suite, a hub wait. While one is open the model owes
@@ -164,12 +164,14 @@ export class StallWatchdog implements FrameObserver {
     const rec = this.recordFor(tabId);
     const type = frame.type;
     switch (type) {
-      // No tool execution survives a turn boundary. An abort's teardown can
-      // skip end frames for refused tools; a leaked count would suppress
-      // the watchdog for the whole next turn.
+      // No tool execution or eligible silence interval survives a lifecycle
+      // boundary. Public agent_end is authoritative idle, and agent_start
+      // waits for the first model-stream checkpoint to start a fresh clock.
       case "agent_start":
       case "agent_end":
         rec.openToolCount = 0;
+        rec.silenceSince = null;
+        rec.checkpointLabel = null;
         return;
       case "tool_execution_start":
         rec.openToolCount++;
@@ -234,7 +236,7 @@ export class StallWatchdog implements FrameObserver {
   humanAnswered(tabId: string): void {
     const entry = this.deps.getLive(tabId);
     if (entry?.kind !== "rpc-ui") return;
-    if (this.deps.turns.running(tabId) <= 0) return;
+    if (!this.deps.turns.isRunning(tabId)) return;
     const rec = this.recordFor(tabId);
     rec.silenceSince = Date.now();
     rec.checkpointLabel = "human answer received";

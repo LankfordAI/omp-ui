@@ -991,7 +991,7 @@ describe("OS attention hooks (issue #271)", () => {
       sessionExit: vi.fn(),
     }) as Attention;
 
-  it("turnStarted on agent_start; turnEnded only on the idle crossing", async () => {
+  it("legacy agent_end announces turn completion", async () => {
     const att = attention();
     const { manager } = setup({ mode: "rpc-ui", attention: att });
     await resumeRpc(manager);
@@ -1005,18 +1005,43 @@ describe("OS attention hooks (issue #271)", () => {
     expect(att.turnEnded).toHaveBeenCalledWith(TAB);
   });
 
-  it("a nested start/end pair does not announce the turn end", async () => {
+  it("repeated starts converge at one authoritative end", async () => {
     const att = attention();
     const { manager } = setup({ mode: "rpc-ui", attention: att });
     await resumeRpc(manager);
 
     rpcInstances[0]!.frame({ type: "agent_start" });
     rpcInstances[0]!.frame({ type: "agent_start" });
-    rpcInstances[0]!.frame({ type: "agent_end" });
-    expect(att.turnEnded).not.toHaveBeenCalled();
+    rpcInstances[0]!.frame({ type: "agent_end", isTerminal: true });
 
-    rpcInstances[0]!.frame({ type: "agent_end" });
     expect(att.turnEnded).toHaveBeenCalledTimes(1);
+    expect(att.turnEnded).toHaveBeenCalledWith(TAB);
+  });
+
+  it("a nonterminal end clears running state without announcing completion", async () => {
+    vi.useFakeTimers();
+    try {
+      const att = attention();
+      const { manager } = setup({ mode: "rpc-ui", attention: att });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      rpc.frame({ type: "agent_end", isTerminal: false });
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+      expect(att.turnEnded).not.toHaveBeenCalled();
+      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      expect(manager.isStreamStalled(TAB)).toBe(false);
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "agent_end" });
+      expect(att.turnEnded).toHaveBeenCalledTimes(1);
+      expect(att.turnEnded).toHaveBeenCalledWith(TAB);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("planProposed on a proposal, turn end suppressed while the gate awaits, planSettled on the verdict", async () => {
@@ -2469,20 +2494,34 @@ describe("stream-stall watchdog (issue #248)", () => {
     }
   });
 
-  it("never aborts an idle session, even when its last turn ended long ago", async () => {
+  it("authoritative agent_end disarms coalesced starts without disabling the next turn (issue #362)", async () => {
     vi.useFakeTimers();
     try {
-      const { manager } = setup({ mode: "rpc-ui" });
+      const { manager, sent } = setup({ mode: "rpc-ui" });
       await resumeRpc(manager);
       const rpc = rpcInstances[0]!;
 
       rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "agent_start" });
       rpc.frame({ type: "turn_start" });
-      rpc.frame({ type: "agent_end" });
+      rpc.frame({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_end" },
+      });
+      rpc.frame({ type: "agent_end", isTerminal: true });
       await vi.advanceTimersByTimeAsync(STALL_WINDOW * 3);
 
-      expect(rpc.send).not.toHaveBeenCalledWith({ type: "abort" });
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(0);
+      expect(stallNotices(sent)).toHaveLength(0);
       expect(manager.isStreamStalled(TAB)).toBe(false);
+
+      rpc.frame({ type: "agent_start" });
+      rpc.frame({ type: "turn_start" });
+      await vi.advanceTimersByTimeAsync(STALL_WINDOW + 15_000);
+
+      expect(rpc.send.mock.calls.filter(([cmd]) => cmd.type === "abort")).toHaveLength(1);
+      expect(stallNotices(sent)).toHaveLength(1);
+      expect(manager.isStreamStalled(TAB)).toBe(true);
     } finally {
       vi.useRealTimers();
     }
