@@ -43,6 +43,8 @@ The browser path does not create a second application backend. `@omp-ui/server` 
 
 [`BACKEND_CHANNELS`](../packages/core/src/backend-channels.ts) declares each capability once. The channel name, arguments, result, generated `OmpBackend` client, and `ChannelTable` handler shape all derive from that declaration. [`MainBackend.handlers()`](../packages/desktop/src/main/backend.ts) implements the request and notification sides once for both transports.
 
+Request and notification argument codecs are required metadata on each `BACKEND_CHANNELS` declaration. Electron IPC and authenticated WebSocket traffic converge on the same core dispatch boundary, which validates exact tuples before a `ChannelTable` handler runs. Malformed requests reject with a channel-qualified static error; malformed notifications are dropped under the existing fire-and-forget policy. Backend events flow in the opposite direction and are not decoded here.
+
 | Channel kind | Direction | Contract | Examples |
 |---|---|---|---|
 | Request | Renderer to backend, then one reply | Returns a promise that resolves a value or rejects with the backend error. | `state:get`, `session:spawn`, `plan:read`, `memory:overview`, `app:updateCheck` |

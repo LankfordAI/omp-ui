@@ -11,6 +11,7 @@ import {
   RpcClient,
   type BackendState,
   type KeyCipher,
+  type SpawnRequest,
 } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { DesktopNotifier } from "./desktop-notifier";
@@ -151,6 +152,42 @@ beforeEach(() => {
 
 afterEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
+});
+
+describe("IPC spawn argument boundary (issue #358)", () => {
+  const request: SpawnRequest = {
+    origin: "new",
+    mode: "rpc-ui",
+    projectCwd: "/p/a",
+    advisor: false,
+    cols: 120,
+    rows: 40,
+    worktree: null,
+  };
+
+  it("rejects malformed input before SessionManager.spawn", async () => {
+    const spawn = vi.fn().mockResolvedValue({ tabId: "tab-new" });
+    new MainBackend(win as never, path.join(base, "registry.json"), {
+      sessions: { spawn } as unknown as SessionManager,
+    }).registerIpc();
+
+    await expect(
+      invoke(CH.spawnSession, { ...request, unexpected: "do-not-echo" }),
+    ).rejects.toThrow(`invalid arguments for ${CH.spawnSession}: argument 0`);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("passes a parsed request to SessionManager.spawn", async () => {
+    const spawn = vi.fn().mockResolvedValue({ tabId: "tab-new" });
+    new MainBackend(win as never, path.join(base, "registry.json"), {
+      sessions: { spawn } as unknown as SessionManager,
+    }).registerIpc();
+
+    await expect(invoke(CH.spawnSession, request)).resolves.toEqual({ tabId: "tab-new" });
+    expect(spawn).toHaveBeenCalledOnce();
+    expect(spawn).toHaveBeenCalledWith(request);
+    expect(spawn.mock.calls[0]![0]).not.toBe(request);
+  });
 });
 
 describe("ordered backend broadcasts (issue #146)", () => {

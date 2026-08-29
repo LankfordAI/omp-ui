@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import type { ChannelTable } from "@omp-ui/core";
+import { CH, type ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
 import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
 import {
@@ -27,14 +27,17 @@ function fakeHost(): FakeHost {
   const sinks = new Set<(channel: string, args: unknown[]) => void>();
   const table = {
     request: {
-      "state:get": () => ({ ok: 1 }),
-      boom: () => {
+      [CH.getState]: () => ({ ok: 1 }),
+      [CH.getRemoteState]: () => {
         throw new Error("nope");
+      },
+      [CH.getBranchDiff]: function (_project: string, base?: string | null) {
+        return { base, argumentLength: arguments.length };
       },
     },
     notify: {
-      "pty:write": (tabId: string, data: string) => {
-        notified.push({ ch: "pty:write", args: [tabId, data] });
+      [CH.ptyWrite]: (tabId: string, data: string) => {
+        notified.push({ ch: CH.ptyWrite, args: [tabId, data] });
       },
     },
   } as unknown as ChannelTable;
@@ -344,7 +347,7 @@ describe("startRemoteServer websocket", () => {
     const { base } = await serve();
     const ws = await connect(base, TOKEN);
     const reply = nextJson(ws);
-    ws.send(JSON.stringify({ t: "req", id: 1, ch: "state:get", args: [] }));
+    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
     expect(await reply).toEqual({ t: "res", id: 1, ok: true, value: { ok: 1 } });
   });
 
@@ -352,8 +355,34 @@ describe("startRemoteServer websocket", () => {
     const { base } = await serve();
     const ws = await connect(base, TOKEN);
     const reply = nextJson(ws);
-    ws.send(JSON.stringify({ t: "req", id: 7, ch: "boom", args: [] }));
+    ws.send(JSON.stringify({ t: "req", id: 7, ch: CH.getRemoteState, args: [] }));
     expect(await reply).toEqual({ t: "res", id: 7, ok: false, message: "nope" });
+  });
+
+  it("returns a static decoder error for malformed request arguments", async () => {
+    const { base } = await serve();
+    const ws = await connect(base, TOKEN);
+    const reply = nextJson(ws);
+    ws.send(JSON.stringify({ t: "req", id: 8, ch: CH.getState, args: ["do-not-echo"] }));
+    expect(await reply).toEqual({
+      t: "res",
+      id: 8,
+      ok: false,
+      message: `invalid arguments for ${CH.getState}: expected at most 0`,
+    });
+  });
+
+  it("normalizes a WebSocket-null trailing optional argument", async () => {
+    const { base } = await serve();
+    const ws = await connect(base, TOKEN);
+    const reply = nextJson(ws);
+    ws.send(JSON.stringify({ t: "req", id: 9, ch: CH.getBranchDiff, args: ["/project", null] }));
+    expect(await reply).toEqual({
+      t: "res",
+      id: 9,
+      ok: true,
+      value: { argumentLength: 2 },
+    });
   });
 
   it("reports an unknown channel by name", async () => {
@@ -376,14 +405,25 @@ describe("startRemoteServer websocket", () => {
     ws.on("message", () => {
       replied = true;
     });
-    ws.send(JSON.stringify({ t: "notify", ch: "pty:write", args: ["tab", "x"] }));
+    ws.send(JSON.stringify({ t: "notify", ch: CH.ptyWrite, args: ["tab", "x"] }));
     // A round-trip through a known request proves the notify was processed first.
     const reply = nextJson(ws);
-    ws.send(JSON.stringify({ t: "req", id: 3, ch: "state:get", args: [] }));
+    ws.send(JSON.stringify({ t: "req", id: 3, ch: CH.getState, args: [] }));
     await reply;
-    expect(host.notified).toEqual([{ ch: "pty:write", args: ["tab", "x"] }]);
+    expect(host.notified).toEqual([{ ch: CH.ptyWrite, args: ["tab", "x"] }]);
     // The only frame seen was the request's own reply.
     expect(replied).toBe(true);
+  });
+
+  it("drops malformed notifications and keeps the socket usable", async () => {
+    const { base, host } = await serve();
+    const ws = await connect(base, TOKEN);
+    ws.send(JSON.stringify({ t: "notify", ch: CH.ptyWrite, args: ["tab", 42] }));
+    const reply = nextJson(ws);
+    ws.send(JSON.stringify({ t: "req", id: 4, ch: CH.getState, args: [] }));
+    expect(await reply).toMatchObject({ id: 4, ok: true });
+    expect(host.notified).toEqual([]);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
   });
 
   it("accepts an Attachment-sized remote notification", async () => {

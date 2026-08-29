@@ -55,6 +55,7 @@ import {
   type RemoteBind,
   type RpcFrame,
   type SessionMode,
+  type SpawnRequest,
   type SessionSummary,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
@@ -408,7 +409,7 @@ export class MainBackend {
           this.registry.setSessionModel(tabId, model, thinkingLevel);
           void this.broadcast();
         },
-        [CH.spawnSession]: (raw: unknown) => this.sessions.spawnFromWire(raw),
+        [CH.spawnSession]: (req: SpawnRequest) => this.sessions.spawn(req),
         [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),

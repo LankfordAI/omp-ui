@@ -33,18 +33,44 @@ import type {
   WorktreeReleaseResult,
 } from "./types";
 import type { RpcFrame } from "./rpc/codec";
+import {
+  agentModeCodec,
+  bool,
+  branchListOptionsCodec,
+  checkoutOptionsCodec,
+  consoleProgramCodec,
+  imageAttachmentCodec,
+  mcpSetEnabledRequestCodec,
+  nullable,
+  num,
+  ompSettingValueCodec,
+  planFormatCodec,
+  projectOpenTargetCodec,
+  remoteBindCodec,
+  rpcFrameCodec,
+  sessionModeCodec,
+  spawnRequestCodec,
+  str,
+  trailingOptional,
+  type ArgCodec,
+  type ArgCodecs,
+} from "./backend-arg-codecs";
 
-/** Type-only marker for a request/reply channel. */
+declare const CHANNEL_ARGS: unique symbol;
+
+/** Runtime descriptor for a request/reply channel. */
 export interface RequestChannel<Args extends unknown[], Result> {
   readonly kind: "request";
-  readonly $args?: Args;
+  readonly args: ArgCodecs<NoInfer<Args>>;
   readonly $result?: Result;
+  readonly [CHANNEL_ARGS]?: Args;
 }
 
-/** Type-only marker for a fire-and-forget client notification. */
+/** Runtime descriptor for a fire-and-forget client notification. */
 export interface NotifyChannel<Args extends unknown[]> {
   readonly kind: "notify";
-  readonly $args?: Args;
+  readonly args: ArgCodecs<NoInfer<Args>>;
+  readonly [CHANNEL_ARGS]?: Args;
 }
 
 /** Type-only marker for an event emitted by the backend. */
@@ -53,18 +79,18 @@ export interface EventChannel<Args extends unknown[]> {
   readonly $args?: Args;
 }
 
-const REQUEST = { kind: "request" } as const;
-const NOTIFY = { kind: "notify" } as const;
 const EVENT = { kind: "event" } as const;
 
-/** Declares a request/reply channel's argument tuple and result. */
-function request<Args extends unknown[], Result>(): RequestChannel<Args, Result> {
-  return REQUEST;
+/** Declares a request/reply channel's argument tuple, codecs, and result. */
+function request<Args extends unknown[], Result>(
+  args: ArgCodecs<Args>,
+): RequestChannel<Args, Result> {
+  return { kind: "request", args };
 }
 
-/** Declares a fire-and-forget notification channel's argument tuple. */
-function notify<Args extends unknown[]>(): NotifyChannel<Args> {
-  return NOTIFY;
+/** Declares a fire-and-forget notification channel's argument tuple and codecs. */
+function notify<Args extends unknown[]>(args: ArgCodecs<Args>): NotifyChannel<Args> {
+  return { kind: "notify", args };
 }
 
 /** Declares a backend event channel's callback argument tuple. */
@@ -77,21 +103,21 @@ function event<Args extends unknown[]>(): EventChannel<Args> {
  * the public client, channel names, and main-process handler table derive from it.
  */
 export const BACKEND_CHANNELS = {
-  getState: { channel: "state:get", ...request<[], BackendState>() },
+  getState: { channel: "state:get", ...request<[], BackendState>([]) },
   /**
    * Registers a directory as a project. `path` may be ~-prefixed or absolute;
    * the backend expands, resolves, and validates it is an existing directory,
    * rejecting with a user-facing message otherwise. An already-registered path
    * resolves to its existing record.
    */
-  addProject: { channel: "project:add", ...request<[path: string], ProjectRecord>() },
+  addProject: { channel: "project:add", ...request<[path: string], ProjectRecord>([str()]) },
   /**
    * Reports which external project-open targets are available. The host
    * resolves this once and caches the result for the application lifetime.
    */
   getProjectOpenAvailability: {
     channel: "project:openAvailability",
-    ...request<[], ProjectOpenAvailability>(),
+    ...request<[], ProjectOpenAvailability>([]),
   },
   /**
    * Opens a project in the selected external target. Rejects with an
@@ -99,14 +125,14 @@ export const BACKEND_CHANNELS = {
    */
   openProject: {
     channel: "project:open",
-    ...request<[projectPath: string, target: ProjectOpenTarget], void>(),
+    ...request<[projectPath: string, target: ProjectOpenTarget], void>([str(), projectOpenTargetCodec]),
   },
   /** Directory listing for the in-app project picker (read-only, never mutates). */
   browseDirectories: {
     channel: "dir:browse",
-    ...request<[partialPath: string], DirBrowseResult>(),
+    ...request<[partialPath: string], DirBrowseResult>([str()]),
   },
-  removeProject: { channel: "project:remove", ...request<[path: string], void>() },
+  removeProject: { channel: "project:remove", ...request<[path: string], void>([str()]) },
   /**
    * Moves a registered project to sit immediately before `beforePath` in the
    * sidebar order; a null `beforePath` (or one that is not registered) appends
@@ -116,7 +142,7 @@ export const BACKEND_CHANNELS = {
    */
   moveProject: {
     channel: "project:move",
-    ...request<[projectPath: string, beforePath: string | null], void>(),
+    ...request<[projectPath: string, beforePath: string | null], void>([str(), nullable(str())]),
   },
   /**
    * Pins the project's default main model (issue #257) — the `provider/id`
@@ -125,7 +151,7 @@ export const BACKEND_CHANNELS = {
    */
   setProjectDefaultModel: {
     channel: "project:setDefaultModel",
-    ...request<[projectPath: string, model: string | null], void>(),
+    ...request<[projectPath: string, model: string | null], void>([str(), nullable(str())]),
   },
   /**
    * Pins the project's default advisor model (issue #257) — the
@@ -134,7 +160,7 @@ export const BACKEND_CHANNELS = {
    */
   setProjectDefaultAdvisorModel: {
     channel: "project:setDefaultAdvisorModel",
-    ...request<[projectPath: string, model: string | null], void>(),
+    ...request<[projectPath: string, model: string | null], void>([str(), nullable(str())]),
   },
   /**
    * Moves an owned session to sit immediately before `beforeTabId` in its
@@ -145,81 +171,81 @@ export const BACKEND_CHANNELS = {
    */
   moveSession: {
     channel: "session:move",
-    ...request<[tabId: string, beforeTabId: string | null], void>(),
+    ...request<[tabId: string, beforeTabId: string | null], void>([str(), nullable(str())]),
   },
   setDefaultMode: {
     channel: "settings:setDefaultMode",
-    ...request<[mode: SessionMode], void>(),
+    ...request<[mode: SessionMode], void>([sessionModeCodec]),
   },
   setDefaultAgentMode: {
     channel: "settings:setDefaultAgentMode",
-    ...request<[mode: AgentMode], void>(),
+    ...request<[mode: AgentMode], void>([agentModeCodec]),
   },
   listCompactionMethods: {
     channel: "settings:listCompactionMethods",
-    ...request<[], string[]>(),
+    ...request<[], string[]>([]),
   },
   setDefaultCompactionMethod: {
     channel: "settings:setDefaultCompactionMethod",
-    ...request<[method: string | null], void>(),
+    ...request<[method: string | null], void>([nullable(str())]),
   },
   setPlanFormat: {
     channel: "settings:setPlanFormat",
-    ...request<[format: PlanFormat], void>(),
+    ...request<[format: PlanFormat], void>([planFormatCodec]),
   },
   setHibernateIdleMinutes: {
     channel: "settings:setHibernateIdleMinutes",
-    ...request<[minutes: number], void>(),
+    ...request<[minutes: number], void>([num()]),
   },
   setStreamStallAbortSeconds: {
     channel: "settings:setStreamStallAbortSeconds",
-    ...request<[seconds: number], void>(),
+    ...request<[seconds: number], void>([num()]),
   },
   setAdvisorAutoReply: {
     channel: "settings:setAdvisorAutoReply",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   setStallAutoContinue: {
     channel: "settings:setStallAutoContinue",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   /** OS notifications for background-session attention states (issue #271); default on. */
   setDesktopNotifications: {
     channel: "settings:setDesktopNotifications",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   setSkipDeleteConfirmation: {
     channel: "settings:setSkipDeleteConfirmation",
-    ...request<[skip: boolean], void>(),
+    ...request<[skip: boolean], void>([bool()]),
   },
-  setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>() },
-  setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>() },
+  setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>([str()]) },
+  setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
   setAppUpdateCheckOnLaunch: {
     channel: "settings:setAppUpdateCheckOnLaunch",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   setOmpUpdateCheckOnLaunch: {
     channel: "settings:setOmpUpdateCheckOnLaunch",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   /** Clears the remembered omp-ui update dismissal so the offer can return. */
   clearDismissedAppUpdate: {
     channel: "settings:clearDismissedAppUpdate",
-    ...request<[], void>(),
+    ...request<[], void>([]),
   },
   /** Clears the remembered omp update dismissal so the offer can return. */
   clearDismissedOmpUpdate: {
     channel: "settings:clearDismissedOmpUpdate",
-    ...request<[], void>(),
+    ...request<[], void>([]),
   },
   /** Repaints the native title-bar overlay to match the active theme. */
   setWindowChrome: {
     channel: "window:setChrome",
-    ...request<[background: string, symbol: string], void>(),
+    ...request<[background: string, symbol: string], void>([str(), str()]),
   },
   /**
    * omp's own settings for the allowlist, with the layer each value comes from.
@@ -228,7 +254,7 @@ export const BACKEND_CHANNELS = {
    */
   readOmpSettings: {
     channel: "omp-settings:read",
-    ...request<[projectCwd: string | null], OmpSettingsSnapshot>(),
+    ...request<[projectCwd: string | null], OmpSettingsSnapshot>([nullable(str())]),
   },
   /**
    * Writes one omp setting to the GLOBAL layer via `omp config set`. `value`
@@ -236,7 +262,7 @@ export const BACKEND_CHANNELS = {
    */
   writeOmpSetting: {
     channel: "omp-settings:write",
-    ...request<[key: string, value: OmpSettingValue], void>(),
+    ...request<[key: string, value: OmpSettingValue], void>([str(), ompSettingValueCodec]),
   },
   /**
    * Provider credentials omp-ui supplies to every omp it launches, with the
@@ -245,7 +271,7 @@ export const BACKEND_CHANNELS = {
    */
   readProviderKeys: {
     channel: "provider-keys:read",
-    ...request<[projectCwd: string | null], ProviderKeysSnapshot>(),
+    ...request<[projectCwd: string | null], ProviderKeysSnapshot>([nullable(str())]),
   },
   /**
    * Stores one provider credential, encrypted by the OS credential store, and
@@ -255,20 +281,20 @@ export const BACKEND_CHANNELS = {
    */
   setProviderKey: {
     channel: "provider-keys:set",
-    ...request<[envName: string, value: string], ProviderKeysSnapshot>(),
+    ...request<[envName: string, value: string], ProviderKeysSnapshot>([str(), str()]),
   },
   /** Forgets a stored credential; inherited or login-shell values take over again. */
   clearProviderKey: {
     channel: "provider-keys:clear",
-    ...request<[envName: string], ProviderKeysSnapshot>(),
+    ...request<[envName: string], ProviderKeysSnapshot>([str()]),
   },
   spawnSession: {
     channel: "session:spawn",
-    ...request<[req: SpawnRequest], { tabId: string }>(),
+    ...request<[req: SpawnRequest], { tabId: string }>([spawnRequestCodec]),
   },
   terminateSession: {
     channel: "session:terminate",
-    ...request<[tabId: string], void>(),
+    ...request<[tabId: string], void>([str()]),
   },
   /**
    * Hibernates a planning source after its fresh implementation session has
@@ -277,11 +303,11 @@ export const BACKEND_CHANNELS = {
    */
   hibernatePlanSource: {
     channel: "session:hibernatePlanSource",
-    ...request<[sourceTabId: string, implementationTabId: string], boolean>(),
+    ...request<[sourceTabId: string, implementationTabId: string], boolean>([str(), str()]),
   },
   switchMode: {
     channel: "session:switchMode",
-    ...request<[tabId: string, mode: SessionMode], void>(),
+    ...request<[tabId: string, mode: SessionMode], void>([str(), sessionModeCodec]),
   },
   /**
    * Delete preview (issue #309): every owned session descended from
@@ -291,7 +317,7 @@ export const BACKEND_CHANNELS = {
    */
   deleteSessionPreview: {
     channel: "session:deletePreview",
-    ...request<[tabId: string], DeleteSessionPreview>(),
+    ...request<[tabId: string], DeleteSessionPreview>([str()]),
   },
   /**
    * Deletes a session: the registry record plus its lineage files in the
@@ -301,7 +327,7 @@ export const BACKEND_CHANNELS = {
    */
   deleteSession: {
     channel: "session:delete",
-    ...request<[tabId: string, cascade: boolean], DeleteSessionResult>(),
+    ...request<[tabId: string, cascade: boolean], DeleteSessionResult>([str(), bool()]),
   },
   /**
    * Full-fidelity branch (issue #83): copies the session's transcript into a
@@ -311,7 +337,7 @@ export const BACKEND_CHANNELS = {
    */
   forkSession: {
     channel: "session:fork",
-    ...request<[tabId: string], { tabId: string }>(),
+    ...request<[tabId: string], { tabId: string }>([str()]),
   },
   /**
    * Re-pins a session's advisor state. omp binds both the enable flag and the
@@ -320,12 +346,12 @@ export const BACKEND_CHANNELS = {
    */
   setSessionAdvisor: {
     channel: "session:setAdvisor",
-    ...request<[tabId: string, advisor: boolean, advisorModel: string | null], void>(),
+    ...request<[tabId: string, advisor: boolean, advisorModel: string | null], void>([str(), bool(), nullable(str())]),
   },
   /** omp's advisor defaults for a project (global config plus project overlay). */
   getAdvisorDefaults: {
     channel: "advisor:defaults",
-    ...request<[projectCwd: string], AdvisorDefaults>(),
+    ...request<[projectCwd: string], AdvisorDefaults>([str()]),
   },
   /**
    * Records the main model and thinking level for both this session and the
@@ -336,7 +362,7 @@ export const BACKEND_CHANNELS = {
     ...request<
       [tabId: string, model: string | null, thinkingLevel: string | null],
       void
-    >(),
+    >([str(), nullable(str()), nullable(str())]),
   },
   /**
    * Titles a first user prompt with omp's own small model (the `tiny`/`commit`/
@@ -345,7 +371,7 @@ export const BACKEND_CHANNELS = {
    */
   generateTitle: {
     channel: "title:generate",
-    ...request<[projectCwd: string, prompt: string], string | null>(),
+    ...request<[projectCwd: string, prompt: string], string | null>([str(), str()]),
   },
   /**
    * Suggests a git branch name for a plan with omp's own small model (the
@@ -354,7 +380,7 @@ export const BACKEND_CHANNELS = {
    */
   suggestBranchName: {
     channel: "branch:nameSuggest",
-    ...request<[projectCwd: string, planContext: string], string | null>(),
+    ...request<[projectCwd: string, planContext: string], string | null>([str(), str()]),
   },
   /**
    * Reads a plan artifact for the review pane, by absolute path. Confined to
@@ -363,17 +389,17 @@ export const BACKEND_CHANNELS = {
    */
   readPlanFile: {
     channel: "plan:read",
-    ...request<[tabId: string, absPath: string], string | null>(),
+    ...request<[tabId: string, absPath: string], string | null>([str(), str()]),
   },
   /**
    * Opens an absolute path with the system default handler (a browser for the
    * exported transcript HTML). Rejects when the handler reports a failure.
    */
-  openPath: { channel: "file:open", ...request<[absPath: string], void>() },
+  openPath: { channel: "file:open", ...request<[absPath: string], void>([str()]) },
   /** Reveals an absolute path in the platform file manager. */
   showPathInFolder: {
     channel: "file:showInFolder",
-    ...request<[absPath: string], void>(),
+    ...request<[absPath: string], void>([str()]),
   },
   /**
    * Working-tree changes on the active branch of a project's git repo: tracked
@@ -382,7 +408,7 @@ export const BACKEND_CHANNELS = {
    */
   getBranchDiff: {
     channel: "branch:diff",
-    ...request<[projectCwd: string, base?: string | null], BranchDiff>(),
+    ...request<[projectCwd: string, base?: string | null], BranchDiff>([str(), trailingOptional(nullable(str()))]),
   },
   /**
    * Local branches of a project's git repo, default branch first. Null fields
@@ -390,7 +416,7 @@ export const BACKEND_CHANNELS = {
    */
   listBranches: {
     channel: "branch:list",
-    ...request<[projectCwd: string, opts?: BranchListOptions], BranchList>(),
+    ...request<[projectCwd: string, opts?: BranchListOptions], BranchList>([str(), trailingOptional(branchListOptionsCodec)]),
   },
   /**
    * Switches the project's repo to `name` (`checkout -b` when opts.create).
@@ -402,22 +428,22 @@ export const BACKEND_CHANNELS = {
     ...request<
       [projectCwd: string, name: string, opts?: { create?: boolean }],
       void
-    >(),
+    >([str(), str(), trailingOptional(checkoutOptionsCodec)]),
   },
   /** Pulls the checked-out branch from its configured upstream. */
   pullBranch: {
     channel: "branch:pull",
-    ...request<[projectCwd: string], void>(),
+    ...request<[projectCwd: string], void>([str()]),
   },
   /** Merge-back feasibility for a worktree session's recorded base (issue #272). */
   getMergeBackStatus: {
     channel: "branch:mergeStatus",
-    ...request<[projectCwd: string, branch: string, base: string | null], MergeBackStatus>(),
+    ...request<[projectCwd: string, branch: string, base: string | null], MergeBackStatus>([str(), str(), nullable(str())]),
   },
   /** Merges the worktree branch into its destination in the project checkout (issue #272). */
   mergeWorktreeBranch: {
     channel: "branch:mergeBack",
-    ...request<[projectCwd: string, branch: string, destination: string], MergeBackResult>(),
+    ...request<[projectCwd: string, branch: string, destination: string], MergeBackResult>([str(), str(), str()]),
   },
   /**
    * Resolved mnemopi memory overview for a project; never rejects — failures
@@ -425,7 +451,7 @@ export const BACKEND_CHANNELS = {
    */
   memoryOverview: {
     channel: "memory:overview",
-    ...request<[projectCwd: string], MemoryOverview>(),
+    ...request<[projectCwd: string], MemoryOverview>([str()]),
   },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd
@@ -433,12 +459,12 @@ export const BACKEND_CHANNELS = {
    */
   getMcpServers: {
     channel: "mcp:list",
-    ...request<[projectCwd: string | null], McpServersResult>(),
+    ...request<[projectCwd: string | null], McpServersResult>([nullable(str())]),
   },
   /** Toggles one writable MCP server and returns the refreshed list. */
   setMcpServerEnabled: {
     channel: "mcp:setEnabled",
-    ...request<[req: McpSetEnabledRequest], McpServersResult>(),
+    ...request<[req: McpSetEnabledRequest], McpServersResult>([mcpSetEnabledRequestCodec]),
   },
   /**
    * Restarts a live session in place (kill + relaunch with `--resume`, same
@@ -447,11 +473,11 @@ export const BACKEND_CHANNELS = {
    */
   restartSession: {
     channel: "session:restart",
-    ...request<[tabId: string], void>(),
+    ...request<[tabId: string], void>([str()]),
   },
   convertToWorktree: {
     channel: "session:convert-to-worktree",
-    ...request<[tabId: string, branch: string, baseRef: string | null], void>(),
+    ...request<[tabId: string, branch: string, baseRef: string | null], void>([str(), str(), nullable(str())]),
   },
   /**
    * Returns a worktree session to its project checkout (issue #334) — the
@@ -462,7 +488,7 @@ export const BACKEND_CHANNELS = {
    */
   releaseWorktree: {
     channel: "session:release-worktree",
-    ...request<[tabId: string], WorktreeReleaseResult>(),
+    ...request<[tabId: string], WorktreeReleaseResult>([str()]),
   },
   /**
    * Project-relative file listing for the composer's @ picker;
@@ -470,7 +496,7 @@ export const BACKEND_CHANNELS = {
    */
   listProjectFiles: {
     channel: "project-files:list",
-    ...request<[projectCwd: string], { files: string[]; truncated: boolean }>(),
+    ...request<[projectCwd: string], { files: string[]; truncated: boolean }>([str()]),
   },
   /**
    * Busy-route mention resolution: omp skips @-extraction on steer/follow_up,
@@ -478,7 +504,7 @@ export const BACKEND_CHANNELS = {
    */
   resolveFileMentions: {
     channel: "file-mentions:resolve",
-    ...request<[projectCwd: string, message: string], ResolvedMentionContext>(),
+    ...request<[projectCwd: string, message: string], ResolvedMentionContext>([str(), str()]),
   },
   /**
    * Writes pasted image bytes to a scratch file and delivers its path to the
@@ -487,12 +513,12 @@ export const BACKEND_CHANNELS = {
    */
   ptyPasteImage: {
     channel: "pty:pasteImage",
-    ...request<[tabId: string, image: ImageAttachment], void>(),
+    ...request<[tabId: string, image: ImageAttachment], void>([str(), imageAttachmentCodec]),
   },
-  ptyWrite: { channel: "pty:write", ...notify<[tabId: string, data: string]>() },
+  ptyWrite: { channel: "pty:write", ...notify<[tabId: string, data: string]>([str(), str()]) },
   ptyResize: {
     channel: "pty:resize",
-    ...notify<[tabId: string, cols: number, rows: number]>(),
+    ...notify<[tabId: string, cols: number, rows: number]>([str(), num(), num()]),
   },
   /**
    * Spawns the tab's console-drawer program in `cwd` — the user's login shell
@@ -505,14 +531,14 @@ export const BACKEND_CHANNELS = {
     ...request<
       [tabId: string, cwd: string, cols: number, rows: number, program?: ConsoleProgram],
       void
-    >(),
+    >([str(), str(), num(), num(), trailingOptional(consoleProgramCodec)]),
   },
   /** Kills the tab's console-drawer shell, suppressing its exit event. */
-  shellKill: { channel: "shell:kill", ...notify<[tabId: string]>() },
-  shellWrite: { channel: "shell:write", ...notify<[tabId: string, data: string]>() },
+  shellKill: { channel: "shell:kill", ...notify<[tabId: string]>([str()]) },
+  shellWrite: { channel: "shell:write", ...notify<[tabId: string, data: string]>([str(), str()]) },
   shellResize: {
     channel: "shell:resize",
-    ...notify<[tabId: string, cols: number, rows: number]>(),
+    ...notify<[tabId: string, cols: number, rows: number]>([str(), num(), num()]),
   },
   onShellData: {
     channel: "shell:data",
@@ -522,7 +548,7 @@ export const BACKEND_CHANNELS = {
     channel: "shell:exit",
     ...event<[tabId: string, exitCode: number]>(),
   },
-  rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: RpcFrame]>() },
+  rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: RpcFrame]>([str(), rpcFrameCodec]) },
   /**
    * Reports the tab this renderer currently has in view, or null when none.
    * `clientId` is the renderer's stable report identity so a reload replaces
@@ -531,7 +557,7 @@ export const BACKEND_CHANNELS = {
    * so a report that goes silent (closed window, dead socket) stops
    * protecting on its own (issue #266).
    */
-  tabViewed: { channel: "tab:viewed", ...notify<[clientId: string, tabId: string | null]>() },
+  tabViewed: { channel: "tab:viewed", ...notify<[clientId: string, tabId: string | null]>([str(), nullable(str())]) },
   /**
    * Reports this renderer's stall auto-continue guard for a tab (issue #271):
    * true when it pauses at its cap, false when it re-arms (user prompt / plan
@@ -539,7 +565,7 @@ export const BACKEND_CHANNELS = {
    */
   reportStallCap: {
     channel: "stall:cap",
-    ...notify<[tabId: string, paused: boolean]>(),
+    ...notify<[tabId: string, paused: boolean]>([str(), bool()]),
   },
   onPtyData: { channel: "pty:data", ...event<[tabId: string, data: Uint8Array]>() },
   onPtyExit: {
@@ -563,52 +589,52 @@ export const BACKEND_CHANNELS = {
   onStateChanged: { channel: "state:changed", ...event<[state: BackendState]>() },
   toggleFavorite: {
     channel: "favorites:toggle",
-    ...request<[key: string], void>(),
+    ...request<[key: string], void>([str()]),
   },
   /** Current omp binary update state. */
-  getOmpUpdateState: { channel: "omp:updateGetState", ...request<[], OmpUpdateState>() },
+  getOmpUpdateState: { channel: "omp:updateGetState", ...request<[], OmpUpdateState>([]) },
   /** Manual check — surfaces up-to-date/error transiently, bypasses dismissal. */
-  checkOmpUpdate: { channel: "omp:updateCheck", ...request<[], OmpUpdateState>() },
+  checkOmpUpdate: { channel: "omp:updateCheck", ...request<[], OmpUpdateState>([]) },
   /**
    * Starts the opt-in install/update of the managed omp binary. No-op unless
    * an update or install is offered. Progress flows via onOmpUpdateState.
    */
-  downloadOmpUpdate: { channel: "omp:updateDownload", ...request<[], void>() },
+  downloadOmpUpdate: { channel: "omp:updateDownload", ...request<[], void>([]) },
   /**
    * Hides the card. `remember: true` also persists the version so background
    * checks stay quiet for that offer; `false` is a transient hide.
    */
   dismissOmpUpdate: {
     channel: "omp:updateDismiss",
-    ...request<[version: string, remember: boolean], void>(),
+    ...request<[version: string, remember: boolean], void>([str(), bool()]),
   },
   onOmpUpdateState: { channel: "omp:updateState", ...event<[state: OmpUpdateState]>() },
   /** Current omp-ui update state. */
-  getAppUpdateState: { channel: "app:updateGetState", ...request<[], AppUpdateState>() },
+  getAppUpdateState: { channel: "app:updateGetState", ...request<[], AppUpdateState>([]) },
   /** Manual check — surfaces up-to-date/error/disabled transiently. */
-  checkAppUpdate: { channel: "app:updateCheck", ...request<[], AppUpdateState>() },
+  checkAppUpdate: { channel: "app:updateCheck", ...request<[], AppUpdateState>([]) },
   /**
    * Starts the package-appropriate manual action for non-auto-update formats:
    * verified download + system-installer handoff. AppImage/NSIS/macOS-zip
    * staging begins as soon as a check finds an update (issue #99, issue #125).
    */
-  downloadAppUpdate: { channel: "app:updateDownload", ...request<[], void>() },
+  downloadAppUpdate: { channel: "app:updateDownload", ...request<[], void>([]) },
   /** Opens the pending release's GitHub page. */
-  openAppUpdateReleaseNotes: { channel: "app:updateOpenNotes", ...request<[], void>() },
+  openAppUpdateReleaseNotes: { channel: "app:updateOpenNotes", ...request<[], void>([]) },
   /** Reveals the downloaded update artifact in its folder. */
-  showAppUpdateDownload: { channel: "app:updateShowDownload", ...request<[], void>() },
+  showAppUpdateDownload: { channel: "app:updateShowDownload", ...request<[], void>([]) },
   /**
    * Requests a restart into a staged update. The first call leaves `confirmed`
    * false; `confirmation-required` must be answered in the initiating renderer.
    */
   restartForAppUpdate: {
     channel: "app:updateRestart",
-    ...request<[confirmed?: boolean], AppUpdateRestartResult>(),
+    ...request<[confirmed?: boolean], AppUpdateRestartResult>([trailingOptional(bool())]),
   },
   /** Arms or disarms applying a staged update on the next natural quit. */
   setAppUpdateInstallOnQuit: {
     channel: "app:updateInstallOnQuit",
-    ...request<[on: boolean], void>(),
+    ...request<[on: boolean], void>([bool()]),
   },
   /**
    * Hides the card. `remember: true` also persists the version so background
@@ -616,25 +642,25 @@ export const BACKEND_CHANNELS = {
    */
   dismissAppUpdate: {
     channel: "app:updateDismiss",
-    ...request<[version: string, remember: boolean], void>(),
+    ...request<[version: string, remember: boolean], void>([str(), bool()]),
   },
   onAppUpdateState: { channel: "app:updateState", ...event<[state: AppUpdateState]>() },
   /** Embedded remote-access server settings + live status (issue #37). */
-  getRemoteState: { channel: "remote:getState", ...request<[], RemoteState>() },
-  setRemoteEnabled: { channel: "remote:setEnabled", ...request<[on: boolean], void>() },
-  setRemoteBind: { channel: "remote:setBind", ...request<[bind: RemoteBind], void>() },
+  getRemoteState: { channel: "remote:getState", ...request<[], RemoteState>([]) },
+  setRemoteEnabled: { channel: "remote:setEnabled", ...request<[on: boolean], void>([bool()]) },
+  setRemoteBind: { channel: "remote:setBind", ...request<[bind: RemoteBind], void>([remoteBindCodec]) },
   /** Rejects when the port is not a whole number in 1024–65535. */
-  setRemotePort: { channel: "remote:setPort", ...request<[port: number], void>() },
+  setRemotePort: { channel: "remote:setPort", ...request<[port: number], void>([num()]) },
   /** Mints a fresh token and restarts the server, dropping every connected client. */
-  regenerateRemoteToken: { channel: "remote:regenerateToken", ...request<[], void>() },
+  regenerateRemoteToken: { channel: "remote:regenerateToken", ...request<[], void>([]) },
   /**
    * Sets the remote sign-in password (stored as a salted scrypt hash) and restarts the server,
    * dropping every connected client. Rejects with the policy message from
    * validateRemotePassword when the password is unacceptable.
    */
-  setRemotePassword: { channel: "remote:setPassword", ...request<[password: string], void>() },
+  setRemotePassword: { channel: "remote:setPassword", ...request<[password: string], void>([str()]) },
   /** Clears the password; remote access falls back to token-only. Restarts the server. */
-  clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>() },
+  clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>([]) },
   onRemoteState: { channel: "remote:state", ...event<[state: RemoteState]>() },
 } as const;
 
@@ -649,6 +675,16 @@ type ChannelNames = {
 export const CH = Object.fromEntries(
   Object.entries(BACKEND_CHANNELS).map(([method, descriptor]) => [method, descriptor.channel]),
 ) as ChannelNames;
+
+const ARG_CODECS_BY_CHANNEL = new Map<string, readonly ArgCodec<unknown>[]>();
+for (const descriptor of Object.values(BACKEND_CHANNELS)) {
+  if (descriptor.kind !== "event") {
+    ARG_CODECS_BY_CHANNEL.set(
+      descriptor.channel,
+      descriptor.args as readonly ArgCodec<unknown>[],
+    );
+  }
+}
 
 type ClientMethod<Descriptor> = Descriptor extends RequestChannel<infer Args, infer Result>
   ? (...args: Args) => Promise<Result>
@@ -685,11 +721,32 @@ export interface ChannelTable {
   readonly notify: NotifyHandlers;
 }
 
+function decodeArgs(
+  channel: string,
+  args: unknown[],
+  codecs: readonly ArgCodec<unknown>[],
+): unknown[] {
+  if (args.length > codecs.length) {
+    throw new Error(`invalid arguments for ${channel}: expected at most ${codecs.length}`);
+  }
+
+  const decoded = new Array<unknown>(args.length);
+  for (let index = 0; index < codecs.length; index += 1) {
+    try {
+      const value = codecs[index]!.decode(args[index], `argument ${index}`);
+      if (index < args.length) decoded[index] = value;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : `argument ${index} is invalid`;
+      throw new Error(`invalid arguments for ${channel}: ${detail}`, { cause: error });
+    }
+  }
+  return decoded;
+}
+
 /**
  * The single dispatch boundary into a {@link ChannelTable}. Both transports — Electron's
  * ipcMain and the remote ws server — deliver dynamically decoded `unknown[]` argument
- * arrays, so the channel-keyed table is widened exactly once, here; individual handlers
- * stay tuple-checked by ChannelTable.
+ * arrays. This boundary rejects malformed tuples before tuple-checked handlers run.
  *
  * An unknown request channel rejects with a named error; a throwing handler rejects with
  * its own error. The transport decides what a rejection means on the wire.
@@ -699,12 +756,15 @@ export function dispatchRequest(
   channel: string,
   args: unknown[],
 ): Promise<unknown> {
+  const codecs = ARG_CODECS_BY_CHANNEL.get(channel);
+  if (!Object.hasOwn(table.request, channel) || codecs === undefined) {
+    return Promise.reject(new Error(`unknown channel ${channel}`));
+  }
   const handler = (table.request as unknown as Record<string, (...args: unknown[]) => unknown>)[
     channel
-  ];
-  if (handler === undefined) return Promise.reject(new Error(`unknown channel ${channel}`));
+  ]!;
   try {
-    return Promise.resolve(handler(...args));
+    return Promise.resolve(handler(...decodeArgs(channel, args, codecs)));
   } catch (err) {
     return Promise.reject(err);
   }
@@ -720,14 +780,15 @@ export function dispatchNotify(
   channel: string,
   args: unknown[],
 ): void {
+  const codecs = ARG_CODECS_BY_CHANNEL.get(channel);
+  if (!Object.hasOwn(table.notify, channel) || codecs === undefined) return;
   const handler = (table.notify as unknown as Record<string, (...args: unknown[]) => void>)[
     channel
-  ];
-  if (handler === undefined) return;
+  ]!;
   try {
-    handler(...args);
+    handler(...decodeArgs(channel, args, codecs));
   } catch {
-    // No reply channel — see the doc comment.
+    // No reply channel — malformed input and handler failures are dropped.
   }
 }
 

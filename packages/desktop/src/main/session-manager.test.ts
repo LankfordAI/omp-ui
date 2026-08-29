@@ -465,40 +465,6 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     expect(broadcastSources).toEqual([handoff]);
   });
 
-  it.each([
-    ["empty source tab id", { ...handoff, sourceTabId: "" }, "sourceTabId"],
-    ["non-string source tab id", { ...handoff, sourceTabId: 42 }, "sourceTabId"],
-    ["empty plan title", { ...handoff, planTitle: "" }, "planTitle"],
-    ["non-string plan title", { ...handoff, planTitle: 42 }, "planTitle"],
-    ["empty plan file path", { ...handoff, planFilePath: "" }, "planFilePath"],
-    ["non-string plan file path", { ...handoff, planFilePath: 42 }, "planFilePath"],
-  ] as const)(
-    "rejects a handoff with %s before creating a record or lineage directory",
-    async (_case, malformedHandoff, field) => {
-      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-      const addSession = vi.spyOn(registry, "addSession");
-      const tabIdsBefore = registry.sessions.map((session) => session.tabId);
-      const directoriesBefore = fs.readdirSync(sessionsRoot);
-
-      await expect(
-        manager.spawnFromWire({
-          origin: "new",
-          projectCwd: "/proj",
-          mode: "rpc-ui",
-          advisor: false,
-          cols: 80,
-          rows: 24,
-          worktree: null,
-          planImplementationSource: malformedHandoff,
-        }),
-      ).rejects.toThrow(field);
-
-      expect(addSession).not.toHaveBeenCalled();
-      expect(registry.sessions.map((session) => session.tabId)).toEqual(tabIdsBefore);
-      expect(fs.readdirSync(sessionsRoot)).toEqual(directoriesBefore);
-      expect(RpcClientMock).not.toHaveBeenCalled();
-    },
-  );
 
   it("rejects a missing source before creating a record or lineage directory", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
@@ -585,23 +551,6 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     expect(spawnOmpMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a handoff for a resumed spawn", async () => {
-    const { manager, registry } = setup({ mode: "rpc-ui" });
-    const addSession = vi.spyOn(registry, "addSession");
-
-    await expect(
-      manager.spawnFromWire({
-        origin: "resume",
-        resumeTabId: TAB,
-        cols: 80,
-        rows: 24,
-        planImplementationSource: handoff,
-      }),
-    ).rejects.toThrow(/planImplementationSource/);
-
-    expect(addSession).not.toHaveBeenCalled();
-    expect(RpcClientMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("SessionManager live ownership", () => {

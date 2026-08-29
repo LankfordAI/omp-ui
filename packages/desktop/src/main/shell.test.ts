@@ -287,7 +287,7 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
     const fake = fakeShells[0]!;
 
-    await invoke(CH.deleteSession, TAB);
+    await invoke(CH.deleteSession, TAB, false);
     expect(fake.kill).toHaveBeenCalled();
   });
 });
