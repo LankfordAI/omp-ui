@@ -394,16 +394,25 @@ function listMarker(
 /**
  * Split a GFM table row into its cells, or null when the line is not a table
  * row. Honors backslash-escaped pipes (`\|` is a literal pipe and does not
- * split the row), strips the outer pipes when the trimmed line starts and
- * ends with `|`, and trims the single optional space around each cell.
+ * split the row), strips optional leading/trailing outer pipes without dropping
+ * meaningful empty cells, and trims whitespace around each cell.
  */
 function splitTableRow(line: string): string[] | null {
   // A table row needs at least one pipe: a bare paragraph line before a `---`
   // rule must stay a paragraph, never become a one-cell table header.
   if (!line.includes("|")) return null;
   let src = line.trim();
-  if (src.startsWith("|") && src.endsWith("|")) {
-    src = src.slice(1, -1);
+  if (src.startsWith("|")) {
+    src = src.slice(1);
+  }
+  if (src.endsWith("|")) {
+    // If the trailing pipe is preceded by an odd number of backslashes, it is
+    // escaped content and not an outer syntactic delimiter.
+    let bs = 0;
+    for (let j = src.length - 2; j >= 0 && src[j] === "\\"; j--) bs++;
+    if (bs % 2 === 0) {
+      src = src.slice(0, -1);
+    }
   }
   const cells: string[] = [];
   let buf = "";
@@ -425,10 +434,6 @@ function splitTableRow(line: string): string[] | null {
     buf += c;
   }
   cells.push(buf);
-  // A lone outer pipe leaves an empty edge cell; drop them all.
-  while (cells.length > 0 && cells[0]?.trim() === "") cells.shift();
-  while (cells.length > 0 && cells[cells.length - 1]?.trim() === "") cells.pop();
-  if (cells.length < 1) return null;
   return cells.map((c) => c.trim());
 }
 

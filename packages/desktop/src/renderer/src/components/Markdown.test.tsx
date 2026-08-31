@@ -395,3 +395,18 @@ describe("LaTeX math (issue #191)", () => {
     act(() => root.unmount());
   });
 });
+
+describe("Markdown tables (issue #365)", () => {
+  it("renders table with matching header and body column counts for blank leading header", () => {
+    const src = "| | Model A | Model B |\n|---|---|---|\n| Label | A | B |";
+    const { el, root } = render(src);
+    const ths = Array.from(el.querySelectorAll("thead th"));
+    expect(ths).toHaveLength(3);
+    expect(ths.map((th) => th.textContent)).toEqual(["", "Model A", "Model B"]);
+
+    const tds = Array.from(el.querySelectorAll("tbody td"));
+    expect(tds).toHaveLength(3);
+    expect(tds.map((td) => td.textContent)).toEqual(["Label", "A", "B"]);
+    act(() => root.unmount());
+  });
+});

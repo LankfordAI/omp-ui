@@ -253,6 +253,26 @@ describe("parseMarkdown blocks", () => {
       rows: [[[{ kind: "text", text: "a" }], [{ kind: "text", text: "b" }]]],
     });
   });
+  it("preserves a blank leading header cell (issue #365)", () => {
+    const src = "| | Model A | Model B |\n|---|---|---|\n| Label | A | B |";
+    const blocks = parseMarkdown(src);
+    expect(blocks[0]).toEqual({
+      kind: "table",
+      headers: [
+        [],
+        [{ kind: "text", text: "Model A" }],
+        [{ kind: "text", text: "Model B" }],
+      ],
+      rows: [
+        [
+          [{ kind: "text", text: "Label" }],
+          [{ kind: "text", text: "A" }],
+          [{ kind: "text", text: "B" }],
+        ],
+      ],
+    });
+  });
+
 
   it("keeps a backslash-escaped pipe inside a single cell", () => {
     const blocks = parseMarkdown("| path | val |\n|---|---|\n| a\\|b | c |");
