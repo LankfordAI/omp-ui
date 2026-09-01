@@ -1,10 +1,8 @@
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { ChoiceCapsule } from "./ui";
 
-const BUILD_TITLE = "build mode — working-tree writes and state-changing commands are allowed.";
-const PLAN_TITLE =
-  "plan mode: read-only exploration — a plan is drafted and reviewed only when you ask";
 
 export function BuildPlanControl({
   tabId,
@@ -19,6 +17,7 @@ export function BuildPlanControl({
   onSelected?: () => void;
   className?: string;
 }) {
+  const t = useT();
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const setPlanMode = useStore((s) => s.setPlanMode);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
@@ -35,7 +34,7 @@ export function BuildPlanControl({
 
   return (
     <ChoiceCapsule
-      label="session mode"
+      label={t("hud.mode.sessionMode")}
       value={planEnabled ? "plan" : "build"}
       options={modes.map((mode) => {
         const target = mode === "plan";
@@ -46,9 +45,9 @@ export function BuildPlanControl({
           disabled: disabled || (target && unavailable !== undefined),
           title: target
             ? unavailable === undefined
-              ? PLAN_TITLE
-              : `plan mode unavailable: ${unavailable}`
-            : BUILD_TITLE,
+              ? t("hud.mode.planDescription")
+              : t("hud.mode.planUnavailable", { unavailable })
+            : t("hud.mode.buildDescription"),
           className: sheet ? "flex-1 justify-center" : "text-[11px]",
           selectedClassName: alternate ? "bg-iris-wash text-iris" : "bg-hover text-ink",
           unselectedClassName: "text-ink-mid",
