@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { backend } from "../backend";
 import { IS_WINDOWS } from "../lib/platform";
 import { useStore } from "../store";
+import { useT } from "../lib/i18n";
 import { ShellDrawer } from "./ShellDrawer";
 import { Button, ICON_STROKE, IconButton, IconClose } from "./ui";
 
@@ -21,8 +22,9 @@ const consoleOpened = new Set<string>();
 /** The Session HUD's console button. */
 export function ConsoleToggle({ tabId, className }: { tabId: string; className?: string }) {
   const toggleConsole = useStore((s) => s.toggleConsole);
+  const t = useT();
   return (
-    <IconButton label="toggle console (mod+j)" className={className} onClick={() => toggleConsole(tabId)}>
+    <IconButton label={t("console.toggle.label")} className={className} onClick={() => toggleConsole(tabId)}>
       <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
         <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6" {...ICON_STROKE} />
         <path d="M4.6 6.4l1.8 1.7-1.8 1.7M8.4 9.9h3" {...ICON_STROKE} />
@@ -32,6 +34,7 @@ export function ConsoleToggle({ tabId, className }: { tabId: string; className?:
 }
 
 export function ConsoleDrawer({ tabId }: { tabId: string }) {
+  const t = useT();
   const open = useStore((s) => s.consoleOpen[tabId] ?? false);
   const toggleConsole = useStore((s) => s.toggleConsole);
 
@@ -58,15 +61,15 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
           <Button
             size="xs"
             variant="ghost"
-            title="clear the terminal"
+            title={t("console.drawer.clearTitle")}
             // `cls` is accepted by cmd and PowerShell alike (it is a built-in
             // Clear-Host alias there), while `clear` is the Unix spelling —
             // sending the wrong one makes the shell reject it (issue #166).
             onClick={() => backend.shellWrite(tabId, IS_WINDOWS ? "cls\n" : "clear\n")}
           >
-            clear
+            {t("console.drawer.clear")}
           </Button>
-          <IconButton label="close console (mod+j)" onClick={() => toggleConsole(tabId)}>
+          <IconButton label={t("console.drawer.closeLabel")} onClick={() => toggleConsole(tabId)}>
             <IconClose className="size-3" />
           </IconButton>
         </div>

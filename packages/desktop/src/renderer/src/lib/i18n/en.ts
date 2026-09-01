@@ -693,4 +693,28 @@ export const en = {
   "update.omp.installFailed": "Install failed",
   "update.omp.dismissLabel": "dismiss omp {version} offer",
   // TerminalTab
+  "terminal.tab.attachImages": "attach images",
+  "terminal.tab.exited": "agent exited",
+  "terminal.tab.exitedCode": "(code {code})",
+  "terminal.tab.resume": "resume session",
+  "terminal.note.attached": "attached {n} image",
+  "terminal.note.attachedPlural": "attached {n} images",
+  "terminal.note.dismiss": "dismiss",
+  // ConsoleToggle (Session HUD console button)
+  "console.toggle.label": "toggle console (mod+j)",
+  // ConsoleDrawer control pill
+  "console.drawer.clearTitle": "clear the terminal",
+  "console.drawer.clear": "clear",
+  "console.drawer.closeLabel": "close console (mod+j)",
+  // ShellDrawer handoff banner
+  "shell.handoff.running": "omp's terminal client — send this once the TUI has painted",
+  "shell.handoff.exited": "omp exited — restart the session so it reconnects with the new credential",
+  "shell.handoff.send": "send",
+  "shell.handoff.restartSession": "restart session",
+  "shell.handoff.dismiss": "dismiss",
+  // ShellDrawer exited overlay
+  "shell.drawer.exited": "shell exited",
+  "shell.drawer.exitedCode": "(code {code})",
+  "shell.exited.restart": "restart shell",
+  // CommandPalette
 } as const;
