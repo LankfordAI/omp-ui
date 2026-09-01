@@ -26,15 +26,16 @@ export const FONT_FAMILIES: readonly FontFamily[] = [
   {
     id: "default",
     label: "Default",
-    display: '"Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif',
-    sans: '"Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif',
+    display:
+      '"Bricolage Grotesque Variable", "Pretendard Variable", ui-sans-serif, system-ui, sans-serif',
+    sans: '"Instrument Sans Variable", "Pretendard Variable", ui-sans-serif, system-ui, sans-serif',
     mono: '"JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace',
   },
   {
     id: "ubuntu",
     label: "Ubuntu",
-    display: "Ubuntu, ui-sans-serif, system-ui, sans-serif",
-    sans: "Ubuntu, ui-sans-serif, system-ui, sans-serif",
+    display: 'Ubuntu, "Pretendard Variable", ui-sans-serif, system-ui, sans-serif',
+    sans: 'Ubuntu, "Pretendard Variable", ui-sans-serif, system-ui, sans-serif',
     mono: '"Ubuntu Mono", ui-monospace, "SFMono-Regular", monospace',
   },
 ];

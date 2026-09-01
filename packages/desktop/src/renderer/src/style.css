@@ -19,6 +19,21 @@
 @import "@fontsource/ubuntu/700.css";
 @import "@fontsource/ubuntu-mono/400.css";
 @import "@fontsource/ubuntu-mono/700.css";
+/* Self-hosted Pretendard (issue #364): the Korean fallback in every sans
+   stack. One variable file, weight 45-920, covers every weight the UI uses
+   (400/500/600/700). Source: orioncactus/pretendard v1.3.9,
+   SHA-256 9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4,
+   OFL-1.1 (assets/fonts/Pretendard-LICENSE.txt). No unicode-range: the file
+   is local, and the browser loads it only when a glyph the primary faces do
+   not cover appears. The stacks in style.css @theme and lib/font-families.ts
+   must stay in sync (see font-families.ts header). */
+@font-face {
+  font-family: "Pretendard Variable";
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url("./assets/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
 /* Locally bundled KaTeX (issue #191): the stylesheet and its relative font
    assets are emitted into both renderer builds — no CDN, no runtime network. */
 @import "katex/dist/katex.min.css";
@@ -84,8 +99,8 @@
      First-paint fallback for the "default" font family. lib/font-families.ts
      re-writes the same properties on the document root at boot; its
      "default" entry must stay in sync with the stacks below. */
-  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Pretendard Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans Variable", "Pretendard Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace;
 
   /* ---- Motion: one easing curve, three durations ---- */
