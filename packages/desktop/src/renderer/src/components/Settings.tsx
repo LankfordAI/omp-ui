@@ -8,6 +8,7 @@ import {
 import type { OmpSettingValue } from "@omp-ui/core/types";
 import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
+import { useT, type MessageKey } from "../lib/i18n";
 import { useStore, type SettingsPage } from "../store";
 import { Modal } from "./ui";
 import { AboutPage } from "./settings/AboutPage";
@@ -48,18 +49,18 @@ interface PageContext {
 
 const PAGES: ReadonlyArray<{
   id: SettingsPage;
-  label: string;
+  labelKey: MessageKey;
   render: (ctx: PageContext) => ReactNode;
   footer?: ComponentType<FooterContext>;
 }> = [
-  { id: "general", label: "General", render: () => <GeneralPage />, footer: GeneralFooter },
-  { id: "appearance", label: "Appearance", render: () => <AppearancePage /> },
-  { id: "updates", label: "Updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
-  { id: "remote", label: "Remote access", render: () => <RemotePage />, footer: RemoteFooter },
-  { id: "providers", label: "Providers", render: (ctx) => <ProvidersPage projectCwd={ctx.projectCwd} />, footer: ProvidersFooter },
+  { id: "general", labelKey: "settings.nav.general", render: () => <GeneralPage />, footer: GeneralFooter },
+  { id: "appearance", labelKey: "settings.nav.appearance", render: () => <AppearancePage /> },
+  { id: "updates", labelKey: "settings.nav.updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
+  { id: "remote", labelKey: "settings.nav.remote", render: () => <RemotePage />, footer: RemoteFooter },
+  { id: "providers", labelKey: "settings.nav.providers", render: (ctx) => <ProvidersPage projectCwd={ctx.projectCwd} />, footer: ProvidersFooter },
   {
     id: "memory",
-    label: "Memory",
+    labelKey: "settings.nav.memory",
     render: (ctx) => (
       <MemoryPage
         load={ctx.load}
@@ -75,7 +76,7 @@ const PAGES: ReadonlyArray<{
   },
   {
     id: "omp",
-    label: "omp",
+    labelKey: "settings.nav.omp",
     render: (ctx) => (
       <OmpPage
         load={ctx.load}
@@ -88,10 +89,11 @@ const PAGES: ReadonlyArray<{
     ),
     footer: OmpFooter,
   },
-  { id: "about", label: "About", render: (ctx) => <AboutPage load={ctx.load} /> },
+  { id: "about", labelKey: "settings.nav.about", render: (ctx) => <AboutPage load={ctx.load} /> },
 ];
 
 export function Settings() {
+  const t = useT();
   const page = useStore((s) => s.settingsPage) ?? "general";
   const openSettings = useStore((s) => s.openSettings);
   const closeSettings = useStore((s) => s.closeSettings);
@@ -169,13 +171,13 @@ export function Settings() {
       >
         <header className="settings-header border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-            Application
+            {t("settings.shell.application")}
           </p>
           <h2
             id="settings-title"
             className="font-display text-base font-semibold text-ink"
           >
-            Settings
+            {t("settings.shell.title")}
           </h2>
         </header>
 
@@ -193,7 +195,7 @@ export function Settings() {
                   page === p.id ? "bg-hover text-ink" : "text-ink-mid",
                 )}
               >
-                {p.label}
+                {t(p.labelKey)}
               </button>
             ))}
           </nav>

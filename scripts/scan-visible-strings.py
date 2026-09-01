@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "packages/desktop/src/renderer/src"
 INLINE = re.compile(r">([^<>{}\n]*[A-Za-z][^<>{}\n]*)</")
-BARE = re.compile(r"^\s*([A-Za-z][^<>{}\n]*[ \t][^<>{}\n]*?)\s*$")
+BARE = re.compile(r"^\s*([A-Za-z][^<>{}\n]*?)\s*$")
 ATTR = re.compile(r'\b(?:label|title|placeholder|aria-label|alt)="([^"]*[A-Za-z][^"]*)"')
 CODE_CHARS = set(";()=:,`+&|!")
 
@@ -33,9 +33,8 @@ def candidates(path: Path):
             yield index + 1, "inline", match.group(1).strip()
             continue
         match = BARE.match(line)
-        previous = lines[index - 1].rstrip() if index else ""
         following = lines[index + 1].lstrip() if index + 1 < len(lines) else ""
-        if match and not (set(match.group(1)) & CODE_CHARS) and (previous.endswith(">") or following.startswith("</")):
+        if match and not (set(match.group(1)) & CODE_CHARS) and following.startswith("</"):
             yield index + 1, "line", match.group(1)
             continue
         for match in ATTR.finditer(line):

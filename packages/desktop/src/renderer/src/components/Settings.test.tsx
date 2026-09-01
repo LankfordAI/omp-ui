@@ -1042,7 +1042,7 @@ describe("Settings Appearance page font family (issue #315)", () => {
   });
 });
 
-describe("Settings General page language row (issue #363)", () => {
+describe("Settings General page language row (issues #363, #367)", () => {
   const seedGeneral = (localeId: string): void => {
     useStore.setState({
       settingsPage: "general",
@@ -1066,12 +1066,18 @@ describe("Settings General page language row (issue #363)", () => {
 
     click(buttonWithText("한국어")!);
     expect(backendMock.setLocaleId).toHaveBeenCalledWith("ko");
+    expect(document.getElementById("settings-title")?.textContent).toBe("설정");
+    expect(buttonWithText("일반")).not.toBeNull();
+    expect(buttonWithText("General")).toBeNull();
   });
 
   it("reflects a persisted Korean setting", async () => {
     seedGeneral("ko");
+    applyLocale(resolveLocale("ko"));
     await renderSettings();
     expect(buttonWithText("한국어")!.getAttribute("aria-pressed")).toBe("true");
     expect(buttonWithText("English")!.getAttribute("aria-pressed")).toBe("false");
+    expect(document.getElementById("settings-title")?.textContent).toBe("설정");
+    expect(buttonWithText("모양")).not.toBeNull();
   });
 });
