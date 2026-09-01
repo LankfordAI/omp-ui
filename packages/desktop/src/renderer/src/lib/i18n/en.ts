@@ -400,4 +400,246 @@ export const en = {
   "plan.verify.preparationFailed": "document preparation failed: {message}",
   "plan.verify.renderedEmpty": "prepared document rendered empty",
   // GeneralPage
+  "settings.general.defaultSessionMode": "Default session mode",
+  "settings.general.defaultSessionModeHint":
+    "How a new session opens — an embedded terminal, or the native transcript.",
+  "settings.general.defaultSessionModeLabel": "default session mode",
+  "settings.general.defaultAgentMode": "Default agent mode",
+  "settings.general.defaultAgentModeHint":
+    "How a new native session starts — read-only Plan, or write-enabled Build.",
+  "settings.general.defaultAgentModeLabel": "default agent mode",
+  "settings.general.defaultCompactionMethod": "Default compaction method",
+  "settings.general.defaultCompactionMethodHint":
+    "Captured by new native sessions. omp configured default removes the override.",
+  "settings.general.compactionOmpDefault": "omp configured default",
+  "settings.general.compactionGroup": "default compaction method",
+  "settings.general.compactionOptionUnavailable": " (unavailable)",
+  "settings.general.compactionLoadFailed": "Methods unavailable: {message}",
+  "settings.general.planFormat": "Plan format",
+  "settings.general.planFormatHint":
+    "How the agent authors a plan for review — one self-contained HTML document rendered in the review modal, or markdown.",
+  "settings.general.planFormatLabel": "plan format",
+  "settings.general.hibernateIdle": "Hibernate idle sessions",
+  "settings.general.hibernateIdleHint":
+    "Stop the agent process of a native session after it has been quiet this long. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it.",
+  "settings.general.hibernateIdleLabel": "hibernate idle sessions",
+  "settings.general.streamStallWatchdog": "Stream-stall watchdog",
+  "settings.general.streamStallWatchdogHint":
+    "Abort a running turn after this much model-stream silence. The clock runs only while a model request is in flight: local tool execution suspends it for as long as the tool runs, and tool completion, compaction, retry backoff, and human answers each restart a full window. The session stays live — stall auto-continue or any prompt resumes it.",
+  "settings.general.streamStallWatchdogLabel": "stall watchdog",
+  "settings.general.stallAutoContinue": "Stall auto-continue",
+  "settings.general.stallAutoContinueHint":
+    "When a turn is aborted because the model stream stalled, send a bounded continue prompt (max 2 in a row; any prompt re-arms) so the session resumes instead of sitting idle. The stall diagnostic still appears with this off. Terminal tabs have no prompt channel and are unaffected.",
+  "settings.general.desktopNotifications": "Desktop notifications",
+  "settings.general.desktopNotificationsHint":
+    "Post an OS notification when a background native session needs attention — its turn finished, a plan review is waiting for an answer, or stall auto-continue paused at its cap. The banner appears while the window is unfocused or a different tab is in view; clicking it focuses the window and resurfaces the session. Terminal sessions are not announced, and remote browser clients are unaffected.",
+  "settings.general.advisorAutoReply": "Advisor auto-reply",
+  "settings.general.advisorAutoReplyHint":
+    "An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript.",
+  "settings.general.defaultAdvisor": "Default advisor",
+  "settings.general.defaultAdvisorHint":
+    "Start new sessions with the advisor running. Projects with a remembered advisor keep their own last-used state.",
+  "settings.general.skipDeleteConfirmation": "Skip the delete confirmation",
+  "settings.general.skipDeleteConfirmationHint":
+    "Deleting a session erases its whole lineage dir; skipping removes the warning.",
+  "settings.general.transcriptTextSize": "Transcript text size",
+  "settings.general.transcriptTextSizeHint":
+    "Native transcripts only — the rest of the chrome is an app, not a document.",
+  "settings.general.transcriptTextSizeLabel": "transcript text size",
+  "settings.general.footnote":
+    "Default session and agent modes apply to new sessions; everything else applies immediately.",
+
+  // AppearancePage
+  "settings.appearance.themeDark": "dark",
+  "settings.appearance.themeLight": "light",
+  "settings.appearance.mintNote":
+    "Every theme keeps mint reserved for agent liveness (ADR-0004).",
+  "settings.appearance.fontFamily": "Font family",
+  "settings.appearance.fontFamilyHint":
+    "Default is the app's own typeface — Bricolage Grotesque, Instrument Sans, and JetBrains Mono. Ubuntu swaps the whole set, code and terminals included.",
+  "settings.appearance.fontFamilyAria": "{name} font family",
+
+  // UpdatesPage
+  "settings.updates.newerRelease": "a newer release",
+  "settings.updates.available": "{version} available",
+  "settings.updates.downloading": "downloading {version}…",
+  "settings.updates.update": "update",
+  "settings.updates.downloaded": "{version} downloaded",
+  "settings.updates.installsOnQuit": " — installs on quit",
+  "settings.updates.applying": "applying {version}…",
+  "settings.updates.upToDate": "up to date",
+  "settings.updates.checking": "checking…",
+  "settings.updates.appChecksDisabled":
+    "omp-ui checks disabled in this build — omp binary updates are independent",
+  "settings.updates.checkFailed": "update check failed",
+  "settings.updates.noCheckYet": "no check has run yet",
+  "settings.updates.notInstalled": "not installed",
+  "settings.updates.installing": "installing {version}…",
+  "settings.updates.installed": "{version} installed — new sessions use it",
+  "settings.updates.unversionedBuild": "unversioned build",
+  "settings.updates.viewRelease": "View release",
+  "settings.updates.updateAction": "Update",
+  "settings.updates.download": "Download",
+  "settings.updates.undoInstallOnQuit": "Undo install on quit",
+  "settings.updates.installOnQuit": "Install when I quit",
+  "settings.updates.showInFolder": "Show in folder",
+  "settings.updates.checkNow": "Check now",
+  "settings.updates.checkOnLaunch": "Check on launch",
+  "settings.updates.checkAppOnLaunchLabel": "check for omp-ui updates on launch",
+  "settings.updates.dismissed": "Dismissed: {version}",
+  "settings.updates.reoffer": "Re-offer",
+  "settings.updates.ompBinary": "omp binary",
+  "settings.updates.checkOmpOnLaunchLabel": "check for omp updates on launch",
+  "settings.updates.updateNow": "Update now",
+  "settings.updates.install": "Install",
+  "settings.updates.footnote": "Downloads always need a click.",
+
+  // RemotePage
+  "settings.remote.starting": "starting…",
+  "settings.remote.listening": "listening on {port}",
+  "settings.remote.startFailed": "the server could not start",
+  "settings.remote.stopped": "stopped",
+  "settings.remote.webBundleMissing": "the browser bundle is missing — run ",
+  "settings.remote.password": "Password",
+  "settings.remote.passwordHint":
+    "Primary sign-in for remote devices. Stored as a salted hash — it cannot be revealed, only changed or cleared.",
+  "settings.remote.setPassword": "Set password",
+  "settings.remote.passwordSet": "password set",
+  "settings.remote.change": "Change",
+  "settings.remote.clear": "Clear",
+  "settings.remote.passwordAria": "remote access password",
+  "settings.remote.passwordPlaceholder": "at least 8 characters",
+  "settings.remote.save": "Save",
+  "settings.remote.cancel": "cancel",
+  "settings.remote.enable": "Enable remote access",
+  "settings.remote.enableHint":
+    "Off by default. A connected client can do everything you can, including editing files and running commands.",
+  "settings.remote.enableLabel": "enable remote access",
+  "settings.remote.bind": "Bind address",
+  "settings.remote.bindHint": "Which interface the server listens on.",
+  "settings.remote.bindLabel": "bind address",
+  "settings.remote.bindLocalNetwork": "local network",
+  "settings.remote.lanWarning":
+    "Anyone on this network with your password or a token link can drive your agent. Plain HTTP, so the connection is not encrypted.",
+  "settings.remote.port": "Port",
+  "settings.remote.portHint": "A whole number between 1024 and 65535.",
+  "settings.remote.portAria": "remote access port",
+  "settings.remote.accessToken": "Access token (fallback)",
+  "settings.remote.accessTokenHint":
+    "Still works while a password is set. Regenerating disconnects every client using it.",
+  "settings.remote.hide": "hide",
+  "settings.remote.reveal": "reveal",
+  "settings.remote.regenerate": "Regenerate",
+  "settings.remote.connectionUrl": "Connection URL",
+  "settings.remote.connectionUrlHintPassword":
+    "Open this on the other device, then sign in with your password.",
+  "settings.remote.connectionUrlHintToken":
+    "Open this on the other device — the token rides along.",
+  "settings.remote.tokenLink": "Token link (fallback)",
+  "settings.remote.tokenLinkHint":
+    "Full-access URL with the embedded token, for devices where typing a password is impractical.",
+  "settings.remote.alsoReachable": "Also reachable at",
+  "settings.remote.scanToPair": "Scan to pair",
+  "settings.remote.pairPassword":
+    "Opens omp-ui in the phone's browser; it will ask for your password.",
+  "settings.remote.pairToken":
+    "Opens omp-ui in the phone's browser with the token already attached.",
+
+  // ProvidersPage
+  "settings.providers.savedHere": "saved here",
+  "settings.providers.environment": "environment",
+  "settings.providers.shellProfile": "shell profile",
+  "settings.providers.replace": "Replace",
+  "settings.providers.addKey": "Add key",
+  "settings.providers.remove": "remove",
+  "settings.providers.keyAria": "{name} key",
+  "settings.providers.save": "Save",
+  "settings.providers.cancel": "cancel",
+  "settings.providers.shadowsEnvPrefix": "Overrides the ",
+  "settings.providers.shadowsEnvSuffix": " your environment already provides.",
+  "settings.providers.reading": "Reading providers…",
+  "settings.providers.readFailed": "Could not read provider keys",
+  "settings.providers.modelProviders": "Model providers",
+  "settings.providers.webSearch": "Web search",
+  "settings.providers.noneConfigured":
+    "No provider credentials — omp can only offer models that need no key",
+  "settings.providers.someConfigured":
+    "{configured} of {total} providers have a credential",
+  "settings.providers.encryptedPrefix":
+    "Keys you add are encrypted by your OS credential store (",
+  "settings.providers.encryptedSuffix": ").",
+  "settings.providers.noCredentialStore":
+    "No OS credential store is available here, so keys cannot be saved securely and adding one is refused. Export the variable from your shell profile instead.",
+  "settings.providers.footerIntro":
+    "omp reads credentials from the environment, so omp-ui supplies these to every session it launches — a key added here takes effect on the next session spawn.",
+  "settings.providers.footerRestart":
+    " Restart a session from its MCP panel to apply now.",
+  "settings.providers.footerEnvPrefix":
+    " Keys already exported by your shell profile are picked up automatically, and a project's ",
+  "settings.providers.footerEnvSuffix":
+    " is loaded by omp itself, so both are shown here but neither needs re-entering.",
+
+  // MemoryPage
+  "settings.memory.exists": "exists",
+  "settings.memory.notCreated": "not created",
+  "settings.memory.base": "base",
+  "settings.memory.resolvedMemory": "Resolved memory",
+  "settings.memory.focusTab":
+    "Focus a session tab to inspect its resolved backend and bank locations.",
+  "settings.memory.discovering": "Discovering banks…",
+  "settings.memory.retry": "retry",
+  "settings.memory.globalBank": "This project uses the global bank.",
+  "settings.memory.noProjectBank": "No project bank has been discovered yet.",
+  "settings.memory.reading": "Reading memory configuration…",
+  "settings.memory.readFailed": "Could not read memory configuration",
+  "settings.memory.ompMissingHint":
+    "omp is not installed, so there is nothing to configure yet.",
+  "settings.memory.installFromUpdates": "install omp from the Updates page",
+  "settings.memory.title": "Durable recall configuration",
+  "settings.memory.titleHint":
+    "Configure what future sessions retain and recall, and inspect the resolved memory banks for the focused project.",
+  "settings.memory.footerIntro": "Writes go to omp's global config (",
+  "settings.memory.footerProjectPrefix": "); a project's ",
+  "settings.memory.footerCanWin": " can win and is shown as ",
+  "settings.memory.footerEnd":
+    ". Memory configuration applies to sessions started after the change.",
+
+  // OmpPage
+  "settings.omp.reading": "Reading omp configuration…",
+  "settings.omp.readingHint":
+    "Values, layers, and enum members come from omp's own config CLI.",
+  "settings.omp.readFailed": "Could not read omp's configuration",
+  "settings.omp.ompMissingHint":
+    "omp is not installed, so there is nothing to configure yet.",
+  "settings.omp.retry": "retry",
+  "settings.omp.installFromUpdates": "install omp from the Updates page",
+  "settings.omp.noSessionFocused":
+    "No session focused — showing omp's global configuration.",
+  "settings.omp.modelRoles": "Model roles",
+  "settings.omp.modelRoleLabel": "model role {role}",
+  "settings.omp.modelRolePlaceholder": "model[:level] — blank = unset",
+  "settings.omp.mcpNote":
+    "MCP servers resolve per project from native and translated tool configs (issue #36); the global list applies to every project.",
+  "settings.omp.mcpFocusFirst":
+    "focus a session tab first — the manager pins to it",
+  "settings.omp.mcpServers": "MCP servers…",
+  "settings.omp.globalMcpServers": "Global MCP servers…",
+  "settings.omp.footerIntro": "Writes go to omp's global config (",
+  "settings.omp.footerProjectPrefix": "); a project's ",
+  "settings.omp.footerStillWins": " still wins and is shown as ",
+  "settings.omp.footerRoles":
+    ". omp binds model roles and the advisor at process start — changes take effect on the next session spawn.",
+  "settings.omp.footerRestart":
+    " Restart a session from its MCP panel to apply now.",
+  "settings.omp.footerYaml":
+    " omp regenerates its YAML on write, so comments in config.yml are dropped.",
+
+  // AboutPage
+  "settings.about.appVersion": "omp-ui version",
+  "settings.about.ompVersion": "omp version",
+  "settings.about.ompPath": "omp path",
+  "settings.about.ompConfigDir": "omp config dir",
+
+  // rows.tsx
+  "settings.rows.unset": "unset",
 } as const;

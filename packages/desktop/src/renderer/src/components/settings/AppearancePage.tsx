@@ -2,6 +2,7 @@ import { cn } from "../../lib/cn";
 import { FONT_FAMILIES, resolveFontFamily } from "../../lib/font-families";
 import { resolveTheme, THEMES } from "../../lib/themes";
 import { useStore } from "../../store";
+import { useT } from "../../lib/i18n";
 import { Chip } from "../ui";
 
 /** The planes and accents each swatch strip paints, in strip order. */
@@ -20,20 +21,21 @@ export function AppearancePage() {
   const setThemeId = useStore((s) => s.setThemeId);
   const fontFamilyId = useStore((s) => s.state?.fontFamilyId);
   const setFontFamilyId = useStore((s) => s.setFontFamilyId);
+  const t = useT();
   const activeId = resolveTheme(themeId).id;
   const activeFamilyId = resolveFontFamily(fontFamilyId).id;
 
   return (
     <div className="px-4 py-3">
       <div className="grid grid-cols-2 gap-2">
-        {THEMES.map((t) => {
-          const active = t.id === activeId;
+        {THEMES.map((theme) => {
+          const active = theme.id === activeId;
           return (
             <button
-              key={t.id}
+              key={theme.id}
               type="button"
               aria-pressed={active}
-              onClick={() => void setThemeId(t.id)}
+              onClick={() => void setThemeId(theme.id)}
               className={cn(
                 "rounded-lg border p-3 text-left transition-colors duration-150",
                 active
@@ -42,8 +44,8 @@ export function AppearancePage() {
               )}
             >
               <span className="flex items-center gap-2">
-                <span className="text-xs font-medium text-ink">{t.label}</span>
-                <Chip>{t.dark ? "dark" : "light"}</Chip>
+                <span className="text-xs font-medium text-ink">{theme.label}</span>
+                <Chip>{theme.dark ? t("settings.appearance.themeDark") : t("settings.appearance.themeLight")}</Chip>
               </span>
               {/* Inline styles are the one sanctioned exception here: these
                   swatches paint a theme that is NOT the active one, so the
@@ -53,7 +55,7 @@ export function AppearancePage() {
                   <span
                     key={token}
                     className="flex-1"
-                    style={{ background: t.tokens[token] }}
+                    style={{ background: theme.tokens[token] }}
                   />
                 ))}
               </span>
@@ -62,15 +64,13 @@ export function AppearancePage() {
         })}
       </div>
       <p className="mt-3 text-[11px] text-ink-faint">
-        Every theme keeps mint reserved for agent liveness (ADR-0004).
+        {t("settings.appearance.mintNote")}
       </p>
 
       <div className="mt-4 border-t border-line-soft pt-3">
-        <h3 className="text-xs font-medium text-ink">Font family</h3>
+        <h3 className="text-xs font-medium text-ink">{t("settings.appearance.fontFamily")}</h3>
         <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
-          Default is the app's own typeface — Bricolage Grotesque, Instrument
-          Sans, and JetBrains Mono. Ubuntu swaps the whole set, code and
-          terminals included.
+          {t("settings.appearance.fontFamilyHint")}
         </p>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {FONT_FAMILIES.map((f) => {
@@ -79,7 +79,7 @@ export function AppearancePage() {
               <button
                 key={f.id}
                 type="button"
-                aria-label={`${f.label} font family`}
+                aria-label={t("settings.appearance.fontFamilyAria", { name: f.label })}
                 aria-pressed={active}
                 onClick={() => void setFontFamilyId(f.id)}
                 className={cn(

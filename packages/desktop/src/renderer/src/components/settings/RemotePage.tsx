@@ -13,17 +13,18 @@ import {
   Switch,
 } from "../ui";
 import { CommitField, FIELD, Row } from "./rows";
+import { t, useT } from "../../lib/i18n";
 
 function remoteStatusLine(r: RemoteState): string {
   switch (r.status) {
     case "starting":
-      return "starting…";
+      return t("settings.remote.starting");
     case "listening":
-      return `listening on ${r.port}`;
+      return t("settings.remote.listening", { port: r.port });
     case "error":
-      return r.error ?? "the server could not start";
+      return r.error ?? t("settings.remote.startFailed");
     default:
-      return "stopped";
+      return t("settings.remote.stopped");
   }
 }
 
@@ -43,6 +44,7 @@ function remoteStatusTone(
  */
 function PairingQr({ url, hasPassword }: { url: string; hasPassword: boolean }) {
   const [svg, setSvg] = useState("");
+  const t = useT();
 
   useEffect(() => {
     let live = true;
@@ -74,11 +76,11 @@ function PairingQr({ url, hasPassword }: { url: string; hasPassword: boolean }) 
         dangerouslySetInnerHTML={{ __html: svg }}
       />
       <div className="min-w-0">
-        <Label>Scan to pair</Label>
+        <Label>{t("settings.remote.scanToPair")}</Label>
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
           {hasPassword
-            ? "Opens omp-ui in the phone&apos;s browser; it will ask for your password."
-            : "Opens omp-ui in the phone&apos;s browser with the token already attached."}
+            ? t("settings.remote.pairPassword")
+            : t("settings.remote.pairToken")}
         </p>
       </div>
     </Panel>
@@ -91,6 +93,7 @@ function PairingQr({ url, hasPassword }: { url: string; hasPassword: boolean }) 
  * Escape cancels without closing the modal.
  */
 function PasswordRow() {
+  const t = useT();
   const hasPassword = useStore((s) => s.remote.hasPassword);
   const setRemotePassword = useStore((s) => s.setRemotePassword);
   const clearRemotePassword = useStore((s) => s.clearRemotePassword);
@@ -119,26 +122,25 @@ function PasswordRow() {
     <div className="py-2.5">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-ink">Password</p>
+          <p className="text-xs font-medium text-ink">{t("settings.remote.password")}</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
-            Primary sign-in for remote devices. Stored as a salted hash — it cannot
-            be revealed, only changed or cleared.
+            {t("settings.remote.passwordHint")}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {!editing && !hasPassword && (
             <Button size="xs" onClick={() => setEditing(true)}>
-              Set password
+              {t("settings.remote.setPassword")}
             </Button>
           )}
           {!editing && hasPassword && (
             <>
-              <span className="text-[11px] text-ink-mid">password set</span>
+              <span className="text-[11px] text-ink-mid">{t("settings.remote.passwordSet")}</span>
               <Button size="xs" variant="ghost" onClick={() => setEditing(true)}>
-                Change
+                {t("settings.remote.change")}
               </Button>
               <Button size="xs" onClick={() => void clearRemotePassword()}>
-                Clear
+                {t("settings.remote.clear")}
               </Button>
             </>
           )}
@@ -150,8 +152,8 @@ function PasswordRow() {
             ref={input}
             type="password"
             value={draft}
-            aria-label="remote access password"
-            placeholder="at least 8 characters"
+            aria-label={t("settings.remote.passwordAria")}
+            placeholder={t("settings.remote.passwordPlaceholder")}
             spellCheck={false}
             autoComplete="new-password"
             onChange={(e) => setDraft(e.target.value)}
@@ -169,10 +171,10 @@ function PasswordRow() {
             className={cn(FIELD, "flex-1")}
           />
           <Button size="xs" disabled={draft.trim() === ""} onClick={save}>
-            Save
+            {t("settings.remote.save")}
           </Button>
           <Button size="xs" variant="ghost" onClick={cancel}>
-            cancel
+            {t("settings.remote.cancel")}
           </Button>
         </div>
       )}
@@ -180,12 +182,8 @@ function PasswordRow() {
   );
 }
 
-const REMOTE_BIND_OPTIONS = [
-  { value: "localhost", label: "localhost" },
-  { value: "lan", label: "local network" },
-] as const;
-
 export function RemotePage() {
+  const t = useT();
   const remote = useStore((s) => s.remote);
   const setRemoteEnabled = useStore((s) => s.setRemoteEnabled);
   const setRemoteBind = useStore((s) => s.setRemoteBind);
@@ -209,7 +207,7 @@ export function RemotePage() {
         </div>
         {remote.webBundleMissing && (
           <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
-            the browser bundle is missing — run{" "}
+            {t("settings.remote.webBundleMissing")}
             <span className="font-mono">npm run build:web</span>
           </p>
         )}
@@ -217,40 +215,42 @@ export function RemotePage() {
 
       <div className="divide-y divide-line-soft">
         <Row
-          title="Enable remote access"
-          hint="Off by default. A connected client can do everything you can, including editing files and running commands."
+          title={t("settings.remote.enable")}
+          hint={t("settings.remote.enableHint")}
         >
           <Switch
             on={remote.enabled}
             onChange={(next) => void setRemoteEnabled(next)}
-            label="enable remote access"
+            label={t("settings.remote.enableLabel")}
           />
         </Row>
         <div>
           <Row
-            title="Bind address"
-            hint="Which interface the server listens on."
+            title={t("settings.remote.bind")}
+            hint={t("settings.remote.bindHint")}
           >
             <ChoiceCapsule
-              label="bind address"
+              label={t("settings.remote.bindLabel")}
               value={remote.bind}
-              options={REMOTE_BIND_OPTIONS}
+              options={[
+                { value: "localhost", label: "localhost" },
+                { value: "lan", label: t("settings.remote.bindLocalNetwork") },
+              ] as const}
               onChange={(value) => void setRemoteBind(value)}
               optionClassName="px-2 text-[11px]"
             />
           </Row>
           {remote.bind === "lan" && (
             <p className="pb-2.5 text-[11px] leading-relaxed text-rose">
-              Anyone on this network with your password or a token link can drive your agent.
-              Plain HTTP, so the connection is not encrypted.
+              {t("settings.remote.lanWarning")}
             </p>
           )}
         </div>
-        <Row title="Port" hint="A whole number between 1024 and 65535.">
+        <Row title={t("settings.remote.port")} hint={t("settings.remote.portHint")}>
           <CommitField
             current={String(remote.port)}
             kind="number"
-            label="remote access port"
+            label={t("settings.remote.portAria")}
             disabled={false}
             className="w-24"
             onCommit={(raw) => void setRemotePort(Number(raw))}
@@ -258,8 +258,8 @@ export function RemotePage() {
         </Row>
         <PasswordRow />
         <Row
-          title="Access token (fallback)"
-          hint="Still works while a password is set. Regenerating disconnects every client using it."
+          title={t("settings.remote.accessToken")}
+          hint={t("settings.remote.accessTokenHint")}
         >
           <div className="flex items-center gap-1.5">
             <span
@@ -274,20 +274,20 @@ export function RemotePage() {
               variant="ghost"
               onClick={() => setRevealed((v) => !v)}
             >
-              {revealed ? "hide" : "reveal"}
+              {revealed ? t("settings.remote.hide") : t("settings.remote.reveal")}
             </Button>
             <CopyButton text={remote.token} />
             <Button size="xs" onClick={() => void regenerateRemoteToken()}>
-              Regenerate
+              {t("settings.remote.regenerate")}
             </Button>
           </div>
         </Row>
         <Row
-          title="Connection URL"
+          title={t("settings.remote.connectionUrl")}
           hint={
             remote.hasPassword
-              ? "Open this on the other device, then sign in with your password."
-              : "Open this on the other device — the token rides along."
+              ? t("settings.remote.connectionUrlHintPassword")
+              : t("settings.remote.connectionUrlHintToken")
           }
         >
           <div className="flex items-center gap-1.5">
@@ -303,8 +303,8 @@ export function RemotePage() {
         </Row>
         {remote.hasPassword && (
           <Row
-            title="Token link (fallback)"
-            hint="Full-access URL with the embedded token, for devices where typing a password is impractical."
+            title={t("settings.remote.tokenLink")}
+            hint={t("settings.remote.tokenLinkHint")}
           >
             <div className="flex items-center gap-1.5">
               <span
@@ -324,7 +324,7 @@ export function RemotePage() {
 
       {remote.urls.length > 1 && (
         <div className="space-y-0.5">
-          <Label>Also reachable at</Label>
+          <Label>{t("settings.remote.alsoReachable")}</Label>
           {remote.urls.slice(1).map((url) => (
             <p
               key={url}

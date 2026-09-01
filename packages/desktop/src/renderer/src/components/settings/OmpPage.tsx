@@ -8,6 +8,7 @@ import { findRecord, sessionCwd, useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
+import { useT } from "../../lib/i18n";
 
 export function OmpPage({
   load,
@@ -30,12 +31,12 @@ export function OmpPage({
   const openMcpManager = useStore((s) => s.openMcpManager);
   const openSettings = useStore((s) => s.openSettings);
   const closeSettings = useStore((s) => s.closeSettings);
-
+  const t = useT();
   if (load.status === "loading") {
     return (
       <Empty
-        title="Reading omp configuration…"
-        hint="Values, layers, and enum members come from omp's own config CLI."
+        title={t("settings.omp.reading")}
+        hint={t("settings.omp.readingHint")}
       />
     );
   }
@@ -54,16 +55,16 @@ export function OmpPage({
     const missing = failure === OMP_MISSING;
     return (
       <Empty
-        title="Could not read omp's configuration"
+        title={t("settings.omp.readFailed")}
         hint={
           missing
-            ? "omp is not installed, so there is nothing to configure yet."
+            ? t("settings.omp.ompMissingHint")
             : (failure ?? undefined)
         }
         action={
           <div className="flex items-center gap-2">
             <Button size="xs" onClick={retry}>
-              retry
+              {t("settings.omp.retry")}
             </Button>
             {missing && (
               <Button
@@ -71,7 +72,7 @@ export function OmpPage({
                 variant="ghost"
                 onClick={() => openSettings("updates")}
               >
-                install omp from the Updates page
+                {t("settings.omp.installFromUpdates")}
               </Button>
             )}
           </div>
@@ -108,7 +109,7 @@ export function OmpPage({
   const tab =
     activeTabId === null
       ? undefined
-      : tabs.find((t) => t.tabId === activeTabId);
+      : tabs.find((tab) => tab.tabId === activeTabId);
   // The manager pins to the focused tab, so it resolves at that session's own
   // working tree — a worktree session's checkout (#325).
   const scopeCwd = tab === undefined ? undefined : sessionCwd(findRecord(state, tab.tabId));
@@ -118,7 +119,7 @@ export function OmpPage({
     <div className="pb-1.5">
       {projectCwd === null && (
         <p className="px-4 pt-3 text-[11px] text-ink-faint">
-          No session focused — showing omp&apos;s global configuration.
+          {t("settings.omp.noSessionFocused")}
         </p>
       )}
       {writeError !== null && (
@@ -130,7 +131,7 @@ export function OmpPage({
       {rolesEntry !== undefined && (
         <section className="px-4 pt-3">
           <div className="flex items-center gap-2">
-            <Label>Model roles</Label>
+            <Label>{t("settings.omp.modelRoles")}</Label>
             {layerBadge(rolesEntry.layer)}
           </div>
           {rolesEntry.description !== "" && (
@@ -151,8 +152,8 @@ export function OmpPage({
                       : ""
                   }
                   kind="text"
-                  label={`model role ${role}`}
-                  placeholder="model[:level] — blank = unset"
+                  label={t("settings.omp.modelRoleLabel", { role })}
+                  placeholder={t("settings.omp.modelRolePlaceholder")}
                   disabled={pendingKey === OMP_MODEL_ROLES_KEY}
                   className="flex-1"
                   onCommit={(raw) => commitRole(role, raw)}
@@ -199,14 +200,13 @@ export function OmpPage({
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <p className="text-[11px] text-ink-faint">
-          MCP servers resolve per project from native and translated tool configs (issue #36);
-          the global list applies to every project.
+          {t("settings.omp.mcpNote")}
         </p>
         <div className="flex items-center gap-2">
           <Button
             size="xs"
             disabled={!mcpReady}
-            title={mcpReady ? undefined : "focus a session tab first — the manager pins to it"}
+            title={mcpReady ? undefined : t("settings.omp.mcpFocusFirst")}
             onClick={() => {
               if (tab === undefined || scopeCwd === undefined) return;
               // One modal at a time: stacked Escape listeners would close both.
@@ -214,10 +214,10 @@ export function OmpPage({
               openMcpManager(scopeCwd, tab.tabId);
             }}
           >
-            MCP servers…
+            {t("settings.omp.mcpServers")}
           </Button>
           <Button size="xs" onClick={() => { closeSettings(); openMcpManager(null); }}>
-            Global MCP servers…
+            {t("settings.omp.globalMcpServers")}
           </Button>
         </div>
       </div>
@@ -226,19 +226,21 @@ export function OmpPage({
 }
 
 export function OmpFooter({ agentDir, anyLive }: FooterContext) {
+  const t = useT();
   // Load-bearing per ADR-0005: where writes land, which layer wins, and when
   // they take effect. omp regenerates its YAML on write, so hand-written
   // comments in config.yml do not survive an edit from here.
   return (
     <p>
-      Writes go to omp&apos;s global config (
-      <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
-      project&apos;s <span className="font-mono">.omp/config.yml</span> still
-      wins and is shown as <span className="font-mono">project</span>. omp
-      binds model roles and the advisor at process start — changes take effect
-      on the next session spawn.
-      {anyLive && " Restart a session from its MCP panel to apply now."} omp
-      regenerates its YAML on write, so comments in config.yml are dropped.
+      {t("settings.omp.footerIntro")}
+      <span className="font-mono">{agentDir ?? "…"}/config.yml</span>
+      {t("settings.omp.footerProjectPrefix")}
+      <span className="font-mono">.omp/config.yml</span>
+      {t("settings.omp.footerStillWins")}
+      <span className="font-mono">project</span>
+      {t("settings.omp.footerRoles")}
+      {anyLive && t("settings.omp.footerRestart")}
+      {t("settings.omp.footerYaml")}
     </p>
   );
 }

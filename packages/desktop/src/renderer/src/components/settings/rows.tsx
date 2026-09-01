@@ -6,6 +6,7 @@ import type {
 } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
 import { Chip, Switch } from "../ui";
+import { useT } from "../../lib/i18n";
 
 export const FIELD =
   "h-7 min-w-0 rounded-md border border-line bg-raised px-2 text-xs text-ink " +
@@ -129,6 +130,7 @@ export function SettingControl({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
+  const t = useT();
   const pending = pendingKey === entry.key;
 
   const commitScalar = (raw: string): void => {
@@ -167,7 +169,7 @@ export function SettingControl({
       >
         {value === "" && (
           <option value="" disabled>
-            unset
+            {t("settings.rows.unset")}
           </option>
         )}
         {entry.options.map((option) => (
