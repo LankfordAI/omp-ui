@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
   INSPECTOR_DEFAULT_WIDTH,
@@ -133,6 +134,7 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 /* --------------------------------------------------------------- the panes */
 
 function AgentsPane({ tabId }: { tabId: string }) {
+  const t = useT();
   const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
   const buffers = useStore((s) => s.rpc[tabId]?.subagentItems) ?? {};
   const selected = useStore((s) => s.rpc[tabId]?.selectedSubagent) ?? null;
@@ -152,20 +154,20 @@ function AgentsPane({ tabId }: { tabId: string }) {
 
   return (
     <Section
-      title={`subagents · ${roster.length}`}
+      title={t("rail.agents.title", { count: roster.length })}
       action={
-        <IconButton label="refresh subagents" onClick={() => void refreshSubagents(tabId)}>
+        <IconButton label={t("rail.agents.refreshLabel")} onClick={() => void refreshSubagents(tabId)}>
           <IconRefresh />
         </IconButton>
       }
     >
       {roster.length === 0 ? (
         <Empty
-          title="No subagents"
-          hint="Delegated agents appear here while they run."
+          title={t("rail.agents.emptyTitle")}
+          hint={t("rail.agents.emptyHint")}
           action={
             <Button size="xs" onClick={() => void refreshSubagents(tabId)}>
-              refresh
+              {t("rail.agents.refresh")}
             </Button>
           }
         />
@@ -178,7 +180,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
               <li key={agent.id} className="animate-slide-in">
                 <button
                   type="button"
-                  aria-label={`${selected === agent.id ? "close" : "open"} agent ${agent.name ?? agent.agent ?? agent.id}`}
+                  aria-label={t(selected === agent.id ? "rail.agents.closeAgent" : "rail.agents.openAgent", { agent: agent.name ?? agent.agent ?? agent.id })}
                   aria-pressed={selected === agent.id}
                   onClick={() =>
                     selected === agent.id
@@ -201,7 +203,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
                       {agent.name ?? agent.agent ?? agent.id}
                     </span>
                     {agent.agent && agent.name && (
-                      <Chip mono title={`agent type: ${agent.agent}`}>
+                      <Chip mono title={t("rail.agents.typeTitle", { type: agent.agent })}>
                         {agent.agent}
                       </Chip>
                     )}
@@ -224,44 +226,45 @@ function AgentsPane({ tabId }: { tabId: string }) {
   );
 }
 
-const TOKEN_ROWS: { key: keyof TokenTotals; label: string }[] = [
-  { key: "input", label: "input" },
-  { key: "output", label: "output" },
-  { key: "reasoning", label: "reasoning" },
-  { key: "cacheRead", label: "cache read" },
-  { key: "cacheWrite", label: "cache write" },
-  { key: "total", label: "total" },
+const TOKEN_ROWS: { key: keyof TokenTotals; labelKey: "rail.stats.input" | "rail.stats.output" | "rail.stats.reasoning" | "rail.stats.cacheRead" | "rail.stats.cacheWrite" | "rail.stats.total" }[] = [
+  { key: "input", labelKey: "rail.stats.input" },
+  { key: "output", labelKey: "rail.stats.output" },
+  { key: "reasoning", labelKey: "rail.stats.reasoning" },
+  { key: "cacheRead", labelKey: "rail.stats.cacheRead" },
+  { key: "cacheWrite", labelKey: "rail.stats.cacheWrite" },
+  { key: "total", labelKey: "rail.stats.total" },
 ];
 
 function StatsTable({ stats }: { stats: SessionStats }) {
+  const t = useT();
   return (
     <>
-      <Section title="messages">
+      <Section title={t("rail.stats.messages")}>
         <dl>
-          <Row label="user">
+          <Row label={t("rail.stats.user")}>
             <Mono>{exactNum(stats.userMessages)}</Mono>
           </Row>
-          <Row label="assistant">
+          <Row label={t("rail.stats.assistant")}>
             <Mono>{exactNum(stats.assistantMessages)}</Mono>
           </Row>
-          <Row label="tool calls">
+          <Row label={t("rail.stats.toolCalls")}>
             <Mono>{exactNum(stats.toolCalls)}</Mono>
           </Row>
-          <Row label="tool results">
+          <Row label={t("rail.stats.toolResults")}>
             <Mono>{exactNum(stats.toolResults)}</Mono>
           </Row>
-          <Row label="total">
+          <Row label={t("rail.stats.total")}>
             <Mono>{exactNum(stats.totalMessages)}</Mono>
           </Row>
         </dl>
       </Section>
-      <Section title="tokens">
+      <Section title={t("rail.stats.tokens")}>
         <table className="w-full">
           <tbody>
-            {TOKEN_ROWS.map(({ key, label }) => (
+            {TOKEN_ROWS.map(({ key, labelKey }) => (
               <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
                 <td className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-                  {label}
+                  {t(labelKey)}
                 </td>
                 <td
                   title={exactNum(stats.tokens[key])}
@@ -277,12 +280,12 @@ function StatsTable({ stats }: { stats: SessionStats }) {
           </tbody>
         </table>
       </Section>
-      <Section title="spend">
+      <Section title={t("rail.stats.spend")}>
         <dl>
-          <Row label="cost">
+          <Row label={t("rail.stats.cost")}>
             <Mono title={`${stats.cost}`}>{formatCost(stats.cost)}</Mono>
           </Row>
-          <Row label="premium reqs">
+          <Row label={t("rail.stats.premiumReqs")}>
             <Mono>{exactNum(stats.premiumRequests)}</Mono>
           </Row>
         </dl>
@@ -292,6 +295,7 @@ function StatsTable({ stats }: { stats: SessionStats }) {
 }
 
 function SessionPane({ tabId }: { tabId: string }) {
+  const t = useT();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats);
   const model = useStore((s) => s.rpc[tabId]?.model);
@@ -303,10 +307,10 @@ function SessionPane({ tabId }: { tabId: string }) {
   return (
     <>
       <Section
-        title="session"
+        title={t("rail.session.title")}
         action={
           <IconButton
-            label="refresh state and stats"
+            label={t("rail.session.refreshLabel")}
             onClick={() => {
               void refreshState(tabId);
               void refreshStats(tabId);
@@ -317,26 +321,26 @@ function SessionPane({ tabId }: { tabId: string }) {
         }
       >
         <dl>
-          <Row label="id">
+          <Row label={t("rail.session.id")}>
             <span className="flex items-center gap-1">
               <Mono title={session?.sessionId ?? undefined}>{session?.sessionId ?? "—"}</Mono>
-              {session?.sessionId && <CopyButton text={session.sessionId} label="id" />}
+              {session?.sessionId && <CopyButton text={session.sessionId} label={t("rail.session.id")} />}
             </span>
           </Row>
-          <Row label="file">
+          <Row label={t("rail.session.file")}>
             <span className="flex items-center gap-1">
               <Mono title={session?.sessionFile ?? undefined}>{session?.sessionFile ?? "—"}</Mono>
-              {session?.sessionFile && <CopyButton text={session.sessionFile} label="path" />}
+              {session?.sessionFile && <CopyButton text={session.sessionFile} label={t("rail.session.path")} />}
             </span>
           </Row>
-          <Row label="messages">
+          <Row label={t("rail.session.messages")}>
             <Mono>{session ? exactNum(session.messageCount) : "—"}</Mono>
           </Row>
-          <Row label="queued">
+          <Row label={t("rail.session.queued")}>
             <Mono title={queueChip?.title}>
               {session
                 ? `${exactNum(session.queuedMessageCount)}${
-                    queueChip && status !== "running" ? " (parked)" : ""
+                    queueChip && status !== "running" ? t("rail.session.parkedSuffix") : ""
                   }`
                 : "—"}
             </Mono>
@@ -344,39 +348,39 @@ function SessionPane({ tabId }: { tabId: string }) {
         </dl>
       </Section>
 
-      <Section title="model">
+      <Section title={t("rail.session.modelSection")}>
         <dl>
-          <Row label="model">
+          <Row label={t("rail.session.model")}>
             <span className="block truncate" title={model?.id}>
               {model?.name ?? model?.id ?? "—"}
             </span>
           </Row>
-          <Row label="provider">
+          <Row label={t("rail.session.provider")}>
             <Mono>{model?.provider ?? "—"}</Mono>
           </Row>
-          <Row label="thinking">
+          <Row label={t("rail.session.thinking")}>
             <Mono>{session?.thinkingLevel ?? "—"}</Mono>
           </Row>
-          <Row label="context">
+          <Row label={t("rail.session.context")}>
             <Mono>{model?.contextWindow ? compactNum(model.contextWindow) : "—"}</Mono>
           </Row>
         </dl>
       </Section>
 
-      <Section title="queue">
+      <Section title={t("rail.session.queue")}>
         <dl>
-          <Row label="steering">
+          <Row label={t("rail.session.steering")}>
             <Mono>{session?.steeringMode ?? "—"}</Mono>
           </Row>
-          <Row label="follow-up">
+          <Row label={t("rail.session.followUp")}>
             <Mono>{session?.followUpMode ?? "—"}</Mono>
           </Row>
-          <Row label="interrupt">
+          <Row label={t("rail.session.interrupt")}>
             <Mono>{session?.interruptMode ?? "—"}</Mono>
           </Row>
-          <Row label="auto-compact">
+          <Row label={t("rail.session.autoCompact")}>
             <Chip tone={session?.autoCompactionEnabled ? "signal" : "neutral"}>
-              {session?.autoCompactionEnabled ? "on" : "off"}
+              {session?.autoCompactionEnabled ? t("rail.session.on") : t("rail.session.off")}
             </Chip>
           </Row>
         </dl>
@@ -385,13 +389,13 @@ function SessionPane({ tabId }: { tabId: string }) {
       {stats ? (
         <StatsTable stats={stats} />
       ) : (
-        <Section title="stats">
+        <Section title={t("rail.stats.title")}>
           <Empty
-            title="No stats yet"
-            hint="Refresh to pull the session's token and cost breakdown."
+            title={t("rail.stats.emptyTitle")}
+            hint={t("rail.stats.emptyHint")}
             action={
               <Button size="xs" onClick={() => void refreshStats(tabId)}>
-                refresh stats
+                {t("rail.stats.refresh")}
               </Button>
             }
           />
@@ -408,10 +412,10 @@ const PLAN_TONE: Record<PlanRecord["status"], Tone> = {
   executed: "signal",
   refined: "neutral",
 };
-const PLAN_LABEL: Record<PlanRecord["status"], string> = {
-  pending: "waiting on you",
-  executed: "executed",
-  refined: "sent back",
+const PLAN_LABEL_KEY: Record<PlanRecord["status"], "rail.plans.waiting" | "rail.plans.executed" | "rail.plans.sentBack"> = {
+  pending: "rail.plans.waiting",
+  executed: "rail.plans.executed",
+  refined: "rail.plans.sentBack",
 };
 
 /**
@@ -421,6 +425,7 @@ const PLAN_LABEL: Record<PlanRecord["status"], string> = {
  * Settled plans stay as a dim record of the session's plan history.
  */
 function PlansPane({ tabId }: { tabId: string }) {
+  const t = useT();
   const records = useStore((s) => s.rpc[tabId]?.plans) ?? [];
   const reviewPath = useStore((s) => s.rpc[tabId]?.planReview?.request.planFilePath);
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
@@ -431,8 +436,8 @@ function PlansPane({ tabId }: { tabId: string }) {
   if (records.length === 0) {
     return (
       <Empty
-        title="No proposed plans"
-        hint="A plan-mode draft appears here once the agent writes it up."
+        title={t("rail.plans.emptyTitle")}
+        hint={t("rail.plans.emptyHint")}
       />
     );
   }
@@ -446,13 +451,13 @@ function PlansPane({ tabId }: { tabId: string }) {
             <button
               type="button"
               disabled={!actionable}
-              title={actionable ? "open the plan review" : record.title}
+              title={actionable ? t("rail.plans.openReview") : record.title}
               onClick={() => showPlanReview(tabId)}
               className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left disabled:hover:bg-transparent enabled:hover:bg-hover"
             >
               <Dot
                 tone={PLAN_TONE[record.status]}
-                title={PLAN_LABEL[record.status]}
+                title={t(PLAN_LABEL_KEY[record.status])}
                 className="mt-1"
               />
               <span className="min-w-0 flex-1">
@@ -461,10 +466,10 @@ function PlansPane({ tabId }: { tabId: string }) {
                 </span>
                 <span className="mt-0.5 flex items-center gap-1.5">
                   <Chip mono tone={PLAN_TONE[record.status]}>
-                    {PLAN_LABEL[record.status]}
+                    {t(PLAN_LABEL_KEY[record.status])}
                   </Chip>
                   {actionable && deferred && (
-                    <span className="text-[10px] text-ink-faint">paused · not now</span>
+                    <span className="text-[10px] text-ink-faint">{t("rail.plans.paused")}</span>
                   )}
                 </span>
               </span>
@@ -472,23 +477,23 @@ function PlansPane({ tabId }: { tabId: string }) {
             {actionable && (
               <div className="flex items-center gap-1 border-t border-line-soft bg-sunken px-2 py-1.5">
                 <Button size="xs" onClick={() => showPlanReview(tabId)}>
-                  review
+                  {t("rail.plans.review")}
                 </Button>
                 <Button
                   size="xs"
-                  title="Send the agent back to revise the draft"
+                  title={t("rail.plans.requestChangesTitle")}
                   onClick={() => refinePlan(tabId)}
                 >
-                  request changes
+                  {t("rail.plans.requestChanges")}
                 </Button>
                 <Button
                   size="xs"
                   variant="ghost"
                   className="ml-auto"
-                  title="Leave the plan pending — the agent stays paused until you answer elsewhere"
+                  title={t("rail.plans.notNowTitle")}
                   onClick={() => deferPlanReview(tabId)}
                 >
-                  not now
+                  {t("rail.plans.notNow")}
                 </Button>
               </div>
             )}
@@ -505,6 +510,7 @@ function PlansPane({ tabId }: { tabId: string }) {
  * pane mount and on demand; not a git repository renders an empty state.
  */
 function DiffsPane({ tabId }: { tabId: string }) {
+  const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
   const cwd = sessionCwd(record);
   const base = record?.worktree?.base ?? null;
@@ -543,16 +549,16 @@ function DiffsPane({ tabId }: { tabId: string }) {
   }, [refresh, currentBranch, branchDiffRevision]);
 
   if (load.status === "idle" || load.status === "loading") {
-    return <Empty title="Reading branch…" hint="Gathering the working-tree diff." />;
+    return <Empty title={t("diff.rail.readingTitle")} hint={t("diff.rail.readingHint")} />;
   }
   if (load.status === "error") {
     return (
       <Empty
-        title="Could not read the diff"
+        title={t("diff.rail.errorTitle")}
         hint={load.message}
         action={
           <Button size="xs" onClick={() => void refresh()}>
-            retry
+            {t("diff.rail.retry")}
           </Button>
         }
       />
@@ -561,8 +567,8 @@ function DiffsPane({ tabId }: { tabId: string }) {
   if (!load.repoRoot) {
     return (
       <Empty
-        title="No git repository"
-        hint="This project isn't inside a git repo, so there's no branch to diff."
+        title={t("diff.rail.noRepoTitle")}
+        hint={t("diff.rail.noRepoHint")}
       />
     );
   }
@@ -570,11 +576,11 @@ function DiffsPane({ tabId }: { tabId: string }) {
   if (files.length === 0) {
     return (
       <Empty
-        title="Working tree clean"
+        title={t("diff.rail.cleanTitle")}
         hint={
           load.mergeBase != null && base !== null
-            ? `No changes on ${load.branch ?? "this branch"} since ${shortBase(base)}.`
-            : `No changes on ${load.branch ?? "this branch"} since HEAD.`
+            ? t("diff.rail.noChangesBase", { branch: load.branch ?? t("diff.rail.thisBranch"), base: shortBase(base) })
+            : t("diff.rail.noChangesHead", { branch: load.branch ?? t("diff.rail.thisBranch") })
         }
       />
     );
@@ -585,11 +591,11 @@ function DiffsPane({ tabId }: { tabId: string }) {
         {/* Branch identity is chrome, not liveness — neutral, never signal
             (ADR-0004). */}
         <Chip mono title={load.repoRoot ?? undefined}>
-          {load.branch ?? "detached"}
+          {load.branch ?? t("diff.rail.detached")}
         </Chip>
         {load.mergeBase != null && base !== null && (
           <Chip mono title={load.mergeBase}>
-            since {shortBase(base)}
+            {t("diff.rail.since", { base: shortBase(base) })}
           </Chip>
         )}
         <span
@@ -598,7 +604,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
         >
           {load.repoRoot}
         </span>
-        <IconButton label="refresh branch diff" onClick={() => void refresh()}>
+        <IconButton label={t("diff.rail.refreshLabel")} onClick={() => void refresh()}>
           <IconRefresh />
         </IconButton>
       </div>
@@ -613,12 +619,12 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
 /* -------------------------------------------------------------- the rail */
 
-const TABS: { id: RailTab; label: string }[] = [
-  { id: "todos", label: "todos" },
-  { id: "agents", label: "agents" },
-  { id: "session", label: "session" },
-  { id: "plans", label: "plans" },
-  { id: "diffs", label: "diffs" },
+const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" }[] = [
+  { id: "todos", labelKey: "rail.tabs.todos" },
+  { id: "agents", labelKey: "rail.tabs.agents" },
+  { id: "session", labelKey: "rail.tabs.session" },
+  { id: "plans", labelKey: "rail.tabs.plans" },
+  { id: "diffs", labelKey: "rail.tabs.diffs" },
 ];
 
 export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTab, number> {
@@ -636,6 +642,7 @@ export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTa
 }
 
 export function InspectorRail({ tabId }: { tabId: string }) {
+  const t = useT();
   const [tab, setTab] = useState<RailTab>(() => selectedTab.get(tabId) ?? "todos");
   const compact = useCompactShell();
   const viewportWidth = useViewportWidth();
@@ -698,9 +705,11 @@ export function InspectorRail({ tabId }: { tabId: string }) {
 
   if (compact) {
     return (
-      <Sheet open={surface === "inspector"} placement="right" label="inspector" onClose={closeCompactSurface}>
+      <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
         <div className="sticky top-0 z-10 grid grid-cols-5 border-b border-line bg-sunken">
-          {TABS.map(({ id, label }) => (
+          {TABS.map(({ id, labelKey }) => {
+            const label = t(labelKey);
+            return (
             <button
               key={id}
               type="button"
@@ -717,7 +726,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
               {badges[id] > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">{badges[id] > 99 ? "99+" : badges[id]}</span>}
               {id === tab && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
             </button>
-          ))}
+            );
+          })}
         </div>
         <div>{pane}</div>
       </Sheet>
@@ -736,7 +746,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
           style={{ width: displayedInspectorWidth }}
         >
           <ResizeHandle
-            label="resize inspector"
+            label={t("rail.chrome.resize")}
             edge="left"
             value={displayedInspectorWidth}
             min={INSPECTOR_MIN_WIDTH}
@@ -750,8 +760,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
             onDraggingChange={setResizing}
           />
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2.5">
-            <Label className="min-w-0 flex-1 truncate">{tab}</Label>
-            <IconButton label="collapse inspector" onClick={close}>
+            <Label className="min-w-0 flex-1 truncate">{t(TABS.find(({ id }) => id === tab)!.labelKey)}</Label>
+            <IconButton label={t("rail.chrome.collapse")} onClick={close}>
               <IconCollapse />
             </IconButton>
           </div>
@@ -759,12 +769,15 @@ export function InspectorRail({ tabId }: { tabId: string }) {
         </div>
       )}
       <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line py-2">
-        {TABS.map(({ id, label }) => (
-          <button key={id} type="button" title={badges[id] > 0 ? `${label} (${badges[id]})` : label} aria-label={label} aria-pressed={open && id === tab} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", open && id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
+        {TABS.map(({ id, labelKey }) => {
+          const label = t(labelKey);
+          return (
+          <button key={id} type="button" title={badges[id] > 0 ? t("rail.chrome.badgedTitle", { label, count: badges[id] }) : label} aria-label={label} aria-pressed={open && id === tab} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", open && id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
             <TabIcon tab={id} />
             {badges[id] > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{badges[id] > 99 ? "99" : badges[id]}</span>}
           </button>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );

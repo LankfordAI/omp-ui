@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import type { DiffRow } from "../lib/omp-diff";
 import { Chevron, Chip, CopyButton, Disclosure } from "./ui";
 
@@ -31,6 +32,7 @@ function Row({ row }: { row: DiffRow }) {
 }
 
 export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string; op?: string }) {
+  const t = useT();
   const { added, removed, patch } = useMemo(() => {
     let add = 0;
     let del = 0;
@@ -53,7 +55,7 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
   const head = collapsed ? rows.slice(0, HEAD_ROWS) : rows;
   const tail = collapsed ? rows.slice(HEAD_ROWS) : [];
 
-  const shown = path ?? "diff";
+  const shown = path ?? t("diff.viewer.fallbackName");
   const cut = shown.lastIndexOf("/") + 1;
   const dir = shown.slice(0, cut);
   const base = shown.slice(cut);
@@ -91,7 +93,7 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
             affordance stays a sibling (bottom-aligned onto the second row by
             items-end). It works while collapsed because the patch memoizes
             off `rows`, not the open state. */}
-        <CopyButton text={patch} label="patch" />
+        <CopyButton text={patch} label={t("diff.viewer.patchLabel")} />
       </div>
 
       {open && (
@@ -111,7 +113,7 @@ export function DiffViewer({ rows, path, op }: { rows: DiffRow[]; path?: string;
           {collapsed && (
             <Disclosure
               className="border-t border-line-soft px-2 py-1"
-              summary={<span className="text-[11px]">show {tail.length} more lines</span>}
+              summary={<span className="text-[11px]">{t("diff.viewer.showMore", { count: tail.length })}</span>}
             >
               <div className="overflow-x-auto pt-1 font-mono text-[12px] leading-[1.5]">
                 <div className="min-w-full w-max">

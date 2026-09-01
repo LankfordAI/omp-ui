@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { shortBase } from "../lib/format";
+import { useT } from "../lib/i18n";
 import { Button, ConfirmDialog } from "./ui";
 import type { MergeBackController } from "./useMergeBack";
 
-const commits = (count: number): string => `${count} commit${count === 1 ? "" : "s"}`;
 
 type Variant = "branch" | "worktree";
 
@@ -40,6 +40,9 @@ export function MergeBackSection({
   controller: MergeBackController;
   variant: Variant;
 }) {
+  const t = useT();
+  const commits = (count: number): string =>
+    t(count === 1 ? "branch.merge.oneCommit" : "branch.merge.manyCommits", { count });
   const { target, status, phase, confirm, busyTitle, sharers } = controller;
   if (target === null) return null;
 
@@ -56,22 +59,22 @@ export function MergeBackSection({
   const renderBody = (): ReactNode => {
     if (status === null) {
       return row(
-        phase.s === "merging" ? "merging…" : `merge into ${shortBase(target.base)}`,
+        phase.s === "merging" ? t("branch.merge.merging") : t("branch.merge.mergeInto", { destination: shortBase(target.base) }),
         true,
       );
     }
     if (phase.s === "merging" || phase.s === "returning") {
-      return row(phase.s === "returning" ? "returning…" : "merging…", true);
+      return row(phase.s === "returning" ? t("branch.merge.returning") : t("branch.merge.merging"), true);
     }
     if (status.mergeInProgress) {
       return (
         <>
           {copper(
-            <>a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort</>,
+            <>{t("branch.merge.inProgress")}</>,
           )}
           {actions(
             <Button size="xs" variant="ghost" onClick={controller.openConsole}>
-              open console
+              {t("branch.merge.openConsole")}
             </Button>,
           )}
         </>
@@ -80,7 +83,7 @@ export function MergeBackSection({
     if (phase.s === "conflict") {
       return (
         <>
-          {copper(<>merge stopped — {phase.files.length} file(s) conflict</>)}
+          {copper(<>{t("branch.merge.conflictCount", { count: phase.files.length })}</>)}
           <div className={style.conflicts}>
             {phase.files.map((file) => (
               <span key={file} className="block truncate" title={file}>
@@ -89,48 +92,48 @@ export function MergeBackSection({
             ))}
           </div>
           {quiet(
-            <>resolve in {target.projectCwd}, then git merge --continue — or git merge --abort</>,
+            <>{t("branch.merge.resolveHint", { cwd: target.projectCwd })}</>,
           )}
           {actions(
             <Button size="xs" variant="ghost" onClick={controller.openConsole}>
-              open console
+              {t("branch.merge.openConsole")}
             </Button>,
           )}
         </>
       );
     }
     if (!status.branchExists) {
-      return copper(<>branch {target.branch} no longer exists — nothing to merge</>);
+      return copper(<>{t("branch.merge.branchGone", { branch: target.branch })}</>);
     }
     if (status.destination === null) {
       const short = shortBase(target.base);
       const text =
         status.reason === "base-gone"
-          ? `base ${short} no longer resolves — merge manually`
+          ? t("branch.merge.baseGone", { base: short })
           : status.reason === "no-branch-match"
-            ? `no local branch matches base ${short} — merge manually`
-            : "the project is not a readable git repo — merge manually";
+            ? t("branch.merge.noBranchMatch", { base: short })
+            : t("branch.merge.notReadableRepo");
       return copper(text);
     }
     if (!status.destinationCheckedOut) {
-      return copper(<>check out {status.destination} in the project to merge back</>);
+      return copper(<>{t("branch.merge.checkoutFirst", { destination: status.destination })}</>);
     }
     if (status.alreadyMerged) {
-      return row(`return to ${status.destination}`, false, controller.requestReturn);
+      return row(t("branch.merge.returnTo", { destination: status.destination }), false, controller.requestReturn);
     }
     if (confirm === "merge" && busyTitle !== null) {
       return (
         <>
           <div className={style.busy}>
-            session “{busyTitle}” is mid-turn in the project — merging moves {status.destination} under it. The merge also returns this session to {status.destination}: the checkout and branch are removed, the session is kept.
+            {t("branch.merge.busyWarning", { title: busyTitle, destination: status.destination })}
           </div>
           {actions(
             <>
               <Button size="xs" tone="copper" onClick={() => void controller.runMerge()}>
-                merge & return anyway
+                {t("branch.merge.mergeReturnAnyway")}
               </Button>
               <Button size="xs" variant="ghost" onClick={controller.cancelConfirm}>
-                cancel
+                {t("branch.merge.cancel")}
               </Button>
             </>,
           )}
@@ -141,7 +144,7 @@ export function MergeBackSection({
       <>
         {row(
           <>
-            merge into {status.destination}
+            {t("branch.merge.mergeInto", { destination: status.destination })}
             {status.ahead > 0 && (
               <span className="text-ink-faint"> · {commits(status.ahead)}</span>
             )}
@@ -150,7 +153,7 @@ export function MergeBackSection({
           controller.requestMerge,
         )}
         {quiet(
-          <>a successful merge returns this session to {status.destination} — the checkout and the branch are removed, the session and its transcript are kept</>,
+          <>{t("branch.merge.successHint", { destination: status.destination })}</>,
         )}
       </>
     );
@@ -167,15 +170,15 @@ export function MergeBackSection({
         status !== null &&
         status.destination !== null && (
         <ConfirmDialog
-          kicker="Irreversible action"
+          kicker={t("branch.merge.irreversible")}
           tone="rose"
           width="w-[28rem]"
-          title={`Merge ${target.branch} into ${status.destination} and return this session to it?`}
+          title={t("branch.merge.confirmTitle", { branch: target.branch, destination: status.destination })}
           onClose={controller.cancelConfirm}
           actions={
             <>
               <Button variant="ghost" onClick={controller.cancelConfirm}>
-                cancel
+                {t("branch.merge.cancel")}
               </Button>
               <Button
                 variant="solid"
@@ -184,28 +187,28 @@ export function MergeBackSection({
                 onClick={() => void controller.runMerge()}
               >
                 {phase.s === "merging"
-                  ? "merging…"
+                  ? t("branch.merge.merging")
                   : phase.s === "returning"
-                    ? "returning…"
-                    : "merge & return"}
+                    ? t("branch.merge.returning")
+                    : t("branch.merge.mergeReturn")}
               </Button>
             </>
           }
         >
           <div className="space-y-4">
             <p>
-              Writes a merge commit in the project checkout recording the {status.ahead} committed change(s) on {target.branch} — their subjects and any issues they close. Uncommitted changes in the worktree are not included.
+              {t("branch.merge.confirmCommit", { count: status.ahead, branch: target.branch })}
             </p>
             <p>
-              This session then returns to {status.destination} in {target.projectCwd}: its agent restarts there with its transcript intact. The checkout {target.worktreePath} is removed — uncommitted changes there are lost — and the branch {target.branch} is deleted.
+              {t("branch.merge.confirmCleanup", { destination: status.destination, cwd: target.projectCwd, path: target.worktreePath, branch: target.branch })}
             </p>
             {sharers > 0 && (
               <p>
-                {sharers} other session(s) still run in this checkout, so it and the branch are kept until they leave.
+                {t("branch.merge.sharers", { count: sharers })}
               </p>
             )}
             <p>
-              A conflicted merge stops both the merge and the return: the project checkout is left with files to resolve, and this session stays on {target.branch}.
+              {t("branch.merge.conflictedResult", { branch: target.branch })}
             </p>
           </div>
         </ConfirmDialog>
@@ -215,15 +218,15 @@ export function MergeBackSection({
         status !== null &&
         status.destination !== null && (
         <ConfirmDialog
-          kicker="Irreversible action"
+          kicker={t("branch.merge.irreversible")}
           tone="rose"
           width="w-[28rem]"
-          title={`Return this session to ${status.destination}?`}
+          title={t("branch.merge.returnTitle", { destination: status.destination })}
           onClose={controller.cancelConfirm}
           actions={
             <>
               <Button variant="ghost" onClick={controller.cancelConfirm}>
-                cancel
+                {t("branch.merge.cancel")}
               </Button>
               <Button
                 variant="solid"
@@ -231,19 +234,19 @@ export function MergeBackSection({
                 disabled={phase.s === "returning"}
                 onClick={() => void controller.runReturn()}
               >
-                {phase.s === "returning" ? "returning…" : `return to ${status.destination}`}
+                {phase.s === "returning" ? t("branch.merge.returning") : t("branch.merge.returnTo", { destination: status.destination })}
               </Button>
             </>
           }
         >
           <div className="space-y-4">
-            <p>The branch {target.branch} is already in {status.destination}.</p>
+            <p>{t("branch.merge.alreadyIn", { branch: target.branch, destination: status.destination })}</p>
             <p>
-              This session returns to {status.destination} in {target.projectCwd}: its agent restarts there with its transcript intact. The checkout {target.worktreePath} is removed — uncommitted changes there are lost — and the branch {target.branch} is deleted.
+              {t("branch.merge.returnCleanup", { destination: status.destination, cwd: target.projectCwd, path: target.worktreePath, branch: target.branch })}
             </p>
             {sharers > 0 && (
               <p>
-                {sharers} other session(s) still run in this checkout, so it and the branch are kept until they leave.
+                {t("branch.merge.sharers", { count: sharers })}
               </p>
             )}
           </div>
