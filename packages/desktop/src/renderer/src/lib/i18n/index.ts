@@ -3,6 +3,8 @@ import { en } from "./en";
 import { ko } from "./ko";
 import type { MessageKey } from "./types";
 
+export type { MessageKey } from "./types";
+
 export interface UiLocale {
   id: "en" | "ko";
   /** Native name, as shown in the settings row. */

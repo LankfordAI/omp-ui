@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
@@ -14,6 +15,7 @@ import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
  */
 export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string }) {
   const [branch, setBranch] = useState(mintBranchName);
+  const t = useT();
   // null = cut from the checkout's HEAD (the "current HEAD" option).
   const [baseRef, setBaseRef] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -49,25 +51,26 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
 
   return (
     <ConfirmDialog
-      kicker="New worktree session"
-      title="Start a session in a fresh worktree?"
+      kicker={t("dialog.worktree.kicker")}
+      title={t("dialog.worktree.title")}
       tone="neutral"
       onClose={close}
       width="w-[28rem]"
       actions={
         <>
           <Button variant="ghost" onClick={close}>
-            Cancel
+0:
+            {t("common.dialog.cancel")}
           </Button>
           <Button variant="solid" disabled={pending || notGit} onClick={() => void submit()}>
-            Create session
+            {t("dialog.worktree.create")}
           </Button>
         </>
       }
     >
       {notGit ? (
         <p className="text-sm leading-relaxed text-ink-dim">
-          This project isn't inside a git repo, so there's nothing to worktree.
+          {t("dialog.worktree.notGit")}
         </p>
       ) : (
         <div className="space-y-4">

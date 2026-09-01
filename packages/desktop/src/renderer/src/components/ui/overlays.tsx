@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { IconButton } from "./controls";
 import { IconClose } from "./icons";
@@ -133,6 +134,7 @@ export function Sheet({
   children: ReactNode;
 }) {
   const root = useOverlay(open, onClose, restoreFocusTo);
+  const t = useT();
   // Bottom-sheet swipe-to-dismiss. The drag lives on the handle/header only,
   // so the body keeps native scrolling; transforms are written straight to the
   // node — a re-render per pointermove would fight the browser for 60fps.
@@ -203,7 +205,7 @@ export function Sheet({
           )}
           <div className="flex min-h-11 items-center gap-3 px-[max(1rem,var(--safe-left))] pr-[max(0.5rem,var(--safe-right))]">
             <h2 className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-ink">{label}</h2>
-            <IconButton label={`close ${label}`} onClick={onClose} className="size-11">
+            <IconButton label={t("common.overlay.closeNamed", { label })} onClick={onClose} className="size-11">
               <IconClose />
             </IconButton>
           </div>
@@ -236,6 +238,7 @@ export function Modal({
   labelledBy?: string;
 }) {
   const root = useOverlay(true, onClose, restoreFocusTo);
+  const t = useT();
   return createPortal(
     <div
       data-overlay-root
@@ -255,7 +258,7 @@ export function Modal({
         )}
       >
         {onClose && (
-          <IconButton label="close dialog" onClick={onClose} className="compact-modal-close absolute right-2 top-2 z-20 hidden bg-raised">
+          <IconButton label={t("common.overlay.close")} onClick={onClose} className="compact-modal-close absolute right-2 top-2 z-20 hidden bg-raised">
             <IconClose />
           </IconButton>
         )}

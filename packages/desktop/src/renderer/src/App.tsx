@@ -16,19 +16,20 @@ import { TerminalTab } from "./components/TerminalTab";
 import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
+import { useT, type MessageKey } from "./lib/i18n";
 import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { findRecord, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
-const HINTS: [combo: string, what: string][] = [
-  ["mod+k", "command palette"],
-  ["mod+shift+n", "new session in the current project"],
-  ["mod+shift+p", "switch Build / Plan mode"],
-  ["mod+j", "toggle console"],
-  ["mod+f", "search within a session"],
-  ["mod+=", "larger transcript text"],
+const HINTS: [combo: string, what: MessageKey][] = [
+  ["mod+k", "app.welcome.hintCommandPalette"],
+  ["mod+shift+n", "app.welcome.hintNewSession"],
+  ["mod+shift+p", "app.welcome.hintMode"],
+  ["mod+j", "app.welcome.hintConsole"],
+  ["mod+f", "app.welcome.hintSearch"],
+  ["mod+=", "app.welcome.hintTranscriptScale"],
 ];
 
 // The native overlay rect is composited over the strip's right end; reserve
@@ -123,6 +124,7 @@ function IconInspect() {
  * draggable, and the native overlay hit test owns it anyway.
  */
 function TitleBar() {
+  const t = useT();
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const title = useStore((s) =>
@@ -150,7 +152,7 @@ function TitleBar() {
           omp<span className="text-ink-faint">-ui</span>
         </span>
         <IconButton
-          label="new session in current project"
+          label={t("app.titlebar.newSession")}
           disabled={newSessionProject === undefined}
           onClick={() => {
             if (newSessionProject !== undefined) void newSession(newSessionProject);
@@ -158,11 +160,11 @@ function TitleBar() {
         >
           <IconPlus />
         </IconButton>
-        <IconButton label="add project" onClick={openProjectPicker}>
+        <IconButton label={t("app.titlebar.addProject")} onClick={openProjectPicker}>
           <IconFolderPlus />
         </IconButton>
         <IconButton
-          label={sidebarCollapsed ? "expand sidebar" : "collapse sidebar"}
+          label={sidebarCollapsed ? t("app.titlebar.expandSidebar") : t("app.titlebar.collapseSidebar")}
           onClick={toggleSidebarCollapsed}
         >
           <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
@@ -196,14 +198,16 @@ function TitleBar() {
  * restore.
  */
 function RestoringSessions() {
+  const t = useT();
   return (
     <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5">
-      <p className="font-display text-sm text-ink-dim">Restoring sessions…</p>
+      <p className="font-display text-sm text-ink-dim">{t("app.restoring.label")}</p>
     </div>
   );
 }
 
 function Welcome() {
+  const t = useT();
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
 
@@ -214,18 +218,18 @@ function Welcome() {
           <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">omp-ui</h1>
           <p className="text-balance-tight text-sm leading-relaxed text-ink-dim">
             {hasProjects
-              ? "Pick a session from the sidebar, or start a new one in any tracked project."
-              : "Track a project directory, then run omp agents against it — as a terminal or as a native session."}
+              ? t("app.welcome.hasProjectsHint")
+              : t("app.welcome.noProjectsHint")}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Button variant="solid" onClick={openProjectPicker}>
-            Add project
+            {t("app.welcome.addProject")}
           </Button>
           {hasProjects && (
             <Button variant="ghost" onClick={() => openPalette()}>
-              Open session…
+              {t("app.welcome.openSession")}
             </Button>
           )}
         </div>
@@ -236,7 +240,7 @@ function Welcome() {
               <dt className="justify-self-end rounded border border-line bg-raised px-1.5 py-px font-mono text-[10px] leading-4 text-ink-mid">
                 {formatHotkey(combo)}
               </dt>
-              <dd className="text-[11px] text-ink-faint">{what}</dd>
+              <dd className="text-[11px] text-ink-faint">{t(what)}</dd>
             </div>
           ))}
         </dl>
@@ -246,6 +250,7 @@ function Welcome() {
 }
 
 export default function App() {
+  const t = useT();
   const init = useStore((s) => s.init);
   const tabs = useStore((s) => s.tabs);
   const restoringTabs = useStore((s) => s.restoringTabs);
@@ -366,7 +371,7 @@ export default function App() {
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
-  const activeTitle = activeRecord?.title ?? "projects and sessions";
+  const activeTitle = activeRecord?.title ?? t("app.compact.projectsAndSessions");
   const badges = activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime) : null;
   const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
 
@@ -389,7 +394,7 @@ export default function App() {
         >
           <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
             <IconMenu />
-            <span className="sr-only">projects and sessions</span>
+            <span className="sr-only">{t("app.compact.projectsAndSessions")}</span>
           </Button>
           <span className="min-w-0 flex-1 text-center">
             <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
@@ -397,7 +402,7 @@ export default function App() {
           {activeTab?.mode === "rpc-ui" ? (
             <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
               <IconInspect />
-              <span className="sr-only">inspector</span>
+              <span className="sr-only">{t("app.compact.inspector")}</span>
               {inspectorCount > 0 && (
                 <span aria-hidden className="absolute right-1 top-1.5 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">
                   {inspectorCount > 99 ? "99+" : inspectorCount}
