@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { cn } from "../../lib/cn";
 import {
   SCALE_STEPS,
@@ -7,17 +7,9 @@ import {
 } from "../../lib/text-scale";
 import { useStore, type CompactionMethodsLoad } from "../../store";
 import { ChoiceCapsule, Switch } from "../ui";
-import { UI_LOCALES, useT } from "../../lib/i18n";
+import { currentLocaleId, UI_LOCALES, useT } from "../../lib/i18n";
 import { FIELD, Row } from "./rows";
 
-const DEFAULT_SESSION_MODE_OPTIONS = [
-  { value: "rpc-ui", label: "native" },
-  { value: "pty", label: "terminal" },
-] as const;
-const DEFAULT_AGENT_MODE_OPTIONS = [
-  { value: "plan", label: "plan" },
-  { value: "build", label: "build" },
-] as const;
 const PLAN_FORMAT_OPTIONS = [
   { value: "html", label: "html" },
   { value: "md", label: "markdown" },
@@ -175,6 +167,31 @@ export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
   const t = useT();
+  const localeId = currentLocaleId();
+  const sessionModeOptions = useMemo(
+    () => [
+      { value: "rpc-ui", label: t("settings.mode.native") },
+      { value: "pty", label: t("settings.mode.terminal") },
+    ] as const,
+    [localeId, t],
+  );
+  const agentModeOptions = useMemo(
+    () => [
+      { value: "plan", label: t("settings.mode.plan") },
+      { value: "build", label: t("settings.mode.build") },
+    ] as const,
+    [localeId, t],
+  );
+  const stallAbortOptions = useMemo(
+    () => STALL_ABORT_OPTIONS.map((option) =>
+      option.value === 0 ? { ...option, label: t("settings.option.off") } : option),
+    [localeId, t],
+  );
+  const hibernateIdleOptions = useMemo(
+    () => HIBERNATE_IDLE_OPTIONS.map((option) =>
+      option.value === 0 ? { ...option, label: t("settings.option.off") } : option),
+    [localeId, t],
+  );
   const setLocaleId = useStore((s) => s.setLocaleId);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
@@ -222,7 +239,7 @@ export function GeneralPage() {
         <ChoiceCapsule
           label={t("settings.general.defaultSessionModeLabel")}
           value={mode}
-          options={DEFAULT_SESSION_MODE_OPTIONS}
+          options={sessionModeOptions}
           onChange={(value) => void setDefaultMode(value)}
           optionClassName="px-2 text-[11px]"
         />
@@ -234,7 +251,7 @@ export function GeneralPage() {
         <ChoiceCapsule
           label={t("settings.general.defaultAgentModeLabel")}
           value={agentMode}
-          options={DEFAULT_AGENT_MODE_OPTIONS}
+          options={agentModeOptions}
           onChange={(value) => void setDefaultAgentMode(value)}
           optionClassName="px-2 text-[11px]"
         />
@@ -269,7 +286,7 @@ export function GeneralPage() {
         <ChoiceCapsule
           label={t("settings.general.hibernateIdleLabel")}
           value={state?.hibernateIdleMinutes ?? 30}
-          options={HIBERNATE_IDLE_OPTIONS}
+          options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="px-2 text-[11px]"
         />
@@ -281,7 +298,7 @@ export function GeneralPage() {
         <ChoiceCapsule
           label={t("settings.general.streamStallWatchdogLabel")}
           value={state?.streamStallAbortSeconds ?? 180}
-          options={STALL_ABORT_OPTIONS}
+          options={stallAbortOptions}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
           optionClassName="px-2 text-[11px]"
         />

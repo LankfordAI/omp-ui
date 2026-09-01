@@ -1069,6 +1069,10 @@ describe("Settings General page language row (issues #363, #367)", () => {
     expect(document.getElementById("settings-title")?.textContent).toBe("설정");
     expect(buttonWithText("일반")).not.toBeNull();
     expect(buttonWithText("General")).toBeNull();
+    expect(buttonWithText("네이티브")).not.toBeNull();
+    expect(buttonWithText("터미널")).not.toBeNull();
+    expect(buttonWithText("플랜")).not.toBeNull();
+    expect(buttonWithText("빌드")).not.toBeNull();
   });
 
   it("reflects a persisted Korean setting", async () => {

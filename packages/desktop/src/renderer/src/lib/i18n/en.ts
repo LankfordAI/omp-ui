@@ -1179,4 +1179,9 @@ export const en = {
   "settings.nav.memory": "Memory",
   "settings.nav.omp": "omp",
   "settings.nav.about": "About",
+  "settings.mode.native": "native",
+  "settings.mode.terminal": "terminal",
+  "settings.mode.plan": "plan",
+  "settings.mode.build": "build",
+  "settings.option.off": "off",
 } as const;
