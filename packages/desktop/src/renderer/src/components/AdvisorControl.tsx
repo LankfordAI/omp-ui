@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
@@ -49,6 +50,7 @@ export function splitRole(selector: string): { model: string; level?: string } {
 }
 
 export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: string; disabled?: boolean; layout?: "inline" | "sheet" }) {
+  const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const setSessionAdvisor = useStore((s) => s.setSessionAdvisor);
@@ -120,17 +122,19 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   const pinNote =
     projectAdvisorPin !== undefined && projectAdvisorPin !== null
-      ? ` · project default ${projectAdvisorPin} applies to new sessions`
+      ? t("composer.advisor.projectDefault", { selector: projectAdvisorPin })
       : "";
   const title = on
-    ? `advisor on${effective === null ? " (omp picks the model)" : ` — ${effective}`}${
-        inherited && effective !== null ? " (from omp config)" : ""
-      } · click to turn off${pinNote} · restarts the session`
-    : `advisor off · click to turn on${
+    ? `${t("composer.advisor.on")}${
+        effective === null
+          ? t("composer.advisor.ompPicks")
+          : ` — ${effective}`
+      }${inherited && effective !== null ? t("composer.advisor.fromOmpConfig") : ""}${t("composer.advisor.turnOff")}${pinNote}${t("composer.advisor.restarts")}`
+    : `${t("composer.advisor.turnOn")}${
         defaults?.model === null || defaults?.model === undefined
           ? ""
-          : ` with ${defaults.model} from omp config`
-      }${pinNote} · restarts the session`;
+          : t("composer.advisor.withConfig", { selector: defaults.model })
+      }${pinNote}${t("composer.advisor.restarts")}`;
 
   return (
     <>
@@ -153,10 +157,10 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
           {on ? (
             <>
               <Dot tone="signal" />
-              advisor
+              {t("composer.advisor.label")}
             </>
           ) : (
-            "advisor off"
+            t("composer.advisor.offLabel")
           )}
         </button>
 
@@ -169,8 +173,13 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             disabled={disabled}
             title={
               effective === null
-                ? "no advisor model configured — omp falls back to its `slow` model chain"
-                : `advisor model: ${effective}${inherited ? " (from omp config)" : " (pinned to this session)"} · click to change`
+                ? t("composer.advisor.noModel")
+                : t("composer.advisor.modelTitle", {
+                    selector: effective,
+                    source: inherited
+                      ? t("composer.advisor.fromOmpConfig")
+                      : t("composer.advisor.pinned"),
+                  })
             }
             onClick={() => setPicking(true)}
             className={cn(
@@ -181,7 +190,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
           >
             <span className="min-w-0 truncate">
               {effective === null
-                ? "pick model"
+                ? t("composer.advisor.pickModel")
                 : effectiveModel?.name || effectiveModel?.id || shortLabel(effective)}
             </span>
           </button>
@@ -196,7 +205,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             <button
               type="button"
               disabled={disabled}
-              title={`advisor thinking level — click to pick (${efforts.join(", ")}) · restarts the session`}
+              title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
               onClick={() => setLevelMenu((m) => !m)}
               className={cn(
                 CAPSULE_SEGMENT,
@@ -204,21 +213,21 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 layout === "sheet" && "px-3",
               )}
             >
-              {effectiveLevel ?? "think —"}
+              {effectiveLevel ?? t("composer.thinking.fallback")}
             </button>
             {levelMenu && (
               <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
                 <span className="px-1.5 pb-1 pt-0.5">
-                  <Label>advisor thinking</Label>
+                  <Label>{t("composer.advisor.thinkingLabel")}</Label>
                 </span>
                 {effectiveLevel !== null && (
                   <button
                     type="button"
                     onClick={() => setLevel("")}
                     className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
-                    title="return to omp's default thinking level for this model"
+                    title={t("composer.advisor.defaultLevel")}
                   >
-                    default —
+                    {t("composer.advisor.defaultLevelChoice")}
                   </button>
                 )}
                 {efforts.map((effort) => (

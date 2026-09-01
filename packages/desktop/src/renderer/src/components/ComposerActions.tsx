@@ -1,4 +1,5 @@
 import type { PromptRoute } from "../lib/rpc-types";
+import { useT } from "../lib/i18n";
 import { Button, IconButton, Label } from "./ui";
 
 /**
@@ -39,8 +40,14 @@ export function ComposerActions({
   onSubmit: (route: PromptRoute | "interrupt") => void;
   onAbort: () => void;
 }) {
+  const t = useT();
   const label = (verb: "send" | "steer") => {
-    const word = isSlash ? "run" : verb;
+    const word =
+      isSlash
+        ? t("composer.actions.run")
+        : verb === "send"
+          ? t("composer.actions.send")
+          : t("composer.actions.steer");
     return layout === "compact" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
   };
 
@@ -48,10 +55,14 @@ export function ComposerActions({
     if (!running) return null;
     return (
       <section className="rounded-xl border border-line bg-raised/60 p-3">
-        <Label>while running</Label>
+        <Label>{t("composer.actions.whileRunning")}</Label>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <Button disabled={!canSend} onClick={() => onSubmit("follow_up")} className="min-h-11 justify-center">Queue</Button>
-          <Button disabled={!canSend} onClick={() => onSubmit("interrupt")} className="min-h-11 min-w-0 justify-center px-2">Interrupt-and-send</Button>
+          <Button disabled={!canSend} onClick={() => onSubmit("follow_up")} className="min-h-11 justify-center">
+            {t("composer.actions.sheetQueue")}
+          </Button>
+          <Button disabled={!canSend} onClick={() => onSubmit("interrupt")} className="min-h-11 min-w-0 justify-center px-2">
+            {t("composer.actions.sheetInterrupt")}
+          </Button>
         </div>
       </section>
     );
@@ -61,7 +72,7 @@ export function ComposerActions({
     return running ? (
       <>
         <Button tone="copper" variant="solid" disabled={!canSend} onClick={() => onSubmit("steer")} className="h-11 rounded-lg px-4">{label("steer")}</Button>
-        <Button tone="rose" variant="outline" onClick={onAbort} className="h-11 rounded-lg px-3">Abort</Button>
+        <Button tone="rose" variant="outline" onClick={onAbort} className="h-11 rounded-lg px-3">{t("composer.actions.abort")}</Button>
       </>
     ) : (
       <Button variant="solid" disabled={!canSend} onClick={() => onSubmit("prompt")} className="h-11 gap-1.5 rounded-lg px-4">
@@ -77,31 +88,31 @@ export function ComposerActions({
         size="xs"
         variant="ghost"
         disabled={!canSend}
-        title="abort the current turn, then send this as a fresh prompt (mod+shift+enter)"
+        title={t("composer.actions.interruptTitle")}
         onClick={() => onSubmit("interrupt")}
         className="min-w-0 shrink"
       >
-        <span className="min-w-0 truncate">interrupt & send</span>
+        <span className="min-w-0 truncate">{t("composer.actions.interruptSend")}</span>
       </Button>
       <Button
         size="xs"
         disabled={!canSend}
-        title="queue this for after the current turn (mod+enter)"
+        title={t("composer.actions.queueTitle")}
         onClick={() => onSubmit("follow_up")}
       >
-        queue
+        {t("composer.actions.queue")}
       </Button>
       <Button
         size="xs"
         tone="copper"
         disabled={!canSend}
-        title="inject this into the running turn (enter)"
+        title={t("composer.actions.steerTitle")}
         onClick={() => onSubmit("steer")}
       >
         {label("steer")}
       </Button>
       <IconButton
-        label="abort the agent (esc)"
+        label={t("composer.actions.abortLabel")}
         tone="rose"
         onClick={onAbort}
         // The one destructive control here: readable before hover.
@@ -125,7 +136,7 @@ export function ComposerActions({
       size="xs"
       variant="solid"
       disabled={!canSend}
-      title={isSlash ? "run this command (enter)" : "send (enter) · shift+enter for a newline"}
+      title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
       onClick={() => onSubmit("prompt")}
     >
       {label("send")}

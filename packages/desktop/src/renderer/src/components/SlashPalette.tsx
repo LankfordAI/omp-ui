@@ -1,4 +1,5 @@
 import { useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
+import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import type { SlashCommandInfo } from "../lib/rpc-types";
@@ -59,6 +60,7 @@ export function SlashPalette({
   onClose(): void;
   ref?: Ref<SlashPaletteHandle>;
 }) {
+  const t = useT();
 
   // Only the command word filters: once the user starts typing an argument the
   // list should hold still rather than empty out.
@@ -129,7 +131,7 @@ export function SlashPalette({
     return (
       <div className={cn(shell, "px-3 py-2.5")}>
         <p className="text-xs text-ink-dim">
-          no command matches <span className="font-mono text-ink-mid">/{needle}</span>
+          {t("composer.slash.noMatch")} <span className="font-mono text-ink-mid">/{needle}</span>
         </p>
       </div>
     );
@@ -141,7 +143,7 @@ export function SlashPalette({
       {groupedRows.map((group) => (
         <div key={group.label}>
           <div className="px-3 pb-1 pt-1.5">
-            <Label>{group.label}</Label>
+            <Label>{group.label === "extensions" ? t("composer.slash.extensions") : t("composer.slash.builtin")}</Label>
           </div>
           {group.items.map((item) => {
             row += 1;

@@ -10,6 +10,7 @@ import {
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
+import { currentLocaleId, useT } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import {
   keywordColors,
@@ -61,6 +62,10 @@ export function Composer({
    */
   unprompted?: boolean;
 }) {
+  const t = useT();
+  // The palette's UI-authored descriptions must refresh with the locale, and
+  // a memo keyed on `commands` alone would hold them stale across a switch.
+  const localeId = currentLocaleId();
   const status = useStore((s) => s.rpc[tabId]?.status);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
@@ -69,13 +74,14 @@ export function Composer({
   // driver the intercept rewrites to, so both are filtered out.
   const paletteCommands = useMemo(
     () => [
-      UI_NEW_COMMAND,
-      UI_PLAN_COMMAND,
+      // omp-ui's own entries get their palette copy from the catalog (issue #363).
+      { ...UI_NEW_COMMAND, description: t("composer.slash.new") },
+      { ...UI_PLAN_COMMAND, description: t("composer.slash.plan") },
       ...commands.filter(
         (c) => c.name !== "new" && c.name !== "plan" && c.name !== PLAN_COMMAND,
       ),
     ],
-    [commands],
+    [commands, localeId, t],
   );
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
@@ -563,12 +569,12 @@ export function Composer({
   };
 
   const placeholder = dead
-    ? "agent exited — resume to continue"
+    ? t("composer.placeholder.exited")
     : relaunching
-      ? "restarting advisor…"
+      ? t("composer.placeholder.restarting")
       : running
-        ? "steer the agent…"
-        : "message the agent…   /  commands · @  files";
+        ? t("composer.placeholder.running")
+        : t("composer.placeholder.idle");
 
   // An image alone is sendable: "what is this?" is in the picture, not the text.
   const canSend = (trimmed !== "" || images.length > 0) && !unavailable && !converting;
@@ -647,13 +653,13 @@ export function Composer({
                 <span key={i} className="group/att relative">
                   <img
                     src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={`attachment ${i + 1}`}
+                    alt={t("composer.attachment.alt", { n: i + 1 })}
                     title={image.mimeType}
                     className="size-12 rounded border border-line-strong bg-sunken object-cover"
                   />
                   <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
                     <IconButton
-                      label={`remove attachment ${i + 1}`}
+                      label={t("composer.attachment.remove", { n: i + 1 })}
                       disabled={unavailable}
                       tone="rose"
                       onClick={() => dropImage(i)}
@@ -665,11 +671,11 @@ export function Composer({
                 </span>
               ))}
               <Label className="ml-0.5">
-                {images.length} image{images.length === 1 ? "" : "s"}
+                {images.length} {images.length === 1 ? t("composer.attachment.image") : t("composer.attachment.images")}
               </Label>
               {!vision && (
-                <Chip tone="copper" title="the selected model accepts text only — omp will drop these">
-                  model has no vision
+                <Chip tone="copper" title={t("composer.vision.title")}>
+                  {t("composer.vision.noVision")}
                 </Chip>
               )}
             </div>
@@ -747,8 +753,8 @@ export function Composer({
                   disabled={unavailable}
                   title={
                     efforts.length > 0
-                      ? `thinking level — click to pick (${efforts.join(", ")})`
-                      : "thinking level"
+                      ? t("composer.thinking.title", { efforts: efforts.join(", ") })
+                      : t("composer.thinking.level")
                   }
                   onClick={() => {
                     if (efforts.length > 0) setEffortMenu((m) => !m);
@@ -758,12 +764,12 @@ export function Composer({
                     "shrink-0 rounded-r-[5px] font-mono text-[11px] tabular-nums text-iris",
                   )}
                 >
-                  {thinkingLevel ?? "think —"}
+                  {thinkingLevel ?? t("composer.thinking.fallback")}
                 </button>
                 {effortMenu && (
                   <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
                     <span className="px-1.5 pb-1 pt-0.5">
-                      <Label>thinking</Label>
+                      <Label>{t("composer.thinking.label")}</Label>
                     </span>
                     {efforts.map((effort) => (
                       <button
@@ -804,12 +810,19 @@ export function Composer({
               mergeBack={mergeBack}
             />
 
-            <AttachmentButton disabled={unavailable} onClick={() => imagePicker.current?.click()} />
+            <AttachmentButton disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
 
 
             {queueChip && (
-              <Chip mono tone="copper" title={queueChip.title} className="min-w-0 shrink">
-                <span className="min-w-0 truncate">{queueChip.label}</span>
+              <Chip
+                mono
+                tone="copper"
+                title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}
+                className="min-w-0 shrink"
+              >
+                <span className="min-w-0 truncate">
+                  {running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}
+                </span>
               </Chip>
             )}
 
@@ -833,19 +846,19 @@ export function Composer({
           )}
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
-              <AttachmentButton compact disabled={unavailable} onClick={() => imagePicker.current?.click()} />
+              <AttachmentButton compact disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
               <Button
                 variant="ghost"
-                title="prompt options"
+                title={t("composer.options.title")}
                 className="h-11 min-w-0 flex-1 justify-start gap-2 px-2 text-ink-mid"
                 disabled={unavailable}
                 onClick={() => showCompactSurface("composer-options")}
               >
                 <IconTune className="size-4 shrink-0" />
-                <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || "no model"}</span>
-                <span className="sr-only">prompt options</span>
+                <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
+                <span className="sr-only">{t("composer.options.title")}</span>
               </Button>
-              {queueChip && <Chip mono tone="copper" title={queueChip.title}>{queued}</Chip>}
+              {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
               <ComposerActions
                 layout="compact"
                 running={running}
@@ -878,7 +891,7 @@ export function Composer({
             <span className="min-w-0 flex-1 break-words" data-selectable>
               {pasteError}
             </span>
-            <IconButton label="dismiss paste warning" onClick={dismissError}>
+            <IconButton label={t("composer.error.dismissPaste")} onClick={dismissError}>
               <IconClose className="size-3" />
             </IconButton>
           </div>
@@ -898,12 +911,12 @@ export function Composer({
                 <span className="min-w-0 flex-1 break-words text-copper" data-selectable>
                   {workspaceError}
                 </span>
-                <IconButton label="dismiss worktree error" onClick={() => setWorkspaceError(null)}>
+                <IconButton label={t("composer.error.dismissWorktree")} onClick={() => setWorkspaceError(null)}>
                   <IconClose className="size-3" />
                 </IconButton>
               </>
             ) : (
-              <span className="text-ink-faint">cutting the worktree…</span>
+              <span className="text-ink-faint">{t("composer.strip.converting")}</span>
             )}
           </div>
         )}

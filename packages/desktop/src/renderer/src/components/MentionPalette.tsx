@@ -1,5 +1,7 @@
 import { useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
+import { MAX_PROJECT_FILES } from "@omp-ui/core/project-files-limit";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
 import { deriveDirs } from "../lib/mentions";
 import { Chip, Label } from "./ui";
@@ -20,6 +22,8 @@ export interface MentionPaletteHandle {
 
 /** Rows shown at most, ranked or not — a picker, not a file manager. */
 const MAX_ROWS = 50;
+/** The cap as the footer displays it: "10 000". */
+const CAP_LABEL = String(MAX_PROJECT_FILES).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
 interface Row {
   /** Project-relative path; dirs carry a trailing "/". */
@@ -47,6 +51,7 @@ export function MentionPalette({
   onClose(): void;
   ref?: Ref<MentionPaletteHandle>;
 }) {
+  const t = useT();
 
   const rows = useMemo(() => {
     const all: Row[] = [
@@ -86,7 +91,7 @@ export function MentionPalette({
     return (
       <div className={cn(shell, "px-3 py-2.5")}>
         <p className="text-xs text-ink-dim">
-          no file matches <span className="font-mono text-ink-mid">@{query}</span>
+          {t("composer.mention.noMatch")} <span className="font-mono text-ink-mid">@{query}</span>
         </p>
       </div>
     );
@@ -115,12 +120,12 @@ export function MentionPalette({
               </span>
             ))}
           </span>
-          {row.isDir && <Chip>dir</Chip>}
+          {row.isDir && <Chip>{t("composer.mention.dir")}</Chip>}
         </button>
       ))}
       {truncated && (
         <div className="border-t border-line px-3 pb-1 pt-1.5">
-          <Label>listing capped at 10 000 files — keep typing to narrow</Label>
+          <Label>{t("composer.mention.capped", { n: CAP_LABEL })}</Label>
         </div>
       )}
     </PaletteList>
