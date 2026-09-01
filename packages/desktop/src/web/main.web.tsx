@@ -4,6 +4,29 @@ import { connectRemoteBackend, type RemoteConnection } from "./remote-backend";
 // window.ompBackend eagerly at module load, so the global must be installed before anything in
 // renderer/src is imported — hence the dynamic import below rather than a top-level one.
 
+const WEB_COPY = {
+  en: {
+    connectFailure: "omp-ui could not connect",
+    retry: "retry",
+    reconnecting: "reconnecting to omp-ui…",
+    sessionEnded: "session ended — tap to sign in again",
+  },
+  ko: {
+    connectFailure: "omp-ui에 연결할 수 없습니다",
+    retry: "다시 시도",
+    reconnecting: "omp-ui에 다시 연결하는 중…",
+    sessionEnded: "세션이 종료되었습니다. 탭하여 다시 로그인하세요",
+  },
+} as const;
+
+function webCopy(): (typeof WEB_COPY)["en"] | (typeof WEB_COPY)["ko"] {
+  try {
+    return localStorage.getItem("omp-ui.localeId") === "ko" ? WEB_COPY.ko : WEB_COPY.en;
+  } catch {
+    return WEB_COPY.en;
+  }
+}
+
 /**
  * Fallback for a failed connect. Deliberately raw DOM with inline styles: it must not depend on
  * the renderer, its stylesheet, or React, any of which could be the thing that failed.
@@ -17,14 +40,14 @@ function renderConnectFailure(message: string): void {
     "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
     "height:100dvh;background:#0a0b0d;color:#c8d0da;font:14px/1.5 system-ui,sans-serif;padding:24px;text-align:center";
   const title = document.createElement("h1");
-  title.textContent = "omp-ui could not connect";
+  title.textContent = webCopy().connectFailure;
   title.style.cssText = "margin:0;font-size:15px;font-weight:600;color:#e6ebf2";
   const detail = document.createElement("p");
   detail.textContent = message;
   detail.style.cssText = "margin:0;max-width:36rem;color:#8b95a3";
   const retry = document.createElement("button");
   retry.type = "button";
-  retry.textContent = "retry";
+  retry.textContent = webCopy().retry;
   retry.style.cssText =
     "border:1px solid #2a3038;background:#14171b;color:#c8d0da;border-radius:4px;padding:4px 12px;cursor:pointer;font:inherit";
   retry.addEventListener("click", () => location.reload());
@@ -42,7 +65,7 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
   const host = document.getElementById("remote-banner");
   if (!host) return;
   const strip = document.createElement("div");
-  strip.textContent = "reconnecting to omp-ui…";
+  strip.textContent = webCopy().reconnecting;
   strip.style.cssText =
     "position:fixed;left:0;right:0;top:0;z-index:2147483647;display:none;padding:calc(4px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 4px calc(12px + env(safe-area-inset-left, 0px));" +
     "background:#3a2a12;color:#e8c99a;font:12px/1.4 system-ui,sans-serif;text-align:center";
@@ -57,6 +80,7 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
       probe = undefined;
       return;
     }
+    strip.textContent = webCopy().reconnecting;
     strip.style.display = "block";
     if (probe !== undefined) return;
     probe = window.setInterval(() => {
@@ -69,7 +93,7 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
           // The server is up but no longer accepts this credential — the password changed
           // or the token was regenerated. Offer the login page instead of waiting forever.
           if (res.status === 401) {
-            strip.textContent = "session ended — tap to sign in again";
+            strip.textContent = webCopy().sessionEnded;
             strip.style.cursor = "pointer";
             strip.addEventListener(
               "click",
