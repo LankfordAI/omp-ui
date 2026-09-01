@@ -224,6 +224,7 @@ export const BACKEND_CHANNELS = {
   },
   setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>([str()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
+  setLocaleId: { channel: "settings:setLocaleId", ...request<[id: string], void>([str()]) },
   setAppUpdateCheckOnLaunch: {
     channel: "settings:setAppUpdateCheckOnLaunch",
     ...request<[on: boolean], void>([bool()]),

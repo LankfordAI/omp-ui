@@ -8,6 +8,7 @@ import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
+import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
@@ -132,6 +133,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (f.id !== currentFontFamilyId()) applyFontFamily(f);
   };
 
+  /**
+   * Re-applies the registry's persisted localeId — the same
+   * registry-authoritative, localStorage-mirror split as syncTheme.
+   */
+  const syncLocale = (s: BackendState): void => {
+    const l = resolveLocale(s.localeId);
+    if (l.id !== currentLocaleId()) applyLocale(l);
+  };
+
   return {
     ...createViewSlice(set, get, api),
     ...createSettingsSlice(set, get, api),
@@ -167,6 +177,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         }));
         syncTheme(state);
         syncFontFamily(state);
+        syncLocale(state);
         reconcilePlanGates(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
@@ -216,6 +227,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       set({ state, appUpdate, ompUpdate, remote });
       syncTheme(state);
       syncFontFamily(state);
+      syncLocale(state);
       reconcilePlanGates(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);

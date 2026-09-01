@@ -129,6 +129,7 @@ const VALID_ARGS = {
   setStallAutoContinue: [true],
   setStreamStallAbortSeconds: [45],
   setThemeId: ["dark"],
+  setLocaleId: ["ko"],
   setWindowChrome: ["#000", "#fff"],
   shellKill: ["tab-1"],
   shellResize: ["tab-1", 120, 40],
@@ -190,7 +191,7 @@ describe("BACKEND_CHANNELS", () => {
     const events = entries.filter(([, descriptor]) => descriptor.kind === "event");
     expect(Object.keys(CH)).toEqual(entries.map(([method]) => method));
     expect(new Set(Object.values(CH)).size).toBe(entries.length);
-    expect(inbound).toHaveLength(93);
+    expect(inbound).toHaveLength(94);
     expect(events).toHaveLength(11);
     for (const [, descriptor] of inbound) expect(descriptor).toHaveProperty("args");
     for (const [, descriptor] of events) expect(descriptor).not.toHaveProperty("args");
@@ -242,7 +243,7 @@ describe("transport dispatch", () => {
       if (descriptor.kind === "request") await dispatchRequest(table, descriptor.channel, args);
       else dispatchNotify(table, descriptor.channel, args);
     }
-    expect(calls).toHaveLength(93);
+    expect(calls).toHaveLength(94);
     expect(calls.map(({ channel }) => channel)).toEqual(
       Object.keys(VALID_ARGS).map((method) => BACKEND_CHANNELS[method as InboundMethod].channel),
     );

@@ -80,6 +80,7 @@ function setup() {
     viewedTab: null as string | null,
     title: "My session",
     icon: "/icons/app.png" as string | null,
+    locale: "en",
   };
   const sent: Array<{ channel: string; args: unknown[] }> = [];
   const notifier = new DesktopNotifier({
@@ -87,6 +88,7 @@ function setup() {
     isEnabled: () => flags.enabled,
     isViewedByDesktop: (tabId) => flags.viewedTab === tabId,
     titleOf: () => flags.title,
+    localeId: () => flags.locale,
     icon: () => flags.icon,
     send: (channel, ...args) => sent.push({ channel, args }),
   });
@@ -233,6 +235,40 @@ describe("DesktopNotifier", () => {
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances[0]!.options.body).toBe("Plan review — answer needed");
+  });
+
+  it("ko locale: turn-complete posts the Korean body with the session title verbatim", async () => {
+    const { notifier, flags } = setup();
+    flags.locale = "ko";
+
+    notifier.turnEnded(TAB);
+    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+
+    expect(state.instances[0]!.options).toEqual({
+      title: "My session",
+      body: "턴이 끝났습니다",
+      icon: "/icons/app.png",
+    });
+  });
+
+  it("ko locale: a non-blank plan title is interpolated into the Korean body", async () => {
+    const { notifier, flags } = setup();
+    flags.locale = "ko";
+
+    notifier.planProposed(TAB, "Fix the billing bug");
+    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+
+    expect(state.instances[0]!.options.body).toBe("플랜 검토: Fix the billing bug");
+  });
+
+  it("ko locale: a blank plan title falls back to the no-title body", async () => {
+    const { notifier, flags } = setup();
+    flags.locale = "ko";
+
+    notifier.planProposed(TAB, "   ");
+    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+
+    expect(state.instances[0]!.options.body).toBe("플랜 검토 — 응답 필요");
   });
 
   it("stallCap(true) posts the paused body; stallCap(false) drops only stall-paused", async () => {

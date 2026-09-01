@@ -43,6 +43,8 @@ export interface RegistrySettings {
   themeId: string;
   /** Active font family id (see renderer lib/font-families.ts). */
   fontFamilyId: string;
+  /** Active UI locale id; the renderer resolves it against its own locale table. */
+  localeId: string;
   /** Check for a newer omp-ui release at launch. */
   appUpdateCheckOnLaunch: boolean;
   /** Check for a newer omp binary at launch. */
@@ -168,6 +170,12 @@ export const SETTINGS: SettingDescriptors = {
   // renderer's own table, so registries written by newer builds remain intact.
   fontFamilyId: validatedSetting(
     () => "default",
+    (value): value is string => typeof value === "string" && value !== "",
+  ),
+  // Any non-empty string is kept as-is: locale ids are validated by the
+  // renderer's own table, so registries written by newer builds remain intact.
+  localeId: validatedSetting(
+    () => "en",
     (value): value is string => typeof value === "string" && value !== "",
   ),
   appUpdateCheckOnLaunch: validatedSetting(

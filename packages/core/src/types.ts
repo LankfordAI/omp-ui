@@ -284,6 +284,8 @@ export interface BackendState {
   themeId: string;
   /** Active font family id; the renderer resolves it against its own font table. */
   fontFamilyId: string;
+  /** Active UI locale id; the renderer resolves it against its own locale table. */
+  localeId: string;
   appUpdateCheckOnLaunch: boolean;
   ompUpdateCheckOnLaunch: boolean;
   /** Release version whose omp-ui update card was dismissed, or null. */

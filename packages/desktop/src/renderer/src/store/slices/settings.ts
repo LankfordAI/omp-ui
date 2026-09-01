@@ -3,6 +3,7 @@ import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
 import { applyTheme, currentThemeId, resolveTheme } from "../../lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "../../lib/font-families";
+import { applyLocale, currentLocaleId, resolveLocale } from "../../lib/i18n";
 import type { SettingsSlice, UiStore } from "../types";
 
 const DEFAULT_REMOTE: SettingsSlice["remote"] = {
@@ -191,6 +192,17 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       await backend.setFontFamilyId(id);
     } catch (err) {
       applyFontFamily(resolveFontFamily(previousId));
+      alertError(err);
+    }
+  },
+
+  async setLocaleId(id) {
+    const previousId = currentLocaleId();
+    applyLocale(resolveLocale(id));
+    try {
+      await backend.setLocaleId(id);
+    } catch (err) {
+      applyLocale(resolveLocale(previousId));
       alertError(err);
     }
   },

@@ -125,6 +125,7 @@ export class MainBackend {
     this.notifier = new DesktopNotifier({
       win,
       isEnabled: () => this.registry.getSetting("desktopNotifications"),
+      localeId: () => this.registry.getSetting("localeId"),
       isViewedByDesktop: (tabId) => this.sessions.isViewedInDesktop(tabId),
       titleOf: (tabId) => {
         const record = this.registry.sessions.find((s) => s.tabId === tabId);
@@ -381,6 +382,10 @@ export class MainBackend {
         },
         [CH.setFontFamilyId]: async (id: string) => {
           this.registry.setSetting("fontFamilyId", id);
+          await this.broadcast();
+        },
+        [CH.setLocaleId]: async (id: string) => {
+          this.registry.setSetting("localeId", id);
           await this.broadcast();
         },
         [CH.setAppUpdateCheckOnLaunch]: async (on: boolean) => {
@@ -769,6 +774,7 @@ export class MainBackend {
       skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
       themeId: this.registry.getSetting("themeId"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
+      localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),

@@ -19,6 +19,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     skipDeleteConfirmation: false,
     themeId: "graphite",
     fontFamilyId: "default",
+    localeId: "en",
     appUpdateCheckOnLaunch: true,
     ompUpdateCheckOnLaunch: true,
     dismissedAppUpdateVersion: null,

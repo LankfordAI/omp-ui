@@ -7,6 +7,7 @@ import {
 } from "../../lib/text-scale";
 import { useStore, type CompactionMethodsLoad } from "../../store";
 import { ChoiceCapsule, Switch } from "../ui";
+import { UI_LOCALES, useT } from "../../lib/i18n";
 import { FIELD, Row } from "./rows";
 
 const DEFAULT_SESSION_MODE_OPTIONS = [
@@ -168,6 +169,8 @@ function CompactionMethodPicker({
 export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
+  const t = useT();
+  const setLocaleId = useStore((s) => s.setLocaleId);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const compactionMethods = useStore((s) => s.compactionMethods);
@@ -195,6 +198,18 @@ export function GeneralPage() {
 
   return (
     <div className="divide-y divide-line-soft px-4">
+      <Row
+        title={t("settings.general.language")}
+        hint={t("settings.general.languageHint")}
+      >
+        <ChoiceCapsule
+          label={t("settings.general.language")}
+          value={state?.localeId ?? "en"}
+          options={UI_LOCALES.map((l) => ({ value: l.id, label: l.label }))}
+          onChange={(value) => void setLocaleId(value)}
+          optionClassName="px-2 text-[11px]"
+        />
+      </Row>
       <Row
         title="Default session mode"
         hint="How a new session opens — an embedded terminal, or the native transcript."
