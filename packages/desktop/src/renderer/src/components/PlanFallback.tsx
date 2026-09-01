@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 
 /**
  * Shown when a prepared HTML plan failed verification (issue #312): names what
@@ -15,11 +16,11 @@ export function PlanFallback({
   source: string;
   className?: string;
 }) {
+  const t = useT();
   return (
     <div className={cn("flex min-h-0 flex-col rounded-md border border-line bg-sunken", className)}>
       <p className="shrink-0 border-b border-line px-3 py-2 text-sm text-ink-dim">
-        This plan could not be displayed as a document ({reason}). Showing the raw plan source
-        instead — execute only if it reads right, otherwise refine and let the agent rewrite it.
+        {t("plan.fallback.verificationFailed", { reason })}
       </p>
       <pre
         data-selectable

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t } from "./i18n";
 import { renderMermaidBlocks } from "./plan-diagrams";
 import { HIGHLIGHT_PLACEHOLDER, highlightCodeBlocks } from "./plan-highlight";
 import { currentThemeId, resolveTheme, useTheme, type Theme } from "./themes";
@@ -217,10 +218,10 @@ const DIAGRAM_PLACEHOLDER = /<!--omp-ui-diagram-\d+-->/;
  */
 export function verifyPlanStructure(prepared: string): string | null {
   if (DIAGRAM_PLACEHOLDER.test(prepared)) {
-    return "a diagram placeholder survived substitution";
+    return t("plan.verify.diagramPlaceholder");
   }
   if (HIGHLIGHT_PLACEHOLDER.test(prepared)) {
-    return "a highlight placeholder survived substitution";
+    return t("plan.verify.highlightPlaceholder");
   }
 
   const doc = new DOMParser().parseFromString(prepared, "text/html");
@@ -231,7 +232,7 @@ export function verifyPlanStructure(prepared: string): string | null {
   // HTML, and getElementById returns whichever element parses first, so an
   // authored element sharing the id could mask a stylesheet that is present.
   if (doc.querySelector(`style[id="${GUARDRAIL_ID}"]`) === null) {
-    return "the readability guardrail stylesheet is missing";
+    return t("plan.verify.guardrailMissing");
   }
 
   // Visible-content check: catches content swallowed by an unclosed comment
@@ -245,7 +246,7 @@ export function verifyPlanStructure(prepared: string): string | null {
   const hasText = (clone.textContent ?? "").trim().length > 0;
   const hasMedia = doc.body.querySelector("svg, img, canvas, video") !== null;
   if (!hasText && !hasMedia) {
-    return "the document body has no visible content";
+    return t("plan.verify.noVisibleContent");
   }
 
   return null;
@@ -336,7 +337,7 @@ export async function preparePlanForReview(
     prepared = await preparePlanDocument(html, theme);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { status: "failed", reason: `document preparation failed: ${message}` };
+    return { status: "failed", reason: t("plan.verify.preparationFailed", { message }) };
   }
 
   const structural = verifyPlanStructure(prepared);
@@ -349,7 +350,7 @@ export async function preparePlanForReview(
     layout = "inconclusive";
   }
   if (layout === "empty") {
-    return { status: "failed", reason: "prepared document rendered empty" };
+    return { status: "failed", reason: t("plan.verify.renderedEmpty") };
   }
   return { status: "ready", doc: prepared };
 }

@@ -1,4 +1,5 @@
 import { isHtmlPlanPath } from "@omp-ui/core/plan";
+import { useT } from "../lib/i18n";
 import { usePreparedPlanDocument } from "../lib/plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
@@ -14,20 +15,21 @@ export function PlanCard({ item }: { item: PlanItem }) {
   const prepared = usePreparedPlanDocument(
     item.text !== null && isHtmlPlanPath(item.planFilePath) ? item.text : null,
   );
+  const t = useT();
   return (
     <Panel className="animate-rise">
       <div className="flex items-center gap-2 px-2.5 py-1.5">
-        <Label>plan proposed</Label>
+        <Label>{t("plan.card.proposed")}</Label>
         <span className="min-w-0 flex-1 truncate text-xs text-ink" title={item.title}>
           {item.title}
         </span>
-        {item.status === "pending" && <Chip tone="copper">pending</Chip>}
-        {item.status === "executed" && <Chip tone="signal">executed</Chip>}
-        {item.status === "refined" && <Chip>refined</Chip>}
+        {item.status === "pending" && <Chip tone="copper">{t("plan.card.pending")}</Chip>}
+        {item.status === "executed" && <Chip tone="signal">{t("plan.card.executed")}</Chip>}
+        {item.status === "refined" && <Chip>{t("plan.card.refined")}</Chip>}
       </div>
       <div className="border-t border-line-soft px-2.5 py-2">
         {item.text !== null ? (
-          <Disclosure summary={<Label>show plan</Label>}>
+          <Disclosure summary={<Label>{t("plan.card.show")}</Label>}>
             <div className="mt-1">
               {isHtmlPlanPath(item.planFilePath) ? (
                 prepared.status === "failed" ? (
@@ -40,7 +42,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
                   // Same empty sandbox as the review modal: no scripts, no
                   // same-origin access, no navigation (ADR-0007).
                   <iframe
-                    title="proposed plan"
+                    title={t("plan.card.proposedPlan")}
                     sandbox=""
                     srcDoc={prepared.status === "ready" ? prepared.doc : ""}
                     className="h-[28rem] w-full rounded-md border border-line bg-white"

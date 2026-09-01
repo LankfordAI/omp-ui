@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../lib/cn";
+import { useT, type MessageKey } from "../lib/i18n";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { usePreparedPlanDocument } from "../lib/plan-document";
@@ -34,15 +35,15 @@ import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
  */
 
 /** Execution contexts offered to the user, with one-line descriptions. */
-const CONTEXTS: Array<{
+const CONTEXTS: ReadonlyArray<{
   id: PlanExecutionContext;
-  label: string;
-  hint: string;
+  labelKey: MessageKey;
+  hintKey: MessageKey;
 }> = [
-  { id: "existing", label: "this session", hint: "implement in the same chat" },
-  { id: "compacted", label: "this session, compacted", hint: "compact context, then implement here" },
-  { id: "fresh", label: "fresh session", hint: "a new chat seeded with the plan" },
-  { id: "worktree", label: "worktree session", hint: "a new chat in a dedicated checkout and branch" },
+  { id: "existing", labelKey: "plan.context.sameSession", hintKey: "plan.context.sameSessionHint" },
+  { id: "compacted", labelKey: "plan.context.compactedSession", hintKey: "plan.context.compactedSessionHint" },
+  { id: "fresh", labelKey: "plan.context.freshSession", hintKey: "plan.context.freshSessionHint" },
+  { id: "worktree", labelKey: "plan.context.worktreeSession", hintKey: "plan.context.worktreeSessionHint" },
 ];
 
 /** Stable empty array so the selector doesn't resubscribe on every store tick. */
@@ -50,18 +51,18 @@ const EMPTY_MODELS: ModelInfo[] = [];
 type CompactReviewStep = "review" | "refine" | "setup";
 
 /** The aside's keyword rows, in omp's notice-push order. */
-const KEYWORD_ROWS: ReadonlyArray<{ keyword: MagicKeyword; hint: string }> = [
+const KEYWORD_ROWS: ReadonlyArray<{ keyword: MagicKeyword; hintKey: MessageKey }> = [
   {
     keyword: "ultrathink",
-    hint: "Careful multi-step reasoning — leads the prompt; under auto-thinking the turn also jumps to the model's highest level.",
+    hintKey: "plan.keyword.ultrathink",
   },
   {
     keyword: "orchestrate",
-    hint: "Fan the implementation out to subagents — omp's orchestrate keyword leads the prompt.",
+    hintKey: "plan.keyword.orchestrate",
   },
   {
     keyword: "workflowz",
-    hint: "Drive the implementation as a deterministic multi-subagent workflow — omp's workflowz keyword leads the prompt.",
+    hintKey: "plan.keyword.workflowz",
   },
 ];
 
@@ -95,9 +96,10 @@ function DispatchSummary({
   branch: string | null;
   className?: string;
 }) {
+  const t = useT();
   return (
     <div className={cn("min-w-0", className)}>
-      <Label>ready to dispatch</Label>
+      <Label>{t("plan.review.dispatchReady")}</Label>
       <p className="mt-0.5 truncate text-[11px] text-ink-dim">
         {contextLabel}
         {model !== null && <>{" · "}{model.name || model.id}</>}
@@ -121,6 +123,7 @@ function ExecutePlanButton({
   disabled: boolean;
   onExecute: () => void;
 }) {
+  const t = useT();
   return (
     <Button
       variant="solid"
@@ -128,7 +131,7 @@ function ExecutePlanButton({
       disabled={disabled}
       onClick={onExecute}
     >
-      {checkingOut ? "switching branch…" : `execute in ${contextLabel}`}
+      {checkingOut ? t("plan.review.switchingBranch") : t("plan.review.executeIn", { contextLabel })}
     </Button>
   );
 }
@@ -145,6 +148,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const deferPlanReview = useStore((s) => s.deferPlanReview);
   /** True after "not now": the pane is dismissed but the gate is unanswered. */
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
+  const t = useT();
   const compact = useCompactShell();
   const [compactStep, setCompactStep] = useState<CompactReviewStep>("review");
 
@@ -255,10 +259,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const advisorEfforts = advisorModelInfo?.thinking?.efforts ?? [];
   const mainEfforts = stagedModel?.thinking?.efforts ?? [];
 
-  const contextLabel = CONTEXTS.find((candidate) => candidate.id === context)?.label ?? context;
+  const contextKey = CONTEXTS.find((candidate) => candidate.id === context)?.labelKey;
+  const contextLabel = contextKey === undefined ? context : t(contextKey);
   const dispatchBranch =
     context === "worktree" && worktreeSel !== null
-      ? worktreeSel.branch.trim() || "new branch"
+      ? worktreeSel.branch.trim() || t("plan.review.newBranch")
       : context === "fresh" && sourceWorktree !== null
         ? sourceWorktree.branch
         : branch.summary;
@@ -355,11 +360,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             <Label>
               {compact
                 ? compactStep === "review"
-                  ? "review plan"
+                  ? t("plan.review.stepReview")
                   : compactStep === "refine"
-                    ? "request changes"
-                    : "implementation setup"
-                : "plan ready"}
+                    ? t("plan.review.stepRefine")
+                    : t("plan.review.stepSetup")
+                : t("plan.review.ready")}
             </Label>
             <h2 id="plan-review-title" className="mt-1 truncate font-display text-base font-medium text-ink" title={request.title}>
               {request.title}
@@ -369,8 +374,8 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            {planText && (!compact || compactStep === "review") && <CopyButton text={planText} label="copy plan" />}
-            <IconButton label="leave plan pending" onClick={dismiss}>
+            {planText && (!compact || compactStep === "review") && <CopyButton text={planText} label={t("plan.review.copyPlan")} />}
+            <IconButton label={t("plan.review.leavePending")} onClick={dismiss}>
               <IconClose />
             </IconButton>
           </div>
@@ -389,7 +394,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               // the scroll container and just hands it the leftover height.
               planHtml ? "flex flex-col overflow-hidden" : "overflow-y-auto",
             )}
-            aria-label="proposed plan"
+            aria-label={t("plan.review.proposedPlan")}
           >
             {(!compact || compactStep === "review") && (
               <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
@@ -405,7 +410,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     // access, no forms, no popups, no navigation. srcDoc keeps the
                     // read on the confined plan:read channel rather than a file:// URL.
                     <iframe
-                      title="proposed plan"
+                      title={t("plan.review.proposedPlan")}
                       sandbox=""
                       srcDoc={prepared.status === "ready" ? prepared.doc : ""}
                       className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
@@ -414,10 +419,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 ) : planText ? (
                   <Markdown text={planText} />
                 ) : (
-                  <p className="text-sm text-ink-dim">
-                    The plan file could not be read. Execute only if you know what it contains —
-                    otherwise refine and let the agent rewrite it.
-                  </p>
+                  <p className="text-sm text-ink-dim">{t("plan.review.fileUnreadable")}</p>
                 )}
               </div>
             )}
@@ -426,12 +428,12 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             <div className={cn("plan-review-refine mt-6 border-t border-line pt-4", planHtml && "shrink-0")}>
               <div className="flex items-baseline justify-between gap-3">
                 <div>
-                  <Label>send it back</Label>
-                  <p className="mt-1 text-xs text-ink-dim">Describe what the planner should revise.</p>
+                  <Label>{t("plan.review.sendBack")}</Label>
+                  <p className="mt-1 text-xs text-ink-dim">{t("plan.review.refineHint")}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-[10px] text-ink-faint">Enter to refine · Shift+Enter for a line break</span>
-                  <AttachmentButton disabled={false} onClick={() => imagePicker.current?.click()} />
+                  <span className="text-[10px] text-ink-faint">{t("plan.review.refineKeys")}</span>
+                  <AttachmentButton disabled={false} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
                 </div>
               </div>
               <div className="mt-2 rounded-lg border border-line bg-raised focus-within:border-line-strong">
@@ -441,13 +443,13 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       <span key={i} className="group/att relative">
                         <img
                           src={`data:${image.mimeType};base64,${image.data}`}
-                          alt={`change note ${i + 1}`}
+                          alt={t("plan.review.changeNote", { n: i + 1 })}
                           title={image.mimeType}
                           className="size-12 rounded border border-line-strong bg-sunken object-cover"
                         />
                         <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
                           <IconButton
-                            label={`remove change note ${i + 1}`}
+                            label={t("plan.review.removeChangeNote", { n: i + 1 })}
                             tone="rose"
                             onClick={() => dropImage(i)}
                             className="size-4 rounded-full border border-line-strong bg-overlay"
@@ -458,14 +460,16 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       </span>
                     ))}
                     <Label className="ml-0.5">
-                      {images.length} attachment{images.length === 1 ? "" : "s"}
+                      {images.length === 1
+                        ? t("plan.review.attachment", { n: images.length })
+                        : t("plan.review.attachments", { n: images.length })}
                     </Label>
                   </div>
                 )}
                 <textarea
                   rows={3}
                   value={changes}
-                  placeholder="What should change before implementation?"
+                  placeholder={t("plan.review.refinePlaceholder")}
                   spellCheck={false}
                   onChange={(e) => setChanges(e.target.value)}
                   onKeyDown={onKeyDown}
@@ -490,16 +494,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
           )}
 
           {(!compact || compactStep === "setup") && (
-          <aside className="plan-review-setup min-h-0 overflow-y-auto border-l border-line bg-sunken/70 px-4 py-4" aria-label="implementation setup">
+          <aside className="plan-review-setup min-h-0 overflow-y-auto border-l border-line bg-sunken/70 px-4 py-4" aria-label={t("plan.review.stepSetup")}>
             <div className="mb-4">
-              <Label>implementation setup</Label>
-              <p className="mt-1 text-xs leading-relaxed text-ink-dim">
-                Choose the context and working tree the implementer receives.
-              </p>
+              <Label>{t("plan.review.stepSetup")}</Label>
+              <p className="mt-1 text-xs leading-relaxed text-ink-dim">{t("plan.review.setupHint")}</p>
             </div>
 
             <fieldset>
-              <legend className="text-[11px] font-medium text-ink">Session</legend>
+              <legend className="text-[11px] font-medium text-ink">{t("plan.review.session")}</legend>
               <div className="mt-2 space-y-1.5">
                 {CONTEXTS.map((option, index) => {
                   const active = context === option.id;
@@ -511,7 +513,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       disabled={option.id === "worktree" && !branch.isRepo}
                       title={
                         option.id === "worktree" && !branch.isRepo
-                          ? "the project isn't a git repo"
+                          ? t("plan.review.notGitRepo")
                           : undefined
                       }
                       onClick={() => {
@@ -550,15 +552,15 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-ink">{option.label}</span>
+                          <span className="text-xs font-medium text-ink">{t(option.labelKey)}</span>
                           <span className="font-mono text-[9px] uppercase tracking-wider text-ink-faint">0{index + 1}</span>
                         </span>
                         <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
                           {option.id === "fresh" && sourceWorktree !== null
-                            ? "a new chat seeded with the plan, in this session's worktree"
+                            ? t("plan.context.freshWorktreeHint")
                             : option.id === "worktree" && sourceWorktree !== null
-                              ? "this session's worktree, or a new checkout and branch"
-                              : option.hint}
+                              ? t("plan.context.worktreeExistingHint")
+                              : t(option.hintKey)}
                         </span>
                       </span>
                     </button>
@@ -568,52 +570,50 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             </fieldset>
 
             <fieldset className="mt-5 border-t border-line pt-4">
-              <legend className="text-[11px] font-medium text-ink">Model</legend>
-              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
-                Staged for the session that receives the implementation — nothing changes until execute.
-              </p>
+              <legend className="text-[11px] font-medium text-ink">{t("plan.review.model")}</legend>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.modelHint")}</p>
 
-              <span className="mt-3 block text-[10px] text-ink-faint">model</span>
+              <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.modelLabel")}</span>
               {availableModels.length === 0 ? (
                 <button
                   type="button"
                   disabled
-                  title="no models available"
+                  title={t("plan.review.noModels")}
                   className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
                 >
-                  {stagedModel === null ? "session default" : stagedModel.name || stagedModel.id}
+                  {stagedModel === null ? t("plan.review.sessionDefault") : stagedModel.name || stagedModel.id}
                 </button>
               ) : (
                 <button
                   type="button"
                   title={
                     stagedModel === null
-                      ? "the session keeps its current model"
+                      ? t("plan.review.keepsCurrentModel")
                       : `${stagedModel.provider}/${stagedModel.id}`
                   }
                   onClick={() => setPickingModel(true)}
                   className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
                 >
-                  {stagedModel === null ? "session default" : stagedModel.name || stagedModel.id}
+                  {stagedModel === null ? t("plan.review.sessionDefault") : stagedModel.name || stagedModel.id}
                 </button>
               )}
 
               {mainEfforts.length > 0 && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">thinking</span>
+                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.thinking")}</span>
                   <span ref={mainLevelAnchor} className="relative flex">
                     <button
                       type="button"
-                      title="the session's thinking level for the implementation"
+                      title={t("plan.review.thinkingTitle")}
                       onClick={() => setLevelMenu((m) => (m === "main" ? null : "main"))}
                       className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
                     >
-                      {stagedThinking ?? "think —"}
+                      {stagedThinking ?? t("plan.review.thinkFallback")}
                     </button>
                     {levelMenu === "main" && (
                       <div className="animate-rise edge-lit absolute left-0 top-full z-20 mt-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
                         <span className="px-1.5 pb-1 pt-0.5">
-                          <Label>thinking</Label>
+                          <Label>{t("plan.review.thinking")}</Label>
                         </span>
                         {mainEfforts.map((effort) => (
                           <button
@@ -639,37 +639,35 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
 
               <div className="mt-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <span className="block text-[11px] font-medium text-ink">Advisor</span>
-                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
-                    A change restarts a same-session implementation at execute time.
-                  </span>
+                  <span className="block text-[11px] font-medium text-ink">{t("plan.review.advisor")}</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{t("plan.review.advisorHint")}</span>
                 </div>
-                <Switch on={stagedAdvisor} onChange={setStagedAdvisor} label="advisor for the implementation" />
+                <Switch on={stagedAdvisor} onChange={setStagedAdvisor} label={t("plan.review.advisorSwitch")} />
               </div>
 
               {stagedAdvisor && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">advisor model</span>
+                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorModel")}</span>
                   {availableModels.length === 0 ? (
                     <button
                       type="button"
                       disabled
-                      title="no models available"
+                      title={t("plan.review.noModels")}
                       className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
                     >
                       {effectiveAdvisor === null
-                        ? "omp default"
+                        ? t("plan.review.ompDefault")
                         : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
                     </button>
                   ) : (
                     <button
                       type="button"
-                      title={effectiveAdvisor ?? "omp's modelRoles.advisor"}
+                      title={effectiveAdvisor ?? t("plan.review.advisorModelDefault")}
                       onClick={() => setPickingAdvisorModel(true)}
                       className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
                     >
                       {effectiveAdvisor === null
-                        ? "omp default"
+                        ? t("plan.review.ompDefault")
                         : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
                     </button>
                   )}
@@ -678,20 +676,20 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
 
               {stagedAdvisor && advisorSplit !== null && advisorEfforts.length > 0 && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">advisor thinking</span>
+                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorThinking")}</span>
                   <span ref={advisorLevelAnchor} className="relative flex">
                     <button
                       type="button"
-                      title="the advisor's thinking level for the implementation"
+                      title={t("plan.review.advisorThinkingTitle")}
                       onClick={() => setLevelMenu((m) => (m === "advisor" ? null : "advisor"))}
                       className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
                     >
-                      {advisorSplit?.level ?? "think —"}
+                      {advisorSplit?.level ?? t("plan.review.thinkFallback")}
                     </button>
                     {levelMenu === "advisor" && (
                       <div className="animate-rise edge-lit absolute left-0 top-full z-20 mt-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
                         <span className="px-1.5 pb-1 pt-0.5">
-                          <Label>advisor thinking</Label>
+                          <Label>{t("plan.review.advisorThinking")}</Label>
                         </span>
                         {advisorSplit?.level !== undefined && (
                           <button
@@ -701,9 +699,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                               setStagedAdvisorModel(advisorSplit!.model);
                             }}
                             className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
-                            title="return to omp's default thinking level for this model"
+                            title={t("plan.review.advisorDefaultThinking")}
                           >
-                            default —
+                            {t("plan.review.defaultLevel")}
                           </button>
                         )}
                         {advisorEfforts.map((effort) => (
@@ -738,16 +736,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               )}
             {context === "worktree" && worktreeSel !== null && projectCwd !== undefined && (
               <fieldset className="mt-5 border-t border-line pt-4">
-                <legend className="text-[11px] font-medium text-ink">Worktree</legend>
+                <legend className="text-[11px] font-medium text-ink">{t("plan.review.worktree")}</legend>
                 {reusingWorktree && sourceWorktree !== null ? (
-                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
-                    This is this session's worktree branch — the implementation reuses this
-                    checkout in place. Change the branch to cut a fresh checkout instead.
-                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.worktreeReuse")}</p>
                 ) : (
-                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
-                    The implementation runs in a dedicated checkout under the app's worktrees root; the project's working tree is untouched.
-                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.worktreeDedicated")}</p>
                 )}
                 <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
                   <WorktreeBranchFields
@@ -771,12 +764,10 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             )}
 
             <fieldset className="mt-5 border-t border-line pt-4">
-              <legend className="text-[11px] font-medium text-ink">Magic keywords</legend>
-              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
-                Armed words lead the implementation prompt, in this order — omp appends each one's hidden notice.
-              </p>
+              <legend className="text-[11px] font-medium text-ink">{t("plan.review.magicKeywords")}</legend>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.magicKeywordsHint")}</p>
               <div className="mt-3 space-y-3">
-                {KEYWORD_ROWS.map(({ keyword, hint }) => {
+                {KEYWORD_ROWS.map(({ keyword, hintKey }) => {
                   const armed =
                     keyword === "ultrathink" ? ultrathink : keyword === "orchestrate" ? orchestrate : workflowz;
                   const setArmed =
@@ -785,9 +776,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     <div key={keyword} className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <KeywordLabel keyword={keyword} />
-                        <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{hint}</span>
+                        <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{t(hintKey, { keyword })}</span>
                       </div>
-                      <Switch on={armed} onChange={setArmed} label={`${keyword} the implementation`} />
+                      <Switch on={armed} onChange={setArmed} label={t("plan.review.armKeyword", { keyword })} />
                     </div>
                   );
                 })}
@@ -797,15 +788,13 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             {advisorConfigured && (
               <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
                 <div className="min-w-0">
-                  <span className="block text-[11px] font-medium text-ink">Address advisor concerns</span>
-                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
-                    Fold the advisor's plan review into the implementation prompt.
-                  </span>
+                  <span className="block text-[11px] font-medium text-ink">{t("plan.review.addressAdvisor")}</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{t("plan.review.addressAdvisorHint")}</span>
                 </div>
                 <Switch
                   on={addressAdvisor}
                   onChange={setAddressAdvisor}
-                  label="address advisor concerns in the implementation prompt"
+                  label={t("plan.review.addressAdvisorSwitch")}
                 />
               </div>
             )}
@@ -829,22 +818,22 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             <div className="plan-review-action-buttons ml-auto flex shrink-0 items-center gap-2">
               {compactStep === "review" ? (
                 <>
-                  <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>
-                    not now
+                  <Button title={t("plan.review.notNowTitle")} variant="ghost" onClick={dismiss}>
+                    {t("plan.review.notNow")}
                   </Button>
-                  <Button onClick={() => setCompactStep("refine")}>refine</Button>
+                  <Button onClick={() => setCompactStep("refine")}>{t("plan.review.refine")}</Button>
                   <Button variant="solid" tone="signal" onClick={() => setCompactStep("setup")}>
-                    execute…
+                    {t("plan.review.execute")}
                   </Button>
                 </>
               ) : compactStep === "refine" ? (
                 <>
-                  <Button variant="ghost" onClick={() => setCompactStep("review")}>back to plan</Button>
-                  <Button variant="solid" tone="signal" onClick={() => void refine()}>send changes</Button>
+                  <Button variant="ghost" onClick={() => setCompactStep("review")}>{t("plan.review.backToPlan")}</Button>
+                  <Button variant="solid" tone="signal" onClick={() => void refine()}>{t("plan.review.sendChanges")}</Button>
                 </>
               ) : (
                 <>
-                  <Button variant="ghost" onClick={() => setCompactStep("review")}>back to plan</Button>
+                  <Button variant="ghost" onClick={() => setCompactStep("review")}>{t("plan.review.backToPlan")}</Button>
                   <ExecutePlanButton
                     contextLabel={contextLabel}
                     checkingOut={branch.checkingOut}
@@ -866,8 +855,8 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               branch={dispatchBranch}
             />
             <div className="flex shrink-0 items-center gap-2">
-              <Button title="Leave the plan pending — the agent stays paused until you answer here" variant="ghost" onClick={dismiss}>not now</Button>
-              <Button onClick={() => void refine()}>refine</Button>
+              <Button title={t("plan.review.notNowTitle")} variant="ghost" onClick={dismiss}>{t("plan.review.notNow")}</Button>
+              <Button onClick={() => void refine()}>{t("plan.review.refine")}</Button>
               <ExecutePlanButton
                 contextLabel={contextLabel}
                 checkingOut={branch.checkingOut}
