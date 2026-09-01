@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import type { ProjectRecord } from "@omp-ui/core/types";
+import { useT, type MessageKey } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { useStore } from "../store";
 import { McpServersPanel } from "./McpManager";
@@ -30,20 +31,20 @@ const EMPTY: ModelInfo[] = [];
 type Field = "main" | "advisor";
 
 /** Typed-input validation for the main pin: `provider/id`, no `:level`. */
-function validateMainPin(value: string): string | null {
+function validateMainPin(value: string): MessageKey | null {
   const role = parseModelRole(value);
   if (role === null || !role.model.includes("/"))
-    return "use provider/model-id — omp's selectors name the provider";
+    return "project.settings.selectorProvider";
   if (role.level !== undefined)
-    return "use provider/id — the thinking level follows last-used memory";
+    return "project.settings.selectorLevel";
   return null;
 }
 
 /** Typed-input validation for the advisor pin: `provider/id`, `:level` kept. */
-function validateAdvisorPin(value: string): string | null {
+function validateAdvisorPin(value: string): MessageKey | null {
   const role = parseModelRole(value);
   if (role === null || !role.model.includes("/"))
-    return "use provider/model-id — omp's selectors name the provider";
+    return "project.settings.selectorProvider";
   return null;
 }
 
@@ -76,6 +77,7 @@ function PinField({
   onCancel(): void;
   onClear(): void;
 }) {
+  const t = useT();
   return (
     <section className="space-y-1.5" data-field={label}>
       <Label>{label}</Label>
@@ -95,10 +97,10 @@ function PinField({
               className="h-9 min-w-0 flex-1 rounded-md border border-line bg-void px-2.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
             <Button size="xs" variant="solid" onClick={onSubmit}>
-              Set
+              {t("project.settings.set")}
             </Button>
             <Button size="xs" variant="ghost" onClick={onCancel}>
-              Cancel
+              {t("common.dialog.cancel")}
             </Button>
           </div>
           {draftError !== null ? (
@@ -106,7 +108,7 @@ function PinField({
               {draftError}
             </p>
           ) : (
-            <p className="text-[11px] text-ink-faint">leave empty to clear the pin</p>
+            <p className="text-[11px] text-ink-faint">{t("project.settings.emptyClears")}</p>
           )}
         </div>
       ) : (
@@ -119,11 +121,11 @@ function PinField({
             )}
           </p>
           <Button size="xs" onClick={onBeginChange}>
-            Change
+            {t("project.settings.change")}
           </Button>
           {pin !== null && (
             <Button size="xs" tone="rose" onClick={onClear}>
-              Clear
+              {t("project.settings.clear")}
             </Button>
           )}
         </div>
@@ -139,6 +141,7 @@ function PinField({
  * fed from a live session's availableModels, typed input is the fallback.
  */
 export function ProjectModelPins({ project }: { project: ProjectRecord }) {
+  const t = useT();
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
   const advisorDefaults = useStore((s) => s.advisorDefaults);
@@ -207,7 +210,7 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
       const problem =
         editing === "main" ? validateMainPin(trimmed) : validateAdvisorPin(trimmed);
       if (problem !== null) {
-        setDraftError(problem);
+        setDraftError(t(problem));
         return;
       }
     }
@@ -226,11 +229,11 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
     <>
       <div className="space-y-5">
         <PinField
-          label="Default model"
+          label={t("project.settings.defaultModel")}
           pin={mainPin}
           notSet={
             <>
-              not set — new sessions use the last-used model, then omp&apos;s default
+              {t("project.settings.mainNotSet")}
             </>
           }
           editing={editing === "main"}
@@ -248,11 +251,11 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
         />
 
         <PinField
-          label="Default advisor model"
+          label={t("project.settings.defaultAdvisor")}
           pin={advisorPin}
           notSet={
             <>
-              not set — last-used, then omp&apos;s{" "}
+              {t("project.settings.advisorNotSet")}{" "}
               <span className="font-mono">modelRoles.advisor</span>
               {project.lastAdvisorModel === null && configuredAdvisor !== null && (
                 <>
@@ -280,14 +283,12 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
             off, the pin is dormant — say so, never hide it. */}
         {advisorPin !== null && advisorStartsOn === false && (
           <p className="rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] leading-snug text-copper">
-            The advisor starts off for new sessions (last-used off / app
-            default) — the pinned model applies whenever the advisor is on.
+            {t("project.settings.advisorStartsOff")}
           </p>
         )}
 
         <p className="text-[11px] leading-snug text-ink-faint">
-          Pins seed new sessions only. Switching models in a running session
-          updates the last-used memory, never the pin.
+          {t("project.settings.pinsHint")}
         </p>
       </div>
 
@@ -338,6 +339,7 @@ export function ProjectSettings({
   project: ProjectRecord | null;
   onClose: () => void;
 }) {
+  const t = useT();
   if (project === null) return null;
 
   return (
@@ -345,7 +347,7 @@ export function ProjectSettings({
       <section role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-            Project settings
+            {t("project.settings.title")}
           </p>
           <h2 id="project-settings-title" className="font-display text-base font-semibold text-ink">
             {project.name}
@@ -358,19 +360,19 @@ export function ProjectSettings({
         <div className="max-h-[60dvh] overflow-y-auto">
           <section aria-labelledby="project-settings-mcp" className="border-b border-line pb-3">
             <h3 id="project-settings-mcp" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
-              MCP servers
+              {t("project.settings.mcpServers")}
             </h3>
             {/* A project dialog pins no session, so the project root is the
                 scope — no checkout to resolve through. */}
             <McpServersPanel scopeCwd={project.path} />
             <p className="px-4 pt-2 text-[11px] text-ink-faint">
-              Changes apply to new sessions in this project.
+              {t("project.settings.mcpHint")}
             </p>
           </section>
 
           <section aria-labelledby="project-settings-models" className="px-4 py-4">
             <h3 id="project-settings-models" className="mb-4 font-display text-sm font-semibold text-ink">
-              Default models
+              {t("project.settings.defaultModels")}
             </h3>
             <ProjectModelPins project={project} />
           </section>

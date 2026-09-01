@@ -1,17 +1,19 @@
 import { useStore } from "../../store";
 import type { Load } from "./types";
+import { useT } from "../../lib/i18n";
 
 export function AboutPage({ load }: { load: Load }) {
+  const t = useT();
   const appUpdate = useStore((s) => s.appUpdate);
   const ompUpdate = useStore((s) => s.ompUpdate);
   // These facts are otherwise only visible inside update cards that are
   // usually hidden — that is this page's whole reason to exist.
   const rows: Array<[string, string]> = [
-    ["omp-ui version", appUpdate.currentVersion ?? "—"],
-    ["omp version", ompUpdate.installedVersion ?? "—"],
-    ["omp path", ompUpdate.installPath ?? "—"],
+    [t("settings.about.appVersion"), appUpdate.currentVersion ?? "—"],
+    [t("settings.about.ompVersion"), ompUpdate.installedVersion ?? "—"],
+    [t("settings.about.ompPath"), ompUpdate.installPath ?? "—"],
     [
-      "omp config dir",
+      t("settings.about.ompConfigDir"),
       load.status === "loaded" ? (load.snapshot.agentDir ?? "—") : "—",
     ],
   ];

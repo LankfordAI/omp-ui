@@ -14,6 +14,7 @@ import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
 import { registerTermWriter, useStore } from "../store";
+import { useT } from "../lib/i18n";
 import { FindBar } from "./FindBar";
 import { Button, IconButton, IconClose } from "./ui";
 
@@ -44,6 +45,7 @@ function searchDecorations(tokens: Record<string, string>) {
  * rather than a stock 16-colour scheme.
  */
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
+  const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; search: SearchAddon } | null>(null);
   const imagePickerRef = useRef<HTMLInputElement>(null);
@@ -86,7 +88,10 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       if (failures.length > 0) {
         setNote({ text: failures.join("; "), bad: true });
       } else if (sent > 0) {
-        setNote({ text: `attached ${sent} image${sent === 1 ? "" : "s"}`, bad: false });
+        setNote({
+          text: sent === 1 ? t("terminal.note.attached", { n: sent }) : t("terminal.note.attachedPlural", { n: sent }),
+          bad: false,
+        });
       }
     },
     [tabId],
@@ -323,7 +328,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
               strokeLinejoin="round"
             />
           </svg>
-          attach images
+          {t("terminal.tab.attachImages")}
         </Button>
       </span>
       <input
@@ -350,7 +355,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
             {note.text}
           </span>
           <IconButton
-            label="dismiss"
+            label={t("terminal.note.dismiss")}
             tone={note.bad ? "rose" : "signal"}
             onClick={() => setNote(null)}
           >
@@ -361,10 +366,13 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-blur-sm">
           <p className="font-display text-sm text-ink-mid">
-            agent exited <span className="font-mono tabular-nums text-rose">(code {exitCode})</span>
+            {t("terminal.tab.exited")}{" "}
+            <span className="font-mono tabular-nums text-rose">
+              {t("terminal.tab.exitedCode", { code: exitCode })}
+            </span>
           </p>
           <Button tone="signal" variant="outline" onClick={() => void resumeDead(tabId)}>
-            resume session
+            {t("terminal.tab.resume")}
           </Button>
         </div>
       )}

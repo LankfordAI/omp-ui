@@ -2,52 +2,68 @@ import type { AppUpdateState, OmpUpdateState } from "@omp-ui/core/types";
 import { useStore } from "../../store";
 import { AppUpdateRestartAction } from "../AppUpdateCard";
 import { Button, Panel, Switch } from "../ui";
+import { t, useT } from "../../lib/i18n";
 
 function appStatusLine(u: AppUpdateState): string {
   switch (u.status) {
     case "available":
-      return `${u.latestVersion ?? "a newer release"} available`;
+      return t("settings.updates.available", {
+        version: u.latestVersion ?? t("settings.updates.newerRelease"),
+      });
     case "downloading":
-      return `downloading ${u.latestVersion ?? ""}…`;
+      return t("settings.updates.downloading", {
+        version: u.latestVersion ?? "",
+      });
     case "downloaded":
-      return `${u.latestVersion ?? "update"} downloaded${u.installOnQuit ? " — installs on quit" : ""}`;
+      return t("settings.updates.downloaded", {
+        version: u.latestVersion ?? t("settings.updates.update"),
+      }) + (u.installOnQuit ? t("settings.updates.installsOnQuit") : "");
     case "installing":
-      return `applying ${u.latestVersion ?? "update"}…`;
+      return t("settings.updates.applying", {
+        version: u.latestVersion ?? t("settings.updates.update"),
+      });
     case "up-to-date":
-      return "up to date";
+      return t("settings.updates.upToDate");
     case "checking":
-      return "checking…";
+      return t("settings.updates.checking");
     case "disabled":
-      return "omp-ui checks disabled in this build — omp binary updates are independent";
+      return t("settings.updates.appChecksDisabled");
     case "error":
-      return u.error ?? "update check failed";
+      return u.error ?? t("settings.updates.checkFailed");
     default:
-      return "no check has run yet";
+      return t("settings.updates.noCheckYet");
   }
 }
 
 function ompStatusLine(u: OmpUpdateState): string {
   switch (u.status) {
     case "missing":
-      return "not installed";
+      return t("settings.updates.notInstalled");
     case "available":
-      return `${u.latestVersion ?? "a newer release"} available`;
+      return t("settings.updates.available", {
+        version: u.latestVersion ?? t("settings.updates.newerRelease"),
+      });
     case "downloading":
-      return `installing ${u.latestVersion ?? ""}…`;
+      return t("settings.updates.installing", {
+        version: u.latestVersion ?? "",
+      });
     case "installed":
-      return `${u.latestVersion ?? "update"} installed — new sessions use it`;
+      return t("settings.updates.installed", {
+        version: u.latestVersion ?? t("settings.updates.update"),
+      });
     case "up-to-date":
-      return "up to date";
+      return t("settings.updates.upToDate");
     case "checking":
-      return "checking…";
+      return t("settings.updates.checking");
     case "error":
-      return u.error ?? "update check failed";
+      return u.error ?? t("settings.updates.checkFailed");
     default:
-      return "no check has run yet";
+      return t("settings.updates.noCheckYet");
   }
 }
 
 export function UpdatesPage() {
+  const t = useT();
   const state = useStore((s) => s.state);
   const appUpdate = useStore((s) => s.appUpdate);
   const ompUpdate = useStore((s) => s.ompUpdate);
@@ -87,7 +103,7 @@ export function UpdatesPage() {
           <div className="min-w-0">
             <p className="text-xs font-medium text-ink">omp-ui</p>
             <p className="mt-0.5 font-mono text-[11px] text-ink-mid tabular-nums">
-              {appUpdate.currentVersion ?? "unversioned build"}
+              {appUpdate.currentVersion ?? t("settings.updates.unversionedBuild")}
             </p>
             <p className="mt-0.5 text-[11px] text-ink-dim">
               {appStatusLine(appUpdate)}
@@ -105,7 +121,7 @@ export function UpdatesPage() {
                   variant="solid"
                   onClick={() => void openAppUpdateReleaseNotes()}
                 >
-                  View release
+                  {t("settings.updates.viewRelease")}
                 </Button>
               ) : (
                 <Button
@@ -116,8 +132,8 @@ export function UpdatesPage() {
                   {appUpdate.format === "appimage" ||
                   appUpdate.format === "nsis" ||
                   appUpdate.format === "maczip"
-                    ? "Update"
-                    : "Download"}
+                    ? t("settings.updates.updateAction")
+                    : t("settings.updates.download")}
                 </Button>
               ))}
             {appUpdate.status === "downloaded" &&
@@ -134,8 +150,8 @@ export function UpdatesPage() {
                     }
                   >
                     {appUpdate.installOnQuit
-                      ? "Undo install on quit"
-                      : "Install when I quit"}
+                      ? t("settings.updates.undoInstallOnQuit")
+                      : t("settings.updates.installOnQuit")}
                   </Button>
                 </>
               ) : (
@@ -144,7 +160,7 @@ export function UpdatesPage() {
                   variant="solid"
                   onClick={() => void showAppUpdateDownload()}
                 >
-                  Show in folder
+                  {t("settings.updates.showInFolder")}
                 </Button>
               ))}
             <Button
@@ -152,25 +168,27 @@ export function UpdatesPage() {
               disabled={appUpdate.status === "installing"}
               onClick={() => void checkAppUpdate()}
             >
-              Check now
+              {t("settings.updates.checkNow")}
             </Button>
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-mid">Check on launch</span>
+          <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch
             on={state?.appUpdateCheckOnLaunch ?? true}
             onChange={(next) => void setAppUpdateCheckOnLaunch(next)}
-            label="check for omp-ui updates on launch"
+            label={t("settings.updates.checkAppOnLaunchLabel")}
           />
         </div>
         {typeof state?.dismissedAppUpdateVersion === "string" && (
           <div className="mt-2 flex items-center justify-between gap-3">
             <span className="text-xs text-ink-mid">
-              Dismissed: {state.dismissedAppUpdateVersion}
+              {t("settings.updates.dismissed", {
+                version: state.dismissedAppUpdateVersion,
+              })}
             </span>
             <Button size="xs" variant="ghost" onClick={reofferApp}>
-              Re-offer
+              {t("settings.updates.reoffer")}
             </Button>
           </div>
         )}
@@ -179,9 +197,9 @@ export function UpdatesPage() {
       <Panel className="px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-medium text-ink">omp binary</p>
+            <p className="text-xs font-medium text-ink">{t("settings.updates.ompBinary")}</p>
             <p className="mt-0.5 font-mono text-[11px] text-ink-mid tabular-nums">
-              {ompUpdate.installedVersion ?? "not installed"}
+              {ompUpdate.installedVersion ?? t("settings.updates.notInstalled")}
             </p>
             <p className="mt-0.5 text-[11px] text-ink-dim">
               {ompStatusLine(ompUpdate)}
@@ -198,7 +216,7 @@ export function UpdatesPage() {
                 variant="solid"
                 onClick={() => void downloadOmpUpdate()}
               >
-                Update now
+                {t("settings.updates.updateNow")}
               </Button>
             )}
             {ompUpdate.status === "missing" && (
@@ -207,29 +225,31 @@ export function UpdatesPage() {
                 variant="solid"
                 onClick={() => void downloadOmpUpdate()}
               >
-                Install
+                {t("settings.updates.install")}
               </Button>
             )}
             <Button size="xs" onClick={() => void checkOmpUpdate()}>
-              Check now
+              {t("settings.updates.checkNow")}
             </Button>
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-mid">Check on launch</span>
+          <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch
             on={state?.ompUpdateCheckOnLaunch ?? true}
             onChange={(next) => void setOmpUpdateCheckOnLaunch(next)}
-            label="check for omp updates on launch"
+            label={t("settings.updates.checkOmpOnLaunchLabel")}
           />
         </div>
         {typeof state?.dismissedOmpUpdateVersion === "string" && (
           <div className="mt-2 flex items-center justify-between gap-3">
             <span className="text-xs text-ink-mid">
-              Dismissed: {state.dismissedOmpUpdateVersion}
+              {t("settings.updates.dismissed", {
+                version: state.dismissedOmpUpdateVersion,
+              })}
             </span>
             <Button size="xs" variant="ghost" onClick={reofferOmp}>
-              Re-offer
+              {t("settings.updates.reoffer")}
             </Button>
           </div>
         )}
@@ -239,7 +259,8 @@ export function UpdatesPage() {
 }
 
 export function UpdatesFooter() {
+  const t = useT();
   // Auto-download is deliberately absent: both download paths end in an
   // installer launch or an app restart.
-  return <p>Downloads always need a click.</p>;
+  return <p>{t("settings.updates.footnote")}</p>;
 }

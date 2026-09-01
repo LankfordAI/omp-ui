@@ -8,6 +8,7 @@ import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import { Button, Chip, Dot, Empty, Label, Panel } from "../ui";
 import { FIELD } from "./rows";
+import { t, useT } from "../../lib/i18n";
 import type { FooterContext } from "./types";
 
 type ProviderLoad =
@@ -17,10 +18,12 @@ type ProviderLoad =
 
 /** How the row labels each source, and how loudly. */
 function sourceChip(row: ProviderKeyStatus): ReactNode {
-  if (row.source === "stored") return <Chip tone="signal">saved here</Chip>;
-  if (row.source === "environment") return <Chip>environment</Chip>;
+  if (row.source === "stored")
+    return <Chip tone="signal">{t("settings.providers.savedHere")}</Chip>;
+  if (row.source === "environment")
+    return <Chip>{t("settings.providers.environment")}</Chip>;
   if (row.source === "login-shell")
-    return <Chip tone="iris">shell profile</Chip>;
+    return <Chip tone="iris">{t("settings.providers.shellProfile")}</Chip>;
   // Report-only: omp loads project .env files itself, so nothing was injected.
   if (row.source === "dotenv") return <Chip tone="copper">project .env</Chip>;
   return null;
@@ -42,6 +45,7 @@ function ProviderRow({
   onSave: (value: string) => void;
   onClear: () => void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -81,12 +85,12 @@ function ProviderRow({
         <div className="flex shrink-0 items-center gap-1.5">
           {!editing && (
             <Button size="xs" disabled={busy} onClick={() => setEditing(true)}>
-              {row.source === "stored" ? "Replace" : "Add key"}
+              {row.source === "stored" ? t("settings.providers.replace") : t("settings.providers.addKey")}
             </Button>
           )}
           {!editing && row.source === "stored" && (
             <Button size="xs" variant="ghost" disabled={busy} onClick={onClear}>
-              remove
+              {t("settings.providers.remove")}
             </Button>
           )}
         </div>
@@ -100,7 +104,7 @@ function ProviderRow({
             // screen share, and so no password manager offers to autofill it.
             type="password"
             value={draft}
-            aria-label={`${row.label} key`}
+            aria-label={t("settings.providers.keyAria", { name: row.label })}
             placeholder={row.hint ?? row.env}
             spellCheck={false}
             autoComplete="off"
@@ -124,18 +128,19 @@ function ProviderRow({
             disabled={busy || draft.trim() === ""}
             onClick={save}
           >
-            Save
+            {t("settings.providers.save")}
           </Button>
           <Button size="xs" variant="ghost" disabled={busy} onClick={cancel}>
-            cancel
+            {t("settings.providers.cancel")}
           </Button>
         </div>
       )}
 
       {row.shadowsEnvironment && !editing && (
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-          Overrides the <span className="font-mono">{row.activeEnv}</span> your
-          environment already provides.
+          {t("settings.providers.shadowsEnvPrefix")}
+          <span className="font-mono">{row.activeEnv}</span>
+          {t("settings.providers.shadowsEnvSuffix")}
         </p>
       )}
     </div>
@@ -143,6 +148,7 @@ function ProviderRow({
 }
 
 export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
+  const t = useT();
   const readProviderKeys = useStore((s) => s.readProviderKeys);
   const setProviderKey = useStore((s) => s.setProviderKey);
   const clearProviderKey = useStore((s) => s.clearProviderKey);
@@ -180,10 +186,10 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
   };
 
   if (load.status === "loading") {
-    return <Empty title="Reading providers…" />;
+    return <Empty title={t("settings.providers.reading")} />;
   }
   if (load.status === "error") {
-    return <Empty title="Could not read provider keys" hint={load.message} />;
+    return <Empty title={t("settings.providers.readFailed")} hint={load.message} />;
   }
 
   const { providers, encryptionAvailable, backend } = load.snapshot;
@@ -192,8 +198,8 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
     id: ProviderKeyStatus["group"];
     label: string;
   }> = [
-    { id: "models", label: "Model providers" },
-    { id: "search", label: "Web search" },
+    { id: "models", label: t("settings.providers.modelProviders") },
+    { id: "search", label: t("settings.providers.webSearch") },
   ];
 
   return (
@@ -203,20 +209,22 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
           <Dot tone={configured.length > 0 ? "signal" : "copper"} />
           <p className="text-xs font-medium text-ink">
             {configured.length === 0
-              ? "No provider credentials — omp can only offer models that need no key"
-              : `${configured.length} of ${providers.length} providers have a credential`}
+              ? t("settings.providers.noneConfigured")
+              : t("settings.providers.someConfigured", {
+                  configured: configured.length,
+                  total: providers.length,
+                })}
           </p>
         </div>
         {encryptionAvailable ? (
           <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
-            Keys you add are encrypted by your OS credential store (
-            <span className="font-mono">{backend}</span>).
+            {t("settings.providers.encryptedPrefix")}
+            <span className="font-mono">{backend}</span>
+            {t("settings.providers.encryptedSuffix")}
           </p>
         ) : (
           <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
-            No OS credential store is available here, so keys cannot be saved
-            securely and adding one is refused. Export the variable from your
-            shell profile instead.
+            {t("settings.providers.noCredentialStore")}
           </p>
         )}
       </Panel>
@@ -254,15 +262,14 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
 export function ProvidersFooter({ anyLive }: FooterContext) {
   // Load-bearing: keys bind at process start, and a GUI launch inherits none
   // of the user's shell exports — the two facts that make this page exist.
+  const t = useT();
   return (
     <p>
-      omp reads credentials from the environment, so omp-ui supplies these to
-      every session it launches — a key added here takes effect on the next
-      session spawn.
-      {anyLive && " Restart a session from its MCP panel to apply now."} Keys
-      already exported by your shell profile are picked up automatically, and
-      a project&apos;s <span className="font-mono">.env</span> is loaded by
-      omp itself, so both are shown here but neither needs re-entering.
+      {t("settings.providers.footerIntro")}
+      {anyLive && t("settings.providers.footerRestart")}
+      {t("settings.providers.footerEnvPrefix")}
+      <span className="font-mono">.env</span>
+      {t("settings.providers.footerEnvSuffix")}
     </p>
   );
 }

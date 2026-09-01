@@ -38,6 +38,8 @@ export interface DesktopNotifierDeps {
   win: BrowserWindow;
   /** The Settings → General switch (re-read at every fire). */
   isEnabled: () => boolean;
+  /** The registry's localeId (re-read at every fire). */
+  localeId: () => string;
   /** True while the desktop renderer's fresh viewed report names the tab (issue #271). */
   isViewedByDesktop: (tabId: string) => boolean;
   /** The sidebar's session title for the tab. */
@@ -61,6 +63,29 @@ interface TabAttention {
  * end — starts its turn and cancels the pending post before it can fire.
  */
 export const NOTIFICATION_POST_DELAY_MS = 3_000;
+/** OS notification body copy, keyed by locale. The title stays the session's
+    sidebar title (session content — never localized). {title} is the plan's
+    own title (agent-authored data), substituted verbatim. */
+const COPY: Record<"en" | "ko", {
+  turnComplete: string;
+  planPending: string; // {title} placeholder
+  planPendingNoTitle: string;
+  stallPaused: string;
+}> = {
+  en: {
+    turnComplete: "Turn finished",
+    planPending: "Plan review: {title}",
+    planPendingNoTitle: "Plan review — answer needed",
+    stallPaused: "Stall auto-continue paused — send a prompt to re-arm",
+  },
+  // DRAFT — requires native-speaker review before release (issue #363).
+  ko: {
+    turnComplete: "턴이 끝났습니다",
+    planPending: "플랜 검토: {title}",
+    planPendingNoTitle: "플랜 검토 — 응답 필요",
+    stallPaused: "자동 계속 실행 일시 중지 — 다시 시작하려면 프롬프트를 보내세요",
+  },
+};
 
 export class DesktopNotifier implements Attention {
   private readonly tabs = new Map<string, TabAttention>();
@@ -208,19 +233,20 @@ export class DesktopNotifier implements Attention {
   /** Notification copy: the session's sidebar title, the state as body. */
   private copyFor(tabId: string, entry: TabAttention): { title: string; body: string } {
     const title = this.deps.titleOf(tabId);
+    const copy = COPY[this.deps.localeId() === "ko" ? "ko" : "en"];
     switch (entry.kind) {
       case "turn-complete":
-        return { title, body: "Turn finished" };
+        return { title, body: copy.turnComplete };
       case "plan-pending":
         return {
           title,
           body:
             entry.planTitle !== null && entry.planTitle.trim() !== ""
-              ? `Plan review: ${entry.planTitle}`
-              : "Plan review — answer needed",
+              ? copy.planPending.replace("{title}", entry.planTitle)
+              : copy.planPendingNoTitle,
         };
       case "stall-paused":
-        return { title, body: "Stall auto-continue paused — send a prompt to re-arm" };
+        return { title, body: copy.stallPaused };
     }
   }
 

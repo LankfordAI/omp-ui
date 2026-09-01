@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { Panel } from "./ui";
 
@@ -37,6 +38,7 @@ export function TranscriptContextMenu({
   onCopyMarkdown: (() => void) | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Focus the first item on open (mount-only: re-running on parent re-renders
@@ -72,7 +74,7 @@ export function TranscriptContextMenu({
             onClose();
           }}
         >
-          Copy
+          {t("transcript.contextmenu.copy")}
         </button>
         {markdown !== null && copyMarkdown !== null && (
           <button
@@ -84,7 +86,7 @@ export function TranscriptContextMenu({
               onClose();
             }}
           >
-            Copy as Markdown
+            {t("transcript.contextmenu.copyMarkdown")}
           </button>
         )}
       </Panel>

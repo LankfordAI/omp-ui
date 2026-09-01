@@ -84,12 +84,14 @@ const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
 function broadcastStates(): {
   projects: { project: { path: string } }[];
   themeId: string;
+  localeId: string;
 }[] {
   return sent
     .filter((event) => event.channel === CH.onStateChanged)
     .map((event) => event.args[0] as {
       projects: { project: { path: string } }[];
       themeId: string;
+      localeId: string;
     });
 }
 
@@ -187,6 +189,16 @@ describe("IPC spawn argument boundary (issue #358)", () => {
     expect(spawn).toHaveBeenCalledOnce();
     expect(spawn).toHaveBeenCalledWith(request);
     expect(spawn.mock.calls[0]![0]).not.toBe(request);
+  });
+});
+describe("settings:setLocaleId (issue #363)", () => {
+  it("replies, writes the registry, and broadcasts once", async () => {
+    await expect(invoke(CH.setLocaleId, "ko")).resolves.toBeUndefined();
+    expect(
+      Registry.load(path.join(base, "registry.json")).getSetting("localeId"),
+    ).toBe("ko");
+    expect(broadcastStates()).toHaveLength(1);
+    expect(broadcastStates()[0]?.localeId).toBe("ko");
   });
 });
 

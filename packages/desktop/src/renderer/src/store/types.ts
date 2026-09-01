@@ -203,6 +203,7 @@ export interface SettingsSlice {
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
+  setLocaleId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
   setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
   clearDismissedAppUpdate(): Promise<void>;

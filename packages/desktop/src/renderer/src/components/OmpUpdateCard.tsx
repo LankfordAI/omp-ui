@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useStore } from "../store";
 import { Button, UpdateCard } from "./ui";
+import { useT } from "../lib/i18n";
 
 /**
  * The omp binary install/update card (issue #19): a small non-modal card
@@ -14,6 +15,7 @@ export function OmpUpdateCard() {
   const ompUpdate = useStore((s) => s.ompUpdate);
   const downloadOmpUpdate = useStore((s) => s.downloadOmpUpdate);
   const dismissOmpUpdate = useStore((s) => s.dismissOmpUpdate);
+  const t = useT();
 
   const { status, installedVersion, latestVersion, progress, error } = ompUpdate;
   const version = latestVersion ?? "";
@@ -25,17 +27,17 @@ export function OmpUpdateCard() {
   if (status === "available") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">omp {version} available</p>
-        <p className="mt-0.5 text-xs text-ink-dim">installed: {installedVersion}</p>
+        <p className="text-sm font-medium text-ink">{t("update.omp.available", { version })}</p>
         <p className="mt-0.5 text-xs text-ink-dim">
-          new sessions will use it — running sessions keep their version
+          {t("update.omp.installedVersion", { version: installedVersion ?? "" })}
         </p>
+        <p className="mt-0.5 text-xs text-ink-dim">{t("update.omp.availableHint")}</p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="solid" onClick={() => void downloadOmpUpdate()}>
-            Update now
+            {t("update.omp.updateNow")}
           </Button>
           <Button variant="ghost" onClick={dismissOfferedVersion}>
-            Later
+            {t("update.omp.later")}
           </Button>
         </div>
       </>
@@ -44,16 +46,16 @@ export function OmpUpdateCard() {
     // An install offer, not an update — never the word "update" here.
     body = (
       <>
-        <p className="text-sm font-medium text-ink">omp is not installed</p>
+        <p className="text-sm font-medium text-ink">{t("update.omp.notInstalled")}</p>
         <p className="mt-0.5 text-xs text-ink-dim">
-          new sessions can&apos;t run until omp-ui installs its managed copy
+          {t("update.omp.notInstalledHint")}
         </p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="solid" onClick={() => void downloadOmpUpdate()}>
-            Install
+            {t("update.omp.install")}
           </Button>
           <Button variant="ghost" onClick={dismissOfferedVersion}>
-            Later
+            {t("update.omp.later")}
           </Button>
         </div>
       </>
@@ -61,7 +63,7 @@ export function OmpUpdateCard() {
   } else if (status === "downloading") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">Installing omp {version}…</p>
+        <p className="text-sm font-medium text-ink">{t("update.omp.installing", { version })}</p>
         <div className="mt-2.5 h-1 rounded bg-raised">
           {progress === null ? (
             <div className="h-1 w-full animate-pulse rounded bg-iris" />
@@ -77,13 +79,13 @@ export function OmpUpdateCard() {
   } else if (status === "installed") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">omp {version} installed</p>
+        <p className="text-sm font-medium text-ink">{t("update.omp.installed", { version })}</p>
         <p className="mt-0.5 text-xs text-ink-dim">
-          new sessions will use it — running sessions are unaffected
+          {t("update.omp.installedHint")}
         </p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="ghost" onClick={() => void dismissOmpUpdate(version, false)}>
-            Dismiss
+            {t("update.omp.dismiss")}
           </Button>
         </div>
       </>
@@ -92,10 +94,10 @@ export function OmpUpdateCard() {
     // The shared shell auto-dismisses up-to-date; errors stay sticky.
     const title =
       status === "up-to-date"
-        ? `omp is up to date (${installedVersion})`
+        ? t("update.omp.upToDate", { version: installedVersion ?? "" })
         : error === "could not reach the omp release registry"
-          ? "Update check failed"
-          : "Install failed";
+          ? t("update.omp.checkFailed")
+          : t("update.omp.installFailed");
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>
@@ -116,7 +118,9 @@ export function OmpUpdateCard() {
 
   return (
     <UpdateCard
-      dismissLabel={offered ? `dismiss omp ${version} offer` : onDismiss ? "dismiss" : undefined}
+      dismissLabel={
+        offered ? t("update.omp.dismissLabel", { version }) : onDismiss ? t("update.card.dismiss") : undefined
+      }
       onDismiss={onDismiss}
       autoDismissMs={transient ? 5000 : undefined}
     >

@@ -8,6 +8,7 @@ import { backend } from "../backend";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
 import { findRecord, registerShellWriter, sessionCwd, useStore } from "../store";
+import { useT } from "../lib/i18n";
 import { Button } from "./ui";
 
 /**
@@ -20,6 +21,7 @@ import { Button } from "./ui";
  */
 
 export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolean }) {
+  const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const spawnedRef = useRef(false);
@@ -170,9 +172,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
           <p className="truncate font-mono text-[11px] text-ink">{handoff.line}</p>
           <div className="mt-1.5 flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
-              {handoff.phase === "running"
-                ? "omp's terminal client — send this once the TUI has painted"
-                : "omp exited — restart the session so it reconnects with the new credential"}
+              {handoff.phase === "running" ? t("shell.handoff.running") : t("shell.handoff.exited")}
             </p>
             {handoff.phase === "running" ? (
               <Button
@@ -181,7 +181,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
                 size="xs"
                 onClick={() => sendTuiHandoff(tabId)}
               >
-                send
+                {t("shell.handoff.send")}
               </Button>
             ) : (
               <Button
@@ -198,11 +198,11 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
                   })
                 }
               >
-                restart session
+                {t("shell.handoff.restartSession")}
               </Button>
             )}
             <Button variant="ghost" size="xs" onClick={() => dismissTuiHandoff(tabId)}>
-              dismiss
+              {t("shell.handoff.dismiss")}
             </Button>
           </div>
         </div>
@@ -215,11 +215,13 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       {exitCode !== undefined && handoff === undefined && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-blur-sm">
           <p className="font-display text-sm text-ink-mid">
-            shell exited{" "}
-            <span className="font-mono tabular-nums text-rose">(code {exitCode})</span>
+            {t("shell.drawer.exited")}{" "}
+            <span className="font-mono tabular-nums text-rose">
+              {t("shell.drawer.exitedCode", { code: exitCode })}
+            </span>
           </p>
           <Button tone="signal" variant="outline" onClick={restart}>
-            restart shell
+            {t("shell.exited.restart")}
           </Button>
         </div>
       )}

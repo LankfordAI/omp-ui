@@ -4,6 +4,7 @@ import type { ProjectOpenAvailability, ProjectOpenTarget, ProjectRecord } from "
 import { backend, displayMessage } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { Capsule, CAPSULE_SEGMENT, Chevron, IconButton, IconClose, Panel } from "./ui";
 
 /**
@@ -40,11 +41,6 @@ interface MenuGeometry {
   maxHeight: number;
 }
 
-const TARGET_LABEL: Record<ProjectOpenTarget, string> = {
-  vscode: "VS Code",
-  files: "Files",
-  terminal: "Terminal",
-};
 
 export function ProjectOpenControl({
   project,
@@ -57,6 +53,7 @@ export function ProjectOpenControl({
   /** Re-asks the host; the parent commits the fresh answer. */
   refreshAvailability: () => Promise<void>;
 }) {
+  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [geometry, setGeometry] = useState<MenuGeometry | null>(null);
   const [pending, setPending] = useState<ProjectOpenTarget | null>(null);
@@ -85,6 +82,7 @@ export function ProjectOpenControl({
   /** VS Code when the host has it, the file manager otherwise (issue #169).
    *  Terminal is menu-only, never the primary segment. */
   const preferred: ProjectOpenTarget = availability?.vsCode === true ? "vscode" : "files";
+  const preferredLabel = preferred === "vscode" ? "VS Code" : t("project.open.files");
 
   const closeMenu = useCallback((restoreFocus: boolean) => {
     setMenuOpen(false);
@@ -240,7 +238,7 @@ export function ProjectOpenControl({
 
   const filesDescriptionId = `project-open-files-${project.path}`;
   const terminalDescriptionId = `project-open-terminal-${project.path}`;
-  const primaryLabel = busy ? "Opening…" : "Open";
+  const primaryLabel = busy ? t("project.open.opening") : t("project.open.open");
 
   return (
     <div
@@ -280,13 +278,13 @@ export function ProjectOpenControl({
           aria-busy={busy}
           aria-label={
             unresolved
-              ? `Open ${project.name}`
-              : `Open ${project.name} in ${TARGET_LABEL[preferred]}`
+              ? t("project.open.openProject", { name: project.name })
+              : t("project.open.openProjectIn", { name: project.name, target: preferredLabel })
           }
           title={
             unresolved
-              ? `checking how ${project.name} can be opened…`
-              : `open ${project.path} in ${TARGET_LABEL[preferred]}`
+              ? t("project.open.checking", { name: project.name })
+              : t("project.open.openPathIn", { path: project.path, target: preferredLabel })
           }
           onClick={() => launch(preferred, "primary")}
           className={cn(CAPSULE_SEGMENT, "text-[11px] text-ink-mid")}
@@ -300,8 +298,8 @@ export function ProjectOpenControl({
           disabled={disabled}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          aria-label={`Choose how to open ${project.name}`}
-          title={`choose how to open ${project.name}`}
+          aria-label={t("project.open.chooseAria", { name: project.name })}
+          title={t("project.open.chooseTitle", { name: project.name })}
           onClick={() => (menuOpen ? closeMenu(true) : setMenuOpen(true))}
           className={cn(CAPSULE_SEGMENT, "px-1 text-ink-dim")}
         >
@@ -316,7 +314,7 @@ export function ProjectOpenControl({
         >
           <span className="min-w-0 flex-1 break-words">{error}</span>
           <IconButton
-            label={`dismiss open error for ${project.name}`}
+            label={t("project.open.dismissError", { name: project.name })}
             onClick={() => setError(null)}
             className="size-4"
           >
@@ -330,7 +328,7 @@ export function ProjectOpenControl({
           <div
             ref={menuRef}
             role="menu"
-            aria-label={`Choose how to open ${project.name}`}
+            aria-label={t("project.open.chooseAria", { name: project.name })}
             className="fixed z-50 overflow-y-auto"
             style={{
               width: geometry?.width ?? MENU_WIDTH,
@@ -367,7 +365,7 @@ export function ProjectOpenControl({
                 <button
                   type="button"
                   role="menuitem"
-                  aria-label={`Open ${project.name} in VS Code`}
+                  aria-label={t("project.open.openProjectIn", { name: project.name, target: "VS Code" })}
                   className={MENU_ITEM_CLASS}
                   onClick={() => select("vscode")}
                 >
@@ -377,36 +375,36 @@ export function ProjectOpenControl({
               <button
                 type="button"
                 role="menuitem"
-                aria-label={`Open ${project.name} in Files`}
+                aria-label={t("project.open.openProjectIn", { name: project.name, target: t("project.open.files") })}
                 aria-describedby={filesDescriptionId}
                 className={MENU_ITEM_CLASS}
                 onClick={() => select("files")}
               >
-                Files
+                {t("project.open.files")}
               </button>
               <span
                 id={filesDescriptionId}
                 className="block px-2.5 pt-0.5 pb-1 text-[10px] text-ink-faint"
               >
-                Opens the project directory in the system file manager.
+                {t("project.open.filesDescription")}
               </span>
               {availability?.terminal === true && (
                 <>
                   <button
                     type="button"
                     role="menuitem"
-                    aria-label={`Open ${project.name} in Terminal`}
+                    aria-label={t("project.open.openProjectIn", { name: project.name, target: t("project.open.terminal") })}
                     aria-describedby={terminalDescriptionId}
                     className={MENU_ITEM_CLASS}
                     onClick={() => select("terminal")}
                   >
-                    Terminal
+                    {t("project.open.terminal")}
                   </button>
                   <span
                     id={terminalDescriptionId}
                     className="block px-2.5 pt-0.5 pb-1 text-[10px] text-ink-faint"
                   >
-                    Opens a system terminal at the project root.
+                    {t("project.open.terminalDescription")}
                   </span>
                 </>
               )}

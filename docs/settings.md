@@ -8,6 +8,7 @@ The pages below follow the order in the app. Pay attention to the timing notes. 
 
 | Setting | What it changes | When it takes effect |
 | --- | --- | --- |
+| Language | Selects English or 한국어 for omp-ui's application chrome. Session content, terminal output, plans, code, paths, names, and backend errors are never translated. | Immediately in desktop and remote renderers; remembered for the next launch. |
 | Default session mode | Opens new sessions in the native transcript or embedded terminal. | New sessions only. Existing sessions keep their mode. |
 | Default agent mode | Starts a new native session in read-only Plan mode or write-enabled Build mode. | New native sessions only. |
 | Default compaction method | Chooses the first compaction method attempted by new native sessions. Each method is listed with a one-line description of what it does. Available methods come from the installed omp binary; “omp configured default” supplies no override. | Captured by a fresh native session and preserved across later resumes. It does not change live sessions or terminal-origin sessions. |
@@ -23,6 +24,8 @@ The pages below follow the order in the app. Pay attention to the timing notes. 
 ## Appearance
 
 Choose a theme from the fixed theme grid. The choice updates the app chrome, terminal colors, and code highlighting immediately, and omp-ui remembers it for the next launch. Themes are curated sets rather than user-editable color controls. Every set reserves the signal color for agent liveness.
+
+The application and Ubuntu families both use bundled Pretendard Variable after their Latin sans face for Korean chrome. Code, paths, terminal text, and other monospace content keep their selected monospace face.
 
 ## Updates
 

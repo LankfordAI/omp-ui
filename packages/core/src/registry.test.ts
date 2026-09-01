@@ -77,6 +77,7 @@ describe("SETTINGS", () => {
       "dismissedOmpUpdateVersion",
       "themeId",
       "fontFamilyId",
+      "localeId",
       "appUpdateCheckOnLaunch",
       "ompUpdateCheckOnLaunch",
       "remoteEnabled",
@@ -518,6 +519,7 @@ describe("Registry persistence", () => {
     );
     const reg = Registry.load(file);
     expect(reg.getSetting("themeId")).toBe("graphite");
+    expect(reg.getSetting("localeId")).toBe("en");
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
   });
@@ -526,11 +528,13 @@ describe("Registry persistence", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
     reg.setSetting("themeId", "theme-from-a-newer-build");
+    reg.setSetting("localeId", "ko");
     reg.setSetting("appUpdateCheckOnLaunch", false);
     reg.setSetting("ompUpdateCheckOnLaunch", false);
 
     const reloaded = Registry.load(file);
     expect(reloaded.getSetting("themeId")).toBe("theme-from-a-newer-build");
+    expect(reloaded.getSetting("localeId")).toBe("ko");
     expect(reloaded.getSetting("appUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
   });
@@ -549,6 +553,7 @@ describe("Registry persistence", () => {
       ["skipDeleteConfirmation", (registry) => registry.setSetting("skipDeleteConfirmation", false)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],
+      ["localeId", (registry) => registry.setSetting("localeId", "en")],
       ["appUpdateCheckOnLaunch", (registry) => registry.setSetting("appUpdateCheckOnLaunch", true)],
       ["ompUpdateCheckOnLaunch", (registry) => registry.setSetting("ompUpdateCheckOnLaunch", true)],
       ["remoteEnabled", (registry) => registry.setSetting("remoteEnabled", false)],

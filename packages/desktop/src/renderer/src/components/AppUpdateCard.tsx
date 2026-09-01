@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useStore } from "../store";
 import { Button, ConfirmDialog, UpdateCard } from "./ui";
+import { useT } from "../lib/i18n";
 
 /**
  * The update card (issue #18): a small non-modal card in the lower-right
@@ -16,6 +17,7 @@ import { Button, ConfirmDialog, UpdateCard } from "./ui";
 export function AppUpdateRestartAction({ size }: { size?: "xs" }) {
   const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
   const [confirming, setConfirming] = useState(false);
+  const t = useT();
 
   const restart = async (confirmed = false): Promise<void> => {
     const result = await restartForAppUpdate(confirmed);
@@ -25,28 +27,28 @@ export function AppUpdateRestartAction({ size }: { size?: "xs" }) {
   return (
     <>
       <Button size={size} variant="solid" onClick={() => void restart()}>
-        Restart now
+        {t("update.app.restartNow")}
       </Button>
       {confirming && (
         <ConfirmDialog
-          kicker="Live sessions"
-          title="Restart omp-ui now?"
+          kicker={t("update.app.restartKicker")}
+          title={t("update.app.restartTitle")}
           tone="copper"
           onClose={() => setConfirming(false)}
           width="w-[28rem]"
           actions={
             <>
               <Button variant="ghost" onClick={() => setConfirming(false)}>
-                Cancel
+                {t("update.app.cancel")}
               </Button>
               <Button variant="solid" tone="copper" onClick={() => void restart(true)}>
-                Restart and stop sessions
+                {t("update.app.restartAndStop")}
               </Button>
             </>
           }
         >
           <p className="text-sm leading-relaxed text-ink-dim">
-            One or more sessions are still live. Restarting will stop their agents and apply the update.
+            {t("update.app.restartBody")}
           </p>
         </ConfirmDialog>
       )}
@@ -61,6 +63,7 @@ export function AppUpdateCard() {
   const showAppUpdateDownload = useStore((s) => s.showAppUpdateDownload);
   const setAppUpdateInstallOnQuit = useStore((s) => s.setAppUpdateInstallOnQuit);
   const dismissAppUpdate = useStore((s) => s.dismissAppUpdate);
+  const t = useT();
 
   const { status, currentVersion, latestVersion, format, progress, installOnQuit, error } =
     appUpdate;
@@ -72,24 +75,29 @@ export function AppUpdateCard() {
   if (status === "available") {
     const primary =
       format === "unknown"
-        ? { label: "View release", run: () => void openAppUpdateReleaseNotes() }
+        ? { label: t("update.app.viewRelease"), run: () => void openAppUpdateReleaseNotes() }
         : {
-            label: format === "appimage" || format === "nsis" || format === "maczip" ? "Update" : "Download",
+            label:
+              format === "appimage" || format === "nsis" || format === "maczip"
+                ? t("update.app.update")
+                : t("update.app.download"),
             run: () => void downloadAppUpdate(),
           };
     body = (
       <>
-        <p className="text-sm font-medium text-ink">omp-ui {version} available</p>
-        <p className="mt-0.5 text-xs text-ink-dim">installed: {currentVersion}</p>
+        <p className="text-sm font-medium text-ink">{t("update.app.available", { version })}</p>
+        <p className="mt-0.5 text-xs text-ink-dim">
+          {t("update.app.installedVersion", { version: currentVersion ?? "" })}
+        </p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="solid" onClick={primary.run}>
             {primary.label}
           </Button>
           <Button variant="ghost" onClick={() => void openAppUpdateReleaseNotes()}>
-            Release notes
+            {t("update.app.releaseNotes")}
           </Button>
           <Button variant="ghost" onClick={() => void dismissAppUpdate(version, true)}>
-            Later
+            {t("update.app.later")}
           </Button>
         </div>
       </>
@@ -97,7 +105,7 @@ export function AppUpdateCard() {
   } else if (status === "downloading") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">Downloading omp-ui {version}…</p>
+        <p className="text-sm font-medium text-ink">{t("update.app.downloading", { version })}</p>
         <div className="mt-2.5 h-1 rounded bg-raised">
           {progress === null ? (
             <div className="h-1 w-full animate-pulse rounded bg-iris" />
@@ -113,25 +121,25 @@ export function AppUpdateCard() {
   } else if (status === "installing") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">Applying omp-ui {version}…</p>
+        <p className="text-sm font-medium text-ink">{t("update.app.installing", { version })}</p>
         <div className="mt-2.5 h-1 rounded bg-raised">
           <div className="h-1 w-full animate-pulse rounded bg-iris" />
         </div>
         <p className="mt-2 text-xs text-ink-dim">
           {format === "maczip"
-            ? "macOS is preparing the update. omp-ui will restart automatically; this can take several minutes."
-            : "omp-ui will restart automatically."}
+            ? t("update.app.installingMac")
+            : t("update.app.installingRestart")}
         </p>
       </>
     );
   } else if (status === "downloaded" && (format === "appimage" || format === "nsis" || format === "maczip")) {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">omp-ui {version} ready</p>
+        <p className="text-sm font-medium text-ink">{t("update.app.ready", { version })}</p>
         <p className="mt-0.5 text-xs text-ink-dim">
           {installOnQuit
-            ? "will install when you quit — or restart now to apply immediately"
-            : "restart to apply — your sessions keep running until then"}
+            ? t("update.app.readyInstallOnQuit")
+            : t("update.app.readyRestart")}
         </p>
         <div className="mt-3 flex items-center gap-2">
           <AppUpdateRestartAction />
@@ -139,10 +147,10 @@ export function AppUpdateCard() {
             variant="ghost"
             onClick={() => void setAppUpdateInstallOnQuit(!installOnQuit)}
           >
-            {installOnQuit ? "Undo" : "Install when I quit"}
+            {installOnQuit ? t("update.app.undo") : t("update.app.installOnQuit")}
           </Button>
           <Button variant="ghost" onClick={() => void dismissAppUpdate(version, false)}>
-            Later
+            {t("update.app.later")}
           </Button>
         </div>
       </>
@@ -150,19 +158,19 @@ export function AppUpdateCard() {
   } else if (status === "downloaded") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">Downloaded omp-ui {version}</p>
+        <p className="text-sm font-medium text-ink">{t("update.app.downloaded", { version })}</p>
         <p className="mt-0.5 text-xs text-ink-dim">
-          the installer was opened — finish the install there
+          {t("update.app.downloadedHint")}
         </p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="solid" onClick={() => void showAppUpdateDownload()}>
-            Show in folder
+            {t("update.app.showInFolder")}
           </Button>
           <Button variant="ghost" onClick={() => void openAppUpdateReleaseNotes()}>
-            Release notes
+            {t("update.app.releaseNotes")}
           </Button>
           <Button variant="ghost" onClick={() => void dismissAppUpdate(version, false)}>
-            Dismiss
+            {t("update.app.dismiss")}
           </Button>
         </div>
       </>
@@ -171,12 +179,12 @@ export function AppUpdateCard() {
     // The shared shell auto-dismisses up-to-date/disabled; errors stay sticky.
     const title =
       status === "up-to-date"
-        ? `omp-ui is up to date (${currentVersion})`
+        ? t("update.app.upToDate", { version: currentVersion ?? "" })
         : status === "disabled"
-          ? "omp-ui update checks are disabled in this build"
+          ? t("update.app.disabled")
           : error === "could not reach GitHub"
-            ? "Update check failed"
-            : "Update failed";
+            ? t("update.app.checkFailed")
+            : t("update.app.failed");
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>
@@ -197,7 +205,9 @@ export function AppUpdateCard() {
 
   return (
     <UpdateCard
-      dismissLabel={offered ? `dismiss omp-ui ${version} update` : onDismiss ? "dismiss" : undefined}
+      dismissLabel={
+        offered ? t("update.app.dismissLabel", { version }) : onDismiss ? t("update.card.dismiss") : undefined
+      }
       onDismiss={onDismiss}
       autoDismissMs={transient ? 5000 : undefined}
     >

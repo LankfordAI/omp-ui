@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import type { TodoPhase, TodoTask } from "../lib/rpc-types";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Empty, Meter } from "./ui";
 
@@ -46,10 +47,11 @@ function TaskGlyph({ status }: { status: string }) {
 
 export function TodoPanel({ tabId }: { tabId: string }) {
   const phases = useStore((s) => s.rpc[tabId]?.todos) ?? [];
+  const t = useT();
   const setTodos = useStore((s) => s.setTodos);
 
   if (phases.length === 0) {
-    return <Empty title="No todos" hint="The agent publishes a plan here once it starts one." />;
+    return <Empty title={t("todo.empty.title")} hint={t("todo.empty.hint")} />;
   }
 
   const cycle = (phaseIndex: number, taskIndex: number): void => {

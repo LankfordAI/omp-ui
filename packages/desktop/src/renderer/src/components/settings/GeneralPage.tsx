@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { cn } from "../../lib/cn";
 import {
   SCALE_STEPS,
@@ -7,16 +7,9 @@ import {
 } from "../../lib/text-scale";
 import { useStore, type CompactionMethodsLoad } from "../../store";
 import { ChoiceCapsule, Switch } from "../ui";
+import { currentLocaleId, UI_LOCALES, useT } from "../../lib/i18n";
 import { FIELD, Row } from "./rows";
 
-const DEFAULT_SESSION_MODE_OPTIONS = [
-  { value: "rpc-ui", label: "native" },
-  { value: "pty", label: "terminal" },
-] as const;
-const DEFAULT_AGENT_MODE_OPTIONS = [
-  { value: "plan", label: "plan" },
-  { value: "build", label: "build" },
-] as const;
 const PLAN_FORMAT_OPTIONS = [
   { value: "html", label: "html" },
   { value: "md", label: "markdown" },
@@ -87,6 +80,7 @@ function CompactionMethodPicker({
   load: CompactionMethodsLoad;
   onSelect: (method: string | null) => void;
 }) {
+  const t = useT();
   type Option = {
     id: string | null;
     label: string;
@@ -94,7 +88,11 @@ function CompactionMethodPicker({
     disabled?: boolean;
   };
   const options: Option[] = [
-    { id: null, label: "omp configured default", description: COMPACTION_DEFAULT_DESCRIPTION },
+    {
+      id: null,
+      label: t("settings.general.compactionOmpDefault"),
+      description: COMPACTION_DEFAULT_DESCRIPTION,
+    },
   ];
   if (load.status === "loaded") {
     // A persisted method the installed omp no longer publishes: show it,
@@ -103,7 +101,7 @@ function CompactionMethodPicker({
       const meta = COMPACTION_METHOD_META[value];
       options.push({
         id: value,
-        label: `${meta?.label ?? value} (unavailable)`,
+        label: `${meta?.label ?? value}${t("settings.general.compactionOptionUnavailable")}`,
         description: meta?.description,
         disabled: true,
       });
@@ -121,7 +119,7 @@ function CompactionMethodPicker({
     <div className="flex min-w-0 flex-col gap-2">
       <div
         role="group"
-        aria-label="default compaction method"
+        aria-label={t("settings.general.compactionGroup")}
         className="divide-y divide-line-soft rounded-md border border-line bg-raised"
       >
         {options.map((option) => {
@@ -158,7 +156,7 @@ function CompactionMethodPicker({
       </div>
       {load.status === "failed" && (
         <p className="text-[10px] text-ink-faint">
-          Methods unavailable: {load.message}
+          {t("settings.general.compactionLoadFailed", { message: load.message })}
         </p>
       )}
     </div>
@@ -168,6 +166,33 @@ function CompactionMethodPicker({
 export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
+  const t = useT();
+  const localeId = currentLocaleId();
+  const sessionModeOptions = useMemo(
+    () => [
+      { value: "rpc-ui", label: t("settings.mode.native") },
+      { value: "pty", label: t("settings.mode.terminal") },
+    ] as const,
+    [localeId, t],
+  );
+  const agentModeOptions = useMemo(
+    () => [
+      { value: "plan", label: t("settings.mode.plan") },
+      { value: "build", label: t("settings.mode.build") },
+    ] as const,
+    [localeId, t],
+  );
+  const stallAbortOptions = useMemo(
+    () => STALL_ABORT_OPTIONS.map((option) =>
+      option.value === 0 ? { ...option, label: t("settings.option.off") } : option),
+    [localeId, t],
+  );
+  const hibernateIdleOptions = useMemo(
+    () => HIBERNATE_IDLE_OPTIONS.map((option) =>
+      option.value === 0 ? { ...option, label: t("settings.option.off") } : option),
+    [localeId, t],
+  );
+  const setLocaleId = useStore((s) => s.setLocaleId);
   const setDefaultAgentMode = useStore((s) => s.setDefaultAgentMode);
   const setPlanFormat = useStore((s) => s.setPlanFormat);
   const compactionMethods = useStore((s) => s.compactionMethods);
@@ -196,32 +221,44 @@ export function GeneralPage() {
   return (
     <div className="divide-y divide-line-soft px-4">
       <Row
-        title="Default session mode"
-        hint="How a new session opens — an embedded terminal, or the native transcript."
+        title={t("settings.general.language")}
+        hint={t("settings.general.languageHint")}
       >
         <ChoiceCapsule
-          label="default session mode"
+          label={t("settings.general.language")}
+          value={state?.localeId ?? "en"}
+          options={UI_LOCALES.map((l) => ({ value: l.id, label: l.label }))}
+          onChange={(value) => void setLocaleId(value)}
+          optionClassName="px-2 text-[11px]"
+        />
+      </Row>
+      <Row
+        title={t("settings.general.defaultSessionMode")}
+        hint={t("settings.general.defaultSessionModeHint")}
+      >
+        <ChoiceCapsule
+          label={t("settings.general.defaultSessionModeLabel")}
           value={mode}
-          options={DEFAULT_SESSION_MODE_OPTIONS}
+          options={sessionModeOptions}
           onChange={(value) => void setDefaultMode(value)}
           optionClassName="px-2 text-[11px]"
         />
       </Row>
       <Row
-        title="Default agent mode"
-        hint="How a new native session starts — read-only Plan, or write-enabled Build."
+        title={t("settings.general.defaultAgentMode")}
+        hint={t("settings.general.defaultAgentModeHint")}
       >
         <ChoiceCapsule
-          label="default agent mode"
+          label={t("settings.general.defaultAgentModeLabel")}
           value={agentMode}
-          options={DEFAULT_AGENT_MODE_OPTIONS}
+          options={agentModeOptions}
           onChange={(value) => void setDefaultAgentMode(value)}
           optionClassName="px-2 text-[11px]"
         />
       </Row>
       <Row
-        title="Default compaction method"
-        hint="Captured by new native sessions. omp configured default removes the override."
+        title={t("settings.general.defaultCompactionMethod")}
+        hint={t("settings.general.defaultCompactionMethodHint")}
         stacked
       >
         <CompactionMethodPicker
@@ -231,11 +268,11 @@ export function GeneralPage() {
         />
       </Row>
       <Row
-        title="Plan format"
-        hint="How the agent authors a plan for review — one self-contained HTML document rendered in the review modal, or markdown."
+        title={t("settings.general.planFormat")}
+        hint={t("settings.general.planFormatHint")}
       >
         <ChoiceCapsule
-          label="plan format"
+          label={t("settings.general.planFormatLabel")}
           value={planFormat}
           options={PLAN_FORMAT_OPTIONS}
           onChange={(value) => void setPlanFormat(value)}
@@ -243,85 +280,85 @@ export function GeneralPage() {
         />
       </Row>
       <Row
-        title="Hibernate idle sessions"
-        hint="Stop the agent process of a native session after it has been quiet this long. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it."
+        title={t("settings.general.hibernateIdle")}
+        hint={t("settings.general.hibernateIdleHint")}
       >
         <ChoiceCapsule
-          label="hibernate idle sessions"
+          label={t("settings.general.hibernateIdleLabel")}
           value={state?.hibernateIdleMinutes ?? 30}
-          options={HIBERNATE_IDLE_OPTIONS}
+          options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="px-2 text-[11px]"
         />
       </Row>
       <Row
-        title="Stream-stall watchdog"
-        hint="Abort a running turn after this much model-stream silence. The clock runs only while a model request is in flight: local tool execution suspends it for as long as the tool runs, and tool completion, compaction, retry backoff, and human answers each restart a full window. The session stays live — stall auto-continue or any prompt resumes it."
+        title={t("settings.general.streamStallWatchdog")}
+        hint={t("settings.general.streamStallWatchdogHint")}
       >
         <ChoiceCapsule
-          label="stall watchdog"
+          label={t("settings.general.streamStallWatchdogLabel")}
           value={state?.streamStallAbortSeconds ?? 180}
-          options={STALL_ABORT_OPTIONS}
+          options={stallAbortOptions}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
           optionClassName="px-2 text-[11px]"
         />
       </Row>
       <Row
-        title="Stall auto-continue"
-        hint="When a turn is aborted because the model stream stalled, send a bounded continue prompt (max 2 in a row; any prompt re-arms) so the session resumes instead of sitting idle. The stall diagnostic still appears with this off. Terminal tabs have no prompt channel and are unaffected."
+        title={t("settings.general.stallAutoContinue")}
+        hint={t("settings.general.stallAutoContinueHint")}
       >
         <Switch
           on={state?.stallAutoContinue ?? true}
           onChange={(next) => void setStallAutoContinue(next)}
-          label="Stall auto-continue"
+          label={t("settings.general.stallAutoContinue")}
         />
       </Row>
       <Row
-        title="Desktop notifications"
-        hint="Post an OS notification when a background native session needs attention — its turn finished, a plan review is waiting for an answer, or stall auto-continue paused at its cap. The banner appears while the window is unfocused or a different tab is in view; clicking it focuses the window and resurfaces the session. Terminal sessions are not announced, and remote browser clients are unaffected."
+        title={t("settings.general.desktopNotifications")}
+        hint={t("settings.general.desktopNotificationsHint")}
       >
         <Switch
           on={state?.desktopNotifications ?? true}
           onChange={(next) => void setDesktopNotifications(next)}
-          label="Desktop notifications"
+          label={t("settings.general.desktopNotifications")}
         />
       </Row>
       <Row
-        title="Advisor auto-reply"
-        hint="An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript."
+        title={t("settings.general.advisorAutoReply")}
+        hint={t("settings.general.advisorAutoReplyHint")}
       >
         <Switch
           on={state?.advisorAutoReply ?? true}
           onChange={(next) => void setAdvisorAutoReply(next)}
-          label="Advisor auto-reply"
+          label={t("settings.general.advisorAutoReply")}
         />
       </Row>
       <Row
-        title="Default advisor"
-        hint="Start new sessions with the advisor running. Projects with a remembered advisor keep their own last-used state."
+        title={t("settings.general.defaultAdvisor")}
+        hint={t("settings.general.defaultAdvisorHint")}
       >
         <Switch
           on={state?.defaultAdvisor === true}
           onChange={(next) => void setDefaultAdvisor(next)}
-          label="Default advisor"
+          label={t("settings.general.defaultAdvisor")}
         />
       </Row>
       <Row
-        title="Skip the delete confirmation"
-        hint="Deleting a session erases its whole lineage dir; skipping removes the warning."
+        title={t("settings.general.skipDeleteConfirmation")}
+        hint={t("settings.general.skipDeleteConfirmationHint")}
       >
         <Switch
           on={state?.skipDeleteConfirmation === true}
           onChange={(next) => void setSkipDeleteConfirmation(next)}
-          label="Skip the delete confirmation"
+          label={t("settings.general.skipDeleteConfirmation")}
         />
       </Row>
       <Row
-        title="Transcript text size"
-        hint="Native transcripts only — the rest of the chrome is an app, not a document."
+        title={t("settings.general.transcriptTextSize")}
+        hint={t("settings.general.transcriptTextSizeHint")}
       >
         <select
-          aria-label="transcript text size"
+          aria-label={t("settings.general.transcriptTextSizeLabel")}
           value={String(scale)}
           onChange={(e) => setTranscriptScale(Number(e.target.value))}
           className={FIELD}
@@ -338,10 +375,8 @@ export function GeneralPage() {
 }
 
 export function GeneralFooter() {
+  const t = useT();
   return (
-    <p>
-      Default session and agent modes apply to new sessions; everything else
-      applies immediately.
-    </p>
+    <p>{t("settings.general.footnote")}</p>
   );
 }

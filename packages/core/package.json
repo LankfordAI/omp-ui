@@ -11,6 +11,7 @@
     "./backend-channels": "./src/backend-channels.ts",
     "./backend-arg-codecs": "./src/backend-arg-codecs.ts",
     "./plan": "./src/plan.ts",
+    "./project-files-limit": "./src/project-files-limit.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",
     "./advisor-stats": "./src/advisor-stats.ts",
     "./mcp-status": "./src/mcp-status.ts",

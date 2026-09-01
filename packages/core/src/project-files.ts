@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import * as path from "node:path";
 import { git } from "./git";
+import { MAX_PROJECT_FILES } from "./project-files-limit";
 
 /**
  * Project file listing for the composer's @ picker. Paths are
@@ -15,7 +16,7 @@ import { git } from "./git";
  */
 
 /** Cap on listed files; the picker's footer reports truncation past this. */
-export const MAX_PROJECT_FILES = 10_000;
+export { MAX_PROJECT_FILES } from "./project-files-limit";
 
 export async function listProjectFiles(
   projectCwd: string,

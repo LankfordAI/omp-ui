@@ -4,6 +4,7 @@ import type { DeleteConfirmation } from "../store";
 import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 import { shortBase } from "../lib/format";
+import { useT } from "../lib/i18n";
 /**
  * Session delete confirmation. For worktree sessions, offers a merge-back of the
  * branch first (issue #272): the merge into the recorded base runs in the
@@ -14,6 +15,7 @@ export function DeleteSessionDialog({
 }: {
   confirmation: DeleteConfirmation;
 }) {
+  const t = useT();
   const [skipFuture, setSkipFuture] = useState(false);
   const [mergeFirst, setMergeFirst] = useState(false);
   const [mergeStatus, setMergeStatus] = useState<MergeBackStatus | null>(null);
@@ -65,19 +67,19 @@ export function DeleteSessionDialog({
     busyTitle === null;
   const mergeTitle =
     busyTitle !== null
-      ? "a session is mid-turn in the project"
+      ? t("dialog.delete.busy")
       : mergeStatus === null
         ? undefined
         : mergeStatus.destination === null
-          ? "the recorded base no longer resolves"
+          ? t("dialog.delete.baseGone")
           : !mergeStatus.destinationCheckedOut
-            ? `check out ${mergeStatus.destination} in the project first`
+            ? t("dialog.delete.checkoutFirst", { destination: mergeStatus.destination })
             : mergeStatus.mergeInProgress
-              ? "a merge is already in progress in the project"
+              ? t("dialog.delete.mergeInProgress")
               : mergeStatus.alreadyMerged
-                ? `already in ${mergeStatus.destination}`
+                ? t("dialog.delete.alreadyMerged", { destination: mergeStatus.destination })
                 : !mergeStatus.branchExists
-                  ? "the worktree branch no longer exists — nothing to merge"
+                  ? t("dialog.delete.branchGone")
                   : undefined;
 
   const handleConfirm = async (): Promise<void> => {
@@ -91,7 +93,7 @@ export function DeleteSessionDialog({
         projectCwd === undefined ||
         mergeStatus?.destination === null
       ) {
-        setMergeError(mergeTitle ?? "the merge is no longer possible — uncheck it to delete plainly");
+        setMergeError(mergeTitle ?? t("dialog.delete.mergeNoLonger"));
         return;
       }
       setMerging(true);
@@ -100,7 +102,7 @@ export function DeleteSessionDialog({
         const result = await mergeWorktreeBranch(projectCwd, branch, mergeStatus.destination);
         if (result.kind === "conflicts") {
           setMergeError(
-            `the merge stopped on ${result.files.length} file(s) — resolve them in ${projectCwd}, then delete without merging`,
+            t("dialog.delete.mergeConflicts", { n: result.files.length, cwd: projectCwd }),
           );
         } else {
           // ff / merged / already-merged: the branch is safely in, proceed.
@@ -118,15 +120,15 @@ export function DeleteSessionDialog({
 
   return (
     <ConfirmDialog
-      kicker="Irreversible action"
-      title={`Delete “${confirmation.title}”?`}
+      kicker={t("dialog.delete.kicker")}
+      title={t("dialog.delete.title", { title: confirmation.title })}
       tone="rose"
       onClose={cancelDeleteSession}
       width="w-[28rem]"
       actions={
         <>
           <Button variant="ghost" onClick={cancelDeleteSession}>
-            Cancel
+            {t("common.dialog.cancel")}
           </Button>
           <Button
             variant="solid"
@@ -136,48 +138,47 @@ export function DeleteSessionDialog({
             onClick={() => void handleConfirm()}
           >
             {merging
-              ? "merging…"
+              ? t("dialog.delete.merging")
               : mergeFirst
-                ? "merge & delete"
+                ? t("dialog.delete.mergeAndDelete")
                 : n > 0
-                  ? `Delete ${n + 1} sessions`
-                  : "Delete session"}
+                  ? t("dialog.delete.deleteMany", { n: n + 1 })
+                  : t("dialog.delete.deleteSession")}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <p className="text-sm leading-relaxed text-ink-dim">
-          {confirmation.running && "Its running agent will be stopped. "}
-          {confirmation.hasFiles && "Its transcript and artifacts will be erased. "}
+          {confirmation.running && t("dialog.delete.running")}
+          {confirmation.hasFiles && t("dialog.delete.erased")}
           {confirmation.worktreeBranch &&
             (mergeFirst && mergeEnabled
-              ? `Its worktree checkout will be removed — uncommitted changes there are lost, and the branch ${confirmation.worktreeBranch} is deleted. `
+              ? t("dialog.delete.worktreeDeleted", { branch: confirmation.worktreeBranch })
               : mergeStatus?.alreadyMerged
-                ? `Its worktree checkout will be removed — uncommitted changes there are lost. The branch ${confirmation.worktreeBranch} (already in ${destination}) is deleted. `
-                : `Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on ${confirmation.worktreeBranch}. `)}
-          This cannot be undone.
+                ? t("dialog.delete.worktreeAlreadyMerged", { branch: confirmation.worktreeBranch, destination })
+                : t("dialog.delete.worktreeSurvives", { branch: confirmation.worktreeBranch }))}
+          {t("dialog.delete.cannotUndo")}
         </p>
 
         {n > 0 && (
           <div className="rounded-md border border-line bg-raised px-3 py-2.5">
             <p className="text-xs font-medium text-ink">
-              Also deletes {n} plan implementation descendant{n === 1 ? "" : "s"}
+              {t("dialog.delete.alsoDeletes", { n, s: n === 1 ? "" : "s" })}
             </p>
             <ul className="mt-1.5 list-none space-y-0.5 text-xs text-ink-mid">
               {confirmation.cascade.slice(0, 4).map((d) => (
                 <li key={d.tabId} className="truncate">
                   {d.title}
-                  {d.running ? " · running" : ""}
+                  {d.running ? t("dialog.delete.runningSuffix") : ""}
                 </li>
               ))}
               {n > 4 && (
-                <li>+{n - 4} more</li>
+                <li>{t("dialog.delete.more", { n: n - 4 })}</li>
               )}
             </ul>
             <p className="mt-1.5 text-xs text-ink-mid">
-              Their transcripts and artifacts are erased too, and any running
-              agent among them is stopped.
+              {t("dialog.delete.cascadeErased")}
             </p>
           </div>
         )}
@@ -194,7 +195,7 @@ export function DeleteSessionDialog({
               onChange={(event) => setMergeFirst(event.target.checked)}
               className="size-3.5 accent-current"
             />
-            merge {branch} into {destination} first
+            {t("dialog.delete.mergeRow", { branch, destination })}
           </label>
         )}
 
@@ -209,7 +210,7 @@ export function DeleteSessionDialog({
             onChange={(event) => setSkipFuture(event.target.checked)}
             className="size-3.5 accent-current"
           />
-          Do not show this warning again
+          {t("dialog.delete.dontShowAgain")}
         </label>
       </div>
     </ConfirmDialog>

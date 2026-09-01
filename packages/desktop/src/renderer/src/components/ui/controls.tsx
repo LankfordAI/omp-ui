@@ -273,10 +273,12 @@ export function UpdateCard({
 export function AttachmentButton({
   compact = false,
   disabled,
+  label = "attach images",
   onClick,
 }: {
   compact?: boolean;
   disabled: boolean;
+  label?: string;
   onClick: () => void;
 }) {
   return (
@@ -284,7 +286,7 @@ export function AttachmentButton({
       variant="ghost"
       tone="neutral"
       disabled={disabled}
-      title="attach images"
+      title={label}
       onClick={onClick}
       className={compact
         ? "h-11 min-h-11 w-11 min-w-11 justify-center p-0"
@@ -304,7 +306,7 @@ export function AttachmentButton({
           strokeLinejoin="round"
         />
       </svg>
-      <span className="sr-only">attach images</span>
+      <span className="sr-only">{label}</span>
     </Button>
   );
 }
@@ -624,7 +626,15 @@ export function Disclosure({
 }
 
 /** Copy-to-clipboard affordance that reports success in place. */
-export function CopyButton({ text, label = "copy" }: { text: string; label?: string }) {
+export function CopyButton({
+  text,
+  label = "copy",
+  doneLabel = "copied",
+}: {
+  text: string;
+  label?: string;
+  doneLabel?: string;
+}) {
   const [done, setDone] = useState(false);
   const timer = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -650,7 +660,7 @@ export function CopyButton({ text, label = "copy" }: { text: string; label?: str
         });
       }}
     >
-      {done ? "copied" : label}
+      {done ? doneLabel : label}
     </Button>
   );
 }

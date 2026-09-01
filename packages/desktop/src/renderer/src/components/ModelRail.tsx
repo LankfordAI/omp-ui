@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { StarIcon } from "./ui";
 
 /**
@@ -14,12 +15,13 @@ export function ModelRail({
   onTabChange: (tab: string) => void;
   providers: string[];
 }) {
+  const t = useT();
   return (
     <div className="model-provider-rail flex w-16 shrink-0 flex-col overflow-y-auto border-r border-line bg-sunken py-1">
       {/* Favorites tab */}
       <button
         type="button"
-        title="Favorites"
+        title={t("composer.model.favorites")}
         aria-pressed={activeTab === "favorites"}
         onClick={() => onTabChange("favorites")}
         className={cn(

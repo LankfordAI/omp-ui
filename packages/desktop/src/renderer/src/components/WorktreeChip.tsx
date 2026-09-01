@@ -4,6 +4,7 @@ import type { SessionWorktree } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { shortBase } from "../lib/format";
 import { Chip, CopyButton, Panel } from "./ui";
 import { MergeBackSection } from "./MergeBackSection";
@@ -36,6 +37,7 @@ export function WorktreeChip({
   projectCwd: string;
   className?: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   /** null = never asked; asked once per mount, like the sidebar's discovery. */
@@ -138,7 +140,7 @@ export function WorktreeChip({
                 <span className="min-w-0 truncate font-mono text-xs text-ink" title={worktree.branch}>
                   {worktree.branch}
                 </span>
-                <CopyButton text={worktree.branch} label="copy" />
+                <CopyButton text={worktree.branch} label={t("worktree.actions.copy")} doneLabel={t("worktree.actions.copied")} />
               </div>
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
                 <span
@@ -147,22 +149,22 @@ export function WorktreeChip({
                 >
                   {worktree.path}
                 </span>
-                <CopyButton text={worktree.path} label="copy" />
+                <CopyButton text={worktree.path} label={t("worktree.actions.copy")} doneLabel={t("worktree.actions.copied")} />
               </div>
               {worktree.base !== null && (
                 <p className="px-2.5 pb-1.5 text-[10px] text-ink-faint" title={worktree.base}>
-                  cut from {shortBase(worktree.base)}
+                  {t("worktree.details.cutFrom", { base: shortBase(worktree.base) })}
                 </p>
               )}
               <div className="my-1 border-t border-line-soft" />
               <MergeBackSection controller={mergeBack} variant="worktree" />
               {vsCodeAvailable === true && (
                 <button type="button" role="menuitem" className={rowText} onClick={() => openIn("vscode")}>
-                  Open in VS Code
+                  {t("worktree.actions.openVsCode")}
                 </button>
               )}
               <button type="button" role="menuitem" className={rowText} onClick={() => openIn("files")}>
-                Open in Files
+                {t("worktree.actions.openFiles")}
               </button>
               {displayedError !== null && (
                 <p role="alert" className="px-2.5 py-1.5 text-[10px] leading-relaxed text-rose">

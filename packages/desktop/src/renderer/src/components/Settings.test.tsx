@@ -12,6 +12,7 @@ import type {
 } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
+import { applyLocale, resolveLocale } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -103,6 +104,7 @@ const backendMock = {
   onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
+  setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
@@ -191,6 +193,8 @@ function click(el: HTMLElement): void {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // Locale state is module-global; every test starts from the default.
+  applyLocale(resolveLocale("en"));
   if (root !== null) {
     act(() => root!.unmount());
     root = null;
@@ -1035,5 +1039,49 @@ describe("Settings Appearance page font family (issue #315)", () => {
     await renderSettings();
     expect(fontCard("Ubuntu").getAttribute("aria-pressed")).toBe("true");
     expect(fontCard("Default").getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("Settings General page language row (issues #363, #367)", () => {
+  const seedGeneral = (localeId: string): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ localeId }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("shows the persisted locale and persists a switch to Korean", async () => {
+    seedGeneral("en");
+    await renderSettings();
+    expect(document.body.textContent).toContain("Language");
+    expect(document.body.textContent).toContain(
+      "The language of the application chrome. Session content and terminal output are never translated.",
+    );
+    expect(buttonWithText("English")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("한국어")!.getAttribute("aria-pressed")).toBe("false");
+
+    click(buttonWithText("한국어")!);
+    expect(backendMock.setLocaleId).toHaveBeenCalledWith("ko");
+    expect(document.getElementById("settings-title")?.textContent).toBe("설정");
+    expect(buttonWithText("일반")).not.toBeNull();
+    expect(buttonWithText("General")).toBeNull();
+    expect(buttonWithText("네이티브")).not.toBeNull();
+    expect(buttonWithText("터미널")).not.toBeNull();
+    expect(buttonWithText("플랜")).not.toBeNull();
+    expect(buttonWithText("빌드")).not.toBeNull();
+  });
+
+  it("reflects a persisted Korean setting", async () => {
+    seedGeneral("ko");
+    applyLocale(resolveLocale("ko"));
+    await renderSettings();
+    expect(buttonWithText("한국어")!.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonWithText("English")!.getAttribute("aria-pressed")).toBe("false");
+    expect(document.getElementById("settings-title")?.textContent).toBe("설정");
+    expect(buttonWithText("모양")).not.toBeNull();
   });
 });

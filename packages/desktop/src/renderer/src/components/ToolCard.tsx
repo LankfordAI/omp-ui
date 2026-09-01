@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { HIGHLIGHT_CHAR_CAP, langFromPath, useHighlightTokens } from "../lib/highlight";
 import { strField } from "../lib/fields";
+import { useT } from "../lib/i18n";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
@@ -295,6 +296,7 @@ function PathChip({ value }: { value: string }) {
  * it stays available behind a disclosure for the shapes we do not know.
  */
 function ToolArgs({ name, args }: { name: string; args: unknown }) {
+  const t = useT();
   const kind = glyphFor(name);
   const entries: [string, unknown][] =
     args !== null && typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [];
@@ -368,7 +370,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
         </dl>
       )}
       {(hasComplex || scalars.some(([, v]) => v.length > ARG_VALUE_MAX)) && (
-        <Disclosure summary={<Label>all arguments</Label>}>
+        <Disclosure summary={<Label>{t("transcript.tool.allArguments")}</Label>}>
           <CodeSlab code={argsJson} lang="json" className="mt-1 max-h-48" />
         </Disclosure>
       )}
@@ -459,12 +461,8 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
  *  must stay unconditional. */
 const readNoStall = (): undefined => undefined;
 
-/** Observation-only claim for the stalled chip (issue #228, #179). */
-const STALLED_CHIP_TITLE =
-  "No model-stream frame (text, thinking, or tool-call arguments) has arrived while " +
-  "the assistant response is open. Local tool execution does not reset this clock.";
-
 export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
+  const t = useT();
   const streamStallMs = useStore(
     tabId === undefined ? readNoStall : (s) => s.rpc[tabId]?.streamStallMs,
   );
@@ -544,18 +542,18 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
             {duration}
           </span>
         )}
-        {planWrite && <Chip tone="iris">plan</Chip>}
+        {planWrite && <Chip tone="iris">{t("transcript.tool.plan")}</Chip>}
         {item.status === "running" &&
           (streamStallMs === undefined ? (
-            <Chip tone="copper">running</Chip>
+            <Chip tone="copper">{t("transcript.tool.running")}</Chip>
           ) : (
-            <Chip tone="copper" mono title={STALLED_CHIP_TITLE}>
-              stalled {formatDuration(streamStallMs)}
+            <Chip tone="copper" mono title={t("transcript.tool.stalledTitle")}>
+              {t("transcript.tool.stalled", { duration: formatDuration(streamStallMs) })}
             </Chip>
           ))}
-        {item.status === "error" && <Chip tone="rose">error</Chip>}
-        {item.status === "aborted" && <Chip tone="copper">aborted</Chip>}
-        {item.status === "cancelled" && <Chip>cancelled</Chip>}
+        {item.status === "error" && <Chip tone="rose">{t("transcript.tool.error")}</Chip>}
+        {item.status === "aborted" && <Chip tone="copper">{t("transcript.tool.aborted")}</Chip>}
+        {item.status === "cancelled" && <Chip>{t("transcript.tool.cancelled")}</Chip>}
         {item.status === "done" && <CheckGlyph />}
       </button>
 
@@ -575,14 +573,14 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
 
           {item.status === "running" && draft && (
             <div className="space-y-1">
-              <Label>writing</Label>
+              <Label>{t("transcript.tool.writing")}</Label>
               <CodeSlab code={draft.code} lang={draft.lang} pin={item.argsStreaming === true} />
             </div>
           )}
 
           {item.status === "running" && item.partialText && (
             <div className="space-y-1">
-              <Label>streaming</Label>
+              <Label>{t("transcript.tool.streaming")}</Label>
               {partialParts?.header !== null && partialParts ? (
                 <ReadResultSlab parts={partialParts} lang={partialLang} pin className="max-h-32" />
               ) : partialLang !== undefined ? (
@@ -603,7 +601,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               <Disclosure
                 summary={
                   <span className="text-[11px]">
-                    show output · {resultLines} lines
+                    {t("transcript.tool.showOutput", { lines: resultLines })}
                   </span>
                 }
               >

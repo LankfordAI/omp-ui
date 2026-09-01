@@ -6,6 +6,7 @@ import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
+import { useT } from "../lib/i18n";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
@@ -154,11 +155,6 @@ const STATUS: Record<string, { tone: Tone; pulse: boolean }> = {
 };
 
 /** Observation-only claim for the stall chip (issue #228, #179). */
-const STALL_CHIP_TITLE =
-  "The renderer has received no model-stream frames — text, thinking, or " +
-  "tool-call arguments — for the shown time while the assistant response is " +
-  "open. Local tool execution does not count. The session may still recover; " +
-  "if it does not, omp's idle watchdog posts a retry notice.";
 
 /**
  * The live stream-stall chip (issue #228), one component for both HUD
@@ -174,12 +170,13 @@ function StreamStallChip({
   short?: boolean;
   className?: string;
 }) {
+  const t = useT();
   return (
-    <Chip tone="copper" mono title={STALL_CHIP_TITLE} className={cn("shrink-0", className)}>
+    <Chip tone="copper" mono title={t("hud.stall.explanation")} className={cn("shrink-0", className)}>
       <Dot tone="copper" />
       {short
-        ? `stalled ${formatDuration(stallMs)}`
-        : `no stream activity for ${formatDuration(stallMs)}`}
+        ? t("hud.stall.short", { duration: formatDuration(stallMs) })
+        : t("hud.stall.long", { duration: formatDuration(stallMs) })}
     </Chip>
   );
 }
@@ -202,11 +199,12 @@ function LivenessBadge({
   className?: string;
   title?: string;
 }) {
+  const t = useT();
   if (compacting) {
     return (
       <Chip tone="copper" className={className}>
         <Dot tone="copper" pulse />
-        compacting
+        {t("hud.status.compacting")}
       </Chip>
     );
   }
@@ -228,6 +226,7 @@ function LivenessBadge({
  * no-op in the compact sheet, which is not a drag region.
  */
 function TitleField({ tabId, title }: { tabId: string; title: string }) {
+  const t = useT();
   const renameSessionTo = useStore((s) => s.renameSessionTo);
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -235,7 +234,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
     return (
       <button
         type="button"
-        title={`${title} — click to rename`}
+        title={t("hud.session.renameTitle", { title })}
         onClick={() => setDraft(title)}
         className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-[13px] text-ink transition-colors hover:bg-hover [app-region:no-drag]"
       >
@@ -248,7 +247,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
     <input
       autoFocus
       value={draft}
-      aria-label="session name"
+      aria-label={t("hud.session.nameLabel")}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => setDraft(null)}
       onKeyDown={(e) => {
@@ -275,6 +274,7 @@ function ContextCluster({
   /** Token count where omp auto-compacts; null/undefined = no notch. */
   markerTokens?: number | null;
 }) {
+  const t = useT();
   const window = usage.contextWindow > 0 ? usage.contextWindow : 0;
   const fraction = window > 0 ? usage.tokens / window : 0;
   const percent = Number.isFinite(usage.percent) ? usage.percent : fraction * 100;
@@ -283,12 +283,18 @@ function ContextCluster({
       ? { tokens: markerTokens, at: Math.min(1, Math.max(0, markerTokens / window)) }
       : null;
   const thresholdLine = threshold
-    ? `omp auto-compacts when context exceeds ${exactNum(threshold.tokens)} of ${exactNum(window)} tokens` +
-      ` (${((threshold.tokens / window) * 100).toFixed(1)}% of window)`
+    ? t("hud.context.autoCompactThreshold", {
+        threshold: exactNum(threshold.tokens),
+        window: exactNum(window),
+        percent: ((threshold.tokens / window) * 100).toFixed(1),
+      })
     : null;
-  const exact =
-    `${exactNum(usage.tokens)} of ${window > 0 ? exactNum(window) : "?"} context tokens` +
-    ` (${percent.toFixed(2)}%)${thresholdLine ? `\n${thresholdLine}` : ""}`;
+  const exact = t("hud.context.usage", {
+    tokens: exactNum(usage.tokens),
+    window: window > 0 ? exactNum(window) : "?",
+    percent: percent.toFixed(2),
+    threshold: thresholdLine ? `\n${thresholdLine}` : "",
+  });
   return (
     <div className="flex shrink-0 items-center gap-2" title={exact}>
       <Meter fraction={fraction} marker={threshold?.at ?? null} className="titlebar-context-meter w-20" title={exact} />
@@ -314,23 +320,27 @@ function ContextCluster({
  * published real stats.
  */
 function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
+  const t = useT();
   const window = stats.contextWindow > 0 ? stats.contextWindow : 0;
   const percent = window > 0 ? (stats.contextTokens / window) * 100 : 0;
   // A subscription-billed root advisor legitimately accrues $0. Descendant
   // usage can still make the session-tree total nonzero, which stays numeric.
-  const spend = stats.subscription && stats.cost === 0 ? "sub" : formatCost(stats.cost);
+  const spend = stats.subscription && stats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(stats.cost);
   const billing =
     stats.subscription && stats.cost === 0
-      ? "parent advisor uses subscription billing"
-      : `session-tree advisor spend ${formatCost(stats.cost)}`;
-  const exact =
-    `parent advisor context${stats.model ? ` · ${stats.model}` : ""}: ` +
-    `${exactNum(stats.contextTokens)} of ${window > 0 ? exactNum(window) : "?"} tokens` +
-    ` (${percent.toFixed(2)}%) · ${billing} · ` +
-    `session-tree advisor tokens ${exactNum(stats.totalTokens)}`;
+      ? t("hud.advisor.subscriptionBilling")
+      : t("hud.advisor.sessionSpend", { cost: formatCost(stats.cost) });
+  const exact = t("hud.advisor.contextUsage", {
+    model: stats.model ? ` · ${stats.model}` : "",
+    tokens: exactNum(stats.contextTokens),
+    window: window > 0 ? exactNum(window) : "?",
+    percent: percent.toFixed(2),
+    billing,
+    totalTokens: exactNum(stats.totalTokens),
+  });
   return (
     <div className="titlebar-advisor hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex [app-region:no-drag]" title={exact}>
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">adv</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t("hud.advisor.shortLabel")}</span>
       <Meter fraction={window > 0 ? stats.contextTokens / window : 0} className="w-14" title={exact} />
       <span className="font-mono text-[10px] tabular-nums text-ink-dim" title={exact}>
         {percent.toFixed(1)}%
@@ -350,19 +360,29 @@ const INTERRUPT_MODES = ["immediate", "wait"];
 // Native-tooltip copy for the queue-mode controls (issue #80). Steering and
 // follow-up option text is omp's own settings copy; interrupt text mirrors
 // the tool-loop branch (`wait` lets the in-flight tool finish).
-const QUEUE_MODE_HINTS: Record<string, string> = {
-  "one-at-a-time": "process queued messages one by one, one per turn (recommended)",
-  "all-at-once": "process all queued messages at once",
-};
-const INTERRUPT_MODE_HINTS: Record<string, string> = {
-  immediate: "interrupt the in-flight tool as soon as a steering message arrives",
-  wait: "let the current tool finish, then inject queued steering",
-};
-const ROW_HINTS = {
-  steering: "steering messages: what you send while the agent is still running",
-  "follow-up": "follow-up messages: queued to run after the current turn completes",
-  interrupt: "when steering messages may interrupt tool execution",
-} as const;
+function useModeCopy() {
+  const t = useT();
+  return {
+    labels: {
+      steering: t("hud.modes.steering"),
+      followUp: t("hud.modes.followUp"),
+      interrupt: t("hud.modes.interrupt"),
+    },
+    queueHints: {
+      "one-at-a-time": t("hud.modes.oneAtATimeHint"),
+      "all-at-once": t("hud.modes.allAtOnceHint"),
+    },
+    interruptHints: {
+      immediate: t("hud.modes.immediateHint"),
+      wait: t("hud.modes.waitHint"),
+    },
+    rowHints: {
+      steering: t("hud.modes.steeringHint"),
+      followUp: t("hud.modes.followUpHint"),
+      interrupt: t("hud.modes.interruptHint"),
+    },
+  };
+}
 
 function ModeRow({
   label,
@@ -394,6 +414,8 @@ function ModeRow({
 }
 
 function ModesPopover({ tabId }: { tabId: string }) {
+  const t = useT();
+  const modeCopy = useModeCopy();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const setSteeringMode = useStore((s) => s.setSteeringMode);
   const setFollowUpMode = useStore((s) => s.setFollowUpMode);
@@ -433,7 +455,7 @@ function ModesPopover({ tabId }: { tabId: string }) {
   return (
     <div ref={anchor} className="relative shrink-0">
       <IconButton
-        label="queue modes and retry"
+        label={t("hud.modes.controlLabel")}
         onClick={() => setOpen(!open)}
         className={open ? "bg-hover text-ink" : undefined}
       >
@@ -443,47 +465,47 @@ function ModesPopover({ tabId }: { tabId: string }) {
         <div ref={panelRef} className="fixed z-[70]" style={pos}>
         <Panel className="edge-lit animate-rise w-[16rem] p-2.5">
           <ModeRow
-            label="steering"
+            label={modeCopy.labels.steering}
             value={session?.steeringMode ?? null}
             known={STEERING_MODES}
             onChange={(v) => void setSteeringMode(tabId, v)}
-            hint={ROW_HINTS.steering}
-            optionHints={QUEUE_MODE_HINTS}
+            hint={modeCopy.rowHints.steering}
+            optionHints={modeCopy.queueHints}
           />
           <ModeRow
-            label="follow-up"
+            label={modeCopy.labels.followUp}
             value={session?.followUpMode ?? null}
             known={STEERING_MODES}
             onChange={(v) => void setFollowUpMode(tabId, v)}
-            hint={ROW_HINTS["follow-up"]}
-            optionHints={QUEUE_MODE_HINTS}
+            hint={modeCopy.rowHints.followUp}
+            optionHints={modeCopy.queueHints}
           />
           <ModeRow
-            label="interrupt"
+            label={modeCopy.labels.interrupt}
             value={session?.interruptMode ?? null}
             known={INTERRUPT_MODES}
             onChange={(v) => void setInterruptMode(tabId, v)}
-            hint={ROW_HINTS.interrupt}
-            optionHints={INTERRUPT_MODE_HINTS}
+            hint={modeCopy.rowHints.interrupt}
+            optionHints={modeCopy.interruptHints}
           />
           <div className="mt-3 flex items-center justify-between gap-2 border-t border-line-soft pt-2.5">
             <Button
               variant="ghost"
               size="xs"
               tone="rose"
-              title="abort an in-flight retry backoff"
+              title={t("hud.retry.abortTitle")}
               onClick={() => void abortRetry(tabId)}
             >
-              abort retry
+              {t("hud.retry.abort")}
             </Button>
             {/* Label and switch stay adjacent: Switch renders no visible text,
                 so proximity is the only association (issue #79). */}
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-ink-mid">auto-retry</span>
+              <span className="text-[11px] text-ink-mid">{t("hud.retry.autoRetry")}</span>
               <Switch
                 on={autoRetry}
-                label="auto-retry"
-                title="retry transient provider errors automatically"
+                label={t("hud.retry.autoRetry")}
+                title={t("hud.retry.autoRetryTitle")}
                 onChange={(next) => {
                   setAutoRetryLocal(next);
                   void setAutoRetry(tabId, next);
@@ -500,6 +522,8 @@ function ModesPopover({ tabId }: { tabId: string }) {
 }
 
 function CompactModes({ tabId }: { tabId: string }) {
+  const t = useT();
+  const modeCopy = useModeCopy();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const setSteeringMode = useStore((s) => s.setSteeringMode);
   const setFollowUpMode = useStore((s) => s.setFollowUpMode);
@@ -509,29 +533,25 @@ function CompactModes({ tabId }: { tabId: string }) {
   const [autoRetry, setAutoRetryLocal] = useState(true);
   return (
     <div className="space-y-3 border-t border-line p-3">
-      <ModeRow label="steering" value={session?.steeringMode ?? null} known={STEERING_MODES} onChange={(v) => void setSteeringMode(tabId, v)} hint={ROW_HINTS.steering} optionHints={QUEUE_MODE_HINTS} />
-      <ModeRow label="follow-up" value={session?.followUpMode ?? null} known={STEERING_MODES} onChange={(v) => void setFollowUpMode(tabId, v)} hint={ROW_HINTS["follow-up"]} optionHints={QUEUE_MODE_HINTS} />
-      <ModeRow label="interrupt" value={session?.interruptMode ?? null} known={INTERRUPT_MODES} onChange={(v) => void setInterruptMode(tabId, v)} hint={ROW_HINTS.interrupt} optionHints={INTERRUPT_MODE_HINTS} />
+      <ModeRow label={modeCopy.labels.steering} value={session?.steeringMode ?? null} known={STEERING_MODES} onChange={(v) => void setSteeringMode(tabId, v)} hint={modeCopy.rowHints.steering} optionHints={modeCopy.queueHints} />
+      <ModeRow label={modeCopy.labels.followUp} value={session?.followUpMode ?? null} known={STEERING_MODES} onChange={(v) => void setFollowUpMode(tabId, v)} hint={modeCopy.rowHints.followUp} optionHints={modeCopy.queueHints} />
+      <ModeRow label={modeCopy.labels.interrupt} value={session?.interruptMode ?? null} known={INTERRUPT_MODES} onChange={(v) => void setInterruptMode(tabId, v)} hint={modeCopy.rowHints.interrupt} optionHints={modeCopy.interruptHints} />
       <div className="flex items-center justify-between gap-3 border-t border-line-soft pt-3">
-        <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>abort retry</Button>
+        <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>{t("hud.retry.abort")}</Button>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-ink-mid">auto-retry</span>
-          <Switch on={autoRetry} label="auto-retry" onChange={(next) => { setAutoRetryLocal(next); void setAutoRetry(tabId, next); }} />
+          <span className="text-xs text-ink-mid">{t("hud.retry.autoRetry")}</span>
+          <Switch on={autoRetry} label={t("hud.retry.autoRetry")} onChange={(next) => { setAutoRetryLocal(next); void setAutoRetry(tabId, next); }} />
         </div>
       </div>
     </div>
   );
 }
 
-function exceptionalModeTooltip(mode: "build" | "plan", planFilePath: string | null | undefined): string {
-  return mode === "build"
-    ? "Build mode — working-tree writes and state-changing commands are allowed"
-    : `Plan mode — read-only exploration — ${planFilePath ?? "no plan drafted"}`;
-}
 
 /* ---------------------------------------------------------------- the HUD */
 
 export function SessionHud({ tabId }: { tabId: string }) {
+  const t = useT();
   const status = useStore((s) => s.rpc[tabId]?.status) ?? "starting";
   // Hibernation overrides the (stale) rpc status: the process is stopped on
   // purpose, not live (issue #246). Neutral, no pulse — the mint signal
@@ -593,7 +613,17 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const face = hibernated
     ? { tone: "neutral" as const, pulse: false }
     : STATUS[status] ?? STATUS.starting;
-  const label = hibernated ? "hibernated" : status;
+  const label = hibernated
+    ? t("hud.status.hibernated")
+    : status === "starting"
+      ? t("hud.status.starting")
+      : status === "ready"
+        ? t("hud.status.ready")
+        : status === "running"
+          ? t("hud.status.running")
+          : status === "error"
+            ? t("hud.status.error")
+            : status;
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
   const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
   const exceptionalAgentMode =
@@ -611,7 +641,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
     <Chip
       tone="iris"
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
-      title={exceptionalModeTooltip(exceptionalAgentMode, plan?.planFilePath)}
+      title={
+        exceptionalAgentMode === "build"
+          ? t("hud.mode.buildTitle")
+          : t("hud.mode.planTitle", {
+              plan: plan?.planFilePath ?? t("hud.mode.noPlanDrafted"),
+            })
+      }
     >
       {exceptionalAgentMode}
     </Chip>
@@ -634,34 +670,34 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
-          <IconButton label="session actions" onClick={() => showCompactSurface("session-actions")} className="size-11">
+          <IconButton label={t("hud.actions.sessionActions")} onClick={() => showCompactSurface("session-actions")} className="size-11">
             <IconKebab />
-            <span className="sr-only">session actions</span>
+            <span className="sr-only">{t("hud.actions.sessionActions")}</span>
           </IconButton>
         </header>
-        <Sheet open={surface === "session-actions"} placement="bottom" label="session actions" onClose={closeCompactSurface}>
+        <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
-            <TitleField tabId={tabId} title={title ?? "untitled"} />
+            <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
             {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
-                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>worktree</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} /></div></div>}
-                {usage && <div className="flex items-center justify-between gap-3"><Label>context</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
-                {stats && <div className="flex items-center justify-between gap-3"><Label>spend</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{formatCost(stats.cost)} · {compactNum(stats.tokens.total)} tok · {stats.premiumRequests} premium</span></div>}
-                {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>advisor total</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={`session-tree advisor usage: ${exactNum(advisorStats.totalTokens)} tokens · ${formatCost(advisorStats.cost)}`}>{compactNum(advisorStats.totalTokens)} tok · {advisorStats.subscription && advisorStats.cost === 0 ? "sub" : formatCost(advisorStats.cost)}</span></div>}
+                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
+                {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
+                {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
+                {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
             )}
             <div>
-              <Label>actions</Label>
+              <Label>{t("hud.actions.heading")}</Label>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
-                <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />compact</Button>
-                <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />export</Button>
-                {scopeCwd !== undefined && <Button onClick={() => openMcpManager(scopeCwd, tabId)} className={sheetAction}><IconMcp />MCP{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{mcpFailureCount} failed</Chip>}</Button>}
-                <Button title="branch this session into a new tab" onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />branch</Button>
-                <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />new</Button>
-                <Button onClick={refresh} className={sheetAction}><IconRefresh />refresh</Button>
-                <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">auto-compact</span><Switch on={session?.autoCompactionEnabled ?? false} label="auto-compact" onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
+                <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
+                <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
+                {scopeCwd !== undefined && <Button onClick={() => openMcpManager(scopeCwd, tabId)} className={sheetAction}><IconMcp />MCP{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>}
+                <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
+                <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
+                <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
+                <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               </div>
             </div>
           </div>
@@ -684,7 +720,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         face={face}
         label={label}
         className="shrink-0 [app-region:no-drag]"
-        title={`rpc status: ${label}`}
+        title={t("hud.status.rpcStatus", { status: label })}
       />
 
       {agentModeChip}
@@ -698,7 +734,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
 
-      <TitleField tabId={tabId} title={title ?? "untitled"} />
+      <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
 
       <span className="min-w-0 flex-1" />
 
@@ -711,11 +747,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {stats && (
             <div
               className="titlebar-main-stats hidden shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-mid lg:flex"
-              title={`${formatCost(stats.cost)} · ${exactNum(stats.tokens.total)} tokens · ${stats.premiumRequests} premium requests`}
+              title={t("hud.stats.details", { cost: formatCost(stats.cost), tokens: exactNum(stats.tokens.total), premium: stats.premiumRequests })}
             >
               <span>{formatCost(stats.cost)}</span>
               <span className="text-line-strong">·</span>
-              <span>{compactNum(stats.tokens.total)} tok</span>
+              <span>{t("hud.stats.tokenShort", { tokens: compactNum(stats.tokens.total) })}</span>
             </div>
           )}
         </div>
@@ -740,28 +776,28 @@ export function SessionHud({ tabId }: { tabId: string }) {
           size="xs"
           variant="ghost"
           tone="copper"
-          title="compact the conversation now"
+          title={t("hud.actions.compactTitle")}
           disabled={session?.isCompacting}
           onClick={() => void compactSession(tabId)}
         >
           <IconCompact />
-          <span className="titlebar-compact-label hidden lg:inline">compact</span>
+          <span className="titlebar-compact-label hidden lg:inline">{t("hud.actions.compact")}</span>
         </Button>
         <Switch
           on={session?.autoCompactionEnabled ?? false}
-          label="auto-compact"
-          title="auto-compact when the context window fills"
+          label={t("hud.actions.autoCompact")}
+          title={t("hud.actions.autoCompactTitle")}
           onChange={(next) => void setAutoCompaction(tabId, next)}
         />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <ConsoleToggle tabId={tabId} />
-        <IconButton label="export transcript as html" onClick={() => void exportHtml(tabId)}>
+        <IconButton label={t("hud.actions.exportTitle")} onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>
         {scopeCwd !== undefined && (
           <span className="relative shrink-0">
             <IconButton
-              label={mcpFailureCount > 0 ? `manage MCP servers (${mcpFailureCount} failed)` : "manage MCP servers"}
+              label={mcpFailureCount > 0 ? t("hud.actions.manageMcpFailed", { count: mcpFailureCount }) : t("hud.actions.manageMcp")}
               onClick={() => openMcpManager(scopeCwd, tabId)}
             >
               <IconMcp />
@@ -773,13 +809,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
             )}
           </span>
         )}
-        <IconButton label="branch this session into a new tab" onClick={() => void branchSession(tabId)}>
+        <IconButton label={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)}>
           <IconBranch />
         </IconButton>
         {/* Same command as the composer's bare /new and mod+shift+n: spawn a
             new live session tab in this project, not an in-tab reset (#82). */}
         <IconButton
-          label="new session in current project"
+          label={t("hud.actions.newTitle")}
           disabled={projectCwd === undefined}
           onClick={() => {
             if (projectCwd !== undefined) void newSession(projectCwd);
@@ -788,7 +824,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <IconNew />
         </IconButton>
         <IconButton
-          label="refresh state and stats"
+          label={t("hud.actions.refreshTitle")}
           onClick={() => {
             void refreshState(tabId);
             void refreshStats(tabId);

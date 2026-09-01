@@ -11,6 +11,7 @@ import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
 import { formatCost, tokenCount } from "../lib/format";
+import { localeTag, useT } from "../lib/i18n";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
@@ -40,22 +41,24 @@ const AT_BOTTOM_SLACK = 64;
  * to stay quiet enough to ignore — hence one line, faint until hover.
  */
 function UsageStrip({ item }: { item: AssistantItem }) {
+  const t = useT();
   const usage = item.usage;
   if (!usage) return null;
   const parts: string[] = [];
   if (item.model) parts.push(item.model);
   parts.push(`↑${tokenCount(usage.input)}`, `↓${tokenCount(usage.output)}`);
-  if (usage.cacheRead > 0) parts.push(`cache ${tokenCount(usage.cacheRead)}`);
+  if (usage.cacheRead > 0) parts.push(`${t("transcript.usage.cache")} ${tokenCount(usage.cacheRead)}`);
   if (usage.cost > 0) parts.push(formatCost(usage.cost));
-  if (item.ttftMs !== undefined && item.ttftMs > 0) parts.push(`ttft ${formatDuration(item.ttftMs)}`);
+  if (item.ttftMs !== undefined && item.ttftMs > 0)
+    parts.push(`${t("transcript.usage.ttft")} ${formatDuration(item.ttftMs)}`);
   if (item.durationMs !== undefined && item.durationMs > 0) parts.push(formatDuration(item.durationMs));
   if (item.stopReason && item.stopReason !== "end_turn" && item.stopReason !== "stop") {
     parts.push(item.stopReason);
   }
   // Wall-clock anchor: local short time inline, full locale date+time on hover.
   const at = item.timestamp === undefined ? null : new Date(item.timestamp);
-  const atText = at?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const atTooltip = at?.toLocaleString();
+  const atText = at?.toLocaleTimeString(localeTag(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const atTooltip = at?.toLocaleString(localeTag());
   return (
     <div
       className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
@@ -94,6 +97,7 @@ function ThinkingPane({ text, live }: { text: string; live: boolean }) {
 }
 
 function AssistantBlock({ item }: { item: AssistantItem }) {
+  const t = useT();
   // Reasoning is the only visible progress before the first token of prose.
   const working = item.streaming && item.text === "";
   const caret = item.streaming ? (
@@ -116,7 +120,7 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
           key={working ? "live" : "idle"}
           defaultOpen={working}
           className="rounded-md border border-line-soft bg-sunken px-2 py-1"
-          summary={<Label className="text-copper">thinking</Label>}
+          summary={<Label className="text-copper">{t("transcript.assistant.thinking")}</Label>}
         >
           <ThinkingPane text={item.thinking} live={working} />
         </Disclosure>
@@ -162,10 +166,11 @@ function selectionWithin(root: HTMLElement | null, sel: Selection): boolean {
 /* ------------------------------------------------------------ small kinds */
 
 function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
+  const t = useT();
   const images = item.images ?? [];
   return (
     <div className="animate-rise flex flex-col items-end gap-1">
-      {first && <Label>you</Label>}
+      {first && <Label>{t("transcript.speaker.you")}</Label>}
       <div className="max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
         {item.text !== "" && <Markdown text={item.text} />}
         {images.length > 0 && (
@@ -176,8 +181,12 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
                 // once rendered, and the base64 payload is far too long a key.
                 key={i}
                 src={`data:${image.mimeType};base64,${image.data}`}
-                alt={`attached image ${i + 1}`}
-                title={`${image.mimeType} — image ${i + 1} of ${images.length}`}
+                alt={t("transcript.image.alt", { n: i + 1 })}
+                title={t("transcript.image.title", {
+                  mimeType: image.mimeType,
+                  n: i + 1,
+                  count: images.length,
+                })}
                 className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
               />
             ))}
@@ -196,6 +205,7 @@ function alertBackendError(err: unknown): void {
 }
 
 function NoticeLine({ item }: { item: NoticeItem }) {
+  const t = useT();
   const tone = NOTICE_TONE[item.level ?? "info"] ?? "neutral";
   // A notice carrying a path (the exported transcript HTML, issue #84) is a
   // link: the text opens the file with the system handler, the folder glyph
@@ -222,7 +232,7 @@ function NoticeLine({ item }: { item: NoticeItem }) {
           <>
             <button
               type="button"
-              title={`open ${path}`}
+              title={t("notice.path.open", { path })}
               className="min-w-0 cursor-pointer break-words text-left underline decoration-dotted underline-offset-2 hover:text-ink"
               data-selectable
               onClick={() => void backend.openPath(path).catch(alertBackendError)}
@@ -231,8 +241,8 @@ function NoticeLine({ item }: { item: NoticeItem }) {
             </button>
             <button
               type="button"
-              title="reveal in file manager"
-              aria-label="reveal in file manager"
+              title={t("notice.path.reveal")}
+              aria-label={t("notice.path.reveal")}
               className="shrink-0 cursor-pointer text-ink-faint hover:text-ink"
               onClick={() => void backend.showPathInFolder(path).catch(alertBackendError)}
             >
@@ -314,6 +324,7 @@ function commandLine(item: CommandItem): string {
  * no tab to host the drawer, and on any reply omp did not refuse.
  */
 export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: string }) {
+  const t = useT();
   const startTuiHandoff = useStore((s) => s.startTuiHandoff);
   if (tabId === undefined || item.output === undefined || !TUI_ONLY_REPLY.test(item.output))
     return null;
@@ -323,7 +334,7 @@ export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: s
       className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-mid hover:text-ink"
       onClick={() => startTuiHandoff(tabId, commandLine(item))}
     >
-      run in omp TUI
+      {t("transcript.command.tuiHandoff")}
     </button>
   );
 }
@@ -378,9 +389,10 @@ function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
  * to report: the row died, and why.
  */
 function BrokenRow({ error }: { error: Error }) {
+  const t = useT();
   return (
     <div className="rounded-md border-l-[3px] border-rose-dim bg-rose-wash px-2.5 py-1.5">
-      <Label className="text-rose">message failed to render</Label>
+      <Label className="text-rose">{t("transcript.row.broken")}</Label>
       <p
         data-selectable
         className="mt-1 break-words font-mono text-[11px] leading-snug text-ink-mid"
@@ -519,6 +531,7 @@ export function TranscriptView({
    *  nonce. Null closes the wash without touching follow mode. */
   find?: FindState | null;
 }) {
+  const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
@@ -688,7 +701,7 @@ export function TranscriptView({
           style={{ zoom: scale }}
         >
           {items.length === 0 && (
-            <Empty title="Nothing yet" hint="Send a prompt to start the session." />
+            <Empty title={t("transcript.empty.title")} hint={t("transcript.empty.hint")} />
           )}
 
           {runs.map((run, runIndex) => (
@@ -703,7 +716,7 @@ export function TranscriptView({
                   a tool run are the same reply, and labeling each one would
                   rebuild the marker-noise problem the markers solved. */}
               {run.speaker === "assistant" && opensExchange(runs, runIndex) && (
-                <Label>assistant</Label>
+                <Label>{t("transcript.speaker.assistant")}</Label>
               )}
               {run.rows.map(({ item, count }, i) => {
                 const findClass = findClassById?.get(item.id);
@@ -745,7 +758,7 @@ export function TranscriptView({
           >
             <path d="M8 3v9M4.5 8.5L8 12l3.5-3.5" />
           </svg>
-          jump to latest
+          {t("transcript.view.jumpToLatest")}
         </button>
       )}
 

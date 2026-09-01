@@ -40,6 +40,10 @@ The six distributables ship with seven supporting files, for 13 release assets i
 
 The SHA-256 manifests and update metadata detect corrupt or substituted bytes. They do not establish publisher identity. macOS gets publisher identity from Developer ID signing and notarization. The Windows preview has no equivalent trusted Authenticode signature yet.
 
+### Language assets
+
+Every package includes the English and Korean UI catalogs and the bundled Pretendard Variable Korean fallback face. The font adds about 2.06 MB to the unpacked renderer assets; it is emitted byte-for-byte into both desktop and remote-web builds. The Settings → General language choice applies locally with no additional download, while session and terminal content remain unmodified.
+
 To verify one downloaded file, place it beside `SHA256SUMS.txt` and select only its line. For example:
 
 ```bash

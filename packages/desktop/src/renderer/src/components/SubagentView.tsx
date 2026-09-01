@@ -1,4 +1,5 @@
 import { AGENT_TONE } from "../lib/agent-tone";
+import { useT } from "../lib/i18n";
 import type { RenderItem } from "../lib/transcript";
 import { useStore } from "../store";
 import { TranscriptView } from "./TranscriptView";
@@ -22,6 +23,7 @@ export function SubagentView({
   tabId: string;
   agentKey: string;
 }) {
+  const t = useT();
   const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
   const items = useStore((s) => s.rpc[tabId]?.subagentItems?.[agentKey]) ?? NO_ITEMS;
   const closeSubagent = useStore((s) => s.closeSubagent);
@@ -34,11 +36,11 @@ export function SubagentView({
       <div className="flex items-center gap-2 border-b border-line-soft px-4 py-2">
         <button
           type="button"
-          aria-label="back to main agent"
+          aria-label={t("transcript.subagent.backToMain")}
           onClick={() => closeSubagent(tabId)}
           className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint transition-colors hover:bg-hover hover:text-ink-mid"
         >
-          ‹ main agent
+          {t("transcript.subagent.back")}
         </button>
         <Dot
           tone={AGENT_TONE[status] ?? "neutral"}
@@ -52,7 +54,7 @@ export function SubagentView({
           {name}
         </span>
         {live?.agent && live.name && (
-          <Chip mono title={`agent type: ${live.agent}`}>
+          <Chip mono title={t("transcript.subagent.agentType", { type: live.agent })}>
             {live.agent}
           </Chip>
         )}
@@ -68,12 +70,12 @@ export function SubagentView({
           </span>
         )}
         <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-          read-only subagent view
+          {t("transcript.subagent.readOnly")}
         </span>
       </div>
       {items.length === 0 ? (
         <p className="px-4 py-3 text-[11px] text-ink-faint">
-          No activity captured yet — the transcript fills in as the agent works.
+          {t("transcript.subagent.empty")}
         </p>
       ) : (
         <TranscriptView items={items} />

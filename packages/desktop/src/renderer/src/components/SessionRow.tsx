@@ -1,84 +1,82 @@
 import type { DragEvent as ReactDragEvent } from "react";
 import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/types";
+import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { Button, Dot, IconButton, IconGrip, type Tone } from "./ui";
 
-const MISSING_HINT = "session files are gone from disk — delete the record";
-
 const SESSION_FACE: Record<
   SidebarSessionState,
-  { tone: Tone; pulse: boolean; label: string; title: string; textClass: string }
+  { tone: Tone; pulse: boolean; labelKey: MessageKey; titleKey: MessageKey; textClass: string }
 > = {
   working: {
     tone: "copper",
     pulse: true,
-    label: "working",
-    title: "Agent is working",
+    labelKey: "sidebar.status.workingLabel",
+    titleKey: "sidebar.status.workingTitle",
     textClass: "text-copper",
   },
   "awaiting-answer": {
     tone: "iris",
     pulse: false,
-    label: "answer needed",
-    title: "Agent is waiting for your answer",
+    labelKey: "sidebar.status.answerLabel",
+    titleKey: "sidebar.status.answerTitle",
     textClass: "text-iris",
   },
   stalled: {
     tone: "copper",
     pulse: false,
-    label: "stalled",
-    title:
-      "omp-ui aborted a turn whose model stream went silently dead — stall auto-continue or a prompt resumes it; the badge clears when the next turn starts",
+    labelKey: "sidebar.status.stalledLabel",
+    titleKey: "sidebar.status.stalledTitle",
     textClass: "text-copper",
   },
   ready: {
     tone: "signal",
     pulse: false,
-    label: "ready",
-    title: "Agent finished output and is ready",
+    labelKey: "sidebar.status.readyLabel",
+    titleKey: "sidebar.status.readyTitle",
     textClass: "text-signal",
   },
   starting: {
     tone: "neutral",
     pulse: true,
-    label: "starting",
-    title: "Native session is starting",
+    labelKey: "sidebar.status.startingLabel",
+    titleKey: "sidebar.status.startingTitle",
     textClass: "text-ink-mid",
   },
   error: {
     tone: "rose",
     pulse: false,
-    label: "error",
-    title: "Native session hit an error",
+    labelKey: "sidebar.status.errorLabel",
+    titleKey: "sidebar.status.errorTitle",
     textClass: "text-rose",
   },
   live: {
     tone: "signal",
     pulse: false,
-    label: "live",
-    title: "Session process is live; detailed activity is unavailable",
+    labelKey: "sidebar.status.liveLabel",
+    titleKey: "sidebar.status.liveTitle",
     textClass: "text-signal",
   },
   dormant: {
     tone: "neutral",
     pulse: false,
-    label: "dormant",
-    title: "Session is dormant",
+    labelKey: "sidebar.status.dormantLabel",
+    titleKey: "sidebar.status.dormantTitle",
     textClass: "text-ink-mid",
   },
   archived: {
     tone: "copper",
     pulse: false,
-    label: "archived",
-    title: "Session is archived",
+    labelKey: "sidebar.status.archivedLabel",
+    titleKey: "sidebar.status.archivedTitle",
     textClass: "text-copper",
   },
   missing: {
     tone: "rose",
     pulse: false,
-    label: "missing",
-    title: MISSING_HINT,
+    labelKey: "sidebar.status.missingLabel",
+    titleKey: "sidebar.session.missingHint",
     textClass: "text-rose",
   },
 };
@@ -205,6 +203,7 @@ export function SessionRow({
   onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
   onDragEnd?: () => void;
 }) {
+  const t = useT();
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
   const terminate = useStore((st) => st.terminate);
@@ -230,9 +229,9 @@ export function SessionRow({
   const planTitle = (orphanSource ?? s.planImplementationSource)?.planTitle ?? null;
   const implementsNote =
     source !== null && planTitle !== null
-      ? `Implements “${planTitle}” from ${source.title}`
+      ? t("sidebar.session.implementsFrom", { planTitle, sourceTitle: source.title })
       : orphanSource !== null
-        ? `Implements “${orphanSource.planTitle}” — source unavailable`
+        ? t("sidebar.session.implementsUnavailable", { planTitle: orphanSource.planTitle })
         : null;
 
   return (
@@ -259,9 +258,9 @@ export function SessionRow({
           <button
             type="button"
             ref={registerGrip}
-            aria-label={`reorder ${s.title}`}
+            aria-label={t("sidebar.session.reorder", { title: s.title })}
             aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-            title={`reorder ${s.title} — drag, or Alt+↑ / Alt+↓`}
+            title={t("sidebar.session.reorderTitle", { title: s.title })}
             onKeyDown={(e) => {
               if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
               // Ours: neither scroll the list nor wake Electron's
@@ -286,7 +285,7 @@ export function SessionRow({
         type="button"
         aria-current={selected ? "page" : undefined}
         title={
-          missing ? MISSING_HINT : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
+          missing ? t("sidebar.session.missingHint") : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
         }
         onClick={() => {
           if (missing) return;
@@ -298,7 +297,7 @@ export function SessionRow({
           missing && "cursor-default",
         )}
       >
-        <Dot tone={face.tone} pulse={face.pulse} title={face.title} />
+        <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
         <span className="min-w-0 flex-1">
           <span
             className={cn(
@@ -313,18 +312,18 @@ export function SessionRow({
             title={absoluteTime(s.cachedModified)}
             className="block truncate font-mono text-[10px] text-ink-faint tabular-nums"
           >
-            <span className={face.textClass}>{face.label}</span>
+            <span className={face.textClass}>{t(face.labelKey)}</span>
             {when ? ` · ${when}` : ""}
             {showPersistedStatus && s.status ? ` · ${s.status}` : ""}
             {s.worktree ? (
               <span title={s.worktree.path}>{` · ⎇ ${s.worktree.branch}`}</span>
             ) : null}
             {source !== null
-              ? " · implementation"
+              ? ` · ${t("sidebar.session.implementation")}`
               : orphanSource !== null
-                ? " · implementation · source unavailable"
+                ? ` · ${t("sidebar.session.implementation")} · ${t("sidebar.session.sourceUnavailable")}`
                 : ""}
-            {handoff?.hasDescendants ? " · plan source" : ""}
+            {handoff?.hasDescendants ? ` · ${t("sidebar.session.planSource")}` : ""}
           </span>
         </span>
       </button>
@@ -332,7 +331,7 @@ export function SessionRow({
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
         {source !== null && (
           <IconButton
-            label="open planning session"
+            label={t("sidebar.session.openPlanning")}
             onClick={() => void openSession(source.tabId)}
             className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
           >
@@ -341,7 +340,7 @@ export function SessionRow({
         )}
         {!missing && s.live === "live" ? (
           <IconButton
-            label="stop the agent (session stays resumable)"
+            label={t("sidebar.session.stopResumable")}
             tone="copper"
             onClick={() => void terminate(s.tabId)}
             className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
@@ -354,19 +353,19 @@ export function SessionRow({
             tone="signal"
             variant="outline"
             onClick={() => void resumeDead(s.tabId)}
-            title={`resume ${s.title}`}
+            title={t("sidebar.session.resumeTitle", { title: s.title })}
             className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
           >
-            resume
+            {t("sidebar.session.resume")}
           </Button>
         ) : null}
         <IconButton
           label={
             s.live === "live"
-              ? "stop the agent and delete this session"
+              ? t("sidebar.session.stopDelete")
               : missing
-                ? "delete this session's record"
-                : "delete session and its files"
+                ? t("sidebar.session.deleteRecord")
+                : t("sidebar.session.deleteFiles")
           }
           tone="rose"
           onClick={() => void deleteSession(s.tabId)}

@@ -9,6 +9,7 @@ import { backend, displayMessage } from "../../backend";
 import { useStore } from "../../store";
 import { Button, Chip, Empty, Label, Panel } from "../ui";
 import { Row, SettingControl, layerBadge } from "./rows";
+import { useT } from "../../lib/i18n";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 
 type OverviewLoad =
@@ -26,6 +27,7 @@ function MemoryBankPath({
   path: string;
   exists: boolean;
 }) {
+  const t = useT();
   return (
     <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-baseline gap-2">
       <span className="text-[10px] uppercase tracking-wide text-ink-faint">
@@ -35,7 +37,7 @@ function MemoryBankPath({
         {path}
       </span>
       <Chip tone={exists ? undefined : "copper"}>
-        {exists ? "exists" : "not created"}
+        {exists ? t("settings.memory.exists") : t("settings.memory.notCreated")}
       </Chip>
     </div>
   );
@@ -50,12 +52,13 @@ function MemoryOverviewPanel({
   projectCwd: string | null;
   retry: () => void;
 }) {
+  const t = useT();
   if (projectCwd === null) {
     return (
       <Panel className="px-3 py-2.5">
-        <Label>Resolved memory</Label>
+        <Label>{t("settings.memory.resolvedMemory")}</Label>
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-          Focus a session tab to inspect its resolved backend and bank locations.
+          {t("settings.memory.focusTab")}
         </p>
       </Panel>
     );
@@ -63,8 +66,8 @@ function MemoryOverviewPanel({
   if (load.status === "idle" || load.status === "loading") {
     return (
       <Panel className="px-3 py-2.5">
-        <Label>Resolved memory</Label>
-        <p className="mt-1 text-[11px] text-ink-faint">Discovering banks…</p>
+        <Label>{t("settings.memory.resolvedMemory")}</Label>
+        <p className="mt-1 text-[11px] text-ink-faint">{t("settings.memory.discovering")}</p>
       </Panel>
     );
   }
@@ -73,7 +76,7 @@ function MemoryOverviewPanel({
       <Panel className="px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-relaxed text-rose">{load.message}</p>
-          <Button size="xs" onClick={retry}>retry</Button>
+          <Button size="xs" onClick={retry}>{t("settings.memory.retry")}</Button>
         </div>
       </Panel>
     );
@@ -83,18 +86,18 @@ function MemoryOverviewPanel({
   return (
     <Panel className="space-y-2 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Label className="mr-auto">Resolved memory</Label>
+        <Label className="mr-auto">{t("settings.memory.resolvedMemory")}</Label>
         <Chip mono>{overview.backend}</Chip>
         <Chip mono>{overview.scoping}</Chip>
       </div>
       {overview.error !== null && (
         <div className="flex items-center justify-between gap-3 rounded border border-rose-dim/50 bg-rose-wash px-2 py-1.5">
           <p className="text-[11px] leading-relaxed text-rose">{overview.error}</p>
-          <Button size="xs" onClick={retry}>retry</Button>
+          <Button size="xs" onClick={retry}>{t("settings.memory.retry")}</Button>
         </div>
       )}
       <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-baseline gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-ink-faint">base</span>
+        <span className="text-[10px] uppercase tracking-wide text-ink-faint">{t("settings.memory.base")}</span>
         <span className="truncate font-mono text-[10px] text-ink-mid" title={overview.baseDir}>
           {overview.baseDir}
         </span>
@@ -113,8 +116,8 @@ function MemoryOverviewPanel({
       ) : (
         <p className="text-[10px] leading-relaxed text-ink-faint">
           {overview.scoping === "global"
-            ? "This project uses the global bank."
-            : "No project bank has been discovered yet."}
+            ? t("settings.memory.globalBank")
+            : t("settings.memory.noProjectBank")}
         </p>
       )}
     </Panel>
@@ -138,6 +141,7 @@ export function MemoryPage({
   retry: () => void;
   overviewRevision: number;
 }) {
+  const t = useT();
   const openSettings = useStore((state) => state.openSettings);
   const [overviewLoad, setOverviewLoad] = useState<OverviewLoad>({ status: "idle" });
   const [overviewRetry, setOverviewRetry] = useState(0);
@@ -181,7 +185,7 @@ export function MemoryPage({
     return (
       <div className="space-y-3 px-4 py-3">
         {overviewPanel}
-        <Empty title="Reading memory configuration…" />
+        <Empty title={t("settings.memory.reading")} />
       </div>
     );
   }
@@ -197,14 +201,14 @@ export function MemoryPage({
       <div className="space-y-3 px-4 py-3">
         {overviewPanel}
         <Empty
-          title="Could not read memory configuration"
-          hint={missing ? "omp is not installed, so there is nothing to configure yet." : (failure ?? undefined)}
+          title={t("settings.memory.readFailed")}
+          hint={missing ? t("settings.memory.ompMissingHint") : (failure ?? undefined)}
           action={
             <div className="flex items-center gap-2">
-              <Button size="xs" onClick={retry}>retry</Button>
+              <Button size="xs" onClick={retry}>{t("settings.memory.retry")}</Button>
               {missing && (
                 <Button size="xs" variant="ghost" onClick={() => openSettings("updates")}>
-                  install omp from the Updates page
+                  {t("settings.memory.installFromUpdates")}
                 </Button>
               )}
             </div>
@@ -222,9 +226,9 @@ export function MemoryPage({
   return (
     <div className="space-y-3 px-4 py-3">
       <div>
-        <p className="text-xs font-medium text-ink">Durable recall configuration</p>
+        <p className="text-xs font-medium text-ink">{t("settings.memory.title")}</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
-          Configure what future sessions retain and recall, and inspect the resolved memory banks for the focused project.
+          {t("settings.memory.titleHint")}
         </p>
       </div>
       {overviewPanel}
@@ -262,13 +266,16 @@ export function MemoryPage({
 }
 
 export function MemoryFooter({ agentDir }: FooterContext) {
+  const t = useT();
   return (
     <p>
-      Writes go to omp&apos;s global config (
-      <span className="font-mono">{agentDir ?? "…"}/config.yml</span>); a
-      project&apos;s <span className="font-mono">.omp/config.yml</span> can win
-      and is shown as <span className="font-mono">project</span>. Memory
-      configuration applies to sessions started after the change.
+      {t("settings.memory.footerIntro")}
+      <span className="font-mono">{agentDir ?? "…"}/config.yml</span>
+      {t("settings.memory.footerProjectPrefix")}
+      <span className="font-mono">.omp/config.yml</span>
+      {t("settings.memory.footerCanWin")}
+      <span className="font-mono">project</span>
+      {t("settings.memory.footerEnd")}
     </p>
   );
 }
