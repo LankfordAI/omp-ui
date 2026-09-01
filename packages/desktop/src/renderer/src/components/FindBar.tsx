@@ -1,4 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useT } from "../lib/i18n";
 import { IconButton, IconClose } from "./ui";
 
 /**
@@ -78,6 +79,7 @@ function IconDown() {
 }
 
 export function FindBar({ query, onQueryChange, matchIndex, matchCount, onPrev, onNext, onClose }: FindBarProps) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // autoFocus covers the fresh-open case; the effect also select()s so a
@@ -106,8 +108,8 @@ export function FindBar({ query, onQueryChange, matchIndex, matchCount, onPrev, 
     query.trim() === ""
       ? null
       : matchCount === 0
-        ? "no matches"
-        : `${(matchIndex ?? 0) + 1} / ${matchCount}`;
+        ? t("transcript.findbar.noMatches")
+        : t("transcript.findbar.position", { index: (matchIndex ?? 0) + 1, count: matchCount });
 
   return (
     <div className="find-bar absolute left-1/2 top-2 z-20 -translate-x-1/2 edge-lit flex items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-[11px] backdrop-blur">
@@ -121,19 +123,19 @@ export function FindBar({ query, onQueryChange, matchIndex, matchCount, onPrev, 
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="search"
-        aria-label="search"
+        placeholder={t("transcript.findbar.placeholder")}
+        aria-label={t("transcript.findbar.placeholder")}
         spellCheck={false}
         className="find-bar-input min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-ink-faint"
       />
       {readout !== null && <span className="shrink-0 font-mono text-ink-dim tabular-nums">{readout}</span>}
-      <IconButton label="previous match" onClick={onPrev}>
+      <IconButton label={t("transcript.findbar.previous")} onClick={onPrev}>
         <IconUp />
       </IconButton>
-      <IconButton label="next match" onClick={onNext}>
+      <IconButton label={t("transcript.findbar.next")} onClick={onNext}>
         <IconDown />
       </IconButton>
-      <IconButton label="close find" onClick={onClose}>
+      <IconButton label={t("transcript.findbar.close")} onClick={onClose}>
         <IconClose className="size-3.5" />
       </IconButton>
     </div>
