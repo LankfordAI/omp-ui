@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
 import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
+import { useT } from "../lib/i18n";
 import { CopyButton } from "./ui";
 
 /**
@@ -259,6 +260,7 @@ function CodeBlock({
   // has no shiki grammar, so pass no language and the pre stays plain.
   const svg = useDiagramSvg(text, isDiagram && settled);
   const tokens = useHighlightTokens(text, isDiagram ? undefined : (lang ?? undefined), settled);
+  const t = useT();
   const [showSource, setShowSource] = useState(false);
   const asDiagram = isDiagram && svg !== null && !showSource;
   return (
@@ -272,10 +274,14 @@ function CodeBlock({
               onClick={() => setShowSource((s) => !s)}
               className="font-mono text-[10px] text-ink-dim transition-colors duration-150 hover:text-ink"
             >
-              {asDiagram ? "source" : "diagram"}
+              {asDiagram ? t("markdown.codeblock.source") : t("markdown.codeblock.diagram")}
             </button>
           )}
-          <CopyButton text={text} />
+          <CopyButton
+            text={text}
+            label={t("common.button.copy")}
+            doneLabel={t("common.button.copied")}
+          />
         </span>
       </div>
       {asDiagram ? (
@@ -285,7 +291,7 @@ function CodeBlock({
         <div
           className="md-diagram"
           role="img"
-          aria-label="mermaid diagram"
+          aria-label={t("markdown.diagram.aria")}
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (

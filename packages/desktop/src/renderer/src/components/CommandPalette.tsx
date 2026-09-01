@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
+import { currentLocaleId, useT } from "../lib/i18n";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { Chip, Dot, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
@@ -91,7 +92,8 @@ export function CommandPalette() {
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
-
+  const t = useT();
+  const localeId = currentLocaleId();
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -105,7 +107,7 @@ export function CommandPalette() {
         if (s.live === "missing") continue;
         out.push({
           id: `session:${s.tabId}`,
-          group: "Sessions",
+          group: t("palette.group.sessions"),
           name: s.title,
           desc: group.project.name,
           dot: LIVE_TONE[s.live],
@@ -117,37 +119,37 @@ export function CommandPalette() {
     for (const group of state?.projects ?? []) {
       out.push({
         id: `new:${group.project.path}`,
-        group: "Projects",
-        name: `New session in ${group.project.name}`,
+        group: t("palette.group.projects"),
+        name: t("palette.action.newSession", { name: group.project.name }),
         desc: group.project.path,
         run: () => void newSession(group.project.path),
       });
     }
     out.push({
       id: "add-project",
-      group: "Projects",
-      name: "Add project…",
-      desc: "pick a directory to track",
+      group: t("palette.group.projects"),
+      name: t("palette.action.addProject"),
+      desc: t("palette.action.addProjectDesc"),
       run: () => openProjectPicker(),
     });
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     if (tab) {
-      const title = findRecord(state, tab.tabId)?.title ?? "this session";
+      const title = findRecord(state, tab.tabId)?.title ?? t("palette.action.sessionFallback");
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
       out.push(
         {
           id: "session:terminate",
-          group: "Session",
-          name: "Terminate agent",
-          desc: `${title} — the session stays resumable`,
+          group: t("palette.group.session"),
+          name: t("palette.action.terminate"),
+          desc: t("palette.action.terminateDesc", { title }),
           run: () => void terminate(tab.tabId),
         },
         {
           id: "session:mode",
-          group: "Session",
-          name: `Switch to ${other === "pty" ? "terminal" : "native"} mode`,
-          desc: `${title} — restarts the process`,
+          group: t("palette.group.session"),
+          name: t("palette.action.switchMode", { mode: other === "pty" ? "terminal" : "native" }),
+          desc: t("palette.action.switchModeDesc", { title }),
           run: () => void switchMode(tab.tabId, other),
         },
       );
@@ -157,9 +159,9 @@ export function CommandPalette() {
       if (scopeCwd !== undefined) {
         out.push({
           id: "session:mcp",
-          group: "Session",
-          name: "MCP servers…",
-          desc: "inspect and toggle MCP servers for this session's working tree",
+          group: t("palette.group.session"),
+          name: t("palette.action.mcp"),
+          desc: t("palette.action.mcpDesc"),
           run: () => openMcpManager(scopeCwd, tab.tabId),
         });
       }
@@ -167,29 +169,29 @@ export function CommandPalette() {
 
     out.push({
       id: "app:check-updates",
-      group: "App",
-      name: "Check for updates",
-      desc: "look for a newer omp-ui release",
+      group: t("palette.group.app"),
+      name: t("palette.action.checkApp"),
+      desc: t("palette.action.checkAppDesc"),
       run: () => void checkAppUpdate(),
     });
     out.push({
       id: "omp:check-updates",
-      group: "App",
-      name: "Check for omp updates",
-      desc: "look for a newer omp release",
+      group: t("palette.group.app"),
+      name: t("palette.action.checkOmp"),
+      desc: t("palette.action.checkOmpDesc"),
       run: () => void checkOmpUpdate(),
     });
     out.push({
       id: "app:settings",
-      group: "App",
-      name: "Settings…",
-      desc: "appearance, updates, and omp configuration",
+      group: t("palette.group.app"),
+      name: t("palette.action.settings"),
+      desc: t("palette.action.settingsDesc"),
       hint: "mod+,",
       run: () => openSettings(),
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openMcpManager, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openMcpManager, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
@@ -261,7 +263,7 @@ export function CommandPalette() {
           ref={inputRef}
           value={query}
           spellCheck={false}
-          placeholder="Search sessions, projects, actions…"
+          placeholder={t("palette.search.placeholder")}
           onChange={(e) => {
             setQuery(e.target.value);
           }}
@@ -273,7 +275,7 @@ export function CommandPalette() {
 
       <PaletteList>
         {results.length === 0 && (
-          <PaletteEmpty title="Nothing matches" hint="Try fewer letters — matching is fuzzy, not exact." />
+          <PaletteEmpty title={t("palette.empty.title")} hint={t("palette.empty.hint")} />
         )}
         {results.map(({ action, hits }, i) => {
           const header = action.group === lastGroup ? null : action.group;
@@ -328,13 +330,13 @@ export function CommandPalette() {
 
       <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-[10px] text-ink-faint">
         <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
-        <span>navigate</span>
+        <span>{t("palette.footer.navigate")}</span>
         <span className="font-mono">{formatHotkey("enter")}</span>
-        <span>run</span>
+        <span>{t("palette.footer.run")}</span>
         <span className="font-mono">Ctrl+N</span>
         <span>/</span>
         <span className="font-mono">Ctrl+P</span>
-        <span>also move</span>
+        <span>{t("palette.footer.alsoMove")}</span>
       </div>
     </Modal>
   );

@@ -3,6 +3,7 @@ import type { McpServerEntry, McpServersResult } from "@omp-ui/core/types";
 import type { McpRuntimeFailure } from "@omp-ui/core/mcp-status";
 import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { findRecord, useStore } from "../store";
 import { Button, Chip, Empty, Modal, Panel, Switch } from "./ui";
 
@@ -64,6 +65,7 @@ function Row({
    *  a console drawer to spawn omp's TUI in. */
   onAuthenticate?: (entry: McpServerEntry) => void;
 }) {
+  const t = useT();
   const shadowedSource = entry.shadowedBy?.split(":", 1)[0];
   // Exactly the states the project writer rejects: nothing project-local can
   // beat the user denylist or a user-level source's enabled:false.
@@ -71,7 +73,10 @@ function Row({
     projectScoped &&
     entry.state === "disabled" &&
     (entry.disabledBy === "denylist" || entry.scope === "user");
-  const inPlaceTitle = `writes enabled:${entry.state === "enabled" ? "false" : "true"} to ${entry.sourcePath}`;
+  const inPlaceTitle = t("mcp.row.inPlace", {
+    state: entry.state === "enabled" ? "false" : "true",
+    path: entry.sourcePath,
+  });
   return (
     <li
       className={cn(
@@ -84,18 +89,18 @@ function Row({
           <span className="truncate text-xs font-medium text-ink">{entry.name}</span>
           <Chip mono>{entry.transport}</Chip>
           {entry.effective && entry.state === "disabled" && (
-            <Chip tone="rose">disabled · {entry.disabledBy}</Chip>
+            <Chip tone="rose">{t("mcp.row.disabled", { reason: entry.disabledBy ?? "" })}</Chip>
           )}
           {!entry.effective && shadowedSource !== undefined && (
             <Chip tone="copper" title={entry.shadowedBy}>
-              shadowed by {shadowedSource}
+              {t("mcp.row.shadowed", { source: shadowedSource })}
             </Chip>
           )}
           {entry.effective && failure !== undefined && (
             <Chip tone="rose">
               {failure.kind === "auth"
-                ? "authentication failed in this session"
-                : "connection failed in this session"}
+                ? t("mcp.row.authFailed")
+                : t("mcp.row.connectFailed")}
             </Chip>
           )}
         </div>
@@ -116,30 +121,34 @@ function Row({
         <Button
           size="xs"
           variant="ghost"
-          title="hand this session to omp's TUI and run /mcp reauth there — omp refuses OAuth flows over rpc"
+          title={t("mcp.reauth.handoff")}
           onClick={() => onAuthenticate(entry)}
         >
-          authenticate
+          {t("mcp.reauth.button")}
         </Button>
       )}
       {entry.effective && (
         <Switch
           on={entry.state === "enabled"}
-          label={`${entry.state === "enabled" ? "disable" : "enable"} ${entry.name}`}
+          label={
+            entry.state === "enabled"
+              ? t("mcp.row.toggleDisable", { name: entry.name })
+              : t("mcp.row.toggleEnable", { name: entry.name })
+          }
           title={
             projectScoped
               ? pinnedGlobally
-                ? "disabled at the user level — enable it globally from Settings → MCP servers"
+                ? t("mcp.row.pinnedUser")
                 : entry.enabledBy === "allowlist"
                   ? entry.disableReach === "global"
-                    ? "force-enabled for every project by the user-level allowlist, and its source config is tool-owned — disabling clears that global override, so the server also turns off in other projects"
-                    : "force-enabled for every project by the user-level allowlist — disabling enables it in its own config first, so only this project turns it off"
+                    ? t("mcp.row.allowlistGlobal")
+                    : t("mcp.row.allowlistProject")
                   : entry.scope === "project" && entry.writable
                     ? inPlaceTitle
-                    : "writes a project-only override to .omp/mcp.json"
+                    : t("mcp.row.projectOverride")
               : entry.writable
                 ? inPlaceTitle
-                : "tool-owned file — toggled via omp's user-level override lists"
+                : t("mcp.row.toolOwned")
           }
           disabled={pending || pinnedGlobally}
           onChange={(next) => onToggle(entry, next)}
@@ -181,6 +190,7 @@ export function McpServersPanel({
   const mcpStatus = useStore((s) =>
     tabId === undefined ? null : (s.rpc[tabId]?.mcpStatus ?? null),
   );
+  const t = useT();
 
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -241,15 +251,18 @@ export function McpServersPanel({
   return (
     <>
       {load.status === "loading" && (
-        <Empty title="Resolving MCP servers…" hint="Reading omp's config sources." />
+        <Empty
+          title={t("mcp.panel.loading")}
+          hint={t("mcp.panel.loadingHint")}
+        />
       )}
       {load.status === "error" && (
         <Empty
-          title="Could not resolve MCP servers"
+          title={t("mcp.panel.error")}
           hint={load.message}
           action={
             <Button size="xs" onClick={() => setReloadKey((k) => k + 1)}>
-              retry
+              {t("mcp.panel.retry")}
             </Button>
           }
         />
@@ -260,8 +273,8 @@ export function McpServersPanel({
             <Panel tone="rose" className="mx-4 my-2 px-3 py-2">
               <p className="mb-1 text-[11px] font-medium">
                 {result.errors.length === 1
-                  ? "One config file could not be read:"
-                  : `${result.errors.length} config files could not be read:`}
+                  ? t("mcp.panel.configErrorOne")
+                  : t("mcp.panel.configErrorMany", { count: result.errors.length })}
               </p>
               {result.errors.map((e) => (
                 <p key={e.path} className="truncate font-mono text-[10px]" title={e.path}>
@@ -277,8 +290,12 @@ export function McpServersPanel({
           )}
           {result.servers.length === 0 ? (
             <Empty
-              title={scopeCwd === null ? "No global MCP servers configured." : "No MCP servers configured for this project."}
-              hint="omp resolves native .omp/mcp.json files plus translated cursor, claude, gemini, opencode, windsurf, and vscode configs."
+              title={
+                scopeCwd === null
+                  ? t("mcp.panel.emptyGlobal")
+                  : t("mcp.panel.emptyProject")
+              }
+              hint={t("mcp.panel.emptyHint")}
             />
           ) : (
             <ul className="divide-y divide-line-soft">
@@ -311,6 +328,7 @@ export function McpManager({ scopeCwd, tabId }: { scopeCwd: string | null; tabId
   // A native tab mid-turn would queue the reload behind the running turn; a
   // PTY tab's TUI simply shows the typed line, so only the native path waits.
   const busy = useStore((s) => (tabId === undefined ? false : s.rpc[tabId]?.status === "running"));
+  const t = useT();
 
   const [reloading, setReloading] = useState(false);
 
@@ -338,16 +356,16 @@ export function McpManager({ scopeCwd, tabId }: { scopeCwd: string | null; tabId
       <section role="dialog" aria-modal="true" aria-labelledby="mcp-manager-title">
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
-            {scopeCwd === null ? "Global integrations" : "Project integrations"}
+            {scopeCwd === null ? t("mcp.header.global") : t("mcp.header.project")}
           </p>
           <h2 id="mcp-manager-title" className="font-display text-base font-semibold text-ink">
-            MCP servers
+            {t("mcp.header.title")}
           </h2>
           <p
             title={scopeCwd ?? undefined}
             className="mt-1 truncate font-mono text-[11px] text-ink-dim"
           >
-            {scopeCwd ?? "Global — user-level configuration"}
+            {scopeCwd ?? t("mcp.header.globalFallback")}
           </p>
           {/* Names the directory the rows were resolved from, so a checkout's
               own tracked provider files (.cursor/mcp.json, opencode.json, …)
@@ -357,8 +375,7 @@ export function McpManager({ scopeCwd, tabId }: { scopeCwd: string | null; tabId
               className="mt-0.5 truncate font-mono text-[10px] text-ink-faint"
               title={record?.projectCwd}
             >
-              ⎇ {worktree.branch} — resolved in this session&apos;s checkout, written through it to{" "}
-              {record?.projectCwd}
+              ⎇ {worktree.branch}{t("mcp.header.worktree", { cwd: record?.projectCwd ?? "" })}
             </p>
           )}
         </header>
@@ -374,10 +391,10 @@ export function McpManager({ scopeCwd, tabId }: { scopeCwd: string | null; tabId
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
           <p className="text-[11px] text-ink-faint">
             {scopeCwd === null
-              ? "Changes apply to new sessions in every project."
-              : "Changes apply to new sessions in this project."}{" "}
-            {live ? "Reload applies them to this session now." : ""}{" "}
-            OAuth servers authenticate through omp&apos;s TUI: omp refuses reauth over rpc.
+              ? t("mcp.footer.global")
+              : t("mcp.footer.project")}{" "}
+            {live ? t("mcp.footer.reload") : ""}{" "}
+            {t("mcp.footer.oauth")}
           </p>
           {live && (
             <Button
@@ -387,12 +404,12 @@ export function McpManager({ scopeCwd, tabId }: { scopeCwd: string | null; tabId
               disabled={reloading || (native && busy)}
               title={
                 native && busy
-                  ? "wait for the current turn to finish"
-                  : "run /mcp reload in this session so it picks up the current MCP config"
+                  ? t("mcp.reload.titleBusy")
+                  : t("mcp.reload.title")
               }
               onClick={reload}
             >
-              {reloading ? "reloading…" : "reload MCP in this session"}
+              {reloading ? t("mcp.reload.loading") : t("mcp.reload.label")}
             </Button>
           )}
         </footer>
