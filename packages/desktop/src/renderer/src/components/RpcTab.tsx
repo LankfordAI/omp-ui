@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
 import { findRecord, useStore, type RpcFailure } from "../store";
+import { useT } from "../lib/i18n";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
@@ -121,6 +122,7 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
 }
 
 export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
+  const t = useT();
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
   const refreshState = useStore((s) => s.refreshState);
@@ -288,16 +290,16 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
             <p className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] leading-snug text-rose">
               {failureText}
             </p>
-            <CopyButton text={failureText} label="Copy" />
+            <CopyButton text={failureText} label={t("tab.failure.copy")} />
             {failure.kind === "boot" && (
               <Button size="xs" variant="ghost" tone="rose" onClick={() => void bootRpcTab(tabId)}>
-                Retry boot
+                {t("tab.failure.retryBoot")}
               </Button>
             )}
             {!failure.fatal && (
               <>
                 <Button size="xs" variant="ghost" tone="rose" onClick={() => void refreshState(tabId)}>
-                  Refresh state
+                  {t("tab.failure.refresh")}
                 </Button>
                 <Button
                   size="xs"
@@ -305,7 +307,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                   tone="rose"
                   onClick={() => setDismissedFailure(failure)}
                 >
-                  Dismiss
+                  {t("tab.failure.dismiss")}
                 </Button>
               </>
             )}
@@ -386,20 +388,20 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
             )}
           >
             <p className="font-display text-sm text-ink">
-              {hibernated ? "Hibernated" : "Agent exited"}
+              {hibernated ? t("tab.exited.titleHibernated") : t("tab.exited.titleExited")}
             </p>
             {hibernated ? (
               <Chip tone="neutral" mono>
-                idle — process stopped to free memory
+                {t("tab.exited.idleChip")}
               </Chip>
             ) : (
-              <Chip tone="rose" mono title={`process exit code ${exitCode}`}>
-                exit {exitCode}
+              <Chip tone="rose" mono title={t("tab.exited.exitTitle", { code: exitCode })}>
+                {t("tab.exited.exitChip", { code: exitCode })}
               </Chip>
             )}
             {hibernated && (
               <p className="text-[11px] text-ink-dim">
-                The session is dormant — its transcript is safe on disk. Resume to continue.
+                {t("tab.exited.dormant")}
               </p>
             )}
             {failure && (
@@ -407,11 +409,11 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                 <p className="min-w-0 flex-1 whitespace-pre-wrap text-left text-[11px] leading-snug text-rose">
                   {failureText}
                 </p>
-                <CopyButton text={failureText} label="Copy" />
+                <CopyButton text={failureText} label={t("tab.failure.copy")} />
               </div>
             )}
             <Button variant="solid" tone="signal" onClick={() => void resumeDead(tabId)}>
-              resume session
+              {t("tab.exited.resume")}
             </Button>
           </Panel>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 
 /**
@@ -59,6 +60,7 @@ export function WorktreeBranchFields({
   /** false renders the branch field only — nothing is cut from a base. */
   showBase?: boolean;
 }) {
+  const t = useT();
   // The base defaults to the checkout's current branch once known; a manual
   // pick must survive later refreshes of the branch list.
   // The manual-base latch. Uncontrolled (the sidebar dialog) it lives here;
@@ -103,7 +105,7 @@ export function WorktreeBranchFields({
     <>
       <div>
         <label htmlFor={`${idPrefix}-branch`} className="block text-[10px] text-ink-faint">
-          Branch
+          {t("worktree.field.branch")}
         </label>
         <input
           id={`${idPrefix}-branch`}
@@ -115,7 +117,7 @@ export function WorktreeBranchFields({
       {showBase !== false && (
         <div>
           <label htmlFor={`${idPrefix}-base`} className="block text-[10px] text-ink-faint">
-            Base
+            {t("worktree.field.base")}
           </label>
           <select
             id={`${idPrefix}-base`}
@@ -127,7 +129,7 @@ export function WorktreeBranchFields({
             className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
           >
             {headOnly ? (
-              <option value="">current HEAD</option>
+              <option value="">{t("worktree.field.currentHead")}</option>
             ) : (
               branchNames.map((name) => (
                 <option key={name} value={name}>
