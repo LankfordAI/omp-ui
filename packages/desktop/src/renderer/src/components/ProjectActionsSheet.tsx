@@ -1,5 +1,6 @@
 import type { ProjectRecord } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Sheet } from "./ui";
 
@@ -31,6 +32,7 @@ export function ProjectActionsSheet({
   onClose: () => void;
   onActivate: () => void;
 }) {
+  const t = useT();
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
@@ -53,7 +55,7 @@ export function ProjectActionsSheet({
                 onActivate();
               }}
             >
-              New session
+              {t("project.actions.newSession")}
             </button>
             <button
               type="button"
@@ -64,7 +66,7 @@ export function ProjectActionsSheet({
                 onActivate();
               }}
             >
-              New terminal session
+              {t("project.actions.newTerminal")}
             </button>
             <button
               type="button"
@@ -74,7 +76,7 @@ export function ProjectActionsSheet({
                 onClose();
               }}
             >
-              New worktree session…
+              {t("project.actions.newWorktree")}
             </button>
             <button
               type="button"
@@ -84,7 +86,7 @@ export function ProjectActionsSheet({
                 onClose();
               }}
             >
-              Project settings…
+              {t("project.actions.settings")}
             </button>
             <button
               type="button"
@@ -94,7 +96,7 @@ export function ProjectActionsSheet({
               // null, and this sheet closes itself. On cancel it stays open.
               onClick={() => void removeProject(project.path)}
             >
-              Remove project…
+              {t("project.actions.remove")}
             </button>
           </div>
         </div>

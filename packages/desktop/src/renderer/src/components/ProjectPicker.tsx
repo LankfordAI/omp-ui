@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { useStore } from "../store";
@@ -25,6 +26,7 @@ function parentOf(p: string): string {
 type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry };
 
 export function ProjectPicker() {
+  const t = useT();
   const closeProjectPicker = useStore((s) => s.closeProjectPicker);
   const addProject = useStore((s) => s.addProject);
   const newSession = useStore((s) => s.newSession);
@@ -123,7 +125,7 @@ export function ProjectPicker() {
           value={query}
           spellCheck={false}
           placeholder="~/path/to/project"
-          aria-label="project directory path"
+          aria-label={t("project.picker.pathLabel")}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKey}
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
@@ -133,12 +135,12 @@ export function ProjectPicker() {
 
       <PaletteList>
         {browseError === "invalid" && (
-          <PaletteEmpty title="Type a path" hint="Start with ~/ or an absolute /path." />
+          <PaletteEmpty title={t("project.picker.typePath")} hint={t("project.picker.pathHint")} />
         )}
-        {browseError === "missing" && <PaletteEmpty title="No such directory" hint={parentPath} />}
-        {browseError === "denied" && <PaletteEmpty title="Permission denied" hint={parentPath} />}
+        {browseError === "missing" && <PaletteEmpty title={t("project.picker.missing")} hint={parentPath} />}
+        {browseError === "denied" && <PaletteEmpty title={t("project.picker.denied")} hint={parentPath} />}
         {browseError === null && rows.length === 0 && (
-          <PaletteEmpty title="No matching directories" hint="Enter adds the path shown below." />
+          <PaletteEmpty title={t("project.picker.noMatches")} hint={t("project.picker.enterHint")} />
         )}
         {rows.map((row, i) => (
           <button
@@ -180,19 +182,19 @@ export function ProjectPicker() {
       <div className="border-t border-line px-3.5 py-2">
         <div className="flex items-center gap-3">
           <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
-            will add: <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
+            {t("project.picker.willAdd")} <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
           </p>
-          <Button variant="solid" disabled={!resolvedPath || browseError !== null} onClick={() => submit(resolvedPath)}>Add project</Button>
+          <Button variant="solid" disabled={!resolvedPath || browseError !== null} onClick={() => submit(resolvedPath)}>{t("project.picker.addProject")}</Button>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-faint">
           <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
-          <span>navigate</span>
+          <span>{t("project.picker.navigate")}</span>
           <span className="font-mono">{formatHotkey("enter")}</span>
-          <span>open/add</span>
+          <span>{t("project.picker.openAdd")}</span>
           <span className="font-mono">{formatHotkey("tab")}</span>
-          <span>open</span>
+          <span>{t("project.picker.open")}</span>
           <span className="font-mono">{formatHotkey("mod+enter")}</span>
-          <span>add typed path</span>
+          <span>{t("project.picker.addTypedPath")}</span>
         </div>
       </div>
     </Modal>

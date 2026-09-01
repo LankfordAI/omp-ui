@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { ProjectGroup, ProjectOpenAvailability, SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
+import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
@@ -176,6 +177,7 @@ function ProjectSection({
   reorder,
   onAnnounce,
 }: ProjectSectionProps) {
+  const t = useT();
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const moveSession = useStore((st) => st.moveSession);
@@ -260,9 +262,9 @@ function ProjectSection({
               <button
                 type="button"
                 ref={reorder.registerGrip}
-                aria-label={`reorder ${project.name}`}
+                aria-label={t("sidebar.project.reorder", { name: project.name })}
                 aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                title={`reorder ${project.name} — drag, or Alt+↑ / Alt+↓`}
+                title={t("sidebar.project.reorderTitle", { name: project.name })}
                 onKeyDown={(e) => {
                   if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
                   // Ours: neither scroll the list nor wake Electron's
@@ -303,11 +305,11 @@ function ProjectSection({
                   text={project.name}
                   className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
                 />
-                <Chip mono title={`${group.sessions.length} sessions`}>
+                <Chip mono title={t("sidebar.project.sessions", { n: group.sessions.length })}>
                   {group.sessions.length}
                 </Chip>
                 {live > 0 && (
-                  <Chip mono tone="signal" title={`${live} live`}>
+                  <Chip mono tone="signal" title={t("sidebar.project.live", { n: live })}>
                     <Dot tone="signal" />
                     {live}
                   </Chip>
@@ -323,11 +325,11 @@ function ProjectSection({
                   <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">
                     {project.path}
                   </span>
-                  <Chip mono title={`${group.sessions.length} sessions`}>
+                  <Chip mono title={t("sidebar.project.sessions", { n: group.sessions.length })}>
                     {group.sessions.length}
                   </Chip>
                   {live > 0 && (
-                    <Chip mono tone="signal" title={`${live} live`}>
+                    <Chip mono tone="signal" title={t("sidebar.project.live", { n: live })}>
                       <Dot tone="signal" />
                       {live}
                     </Chip>
@@ -341,7 +343,7 @@ function ProjectSection({
             // One 44px trigger replaces the whole cluster below 900px
             // (issue #205); every action moves into the bottom sheet.
             <IconButton
-              label={`actions for ${project.name}`}
+              label={t("sidebar.project.actions", { name: project.name })}
               onClick={() => onOpenActions?.()}
               className="shrink-0 self-center"
             >
@@ -357,21 +359,21 @@ function ProjectSection({
                 availability={openAvailability}
                 refreshAvailability={refreshAvailability}
               />
-              <IconButton label={`project settings for ${project.name}`} onClick={() => openProjectSettings(project.path)}>
+              <IconButton label={t("sidebar.project.settings", { name: project.name })} onClick={() => openProjectSettings(project.path)}>
                 <IconTune />
               </IconButton>
               <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
-                <IconButton label="new session" onClick={() => { void newSession(project.path); onActivate(); }}>
+                <IconButton label={t("sidebar.project.newSession")} onClick={() => { void newSession(project.path); onActivate(); }}>
                   <IconPlus />
                 </IconButton>
               </span>
               <IconButton
-                label={`new session options for ${project.name}`}
+                label={t("sidebar.project.newSessionOptions", { name: project.name })}
                 onClick={(event) => openTerminalMenu(project.path, event)}
               >
                 <Chevron open className="size-2.5" />
               </IconButton>
-              <IconButton label="remove project" tone="rose" onClick={() => void removeProject(project.path)}>
+              <IconButton label={t("sidebar.project.remove")} tone="rose" onClick={() => void removeProject(project.path)}>
                 <IconClose className="size-3.5" />
               </IconButton>
             </div>
@@ -441,17 +443,17 @@ function ProjectSection({
             );
           })}
           {total === 0 && (
-            <p className="px-3 py-1 text-[11px] text-ink-faint italic">no sessions yet</p>
+            <p className="px-3 py-1 text-[11px] text-ink-faint italic">{t("sidebar.project.noSessions")}</p>
           )}
           {total > PAGE && (
             <div className="flex items-center gap-2 px-3 pt-1 pb-0.5">
               <span className="font-mono text-[10px] text-ink-faint tabular-nums">
-                showing {shown} of {total}
+                {t("sidebar.project.showing", { shown, total })}
               </span>
               <span className="ml-auto flex shrink-0 items-center gap-1">
                 {visible > PAGE && shown > PAGE && (
                   <Button size="xs" variant="ghost" onClick={() => setVisible(PAGE)}>
-                    show less
+                    {t("sidebar.project.showLess")}
                   </Button>
                 )}
                 {remaining > 0 && (
@@ -459,9 +461,9 @@ function ProjectSection({
                     size="xs"
                     variant="ghost"
                     onClick={() => setVisible(shown + PAGE)}
-                    title={`${remaining} more session${remaining === 1 ? "" : "s"} in ${project.name}`}
+                    title={t(remaining === 1 ? "sidebar.project.moreSession" : "sidebar.project.moreSessions", { remaining, name: project.name })}
                   >
-                    show {Math.min(PAGE, remaining)} more
+                    {t("sidebar.project.showMore", { n: Math.min(PAGE, remaining) })}
                   </Button>
                 )}
               </span>
@@ -482,6 +484,7 @@ function CollapsedRail({
   groups: ProjectGroup[];
   openTerminalMenu: OpenTerminalMenu;
 }) {
+  const t = useT();
   const newSession = useStore((st) => st.newSession);
   return (
     <div className="flex flex-col items-center gap-2 py-3">
@@ -491,7 +494,7 @@ function CollapsedRail({
           <button
             key={g.project.path}
             type="button"
-            title={`${g.project.name} — ${g.sessions.length} sessions, ${live} live`}
+            title={t("sidebar.project.railSummary", { name: g.project.name, sessions: g.sessions.length, live })}
             onClick={() => void newSession(g.project.path)}
             onContextMenu={(event) => openTerminalMenu(g.project.path, event)}
             className={cn(
@@ -516,6 +519,7 @@ function CollapsedRail({
 /* ------------------------------------------------------------------ sidebar */
 
 export function Sidebar() {
+  const t = useT();
   const state = useStore((st) => st.state);
   const openProjectPicker = useStore((st) => st.openProjectPicker);
   const openSettings = useStore((st) => st.openSettings);
@@ -682,8 +686,8 @@ export function Sidebar() {
                   value={query}
                   spellCheck={false}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="filter sessions…"
-                  aria-label="filter sessions"
+                  placeholder={t("sidebar.filter.placeholder")}
+                  aria-label={t("sidebar.filter.label")}
                   className={cn(
                     "min-w-0 flex-1 bg-transparent py-1.5 text-xs text-ink",
                     "placeholder:font-mono placeholder:text-ink-faint focus:outline-none",
@@ -694,14 +698,14 @@ export function Sidebar() {
                     <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
                       {matchCount}
                     </span>
-                    <IconButton label="clear filter" onClick={() => setQuery("")} className="size-5">
+                    <IconButton label={t("sidebar.filter.clear")} onClick={() => setQuery("")} className="size-5">
                       <IconClose className="size-3.5" />
                     </IconButton>
                   </>
                 )}
               </div>
               {compact && (
-                <IconButton label="add project" onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
+                <IconButton label={t("sidebar.project.add")} onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
                   <IconPlus />
                 </IconButton>
               )}
@@ -713,22 +717,22 @@ export function Sidebar() {
             {groups === null && <SkeletonRows />}
             {groups !== null && groups.length === 0 && (
               <Empty
-                title="No projects yet"
-                hint="Point omp-ui at a repository and every session you start there shows up here."
+                title={t("sidebar.empty.noProjects")}
+                hint={t("sidebar.empty.noProjectsHint")}
                 action={
                   <Button variant="solid" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
-                    Add project
+                    {t("sidebar.project.addButton")}
                   </Button>
                 }
               />
             )}
             {groups !== null && groups.length > 0 && filtered.length === 0 && (
               <Empty
-                title={`Nothing matches “${query.trim()}”`}
-                hint="No session title or project name contains that."
+                title={t("sidebar.empty.noMatches", { query: query.trim() })}
+                hint={t("sidebar.empty.noMatchesHint")}
                 action={
                   <Button variant="ghost" onClick={() => setQuery("")}>
-                    clear filter
+                    {t("sidebar.filter.clear")}
                   </Button>
                 }
               />
@@ -782,7 +786,7 @@ export function Sidebar() {
                 }}
                 className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
-                New terminal session
+                {t("project.actions.newTerminal")}
               </button>
               <button
                 type="button"
@@ -794,7 +798,7 @@ export function Sidebar() {
                 }}
                 className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
-                New worktree session…
+                {t("project.actions.newWorktree")}
               </button>
             </Panel>
           </div>,
@@ -818,17 +822,17 @@ export function Sidebar() {
         )}
       >
         {/* One gear in both layouts: settings must stay reachable collapsed. */}
-        <IconButton label="settings" onClick={() => { openSettings(); closeCompactSurface(); }}>
+        <IconButton label={t("sidebar.footer.settings")} onClick={() => { openSettings(); closeCompactSurface(); }}>
           <IconGear />
         </IconButton>
         <span className="flex items-center gap-1.5">
           <Dot tone={totalLive > 0 ? "signal" : "neutral"} />
           <span className="font-mono tabular-nums">{totalLive}</span>
-          {!displayedCollapsed && <span>live</span>}
+          {!displayedCollapsed && <span>{t("sidebar.footer.live")}</span>}
         </span>
         {!displayedCollapsed && (
-          <span className="ml-auto font-mono tabular-nums" title="sessions on record">
-            {totalSessions} session{totalSessions === 1 ? "" : "s"}
+          <span className="ml-auto font-mono tabular-nums" title={t("sidebar.footer.sessionsOnRecord")}>
+            {t(totalSessions === 1 ? "sidebar.footer.session" : "sidebar.footer.sessions", { n: totalSessions })}
           </span>
         )}
       </footer>
@@ -840,7 +844,7 @@ export function Sidebar() {
       </p>
       {!compact && !displayedCollapsed && (
         <ResizeHandle
-          label="resize project sidebar"
+          label={t("sidebar.footer.resize")}
           edge="right"
           value={displayedSidebarWidth}
           min={SIDEBAR_MIN_WIDTH}
@@ -857,7 +861,7 @@ export function Sidebar() {
     </aside>
   );
   return compact ? (
-    <Sheet open={surface === "sessions"} placement="left" label="projects and sessions" onClose={closeCompactSurface}>
+    <Sheet open={surface === "sessions"} placement="left" label={t("app.compact.projectsAndSessions")} onClose={closeCompactSurface}>
       {sidebar}
     </Sheet>
   ) : sidebar;
