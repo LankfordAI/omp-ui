@@ -232,9 +232,13 @@ the prose (and in two cases omp's own `.d.ts`) implies:
   the tool's own `i` argument.
 - `tool_execution_update` carries **`partialResult.content`**: tool output
   streams, so "render on end" leaves bash and subagents looking frozen.
-- Assistant `message_end.message` carries `usage`, `model`, `provider`,
-  `stopReason`, `duration`, and `ttft` — plus a large `providerPayload` that
-  must never reach the renderer.
+- Assistant `message_end.message` carries `usage`, the requested `model`,
+  gateway `provider`, `stopReason`, `duration`, and `ttft`. When OMP supplies
+  them, it also carries routed `upstreamProvider` and `responseId`. A large
+  `providerPayload` may arrive in the raw RPC but is never retained in a render
+  item. `model` is not a routed or selected model: for `openrouter/auto`, the
+  OMP event does not reveal the model OpenRouter selected, and omp-ui does not
+  infer it.
 - `irc_message` nests its payload as a `CustomMessage`: `from`/`text` live under
   `message.details`, **not** top-level.
 - omp emits `retry_fallback_succeeded`, not `retry_succeeded`.

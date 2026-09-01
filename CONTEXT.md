@@ -98,9 +98,11 @@ of them, burying the actual content.
 _Avoid_: divider, separator, system message
 
 **Usage receipt**:
-The dim one-line footer under an assistant message — model, in/out tokens,
-cache reads, cost, ttft, duration — lifted from `message_end.usage`. It is a
-receipt, not telemetry: one line, quiet, hover to raise contrast.
+A dim, quiet one-line receipt under an assistant message. It starts with the
+requested model and may name OMP's routed upstream provider inline, followed by
+in/out tokens, cache reads, cost, ttft, and duration from `message_end.usage`.
+Its hover detail may include the provider response ID when OMP supplies it. It
+is a receipt, not telemetry.
 _Avoid_: stats line, metrics, footer
 
 **Signal accent**:

@@ -46,7 +46,7 @@ Read the confirmation before deleting. Deleting one row may erase more than one 
 
 ## Native transcript workflow
 
-The native transcript is derived from OMP's event stream. The session file remains the source of truth, and omp-ui does not rewrite it. The transcript renders user and assistant content, thinking, tool calls and results, advisor findings, notices, IRC activity, and lifecycle markers. A usage receipt under a completed assistant response shows its model, tokens, cache reads, cost, time to first token, and duration. Scroll away from the bottom to pause following; return to the bottom or use **Jump to latest** to follow new output again.
+The native transcript is derived from OMP's event stream. The session file remains the source of truth, and omp-ui does not rewrite it. The transcript renders user and assistant content, thinking, tool calls and results, advisor findings, notices, IRC activity, and lifecycle markers. A usage receipt under a completed assistant response starts with its requested model and, when OMP supplies it, names the routed upstream provider inline. It also shows tokens, cache reads, cost, time to first token, and duration. Hover the receipt for the provider response ID when OMP supplies it. For `openrouter/auto`, OMP's event does not reveal the model OpenRouter selected, and omp-ui does not infer it. Scroll away from the bottom to pause following; return to the bottom or use **Jump to latest** to follow new output again.
 
 ### Use the Session HUD
 

@@ -44,6 +44,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   const t = useT();
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
+  const running = useStore((s) => s.rpc[tabId]?.status === "running");
   const setModel = useStore((s) => s.setModel);
   const openSettings = useStore((s) => s.openSettings);
   const setProjectDefaultModel = useStore((s) => s.setProjectDefaultModel);
@@ -58,10 +59,13 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   });
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd ?? null);
   const [open, setOpen] = useState(false);
+  // Keep one user-selected main model for the duration of a turn. Internal
+  // staged-model changes still use the store method directly.
+  const locked = disabled === true || running;
 
   useEffect(() => {
-    if (disabled === true) setOpen(false);
-  }, [disabled]);
+    if (locked) setOpen(false);
+  }, [locked]);
 
   // Either `get_available_models` failed, or omp has no authenticated provider
   // at all — the common cause of the latter is a GUI launch that inherited no
@@ -70,8 +74,8 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
     return (
       <button
         type="button"
-        disabled={disabled}
-        title={model?.id ?? t("composer.model.noModelsTitle")}
+        disabled={locked}
+        title={running ? t("composer.model.afterTurn") : (model?.id ?? t("composer.model.noModelsTitle"))}
         onClick={() => openSettings("providers")}
         className="flex items-center px-1.5 font-mono text-[11px] text-ink-mid hover:text-ink"
       >
@@ -84,8 +88,14 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
     <>
       <button
         type="button"
-        disabled={disabled}
-        title={model === null ? t("composer.model.pick") : `${model.provider}/${model.id}`}
+        disabled={locked}
+        title={
+          running
+            ? t("composer.model.afterTurn")
+            : model === null
+              ? t("composer.model.pick")
+              : `${model.provider}/${model.id}`
+        }
         onClick={() => setOpen(true)}
         className={cn(CAPSULE_SEGMENT, "max-w-56 text-xs font-medium text-ink-mid")}
       >

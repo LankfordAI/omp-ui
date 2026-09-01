@@ -37,6 +37,10 @@ export interface AssistantItem {
   };
   model?: string;
   provider?: string;
+  /** OMP-reported upstream response id, retained only for receipt hover detail. */
+  responseId?: string;
+  /** OMP-reported routed provider behind an aggregator. */
+  upstreamProvider?: string;
   stopReason?: string;
   durationMs?: number;
   ttftMs?: number;
@@ -324,6 +328,8 @@ function assistantMeta(message: Record<string, unknown>): Partial<AssistantItem>
     usage,
     model: strField(message, "model"),
     provider: strField(message, "provider"),
+    responseId: strField(message, "responseId"),
+    upstreamProvider: strField(message, "upstreamProvider"),
     stopReason: strField(message, "stopReason"),
     durationMs: numField(message, "duration"),
     ttftMs: numField(message, "ttft"),

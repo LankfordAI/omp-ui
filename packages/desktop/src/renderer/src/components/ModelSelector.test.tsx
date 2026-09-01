@@ -5,7 +5,9 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
+import { t } from "../lib/i18n";
 import { backendState, rpcTabState } from "../test/fixtures";
+import type { RpcTabState } from "../store";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -24,12 +26,13 @@ const models: ModelInfo[] = [
 ];
 const state = backendState();
 
-function tabState() {
+function tabState(patch: Partial<RpcTabState> = {}) {
   return rpcTabState({
     status: "ready",
     hasRenamed: true,
     model: current,
     availableModels: models,
+    ...patch,
   });
 }
 
@@ -127,6 +130,36 @@ describe("ModelSelector", () => {
 
     pressPalette("n", { ctrlKey: true });
     expect(buttonByText("Claude Haiku").parentElement?.className).toContain("bg-hover");
+  });
+
+  it("locks the trigger while the turn is running", () => {
+    useStore.setState({ state, rpc: { [TAB]: tabState({ status: "running" }) } });
+    mount(<ModelSelector tabId={TAB} />);
+    const trigger = buttonByTitle(t("composer.model.afterTurn"));
+    expect(trigger.disabled).toBe(true);
+
+    act(() => trigger.click());
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("closes an open palette when the store transitions to running, then re-enables on ready", () => {
+    mount(<ModelSelector tabId={TAB} />);
+    const trigger = buttonByTitle("anthropic/claude-sonnet");
+    act(() => trigger.click());
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+
+    act(() => {
+      useStore.setState({ rpc: { [TAB]: tabState({ status: "running" }) } });
+    });
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    const lockedTrigger = buttonByTitle(t("composer.model.afterTurn"));
+    expect(lockedTrigger.disabled).toBe(true);
+
+    act(() => {
+      useStore.setState({ rpc: { [TAB]: tabState({ status: "ready" }) } });
+    });
+    const readyTrigger = buttonByTitle("anthropic/claude-sonnet");
+    expect(readyTrigger.disabled).toBe(false);
   });
 });
 

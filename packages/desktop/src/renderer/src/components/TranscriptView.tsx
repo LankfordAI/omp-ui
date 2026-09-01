@@ -45,7 +45,9 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   const usage = item.usage;
   if (!usage) return null;
   const parts: string[] = [];
+  // item.model is the requested selector, not an inferred routed model.
   if (item.model) parts.push(item.model);
+  if (item.upstreamProvider) parts.push(t("transcript.usage.via", { provider: item.upstreamProvider }));
   parts.push(`↑${tokenCount(usage.input)}`, `↓${tokenCount(usage.output)}`);
   if (usage.cacheRead > 0) parts.push(`${t("transcript.usage.cache")} ${tokenCount(usage.cacheRead)}`);
   if (usage.cost > 0) parts.push(formatCost(usage.cost));
@@ -59,10 +61,17 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   const at = item.timestamp === undefined ? null : new Date(item.timestamp);
   const atText = at?.toLocaleTimeString(localeTag(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const atTooltip = at?.toLocaleString(localeTag());
+  // Hover facts, in order: gateway, upstream, response id, completion time.
+  const facts = [
+    item.provider ? t("transcript.usage.gateway", { provider: item.provider }) : null,
+    item.upstreamProvider ? t("transcript.usage.upstream", { provider: item.upstreamProvider }) : null,
+    item.responseId ? t("transcript.usage.response", { id: item.responseId }) : null,
+    atTooltip,
+  ];
   return (
     <div
       className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
-      title={[item.provider, atTooltip].filter(Boolean).join(" · ") || undefined}
+      title={facts.filter(Boolean).join(" · ") || undefined}
     >
       {parts.map((part, i) => (
         <span key={i}>{part}</span>

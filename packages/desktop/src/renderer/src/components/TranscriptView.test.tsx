@@ -11,6 +11,7 @@ import {
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
+import { localeTag } from "../lib/i18n";
 import { rpcTabState } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
@@ -280,6 +281,85 @@ describe("UsageStrip", () => {
     expect(stamp).not.toBeNull();
     expect(stamp!.textContent).toBe(expected);
     expect(stamp!.getAttribute("title")).toBe(at.toLocaleString());
+    act(() => root.unmount());
+  });
+
+  it("attributes a gateway turn: requested model first, upstream inline, facts on hover", () => {
+    const timestamp = new Date(2026, 7, 5, 14, 32, 7).getTime();
+    const item: RenderItem = {
+      kind: "assistant",
+      id: "a1",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "auto",
+      provider: "openrouter",
+      upstreamProvider: "Anthropic",
+      responseId: "gen-test-123",
+      usage: { input: 3, output: 268, cacheRead: 0, cacheWrite: 0, total: 271, cost: 0 },
+      timestamp,
+    };
+    const { el, root } = render([item]);
+
+    const strip = el.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip).not.toBeNull();
+
+    // The receipt reports what was requested, never what the gateway selected:
+    // the requested model stays the first inline part, the upstream follows it.
+    const inline = [...strip!.querySelectorAll("span")].filter((s) => !s.hasAttribute("title"));
+    expect(inline[0]!.textContent).toBe("auto");
+    expect(strip!.textContent).toContain("via Anthropic");
+
+    // The response id never shows inline — hover only.
+    expect(strip!.textContent).not.toContain("gen-test-123");
+
+    // Hover fact order: gateway, upstream, response, completion time.
+    const tooltip = strip!.getAttribute("title") ?? "";
+    const at = new Date(timestamp);
+    const gateway = tooltip.indexOf("gateway: openrouter");
+    const upstream = tooltip.indexOf("upstream: Anthropic");
+    const response = tooltip.indexOf("response: gen-test-123");
+    const stamp = tooltip.indexOf(at.toLocaleString(localeTag()));
+    expect(gateway).toBeGreaterThanOrEqual(0);
+    expect(upstream).toBeGreaterThan(gateway);
+    expect(response).toBeGreaterThan(upstream);
+    expect(stamp).toBeGreaterThan(response);
+
+    // The completion time keeps its own title and stays the last receipt part.
+    const stampSpan = strip!.querySelector("span[title]");
+    expect(stampSpan).not.toBeNull();
+    expect(stampSpan!.getAttribute("title")).toBe(at.toLocaleString(localeTag()));
+    const allSpans = [...strip!.querySelectorAll("span")];
+    expect(allSpans[allSpans.length - 1]).toBe(stampSpan);
+    act(() => root.unmount());
+  });
+
+  it("keeps a direct-provider receipt unchanged inline", () => {
+    const timestamp = new Date(2026, 7, 5, 14, 32, 7).getTime();
+    const item: RenderItem = {
+      kind: "assistant",
+      id: "a1",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "anthropic/claude-sonnet-4.5",
+      provider: "anthropic",
+      usage: { input: 3, output: 5, cacheRead: 0, cacheWrite: 0, total: 8, cost: 0 },
+      timestamp,
+    };
+    const { el, root } = render([item]);
+
+    const strip = el.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip).not.toBeNull();
+    // No upstream metadata: inline content stays exactly as it was.
+    expect(strip!.textContent).not.toContain("via");
+    const inline = [...strip!.querySelectorAll("span")].filter((s) => !s.hasAttribute("title"));
+    expect(inline[0]!.textContent).toBe("anthropic/claude-sonnet-4.5");
+    // The gateway fact still labels the hover, with no upstream/response lines.
+    const tooltip = strip!.getAttribute("title") ?? "";
+    expect(tooltip.startsWith("gateway: anthropic")).toBe(true);
+    expect(tooltip).not.toContain("upstream:");
+    expect(tooltip).not.toContain("response:");
     act(() => root.unmount());
   });
 });

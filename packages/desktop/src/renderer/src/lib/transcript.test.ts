@@ -149,6 +149,8 @@ describe("reduceEvent message lifecycle", () => {
         stopReason: "stop",
         duration: 4200,
         ttft: 610,
+        responseId: "resp-42",
+        upstreamProvider: "anthropic-direct",
         usage: {
           input: 12,
           output: 34,
@@ -170,6 +172,8 @@ describe("reduceEvent message lifecycle", () => {
       stopReason: "stop",
       durationMs: 4200,
       ttftMs: 610,
+      responseId: "resp-42",
+      upstreamProvider: "anthropic-direct",
     });
     expect(a?.usage).toEqual({
       input: 12,
@@ -749,8 +753,12 @@ describe("historyToItems", () => {
         role: "assistant",
         model: "claude-opus-5",
         stopReason: "stop",
+        responseId: "resp-77",
+        upstreamProvider: "anthropic-direct",
         usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { total: 0.01 } },
         content: [{ type: "toolCall", id: "c9", name: "write", arguments: {} }],
+        // Megabytes of raw provider response ride along on stored history too.
+        providerPayload: { huge: "x".repeat(1000) },
       },
       {
         role: "toolResult",
@@ -759,8 +767,14 @@ describe("historyToItems", () => {
         details: { path: "src/new.ts", op: "create" },
       },
     ]);
-    expect(assistant(items)).toMatchObject({ model: "claude-opus-5", stopReason: "stop" });
+    expect(assistant(items)).toMatchObject({
+      model: "claude-opus-5",
+      stopReason: "stop",
+      responseId: "resp-77",
+      upstreamProvider: "anthropic-direct",
+    });
     expect(assistant(items)?.usage).toMatchObject({ total: 3, cost: 0.01 });
+    expect(assistant(items)).not.toHaveProperty("providerPayload");
     expect(tool(items, "c9")).toMatchObject({ path: "src/new.ts", op: "create" });
   });
 
