@@ -4,6 +4,7 @@ import type {
   AppUpdateState,
   BackendState,
   OmpUpdateState,
+  ProviderOAuthState,
   RemoteState,
 } from "@omp-ui/core/types";
 import {
@@ -3044,14 +3045,17 @@ describe("initialization snapshot ordering", () => {
     const appRead = h.deferred<AppUpdateState>();
     const ompRead = h.deferred<OmpUpdateState>();
     const remoteRead = h.deferred<RemoteState>();
+    const oauthRead = h.deferred<ProviderOAuthState>();
     const initialState = makeBackendState();
     const initialApp = { ...h.idleAppUpdate, currentVersion: "9.8.7" };
     const initialOmp = { ...h.idleOmpUpdate, installedVersion: "1.2.3" };
     const initialRemote = { ...h.idleRemoteState, enabled: true };
+    const initialOauth = { ...h.idleProviderOAuth, phase: "done" as const };
     h.mockBackend.getState.mockImplementationOnce(() => stateRead.promise);
     h.mockBackend.getAppUpdateState.mockImplementationOnce(() => appRead.promise);
     h.mockBackend.getOmpUpdateState.mockImplementationOnce(() => ompRead.promise);
     h.mockBackend.getRemoteState.mockImplementationOnce(() => remoteRead.promise);
+    h.mockBackend.getProviderOAuthState.mockImplementationOnce(() => oauthRead.promise);
     // init's StrictMode latch is module-scoped; an earlier routing test initializes
     // the shared store, so this contract test intentionally needs a fresh evaluation.
     vi.resetModules();
@@ -3071,12 +3075,14 @@ describe("initialization snapshot ordering", () => {
       h.mockBackend.onAppUpdateState,
       h.mockBackend.onOmpUpdateState,
       h.mockBackend.onRemoteState,
+      h.mockBackend.onProviderOAuthState,
     ];
     const reads = [
       h.mockBackend.getState,
       h.mockBackend.getAppUpdateState,
       h.mockBackend.getOmpUpdateState,
       h.mockBackend.getRemoteState,
+      h.mockBackend.getProviderOAuthState,
     ];
     expect(
       listeners.every((listener) => listener.mock.calls.length === 1),
@@ -3099,15 +3105,18 @@ describe("initialization snapshot ordering", () => {
       appUpdate: h.idleAppUpdate,
       ompUpdate: h.idleOmpUpdate,
       remote: { ...h.idleRemoteState, token: "" },
+      providerOAuth: h.idleProviderOAuth,
     });
 
     remoteRead.resolve(initialRemote);
+    oauthRead.resolve(initialOauth);
     await Promise.all([init, duplicate]);
     expect(freshStore.getState()).toMatchObject({
       state: initialState,
       appUpdate: initialApp,
       ompUpdate: initialOmp,
       remote: initialRemote,
+      providerOAuth: initialOauth,
     });
   });
 });

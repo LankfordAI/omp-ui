@@ -278,6 +278,9 @@ if (!app.requestSingleInstanceLock()) {
     // fired: sessions spawn on user action, long after this settles, and the
     // stored keys are already applied synchronously in the constructor.
     void be.captureShellKeys();
+    // The fresh-spawn gate consults the subscription account cache, so prime
+    // it at boot the same way the shell keys are (issue #368).
+    void be.refreshProviderOAuth();
 
     win.on("close", (e) => {
       // updateQuitAuthorized: the close was issued by native quitAndInstall,

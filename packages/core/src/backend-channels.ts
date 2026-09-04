@@ -25,6 +25,8 @@ import type {
   ProjectOpenAvailability,
   ProjectOpenTarget,
   ProviderKeysSnapshot,
+  ProviderOAuthState,
+  ProviderOAuthStatus,
   RemoteBind,
   RemoteState,
   ResolvedMentionContext,
@@ -288,6 +290,39 @@ export const BACKEND_CHANNELS = {
   clearProviderKey: {
     channel: "provider-keys:clear",
     ...request<[envName: string], ProviderKeysSnapshot>([str()]),
+  },
+  /**
+   * Subscription (OAuth) sign-in rows, re-read from omp's own auth store
+   * (`omp token <id> --list`). Carries account identities, never a token.
+   */
+  readProviderOAuth: {
+    channel: "provider-oauth:read",
+    ...request<[], ProviderOAuthStatus[]>([]),
+  },
+  /** The one app-wide sign-in flow's current phase; boot seed for late-joining clients. */
+  getProviderOAuthState: {
+    channel: "provider-oauth:getState",
+    ...request<[], ProviderOAuthState>([]),
+  },
+  /** Starts the flow in a bare session-less rpc child; rejects when one is already running. */
+  startProviderOAuth: {
+    channel: "provider-oauth:start",
+    ...request<[id: string], void>([str()]),
+  },
+  /** Answers omp's pasted-redirect-URL prompt. */
+  submitProviderOAuthInput: {
+    channel: "provider-oauth:input",
+    ...request<[value: string], void>([str()]),
+  },
+  /** Aborts an active flow, or dismisses a terminal done/error state. */
+  cancelProviderOAuth: {
+    channel: "provider-oauth:cancel",
+    ...request<[], void>([]),
+  },
+  /** Signs out via `omp auth-broker logout`; resolves with the refreshed rows. */
+  signOutProviderOAuth: {
+    channel: "provider-oauth:signOut",
+    ...request<[id: string], ProviderOAuthStatus[]>([str()]),
   },
   spawnSession: {
     channel: "session:spawn",
@@ -663,8 +698,9 @@ export const BACKEND_CHANNELS = {
   /** Clears the password; remote access falls back to token-only. Restarts the server. */
   clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>([]) },
   onRemoteState: { channel: "remote:state", ...event<[state: RemoteState]>() },
+  /** The app-wide subscription sign-in flow's phase changes. */
+  onProviderOAuthState: { channel: "provider-oauth:state", ...event<[state: ProviderOAuthState]>() },
 } as const;
-
 export type BackendChannelSpec = typeof BACKEND_CHANNELS;
 export type BackendMethodName = keyof BackendChannelSpec;
 

@@ -19,6 +19,15 @@ const DEFAULT_REMOTE: SettingsSlice["remote"] = {
   error: null,
 };
 
+const DEFAULT_PROVIDER_OAUTH: SettingsSlice["providerOAuth"] = {
+  providerId: null,
+  phase: "idle",
+  url: null,
+  instructions: null,
+  prompt: null,
+  error: null,
+};
+
 function alertError(err: unknown): void {
   window.alert(err instanceof Error ? err.message : String(err));
 }
@@ -47,6 +56,7 @@ let compactionMethodsInflight: Promise<void> | null = null;
 export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> = (set, get) => ({
   settingsPage: null,
   remote: DEFAULT_REMOTE,
+  providerOAuth: DEFAULT_PROVIDER_OAUTH,
   compactionSettings: {},
   compactionMethods: { status: "unloaded" },
 
@@ -347,5 +357,37 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
 
   clearProviderKey(envName) {
     return backend.clearProviderKey(envName);
+  },
+
+  replaceProviderOAuth(state) {
+    const previous = get().providerOAuth.phase;
+    set({ providerOAuth: state });
+    // A finished sign-in adds new accounts to every live session's model
+    // picker; a still-running session may need a restart to see them.
+    if (state.phase === "done" && previous !== "done") {
+      for (const tabId of Object.keys(get().rpc)) {
+        void get().refreshAvailableModels(tabId);
+      }
+    }
+  },
+
+  readProviderOAuth() {
+    return backend.readProviderOAuth();
+  },
+
+  startProviderOAuth(id) {
+    return backend.startProviderOAuth(id);
+  },
+
+  submitProviderOAuthInput(value) {
+    return backend.submitProviderOAuthInput(value);
+  },
+
+  cancelProviderOAuth() {
+    return backend.cancelProviderOAuth();
+  },
+
+  signOutProviderOAuth(id) {
+    return backend.signOutProviderOAuth(id);
   },
 });

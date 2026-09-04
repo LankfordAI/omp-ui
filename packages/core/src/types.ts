@@ -685,6 +685,30 @@ export interface ProviderKeysSnapshot {
   backend: string;
 }
 
+/** One subscription row on the providers page. `accounts` are omp's own identity strings (email/org), never tokens. */
+export interface ProviderOAuthStatus {
+  id: string;
+  providerId: string;
+  label: string;
+  hint: string;
+  accounts: string[];
+}
+
+export type ProviderOAuthPhase = "idle" | "starting" | "browser" | "input" | "done" | "error";
+
+/**
+ * The one app-wide subscription sign-in flow (see core/provider-oauth.ts).
+ * `url` persists from the browser phase into `input`, so the page can keep
+ * offering the link while asking for the pasted redirect URL.
+ */
+export interface ProviderOAuthState {
+  providerId: string | null;
+  phase: ProviderOAuthPhase;
+  url: string | null;
+  instructions: string | null;
+  prompt: { title: string; placeholder: string | null } | null;
+  error: string | null;
+}
 /**
  * Mnemopi memory overview (issue #206). Read straight off the SQLite banks by
  * the main process (see core/memory-store.ts) — omp exposes no runtime surface

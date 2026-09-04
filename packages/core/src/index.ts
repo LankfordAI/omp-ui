@@ -117,10 +117,21 @@ export {
 export {
   PROVIDER_ENV_NAMES,
   PROVIDER_KEY_SPECS,
+  OAUTH_PROVIDER_SPECS,
+  oauthSpecById,
   providerSpecById,
+  type OAuthProviderSpec,
   type ProviderKeyGroup,
   type ProviderKeySpec,
 } from "./provider-catalog";
+export {
+  IDLE_PROVIDER_OAUTH_STATE,
+  OAUTH_FLOW_TIMEOUT_MS,
+  ProviderOAuth,
+  parseOAuthAccountList,
+  type OmpOnceRunner,
+  type ProviderOAuthDeps,
+} from "./provider-oauth";
 export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
   ompChildEnv,

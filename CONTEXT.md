@@ -174,6 +174,21 @@ advisor on/off keeps its existing last-used → app default → omp config chain
 so the pinned advisor model is dormant while that chain resolves off.
 _Avoid_: resetting model on advisor toggle
 
+**Subscription sign-in**:
+Signing in to a model provider's subscription plan (currently ChatGPT,
+provider id `openai-codex`) from Settings → Providers, under a
+**Subscriptions** group separate from the API-key rows. The sign-in runs in a
+short-lived, bare, session-less omp process (no tools, extensions, LSP, or
+skills): omp opens the provider's browser page, receives the callback (or a
+pasted redirect URL the user submits through the sign-in panel), and stores
+the credential in omp's own auth broker. omp-ui never sees a token — it renders
+the flow's phase, the provider's identity strings (e.g. account emails), and
+the success or failure. Accounts are shared with terminal omp; sign-out runs
+`omp auth-broker logout`. With no API key stored, a signed-in subscription
+satisfies the fresh-session provider gate, and its models appear as
+`openai-codex/…` in the composer picker of sessions started after sign-in.
+_Avoid_: OAuth key, subscription key, login provider
+
 **Attachment**:
 An image on an outgoing prompt. In rpc-ui it rides the prompt frame's `images`
 as bare base64; in a terminal tab it cannot ride the PTY at all, so it becomes

@@ -66,6 +66,12 @@ function unreachableLiveEntry(entry: never): never {
 export interface SessionManagerDependencies {
   registry: Registry;
   providerKeys: ProviderKeys;
+  /**
+   * A catalogued subscription sign-in with at least one account counts as a
+   * model provider for the fresh-spawn gate (issue #368); the desktop backend
+   * wires it to ProviderOAuth.hasModelAccount.
+   */
+  hasOAuthProvider?: () => boolean;
   getOmpPath: () => string | null;
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
@@ -275,9 +281,13 @@ export class SessionManager {
 
   private async spawnInner(req: SpawnRequest): Promise<{ tabId: string }> {
     const ompPath = this.requireOmpPath();
-    if (req.origin === "new" && !this.deps.providerKeys.hasModelProvider(req.projectCwd)) {
+    if (
+      req.origin === "new" &&
+      !this.deps.providerKeys.hasModelProvider(req.projectCwd) &&
+      !(this.deps.hasOAuthProvider?.() ?? false)
+    ) {
       throw new Error(
-        "No model provider is configured. Add an API key under Settings → Providers before starting a session.",
+        "No model provider is configured. Add an API key or sign in to a subscription under Settings → Providers before starting a session.",
       );
     }
 

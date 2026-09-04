@@ -2,6 +2,10 @@
 
 This guide explains what users receive from a release and how maintainers publish one. For installation, start with [Getting started](getting-started.md). See [Architecture](architecture.md) for the boundary between the Electron desktop app and the managed `omp` binary.
 
+## Unreleased
+
+- Settings → Providers gains a **Subscriptions** group: sign in to a ChatGPT subscription (`openai-codex`) through the provider's own browser flow, with sign-out and the signed-in account identity. Sign-in runs in a bare, session-less omp process; the credential stays in omp's auth broker, shared with terminal omp (issue #368).
+
 ## Choose a download
 
 A release has exactly six distributable files. Replace `<version>` with the tag version without its leading `v`.

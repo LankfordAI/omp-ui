@@ -583,6 +583,25 @@ export const en = {
     " Keys already exported by your shell profile are picked up automatically, and a project's ",
   "settings.providers.footerEnvSuffix":
     " is loaded by omp itself, so both are shown here but neither needs re-entering.",
+  "settings.providers.oauthGroup": "Subscriptions",
+  "settings.providers.oauthSignedIn": "signed in",
+  "settings.providers.oauthNotSignedIn": "not signed in",
+  "settings.providers.oauthSignIn": "Sign in",
+  "settings.providers.oauthSignOut": "sign out",
+  "settings.providers.oauthCancel": "cancel",
+  "settings.providers.oauthDismiss": "dismiss",
+  "settings.providers.oauthStarting": "Starting omp\u2026",
+  "settings.providers.oauthBrowser":
+    "Finish signing in in the browser omp-ui just opened. This page updates as soon as omp receives the callback.",
+  "settings.providers.oauthOpenLink": "Open sign-in page",
+  "settings.providers.oauthSubmit": "Submit",
+  "settings.providers.oauthInputAria": "{name} sign-in response",
+  "settings.providers.oauthDone":
+    "Signed in. New sessions can pick {label} models; a session that is already running needs a restart to see them.",
+  "settings.providers.oauthFailed": "Sign-in failed: {error}",
+  "settings.providers.oauthReadFailed": "Could not read subscription sign-ins",
+  "settings.providers.oauthFooter":
+    " Subscription sign-ins are kept by omp itself, shared with terminal omp, and are never stored by omp-ui.",
 
   // MemoryPage
   "settings.memory.exists": "exists",

@@ -33,6 +33,12 @@ export interface RpcClientOpts {
   extensions?: string[];
   /** Commands sent once, immediately after protocol negotiation and before ready is forwarded. */
   initialCommands?: object[];
+  /**
+   * Credential errand, not a session: `--no-session` plus every discovery
+   * switch off. Verified against omp v18.1.0 to still emit `ready` and
+   * answer `login`.
+   */
+  bare?: boolean;
   onFrame: (frame: RpcFrame) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
@@ -97,6 +103,9 @@ export class RpcClient {
     if (opts.advisor) args.push("--advisor");
     for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
     for (const extension of opts.extensions ?? []) args.push("-e", extension);
+    if (opts.bare) {
+      args.push("--no-session", "--no-tools", "--no-extensions", "--no-lsp", "--no-skills", "--no-rules");
+    }
     const env = ompChildEnv(opts.ompPath);
     const spawnProcess = opts.spawnProcess ?? defaultSpawn;
     this.#proc = spawnProcess(opts.ompPath, args, env);

@@ -218,13 +218,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
         get().replaceOmpUpdate(ompUpdate),
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
-      const [state, appUpdate, ompUpdate, remote] = await Promise.all([
+      backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
+      const [state, appUpdate, ompUpdate, remote, providerOAuth] = await Promise.all([
         backend.getState(),
         backend.getAppUpdateState(),
         backend.getOmpUpdateState(),
         backend.getRemoteState(),
+        backend.getProviderOAuthState(),
       ]);
-      set({ state, appUpdate, ompUpdate, remote });
+      set({ state, appUpdate, ompUpdate, remote, providerOAuth });
       syncTheme(state);
       syncFontFamily(state);
       syncLocale(state);
@@ -235,6 +237,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     },
 
     bootRpcTab: rpcCommandSlice.bootRpcTab,
+    refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
     rpcCommand: rpcCommandSlice.rpcCommand,
     handleRpcFrame: frame.handleRpcFrame,
 

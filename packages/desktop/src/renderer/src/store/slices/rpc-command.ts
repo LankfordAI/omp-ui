@@ -34,7 +34,7 @@ import type { RpcTabState, UiStore } from "../types";
 
 export type RpcCommandSlice = Pick<
   UiStore,
-  "bootRpcTab" | "rpcCommand" | "setInitialPrompt" | "renameSession"
+  "bootRpcTab" | "refreshAvailableModels" | "rpcCommand" | "setInitialPrompt" | "renameSession"
 >;
 
 export interface RpcCommandDeps extends Watchers {
@@ -597,8 +597,16 @@ export function createRpcCommandSlice(
     })();
   };
 
+  const refreshAvailableModels = (tabId: string): Promise<void> =>
+    get()
+      .rpcCommand(tabId, { type: "get_available_models" }, { quiet: true })
+      .then((resp) => {
+        m.patchRpc(tabId, { availableModels: parseModelList(respData(resp)) });
+      });
+
   return {
     bootRpcTab,
+    refreshAvailableModels,
     rpcCommand,
     setInitialPrompt,
     renameSession,

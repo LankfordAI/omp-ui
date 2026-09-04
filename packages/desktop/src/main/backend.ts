@@ -31,6 +31,7 @@ import {
   resolveMcpServers,
   resolveProjectPath,
   setMcpServerEnabled,
+  ProviderOAuth,
   ProviderKeys,
   Registry,
   resolveOmpBinary,
@@ -66,6 +67,7 @@ import { SessionManager } from "./session-manager";
 import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
+import { openExternalSafe } from "./open-external";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -86,6 +88,11 @@ export class MainBackend {
    * stored keys; the login-shell capture is awaited separately at boot.
    */
   private readonly providerKeys: ProviderKeys;
+  /**
+   * Subscription (OAuth) sign-ins (issue #368): app-global, one flow at a
+   * time, driving omp's rpc `login` in a bare session-less child.
+   */
+  private readonly providerOAuth: ProviderOAuth;
   /** Where worktree checkouts live; defaults beside the registry. */
   private readonly worktreesRoot: string;
 
@@ -116,6 +123,12 @@ export class MainBackend {
       electronKeyCipher(),
     );
     this.providerKeys.applyToProcessEnv();
+    this.providerOAuth = new ProviderOAuth({
+      getOmpPath: () => this.ompPath,
+      scratchDir: path.join(path.dirname(registryFile), "oauth-login"),
+      send: (state) => this.send(CH.onProviderOAuthState, state),
+      onOpenUrl: openExternalSafe,
+    });
     this.worktreesRoot =
       opts.worktreesRoot ?? path.join(path.dirname(registryFile), "worktrees");
     // OS notifications for background sessions (issue #271). The icon path
@@ -139,6 +152,7 @@ export class MainBackend {
       new SessionManager({
         registry: this.registry,
         providerKeys: this.providerKeys,
+        hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
         getOmpPath: () => this.ompPath,
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
@@ -485,6 +499,20 @@ export class MainBackend {
           this.providerKeys.clearKey(envName);
           return this.providerSnapshot(null);
         },
+        // Subscription (OAuth) sign-ins (issue #368): the flow state is pushed to
+        // every renderer via onProviderOAuthState; the page reads the rows itself.
+        [CH.readProviderOAuth]: () => this.providerOAuth.refresh(),
+        [CH.getProviderOAuthState]: () => this.providerOAuth.state,
+        [CH.startProviderOAuth]: (id: string) => {
+          this.providerOAuth.start(id);
+        },
+        [CH.submitProviderOAuthInput]: (value: string) => {
+          this.providerOAuth.submitInput(value);
+        },
+        [CH.cancelProviderOAuth]: () => {
+          this.providerOAuth.cancel();
+        },
+        [CH.signOutProviderOAuth]: (id: string) => this.providerOAuth.signOut(id),
         [CH.setWindowChrome]: (background: string, symbol: string) => {
           if (this.win.isDestroyed()) return;
           try {
@@ -644,6 +672,15 @@ export class MainBackend {
     return this.providerKeys.captureLoginShell();
   }
 
+  /**
+   * Primes the subscription account cache the fresh-spawn gate consults — the
+   * gate reads the cache synchronously, so it is warmed at boot the same way
+   * the shell keys are (issue #368).
+   */
+  refreshProviderOAuth(): Promise<void> {
+    return this.providerOAuth.refresh().then(() => undefined);
+  }
+
   /** Brings the embedded remote server in line with persisted settings. Called once at launch. */
   startRemote(): Promise<void> {
     return this.remote.apply();
@@ -651,6 +688,7 @@ export class MainBackend {
 
   killAll(): void {
     this.notifier.dispose();
+    this.providerOAuth.dispose();
     this.sessions.killAll();
     void this.remote.stop();
   }

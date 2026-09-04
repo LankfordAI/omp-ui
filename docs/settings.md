@@ -75,6 +75,8 @@ Keys saved in omp-ui are encrypted through the operating system credential store
 
 omp reads provider credentials when its process starts. A saved or removed key affects the next session spawn, not an already running process; to apply it to an existing session, stop its agent from the Session HUD or sidebar and open the session again.
 
+Under **Subscriptions**, a provider's subscription plan (currently ChatGPT, provider id `openai-codex`) signs in through its own browser flow. The page tracks the flow's phase: starting, waiting on the browser omp opened, and — only when the provider asks — a field for the pasted redirect URL. Sign-in runs in a short-lived, session-less omp process; the credential lands in omp's own auth broker, shared with terminal omp, and omp-ui stores nothing. A signed-in row lists the provider's identity (account email) and offers **sign out**. New sessions can pick `openai-codex/…` models after a sign-in; a running session needs a restart. With no API key stored, a signed-in subscription also satisfies the provider gate for new sessions.
+
 ## Memory
 
 Memory configures omp's durable recall behavior and summarizes the banks resolved for the focused project. For the memory keys in omp-ui's curated allowlist, the installed omp version supplies descriptions, value types, allowed choices, values, and effective layers. If that omp version does not report an allowlisted key, the page omits it.

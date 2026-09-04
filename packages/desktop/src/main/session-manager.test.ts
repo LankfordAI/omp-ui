@@ -120,7 +120,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -167,13 +167,14 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   const providerKeys = new Core.ProviderKeys(
     path.join(base, "provider-keys.json"),
     cipher,
-    { OPENROUTER_API_KEY: "test-key" },
+    opts.providerEnv ?? { OPENROUTER_API_KEY: "test-key" },
   );
   const sent: { channel: string; args: unknown[] }[] = [];
   const broadcast = vi.fn(async () => {});
   const manager = new SessionManager({
     registry,
     providerKeys,
+    hasOAuthProvider: opts.hasOAuthProvider,
     getOmpPath: () => "/test/omp",
     getSessionsRoot: () => sessionsRoot,
     getArchiveRoot: () => archiveRoot,
@@ -550,8 +551,35 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     expect(addSession).not.toHaveBeenCalled();
     expect(spawnOmpMock).not.toHaveBeenCalled();
   });
-
 });
+
+describe("fresh-spawn provider gate (issue #368)", () => {
+  const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
+
+  it("proceeds on a subscription account when no API key is set", async () => {
+    const { manager } = setup({ mode: "rpc-ui", providerEnv: {}, hasOAuthProvider: () => true });
+    await expect(freshSpawn(manager)).resolves.toMatchObject({ tabId: expect.any(String) });
+  });
+
+  it("rejects when no key is set and no subscription account exists", async () => {
+    const { manager } = setup({ mode: "rpc-ui", providerEnv: {}, hasOAuthProvider: () => false });
+    await expect(freshSpawn(manager)).rejects.toThrow(
+      "No model provider is configured. Add an API key or sign in to a subscription under Settings → Providers before starting a session.",
+    );
+    expect(spawnOmpMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when no key is set and no oauth dep is wired at all", async () => {
+    const { manager } = setup({ mode: "rpc-ui", providerEnv: {} });
+    await expect(freshSpawn(manager)).rejects.toThrow("No model provider is configured");
+  });
+});
+
 
 describe("SessionManager live ownership", () => {
   it("reports live ownership from process registration through observed exit", async () => {

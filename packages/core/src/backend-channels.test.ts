@@ -52,6 +52,7 @@ const spawnRequest: SpawnRequest = {
 const VALID_ARGS = {
   addProject: ["/project"],
   browseDirectories: ["/project"],
+  cancelProviderOAuth: [],
   checkAppUpdate: [],
   checkOmpUpdate: [],
   checkoutBranch: ["/project", "feature", { create: true }],
@@ -75,6 +76,7 @@ const VALID_ARGS = {
   getMergeBackStatus: ["/project", "feature", null],
   getOmpUpdateState: [],
   getProjectOpenAvailability: [],
+  getProviderOAuthState: [],
   getRemoteState: [],
   getState: [],
   hibernatePlanSource: ["source", "implementation"],
@@ -95,6 +97,7 @@ const VALID_ARGS = {
   readOmpSettings: [null],
   readPlanFile: ["tab-1", "/tmp/plan.html"],
   readProviderKeys: [null],
+  readProviderOAuth: [],
   regenerateRemoteToken: [],
   releaseWorktree: ["tab-1"],
   removeProject: ["/project"],
@@ -137,9 +140,12 @@ const VALID_ARGS = {
   shellWrite: ["tab-1", "input"],
   showAppUpdateDownload: [],
   showPathInFolder: ["/tmp/file"],
+  signOutProviderOAuth: ["openai-codex"],
   spawnSession: [spawnRequest],
+  startProviderOAuth: ["openai-codex"],
   suggestBranchName: ["/project", "plan"],
   switchMode: ["tab-1", "pty"],
+  submitProviderOAuthInput: ["https://chatgpt.com/…"],
   tabViewed: ["client-1", null],
   terminateSession: ["tab-1"],
   toggleFavorite: ["model"],
@@ -191,8 +197,8 @@ describe("BACKEND_CHANNELS", () => {
     const events = entries.filter(([, descriptor]) => descriptor.kind === "event");
     expect(Object.keys(CH)).toEqual(entries.map(([method]) => method));
     expect(new Set(Object.values(CH)).size).toBe(entries.length);
-    expect(inbound).toHaveLength(94);
-    expect(events).toHaveLength(11);
+    expect(inbound).toHaveLength(100);
+    expect(events).toHaveLength(12);
     for (const [, descriptor] of inbound) expect(descriptor).toHaveProperty("args");
     for (const [, descriptor] of events) expect(descriptor).not.toHaveProperty("args");
   });
@@ -243,7 +249,7 @@ describe("transport dispatch", () => {
       if (descriptor.kind === "request") await dispatchRequest(table, descriptor.channel, args);
       else dispatchNotify(table, descriptor.channel, args);
     }
-    expect(calls).toHaveLength(94);
+    expect(calls).toHaveLength(100);
     expect(calls.map(({ channel }) => channel)).toEqual(
       Object.keys(VALID_ARGS).map((method) => BACKEND_CHANNELS[method as InboundMethod].channel),
     );

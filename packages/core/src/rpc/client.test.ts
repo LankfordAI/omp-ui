@@ -55,7 +55,7 @@ interface Harness {
 }
 
 const lineageDirs: string[] = [];
-function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[] } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -70,6 +70,7 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
     ompPath: opts.ompPath ?? "/opt/bun/bin/omp",
     resumeSessionId: opts.resumeSessionId,
     initialCommands: opts.initialCommands,
+    bare: opts.bare,
     onFrame: (f) => frames.push(f),
     onExit: (c) => exits.push(c),
     onError: (m) => errors.push(m),
@@ -117,6 +118,23 @@ describe("RpcClient spawn", () => {
   it("appends --resume when a session id is given", () => {
     const h = harness({ resumeSessionId: "abc-123" });
     expect(h.spawnArgs.at(-1)).toBe("--resume=abc-123");
+  });
+
+  it("appends the six bare flags in order for a credential errand", () => {
+    const h = harness({ bare: true });
+    expect(h.spawnArgs).toEqual([
+      "--mode=rpc-ui",
+      "--cwd",
+      "/proj",
+      "--session-dir",
+      h.lineageDir,
+      "--no-session",
+      "--no-tools",
+      "--no-extensions",
+      "--no-lsp",
+      "--no-skills",
+      "--no-rules",
+    ]);
   });
 
   it("creates a missing lineage dir before spawning", () => {

@@ -2,7 +2,7 @@
 // providers page, exactly like omp-settings-keys.ts. Node-only logic (reading,
 // decrypting, and resolving the values) lives in provider-keys.ts.
 //
-// The list is transcribed from omp's own `--help` environment table (v17.1.8),
+// The list is transcribed from omp's own `--help` environment table (v18.1.0),
 // which is the authority on which variable name authenticates which provider.
 // Only credentials a user can paste as a single opaque string are here:
 // AWS_PROFILE, GOOGLE_CLOUD_PROJECT, and GOOGLE_APPLICATION_CREDENTIALS are a
@@ -77,4 +77,33 @@ export const PROVIDER_ENV_NAMES: readonly string[] = PROVIDER_KEY_SPECS.flatMap(
 
 export function providerSpecById(id: string): ProviderKeySpec | undefined {
   return PROVIDER_KEY_SPECS.find((spec) => spec.id === id);
+}
+
+/** A provider omp authenticates by OAuth login, not by an environment variable. */
+export interface OAuthProviderSpec {
+  /** Row key on the providers page; distinct from any PROVIDER_KEY_SPECS id. */
+  id: string;
+  /** omp's provider id — the argument to `login`, `omp token`, `omp auth-broker logout`. */
+  providerId: string;
+  label: string;
+  hint: string;
+}
+
+/**
+ * Transcribed from `omp auth-broker list` (v18.1.0). Only subscriptions that
+ * bill separately from an API-key row belong here; `id` and `providerId` are
+ * both kept so a future row whose omp id collides with an API-key row (e.g.
+ * anthropic) can still have a unique page key.
+ */
+export const OAUTH_PROVIDER_SPECS: readonly OAuthProviderSpec[] = [
+  {
+    id: "openai-codex",
+    providerId: "openai-codex",
+    label: "ChatGPT Plus/Pro",
+    hint: "Codex subscription — models appear as openai-codex/…",
+  },
+];
+
+export function oauthSpecById(id: string): OAuthProviderSpec | undefined {
+  return OAUTH_PROVIDER_SPECS.find((spec) => spec.id === id);
 }

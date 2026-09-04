@@ -16,6 +16,8 @@ import type {
   PlanFormat,
   PlanHandoffDescendant,
   ProviderKeysSnapshot,
+  ProviderOAuthState,
+  ProviderOAuthStatus,
   RemoteBind,
   RemoteState,
   SessionMode,
@@ -220,6 +222,13 @@ export interface SettingsSlice {
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
   clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;
+  providerOAuth: ProviderOAuthState;
+  replaceProviderOAuth(state: ProviderOAuthState): void;
+  readProviderOAuth(): Promise<ProviderOAuthStatus[]>;
+  startProviderOAuth(id: string): Promise<void>;
+  submitProviderOAuthInput(value: string): Promise<void>;
+  cancelProviderOAuth(): Promise<void>;
+  signOutProviderOAuth(id: string): Promise<ProviderOAuthStatus[]>;
 }
 
 export interface UpdatesSlice {
@@ -337,6 +346,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   releaseWorktreeSession(tabId: string): Promise<WorktreeReleaseResult | null>;
   cancelDeleteSession(): void;
   bootRpcTab(tabId: string): Promise<void>;
+  /** Re-runs get_available_models on a live tab (issue #368: new subscription accounts). */
+  refreshAvailableModels(tabId: string): Promise<void>;
   rpcCommand(
     tabId: string,
     cmd: Record<string, unknown>,

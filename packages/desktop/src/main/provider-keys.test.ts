@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProviderKeysSnapshot } from "@omp-ui/core";
+import type { ProviderKeysSnapshot, ProviderOAuthStatus } from "@omp-ui/core";
 import { seedRegistry } from "./test/fixtures";
 
 /**
@@ -25,6 +25,12 @@ vi.mock("electron", () => ({
     on: () => {},
   },
 }));
+// No omp binary in the IPC tests: the subscription read must answer from the
+// catalog alone (accounts: []) without spawning anything real.
+vi.mock("@omp-ui/core", async (importOriginal) => {
+  const core = await importOriginal<typeof import("@omp-ui/core")>();
+  return { ...core, resolveOmpBinary: () => null };
+});
 
 const { MainBackend } = await import("./backend");
 const { CH } = await import("@omp-ui/core");
@@ -125,6 +131,35 @@ describe("provider-keys IPC", () => {
     const snap = snapshot(await invoke(CH.readProviderKeys, project));
     expect(row(snap, "openrouter").source).toBe("dotenv");
     expect(KEY in process.env).toBe(false);
+  });
+});
+
+describe("provider-oauth IPC", () => {
+  it("reads the subscription rows — catalog text and accounts, no key material", async () => {
+    const rows = (await invoke(CH.readProviderOAuth)) as ProviderOAuthStatus[];
+    // The boundary: exactly the catalog fields plus omp's own identity strings.
+    expect(Object.keys(rows[0]!).sort()).toEqual(["accounts", "hint", "id", "label", "providerId"]);
+    expect(rows).toEqual([
+      {
+        id: "openai-codex",
+        providerId: "openai-codex",
+        label: "ChatGPT Plus/Pro",
+        hint: "Codex subscription — models appear as openai-codex/…",
+        accounts: [],
+      },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain(VALUE);
+  });
+
+  it("seeds late-joining clients with the idle flow state", async () => {
+    expect(await invoke(CH.getProviderOAuthState)).toEqual({
+      providerId: null,
+      phase: "idle",
+      url: null,
+      instructions: null,
+      prompt: null,
+      error: null,
+    });
   });
 });
 

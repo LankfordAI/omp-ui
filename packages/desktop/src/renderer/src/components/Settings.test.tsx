@@ -8,6 +8,9 @@ import type {
   OmpSettingsSnapshot,
   OmpUpdateState,
   PlanFormat,
+  ProviderKeyStatus,
+  ProviderOAuthState,
+  ProviderOAuthStatus,
   RemoteState,
 } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
@@ -42,6 +45,15 @@ const idleRemote: RemoteState = {
   urls: [],
   tokenUrls: [],
   webBundleMissing: false,
+  error: null,
+};
+
+const idleProviderOAuth: ProviderOAuthState = {
+  providerId: null,
+  phase: "idle",
+  url: null,
+  instructions: null,
+  prompt: null,
   error: null,
 };
 
@@ -111,11 +123,17 @@ const backendMock = {
   clearDismissedOmpUpdate: vi.fn(async () => {}),
   setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
-  readProviderKeys: vi.fn(async () => ({
-    providers: [],
-    encryptionAvailable: false,
-    backend: "none",
-  })),
+  readProviderKeys: vi.fn(
+    async (): Promise<{
+      providers: ProviderKeyStatus[];
+      encryptionAvailable: boolean;
+      backend: string;
+    }> => ({
+      providers: [],
+      encryptionAvailable: false,
+      backend: "none",
+    }),
+  ),
   memoryOverview: vi.fn(),
   writeOmpSetting: vi.fn(async () => {}),
   getRemoteState: vi.fn(async () => idleRemote),
@@ -126,6 +144,13 @@ const backendMock = {
   setRemotePassword: vi.fn(async () => {}),
   clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
+  getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
+  onProviderOAuthState: vi.fn(),
+  readProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),
+  startProviderOAuth: vi.fn(async () => {}),
+  submitProviderOAuthInput: vi.fn(async () => {}),
+  cancelProviderOAuth: vi.fn(async () => {}),
+  signOutProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -1083,5 +1108,102 @@ describe("Settings General page language row (issues #363, #367)", () => {
     expect(buttonWithText("English")!.getAttribute("aria-pressed")).toBe("false");
     expect(document.getElementById("settings-title")?.textContent).toBe("설정");
     expect(buttonWithText("모양")).not.toBeNull();
+  });
+});
+
+describe("Settings Providers page subscriptions (issue #368)", () => {
+  const keyRow: ProviderKeyStatus = {
+    id: "openrouter",
+    label: "OpenRouter",
+    group: "models",
+    env: "OPENROUTER_API_KEY",
+    activeEnv: "OPENROUTER_API_KEY",
+    source: "none",
+    masked: null,
+    hint: null,
+    shadowsEnvironment: false,
+  };
+
+  const seedProviders = (rows: ProviderOAuthStatus[]): void => {
+    backendMock.readProviderOAuth.mockResolvedValueOnce(rows);
+    backendMock.readProviderKeys.mockResolvedValueOnce({
+      providers: [keyRow],
+      encryptionAvailable: false,
+      backend: "none",
+    });
+    useStore.setState({
+      settingsPage: "providers",
+      state: null,
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const oauthRow = (
+    patch: Partial<ProviderOAuthStatus> = {},
+  ): ProviderOAuthStatus => ({
+    id: "openai-codex",
+    providerId: "openai-codex",
+    label: "ChatGPT Plus/Pro",
+    hint: "Codex subscription \u2014 models appear as openai-codex/\u2026",
+    accounts: [],
+    ...patch,
+  });
+
+  it("shows the Subscriptions group with the signed-in identity", async () => {
+    seedProviders([oauthRow({ accounts: ["me@example.com"] })]);
+    await renderSettings();
+    expect(document.body.textContent).toContain("Subscriptions");
+    expect(document.body.textContent).toContain("ChatGPT Plus/Pro");
+    expect(document.body.textContent).toContain("signed in");
+    expect(document.body.textContent).toContain("me@example.com");
+    expect(buttonWithText("sign out")).not.toBeNull();
+  });
+
+  it("shows an unsigned-in row with a Sign in action and no sign out", async () => {
+    seedProviders([oauthRow()]);
+    await renderSettings();
+    expect(document.body.textContent).toContain("not signed in");
+    expect(buttonWithText("sign out")).toBeNull();
+
+    click(buttonWithText("Sign in")!);
+    expect(backendMock.startProviderOAuth).toHaveBeenCalledWith("openai-codex");
+  });
+
+  it("renders the input phase and submits the pasted redirect URL", async () => {
+    seedProviders([oauthRow()]);
+    await renderSettings();
+    click(buttonWithText("Sign in")!);
+    await act(async () => {
+      useStore.getState().replaceProviderOAuth({
+        providerId: "openai-codex",
+        phase: "input",
+        url: null,
+        instructions: "If the browser did not capture the redirect, paste the URL here.",
+        prompt: {
+          title: "Paste the redirect URL",
+          placeholder: "https://auth.openai.com/callback?code=\u2026",
+        },
+        error: null,
+      });
+    });
+    const field = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Paste the redirect URL sign-in response"]',
+    );
+    expect(field).not.toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setValue.call(field!, "https://auth.openai.com/callback?code=abc123");
+      field!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click(buttonWithText("Submit")!);
+    expect(backendMock.submitProviderOAuthInput).toHaveBeenCalledWith(
+      "https://auth.openai.com/callback?code=abc123",
+    );
   });
 });

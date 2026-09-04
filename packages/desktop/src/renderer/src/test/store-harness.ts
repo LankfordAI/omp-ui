@@ -12,6 +12,7 @@ import type {
   LiveState,
   OmpSettingsSnapshot,
   OmpUpdateState,
+  ProviderOAuthState,
   RemoteState,
   SessionWorktree,
   WorktreeReleaseResult,
@@ -55,6 +56,15 @@ const idleRemoteState: RemoteState = {
   urls: [],
   tokenUrls: [],
   webBundleMissing: false,
+  error: null,
+};
+
+const idleProviderOAuth: ProviderOAuthState = {
+  providerId: null,
+  phase: "idle",
+  url: null,
+  instructions: null,
+  prompt: null,
   error: null,
 };
 
@@ -175,6 +185,13 @@ const mockBackend = {
   setRemotePassword: vi.fn(async () => {}),
   clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
+  getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
+  onProviderOAuthState: vi.fn(),
+  readProviderOAuth: vi.fn(async (): Promise<never[]> => []),
+  startProviderOAuth: vi.fn(async () => {}),
+  submitProviderOAuthInput: vi.fn(async () => {}),
+  cancelProviderOAuth: vi.fn(async () => {}),
+  signOutProviderOAuth: vi.fn(async (): Promise<never[]> => []),
 };
 
 // Dialog text is an assertable part of a destructive action's contract, so the
@@ -367,6 +384,7 @@ beforeEach(() => {
     appUpdate: idleAppUpdate,
     ompUpdate: idleOmpUpdate,
     remote: idleRemoteState,
+    providerOAuth: idleProviderOAuth,
   });
   vi.clearAllMocks();
 });
@@ -408,6 +426,7 @@ export const h = {
   idleAppUpdate,
   idleOmpUpdate,
   idleRemoteState,
+  idleProviderOAuth,
   TAB,
   stateWithRecord,
   respond,

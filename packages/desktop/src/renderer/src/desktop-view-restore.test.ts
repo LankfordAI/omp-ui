@@ -121,6 +121,20 @@ const mockBackend = {
   setRemotePassword: vi.fn(async () => {}),
   clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
+  getProviderOAuthState: vi.fn(async () => ({
+    providerId: null,
+    phase: "idle",
+    url: null,
+    instructions: null,
+    prompt: null,
+    error: null,
+  })),
+  onProviderOAuthState: vi.fn(),
+  readProviderOAuth: vi.fn(async () => []),
+  startProviderOAuth: vi.fn(async () => {}),
+  submitProviderOAuthInput: vi.fn(async () => {}),
+  cancelProviderOAuth: vi.fn(async () => {}),
+  signOutProviderOAuth: vi.fn(async () => []),
 };
 Object.assign(window, { ompBackend: mockBackend });
 
