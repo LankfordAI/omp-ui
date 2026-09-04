@@ -55,6 +55,15 @@ export class ProviderOAuth {
   #accounts: Record<string, string[]> = {};
   #state: ProviderOAuthState = IDLE_PROVIDER_OAUTH_STATE;
   #flow: ActiveFlow | null = null;
+  /**
+   * Bumped on every start() and every cancel(), including a cancel that
+   * dismisses a terminal state with no live child: the post-login
+   * account refresh outlives #settle, and a completion captured under an
+   * older generation must never publish into a newer flow or a dismissed
+   * terminal state. A settle alone must not bump it, or a flow that
+   * succeeds and settles mid-refresh would orphan its own done publish.
+   */
+  #flowGeneration = 0;
 
   constructor(private readonly deps: ProviderOAuthDeps) {}
 
@@ -91,20 +100,30 @@ export class ProviderOAuth {
     if (this.#flow !== null) throw new Error("a subscription sign-in is already in progress");
     const ompPath = this.deps.getOmpPath();
     if (ompPath === null) throw new Error("omp binary not found");
+    this.#flowGeneration++;
+    // The constructor spawns synchronously (and mkdirs the scratch dir);
+    // if it throws, roll back so start() is retryable and cancel() stays
+    // safe on a provisional state whose child never came up.
     const flow: ActiveFlow = { providerId: spec.providerId, rpc: undefined as never, timer: undefined as never, pendingInputId: null, settled: false };
     this.#flow = flow;
+    try {
+      flow.rpc = new RpcClient({
+        cwd: this.deps.scratchDir,
+        lineageDir: this.deps.scratchDir,   // RpcClient mkdirs it before spawning
+        ompPath,
+        bare: true,
+        initialCommands: [{ type: "login", providerId: spec.providerId }],
+        onFrame: (frame) => this.#onFrame(flow, frame),
+        onExit: (code) => this.#fail(flow, `omp exited (${code ?? "signal"}) before the sign-in finished`),
+        onError: (msg) => this.#fail(flow, msg),
+        spawnProcess: this.deps.spawnProcess,
+      });
+    } catch (err) {
+      flow.settled = true;
+      if (this.#flow === flow) this.#flow = null;
+      throw err;
+    }
     this.#publish({ ...IDLE_PROVIDER_OAUTH_STATE, providerId: spec.providerId, phase: "starting" });
-    flow.rpc = new RpcClient({
-      cwd: this.deps.scratchDir,
-      lineageDir: this.deps.scratchDir,   // RpcClient mkdirs it before spawning
-      ompPath,
-      bare: true,
-      initialCommands: [{ type: "login", providerId: spec.providerId }],
-      onFrame: (frame) => this.#onFrame(flow, frame),
-      onExit: (code) => this.#fail(flow, `omp exited (${code ?? "signal"}) before the sign-in finished`),
-      onError: (msg) => this.#fail(flow, msg),
-      spawnProcess: this.deps.spawnProcess,
-    });
     flow.timer = setTimeout(() => this.#fail(flow, "sign-in timed out after 10 minutes"), OAUTH_FLOW_TIMEOUT_MS);
   }
 
@@ -118,6 +137,9 @@ export class ProviderOAuth {
 
   /** Aborts an active flow, or dismisses a terminal done/error state. Always ends idle. */
   cancel(): void {
+    // Even with no live child: dismisses done/error and invalidates any
+    // in-flight post-login completion, so it cannot resurrect the state.
+    this.#flowGeneration++;
     const flow = this.#flow;
     if (flow !== null) {
       if (flow.pendingInputId !== null) {
@@ -181,7 +203,21 @@ export class ProviderOAuth {
     if (f.type === "response" && f.command === "login") {
       if (f.success === true) {
         this.#settle(flow);
-        void this.refresh().then(() => this.#publish({ ...this.#state, phase: "done", prompt: null }));
+        // The refresh outlives the settle: a newer start() or a cancel()
+        // in that window must not be clobbered by this completion, and a
+        // failing read must surface as an error, not a stuck flow.
+        const generation = this.#flowGeneration;
+        void this.refresh()
+          .then(() => {
+            if (this.#flowGeneration === generation) {
+              this.#publish({ ...this.#state, phase: "done", prompt: null });
+            }
+          })
+          .catch((err: unknown) => {
+            if (this.#flowGeneration !== generation) return;
+            const message = err instanceof Error ? err.message : String(err);
+            this.#publish({ ...this.#state, phase: "error", prompt: null, error: `sign-in finished, but the account read failed: ${message}` });
+          });
       } else {
         this.#fail(flow, typeof f.error === "string" ? f.error : "sign-in failed");
       }

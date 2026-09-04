@@ -73,6 +73,8 @@ interface Harness {
   raw: (line: string) => void;
   exit: (code: number) => void;
   scratchDir: string;
+  /** Swap the one-shot `omp token --list` runner for a deferred/rejecting one. */
+  setListRun: (fn: () => Promise<string | null>) => void;
 }
 
 function harness(opts: {
@@ -93,6 +95,13 @@ function harness(opts: {
       if (line.trim() !== "") stdinLines.push(JSON.parse(line) as object);
     }
   });
+  let oauthRun: (o: { argv: string[] }) => Promise<string | null> = async (o) => {
+    runCalls.push({ argv: o.argv });
+    events.push(`run:${o.argv[0]}`);
+    return o.argv[0] === "auth-broker"
+      ? (opts.logoutOutput === undefined ? "Logged out of openai-codex" : opts.logoutOutput)
+      : (opts.listOutput ?? null);
+  };
   const oauth = new ProviderOAuth({
     getOmpPath: () => (opts.ompPath === undefined ? "/opt/omp" : opts.ompPath),
     scratchDir,
@@ -101,13 +110,7 @@ function harness(opts: {
       events.push(`state:${state.phase}`);
     },
     onOpenUrl: (url) => openedUrls.push(url),
-    run: async (o) => {
-      runCalls.push({ argv: o.argv });
-      events.push(`run:${o.argv[0]}`);
-      return o.argv[0] === "auth-broker"
-        ? (opts.logoutOutput === undefined ? "Logged out of openai-codex" : opts.logoutOutput)
-        : (opts.listOutput ?? null);
-    },
+    run: (o) => oauthRun(o),
     spawnProcess: (_cmd, args) => {
       spawnArgs = args;
       return fake.proc;
@@ -127,6 +130,12 @@ function harness(opts: {
     raw: (line) => fake.stdout.write(`${line}\n`),
     exit: (code) => fake.exit(code),
     scratchDir,
+    setListRun(fn) {
+      oauthRun = async () => {
+        events.push("run:token");
+        return fn();
+      };
+    },
   };
 }
 
@@ -227,6 +236,26 @@ describe("start", () => {
     const h = harness({ ompPath: null });
     expect(() => h.oauth.start("openai-codex")).toThrow("omp binary not found");
   });
+
+  it("a synchronous spawn failure rolls the flow back: retryable, and cancel() stays safe", () => {
+    const h = harness();
+    const oauth = new ProviderOAuth({
+      getOmpPath: () => "/opt/omp",
+      scratchDir: h.scratchDir,
+      send: (state) => h.states.push(state),
+      run: async () => null,
+      spawnProcess: () => {
+        throw new Error("ENOENT: no such file or directory");
+      },
+    });
+    expect(() => oauth.start("openai-codex")).toThrow("ENOENT");
+    // Nothing was published and the provisional flow is gone: a second start
+    // is not "already in progress", and cancel() must not touch the dead child.
+    expect(h.states).toEqual([]);
+    expect(() => oauth.start("openai-codex")).not.toThrow(/already in progress/);
+    expect(() => oauth.cancel()).not.toThrow();
+    oauth.dispose();
+  });
 });
 
 describe("open_url frame", () => {
@@ -301,6 +330,55 @@ describe("input prompt", () => {
 });
 
 describe("login response", () => {
+  it("a stale account read cannot clobber a newer flow started after the login", async () => {
+    const h = harness();
+    let resolveList: (v: string | null) => void = () => {};
+    h.setListRun(() => new Promise((res) => (resolveList = res)));
+    await startAtBrowser(h);
+    h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
+    await nextTick();
+    // The first flow is settled; a new sign-in may already be running while
+    // the first one's account read is still in flight.
+    h.oauth.start("openai-codex");
+    expect(h.states.at(-1)).toMatchObject({ phase: "starting" });
+    resolveList("1. me@example.com\n");
+    await nextTick();
+    await nextTick();
+    // The stale completion must not have published done over the new flow.
+    expect(h.states.at(-1)).toMatchObject({ phase: "starting" });
+    h.oauth.dispose();
+  });
+
+  it("cancelling during the post-login read suppresses the late done publish", async () => {
+    const h = harness();
+    let resolveList: (v: string | null) => void = () => {};
+    h.setListRun(() => new Promise((res) => (resolveList = res)));
+    await startAtBrowser(h);
+    h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
+    await nextTick();
+    h.oauth.cancel();
+    expect(h.states.at(-1)).toEqual(IDLE_PROVIDER_OAUTH_STATE);
+    resolveList("1. me@example.com\n");
+    await nextTick();
+    await nextTick();
+    expect(h.states.at(-1)).toEqual(IDLE_PROVIDER_OAUTH_STATE);
+  });
+
+  it("a failing account read after success publishes an error, not a stuck flow", async () => {
+    const h = harness();
+    h.setListRun(() => Promise.reject(new Error("pipe closed")));
+    await startAtBrowser(h);
+    h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
+    await nextTick();
+    await nextTick();
+    expect(h.states.at(-1)).toMatchObject({
+      phase: "error",
+      error: "sign-in finished, but the account read failed: pipe closed",
+    });
+    // The error is terminal: the page can dismiss it and start again.
+    h.oauth.cancel();
+    expect(h.states.at(-1)).toEqual(IDLE_PROVIDER_OAUTH_STATE);
+  });
   it("success settles, refreshes accounts first, then publishes done", async () => {
     const h = harness({ listOutput: "1. me@example.com\n" });
     await startAtBrowser(h);
