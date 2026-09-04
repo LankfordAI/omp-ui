@@ -38,9 +38,13 @@ spans plus a renderer-generated rule per (colour, font-style) pair.
   finds no language classes and returns the bytes unchanged.
 - **Plain is the fallback, with no callout.** Mermaid gets an error callout
   because the SVG *is* the content; here the plain text is the content, so an
-  unrecognized language, an over-cap block (same 20,000-character cap as the
-  transcript), or a failed grammar/engine load simply leaves the block plain —
-  "highlighting is an enhancement, never a gate."
+  unrecognized language, an over-cap block, or a failed grammar/engine load
+  simply leaves the block plain — "highlighting is an enhancement, never a
+  gate." One-shot HTML plan code blocks and non-streaming transcript slabs
+  retain the 20,000-character cap; live append-only tool drafts (issue #369)
+  instead run the incremental grammar-state path with a 100,000-character
+  budget plus a 4,000-character physical-line guard, so each delta pays only
+  for its newly completed lines.
 - **Live theme.** `usePreparedPlanDocument` takes the current `useTheme()`
   into its effect deps, so a theme switch re-prepares the plan in the new
   palette — mirroring `useHighlightTokens`'s theme dep.

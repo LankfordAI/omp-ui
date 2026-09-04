@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
-import { HIGHLIGHT_CHAR_CAP, langFromPath, useHighlightTokens } from "../lib/highlight";
+import {
+  HIGHLIGHT_CHAR_CAP,
+  langFromPath,
+  useHighlightTokens,
+  useIncrementalHighlightTokens,
+} from "../lib/highlight";
 import { strField } from "../lib/fields";
+import type { ThemedToken } from "shiki/core";
 import { useT } from "../lib/i18n";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
@@ -271,6 +277,74 @@ function CodeSlab({ code, lang, pin, className }: { code: string; lang?: string;
               ))}
               {i < tokens.length - 1 ? "\n" : null}
             </span>
+          ))
+        : code}
+    </pre>
+  );
+}
+
+/**
+ * One tokenized line as a memoized span. Stable lines from the incremental
+ * hook keep their array identity across appends, so a tail update re-renders
+ * only the tail row — the settled rows' token spans are never revisited.
+ */
+const TokenLine = memo(function TokenLine({
+  line,
+  newline,
+}: {
+  line: readonly ThemedToken[];
+  newline: boolean;
+}) {
+  return (
+    <span>
+      {line.map((token, index) => (
+        <span key={index} style={{ color: token.color }}>
+          {token.content}
+        </span>
+      ))}
+      {newline ? "\n" : null}
+    </span>
+  );
+});
+
+/**
+ * Slab for live append-only drafts (issue #369). Same surface as `CodeSlab`
+ * — selectable, wrapping, scrollable, pinned to the tail while streaming —
+ * but each delta tokenizes only newly completed lines plus the current tail
+ * through shiki's grammar-state continuation, and settled rows are memoized.
+ * Over the incremental budget, or on any tokenizer failure, the hook returns
+ * null and the raw source renders unchanged.
+ */
+function IncrementalCodeSlab({
+  code,
+  lang,
+  pin,
+  className,
+}: {
+  code: string;
+  lang?: string;
+  pin?: boolean;
+  className?: string;
+}) {
+  const tokens = useIncrementalHighlightTokens(code, lang, true);
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (!pin) return;
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [pin, code, tokens]);
+  return (
+    <pre
+      ref={ref}
+      data-selectable
+      className={cn(
+        "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink",
+        className,
+      )}
+    >
+      {tokens
+        ? tokens.map((line, i) => (
+            <TokenLine key={i} line={line} newline={i < tokens.length - 1} />
           ))
         : code}
     </pre>
@@ -574,7 +648,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {item.status === "running" && draft && (
             <div className="space-y-1">
               <Label>{t("transcript.tool.writing")}</Label>
-              <CodeSlab code={draft.code} lang={draft.lang} pin={item.argsStreaming === true} />
+              <IncrementalCodeSlab
+                code={draft.code}
+                lang={draft.lang}
+                pin={item.argsStreaming === true}
+              />
             </div>
           )}
 
@@ -584,7 +662,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               {partialParts?.header !== null && partialParts ? (
                 <ReadResultSlab parts={partialParts} lang={partialLang} pin className="max-h-32" />
               ) : partialLang !== undefined ? (
-                <CodeSlab code={item.partialText} lang={partialLang} pin className="max-h-32" />
+                <IncrementalCodeSlab code={item.partialText} lang={partialLang} pin className="max-h-32" />
               ) : (
                 <Slab className="max-h-32" pin>
                   {linkify(item.partialText)}

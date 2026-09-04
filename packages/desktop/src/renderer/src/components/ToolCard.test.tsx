@@ -3,18 +3,37 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ToolItem } from "../lib/transcript";
-// The spread keeps the real HIGHLIGHT_CHAR_CAP/langFromPath; only the hook is
-// stubbed so no wasm/dynamic grammar loads run under jsdom. splitReadResult is
-// NOT mocked here — it lives in ./ToolCard, so the parser units below run the
-// production code.
-import { HIGHLIGHT_CHAR_CAP } from "../lib/highlight";
+// The spread keeps the real cap constants, resolveLang, and the incremental
+// eligibility predicate; both hooks are stubbed so no wasm/dynamic grammar
+// loads run under jsdom. The incremental stub mirrors the real hook's
+// null-contract (unknown lang, ineligible source → null → plain) and hands
+// out content-keyed row arrays so stable-line identity is observable.
+// splitReadResult is NOT mocked here — it lives in ./ToolCard, so the parser
+// units below run the production code.
+import {
+  HIGHLIGHT_CHAR_CAP,
+  STREAM_HIGHLIGHT_CHAR_CAP,
+  STREAM_HIGHLIGHT_LINE_CAP,
+} from "../lib/highlight";
 import { splitReadResult, ToolCard } from "./ToolCard";
 
 const highlightCalls = vi.hoisted(
   () => [] as Array<{ code: string; lang?: string; enabled: boolean }>,
 );
+const incrementalCalls = vi.hoisted(
+  () => [] as Array<{ code: string; lang?: string; enabled: boolean }>,
+);
 vi.mock(import("../lib/highlight"), async (importOriginal) => {
   const actual = await importOriginal();
+  const rows = new Map<string, Array<{ content: string; offset: number; color: string }>>();
+  const rowFor = (line: string) => {
+    let row = rows.get(line);
+    if (!row) {
+      row = [{ content: line, offset: 0, color: "#aabbcc" }];
+      rows.set(line, row);
+    }
+    return row;
+  };
   return {
     ...actual,
     useHighlightTokens: (code: string, lang?: string, enabled = false) => {
@@ -22,6 +41,12 @@ vi.mock(import("../lib/highlight"), async (importOriginal) => {
       return enabled
         ? [[{ content: code.split("\n")[0] ?? "", offset: 0, color: "#aabbcc" }]]
         : null;
+    },
+    useIncrementalHighlightTokens: (code: string, lang?: string, enabled = false) => {
+      incrementalCalls.push({ code, lang, enabled });
+      if (!enabled || !lang || actual.resolveLang(lang) === null) return null;
+      if (!actual.streamHighlightEligible(code)) return null;
+      return code.split("\n").map(rowFor);
     },
   };
 });
@@ -61,6 +86,7 @@ function renderCard(item: ToolItem): { el: HTMLDivElement; root: Root } {
 
 beforeEach(() => {
   highlightCalls.length = 0;
+  incrementalCalls.length = 0;
 });
 
 describe("splitReadResult", () => {
@@ -213,7 +239,7 @@ describe("ToolCard search args", () => {
 });
 
 describe("ToolCard streaming partials", () => {
-  it("a write partial highlights with the target file's language", () => {
+  it("a write partial highlights through the incremental hook", () => {
     const partialText = "<html><body>streaming…";
     const { root } = renderCard(
       tool({
@@ -224,11 +250,12 @@ describe("ToolCard streaming partials", () => {
       }),
     );
 
-    // Two surfaces tokenize (the write draft and the partial); both are html,
-    // and the newest call carries the streamed partial text itself.
-    expect(highlightCalls.length).toBe(2);
-    expect(highlightCalls.every((c) => c.lang === "html")).toBe(true);
-    expect(highlightCalls.at(-1)).toMatchObject({ code: partialText, enabled: true });
+    // Two live surfaces (the write draft and the partial) now take the
+    // incremental path; the one-shot hook must see neither.
+    expect(incrementalCalls.length).toBe(2);
+    expect(highlightCalls).toHaveLength(0);
+    expect(incrementalCalls.every((c) => c.lang === "html")).toBe(true);
+    expect(incrementalCalls.at(-1)).toMatchObject({ code: partialText, enabled: true });
     act(() => root.unmount());
   });
 
@@ -240,40 +267,91 @@ describe("ToolCard streaming partials", () => {
     expect(el.querySelector('a[role="link"]')).not.toBeNull();
     expect(el.textContent).toContain("streaming");
     expect(highlightCalls).toHaveLength(0);
+    expect(incrementalCalls).toHaveLength(0);
     act(() => root.unmount());
   });
 });
 
-describe("ToolCard highlight cap", () => {
-  it("payloads at the char cap stay plain; just under it tokenize", () => {
-    // Strictly over the line: exactly HIGHLIGHT_CHAR_CAP chars is NOT < cap.
-    const atCap = renderCard(
-      tool({
-        name: "Write",
-        status: "running",
-        args: { content: "a".repeat(HIGHLIGHT_CHAR_CAP), file_path: "a.txt" },
-      }),
-    );
-    expect(highlightCalls.at(-1)).toMatchObject({
-      code: "a".repeat(HIGHLIGHT_CHAR_CAP),
-      lang: "txt",
-      enabled: false,
-    });
-    act(() => atCap.root.unmount());
+describe("ToolCard incremental stream budgets", () => {
+  // Multiline content: the plan screenshot case (issue #369). Lines stay
+  // under the physical-line guard so only the char budget decides.
+  const multiline = (chars: number) => `${"a".repeat(40)}\n`.repeat(Math.ceil(chars / 41)).slice(0, chars);
 
-    highlightCalls.length = 0;
-    const underCap = renderCard(
+  it("an html draft above the one-shot cap and under the stream cap renders token spans", () => {
+    const code = multiline(HIGHLIGHT_CHAR_CAP + 1);
+    const { el, root } = renderCard(
+      tool({ name: "Write", status: "running", args: { content: code, file_path: "plan.html" } }),
+    );
+
+    expect(incrementalCalls.at(-1)).toMatchObject({ code, lang: "html", enabled: true });
+    const tokened = [...el.querySelectorAll<HTMLElement>("pre span")].find(
+      (s) => s.style.color === "rgb(170, 187, 204)",
+    );
+    expect(tokened?.textContent).toBe("a".repeat(40));
+    act(() => root.unmount());
+  });
+
+  it("exactly the stream cap renders plain", () => {
+    const code = multiline(STREAM_HIGHLIGHT_CHAR_CAP);
+    const { el, root } = renderCard(
+      tool({ name: "Write", status: "running", args: { content: code, file_path: "plan.html" } }),
+    );
+
+    expect(incrementalCalls.at(-1)?.enabled).toBe(true);
+    expect(el.querySelector("pre span[style]")).toBeNull();
+    expect(el.textContent).toContain(code.slice(0, 100));
+    act(() => root.unmount());
+  });
+
+  it("a physical line at the line cap renders plain even under the char cap", () => {
+    const code = `ok\n${"z".repeat(STREAM_HIGHLIGHT_LINE_CAP)}`;
+    const { el, root } = renderCard(
+      tool({ name: "Write", status: "running", args: { content: code, file_path: "plan.html" } }),
+    );
+
+    expect(el.querySelector("pre span[style]")).toBeNull();
+    expect(el.textContent).toContain("ok");
+    act(() => root.unmount());
+  });
+
+  it("an unknown extension stays plain through the incremental hook", () => {
+    const { el, root } = renderCard(
       tool({
         name: "Write",
         status: "running",
-        args: { content: "a".repeat(HIGHLIGHT_CHAR_CAP - 1), file_path: "a.txt" },
+        args: { content: "hello\nworld", file_path: "notes.xyz123" },
       }),
     );
-    expect(highlightCalls.at(-1)).toMatchObject({
-      code: "a".repeat(HIGHLIGHT_CHAR_CAP - 1),
-      lang: "txt",
-      enabled: true,
+
+    expect(incrementalCalls.at(-1)?.lang).toBe("xyz123");
+    expect(el.querySelector("pre span[style]")).toBeNull();
+    expect(el.textContent).toContain("hello");
+    act(() => root.unmount());
+  });
+
+  it("an unchanged stable row's DOM node survives a tail update", () => {
+    const first = tool({
+      name: "Write",
+      status: "running",
+      args: { content: "aaa\nbbb", file_path: "p.html" },
     });
-    act(() => underCap.root.unmount());
+    const { el, root } = renderCard(first);
+    const stableNode = el.querySelector("pre")!.firstElementChild!;
+
+    act(() =>
+      root.render(
+        <ToolCard
+          item={tool({
+            name: "Write",
+            status: "running",
+            args: { content: "aaa\nccc", file_path: "p.html" },
+          })}
+        />,
+      ),
+    );
+
+    expect(el.querySelector("pre")!.firstElementChild).toBe(stableNode);
+    expect(el.textContent).toContain("ccc");
+    act(() => root.unmount());
   });
 });
