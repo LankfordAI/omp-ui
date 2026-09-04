@@ -73,6 +73,8 @@ interface Harness {
   raw: (line: string) => void;
   exit: (code: number) => void;
   scratchDir: string;
+  /** Set to make the next start() throw at spawn; later spawns succeed (one fake process is shared). */
+  failNextSpawn: boolean;
   /** Swap the one-shot `omp token --list` runner for a deferred/rejecting one. */
   setListRun: (fn: () => Promise<string | null>) => void;
 }
@@ -89,6 +91,7 @@ function harness(opts: {
   const openedUrls: string[] = [];
   const stdinLines: object[] = [];
   let spawnArgs: string[] = [];
+  let failNext = false;
   const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "oauth-login-"));
   fake.stdin.on("data", (chunk: Buffer) => {
     for (const line of chunk.toString("utf8").split("\n")) {
@@ -113,6 +116,10 @@ function harness(opts: {
     run: (o) => oauthRun(o),
     spawnProcess: (_cmd, args) => {
       spawnArgs = args;
+      if (failNext) {
+        failNext = false;
+        throw new Error("ENOENT: no such file or directory");
+      }
       return fake.proc;
     },
   });
@@ -130,6 +137,12 @@ function harness(opts: {
     raw: (line) => fake.stdout.write(`${line}\n`),
     exit: (code) => fake.exit(code),
     scratchDir,
+    get failNextSpawn() {
+      return failNext;
+    },
+    set failNextSpawn(v: boolean) {
+      failNext = v;
+    },
     setListRun(fn) {
       oauthRun = async () => {
         events.push("run:token");
@@ -237,24 +250,35 @@ describe("start", () => {
     expect(() => h.oauth.start("openai-codex")).toThrow("omp binary not found");
   });
 
-  it("a synchronous spawn failure rolls the flow back: retryable, and cancel() stays safe", () => {
+  it("a synchronous spawn failure installs no flow: retryable, and cancel() stays safe", () => {
     const h = harness();
-    const oauth = new ProviderOAuth({
-      getOmpPath: () => "/opt/omp",
-      scratchDir: h.scratchDir,
-      send: (state) => h.states.push(state),
-      run: async () => null,
-      spawnProcess: () => {
-        throw new Error("ENOENT: no such file or directory");
-      },
-    });
-    expect(() => oauth.start("openai-codex")).toThrow("ENOENT");
-    // Nothing was published and the provisional flow is gone: a second start
+    h.failNextSpawn = true;
+    expect(() => h.oauth.start("openai-codex")).toThrow("ENOENT");
+    // Nothing was published and no flow was installed: a second start
     // is not "already in progress", and cancel() must not touch the dead child.
     expect(h.states).toEqual([]);
-    expect(() => oauth.start("openai-codex")).not.toThrow(/already in progress/);
-    expect(() => oauth.cancel()).not.toThrow();
-    oauth.dispose();
+    expect(() => h.oauth.start("openai-codex")).not.toThrow(/already in progress/);
+    expect(() => h.oauth.cancel()).not.toThrow();
+    h.oauth.dispose();
+  });
+
+  it("a failed restart does not suppress the previous flow's in-flight done publish", async () => {
+    const h = harness();
+    let resolveList: (v: string | null) => void = () => {};
+    h.setListRun(() => new Promise((res) => (resolveList = res)));
+    await startAtBrowser(h);
+    h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
+    await nextTick();
+    // Flow A is settled but its account read is still in flight. Flow B's
+    // spawn fails: installing no flow, it must not invalidate A's completion.
+    h.failNextSpawn = true;
+    expect(() => h.oauth.start("openai-codex")).toThrow("ENOENT");
+    resolveList("1. me@example.com\n");
+    await nextTick();
+    await nextTick();
+    expect(h.states.at(-1)).toMatchObject({ phase: "done", prompt: null });
+    expect(h.oauth.statuses()[0]!.accounts).toEqual(["me@example.com"]);
+    h.oauth.dispose();
   });
 });
 

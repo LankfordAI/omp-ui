@@ -56,11 +56,13 @@ export class ProviderOAuth {
   #state: ProviderOAuthState = IDLE_PROVIDER_OAUTH_STATE;
   #flow: ActiveFlow | null = null;
   /**
-   * Bumped on every start() and every cancel(), including a cancel that
-   * dismisses a terminal state with no live child: the post-login
-   * account refresh outlives #settle, and a completion captured under an
-   * older generation must never publish into a newer flow or a dismissed
-   * terminal state. A settle alone must not bump it, or a flow that
+   * Bumped when a flow is installed (after its child is up) and on every
+   * cancel(), including a cancel that dismisses a terminal state with no
+   * live child: the post-login account refresh outlives #settle, and a
+   * completion captured under an older generation must never publish into a
+   * newer flow or a dismissed terminal state. A failed start installs no
+   * flow and must not bump it, or it would suppress the older flow's
+   * legitimate done. A settle alone must not bump it either, or a flow that
    * succeeds and settles mid-refresh would orphan its own done publish.
    */
   #flowGeneration = 0;
@@ -100,29 +102,25 @@ export class ProviderOAuth {
     if (this.#flow !== null) throw new Error("a subscription sign-in is already in progress");
     const ompPath = this.deps.getOmpPath();
     if (ompPath === null) throw new Error("omp binary not found");
-    this.#flowGeneration++;
-    // The constructor spawns synchronously (and mkdirs the scratch dir);
-    // if it throws, roll back so start() is retryable and cancel() stays
-    // safe on a provisional state whose child never came up.
+    // The constructor spawns synchronously (and mkdirs the scratch dir). It
+    // runs before the flow is installed, so a thrown spawn leaves #flow null
+    // and nothing published: start() stays retryable and cancel() stays safe.
+    // Because no flow was installed, it also leaves any older in-flight
+    // completion valid.
     const flow: ActiveFlow = { providerId: spec.providerId, rpc: undefined as never, timer: undefined as never, pendingInputId: null, settled: false };
+    flow.rpc = new RpcClient({
+      cwd: this.deps.scratchDir,
+      lineageDir: this.deps.scratchDir,   // RpcClient mkdirs it before spawning
+      ompPath,
+      bare: true,
+      initialCommands: [{ type: "login", providerId: spec.providerId }],
+      onFrame: (frame) => this.#onFrame(flow, frame),
+      onExit: (code) => this.#fail(flow, `omp exited (${code ?? "signal"}) before the sign-in finished`),
+      onError: (msg) => this.#fail(flow, msg),
+      spawnProcess: this.deps.spawnProcess,
+    });
+    this.#flowGeneration++;
     this.#flow = flow;
-    try {
-      flow.rpc = new RpcClient({
-        cwd: this.deps.scratchDir,
-        lineageDir: this.deps.scratchDir,   // RpcClient mkdirs it before spawning
-        ompPath,
-        bare: true,
-        initialCommands: [{ type: "login", providerId: spec.providerId }],
-        onFrame: (frame) => this.#onFrame(flow, frame),
-        onExit: (code) => this.#fail(flow, `omp exited (${code ?? "signal"}) before the sign-in finished`),
-        onError: (msg) => this.#fail(flow, msg),
-        spawnProcess: this.deps.spawnProcess,
-      });
-    } catch (err) {
-      flow.settled = true;
-      if (this.#flow === flow) this.#flow = null;
-      throw err;
-    }
     this.#publish({ ...IDLE_PROVIDER_OAUTH_STATE, providerId: spec.providerId, phase: "starting" });
     flow.timer = setTimeout(() => this.#fail(flow, "sign-in timed out after 10 minutes"), OAUTH_FLOW_TIMEOUT_MS);
   }
