@@ -73,6 +73,7 @@ jobs:
         if: ${{ steps.guard.outputs.edited == 'false' }}
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
