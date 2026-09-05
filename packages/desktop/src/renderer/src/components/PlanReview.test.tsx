@@ -1343,3 +1343,180 @@ describe("PlanReview hydrated gate (issue #215)", () => {
     expect(verdictFrame()).toMatchObject({ id: "p9", value: "execute" });
   });
 });
+
+describe("PlanReview dev/test advisor override (issue #372)", () => {
+  const PIN = "p/advisor-a";
+  const GATE = "gate/advisor-x:low";
+
+  /** The standard seed with a saved advisor pin that conflicts with the gate. */
+  function seedGated(gate: string | null = GATE, advisor = true): void {
+    seed();
+    useStore.setState((s) => ({
+      state: {
+        ...s.state!,
+        projects: s.state!.projects.map((g) => ({
+          ...g,
+          sessions: g.sessions.map((session) =>
+            session.tabId === TAB ? { ...session, advisor, advisorModel: PIN } : session,
+          ),
+        })),
+        spawnGate: { model: null, advisorModel: gate },
+      },
+    }));
+  }
+
+  const executeAnyButton = (): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.startsWith("execute in"),
+    );
+    expect(found).toBeDefined();
+    return found!;
+  };
+
+  it("shows the gate instead of the conflicting saved pin, read-only", async () => {
+    seedGated();
+    render();
+    await until(() => document.body.textContent?.includes("advisor model") === true);
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("This app instance overrides the advisor model with");
+    expect(text).toContain(GATE);
+    expect(text).toContain("dev/test");
+    // Staging stays the record's choice — the display row carries the gate.
+    const advisorRow = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.title?.startsWith("Dev/test advisor override") === true,
+    )!;
+    expect(advisorRow.disabled).toBe(true);
+    await act(async () => {
+      advisorRow.click();
+    });
+    // The advisor palette never opens from a gated row.
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[title*="use omp\'s configured advisor"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("worded as pending when the advisor is off", async () => {
+    seedGated(GATE, false);
+    render();
+    await until(() => document.body.textContent?.includes("Advisor") === true);
+    expect(document.body.textContent ?? "").toContain("When the advisor is enabled");
+    expect(document.body.textContent ?? "").toContain(GATE);
+  });
+
+  it("a same-session execute never routes the gate through the advisor setter", async () => {
+    seedGated();
+    render();
+    await act(async () => executeAnyButton().click());
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+    // The staged tuple equals the record's, so nothing relaunches the
+    // advisor — and no call could carry the gate's selector anyway.
+    expect(backendMock.setSessionAdvisor).not.toHaveBeenCalled();
+    const rec = useStore
+      .getState()
+      .state!.projects[0]!.sessions.find((session) => session.tabId === TAB)!;
+    expect(rec.advisorModel).toBe(PIN);
+  });
+
+  it("a fresh dispatch spawns with the saved selector, not the displayed gate", async () => {
+    seedGated();
+    render();
+    await act(async () => {
+      const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
+        (candidate) => candidate.textContent?.startsWith("fresh session"),
+      )!;
+      row.click();
+    });
+    await act(async () => executeAnyButton().click());
+    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+    // The zero-arg stub's typing hides the real request payload; retype it
+    // once here — spawnSession's contract is SpawnRequest.
+    const calls = backendMock.spawnSession.mock.calls as unknown as Array<
+      [{ advisor: boolean; advisorModel: string | null }]
+    >;
+    const request = calls.at(-1)![0];
+    expect(request.advisor).toBe(true);
+    expect(request.advisorModel).toBe(PIN);
+    expect(request.advisorModel).not.toBe(GATE);
+  });
+
+  it("compacted and worktree contexts submit the staged tuple too", async () => {
+    const real = useStore.getState().executePlan;
+    const spy = vi.fn();
+    useStore.setState({ executePlan: spy });
+    try {
+      seedGated();
+      render();
+      await act(async () => {
+        const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
+          (candidate) => candidate.textContent?.startsWith("this session, compacted"),
+        )!;
+        row.click();
+      });
+      await act(async () => executeAnyButton().click());
+      expect(spy).toHaveBeenCalledWith(
+        TAB,
+        "compacted",
+        expect.objectContaining({ advisor: true, advisorModel: PIN }),
+      );
+
+      spy.mockClear();
+      await act(async () => {
+        const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
+          (candidate) => candidate.textContent?.startsWith("worktree session"),
+        )!;
+        row.click();
+      });
+      await act(async () => executeAnyButton().click());
+      expect(spy).toHaveBeenCalledWith(
+        TAB,
+        "worktree",
+        expect.objectContaining({ advisor: true, advisorModel: PIN }),
+      );
+    } finally {
+      useStore.setState({ executePlan: real });
+    }
+  });
+
+  it("ungated rows keep the ordinary palette path", async () => {
+    seedGated(null);
+    useStore.setState({
+      // Pin plus a configured advisor default plus a catalog holding both —
+      // the same seed the ordinary staging test uses; the presence of the
+      // entry also short-circuits the mount defaults fetch.
+      advisorDefaults: { "/p": { enabled: true, model: "q/default" } },
+      rpc: {
+        [TAB]: tabState({
+          availableModels: [
+            { id: "advisor-a", name: "Advisor A", provider: "p" },
+            { id: "default", name: "Default Advisor", provider: "q" },
+          ],
+        }),
+      },
+    });
+    render();
+    await until(() => document.body.textContent?.includes("advisor model") === true);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("dev/test");
+    expect(text).not.toContain("This app instance overrides");
+    // The saved pin is what the row shows, and it opens the picker.
+    expect(text).toContain("Advisor A");
+    const advisorRow = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.title === PIN,
+    );
+    expect(advisorRow).toBeDefined();
+    expect(advisorRow!.disabled).toBe(false);
+    await act(async () => {
+      advisorRow!.click();
+    });
+    const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const palette = overlays[overlays.length - 1]!;
+    expect(palette).toBeDefined();
+    await act(async () => {
+      palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click();
+    });
+    expect(palette.textContent).toContain("use omp's configured advisor");
+  });
+});

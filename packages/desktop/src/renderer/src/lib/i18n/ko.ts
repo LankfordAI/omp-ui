@@ -97,6 +97,39 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.worktree.create": "세션 만들기",
   "dialog.worktree.notGit": "이 프로젝트는 git repo 안에 있지 않아 워크트리를 만들 수 없습니다.",
 
+  // AppFeedback.tsx — 단계화된 세션/프로젝트 확인 (이슈 #373)
+  "dialog.lifecycle.kicker": "세션 작업",
+  "dialog.lifecycle.terminateTitle": "에이전트를 중지할까요?",
+  "dialog.lifecycle.terminateBody": "실행 중인 에이전트를 종료할까요? 세션은 나중에 다시 시작할 수 있습니다.",
+  "dialog.lifecycle.terminateAction": "에이전트 중지",
+  "dialog.lifecycle.switchTitle": "세션 모드를 전환할까요?",
+  "dialog.lifecycle.switchBody": "이 세션을 {mode} 모드로 다시 시작할까요? 프로세스를 종료한 뒤 세션을 다시 시작합니다.",
+  "dialog.lifecycle.switchAction": "세션 다시 시작",
+  "dialog.lifecycle.terminal": "터미널",
+  "dialog.lifecycle.native": "네이티브",
+  "dialog.lifecycle.removeTitle": "프로젝트를 제거할까요?",
+  "dialog.lifecycle.removeBody": "프로젝트 {path} 및 해당 세션 기록을 제거할까요? 디스크의 파일은 유지됩니다.",
+  "dialog.lifecycle.removeAction": "프로젝트 제거",
+  "dialog.lifecycle.working": "처리 중…",
+
+  // AppFeedback.tsx — 백엔드 오류 확인 다이얼로그 (이슈 #373)
+  "dialog.error.kicker": "작업 실패",
+  "dialog.error.title": "작업을 완료하지 못했습니다",
+  "dialog.error.dismiss": "닫기",
+
+  // 스토어 슬라이스 — localized 오류 통지 (이슈 #373). 백엔드 사유·tab id·경로는 그대로 보간된다.
+  "session.error.deletePartial": "일부 세션을 삭제하지 못했습니다:\n{failures}",
+  "session.error.advisorBusy": "진행 중인 세션 명령이 완료되지 않아 어드바이저를 다시 시작하지 못했습니다. 세션은 계속 실행 중입니다.",
+  "session.error.advisorEnable": "어드바이저를 켜지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
+  "session.error.advisorDisable": "어드바이저를 끄지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
+
+  // AdvisorControl.tsx, PlanReview.tsx — 개발/테스트 어드바이저 재정의 (이슈 #372)
+  "advisor.override.badge": "개발/테스트",
+  "advisor.override.label": "개발/테스트 어드바이저 재정의",
+  "advisor.override.active": "이 앱 인스턴스는 어드바이저 모델을 {selector}로 재정의합니다. 저장된 세션 및 프로젝트 선택은 변경되지 않습니다.",
+  "advisor.override.inactive": "어드바이저를 켜면 이 앱 인스턴스는 {selector}를 사용합니다. 저장된 선택은 변경되지 않습니다.",
+  "advisor.override.resume": "세션을 다시 시작하면 이 앱 인스턴스는 어드바이저 모델을 {selector}로 재정의합니다. 저장된 선택은 변경되지 않습니다.",
+
   "transcript.assistant.thinking": "생각 중",
   "transcript.speaker.assistant": "어시스턴트",
   "transcript.speaker.you": "나",

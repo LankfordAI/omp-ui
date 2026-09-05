@@ -211,7 +211,6 @@ const readSnapshot = (): DesktopViewStateV1 =>
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
-  window.alert = vi.fn();
   appUpdate = { ...idleAppUpdate, currentVersion: "1.1.0" };
   mockBackend.spawnSession.mockImplementation(
     async (req: { resumeTabId: string }) => ({ tabId: req.resumeTabId }),

@@ -5,6 +5,7 @@ import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findRecord, useStore } from "../store";
 import { Capsule, CAPSULE_SEGMENT, Dot, Label } from "./ui";
+import { TONE_CHIP } from "./ui/tone";
 import { ModelPalette } from "./ModelSelector";
 
 /**
@@ -19,6 +20,13 @@ import { ModelPalette } from "./ModelSelector";
  *
  * That cost is why this control is explicit about restarting rather than
  * pretending the change applied in place.
+ *
+ * When this app instance carries a dev/test advisor override (the spawn
+ * gate, issue #372), the gate decides which model the advisor actually runs
+ * and wins over any saved choice at spawn. The control then reports the
+ * gated configuration honestly: model and effort editing are read-only while
+ * the gate is present, but the on/off switch keeps operating on the session's
+ * own saved tuple. Saved choices are never rewritten by the gate.
  */
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -58,6 +66,9 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
   const projectCwd = record?.projectCwd;
   const setProjectDefaultAdvisorModel = useStore((s) => s.setProjectDefaultAdvisorModel);
+  // The instance's dev/test advisor override (issue #372): identical in the
+  // desktop and remote renderers because both read the same backend state.
+  const gateAdvisor = useStore((s) => s.state?.spawnGate.advisorModel ?? null);
   // The project's advisor pin (issue #257): undefined when the tab has no
   // registered project, null when the project simply has no pin yet.
   const projectAdvisorPin = useStore((s) => {
@@ -83,6 +94,14 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
       setLevelMenu(false);
     }
   }, [disabled]);
+  // A gate arriving through hydration or a broadcast retargets the row: a
+  // picker or level menu opened against the saved choice must not survive it.
+  useEffect(() => {
+    if (gateAdvisor !== null) {
+      setPicking(false);
+      setLevelMenu(false);
+    }
+  }, [gateAdvisor]);
   useDismissal({
     open: levelMenu,
     refs: levelAnchor,
@@ -92,9 +111,14 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
   if (record === undefined) return null;
 
   const on = record.advisor;
-  /** The session's own pin, else omp's config — what this session actually runs. */
-  const effective = record.advisorModel ?? defaults?.model ?? null;
-  const inherited = record.advisorModel === null;
+  const live = record.live === "live";
+  const gated = gateAdvisor !== null;
+  /** Display precedence (issue #372): the instance's gate wins over every
+   *  saved choice; nothing here writes back. This reports the configured
+   *  selection, not a runtime observation — lineage overlays and the
+   *  advisor-stats extension remain the runtime evidence. */
+  const effective = gateAdvisor ?? record.advisorModel ?? defaults?.model ?? null;
+  const inherited = !gated && record.advisorModel === null;
 
   /** The effective model and its thinking level, split apart (omp encodes the
    * level as a `:level` suffix on the selector). */
@@ -107,7 +131,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   const setLevel = (level: string) => {
     setLevelMenu(false);
-    if (effectiveModelSelector === null) return;
+    if (gated || effectiveModelSelector === null) return;
     // Pinning the level pins the whole selector — the same relaunch path as the
     // model picker, so a deliberate pick is always one restart. An empty level
     // clears back to omp's default: a bare selector, never a trailing `:`.
@@ -117,6 +141,8 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   const toggle = () => {
     if (disabled === true) return;
+    // The switch owns the enabled flag only: it persists the session's SAVED
+    // selector, never the displayed gate (issue #372).
     void setSessionAdvisor(tabId, !on, record.advisorModel);
   };
 
@@ -124,132 +150,181 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
     projectAdvisorPin !== undefined && projectAdvisorPin !== null
       ? t("composer.advisor.projectDefault", { selector: projectAdvisorPin })
       : "";
-  const title = on
-    ? `${t("composer.advisor.on")}${
-        effective === null
-          ? t("composer.advisor.ompPicks")
-          : ` — ${effective}`
-      }${inherited && effective !== null ? t("composer.advisor.fromOmpConfig") : ""}${t("composer.advisor.turnOff")}${pinNote}${t("composer.advisor.restarts")}`
-    : `${t("composer.advisor.turnOn")}${
-        defaults?.model === null || defaults?.model === undefined
-          ? ""
-          : t("composer.advisor.withConfig", { selector: defaults.model })
-      }${pinNote}${t("composer.advisor.restarts")}`;
+  /** Honest provenance for the gated selector (issue #372): active on a live
+   *  session, pending on a dormant one, and worded as not-yet-running while
+   *  the advisor is off. */
+  const gatedSentence = !live
+    ? t("advisor.override.resume", { selector: gateAdvisor ?? "" })
+    : on
+      ? t("advisor.override.active", { selector: gateAdvisor ?? "" })
+      : t("advisor.override.inactive", { selector: gateAdvisor ?? "" });
+  const title = gated
+    ? on
+      ? `${t("composer.advisor.on")} — ${effective} · ${gatedSentence}${t("composer.advisor.turnOff")}${pinNote}${t("composer.advisor.restarts")}`
+      : `${gatedSentence}${t("composer.advisor.turnOn")}${pinNote}${t("composer.advisor.restarts")}`
+    : on
+      ? `${t("composer.advisor.on")}${
+          effective === null
+            ? t("composer.advisor.ompPicks")
+            : ` — ${effective}`
+        }${inherited && effective !== null ? t("composer.advisor.fromOmpConfig") : ""}${t("composer.advisor.turnOff")}${pinNote}${t("composer.advisor.restarts")}`
+      : `${t("composer.advisor.turnOn")}${
+          defaults?.model === null || defaults?.model === undefined
+            ? ""
+            : t("composer.advisor.withConfig", { selector: defaults.model })
+        }${pinNote}${t("composer.advisor.restarts")}`;
 
   return (
     <>
-      <Capsule
-        tone={on ? "signal" : "neutral"}
-        className={cn(
-          "font-mono",
-          layout === "sheet" && "h-11 w-full",
-          layout === "inline" && "min-w-0 shrink",
-        )}
-      >
-        <button
-          type="button"
-          disabled={disabled}
-          aria-pressed={on}
-          title={title}
-          onClick={toggle}
-          className={cn(CAPSULE_SEGMENT, "shrink-0 text-[10px]", layout === "sheet" && (on ? "px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
-        >
-          {on ? (
-            <>
-              <Dot tone="signal" />
-              {t("composer.advisor.label")}
-            </>
-          ) : (
-            t("composer.advisor.offLabel")
+      <span className={cn("flex min-w-0 shrink items-center gap-1", layout === "sheet" && "w-full")}>
+        <Capsule
+          tone={on ? "signal" : "neutral"}
+          className={cn(
+            "font-mono",
+            layout === "sheet" && "h-11 w-full",
+            layout === "inline" && "min-w-0 shrink",
           )}
-        </button>
-
-        {/* The model only matters while the advisor runs, so the picker only
-            appears then — an always-visible dropdown for a disabled feature
-            invites setting a model that does nothing. */}
-        {on && (
+        >
           <button
             type="button"
             disabled={disabled}
-            title={
-              effective === null
-                ? t("composer.advisor.noModel")
-                : t("composer.advisor.modelTitle", {
-                    selector: effective,
-                    source: inherited
-                      ? t("composer.advisor.fromOmpConfig")
-                      : t("composer.advisor.pinned"),
-                  })
-            }
-            onClick={() => setPicking(true)}
-            className={cn(
-              CAPSULE_SEGMENT,
-              layout === "sheet" ? "min-w-0 flex-1 justify-center px-3 text-[11px]" : "max-w-40 text-[11px]",
-              inherited ? "text-ink-faint" : "text-ink-mid",
-            )}
+            aria-pressed={on}
+            title={title}
+            onClick={toggle}
+            className={cn(CAPSULE_SEGMENT, "shrink-0 text-[10px]", layout === "sheet" && (on ? "px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
           >
-            <span className="min-w-0 truncate">
-              {effective === null
-                ? t("composer.advisor.pickModel")
-                : effectiveModel?.name || effectiveModel?.id || shortLabel(effective)}
-            </span>
+            {on ? (
+              <>
+                <Dot tone="signal" />
+                {t("composer.advisor.label")}
+              </>
+            ) : (
+              t("composer.advisor.offLabel")
+            )}
           </button>
-        )}
 
-        {/* The thinking level is omp's `:level` suffix on the advisor role, so
-            it needs a running model to attach to and only makes sense when the
-            model advertises efforts. Like the model picker, choosing one is a
-            deliberate pick — every change restarts the session. */}
-        {on && effectiveModelSelector !== null && efforts.length > 0 && (
-          <span ref={levelAnchor} className="relative flex">
+          {/* The model only matters while the advisor runs, so the picker only
+              appears then — an always-visible dropdown for a disabled feature
+              invites setting a model that does nothing. While the gate is on,
+              the row is a read-only statement of what this instance runs. */}
+          {on && (
             <button
               type="button"
-              disabled={disabled}
-              title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
-              onClick={() => setLevelMenu((m) => !m)}
+              disabled={disabled || gated}
+              title={
+                gated
+                  ? `${t("advisor.override.label")}: ${effective}`
+                  : effective === null
+                    ? t("composer.advisor.noModel")
+                    : t("composer.advisor.modelTitle", {
+                        selector: effective,
+                        source: inherited
+                          ? t("composer.advisor.fromOmpConfig")
+                          : t("composer.advisor.pinned"),
+                      })
+              }
+              onClick={() => {
+                if (gated) return;
+                setPicking(true);
+              }}
               className={cn(
                 CAPSULE_SEGMENT,
-                "shrink-0 rounded-r-[5px] text-[11px] tabular-nums text-iris",
-                layout === "sheet" && "px-3",
+                layout === "sheet" ? "min-w-0 flex-1 justify-center px-3 text-[11px]" : "max-w-40 text-[11px]",
+                gated ? "text-ink-mid" : inherited ? "text-ink-faint" : "text-ink-mid",
               )}
             >
-              {effectiveLevel ?? t("composer.thinking.fallback")}
+              <span className="min-w-0 truncate">
+                {effective === null
+                  ? t("composer.advisor.pickModel")
+                  : effectiveModel?.name || effectiveModel?.id || shortLabel(effective)}
+              </span>
             </button>
-            {levelMenu && (
-              <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
-                <span className="px-1.5 pb-1 pt-0.5">
-                  <Label>{t("composer.advisor.thinkingLabel")}</Label>
-                </span>
-                {effectiveLevel !== null && (
-                  <button
-                    type="button"
-                    onClick={() => setLevel("")}
-                    className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
-                    title={t("composer.advisor.defaultLevel")}
-                  >
-                    {t("composer.advisor.defaultLevelChoice")}
-                  </button>
+          )}
+
+          {/* The thinking level is omp's `:level` suffix on the advisor role, so
+              it needs a running model to attach to and only makes sense when the
+              model advertises efforts. Like the model picker, choosing one is a
+              deliberate pick — every change restarts the session. While gated,
+              the gated selector's own level renders read-only even with no
+              catalog; a gated selector without a level shows no value at all,
+              so no stored/default effort is ever implied (issue #372). */}
+          {on && gated && effectiveLevel !== null && (
+            <span ref={levelAnchor} className="relative flex">
+              <button
+                type="button"
+                disabled
+                title={`${t("advisor.override.label")}: ${effective}`}
+                className={cn(
+                  CAPSULE_SEGMENT,
+                  "shrink-0 rounded-r-[5px] text-[11px] tabular-nums text-ink-mid",
+                  layout === "sheet" && "px-3",
                 )}
-                {efforts.map((effort) => (
-                  <button
-                    key={effort}
-                    type="button"
-                    onClick={() => setLevel(effort)}
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
-                      effort === effectiveLevel ? "text-iris" : "text-ink-mid",
-                    )}
-                  >
-                    {effort}
-                  </button>
-                ))}
-              </div>
-            )}
+              >
+                {effectiveLevel}
+              </button>
+            </span>
+          )}
+          {on && !gated && effectiveModelSelector !== null && efforts.length > 0 && (
+            <span ref={levelAnchor} className="relative flex">
+              <button
+                type="button"
+                disabled={disabled}
+                title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
+                onClick={() => setLevelMenu((m) => !m)}
+                className={cn(
+                  CAPSULE_SEGMENT,
+                  "shrink-0 rounded-r-[5px] text-[11px] tabular-nums text-iris",
+                  layout === "sheet" && "px-3",
+                )}
+              >
+                {effectiveLevel ?? t("composer.thinking.fallback")}
+              </button>
+              {levelMenu && (
+                <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
+                  <span className="px-1.5 pb-1 pt-0.5">
+                    <Label>{t("composer.advisor.thinkingLabel")}</Label>
+                  </span>
+                  {effectiveLevel !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setLevel("")}
+                      className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
+                      title={t("composer.advisor.defaultLevel")}
+                    >
+                      {t("composer.advisor.defaultLevelChoice")}
+                    </button>
+                  )}
+                  {efforts.map((effort) => (
+                    <button
+                      key={effort}
+                      type="button"
+                      onClick={() => setLevel(effort)}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                        effort === effectiveLevel ? "text-iris" : "text-ink-mid",
+                      )}
+                    >
+                      {effort}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </span>
+          )}
+        </Capsule>
+        {/* The compact source label: neutral/copper by design — this is
+            instance provenance, never a user choice (issue #372). */}
+        {gated && (
+          <span
+            title={t("advisor.override.label")}
+            className={cn("shrink-0 rounded border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wide", TONE_CHIP.neutral)}
+          >
+            {t("advisor.override.badge")}
           </span>
         )}
-      </Capsule>
+      </span>
 
-      {picking && (
+      {picking && !gated && (
         <ModelPalette
           variant="advisor"
           models={models}
@@ -272,4 +347,3 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
     </>
   );
 }
-

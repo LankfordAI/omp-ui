@@ -15,6 +15,7 @@ import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
 import { PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
+import { TONE_CHIP } from "./ui/tone";
 import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
@@ -188,6 +189,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const sessionRecord = useStore((s) => findRecord(s.state, tabId));
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
   const advisorDefaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectCwd] : undefined));
+  // This instance's dev/test advisor override (issue #372): the same backend
+  // state both renderers hydrate from; display precedence only.
+  const gateAdvisor = useStore((s) => s.state?.spawnGate.advisorModel ?? null);
 
   const [stagedModel, setStagedModel] = useState<ModelInfo | null>(currentModel);
   const [stagedThinking, setStagedThinking] = useState<string | null>(currentThinking);
@@ -248,11 +252,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     sourceWorktree !== null &&
     worktreeSel !== null &&
     worktreeSel.branch.trim() === sourceWorktree.branch.trim();
-  // What the advisor row shows: the staged pin, else omp's configured default
-  // (AdvisorControl's effective/inherited logic). omp encodes the level as a
-  // `:level` suffix on the selector.
-  const effectiveAdvisor = stagedAdvisorModel ?? advisorDefaults?.model ?? null;
-  const advisorInherited = stagedAdvisorModel === null;
+  // What the advisor row shows (issue #372): the instance's gate wins over
+  // the staged pin and omp's configured default — for display. Staging,
+  // re-seeding, and the options bag submitted by execute() keep the session's
+  // own saved/staged choice; the gate never enters a record. The level rides
+  // omp's `:level` suffix on the selector.
+  const gatedAdvisor = gateAdvisor !== null;
+  const effectiveAdvisor = gateAdvisor ?? stagedAdvisorModel ?? advisorDefaults?.model ?? null;
+  const advisorInherited = !gatedAdvisor && stagedAdvisorModel === null;
   const advisorSplit = effectiveAdvisor === null ? null : splitRole(effectiveAdvisor);
   const advisorModelInfo =
     availableModels.find((m) => `${m.provider}/${m.id}` === advisorSplit?.model) ?? null;
@@ -645,36 +652,67 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 <Switch on={stagedAdvisor} onChange={setStagedAdvisor} label={t("plan.review.advisorSwitch")} />
               </div>
 
+              {/* Gated provenance stays visible with the advisor off — worded
+                  as applying if it is enabled (issue #372). */}
+              {gatedAdvisor && (
+                <p className="mt-2 flex items-start gap-1.5 rounded-md border border-line bg-raised px-2.5 py-2 text-[10px] leading-snug text-ink-mid">
+                  <span
+                    title={t("advisor.override.label")}
+                    className={cn("mt-px shrink-0 rounded border px-1 font-mono text-[9px] uppercase tracking-wide", TONE_CHIP.neutral)}
+                  >
+                    {t("advisor.override.badge")}
+                  </span>
+                  <span>
+                    {t(stagedAdvisor ? "advisor.override.active" : "advisor.override.inactive", {
+                      selector: gateAdvisor ?? "",
+                    })}
+                  </span>
+                </p>
+              )}
+
               {stagedAdvisor && (
                 <>
                   <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorModel")}</span>
-                  {availableModels.length === 0 ? (
-                    <button
-                      type="button"
-                      disabled
-                      title={t("plan.review.noModels")}
-                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
-                    >
-                      {effectiveAdvisor === null
-                        ? t("plan.review.ompDefault")
-                        : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      title={effectiveAdvisor ?? t("plan.review.advisorModelDefault")}
-                      onClick={() => setPickingAdvisorModel(true)}
-                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
-                    >
-                      {effectiveAdvisor === null
-                        ? t("plan.review.ompDefault")
-                        : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={gatedAdvisor || availableModels.length === 0}
+                    title={
+                      gatedAdvisor
+                        ? `${t("advisor.override.label")}: ${effectiveAdvisor}`
+                        : availableModels.length === 0
+                          ? t("plan.review.noModels")
+                          : (effectiveAdvisor ?? t("plan.review.advisorModelDefault"))
+                    }
+                    onClick={() => {
+                      if (gatedAdvisor) return;
+                      setPickingAdvisorModel(true);
+                    }}
+                    className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                  >
+                    {effectiveAdvisor === null
+                      ? t("plan.review.ompDefault")
+                      : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
+                  </button>
                 </>
               )}
 
-              {stagedAdvisor && advisorSplit !== null && advisorEfforts.length > 0 && (
+              {stagedAdvisor && gatedAdvisor && advisorSplit !== null && advisorSplit.level !== undefined && (
+                <>
+                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorThinking")}</span>
+                  <span ref={advisorLevelAnchor} className="relative flex">
+                    <button
+                      type="button"
+                      disabled
+                      title={`${t("advisor.override.label")}: ${effectiveAdvisor}`}
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink"
+                    >
+                      {advisorSplit.level}
+                    </button>
+                  </span>
+                </>
+              )}
+
+              {stagedAdvisor && !gatedAdvisor && advisorSplit !== null && advisorEfforts.length > 0 && (
                 <>
                   <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorThinking")}</span>
                   <span ref={advisorLevelAnchor} className="relative flex">
@@ -883,7 +921,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
         }}
       />
     )}
-    {pickingAdvisorModel && (
+    {pickingAdvisorModel && !gatedAdvisor && (
       <ModelPalette
         variant="advisor"
         models={availableModels}
