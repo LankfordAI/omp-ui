@@ -55,7 +55,7 @@ interface Harness {
 }
 
 const lineageDirs: string[] = [];
-function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; advisor?: boolean } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -69,6 +69,8 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
     lineageDir,
     ompPath: opts.ompPath ?? "/opt/bun/bin/omp",
     resumeSessionId: opts.resumeSessionId,
+    model: opts.model,
+    advisor: opts.advisor,
     initialCommands: opts.initialCommands,
     bare: opts.bare,
     onFrame: (f) => frames.push(f),
@@ -118,6 +120,23 @@ describe("RpcClient spawn", () => {
   it("appends --resume when a session id is given", () => {
     const h = harness({ resumeSessionId: "abc-123" });
     expect(h.spawnArgs.at(-1)).toBe("--resume=abc-123");
+  });
+
+  it("passes a model selector with --model between --resume and --advisor", () => {
+    // The dev/test spawn gate's selector must reach omp for a resumed session
+    // too — transcript model beats modelRoles.default, so --model is the only lever.
+    const h = harness({ resumeSessionId: "abc-123", advisor: true, model: "p/m" });
+    expect(h.spawnArgs).toEqual([
+      "--mode=rpc-ui",
+      "--cwd",
+      "/proj",
+      "--session-dir",
+      h.lineageDir,
+      "--resume=abc-123",
+      "--model",
+      "p/m",
+      "--advisor",
+    ]);
   });
 
   it("appends the six bare flags in order for a credential errand", () => {

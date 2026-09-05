@@ -15,37 +15,55 @@ import {
   writeMcpStatusExtension,
   writePlanExtension,
 } from "@omp-ui/core";
+import { NO_GATE, type SpawnGate } from "./spawn-gate";
 
-  /** Rewrites spawn overlays from the session record on every launch. */
-export function writeSessionOverlays(record: OwnedSessionRecord, absLineageDir: string): string[] {
-    const overlays: string[] = [];
-    const advisorRole = record.advisorModel === null ? null : parseModelRole(record.advisorModel);
+/** Rewrites spawn overlays from the session record (and any dev/test gate pin) on every launch. */
+export function writeSessionOverlays(
+  record: OwnedSessionRecord,
+  absLineageDir: string,
+  gate: SpawnGate = NO_GATE,
+): string[] {
+  const overlays: string[] = [];
+  // The gate's advisor model wins over the record's; the enabled flag stays the
+  // record's, so an advisor test under the gate still tests the advisor.
+  const advisorRole =
+    gate.advisorModel ?? (record.advisorModel === null ? null : parseModelRole(record.advisorModel));
+  try {
+    const overlay = writeAdvisorOverlay(absLineageDir, advisorRole, record.advisor);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[advisor] could not write the overlay:", err);
+  }
+  // The gate pins every launch, resume included; otherwise the record's own pin,
+  // unchanged. A gated level comes from the selector alone — a run that wants the
+  // record's thinking level asks omp for it, so record.thinkingLevel is not consulted.
+  const role =
+    gate.model ??
+    (record.model === null
+      ? null
+      : parseModelRole(
+          record.thinkingLevel === null
+            ? record.model
+            : `${record.model}:${record.thinkingLevel}`,
+        ));
+  if (role !== null) {
     try {
-      const overlay = writeAdvisorOverlay(absLineageDir, advisorRole, record.advisor);
+      const overlay = writeDefaultModelOverlay(absLineageDir, role);
       if (overlay !== null) overlays.push(overlay);
     } catch (err) {
-      console.warn("[advisor] could not write the overlay:", err);
+      console.warn("[model] could not write the default-model overlay:", err);
     }
-    const model = record.model;
-    if (model !== null) {
-      const selector =
-        record.thinkingLevel == null ? model : `${model}:${record.thinkingLevel}`;
-      try {
-        const overlay = writeDefaultModelOverlay(absLineageDir, parseModelRole(selector));
-        if (overlay !== null) overlays.push(overlay);
-      } catch (err) {
-        console.warn("[model] could not write the default-model overlay:", err);
-      }
-    }
-    return overlays;
   }
+  return overlays;
+}
 
 export async function writeRpcOverlays(
-    record: OwnedSessionRecord,
-    absLineageDir: string,
-    ompPath: string,
-  ): Promise<string[]> {
-    const overlays = writeSessionOverlays(record, absLineageDir);
+  record: OwnedSessionRecord,
+  absLineageDir: string,
+  ompPath: string,
+  gate: SpawnGate = NO_GATE,
+): Promise<string[]> {
+  const overlays = writeSessionOverlays(record, absLineageDir, gate);
     const preferred = record.compactionMethod;
     if (preferred === null) {
       writeCompactionMethodOverlay(absLineageDir, null, []);

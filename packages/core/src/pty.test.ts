@@ -33,6 +33,16 @@ describe("ompTuiArgs", () => {
     expect(args).not.toContain("--session-dir");
     expect(args.some((arg) => arg.startsWith("--resume"))).toBe(false);
   });
+
+  it("carries the dev/test spawn gate's selector as --model", () => {
+    expect(ompTuiArgs("/w", "p/m:low")).toEqual([
+      "--cwd",
+      "/w",
+      "--no-session",
+      "--model",
+      "p/m:low",
+    ]);
+  });
 });
 
 describe("normalizePtyKillSignal", () => {

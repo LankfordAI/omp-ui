@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { PtyHandle } from "@omp-ui/core";
+import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the three surfaces it touches.
@@ -108,7 +109,7 @@ function fakeHandle(opts: { id: string }): PtyHandle {
  * fixture mirrors session-advisor.test.ts so both suites exercise the same
  * boot path.
  */
-function setup(): { backend: InstanceType<typeof MainBackend> } {
+function setup(opts: { spawnGate?: SpawnGate } = {}): { backend: InstanceType<typeof MainBackend> } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-shell-"));
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -159,7 +160,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
 
   handlers.clear();
   sent.length = 0;
-  const backend = new MainBackend(win as never, registryFile);
+  const backend = new MainBackend(win as never, registryFile, { spawnGate: opts.spawnGate });
   backend.registerIpc();
   return { backend };
 }
@@ -318,6 +319,20 @@ describe("console-drawer TUI handoff (issue #243)", () => {
     // in the TUI, not in a dead shell.
     invoke(CH.shellWrite, TAB, "/mcp reauth ctx\r");
     expect(fakeShells[0]!.write).toHaveBeenCalledWith("/mcp reauth ctx\r");
+  });
+
+  it("hands the dev/test spawn gate's selector to the TUI, which runs real turns", () => {
+    setup({ spawnGate: parseSpawnGate({ OMP_UI_TEST_MODEL: "gate/model:low" }) });
+    invoke(CH.shellSpawn, TAB, "/proj", 100, 30, "omp-tui");
+
+    expect(spawnOmpTuiMock).toHaveBeenCalledWith({
+      id: TAB,
+      cwd: "/proj",
+      cols: 100,
+      rows: 30,
+      ompPath: ompBin,
+      model: "gate/model:low",
+    });
   });
 
   it("a staged handoff replaces the running login shell without a stale exit", () => {

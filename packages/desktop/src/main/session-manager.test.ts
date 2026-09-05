@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
 import { SessionManager } from "./session-manager";
 import type { Attention } from "./desktop-notifier";
+import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 vi.mock("@omp-ui/core", async (importOriginal) => {
@@ -120,7 +121,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -182,6 +183,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
     send: (channel, ...args) => sent.push({ channel, args }),
     broadcast,
     attention: opts.attention,
+    spawnGate: opts.spawnGate,
   });
   return { manager, registry, broadcast, sent, sessionsRoot };
 }
@@ -435,6 +437,96 @@ describe("project default model pins (issue #257)", () => {
     expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
       model: null,
     });
+  });
+});
+
+describe("test-run spawn gate (issue #371)", () => {
+  const gated = (model: string | null, advisorModel: string | null = null): SpawnGate =>
+    parseSpawnGate({
+      ...(model === null ? {} : { OMP_UI_TEST_MODEL: model }),
+      ...(advisorModel === null ? {} : { OMP_UI_TEST_ADVISOR: advisorModel }),
+    });
+
+  const overlayNamed = (files: string[] | undefined, name: string): string | undefined =>
+    files?.find((file) => path.basename(file) === name);
+
+  const freshSpawn = (manager: SessionManager, advisor = false): Promise<{ tabId: string }> =>
+    manager.spawn({
+      origin: "new",
+      worktree: null,
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor,
+      cols: 80,
+      rows: 24,
+    });
+
+  it("pins a fresh native spawn over the project pin and the last-used model", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui", spawnGate: gated("gate/model:low") });
+    registry.setSessionModel(TAB, "last/model", "high");
+    registry.setProjectDefaultModel("/proj", "pin/model");
+
+    const { tabId } = await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as
+      | { model?: string; configOverlays?: string[] }
+      | undefined;
+    expect(options?.model).toBe("gate/model:low");
+    const overlay = overlayNamed(options?.configOverlays, "omp-ui-model.yml");
+    expect(fs.readFileSync(overlay!, "utf8")).toBe('modelRoles:\n  default: "gate/model:low"\n');
+
+    // The gate reaches omp only — it never rewrites what the registry remembered.
+    expect(registry.sessions.find((s) => s.tabId === tabId)).toMatchObject({ model: "pin/model" });
+  });
+
+  it("pins a resumed spawn, which a project pin never reaches", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui", spawnGate: gated("gate/model:low") });
+    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setSessionModel(TAB, "transcript/model", "high");
+
+    const { tabId } = await resume(manager);
+    expect(tabId).toBe(TAB);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { model?: string } | undefined;
+    expect(options?.model).toBe("gate/model:low");
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      model: "transcript/model",
+      thinkingLevel: "high",
+    });
+  });
+
+  it("pins a terminal spawn's argv as well", async () => {
+    const { manager } = setup({ mode: "pty", spawnGate: gated("gate/model:low") });
+
+    await resume(manager);
+    expect(spawnCalls.at(-1)?.model).toBe("gate/model:low");
+  });
+
+  it("leaves argv and overlays alone when the gate is off", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setProjectDefaultModel("/proj", "pin/model");
+
+    await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as
+      | { model?: string; configOverlays?: string[] }
+      | undefined;
+    expect(options?.model).toBeUndefined();
+    const overlay = overlayNamed(options?.configOverlays, "omp-ui-model.yml");
+    expect(fs.readFileSync(overlay!, "utf8")).toBe('modelRoles:\n  default: "pin/model"\n');
+  });
+
+  it("pins the advisor model without touching the advisor's posture", async () => {
+    const { manager } = setup({ mode: "rpc-ui", spawnGate: gated(null, "gate/advisor:low") });
+
+    await freshSpawn(manager, true);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as
+      | { model?: string; configOverlays?: string[] }
+      | undefined;
+    // An advisor-only gate leaves the main model to the record, unchanged.
+    expect(options?.model).toBeUndefined();
+    expect(overlayNamed(options?.configOverlays, "omp-ui-model.yml")).toBeUndefined();
+    const overlay = overlayNamed(options?.configOverlays, "omp-ui-advisor.yml");
+    expect(fs.readFileSync(overlay!, "utf8")).toBe(
+      'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "gate/advisor:low"\n',
+    );
   });
 });
 

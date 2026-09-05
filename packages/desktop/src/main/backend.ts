@@ -68,6 +68,7 @@ import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 import { openExternalSafe } from "./open-external";
+import type { SpawnGate } from "./spawn-gate";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -110,6 +111,8 @@ export class MainBackend {
       providerKeysFile?: string;
       /** Where worktree checkouts live; defaults beside the registry. */
       worktreesRoot?: string;
+      /** Dev/test model pins forced on every spawn this instance makes. */
+      spawnGate?: SpawnGate;
       /** Process owner override for focused main-process tests. */
       sessions?: SessionManager;
     } = {},
@@ -160,6 +163,7 @@ export class MainBackend {
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
         attention: this.notifier,
+        spawnGate: opts.spawnGate,
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.

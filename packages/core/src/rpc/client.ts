@@ -26,6 +26,12 @@ export interface RpcClientOpts {
   lineageDir: string;
   ompPath: string;
   resumeSessionId?: string;
+  /**
+   * Exact per-process model selector (`provider/model[:level]`) passed to omp as
+   * `--model`. Only the dev/test spawn gate sets it: it is the one mechanism that
+   * reaches a resumed session, whose model otherwise comes from the transcript.
+   */
+  model?: string;
   advisor?: boolean;
   /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
   configOverlays?: string[];
@@ -100,6 +106,7 @@ export class RpcClient {
     );
     const args = ["--mode=rpc-ui", "--cwd", opts.cwd, "--session-dir", opts.lineageDir];
     if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
+    if (opts.model) args.push("--model", opts.model);
     if (opts.advisor) args.push("--advisor");
     for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
     for (const extension of opts.extensions ?? []) args.push("-e", extension);

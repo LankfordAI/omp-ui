@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, screen } from "electron";
-import { clearImageScratch } from "@omp-ui/core";
+import { clearImageScratch, formatModelRole } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { appUpdateEnabledForBuild } from "./app-update-policy";
 import { openExternalSafe } from "./open-external";
@@ -14,6 +14,7 @@ import {
 import { installApplicationMenu } from "./application-menu";
 import { startFdWatchdog } from "./fd-watchdog";
 import { appendMainLog } from "./main-log";
+import { gateSelector, parseSpawnGate } from "./spawn-gate";
 import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 
 // Packaged, standalone unpackaged, and electron-vite runs need independent
@@ -244,6 +245,19 @@ if (!app.requestSingleInstanceLock()) {
 
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
+    // Dev/test seam (docs/development.md): when set, every session this instance
+    // spawns — fresh or resumed, terminal or native — pins its main model (and, for
+    // OMP_UI_TEST_ADVISOR, its advisor model) to a cheap selector. Logged once so a
+    // verification run cannot silently believe it tested the user's real model mix.
+    const spawnGate = parseSpawnGate(process.env);
+    if (spawnGate.model !== null || spawnGate.advisorModel !== null) {
+      console.info(
+        `[spawn-gate] every session pins model=${gateSelector(spawnGate) ?? "unchanged"}` +
+          ` advisor=${
+            spawnGate.advisorModel === null ? "unchanged" : formatModelRole(spawnGate.advisorModel)
+          }`,
+      );
+    }
     const be = new MainBackend(win, registryFile, {
       setAppUpdateQuitAuthorized: (on) => {
         updateQuitAuthorized = on;
@@ -266,6 +280,7 @@ if (!app.requestSingleInstanceLock()) {
       // __dirname is out/main in dev and packaged alike, so out/web resolves in both; inside
       // app.asar Electron's patched fs reads it normally.
       webRoot: join(__dirname, "../web"),
+      spawnGate,
     });
     backend = be;
     stopFdWatchdog = startFdWatchdog({ logDir });

@@ -50,6 +50,12 @@ export function spawnOmp(opts: {
   lineageDir: string;
   ompPath: string;
   resumeSessionId?: string;
+  /**
+   * Exact per-process model selector (`provider/model[:level]`) passed to omp as
+   * `--model`. Only the dev/test spawn gate sets it; it is the one mechanism that
+   * reaches a resumed session, whose model otherwise comes from the transcript.
+   */
+  model?: string;
   cols: number;
   rows: number;
   advisor?: boolean;
@@ -58,6 +64,7 @@ export function spawnOmp(opts: {
 }): PtyHandle {
   const args = ["--cwd", opts.cwd, "--session-dir", opts.lineageDir];
   if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
+  if (opts.model) args.push("--model", opts.model);
   if (opts.advisor) args.push("--advisor");
   for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
 
@@ -110,9 +117,11 @@ export function spawnShell(opts: {
  * Argv for a handoff TUI. Deliberately no `--session-dir`, `--resume`,
  * `--advisor` or `--config` overlays: this omp must not join the tab's lineage
  * (ADR-0003), and `--no-session` keeps the errand out of session storage.
+ * `model` is the dev/test spawn gate's selector — this TUI runs real turns, so
+ * a gated app instance must not hand off to the frontier model.
  */
-export function ompTuiArgs(cwd: string): string[] {
-  return ["--cwd", cwd, "--no-session"];
+export function ompTuiArgs(cwd: string, model?: string): string[] {
+  return ["--cwd", cwd, "--no-session", ...(model ? ["--model", model] : [])];
 }
 
 /**
@@ -126,8 +135,10 @@ export function spawnOmpTui(opts: {
   ompPath: string;
   cols: number;
   rows: number;
+  /** Dev/test spawn gate selector; see `ompTuiArgs`. */
+  model?: string;
 }): PtyHandle {
-  const cmd = withFdSweep(opts.ompPath, ompTuiArgs(opts.cwd));
+  const cmd = withFdSweep(opts.ompPath, ompTuiArgs(opts.cwd, opts.model));
   const proc = pty.spawn(cmd.file, cmd.args, {
     name: "xterm-256color",
     cols: opts.cols,

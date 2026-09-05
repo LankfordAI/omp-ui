@@ -136,6 +136,8 @@ The following environment variables are developer and test seams. They are not u
 | `OMP_UI_INSTALL_DIR` | Overrides the directory that holds omp-ui's managed OMP executable. This is a directory, not the executable path. |
 | `OMP_UI_REGISTRY_PATH` | Replaces the main process's default `registry.json` path, which isolates a development run's app state. |
 | `OMP_UI_CDP_PORT` | Adds Electron's `remote-debugging-port` switch for programmatic renderer inspection. Set it only for a local development run. |
+| `OMP_UI_TEST_MODEL` | Pins the main model of every session this app instance spawns — fresh or resumed, terminal or native — by passing the `provider/model[:level]` selector to OMP as `--model` and writing it into the lineage's `omp-ui-model.yml` overlay as `modelRoles.default`. It overrides the project's default-model pin and last-used model, and never rewrites a registry record. A selector OMP cannot resolve fails the spawn with OMP's own message in the tab's failure surface. |
+| `OMP_UI_TEST_ADVISOR` | Pins only the advisor model, as `modelRoles.advisor` in the lineage's advisor overlay. The advisor's on/off posture still comes from the session record and the composer, so an advisor test under the gate still tests the advisor. |
 | `OMP_UI_APP_UPDATE_ENABLE=1` | Forces app-update behavior on for an unpackaged development build. |
 | `OMP_UI_APP_UPDATE_VERSION` | Overrides the current app version passed to the updater. |
 | `OMP_UI_APP_UPDATE_FORMAT=appimage` | Supplies the development-only AppImage environment needed to reach the AppImage updater path. Other values do not select a fake package format. |
@@ -150,6 +152,28 @@ npm run dev
 ```
 
 The app-update controls can contact and act on real release metadata. Use them only for a deliberate updater test, with an isolated registry and no live session you need to preserve.
+
+### Verification runs
+
+A run that boots the app in order to drive it over CDP should pin its sessions to a cheap model. Every live session that run spawns follows the parent's model when it delegates, so one unpinned session becomes a frontier-priced fan-out — and a dev-server launch is a separate app instance with its own registry, so the pins recorded by the packaged app do not apply there.
+
+```bash
+OMP_UI_TEST_MODEL="openrouter/openai/gpt-5.6-luna:low" \
+OMP_UI_TEST_ADVISOR="openrouter/openai/gpt-5.6-terra:low" \
+OMP_UI_REGISTRY_PATH=/tmp/omp-ui-test-registry.json \
+OMP_UI_CDP_PORT=9223 \
+npm run dev
+```
+
+That pairing — Luna as the main selector, Terra as the advisor selector — is the recommended default; `openrouter/z-ai/glm-5.3-flash:low` is the alternate main selector when a run wants the wider context. Every documented example names an OpenRouter selector, never a local endpoint: a run on a machine without that host running would fail the spawn instead of cheapening it. Re-check a selector, its thinking levels, and whether it accepts image input with `omp models find <model>`; choose one reporting `images: yes` for a run that exercises image paste, and avoid a `:batch` variant, since a verification run waits on its own output and batch delivery has no latency promise.
+
+Three cautions:
+
+- Always pair the gate with a throwaway `OMP_UI_REGISTRY_PATH`. The renderer records a session's live model as that registry's project `lastModel`, so a polluted development registry silently becomes the next run's default model.
+- Subagents follow the gate only while OMP's `task.agentModelOverrides` has no entry for their agent type. Setting `task.showResolvedModelBadge` makes each delegated session's resolved model visible in the transcript.
+- Read the main model from OMP's own report — the `model_change` entry in the transcript or the composer's model button. The composer's advisor chip instead shows the session record's or OMP's configured advisor model, because OMP reports no resolved advisor model over rpc-ui: the authoritative check for `OMP_UI_TEST_ADVISOR` is the lineage's `omp-ui-advisor.yml`.
+
+For the agent *driving* the run, rather than the app it drives, OMP's own settings are the lever and no omp-ui code is involved: `omp config set task.agentModelOverrides '{"task":"openrouter/openai/gpt-5.6-luna:low"}'`, `omp config set task.prewalk true`, and `prewalk.enabled` plan on the strong model and then drop to the `smol` role at the first edit.
 
 ## Continuous integration order
 

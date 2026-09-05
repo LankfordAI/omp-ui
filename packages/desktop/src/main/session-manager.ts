@@ -53,6 +53,7 @@ import { TurnTracker } from "./turns";
 import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
 import { ShellHost } from "./shell-host";
+import { gateSelector, NO_GATE, type SpawnGate } from "./spawn-gate";
 
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
@@ -79,6 +80,11 @@ export interface SessionManagerDependencies {
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
   attention?: Attention;
+  /**
+   * Dev/test model pins this instance forces on every spawn it makes
+   * (docs/development.md). Absent or blank means an ungated launch.
+   */
+  spawnGate?: SpawnGate;
 }
 
 type OpKind = "spawn" | "delete" | "hibernate" | "relaunch";
@@ -94,9 +100,15 @@ export class SessionManager {
   private readonly frameObservers: FrameObserver[] = [];
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
+  private readonly gate: SpawnGate;
 
   constructor(private readonly deps: SessionManagerDependencies) {
-    this.shellHost = new ShellHost({ getOmpPath: deps.getOmpPath, send: deps.send });
+    this.gate = deps.spawnGate ?? NO_GATE;
+    this.shellHost = new ShellHost({
+      getOmpPath: deps.getOmpPath,
+      send: deps.send,
+      getOmpModelArg: () => gateSelector(this.gate),
+    });
     this.watcherHub = new WatcherHub({
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
@@ -462,10 +474,11 @@ export class SessionManager {
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
+      model: gateSelector(this.gate) ?? undefined,
       cols: req.cols,
       rows: req.rows,
       advisor: record.advisor,
-      configOverlays: writeSessionOverlays(record, absLineageDir),
+      configOverlays: writeSessionOverlays(record, absLineageDir, this.gate),
     });
     const entry = createPtyLiveEntry(record, ptyHandle);
     this.live.set(record.tabId, entry);
@@ -499,7 +512,7 @@ export class SessionManager {
       id: `omp-ui-initial-mode-${randomUUID()}`,
       message: planMessage(planMode, this.deps.registry.getSetting("planFormat")),
     });
-    const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath);
+    const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate);
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
@@ -508,6 +521,7 @@ export class SessionManager {
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
+      model: gateSelector(this.gate) ?? undefined,
       advisor: record.advisor,
       configOverlays,
       extensions,

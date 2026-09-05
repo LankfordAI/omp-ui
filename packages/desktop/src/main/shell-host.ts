@@ -9,6 +9,11 @@ import {
 export interface ShellHostDependencies {
   getOmpPath: () => string | null;
   send: (channel: string, ...args: unknown[]) => void;
+  /**
+   * The dev/test spawn gate's model selector (docs/development.md). The handoff
+   * TUI runs real turns, so a gated app instance gates this child too.
+   */
+  getOmpModelArg?: () => string | null;
 }
 
 /** Owns console-drawer programs independently of live OMP session children. */
@@ -27,7 +32,14 @@ export class ShellHost {
     this.kill(tabId);
     const handle =
       program === "omp-tui"
-        ? spawnOmpTui({ id: tabId, cwd, cols, rows, ompPath: this.requireOmpPath() })
+        ? spawnOmpTui({
+            id: tabId,
+            cwd,
+            cols,
+            rows,
+            ompPath: this.requireOmpPath(),
+            model: this.deps.getOmpModelArg?.() ?? undefined,
+          })
         : spawnShell({ id: tabId, cwd, cols, rows });
     const detachData = handle.onData((data) => this.deps.send(CH.onShellData, tabId, data));
     this.shells.set(tabId, { handle, detachData });
