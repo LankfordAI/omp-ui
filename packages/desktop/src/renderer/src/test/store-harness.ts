@@ -17,6 +17,7 @@ import type {
   SessionWorktree,
   WorktreeReleaseResult,
 } from "@omp-ui/core/types";
+import type { SessionCapabilitiesResult } from "@omp-ui/core/capabilities";
 import { backendState as makeBackendState } from "./fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
@@ -112,6 +113,13 @@ const mockBackend = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   generateTitle: vi.fn(async (): Promise<string | null> => null),
+  // Boot's optional roster read: a harness tab has no armed bridge unless a
+  // case overrides this, exactly as a session without one answers main.
+  getSessionCapabilities: vi.fn(
+    async (): Promise<SessionCapabilitiesResult> => ({
+      status: "bridge-unavailable",
+    }),
+  ),
   readPlanFile: vi.fn(
     async (_tabId: string, absPath: string): Promise<string | null> =>
       absPath.endsWith(".html") ? "<h1>Plan</h1>" : "# Plan\n\nstep one\n",

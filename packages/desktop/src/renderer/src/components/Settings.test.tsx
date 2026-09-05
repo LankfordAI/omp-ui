@@ -768,17 +768,19 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     );
   });
 
-  it("offers the global MCP manager without a focused session", async () => {
+  it("opens the global capabilities viewer without a focused session", async () => {
     seedOmp(emptyOmpSettings);
     await renderSettings();
     const globalBtn = buttonWithText("Global MCP servers…");
-    const projectBtn = buttonWithText("MCP servers…");
+    const projectBtn = buttonWithText("Session capabilities");
     expect(globalBtn).not.toBeNull();
     expect(globalBtn!.disabled).toBe(false);
     expect(projectBtn!.disabled).toBe(true);
 
     click(globalBtn!);
-    expect(useStore.getState().mcpManager).toEqual({ scopeCwd: null });
+    const viewer = useStore.getState().capabilitiesViewer;
+    expect(viewer?.scopeCwd).toBeNull();
+    expect(viewer?.section).toBe("mcp");
     expect(useStore.getState().settingsPage).toBeNull();
   });
 });

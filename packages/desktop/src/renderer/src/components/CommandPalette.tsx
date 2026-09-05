@@ -86,7 +86,7 @@ export function CommandPalette() {
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
-  const openMcpManager = useStore((s) => s.openMcpManager);
+  const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
@@ -153,16 +153,16 @@ export function CommandPalette() {
           run: () => void switchMode(tab.tabId, other),
         },
       );
-      // The manager pins to this tab, so it resolves at the session's own
+      // The viewer pins to this tab, so it resolves at the session's own
       // working tree — a worktree session's checkout (#325).
       const scopeCwd = sessionCwd(findRecord(state, tab.tabId));
       if (scopeCwd !== undefined) {
         out.push({
-          id: "session:mcp",
+          id: "session:capabilities",
           group: t("palette.group.session"),
-          name: t("palette.action.mcp"),
-          desc: t("palette.action.mcpDesc"),
-          run: () => openMcpManager(scopeCwd, tab.tabId),
+          name: t("palette.action.capabilities"),
+          desc: t("palette.action.capabilitiesDesc"),
+          run: () => openCapabilitiesViewer(scopeCwd, tab.tabId, "mcp"),
         });
       }
     }
@@ -191,7 +191,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openMcpManager, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

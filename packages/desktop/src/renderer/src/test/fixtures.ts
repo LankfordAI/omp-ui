@@ -72,6 +72,8 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     plans: [],
     advisorStats: null,
     mcpStatus: null,
+    capabilities: null,
+    capabilitiesLoad: "idle",
     advisorReply: true,
     ...patch,
   };

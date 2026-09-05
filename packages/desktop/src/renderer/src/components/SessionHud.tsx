@@ -577,10 +577,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
-  // The manager resolves and writes where omp does: this session's own working
+  // The viewer resolves and writes where omp does: this session's own working
   // tree, which for a worktree session is its checkout (#325).
   const scopeCwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
-  const openMcpManager = useStore((s) => s.openMcpManager);
+  const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const compact = useCompactShell();
   const surface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
@@ -693,7 +693,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
-                {scopeCwd !== undefined && <Button onClick={() => openMcpManager(scopeCwd, tabId)} className={sheetAction}><IconMcp />MCP{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>}
+                {scopeCwd !== undefined && <Button onClick={() => openCapabilitiesViewer(scopeCwd, tabId, "mcp")} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>}
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
@@ -797,8 +797,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
         {scopeCwd !== undefined && (
           <span className="relative shrink-0">
             <IconButton
-              label={mcpFailureCount > 0 ? t("hud.actions.manageMcpFailed", { count: mcpFailureCount }) : t("hud.actions.manageMcp")}
-              onClick={() => openMcpManager(scopeCwd, tabId)}
+              label={mcpFailureCount > 0 ? t("hud.actions.capabilitiesFailed", { count: mcpFailureCount }) : t("hud.actions.capabilities")}
+              onClick={() => openCapabilitiesViewer(scopeCwd, tabId, "mcp")}
             >
               <IconMcp />
             </IconButton>

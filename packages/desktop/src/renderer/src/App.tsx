@@ -4,7 +4,7 @@ import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { inspectorBadges } from "./components/InspectorRail";
-import { McpManager } from "./components/McpManager";
+import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
@@ -258,7 +258,7 @@ export default function App() {
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
-  const mcpManager = useStore((s) => s.mcpManager);
+  const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
 	const projectSettings = useStore((s) => s.projectSettings);
 	const closeProjectSettings = useStore((s) => s.closeProjectSettings);
 	const state = useStore((s) => s.state);
@@ -278,6 +278,17 @@ export default function App() {
 		projectSettings === null
 			? null
 			: state?.projects.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
+
+  // The viewer is pinned to the record it captured: a focus change never
+  // retargets it, but deleting the pinned session closes it (the same
+  // lookup-enforced auto-close as the project dialog above).
+	const capabilitiesModal =
+		capabilitiesViewer === null ||
+		(capabilitiesViewer.tabId !== undefined &&
+			state !== null &&
+			findRecord(state, capabilitiesViewer.tabId) === undefined)
+			? null
+			: capabilitiesViewer;
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
@@ -458,7 +469,13 @@ export default function App() {
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
       {projectPickerOpen && <ProjectPicker />}
-      {mcpManager && <McpManager scopeCwd={mcpManager.scopeCwd} tabId={mcpManager.tabId} />}
+      {capabilitiesModal !== null && (
+        <CapabilitiesViewer
+          scopeCwd={capabilitiesModal.scopeCwd}
+          tabId={capabilitiesModal.tabId}
+          section={capabilitiesModal.section}
+        />
+      )}
 			{projectSettingsProject !== null && (
 				<ProjectSettings project={projectSettingsProject} onClose={closeProjectSettings} />
 			)}

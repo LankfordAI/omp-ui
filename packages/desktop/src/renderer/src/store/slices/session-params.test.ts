@@ -479,30 +479,32 @@ describe("prompting, slash commands, and session ops", () => {
     await promise;
   });
 
-  it("bare /mcp and /mcp list open the MCP manager instead of prompting omp", async () => {
+  it("bare /mcp and /mcp list open the capabilities viewer instead of prompting omp", async () => {
     h.useStore.setState({
       // A record without a worktree: sessionCwd is its project root.
       state: h.stateWithRecord("sess-1", "live", null),
-      mcpManager: null,
+      capabilitiesViewer: null,
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
     expect(h.sent).toHaveLength(0);
-    expect(h.useStore.getState().mcpManager).toEqual({
+    expect(h.useStore.getState().capabilitiesViewer).toEqual({
       scopeCwd: "/p",
       tabId: h.TAB,
+      section: "mcp",
     });
-    h.useStore.getState().closeMcpManager();
+    h.useStore.getState().closeCapabilitiesViewer();
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
     expect(h.sent).toHaveLength(0);
-    expect(h.useStore.getState().mcpManager).toEqual({
+    expect(h.useStore.getState().capabilitiesViewer).toEqual({
       scopeCwd: "/p",
       tabId: h.TAB,
+      section: "mcp",
     });
-    h.useStore.getState().closeMcpManager();
+    h.useStore.getState().closeCapabilitiesViewer();
   });
 
-  it("bare /mcp in a worktree session opens the manager at the checkout (issue #325)", async () => {
+  it("bare /mcp in a worktree session opens the viewer at the checkout (issue #325)", async () => {
     h.backendState = h.stateWithRecord("sess-1", "live", {
       path: "/wt",
       branch: "omp-ui/abc",
@@ -510,50 +512,53 @@ describe("prompting, slash commands, and session ops", () => {
     });
     h.useStore.setState({
       state: h.backendState,
-      mcpManager: null,
+      capabilitiesViewer: null,
       // The tab still carries the project root, so only the record's
       // worktree can produce /wt here.
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
     expect(h.sent).toHaveLength(0);
-    expect(h.useStore.getState().mcpManager).toEqual({
+    expect(h.useStore.getState().capabilitiesViewer).toEqual({
       scopeCwd: "/wt",
       tabId: h.TAB,
+      section: "mcp",
     });
-    h.useStore.getState().closeMcpManager();
+    h.useStore.getState().closeCapabilitiesViewer();
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
     expect(h.sent).toHaveLength(0);
-    expect(h.useStore.getState().mcpManager).toEqual({
+    expect(h.useStore.getState().capabilitiesViewer).toEqual({
       scopeCwd: "/wt",
       tabId: h.TAB,
+      section: "mcp",
     });
-    h.useStore.getState().closeMcpManager();
+    h.useStore.getState().closeCapabilitiesViewer();
   });
 
   it("bare /mcp falls back to the tab's project root when no record is loaded", async () => {
     h.useStore.setState({
       state: null,
-      mcpManager: null,
+      capabilitiesViewer: null,
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp");
     expect(h.sent).toHaveLength(0);
-    expect(h.useStore.getState().mcpManager).toEqual({
+    expect(h.useStore.getState().capabilitiesViewer).toEqual({
       scopeCwd: "/p",
       tabId: h.TAB,
+      section: "mcp",
     });
-    h.useStore.getState().closeMcpManager();
+    h.useStore.getState().closeCapabilitiesViewer();
   });
 
   it("other /mcp subcommands forward with the command lifecycle", async () => {
     h.useStore.setState({
-      mcpManager: null,
+      capabilitiesViewer: null,
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
     });
     seedCommands({ name: "mcp" });
     const promise = h.useStore.getState().runSlashCommand(h.TAB, "/mcp reauth linear");
-    expect(h.useStore.getState().mcpManager).toBeNull();
+    expect(h.useStore.getState().capabilitiesViewer).toBeNull();
     expect(h.sent[0]!.cmd).toMatchObject({
       type: "prompt",
       message: "/mcp reauth linear",

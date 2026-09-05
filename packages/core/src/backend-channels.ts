@@ -34,6 +34,7 @@ import type {
   SpawnRequest,
   WorktreeReleaseResult,
 } from "./types";
+import type { SessionCapabilitiesResult } from "./capabilities";
 import type { RpcFrame } from "./rpc/codec";
 import {
   agentModeCodec,
@@ -525,6 +526,15 @@ export const BACKEND_CHANNELS = {
   releaseWorktree: {
     channel: "session:release-worktree",
     ...request<[tabId: string], WorktreeReleaseResult>([str()]),
+  },
+  /**
+   * Capabilities roster observed by a live session's bridge; never rejects —
+   * the tab's state maps to missing-session / not-live / terminal /
+   * bridge-unavailable / starting / available+snapshot (issue #374).
+   */
+  getSessionCapabilities: {
+    channel: "session:capabilities",
+    ...request<[tabId: string], SessionCapabilitiesResult>([str()]),
   },
   /**
    * Project-relative file listing for the composer's @ picker;

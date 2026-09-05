@@ -4,7 +4,7 @@ import type { ProjectRecord } from "@omp-ui/core/types";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { useStore } from "../store";
-import { McpServersPanel } from "./McpManager";
+import { McpServersPanel } from "./CapabilitiesViewer";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Label, Modal } from "./ui";
 
@@ -328,8 +328,9 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
  * The per-project settings dialog (issue #281): one modal for a project's MCP
  * servers and its default-model pins, opened from the desktop project header
  * and the compact actions sheet. Session-scoped MCP behavior (in-place
- * restart, TUI reauth handoff) stays in McpManager; this dialog pins no tab,
- * so McpServersPanel gets only the project scope.
+ * restart, TUI reauth handoff) stays in CapabilitiesViewer; this dialog pins
+ * no tab, so McpServersPanel gets only the project scope — omitted viewer
+ * props keep the panel exactly the manager it always was.
  */
 export function ProjectSettings({
   project,

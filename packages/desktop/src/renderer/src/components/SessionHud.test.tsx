@@ -333,8 +333,8 @@ describe("wide Session HUD", () => {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
 
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="manage MCP servers (120 failed)"]');
-    expect(trigger?.title).toBe("manage MCP servers (120 failed)");
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Capabilities — 120 MCP failures"]');
+    expect(trigger?.title).toBe("Capabilities — 120 MCP failures");
     expect(trigger?.parentElement?.textContent).toContain("99+");
   });
 });
@@ -362,7 +362,7 @@ describe("compact Session HUD", () => {
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="session actions"]')!.click());
 
     const mcp = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("MCP"));
+      .find((button) => button.textContent?.includes("Capabilities"));
     expect(mcp?.textContent).toContain("2 failed");
   });
 
@@ -435,7 +435,7 @@ describe("compact Session HUD", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     const actions = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("session actions"))!;
     act(() => actions.click());
-    for (const label of ["build", "plan", "compact", "auto-compact", "export", "MCP", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
+    for (const label of ["build", "plan", "compact", "auto-compact", "export", "Capabilities", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
       expect(document.body.textContent).toContain(label);
     }
     const compact = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "compact")!;

@@ -415,16 +415,34 @@ _Avoid_: sandbox session, isolated session, branch session, close the
 worktree, merge & close
 
 **MCP manager**:
-The modal listing every MCP server omp resolves for one scope — a session's
-own working tree (from its Session HUD, the command palette, the /mcp command,
-or Settings → MCP; a worktree session's checkout, else its project root) or
-global (user-level sources only) — with toggles that run omp's own
+The capabilities viewer's MCP tab listing every MCP server omp resolves
+for one scope — a session's own working tree (from its Session HUD, the
+command palette, the /mcp command, or Settings → omp; a worktree session's
+checkout, else its project root) or global (user-level sources only) —
+with toggles that run omp's own
 enable/disable write algorithm in core. Toggles take effect on the next
-session spawn; while opened from a live tab the modal also offers `/mcp
+session spawn; while opened from a live tab the viewer also offers `/mcp
 reload`, which rebinds that session's MCP tools in place; http/sse rows in a
 live native tab hand http/sse reauth to omp's own TUI. The DTO is redacted at
 the core boundary (issue #17, #36, #220, #325, #327).
 _Avoid_: MCP settings page, integrations panel, server browser
+
+**Capabilities viewer**:
+The modal with three tabs — MCP servers, Skills, and Tools — opened from the
+Session HUD, the command palette, Settings → omp, or /mcp. Its MCP tab is the
+MCP manager, contract unchanged; Skills and Tools show, for one pinned live
+native session, the skills it loaded and every tool it registered, delivered
+by a generated `-e` extension (ADR-0008), never by a parse or a prompt. Scope
+and session are captured at open and never retargeted by focus, and the roster
+describes the main session even while a subagent view is shown. It is a
+viewer, not a package manager, and not an inspector rail pane. Coverage is
+runtime-only, not on-disk: skill files the session never loaded, and tools
+registered only by other sessions, are not represented, while a loaded skill
+hidden from the model stays listed and marked. A registered tool is listed
+even when not enabled, with its access facts (model-direct, `xd://`, the eval
+bridge); enabled is omp's enablement state, not a permission grant — plan
+mode and approvals still gate use.
+_Avoid_: capabilities panel, plugin manager, tool browser
 
 **Project settings**:
 The modal the project header's settings button (desktop cluster) and the
@@ -435,10 +453,10 @@ renders, project-scoped with no pinned tab) and the project's default-model
 pins (main-model and advisor-model with their pickers and Clear actions).
 Toggles write through core's mcp-config module; pins through
 setProjectDefaultModel / setProjectDefaultAdvisorModel; both take effect on
-the next session spawn. Session-scoped surfaces keep the MCP manager itself:
-the Session HUD's per-tab MCP button (with in-place `/mcp reload` and TUI
-reauth handoff), the command palette, /mcp, and Settings → MCP including
-Global MCP servers.
+the next session spawn. Session-scoped surfaces keep the capabilities
+viewer's MCP tab: the Session HUD's per-tab Capabilities button (with
+in-place `/mcp reload` and TUI reauth handoff), the command palette, /mcp,
+and Settings → omp, including Global MCP servers.
 _Avoid_: project preferences, per-project settings page, project options
 
 **Memory settings**:

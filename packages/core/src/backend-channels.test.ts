@@ -78,6 +78,7 @@ const VALID_ARGS = {
   getProjectOpenAvailability: [],
   getProviderOAuthState: [],
   getRemoteState: [],
+  getSessionCapabilities: ["tab-1"],
   getState: [],
   hibernatePlanSource: ["source", "implementation"],
   listBranches: ["/project", { fetchUpstream: true }],
@@ -197,7 +198,7 @@ describe("BACKEND_CHANNELS", () => {
     const events = entries.filter(([, descriptor]) => descriptor.kind === "event");
     expect(Object.keys(CH)).toEqual(entries.map(([method]) => method));
     expect(new Set(Object.values(CH)).size).toBe(entries.length);
-    expect(inbound).toHaveLength(100);
+    expect(inbound).toHaveLength(101);
     expect(events).toHaveLength(12);
     for (const [, descriptor] of inbound) expect(descriptor).toHaveProperty("args");
     for (const [, descriptor] of events) expect(descriptor).not.toHaveProperty("args");
@@ -249,7 +250,7 @@ describe("transport dispatch", () => {
       if (descriptor.kind === "request") await dispatchRequest(table, descriptor.channel, args);
       else dispatchNotify(table, descriptor.channel, args);
     }
-    expect(calls).toHaveLength(100);
+    expect(calls).toHaveLength(101);
     expect(calls.map(({ channel }) => channel)).toEqual(
       Object.keys(VALID_ARGS).map((method) => BACKEND_CHANNELS[method as InboundMethod].channel),
     );

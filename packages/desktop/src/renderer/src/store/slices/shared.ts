@@ -71,6 +71,8 @@ export interface TabRuntime {
   compactionUsageGeneration?: number;
   lastUsageRefresh?: number;
   subagentPendingLevel?: "progress" | "events";
+  /** Bumped by every capability push and by teardown; invalidates reads (#374). */
+  capabilitiesGeneration: number;
 }
 
 export interface StoreMachinery {
@@ -309,6 +311,7 @@ function freshTabRuntime(): TabRuntime {
     timedOutCommands: [],
     pendingNotices: [],
     slashCommandItems: new Map(),
+    capabilitiesGeneration: 0,
   };
 }
 /** Test seam for the renderer store harness's whole-state reset. */

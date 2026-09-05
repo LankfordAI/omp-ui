@@ -10,6 +10,10 @@ import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
+import {
+  CAPABILITIES_STATUS_KEY,
+  parseCapabilitySnapshot,
+} from "@omp-ui/core/capabilities";
 import { normalizeControlFrame } from "@omp-ui/core/rpc/control-frames";
 import { backend } from "../../backend";
 import {
@@ -37,7 +41,12 @@ import {
   reduceAgentEvent,
   type AgentEventEffect,
 } from "./reduce-agent-event";
-import { disposeTabRuntime, rpcCommandMachinery } from "./rpc-command";
+import {
+  bumpCapabilitiesGeneration,
+  disposeTabRuntime,
+  noteCapabilitiesSessionChange,
+  rpcCommandMachinery,
+} from "./rpc-command";
 import { upsertPlan } from "./plan-execution";
 import { findRecord } from "./view";
 import type { UiStore } from "../types";
@@ -398,13 +407,20 @@ export function createFrameReductionSlice(
       switch (type) {
         case "rpc_chunk":
           return; // reassembled in main — never expected here
-        case "session_info_update":
-          m.patchRpc(tabId, { session: parseSessionRuntime(frame, tab.session) });
+        case "session_info_update": {
+          const session = parseSessionRuntime(frame, tab.session);
+          m.patchRpc(tabId, { session });
+          // The live session changed identity in place (`/new`, `/switch`,
+          // `/branch`): a roster sampled for the predecessor is someone
+          // else's inventory now, so drop it and re-read (issue #374).
+          noteCapabilitiesSessionChange(tabId, session.sessionId, get, m);
           return;
+        }
         case "config_update": {
           const model = parseModelInfo(field(frame, "model")) ?? tab.model;
           const session = parseSessionRuntime(frame, tab.session);
           m.patchRpc(tabId, { model, session });
+          noteCapabilitiesSessionChange(tabId, session.sessionId, get, m);
           if (model) {
             void backend
               .setSessionModel(
@@ -553,6 +569,29 @@ export function createFrameReductionSlice(
               m.appendItem(tabId, noticeItem(text, "warn"));
             }
             m.patchRpc(tabId, { mcpStatus });
+            return;
+          }
+          if (entry?.key === CAPABILITIES_STATUS_KEY) {
+            const snapshot = parseCapabilitySnapshot(entry.text);
+            // Malformed JSON never replaces a good roster with an empty one.
+            if (snapshot === null) return;
+            const retained = tab.capabilities;
+            if (
+              retained !== null &&
+              retained.processKey === snapshot.processKey &&
+              snapshot.revision <= retained.revision
+            )
+              return;
+            // The roster replaces wholesale: skills and tools come and go
+            // between publishes, so a merge would resurrect what omp dropped.
+            // It is data, never a transcript row, chip, or dialog entry.
+            m.patchRpc(tabId, {
+              capabilities: snapshot,
+              capabilitiesLoad: "available",
+            });
+            // The push owns the roster now; an in-flight
+            // getSessionCapabilities read must not overwrite it (#374).
+            bumpCapabilitiesGeneration(m, tabId);
             return;
           }
           const action = routeExtensionRequest(frame);

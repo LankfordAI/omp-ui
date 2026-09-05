@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
+import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT } from "../lib/i18n";
@@ -78,7 +79,13 @@ export function Composer({
       { ...UI_NEW_COMMAND, description: t("composer.slash.new") },
       { ...UI_PLAN_COMMAND, description: t("composer.slash.plan") },
       ...commands.filter(
-        (c) => c.name !== "new" && c.name !== "plan" && c.name !== PLAN_COMMAND,
+        // The capabilities bridge is UI-owned: omp advertises its hidden
+        // arming command, the palette must not offer it (issue #374).
+        (c) =>
+          c.name !== "new" &&
+          c.name !== "plan" &&
+          c.name !== PLAN_COMMAND &&
+          c.name !== CAPABILITIES_COMMAND,
       ),
     ],
     [commands, localeId, t],

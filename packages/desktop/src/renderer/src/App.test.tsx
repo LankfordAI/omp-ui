@@ -16,7 +16,7 @@ vi.mock("./components/AppUpdateCard", () => ({ AppUpdateCard: () => null }));
 vi.mock("./components/OmpUpdateCard", () => ({ OmpUpdateCard: () => null }));
 vi.mock("./components/DeleteSessionDialog", () => ({ DeleteSessionDialog: () => null }));
 vi.mock("./components/ProjectPicker", () => ({ ProjectPicker: () => null }));
-vi.mock("./components/McpManager", () => ({ McpManager: () => null }));
+vi.mock("./components/CapabilitiesViewer", () => ({ CapabilitiesViewer: () => null }));
 vi.mock("./components/Settings", () => ({ Settings: () => null }));
 
 const { useStore } = await import("./store");
@@ -33,7 +33,8 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionQueue: [], busy: false, initialPrompt: null,
     autoTitleSent: null,
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
-    plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, ...patch,
+    plans: [], advisorStats: null, mcpStatus: null, advisorReply: true,
+    capabilities: null, capabilitiesLoad: "idle", ...patch,
   };
 }
 

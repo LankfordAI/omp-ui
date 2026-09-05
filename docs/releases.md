@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Settings → Providers gains a **Subscriptions** group: sign in to a ChatGPT subscription (`openai-codex`) through the provider's own browser flow, with sign-out and the signed-in account identity. Sign-in runs in a bare, session-less omp process; the credential stays in omp's auth broker, shared with terminal omp (issue #368).
+- The MCP manager grows into the **Capabilities viewer**: one modal with the scope's resolved **MCP servers** plus the **Skills** and **Tools** rosters a live native session publishes over rpc through a generated per-lineage bridge sampled every ~2 seconds — browsing prompts no model. It opens from the Session HUD, the command palette, `/mcp`, and Settings → omp as **Session capabilities** or **Global MCP servers** (issue #374).
 
 ## Choose a download
 
