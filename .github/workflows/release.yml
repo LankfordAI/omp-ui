@@ -5,7 +5,12 @@ on:
     tags: ["v*"]
 
 permissions:
+  # The notes generator's job asks for issues/pull-requests read at job level.
+  # A called reusable workflow cannot widen the caller's token, so the scopes it
+  # needs must be granted here or the whole run fails at startup (issue #377).
   contents: write
+  issues: read
+  pull-requests: read
 
 jobs:
   release-linux:
