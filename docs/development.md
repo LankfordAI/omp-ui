@@ -43,6 +43,7 @@ The root scripts delegate to the npm workspaces where appropriate.
 | Start the desktop app | `npm run dev` | Generates theme CSS, installs the Electron binary if needed, then starts `electron-vite dev --watch`. |
 | Build all app bundles | `npm run build` | Generates themes, builds Electron main/preload/renderer, then builds the remote web bundle. |
 | Package the default target | `npm run package` | Runs the Linux packaging script. |
+| Preview release notes | `npm run notes` | Runs `scripts/release-notes.mjs` to render a release's notes body locally from git history and the GitHub API, for example `npm run notes -- --tag v0.9.12 --stdout`. Read-only; writes nothing to GitHub. |
 | Test all workspaces | `npm test` | Runs each workspace's `test` script. The desktop test script checks generated themes before Vitest. |
 | Type-check all workspaces | `npm run typecheck` | Runs each workspace's `typecheck` script. |
 | Lint the repository | `npm run lint` | Runs ESLint from the root. |
