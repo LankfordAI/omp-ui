@@ -3,6 +3,7 @@ import type {
   OwnedSessionRecord,
   SessionSummary,
 } from "@omp-ui/core/types";
+import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
 import type { StateCreator, StoreApi } from "zustand";
 import { backend } from "../../backend";
 import {
@@ -31,7 +32,11 @@ export interface ViewSlice {
   restoringTabs: boolean;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
-  mcpManager: { scopeCwd: string | null; tabId?: string } | null;
+  capabilitiesViewer: {
+    scopeCwd: string | null;
+    tabId?: string;
+    section: CapabilitySectionId;
+  } | null;
 	projectSettings: { projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -42,8 +47,12 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;
-  openMcpManager(scopeCwd: string | null, tabId?: string): void;
-  closeMcpManager(): void;
+  openCapabilitiesViewer(
+    scopeCwd: string | null,
+    tabId?: string,
+    section?: CapabilitySectionId,
+  ): void;
+  closeCapabilitiesViewer(): void;
 	openProjectSettings(projectCwd: string): void;
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
@@ -257,7 +266,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   restoringTabs: false,
   projectPickerOpen: false,
   worktreeDialogProject: null,
-  mcpManager: null,
+  capabilitiesViewer: null,
 	projectSettings: null,
   compactSurface: null,
   sidebarCollapsed: false,
@@ -277,11 +286,14 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   closeWorktreeDialog() {
     set({ worktreeDialogProject: null });
   },
-  openMcpManager(scopeCwd, tabId) {
-    set({ mcpManager: tabId === undefined ? { scopeCwd } : { scopeCwd, tabId } });
+  openCapabilitiesViewer(scopeCwd, tabId, section = "mcp") {
+    set({
+      capabilitiesViewer:
+        tabId === undefined ? { scopeCwd, section } : { scopeCwd, tabId, section },
+    });
   },
-  closeMcpManager() {
-    set({ mcpManager: null });
+  closeCapabilitiesViewer() {
+    set({ capabilitiesViewer: null });
   },
 	openProjectSettings(projectCwd) {
 		set({ projectSettings: { projectCwd } });

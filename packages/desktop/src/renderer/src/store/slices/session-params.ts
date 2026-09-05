@@ -120,9 +120,9 @@ const localCommands: readonly LocalCommand[] = [
     },
   },
   {
-    // omp-ui's MCP manager already owns the /mcp list surface. Bare forms
-    // only — every other subcommand (reauth, add, …) works over rpc and
-    // reaches omp verbatim with the normal command lifecycle. The manager
+    // The capabilities viewer's MCP tab owns the /mcp list surface. Bare
+    // forms only — every other subcommand (reauth, add, …) works over rpc
+    // and reaches omp verbatim with the normal command lifecycle. The viewer
     // opens at the session's own working tree — a worktree session's
     // checkout (#325) — falling back to the tab's project root when no
     // record is loaded yet.
@@ -132,7 +132,7 @@ const localCommands: readonly LocalCommand[] = [
         sessionCwd(findRecord(get().state, tabId)) ??
         get().tabs.find((tab) => tab.tabId === tabId)?.projectCwd;
       if (scopeCwd === undefined) return false;
-      get().openMcpManager(scopeCwd, tabId);
+      get().openCapabilitiesViewer(scopeCwd, tabId, "mcp");
     },
   },
 ];

@@ -28,7 +28,7 @@ export function OmpPage({
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const state = useStore((s) => s.state);
-  const openMcpManager = useStore((s) => s.openMcpManager);
+  const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSettings = useStore((s) => s.openSettings);
   const closeSettings = useStore((s) => s.closeSettings);
   const t = useT();
@@ -211,12 +211,12 @@ export function OmpPage({
               if (tab === undefined || scopeCwd === undefined) return;
               // One modal at a time: stacked Escape listeners would close both.
               closeSettings();
-              openMcpManager(scopeCwd, tab.tabId);
+              openCapabilitiesViewer(scopeCwd, tab.tabId, "mcp");
             }}
           >
-            {t("settings.omp.mcpServers")}
+            {t("settings.omp.sessionCapabilities")}
           </Button>
-          <Button size="xs" onClick={() => { closeSettings(); openMcpManager(null); }}>
+          <Button size="xs" onClick={() => { closeSettings(); openCapabilitiesViewer(null, undefined, "mcp"); }}>
             {t("settings.omp.globalMcpServers")}
           </Button>
         </div>

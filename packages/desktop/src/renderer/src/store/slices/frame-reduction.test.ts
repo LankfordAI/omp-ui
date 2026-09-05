@@ -19,6 +19,7 @@ import {
 } from "../../lib/stall-continue";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
+import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { commandItem, type NoticeItem } from "../../lib/transcript";
 import {
@@ -35,6 +36,7 @@ describe("reduceAgentEvent", () => {
     pendingNotices: [],
     slashCommandItems,
     lastFrameAt: 1_000,
+    capabilitiesGeneration: 0,
   });
 
   it("returns agent_start intents without mutating its inputs", () => {
@@ -544,6 +546,100 @@ describe("handleRpcFrame routing", () => {
 
       expect(h.useStore.getState().rpc[relaunchTab]!.mcpStatus).toBeNull();
       expect(h.useStore.getState().rpc[relaunchTab]!.items).toEqual([]);
+    });
+  });
+
+  describe("capability roster frames (issue #374)", () => {
+    /** A published roster: skills are the only section this suite inspects. */
+    const roster = (
+      processKey: string,
+      revision: number,
+      skills: string[],
+    ): string =>
+      JSON.stringify({
+        version: 1,
+        processKey,
+        sessionId: "sess-1",
+        revision,
+        updatedAt: 1_700_000_000_000 + revision,
+        ompVersion: "18.0.4",
+        skillCommandsEnabled: true,
+        skills: {
+          status: "available",
+          items: skills.map((name) => ({
+            name,
+            description: `${name} description`,
+            descriptionTruncated: false,
+            filePath: `/skills/${name}/SKILL.md`,
+            source: "project",
+            scope: "project",
+            hidden: false,
+          })),
+        },
+        tools: { status: "unavailable", reason: "read-failed" },
+      });
+
+    const publish = (statusText: string): void =>
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "capabilities",
+        method: "setStatus",
+        statusKey: CAPABILITIES_STATUS_KEY,
+        statusText,
+      });
+
+    const loaded = () => {
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      const section = tab.capabilities?.skills;
+      return {
+        tab,
+        processKey: tab.capabilities?.processKey ?? null,
+        skills:
+          section?.status === "available"
+            ? section.items.map((skill) => skill.name)
+            : null,
+      };
+    };
+
+    it("replaces the roster wholesale instead of merging publishes", () => {
+      publish(roster("proc-1", 1, ["alpha", "beta"]));
+      publish(roster("proc-1", 2, ["gamma"]));
+      const { tab, skills } = loaded();
+      expect(skills).toEqual(["gamma"]);
+      expect(tab.capabilitiesLoad).toBe("available");
+    });
+
+    it("drops a same-process publish that is not newer", () => {
+      publish(roster("proc-1", 5, ["current"]));
+      publish(roster("proc-1", 5, ["equal revision"]));
+      publish(roster("proc-1", 4, ["older revision"]));
+      expect(loaded().skills).toEqual(["current"]);
+    });
+
+    it("replaces on a new process identity even at a lower revision", () => {
+      publish(roster("proc-1", 9, ["old process"]));
+      publish(roster("proc-2", 1, ["new process"]));
+      const { tab, processKey, skills } = loaded();
+      expect(processKey).toBe("proc-2");
+      expect(skills).toEqual(["new process"]);
+      expect(tab.capabilities?.revision).toBe(1);
+    });
+
+    it("publishes state only: no row, chip, or dialog entry", () => {
+      publish(roster("proc-1", 1, ["alpha"]));
+      const { tab } = loaded();
+      expect(tab.items).toEqual([]);
+      expect(tab.extensionStatus).toEqual({});
+      expect(tab.extensionQueue).toEqual([]);
+    });
+
+    it("keeps the retained roster when a payload will not parse", () => {
+      publish(roster("proc-1", 1, ["alpha"]));
+      publish('{"version":1,"processKey":"proc-1","revision":2');
+      publish(roster("proc-1", 2, ["beta"]).replace('"available"', '"present"'));
+      const { tab, skills } = loaded();
+      expect(skills).toEqual(["alpha"]);
+      expect(tab.capabilities?.revision).toBe(1);
     });
   });
 

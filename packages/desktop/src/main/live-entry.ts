@@ -1,4 +1,5 @@
 import type {
+  CapabilitySnapshot,
   OwnedSessionRecord,
   PtyHandle,
   RpcClient,
@@ -26,6 +27,10 @@ export interface PtyLiveEntry extends LiveEntryBase {
 export interface RpcLiveEntry extends LiveEntryBase {
   readonly kind: "rpc-ui";
   rpc: RpcClient | null;
+  /** Latest capability snapshot the bridge published; null until the first valid frame. */
+  capabilities: CapabilitySnapshot | null;
+  /** True when this spawn successfully wrote (and armed) the capabilities bridge. */
+  capabilitiesBridgeLoaded: boolean;
 }
 
 export type LiveEntry = PtyLiveEntry | RpcLiveEntry;
@@ -61,7 +66,13 @@ export function wirePtyData(
 }
 
 export function createRpcLiveEntry(record: OwnedSessionRecord): RpcLiveEntry {
-  return { ...createLiveEntryBase(record), kind: "rpc-ui", rpc: null };
+  return {
+    ...createLiveEntryBase(record),
+    kind: "rpc-ui",
+    rpc: null,
+    capabilities: null,
+    capabilitiesBridgeLoaded: false,
+  };
 }
 
 export function wireRpc(entry: RpcLiveEntry, rpc: RpcClient): void {

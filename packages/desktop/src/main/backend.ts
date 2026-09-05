@@ -528,6 +528,8 @@ export class MainBackend {
         [CH.getMcpServers]: (projectCwd: string | null) => resolveMcpServers(projectCwd),
         [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => setMcpServerEnabled(req),
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
+        [CH.getSessionCapabilities]: (tabId: string) =>
+          this.sessions.getSessionCapabilities(tabId),
         [CH.listProjectFiles]: (projectCwd: string) => listProjectFiles(projectCwd),
         [CH.resolveFileMentions]: (projectCwd: string, message: string) =>
           resolveFileMentions(projectCwd, message),

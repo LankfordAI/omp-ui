@@ -238,6 +238,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
     bootRpcTab: rpcCommandSlice.bootRpcTab,
     refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
+    refreshCapabilities: rpcCommandSlice.refreshCapabilities,
     rpcCommand: rpcCommandSlice.rpcCommand,
     handleRpcFrame: frame.handleRpcFrame,
 

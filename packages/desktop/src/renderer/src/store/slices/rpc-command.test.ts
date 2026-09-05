@@ -4,6 +4,11 @@ import { emptySessionRuntime } from "../../lib/rpc-types";
 import { generateTitleFromPrompt } from "../../lib/session-title";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
+import type {
+  CapabilitySnapshot,
+  SessionCapabilitiesResult,
+} from "@omp-ui/core/capabilities";
+import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
 describe("native RPC relaunch preparation", () => {
   const staleRpc = () =>
     rpcTabState({
@@ -1428,5 +1433,136 @@ describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)"
     const buffers = h.useStore.getState().rpc[h.TAB]!.subagentItems!;
     expect(buffers["s1"]).toHaveLength(510);
     expect(buffers["s2"]).toHaveLength(500);
+  });
+});
+
+describe("session capability roster (issue #374)", () => {
+  const roster = (
+    processKey: string,
+    revision: number,
+    sessionId: string | null = "sess-1",
+  ): CapabilitySnapshot => ({
+    version: 1,
+    processKey,
+    sessionId,
+    revision,
+    updatedAt: 1_700_000_000_000 + revision,
+    ompVersion: "18.0.4",
+    skillCommandsEnabled: true,
+    skills: {
+      status: "available",
+      items: [
+        {
+          name: `${processKey}-${revision}`,
+          description: "a skill",
+          descriptionTruncated: false,
+          filePath: `/skills/${processKey}-${revision}/SKILL.md`,
+          source: "project",
+          scope: "project",
+          hidden: false,
+        },
+      ],
+    },
+    tools: { status: "unavailable", reason: "read-failed" },
+  });
+
+  /** The bridge's own publication channel: a setStatus frame. */
+  const publish = (snapshot: CapabilitySnapshot): void =>
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "capabilities",
+      method: "setStatus",
+      statusKey: CAPABILITIES_STATUS_KEY,
+      statusText: JSON.stringify(snapshot),
+    });
+
+  const tab = () => h.useStore.getState().rpc[h.TAB]!;
+
+  it("takes one optional roster read while booting", async () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState });
+    h.mockBackend.getSessionCapabilities.mockResolvedValueOnce({
+      status: "available",
+      snapshot: roster("proc-boot", 1),
+    });
+    await h.driveBoot(h.TAB);
+
+    expect(h.mockBackend.getSessionCapabilities).toHaveBeenCalledWith(h.TAB);
+    expect(tab().capabilities?.processKey).toBe("proc-boot");
+    expect(tab().capabilitiesLoad).toBe("available");
+  });
+
+  it("lets a push that lands mid-read own the roster", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    const read = h.deferred<SessionCapabilitiesResult>();
+    h.mockBackend.getSessionCapabilities.mockReturnValueOnce(read.promise);
+    const refreshing = h.useStore.getState().refreshCapabilities(h.TAB);
+    await h.flushMicrotasks();
+    expect(tab().capabilitiesLoad).toBe("loading");
+
+    publish(roster("proc-push", 4));
+    read.resolve({ status: "available", snapshot: roster("proc-fetch", 9) });
+    await refreshing;
+
+    // The pushed snapshot survives untouched; only its load state is affirmed.
+    expect(tab().capabilities?.processKey).toBe("proc-push");
+    expect(tab().capabilities?.revision).toBe(4);
+    expect(tab().capabilitiesLoad).toBe("available");
+  });
+
+  it("drops the roster a read carried across the process teardown", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    const read = h.deferred<SessionCapabilitiesResult>();
+    h.mockBackend.getSessionCapabilities.mockReturnValueOnce(read.promise);
+    const refreshing = h.useStore.getState().refreshCapabilities(h.TAB);
+    await h.flushMicrotasks();
+
+    // Process death runs the runtime teardown, which retires the roster.
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "omp_ui_error", message: "stopped" });
+    read.resolve({ status: "available", snapshot: roster("proc-dead", 1) });
+    await refreshing;
+
+    expect(tab().capabilities).toBeNull();
+    expect(tab().capabilitiesLoad).toBe("idle");
+  });
+
+  it("reports a failed read without touching the roster or the session", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: roster("proc-push", 2) }) } });
+    h.mockBackend.getSessionCapabilities.mockRejectedValueOnce(new Error("ipc down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await h.useStore.getState().refreshCapabilities(h.TAB);
+    warn.mockRestore();
+
+    expect(tab().capabilitiesLoad).toBe("error");
+    expect(tab().capabilities?.processKey).toBe("proc-push");
+    expect(tab().status).toBe("ready");
+    expect(tab().failure).toBeUndefined();
+  });
+
+  it("clears the roster when the session itself has none", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: roster("proc-old", 1) }) } });
+    h.mockBackend.getSessionCapabilities.mockResolvedValueOnce({ status: "not-live" });
+    await h.useStore.getState().refreshCapabilities(h.TAB);
+
+    expect(tab().capabilities).toBeNull();
+    expect(tab().capabilitiesLoad).toBe("not-live");
+  });
+
+  it("re-reads the roster when the session identity changes mid-tab", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: roster("proc-1", 3, "sess-old") }) } });
+    h.mockBackend.getSessionCapabilities.mockResolvedValueOnce({
+      status: "available",
+      snapshot: roster("proc-1", 4, "sess-new"),
+    });
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "session_info_update", sessionId: "sess-new" });
+    await h.flushMicrotasks();
+
+    expect(tab().session.sessionId).toBe("sess-new");
+    expect(tab().capabilities?.sessionId).toBe("sess-new");
+    expect(tab().capabilities?.revision).toBe(4);
   });
 });

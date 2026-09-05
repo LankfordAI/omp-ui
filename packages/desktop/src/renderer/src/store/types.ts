@@ -26,6 +26,10 @@ import type {
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
+import type {
+  CapabilitySectionId,
+  CapabilitySnapshot,
+} from "@omp-ui/core/capabilities";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -128,6 +132,19 @@ export interface RpcTabState {
   plans: PlanRecord[];
   advisorStats: AdvisorStatsView | null;
   mcpStatus: McpRuntimeStatus | null;
+  /** The root session's loaded skills/tool roster; null until first observed. */
+  capabilities: CapabilitySnapshot | null;
+  /** How the roster read went; the viewer's own state machine (issue #374). */
+  capabilitiesLoad:
+    | "idle"
+    | "loading"
+    | "available"
+    | "starting"
+    | "bridge-unavailable"
+    | "terminal"
+    | "not-live"
+    | "missing-session"
+    | "error";
   advisorReply: boolean;
 }
 
@@ -285,9 +302,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   deleteConfirmation: DeleteConfirmation | null;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
-  /** The working tree the MCP manager resolves and writes at (a worktree
-   *  session's checkout, else the project root); null = global scope. */
-  mcpManager: { scopeCwd: string | null; tabId?: string } | null;
+  /** The capabilities viewer's resolved working tree (a worktree session's
+   *  checkout, else the project root); null = global scope. `tabId` is the
+   *  pinned live session whose roster the skills/tools tabs show. */
+  capabilitiesViewer: {
+    scopeCwd: string | null;
+    tabId?: string;
+    section: CapabilitySectionId;
+  } | null;
 	projectSettings: { projectCwd: string } | null;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -297,8 +319,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   init(): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
-  openMcpManager(scopeCwd: string | null, tabId?: string): void;
-  closeMcpManager(): void;
+  openCapabilitiesViewer(
+    scopeCwd: string | null,
+    tabId?: string,
+    section?: CapabilitySectionId,
+  ): void;
+  closeCapabilitiesViewer(): void;
 	openProjectSettings(projectCwd: string): void;
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
@@ -348,6 +374,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   bootRpcTab(tabId: string): Promise<void>;
   /** Re-runs get_available_models on a live tab (issue #368: new subscription accounts). */
   refreshAvailableModels(tabId: string): Promise<void>;
+  /** Reads the live session's capability roster through the backend getter. */
+  refreshCapabilities(tabId: string): Promise<void>;
+
   rpcCommand(
     tabId: string,
     cmd: Record<string, unknown>,

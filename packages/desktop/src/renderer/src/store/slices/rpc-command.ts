@@ -1,6 +1,7 @@
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
+import type { SessionCapabilitiesResult } from "@omp-ui/core/capabilities";
 import { backend } from "../../backend";
 import { formatDuration } from "../../lib/duration";
 import { arrField } from "../../lib/fields";
@@ -34,8 +35,55 @@ import type { RpcTabState, UiStore } from "../types";
 
 export type RpcCommandSlice = Pick<
   UiStore,
-  "bootRpcTab" | "refreshAvailableModels" | "rpcCommand" | "setInitialPrompt" | "renameSession"
+  | "bootRpcTab"
+  | "refreshAvailableModels"
+  | "refreshCapabilities"
+  | "rpcCommand"
+  | "setInitialPrompt"
+  | "renameSession"
 >;
+
+/**
+ * Capability generations are global and monotonic, mirroring
+ * `nextCompactionUsageGeneration`: a value, once handed out, is never the
+ * value a replacement runtime or a later push will carry. That is what makes
+ * an in-flight `getSessionCapabilities` answer decidable — a discarded
+ * runtime restarts at 0, so a captured generation above 0 can never silently
+ * match a tab that has since been rebuilt (issue #374).
+ */
+let nextCapabilitiesGeneration = 0;
+/** Retires the tab's current capability observation and returns its successor. */
+export function bumpCapabilitiesGeneration(
+  m: StoreMachinery,
+  tabId: string,
+): number {
+  const generation = ++nextCapabilitiesGeneration;
+  // `patchRuntime` refuses to invent an owner, so take the slot first: a tab
+  // whose runtime has already been discarded then reads back 0, which is
+  // exactly the mismatch that invalidates its stale reads.
+  m.runtime(tabId);
+  m.patchRuntime(tabId, { capabilitiesGeneration: generation });
+  return generation;
+}
+
+/**
+ * omp put a different session behind this tab (`/new`, `switch_session`,
+ * `branch`): a roster sampled for the predecessor must never be labelled as
+ * the successor's inventory. Clear it and re-observe the live session.
+ */
+export function noteCapabilitiesSessionChange(
+  tabId: string,
+  observedSessionId: string | null,
+  get: GetState,
+  m: StoreMachinery,
+): void {
+  const retained = get().rpc[tabId]?.capabilities ?? null;
+  if (retained === null || observedSessionId === null) return;
+  if (retained.sessionId === null || retained.sessionId === observedSessionId)
+    return;
+  m.patchRpc(tabId, { capabilities: null });
+  void get().refreshCapabilities(tabId);
+}
 
 export interface RpcCommandDeps extends Watchers {
   reconcilePlanGates(state: BackendState): void;
@@ -269,6 +317,11 @@ export function disposeTabRuntime(
   deps.concern.cancel(tabId);
   deps.advisorReply.cancel(tabId);
   deps.stall.cancel(tabId);
+  // The roster belongs to the dying process, not to whatever session reuses
+  // this tab id: retire it, and retire its observation token so a read that
+  // is still in flight can never publish it into the next lifetime (#374).
+  m.patchRpc(tabId, { capabilities: null, capabilitiesLoad: "idle" });
+  bumpCapabilitiesGeneration(m, tabId);
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);
 }
@@ -307,6 +360,8 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     plans: [],
     advisorStats: null,
     mcpStatus: null,
+    capabilities: null,
+    capabilitiesLoad: "idle",
     advisorReply,
   };
 }
@@ -432,6 +487,10 @@ export function createRpcCommandSlice(
       // record flag would let a stale `advisor` (race with the broadcast after the
       // advisor-toggle relaunch) skip the arm and starve the readout forever.
       void get().refreshAdvisorStats(tabId);
+      // The roster is a backend read, not a command: boot takes one whether
+      // or not the session ever publishes, so an open viewer is never stuck
+      // on "idle" for want of a turn (issue #374).
+      void get().refreshCapabilities(tabId);
       if (stateFailure) {
         m.patchRpc(tabId, {
           status: "error",
@@ -604,9 +663,59 @@ export function createRpcCommandSlice(
         m.patchRpc(tabId, { availableModels: parseModelList(respData(resp)) });
       });
 
+  /**
+   * Read this session's capability roster through the backend getter — never
+   * through the command bus, and never as an `rpcCommand`: the bridge
+   * publishes the same snapshot over `setStatus`, so a push can land while
+   * this read is in flight and owns the roster afterwards (issue #374).
+   */
+  const refreshCapabilities = async (tabId: string): Promise<void> => {
+    if (get().rpc[tabId] === undefined) return;
+    // Every read takes a fresh observation token. Whoever holds it last owns
+    // the roster: a push that lands mid-read takes it over, and so does a
+    // relaunch's discarded runtime (a rebuilt one restarts at 0, never at a
+    // token this read handed out).
+    const generation = bumpCapabilitiesGeneration(m, tabId);
+    m.patchRpc(tabId, { capabilitiesLoad: "loading" });
+    let result: SessionCapabilitiesResult;
+    try {
+      result = await backend.getSessionCapabilities(tabId);
+    } catch (err) {
+      // The read failed; the session may be perfectly healthy. Retain the
+      // roster on screen and touch neither `status` nor `failure`.
+      console.warn("[capabilities] getSessionCapabilities failed:", err);
+      if (
+        get().rpc[tabId] !== undefined &&
+        m.runtime(tabId).capabilitiesGeneration === generation
+      )
+        m.patchRpc(tabId, { capabilitiesLoad: "error" });
+      return;
+    }
+    const tab = get().rpc[tabId];
+    // Torn down while awaiting: the roster belonged to that process.
+    if (tab === undefined) return;
+    if (m.runtime(tabId).capabilitiesGeneration !== generation) {
+      // A push replaced the roster (or a relaunch cleared it) mid-read, and
+      // the push is the fresher observation. Re-affirm it; never overwrite.
+      if (tab.capabilities !== null)
+        m.patchRpc(tabId, { capabilitiesLoad: "available" });
+      return;
+    }
+    if (result.status === "available") {
+      m.patchRpc(tabId, {
+        capabilities: result.snapshot,
+        capabilitiesLoad: "available",
+      });
+      return;
+    }
+    // An unavailable session has no roster to show — never a stale one.
+    m.patchRpc(tabId, { capabilities: null, capabilitiesLoad: result.status });
+  };
+
   return {
     bootRpcTab,
     refreshAvailableModels,
+    refreshCapabilities,
     rpcCommand,
     setInitialPrompt,
     renameSession,

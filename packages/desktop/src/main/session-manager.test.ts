@@ -23,6 +23,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     watchLineageDir: vi.fn(),
     readOmpCompactionMethods: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
+    writeCapabilitiesExtension: vi.fn(core.writeCapabilitiesExtension),
     RpcClient: vi.fn(),
   };
 });
@@ -36,6 +37,7 @@ const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
 const readOmpCompactionMethodsMock = vi.mocked(Core.readOmpCompactionMethods);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
+const writeCapabilitiesExtensionMock = vi.mocked(Core.writeCapabilitiesExtension);
 const RpcClientMock = vi.mocked(Core.RpcClient);
 const execFileP = promisify(execFile);
 const spawnCalls: Array<Record<string, unknown>> = [];
@@ -205,6 +207,7 @@ beforeEach(() => {
   spawnCalls.length = 0;
   nextPtyDiesOn = "never";
   writeMcpStatusExtensionMock.mockClear();
+  writeCapabilitiesExtensionMock.mockClear();
   resolveSessionLocationMock.mockClear();
   spawnOmpMock.mockReset();
   spawnOmpMock.mockImplementation((opts) => {
@@ -277,12 +280,14 @@ describe("MCP runtime status bridge", () => {
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
     // The flush precedes the mode command; the mode command is published on
-    // every spawn, Build included (issue #142; regression #256).
+    // every spawn, Build included (issue #142; regression #256). The
+    // capabilities arm rides last, after both (issue #374).
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
       ?.map((command) => command.message);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.planMessage(false, "html"),
+      Core.capabilitiesMessage(),
     ]);
   });
 
@@ -301,6 +306,7 @@ describe("MCP runtime status bridge", () => {
     expect(commands?.map((command) => command.message)).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.planMessage(true, "html"),
+      Core.capabilitiesMessage(),
     ]);
   });
 
@@ -309,6 +315,9 @@ describe("MCP runtime status bridge", () => {
     writeMcpStatusExtensionMock.mockImplementationOnce(() => {
       throw new Error("read-only lineage");
     });
+    // Independent of the MCP failure: the capabilities bridge writes fine, so
+    // its arm command must still be published (issue #374).
+    writeCapabilitiesExtensionMock.mockImplementationOnce(() => "/lineage/omp-ui-capabilities.ts");
     const { manager } = setup({ mode: "rpc-ui" });
     await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
     mode: "rpc-ui",
@@ -319,10 +328,14 @@ describe("MCP runtime status bridge", () => {
 
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).not.toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
+    expect(options?.extensions).toContainEqual(
+      expect.stringMatching(/omp-ui-capabilities\.ts$/),
+    );
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
       ?.map((command) => command.message);
     expect(messages).toEqual([
       Core.planMessage(true, "html"),
+      Core.capabilitiesMessage(),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -330,6 +343,183 @@ describe("MCP runtime status bridge", () => {
       expect.any(Error),
     );
     warning.mockRestore();
+  });
+});
+
+describe("session capabilities bridge (issue #374)", () => {
+  /** The minimal roster the parser accepts: one skill, one tool, both available. */
+  const snapshotPayload = {
+    version: 1,
+    processKey: "proc-1",
+    sessionId: null,
+    revision: 3,
+    updatedAt: 1_700_000_000_000,
+    ompVersion: "11.2.0",
+    skillCommandsEnabled: true,
+    skills: {
+      status: "available",
+      items: [
+        {
+          name: "grilling",
+          description: "stress-test a plan",
+          descriptionTruncated: false,
+          filePath: "/skills/grilling/SKILL.md",
+          source: "user",
+          scope: "user",
+          hidden: false,
+        },
+      ],
+    },
+    tools: {
+      status: "available",
+      items: [
+        {
+          name: "read",
+          description: "read files",
+          descriptionTruncated: false,
+          source: "builtin",
+          sourcePath: null,
+          enabled: true,
+          direct: true,
+          xdev: false,
+          evalBridge: true,
+          mcpServerName: null,
+          mcpToolName: null,
+        },
+      ],
+    },
+  };
+  const capabilitiesFrame = (id: string, statusText: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "setStatus",
+    statusKey: Core.CAPABILITIES_STATUS_KEY,
+    statusText,
+  });
+  const spawnRpcUi = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+    });
+  const forwardedCapabilities = (
+    sent: { channel: string; args: unknown[] }[],
+  ): number =>
+    sent.filter(
+      (record) =>
+        record.channel === CH.onRpcFrame &&
+        (record.args[1] as { statusKey?: unknown } | undefined)?.statusKey ===
+          Core.CAPABILITIES_STATUS_KEY,
+    ).length;
+
+  it("arms the bridge after mcp-status and mode, and caches the published roster", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await spawnRpcUi(manager);
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    expect(options?.extensions).toContainEqual(
+      expect.stringMatching(/omp-ui-capabilities\.ts$/),
+    );
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
+      (command) => command.message,
+    );
+    // The arm command rides last: after the MCP flush and the mode command.
+    expect(messages).toEqual([
+      Core.mcpRuntimeStatusMessage(),
+      Core.planMessage(false, "html"),
+      Core.capabilitiesMessage(),
+    ]);
+
+    // Bridged but silent so far: the viewer sees "starting", not an empty roster.
+    expect(await manager.getSessionCapabilities(TAB)).toEqual({ status: "starting" });
+
+    const frame = capabilitiesFrame("cap-1", JSON.stringify(snapshotPayload));
+    rpcInstances.at(-1)!.frame(frame);
+    await expect(manager.getSessionCapabilities(TAB)).resolves.toMatchObject({
+      status: "available",
+      snapshot: {
+        processKey: "proc-1",
+        revision: 3,
+        skills: { status: "available", items: [{ name: "grilling", scope: "user" }] },
+        tools: { status: "available", items: [{ name: "read", source: "builtin" }] },
+      },
+    });
+    // A valid snapshot still fans out to the renderer exactly once.
+    expect(sent.filter((record) => record.args[1] === frame)).toHaveLength(1);
+  });
+
+  it("drops a malformed snapshot without fanning it out: the tab stays starting", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await spawnRpcUi(manager);
+    sent.length = 0;
+
+    const frame = capabilitiesFrame("cap-bad", "not-json");
+    rpcInstances.at(-1)!.frame(frame);
+
+    expect(await manager.getSessionCapabilities(TAB)).toEqual({ status: "starting" });
+    expect(forwardedCapabilities(sent)).toBe(0);
+  });
+
+  it("reports bridge-unavailable when the bridge file could not be written", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    writeCapabilitiesExtensionMock.mockImplementationOnce(() => {
+      throw new Error("read-only lineage");
+    });
+    const { manager } = setup({ mode: "rpc-ui" });
+    await spawnRpcUi(manager);
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    expect(options?.extensions).not.toContainEqual(
+      expect.stringMatching(/omp-ui-capabilities\.ts$/),
+    );
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
+      (command) => command.message,
+    );
+    expect(messages).toEqual([Core.mcpRuntimeStatusMessage(), Core.planMessage(false, "html")]);
+    await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
+      status: "bridge-unavailable",
+    });
+    expect(warning).toHaveBeenCalledWith(
+      "[capabilities] could not write the capabilities extension:",
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
+
+  it("a killed spawn's snapshot neither fans out nor mutates the successor", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await spawnRpcUi(manager);
+    const predecessor = rpcInstances[0]!;
+    predecessor.kill.mockImplementation(() => predecessor.exit(0));
+    await manager.restart(TAB);
+    expect(rpcInstances).toHaveLength(2);
+    sent.length = 0;
+
+    const frame = capabilitiesFrame("cap-stale", JSON.stringify(snapshotPayload));
+    predecessor.frame(frame);
+
+    // The successor never armed a bridge publish: still starting, nothing forwarded.
+    expect(await manager.getSessionCapabilities(TAB)).toEqual({ status: "starting" });
+    expect(sent.filter((record) => record.args[1] === frame)).toHaveLength(0);
+
+    // The current spawn's own frames still work.
+    const fresh = capabilitiesFrame("cap-fresh", JSON.stringify(snapshotPayload));
+    rpcInstances.at(-1)!.frame(fresh);
+    await expect(manager.getSessionCapabilities(TAB)).resolves.toMatchObject({
+      status: "available",
+      snapshot: { processKey: "proc-1" },
+    });
+  });
+
+  it("maps a PTY session to terminal and an unknown tab to missing-session", async () => {
+    const { manager } = setup();
+    await resume(manager);
+
+    await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({ status: "terminal" });
+    await expect(manager.getSessionCapabilities("tab-gone")).resolves.toEqual({
+      status: "missing-session",
+    });
   });
 });
 

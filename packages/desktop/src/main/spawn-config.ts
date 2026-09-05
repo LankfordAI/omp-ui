@@ -10,6 +10,7 @@ import {
   type OwnedSessionRecord,
   writeAdvisorOverlay,
   writeAdvisorStatsExtension,
+  writeCapabilitiesExtension,
   writeCompactionMethodOverlay,
   writeDefaultModelOverlay,
   writeMcpStatusExtension,
@@ -98,7 +99,7 @@ export async function writeRpcOverlays(
   }
 
   /** The generated `-e` bridges an rpc-ui spawn needs. */
-export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean } {
+export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean; capabilitiesLoaded: boolean } {
     const paths: string[] = [];
     try {
       paths.push(writePlanExtension(absLineageDir));
@@ -117,7 +118,14 @@ export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mc
     } catch (err) {
       console.warn("[mcp] could not write the MCP-status extension:", err);
     }
-    return { paths, mcpStatusLoaded };
+    let capabilitiesLoaded = false;
+    try {
+      paths.push(writeCapabilitiesExtension(absLineageDir));
+      capabilitiesLoaded = true;
+    } catch (err) {
+      console.warn("[capabilities] could not write the capabilities extension:", err);
+    }
+    return { paths, mcpStatusLoaded, capabilitiesLoaded };
   }
 
 /** Manager-provided paths and registry mutation for prepareResumeRecord. */

@@ -95,7 +95,7 @@ With a session focused, the page resolves values as that project would see them.
 
 Every edit runs through `omp config set`, uses omp's own validation, and writes only the global layer. Project configuration still wins. omp regenerates its global YAML on write, so comments in that file are dropped. Model-role and advisor values bind when the omp process starts; they take effect on the next session spawn, or on an existing session after you stop its agent and open it again. For other settings, follow the timing in the description supplied by the installed omp version.
 
-**MCP servers** opens the manager pinned to the focused session's own working tree — its worktree checkout when it has one, otherwise its project root — and is unavailable without a focused session. **Global MCP servers** opens the list that applies to every project. Opening either manager closes Settings.
+**Session capabilities** opens the **Capabilities viewer** at its MCP section, pinned to the focused session's own working tree — its worktree checkout when it has one, otherwise its project root — and is disabled until a session tab is focused. **Global MCP servers…** opens the same viewer's MCP section at global scope, without a session. Opening either closes Settings. The viewer's Skills and Tools sections describe the loaded roster of the one selected live native session — never a machine-wide catalog — so they read unavailable at global scope, where no session is pinned; in a terminal tab, whose omp TUI publishes no roster over rpc; while the pinned session is dormant, because there is no live process to read; and on OMP builds that expose no session inventory, which report that instead of an empty list.
 
 ## About
 

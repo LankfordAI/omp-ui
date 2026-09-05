@@ -152,7 +152,7 @@ beforeEach(() => {
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
   backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [], errors: [] });
   useStore.setState({
-    mcpManager: null,
+    capabilitiesViewer: null,
     projectSettings: { projectCwd: PROJECT },
     state: backendState({
       defaultAdvisor: false,
@@ -224,8 +224,8 @@ describe("ProjectSettings", () => {
 
     await renderDialog();
 
-    // The dialog pins no tab: neither the restart button (McpManager footer)
-    // nor the TUI-reauth handoff exist.
+    // The dialog pins no tab: neither the reload footer (a CapabilitiesViewer
+    // affordance) nor the TUI-reauth handoff exists.
     expect(document.body.textContent).not.toContain("restart session to apply");
     expect(
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(

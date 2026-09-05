@@ -6,6 +6,8 @@ import {
   addWorktree,
   base64Bytes,
   bracketedImagePaste,
+  capabilitiesMessage,
+  CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
   forkSessionFile,
   mintLineageDirName,
@@ -13,6 +15,8 @@ import {
   linkProjectOmpDir,
   isWithin,
   mcpRuntimeStatusMessage,
+  normalizeControlFrame,
+  parseCapabilitySnapshot,
   planMessage,
   planHandoffDescendants,
   reclaimCheckouts as reclaimWorktreeCheckouts,
@@ -31,6 +35,7 @@ import {
   type OwnedSessionRecord,
   type RpcFrame,
   type ResumeSpawnRequest,
+  type SessionCapabilitiesResult,
   type SessionMode,
   type SessionWorktree,
   type SpawnRequest,
@@ -498,7 +503,9 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
-    const { paths: extensions, mcpStatusLoaded } = writeRpcExtensions(absLineageDir);
+    const { paths: extensions, mcpStatusLoaded, capabilitiesLoaded } =
+      writeRpcExtensions(absLineageDir);
+    entry.capabilitiesBridgeLoaded = capabilitiesLoaded;
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
     if (mcpStatusLoaded) {
       initialCommands.push({
@@ -512,6 +519,13 @@ export class SessionManager {
       id: `omp-ui-initial-mode-${randomUUID()}`,
       message: planMessage(planMode, this.deps.registry.getSetting("planFormat")),
     });
+    if (capabilitiesLoaded) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-capabilities-${randomUUID()}`,
+        message: capabilitiesMessage(),
+      });
+    }
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate);
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
@@ -527,6 +541,23 @@ export class SessionManager {
       extensions,
       initialCommands,
       onFrame: (frame) => {
+        const control = normalizeControlFrame(frame);
+        if (
+          control !== null &&
+          control.kind === "ext_request" &&
+          control.method === "setStatus" &&
+          control.frame.statusKey === CAPABILITIES_STATUS_KEY
+        ) {
+          const snapshot = parseCapabilitySnapshot(
+            typeof control.frame.statusText === "string" ? control.frame.statusText : undefined,
+          );
+          // A malformed roster never masquerades as an empty one: drop it and
+          // keep the last good snapshot the bridge published.
+          if (snapshot === null) return;
+          entry.capabilities = snapshot;
+          // A killed spawn must not publish into its successor's tab.
+          if (this.live.get(record.tabId) !== entry) return;
+        }
         for (const obs of this.frameObservers) obs.onFrame(record.tabId, frame, entry);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
       },
@@ -569,6 +600,23 @@ export class SessionManager {
         rows: 24,
       });
     });
+  }
+
+  /**
+   * The capabilities viewer's read path (issue #374). Never rejects: the tab's
+   * lifecycle maps onto the discriminated result the renderer renders as-is.
+   */
+  async getSessionCapabilities(
+    tabId: string,
+  ): Promise<SessionCapabilitiesResult> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return { status: "missing-session" };
+    const entry = this.live.get(tabId);
+    if (!entry) return { status: "not-live" };
+    if (entry.kind === "pty") return { status: "terminal" };
+    if (!entry.capabilitiesBridgeLoaded) return { status: "bridge-unavailable" };
+    if (entry.capabilities === null) return { status: "starting" };
+    return { status: "available", snapshot: entry.capabilities };
   }
 
   async restart(tabId: string): Promise<void> {
