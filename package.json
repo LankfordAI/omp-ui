@@ -8,6 +8,7 @@
     "build": "npm run build --workspace @omp-ui/desktop",
     "package": "npm run package --workspace @omp-ui/desktop",
     "stamp": "npm version patch --no-git-tag-version --workspace @omp-ui/desktop",
+    "notes": "node scripts/release-notes.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint ."

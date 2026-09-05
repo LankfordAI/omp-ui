@@ -79,6 +79,14 @@ jobs:
             "${appimages[0]}" \
             latest-linux.yml
 
+  release-notes:
+    needs: release-linux
+    uses: ./.github/workflows/release-notes.yml
+    with:
+      tag: ${{ github.ref_name }}
+      force: false
+    secrets: inherit
+
   package-macos:
     needs: release-linux
     uses: ./.github/workflows/macos-package.yml
@@ -196,7 +204,7 @@ jobs:
             latest.yml
 
   release-manifest:
-    needs: [release-linux, package-macos, release-macos, release-windows]
+    needs: [release-linux, package-macos, release-macos, release-windows, release-notes]
     if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
@@ -265,6 +273,15 @@ jobs:
           grep -Fq "$installer" release-metadata/latest.yml
           grep -q "sha512" release-metadata/latest-mac.yml
           grep -q "^version: ${ver}$" release-metadata/latest-mac.yml
+      - name: Warn when release notes are missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          length="$(gh release view "$GITHUB_REF_NAME" --json body --jq '.body | length')"
+          if [ "$length" = "0" ]; then
+            echo "::warning::release $GITHUB_REF_NAME is being published with no notes (release-notes job failed or produced nothing)"
+          fi
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

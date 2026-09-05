@@ -1,0 +1,111 @@
+name: Release Notes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag whose notes to generate, e.g. v0.9.12.
+        required: true
+        type: string
+      force:
+        description: Overwrite notes that already exist on the release.
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag whose notes to (re)generate, e.g. v0.9.12.
+        required: true
+        type: string
+      force:
+        description: Overwrite notes that already exist on the release.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Require the target release to exist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}" \
+            || echo "tag ${TAG} already present locally"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            printf 'release %s does not exist yet — release-linux creates the draft before this job runs\n' "$TAG" >&2
+            exit 1
+          fi
+      - name: Skip notes a human already wrote
+        id: guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$TAG" --json body --jq '.body | length')"
+          if [ "$existing" != "0" ] && [ "$FORCE" != "true" ]; then
+            echo "release $TAG already has $existing characters of notes — leaving them untouched"
+            echo "edited=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "edited=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate release notes
+        if: ${{ steps.guard.outputs.edited == 'false' }}
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # The search API is rate-limited per minute; a bounded retry absorbs
+          # a 403 from a concurrent workflow rather than failing the job.
+          status=0
+          for attempt in 1 2 3; do
+            if node scripts/release-notes.mjs --tag "$TAG" --out release-notes.md; then
+              status=0
+              break
+            else
+              status=$?
+            fi
+            if (( attempt >= 3 )); then break; fi
+            echo "::warning::release notes attempt $attempt failed (exit $status); retrying in 20s"
+            sleep 20
+          done
+          exit "$status"
+      - name: Apply notes to the release
+        if: ${{ steps.guard.outputs.edited == 'false' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          test -s release-notes.md
+          gh release edit "$TAG" --notes-file release-notes.md
+      - name: Summarize
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          printf 'notes length now %s\n' "$(gh release view "$TAG" --json body --jq '.body | length')"
