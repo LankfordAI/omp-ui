@@ -1342,12 +1342,12 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(mergeRow()).toBeUndefined();
   });
 
-  it("keeps the worktree and warns when the release rejects", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+  it("keeps the worktree and reports through the error notices when the release rejects", async () => {
     seedWorktreeRecord();
     useStore.setState({
       tabs: [{ tabId: "tab-0", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
       rpc: { "tab-0": rpcTabState() },
+      errorNotices: [],
     });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce({
       kind: "merged",
@@ -1362,7 +1362,9 @@ describe("BranchChip merge-back (issue #322)", () => {
     await act(async () => dialogButton("merge & return")!.click());
     await settle();
 
-    expect(alertSpy).toHaveBeenCalledWith("session tab-0 did not exit");
+    expect(useStore.getState().errorNotices.map((n) => n.message)).toEqual([
+      "session tab-0 did not exit",
+    ]);
     expect(dialog()).toBeNull();
     expect(useStore.getState().tabs.some((t) => t.tabId === "tab-0")).toBe(true);
     // The failed return resets: the merge row is back and the status re-read.
@@ -1370,7 +1372,6 @@ describe("BranchChip merge-back (issue #322)", () => {
     expect(mergeRow()!.disabled).toBe(false);
     expect(backendMock.getMergeBackStatus).toHaveBeenCalledTimes(2);
     expect(notices()).toEqual([]);
-    alertSpy.mockRestore();
   });
 
   it("warns in the notice when the checkout was kept for a sharer", async () => {

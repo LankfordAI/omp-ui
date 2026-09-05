@@ -61,16 +61,46 @@ describe("native RPC relaunch preparation", () => {
     expect(h.useStore.getState().exited[h.TAB]).toBeUndefined();
   });
 
-  it("prepares a live mode switch involving native RPC before IPC settles", async () => {
+  it("prepares a live mode switch involving native RPC only after acceptance, before IPC settles", async () => {
     h.backendState = h.stateWithRecord("sess-1");
     const switched = h.deferred<void>();
     h.mockBackend.switchMode.mockReturnValueOnce(switched.promise);
-    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: staleRpc() } });
+    h.useStore.setState({ state: h.backendState });
+    await h.flushMicrotasks();
+    h.useStore.getState().switchMode(h.TAB, "pty");
+    await h.flushMicrotasks();
+    // Staging alone must not prepare anything: the approval owns the restart.
+    expect(h.useStore.getState().rpc[h.TAB]).toBeUndefined();
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    expect(confirmation).toMatchObject({
+      kind: "switch-mode",
+      tabId: h.TAB,
+      fromMode: "rpc-ui",
+      mode: "pty",
+      busy: false,
+    });
+    h.useStore.setState({ rpc: { [h.TAB]: staleRpc() } });
 
-    const change = h.useStore.getState().switchMode(h.TAB, "pty");
+    const change = h.useStore.getState().confirmLifecycleAction(confirmation.id);
     expectPrepared();
     switched.resolve(undefined);
     await change;
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(h.mockBackend.switchMode).toHaveBeenCalledWith(h.TAB, "pty");
+  });
+
+  it("leaves the previous RPC state intact when a live mode switch is cancelled", async () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    const before = staleRpc();
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: before } });
+
+    await h.useStore.getState().switchMode(h.TAB, "pty");
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    h.useStore.getState().cancelLifecycleAction(confirmation.id);
+
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]).toBe(before);
+    expect(h.mockBackend.switchMode).not.toHaveBeenCalled();
   });
 
   it("prepares a changed live native advisor tuple before IPC settles", async () => {
@@ -184,7 +214,12 @@ describe("native RPC relaunch preparation", () => {
       await vi.advanceTimersByTimeAsync(6_000);
       await relaunch;
 
+      expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
+      expect(h.useStore.getState().rpc[h.TAB]!.session.isStreaming).toBe(true);
       expect(h.useStore.getState().rpc[h.TAB]!.plan).toEqual(priorPlan);
+      expect(h.errorMessages()).toEqual([
+        "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
+      ]);
       expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
       h.respond(h.TAB, blockedCommand, {});
       await blocked;

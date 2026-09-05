@@ -120,35 +120,260 @@ describe("TUI handoff staging (issue #243)", () => {
 
   it("drops the staged handoff when the agent is terminated", async () => {
     // killShell suppresses the drawer program's exit event, so no shell:exit
-    // ever arrives to retire the handoff — terminate must do it itself.
+    // ever arrives to retire the handoff — an accepted terminate must.
     h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
       tuiHandoff: {
         [h.TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
       },
     });
 
     await h.useStore.getState().terminate(h.TAB);
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    // Before approval: neither the backend nor the handoff is touched.
+    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeDefined();
 
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
     expect(h.mockBackend.terminateSession).toHaveBeenCalledWith(h.TAB);
     expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
   });
 
-  it("keeps the staged handoff when terminate is declined", async () => {
-    h.windowStub.confirm = (msg: string): boolean => {
-      h.prompts.push(msg);
-      return false;
-    };
+  it("keeps the staged handoff when terminate is cancelled", async () => {
     const staged = {
       line: "/mcp reauth linear",
       key: 1,
       phase: "running" as const,
     };
-    h.useStore.setState({ tuiHandoff: { [h.TAB]: staged } });
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
+      tuiHandoff: { [h.TAB]: staged },
+    });
 
     await h.useStore.getState().terminate(h.TAB);
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    h.useStore.getState().cancelLifecycleAction(confirmation.id);
 
     expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
     expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("reports a failed stop without retiring the handoff", async () => {
+    // A rejection is not the stop the user accepted: the banner must stay
+    // over the still-live PTY, and the reason must reach an error notice.
+    const staged = {
+      line: "/mcp reauth linear",
+      key: 1,
+      phase: "running" as const,
+    };
+    h.mockBackend.terminateSession.mockRejectedValueOnce(new Error("kill failed"));
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
+      tuiHandoff: { [h.TAB]: staged },
+    });
+
+    await h.useStore.getState().terminate(h.TAB);
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+
+    expect(h.errorMessages()).toEqual(["kill failed"]);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+});
+
+describe("lifecycle confirmation acceptance (issue #373)", () => {
+  const staged = {
+    line: "/mcp reauth linear",
+    key: 1,
+    phase: "running" as const,
+  };
+
+  it("dispatches once no matter how often the accepted button fires", async () => {
+    const stop = h.deferred<void>();
+    h.mockBackend.terminateSession.mockReturnValueOnce(stop.promise);
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
+      tuiHandoff: { [h.TAB]: staged },
+    });
+    await h.useStore.getState().terminate(h.TAB);
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+
+    const first = h.useStore.getState().confirmLifecycleAction(id);
+    // The dialog disables both buttons while busy; a stale activation must
+    // still find the busy flag and dispatch nothing.
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(h.mockBackend.terminateSession).toHaveBeenCalledTimes(1);
+    expect(h.useStore.getState().lifecycleConfirmation).toMatchObject({
+      id,
+      busy: true,
+    });
+    stop.resolve(undefined);
+    await first;
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("re-checks liveness at acceptance and dismisses a vanished target", async () => {
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
+      tuiHandoff: { [h.TAB]: staged },
+    });
+    await h.useStore.getState().terminate(h.TAB);
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+    // The process died on its own while the dialog was open.
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("does nothing when a non-live session is asked to stop", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+    await h.useStore.getState().terminate(h.TAB);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    await h.useStore.getState().confirmLifecycleAction("stale-id");
+    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+  });
+
+  it("never queues behind a pending confirmation or a visible delete warning", async () => {
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
+      deleteConfirmation: {
+        tabId: h.TAB,
+        title: "New session",
+        running: true,
+        hasFiles: true,
+        worktreeBranch: null,
+        worktreeBase: null,
+        cascade: [],
+      },
+    });
+    await h.useStore.getState().terminate(h.TAB);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+
+    h.useStore.setState({ deleteConfirmation: null });
+    await h.useStore.getState().terminate(h.TAB);
+    const first = h.useStore.getState().lifecycleConfirmation!;
+    // A repeated request while one is pending is a no-op, not a second row.
+    await h.useStore.getState().terminate(h.TAB);
+    expect(h.useStore.getState().lifecycleConfirmation).toBe(first);
+  });
+
+  it("ignores cancel and confirm aimed at a superseded id", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "live") });
+    await h.useStore.getState().terminate(h.TAB);
+    const stale = h.useStore.getState().lifecycleConfirmation!.id;
+    h.useStore.setState({ lifecycleConfirmation: null });
+    await h.useStore.getState().terminate(h.TAB);
+    const current = h.useStore.getState().lifecycleConfirmation!;
+
+    h.useStore.getState().cancelLifecycleAction(stale);
+    expect(h.useStore.getState().lifecycleConfirmation).toBe(current);
+    await h.useStore.getState().confirmLifecycleAction(stale);
+    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("switchMode confirmation (issue #373)", () => {
+  it("a live switch stages the decision and reaches the backend only on acceptance", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "live") });
+    await h.useStore.getState().switchMode(h.TAB, "pty");
+    expect(h.mockBackend.switchMode).not.toHaveBeenCalled();
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    expect(confirmation).toMatchObject({
+      kind: "switch-mode",
+      tabId: h.TAB,
+      title: "New session",
+      fromMode: "rpc-ui",
+      mode: "pty",
+    });
+
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(h.mockBackend.switchMode).toHaveBeenCalledWith(h.TAB, "pty");
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("a dormant switch proceeds immediately without a confirmation", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+    await h.useStore.getState().switchMode(h.TAB, "pty");
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(h.mockBackend.switchMode).toHaveBeenCalledWith(h.TAB, "pty");
+  });
+
+  it("an already-selected mode does nothing and asks nothing", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "live") });
+    await h.useStore.getState().switchMode(h.TAB, "rpc-ui");
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(h.mockBackend.switchMode).not.toHaveBeenCalled();
+  });
+
+  it("dismisses a confirmed switch whose mode moved on meanwhile", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "live") });
+    await h.useStore.getState().switchMode(h.TAB, "pty");
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+    const moved = h.stateWithRecord("sess-1", "live");
+    moved.projects[0]!.sessions[0]!.mode = "pty";
+    h.useStore.setState({ state: moved });
+
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(h.mockBackend.switchMode).not.toHaveBeenCalled();
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("a target that died mid-prompt still switches, with no restart prepared", async () => {
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1", "live"),
+      rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+    });
+    await h.useStore.getState().switchMode(h.TAB, "pty");
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(h.mockBackend.switchMode).toHaveBeenCalledWith(h.TAB, "pty");
+    // prepareRpcRelaunch would have flipped the tab to "starting"; a dormant
+    // switch must leave the transcript view exactly as it was.
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
+  });
+});
+
+describe("removeProject confirmation (issue #373)", () => {
+  it("removes only on acceptance, keeping backend semantics authoritative", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+    await h.useStore.getState().removeProject("/p");
+    expect(h.mockBackend.removeProject).not.toHaveBeenCalled();
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    expect(confirmation).toMatchObject({
+      kind: "remove-project",
+      projectPath: "/p",
+    });
+    // No optimistic pruning: the store keeps the pre-removal state object
+    // until the authoritative stateChanged broadcast replaces it.
+    const before = h.useStore.getState().state;
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(h.mockBackend.removeProject).toHaveBeenCalledWith("/p");
+    expect(h.useStore.getState().state).toBe(before);
+  });
+
+  it("stages nothing for an unregistered path", async () => {
+    h.useStore.setState({ state: makeBackendState() });
+    await h.useStore.getState().removeProject("/gone");
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("dismisses a confirmed removal whose project vanished meanwhile", async () => {
+    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+    await h.useStore.getState().removeProject("/p");
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+    h.useStore.setState({ state: makeBackendState() });
+
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(h.mockBackend.removeProject).not.toHaveBeenCalled();
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
   });
 });
 
@@ -250,7 +475,7 @@ describe("deleteSession", () => {
     const st = h.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB]);
     expect(st.rpc[h.TAB]).toBeDefined();
-    expect(h.alerts[0]).toBe("EBUSY");
+    expect(h.errorMessages()).toEqual(["EBUSY"]);
   });
 
   it("marks a record whose files are gone without a file-erasure warning", async () => {
@@ -448,9 +673,9 @@ describe("deleteSession", () => {
     expect(state.rpc["child-1"]).toBeDefined();
     expect(state.exited[h.TAB]).toBeUndefined();
     expect(state.exited["child-1"]).toBe(2);
-    expect(h.alerts).toEqual([
-      "Some sessions could not be deleted:\nchild-1: EBUSY: transcript is busy",
-    ]);
+    // The localized summary carries the backend's tabId: message list verbatim.
+    expect(h.errorMessages()).toHaveLength(1);
+    expect(h.errorMessages()[0]).toContain("child-1: EBUSY: transcript is busy");
   });
 
   it("surfaces a preview failure and stages nothing", async () => {
@@ -460,7 +685,7 @@ describe("deleteSession", () => {
     await h.useStore.getState().deleteSession(h.TAB);
 
     expect(h.useStore.getState().deleteConfirmation).toBeNull();
-    expect(h.alerts[0]).toBe("boom");
+    expect(h.errorMessages()).toEqual(["boom"]);
     expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
   });
 });
@@ -504,7 +729,7 @@ describe("releaseWorktreeSession (issue #334)", () => {
     expect(st.activeTabId).toBe(h.TAB);
   });
 
-  it("alerts and resolves to null when main rejects, leaving the tab intact", async () => {
+  it("reports and resolves to null when main rejects, leaving the tab intact", async () => {
     h.mockBackend.releaseWorktree.mockRejectedValueOnce(
       new Error("session tab-1 did not exit — its files were left alone"),
     );
@@ -513,7 +738,7 @@ describe("releaseWorktreeSession (issue #334)", () => {
     const result = await h.useStore.getState().releaseWorktreeSession(h.TAB);
 
     expect(result).toBeNull();
-    expect(h.alerts).toEqual(["session tab-1 did not exit — its files were left alone"]);
+    expect(h.errorMessages()).toEqual(["session tab-1 did not exit — its files were left alone"]);
     const st = h.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB, "tab-2"]);
     expect(st.rpc[h.TAB]).toBeDefined();

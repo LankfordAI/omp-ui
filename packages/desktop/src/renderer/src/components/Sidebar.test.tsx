@@ -902,20 +902,30 @@ describe("Compact project actions sheet (issue #205)", () => {
     return row;
   }
 
-  it("defers remove to confirm and follows the state broadcast", async () => {
+  it("defers remove to the DOM confirmation and follows the state broadcast", async () => {
     backendMock.removeProject.mockReset();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    useStore.setState({ lifecycleConfirmation: null, errorNotices: [] });
     enableCompact();
     useStore.setState({ compactSurface: "sessions" });
     renderSidebar();
 
     act(() => button("actions for Project One").click());
     await act(async () => sheetRow("Remove project…").click());
+    // The sheet stays open with one decision pending: nothing dispatched.
+    const pending = useStore.getState().lifecycleConfirmation;
     expect(backendMock.removeProject).not.toHaveBeenCalled();
+    expect(pending).not.toBeNull();
+    useStore.getState().cancelLifecycleAction(pending!.id);
+    expect(useStore.getState().lifecycleConfirmation).toBeNull();
     expect(actionsSheet()).not.toBeNull();
 
-    confirmSpy.mockReturnValue(true);
+    // Accepting drives the same store action the dialog's button calls.
     await act(async () => sheetRow("Remove project…").click());
+    await act(async () => {
+      await useStore
+        .getState()
+        .confirmLifecycleAction(useStore.getState().lifecycleConfirmation!.id);
+    });
     expect(backendMock.removeProject).toHaveBeenCalledWith(projectPath);
     // The broadcast drops the project; the sheet's live lookup misses and it
     // closes itself rather than describing a project that no longer exists.

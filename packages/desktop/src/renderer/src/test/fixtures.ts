@@ -24,6 +24,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     ompUpdateCheckOnLaunch: true,
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
+    spawnGate: { model: null, advisorModel: null },
     ...patch,
   };
 }

@@ -32,6 +32,8 @@ export type {
   CompactSurface,
   CompactionMethodsLoad,
   DeleteConfirmation,
+  ErrorNotice,
+  LifecycleConfirmation,
   PlanRecord,
   PlanRevisionNotes,
   RpcFailure,

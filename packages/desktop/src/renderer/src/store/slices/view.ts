@@ -19,7 +19,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
 } from "../../lib/panel-layout";
 import { randomId } from "../../lib/random-id";
-import type { CompactSurface, UiStore } from "../types";
+import type { CompactSurface, ErrorNotice, UiStore } from "../types";
 
 export type { CompactSurface } from "../types";
 
@@ -52,6 +52,14 @@ export interface ViewSlice {
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
+  /**
+   * Backend failures awaiting acknowledgment (issue #373): the renderer-side
+   * replacement for window.alert. Arrival order is kept; nothing times out,
+   * dedupes, or silently replaces an earlier error.
+   */
+  errorNotices: ErrorNotice[];
+  reportError(error: unknown): void;
+  dismissError(id: string): void;
 }
 
 /** Keeps global and per-project focus in lockstep for every tab activation. */
@@ -264,6 +272,21 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
   inspectorOpen: false,
+  errorNotices: [],
+  reportError(error) {
+    set((s) => ({
+      errorNotices: [
+        ...s.errorNotices,
+        {
+          id: randomId(),
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    }));
+  },
+  dismissError(id) {
+    set((s) => ({ errorNotices: s.errorNotices.filter((n) => n.id !== id) }));
+  },
 
   openProjectPicker() {
     set({ projectPickerOpen: true });

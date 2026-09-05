@@ -292,12 +292,6 @@ function dropTuiHandoff(
 
 export { dropExited, dropHibernated, dropTuiHandoff };
 
-function alertError(err: unknown): void {
-  window.alert(err instanceof Error ? err.message : String(err));
-}
-
-export { alertError };
-
 /** Planning sources whose accepted fresh handoff disables automatic prompts. */
 export const handedOffPlanSources = new Set<string>();
 

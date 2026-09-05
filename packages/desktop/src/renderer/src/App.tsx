@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AppFeedback } from "./components/AppFeedback";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
@@ -463,6 +464,9 @@ export default function App() {
 			)}
       {worktreeDialogProject !== null && <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} />}
       {settingsPage && <Settings />}
+      {/* Feedback last of the root surfaces: its dialogs must outrank every
+          other overlay in the stack (issue #373). */}
+      <AppFeedback />
     </div>
   );
 }

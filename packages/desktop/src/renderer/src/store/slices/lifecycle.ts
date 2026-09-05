@@ -19,8 +19,9 @@ import {
 } from "../../lib/plan-concerns";
 import { planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningTools } from "../../lib/transcript";
+import { t } from "../../lib/i18n";
+import { randomId } from "../../lib/random-id";
 import {
-  alertError,
   dropExited,
   dropHibernated,
   dropTuiHandoff,
@@ -32,7 +33,11 @@ import {
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
 import { findRecord, focusOn, forgetFocus } from "./view";
-import type { UiStore } from "../types";
+import type {
+  LifecycleConfirmation,
+  LifecycleConfirmationChoice,
+  UiStore,
+} from "../types";
 
 export type LifecycleSlice = Pick<
   UiStore,
@@ -41,6 +46,9 @@ export type LifecycleSlice = Pick<
   | "searchOpen"
   | "tuiHandoff"
   | "deleteConfirmation"
+  | "lifecycleConfirmation"
+  | "confirmLifecycleAction"
+  | "cancelLifecycleAction"
   | "restartSession"
   | "addProject"
   | "removeProject"
@@ -205,14 +213,18 @@ export function createLifecycleSlice(
     try {
       result = await backend.deleteSession(tabId, cascade.length > 0);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
       return false;
     }
     if (result.failed.length > 0) {
-      window.alert(
-        `Some sessions could not be deleted:\n${result.failed
-          .map((failure) => `${failure.tabId}: ${failure.message}`)
-          .join("\n")}`,
+      // The notice must not pause cleanup: successful members are erased
+      // immediately below, and the failed records stay mounted and retryable.
+      get().reportError(
+        t("session.error.deletePartial", {
+          failures: result.failed
+            .map((failure) => `${failure.tabId}: ${failure.message}`)
+            .join("\n"),
+        }),
       );
     }
     const gone = result.deleted;
@@ -308,7 +320,7 @@ export function createLifecycleSlice(
         worktree,
       }));
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
       return;
     }
     set((s) => ({
@@ -429,7 +441,7 @@ export function createLifecycleSlice(
       await backend.restartSession(tabId);
       return true;
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
       return false;
     }
   };
@@ -454,17 +466,14 @@ export function createLifecycleSlice(
   };
 
   const removeProject = async (path: string): Promise<void> => {
-    if (
-      !window.confirm(
-        `Remove project ${path} and its session records? Files on disk are kept.`,
-      )
-    )
-      return;
-    try {
-      await backend.removeProject(path);
-    } catch (err) {
-      alertError(err);
-    }
+    // Only a registered project has anything to confirm; removal itself
+    // stays the backend's, and the authoritative stateChanged broadcast
+    // drops the project from every renderer — no optimistic pruning here.
+    const registered = get().state?.projects.some(
+      (group) => group.project.path === path,
+    );
+    if (!registered) return;
+    stageLifecycleConfirmation({ kind: "remove-project", projectPath: path });
   };
 
   // No optimistic update: the `stateChanged` broadcast replaces `state`
@@ -476,7 +485,7 @@ export function createLifecycleSlice(
     try {
       await backend.moveProject(projectPath, beforePath);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 
@@ -489,7 +498,7 @@ export function createLifecycleSlice(
     try {
       await backend.moveSession(tabId, beforeTabId);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 
@@ -535,7 +544,7 @@ export function createLifecycleSlice(
         exited: dropExited(s.exited, tabId),
       }));
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 
@@ -629,7 +638,7 @@ export function createLifecycleSlice(
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 
@@ -661,35 +670,123 @@ export function createLifecycleSlice(
     });
   };
 
-  const terminate = async (tabId: string): Promise<void> => {
-    if (
-      !window.confirm(
-        "Terminate the running agent? The session stays resumable.",
-      )
-    )
+  /**
+   * Stages one lifecycle decision (issue #373). A confirmation never
+   * overwrites a pending lifecycle confirmation or a visible delete
+   * confirmation, and repeated invocations while one is pending are no-ops:
+   * there is no queue of destructive decisions.
+   */
+  const stageLifecycleConfirmation = (
+    choice: LifecycleConfirmationChoice,
+  ): void => {
+    const s = get();
+    if (s.lifecycleConfirmation !== null || s.deleteConfirmation !== null) return;
+    set({ lifecycleConfirmation: { ...choice, id: randomId(), busy: false } });
+  };
+
+  /**
+   * The accepted effect behind `confirmLifecycleAction`. Targets are
+   * re-checked against current backend state — never the record captured at
+   * staging — so a vanished or already-changed subject dismisses harmlessly.
+   * Rejections propagate to the caller's reportError catch.
+   */
+  const runLifecycleConfirmation = async (
+    confirmation: LifecycleConfirmation,
+  ): Promise<void> => {
+    if (confirmation.kind === "terminate") {
+      const rec = findRecord(get().state, confirmation.tabId);
+      if (!rec || rec.live !== "live") return;
+      await backend.terminateSession(confirmation.tabId);
+      // Only a successful stop retires the handoff: killShell suppresses the
+      // drawer program's exit event, so a discarded handoff after a failed
+      // termination would silently strand its banner over a still-live PTY —
+      // and a rejection is not the stop the user accepted.
+      set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, confirmation.tabId) }));
       return;
-    await backend.terminateSession(tabId);
-    // Terminating kills the drawer's program through killShell, which
-    // deliberately suppresses its exit event — so nothing would ever retire
-    // a staged handoff, and its banner would keep offering to send into a
-    // dead PTY. Drop it here, as eraseSession does for the same reason.
-    set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
+    }
+    if (confirmation.kind === "switch-mode") {
+      const rec = findRecord(get().state, confirmation.tabId);
+      // Stale when another switch already moved the mode. A session that
+      // merely died meanwhile keeps its requested change: no restart is
+      // prepared, and the dormant path switches in place.
+      if (!rec || rec.mode !== confirmation.fromMode) return;
+      await performSwitchMode(confirmation.tabId, confirmation.mode);
+      return;
+    }
+    const registered = get().state?.projects.some(
+      (group) => group.project.path === confirmation.projectPath,
+    );
+    if (!registered) return;
+    await backend.removeProject(confirmation.projectPath);
+  };
+
+  const confirmLifecycleAction = async (id: string): Promise<void> => {
+    const pending = get().lifecycleConfirmation;
+    // Ids are single-use: a second activation while busy, or on a replaced or
+    // already-settled confirmation, dispatches nothing.
+    if (!pending || pending.id !== id || pending.busy) return;
+    // Busy lands synchronously before the first await.
+    set({ lifecycleConfirmation: { ...pending, busy: true } });
+    try {
+      await runLifecycleConfirmation(pending);
+    } catch (err) {
+      get().reportError(err);
+    } finally {
+      // Clear only this confirmation — a newer one (impossible while busy,
+      // defensive anyway) must never be dropped by an older settlement.
+      set((s) =>
+        s.lifecycleConfirmation?.id === id ? { lifecycleConfirmation: null } : s,
+      );
+    }
+  };
+
+  const cancelLifecycleAction = (id: string): void => {
+    const pending = get().lifecycleConfirmation;
+    if (!pending || pending.id !== id || pending.busy) return;
+    set({ lifecycleConfirmation: null });
+  };
+
+  const terminate = async (tabId: string): Promise<void> => {
+    // Stopping is a live-session action: no record or no live process means
+    // there is nothing to confirm, and no DOM dialog is staged.
+    const rec = findRecord(get().state, tabId);
+    if (!rec || rec.live !== "live") return;
+    stageLifecycleConfirmation({ kind: "terminate", tabId, title: rec.title });
   };
 
   const switchMode = async (tabId: string, mode: SessionMode): Promise<void> => {
     const rec = findRecord(get().state, tabId);
-    if (rec?.live === "live") {
-      const other = mode === "pty" ? "terminal" : "native";
-      if (
-        !window.confirm(
-          `Restart this session in ${other} mode? The process is killed and resumed.`,
-        )
-      )
-        return;
+    // Absent record or an already-selected mode: no action, no prompt.
+    if (!rec || rec.mode === mode) return;
+    // Only a running process is killed and resumed; a dormant selection
+    // switches without a restart prompt, exactly as before.
+    if (rec.live === "live") {
+      stageLifecycleConfirmation({
+        kind: "switch-mode",
+        tabId,
+        title: rec.title,
+        fromMode: rec.mode,
+        mode,
+      });
+      return;
     }
+    await performSwitchMode(tabId, mode);
+  };
+
+  /**
+   * The shared mode-switch effect: preparation and backend call, re-reading
+   * the record first. RPC state is prepared only when this runs — which is
+   * never before an approval.
+   */
+  const performSwitchMode = async (
+    tabId: string,
+    mode: SessionMode,
+  ): Promise<void> => {
+    const rec = findRecord(get().state, tabId);
+    if (!rec) return;
     try {
       if (
-        rec?.live === "live" &&
+        rec.live === "live" &&
         rec.mode !== mode &&
         (rec.mode === "rpc-ui" || mode === "rpc-ui")
       ) {
@@ -697,7 +794,7 @@ export function createLifecycleSlice(
       }
       await backend.switchMode(tabId, mode);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 
@@ -721,7 +818,7 @@ export function createLifecycleSlice(
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 
@@ -732,7 +829,7 @@ export function createLifecycleSlice(
     try {
       preview = await backend.deleteSessionPreview(tabId);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
       return;
     }
     const cascade = preview.descendants;
@@ -765,7 +862,7 @@ export function createLifecycleSlice(
       try {
         await backend.setSkipDeleteConfirmation(true);
       } catch (err) {
-        alertError(err);
+        get().reportError(err);
       }
     }
     await eraseSession(pending.tabId, pending.cascade.map((d) => d.tabId));
@@ -787,7 +884,7 @@ export function createLifecycleSlice(
       if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
       return await backend.releaseWorktree(tabId);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
       return null;
     }
   };
@@ -856,6 +953,9 @@ export function createLifecycleSlice(
     searchOpen: {},
     tuiHandoff: {},
     deleteConfirmation: null,
+    lifecycleConfirmation: null,
+    confirmLifecycleAction,
+    cancelLifecycleAction,
     prepareRpcRelaunch,
     resolveSpawnParams,
     teardownProcess,

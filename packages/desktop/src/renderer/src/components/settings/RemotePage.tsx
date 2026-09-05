@@ -110,7 +110,7 @@ function PasswordRow() {
     if (value === "") return;
     setDraft("");
     setEditing(false);
-    void setRemotePassword(value); // policy rejections surface via alertRemoteError
+    void setRemotePassword(value); // policy rejections surface as error notices
   };
 
   const cancel = (): void => {

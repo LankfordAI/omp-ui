@@ -864,9 +864,9 @@ describe("WorktreeChip merge-back (issue #272)", () => {
     ]);
   });
 
-  it("keeps the worktree and warns when the release rejects", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+  it("keeps the worktree and reports through the error notices when the release rejects", async () => {
     seedStore({ tabs: [tabInfo({ tabId: TAB_ID })], rpc: { [TAB_ID]: rpcTabState() } });
+    useStore.setState({ errorNotices: [] });
     backendMock.mergeWorktreeBranch.mockResolvedValueOnce(mergedResult);
     backendMock.releaseWorktree.mockRejectedValueOnce(new Error("session tab did not exit"));
     render();
@@ -875,7 +875,9 @@ describe("WorktreeChip merge-back (issue #272)", () => {
     await act(async () => dialogButton("merge & return")!.click());
     await settle();
 
-    expect(alertSpy).toHaveBeenCalledWith("session tab did not exit");
+    expect(useStore.getState().errorNotices.map((n) => n.message)).toEqual([
+      "session tab did not exit",
+    ]);
     expect(dialog()).toBeNull();
     expect(useStore.getState().tabs.some((t) => t.tabId === TAB_ID)).toBe(true);
     // The failed return resets: the merge row is back and the status re-read.
@@ -883,7 +885,6 @@ describe("WorktreeChip merge-back (issue #272)", () => {
     expect(mergeRow()!.disabled).toBe(false);
     expect(backendMock.getMergeBackStatus).toHaveBeenCalledTimes(2);
     expect(notices()).toEqual([]);
-    alertSpy.mockRestore();
   });
 
   it("warns in the notice when the checkout was kept for a sharer", async () => {

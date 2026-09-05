@@ -208,13 +208,9 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
 
 const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info: "neutral" };
 
-/** Same failure surface the store uses for backend rejections. */
-function alertBackendError(err: unknown): void {
-  window.alert(err instanceof Error ? err.message : String(err));
-}
-
 function NoticeLine({ item }: { item: NoticeItem }) {
   const t = useT();
+  const reportError = useStore((s) => s.reportError);
   const tone = NOTICE_TONE[item.level ?? "info"] ?? "neutral";
   // A notice carrying a path (the exported transcript HTML, issue #84) is a
   // link: the text opens the file with the system handler, the folder glyph
@@ -244,7 +240,7 @@ function NoticeLine({ item }: { item: NoticeItem }) {
               title={t("notice.path.open", { path })}
               className="min-w-0 cursor-pointer break-words text-left underline decoration-dotted underline-offset-2 hover:text-ink"
               data-selectable
-              onClick={() => void backend.openPath(path).catch(alertBackendError)}
+              onClick={() => void backend.openPath(path).catch(reportError)}
             >
               {item.text}
             </button>
@@ -253,7 +249,7 @@ function NoticeLine({ item }: { item: NoticeItem }) {
               title={t("notice.path.reveal")}
               aria-label={t("notice.path.reveal")}
               className="shrink-0 cursor-pointer text-ink-faint hover:text-ink"
-              onClick={() => void backend.showPathInFolder(path).catch(alertBackendError)}
+              onClick={() => void backend.showPathInFolder(path).catch(reportError)}
             >
               <svg viewBox="0 0 16 16" aria-hidden className="size-3">
                 <path
