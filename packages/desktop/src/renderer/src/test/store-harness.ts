@@ -194,23 +194,21 @@ const mockBackend = {
   signOutProviderOAuth: vi.fn(async (): Promise<never[]> => []),
 };
 
-// Dialog text is an assertable part of a destructive action's contract, so the
-// stubs record what they were asked; `confirm` accepts unless a case says no.
-const prompts: string[] = [];
-const alerts: string[] = [];
-// open_url extension requests route through window.open; main's
-// setWindowOpenHandler owns the real policy, the stub just records the ask.
+// The renderer no longer uses native dialogs (issue #373): a surviving
+// alert/confirm call is a regression, so these stubs throw instead of
+// recording, and nothing auto-accepts on a test's behalf.
 const openedUrls: string[] = [];
 
 const windowStub = {
   ompBackend: mockBackend,
-  alert: (msg: string): void => {
-    alerts.push(msg);
+  alert: (msg: string): never => {
+    throw new Error(`unexpected window.alert: ${msg}`);
   },
-  confirm: (msg: string): boolean => {
-    prompts.push(msg);
-    return true;
+  confirm: (msg: string): never => {
+    throw new Error(`unexpected window.confirm: ${msg}`);
   },
+  // open_url extension requests route through window.open; main's
+  // setWindowOpenHandler owns the real policy, the stub just records the ask.
   open: (url?: string | URL): null => {
     openedUrls.push(String(url ?? ""));
     return null;
@@ -362,14 +360,7 @@ beforeEach(() => {
   rpcCommandMachinery.resetForTests();
   resetTabRuntimesForTests();
   sent.length = 0;
-  prompts.length = 0;
-  alerts.length = 0;
   openedUrls.length = 0;
-  // Cases that answer "no" overwrite confirm; reinstall the default each time.
-  windowStub.confirm = (msg: string): boolean => {
-    prompts.push(msg);
-    return true;
-  };
   backendState = makeBackendState();
   useStore.setState({
     state: null,
@@ -381,6 +372,8 @@ beforeEach(() => {
     rpc: {},
     compactionSettings: {},
     deleteConfirmation: null,
+    lifecycleConfirmation: null,
+    errorNotices: [],
     appUpdate: idleAppUpdate,
     ompUpdate: idleOmpUpdate,
     remote: idleRemoteState,
@@ -405,8 +398,6 @@ export const h = {
   registerShellWriter,
   rpcCommandMachinery,
   sent,
-  prompts,
-  alerts,
   openedUrls,
   mockBackend,
   windowStub,
@@ -433,4 +424,6 @@ export const h = {
   driveBoot,
   flushMicrotasks,
   deferred,
+  /** The error notices the store recorded, in arrival order (issue #373). */
+  errorMessages: () => useStore.getState().errorNotices.map((n) => n.message),
 };

@@ -1272,10 +1272,10 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     // The verdict answers the gate before the add is refused, so the plan is
     // already settled "executed"; the failure then rides the spawn-failure
-    // contract: an alert, no seed prompt, no hibernate.
+    // contract: an error notice, no seed prompt, no hibernate.
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p-wt-refused", value: "execute" });
-    expect(h.alerts).toEqual(["fatal: a branch named 'omp-ui/cafebabe' already exists"]);
+    expect(h.errorMessages()).toEqual(["fatal: a branch named 'omp-ui/cafebabe' already exists"]);
     expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
   });
@@ -1402,10 +1402,10 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     // The verdict answers the gate before the spawn is refused, so the plan
     // is already settled "executed"; the failure then rides the spawn-failure
-    // contract: an alert, no seed prompt, no hibernate.
+    // contract: an error notice, no seed prompt, no hibernate.
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "handoff-reuse-gone", value: "execute" });
-    expect(h.alerts).toEqual([
+    expect(h.errorMessages()).toEqual([
       "the planning session's worktree checkout is gone — delete the planning session from the sidebar",
     ]);
     expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);

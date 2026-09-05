@@ -5,6 +5,7 @@ import type { ImageAttachment } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { planMessage } from "@omp-ui/core/plan";
 import { backend } from "../../backend";
+import { t } from "../../lib/i18n";
 import { arrField, boolField, field, strField } from "../../lib/fields";
 import {
   parseModelInfo,
@@ -24,7 +25,6 @@ import {
 } from "../../lib/transcript";
 import {
   RPC_COMMAND_TIMEOUT_MS,
-  alertError,
   handedOffPlanSources,
   respData,
   type GetState,
@@ -307,9 +307,7 @@ export function createSessionParamsSlice(
             plan: previousPlan,
           });
         }
-        window.alert(
-          "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
-        );
+        get().reportError(t("session.error.advisorBusy"));
         return;
       }
     }
@@ -318,11 +316,13 @@ export function createSessionParamsSlice(
     } catch (err) {
       // Changing the advisor relaunches the agent, so a failure here means
       // the session is down, not merely that a setting did not stick. Say
-      // that, rather than surfacing the bare IPC error.
+      // that, rather than surfacing the bare IPC error. The relaunch failure
+      // policy is unchanged: no claim of success, no auto-resume.
       const reason = err instanceof Error ? err.message : String(err);
-      window.alert(
-        `Could not ${advisor ? "enable" : "disable"} the advisor: ${reason}\n\n` +
-          "The agent has stopped — resume the session to continue.",
+      get().reportError(
+        t(advisor ? "session.error.advisorEnable" : "session.error.advisorDisable", {
+          reason,
+        }),
       );
     }
   };
@@ -460,7 +460,7 @@ export function createSessionParamsSlice(
       set({ state: await backend.getState() });
       await get().openSession(forked);
     } catch (err) {
-      alertError(err);
+      get().reportError(err);
     }
   };
 

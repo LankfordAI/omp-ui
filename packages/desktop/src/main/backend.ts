@@ -56,6 +56,7 @@ import {
   type RemoteBind,
   type RpcFrame,
   type SessionMode,
+  type SpawnGateState,
   type SpawnRequest,
   type SessionSummary,
 } from "@omp-ui/core";
@@ -68,7 +69,7 @@ import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 import { openExternalSafe } from "./open-external";
-import type { SpawnGate } from "./spawn-gate";
+import { NO_GATE, type SpawnGate } from "./spawn-gate";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -96,6 +97,10 @@ export class MainBackend {
   private readonly providerOAuth: ProviderOAuth;
   /** Where worktree checkouts live; defaults beside the registry. */
   private readonly worktreesRoot: string;
+  /** The parsed dev/test gate; one value feeds every spawn and the state projection. */
+  private readonly spawnGate: SpawnGate;
+  /** Precomputed wire projection of `spawnGate`; identical on every broadcast. */
+  private readonly spawnGateState: SpawnGateState;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -126,6 +131,14 @@ export class MainBackend {
       electronKeyCipher(),
     );
     this.providerKeys.applyToProcessEnv();
+    // Retained once: the SessionManager pins and the state projection must
+    // describe the same startup value, never two environment reads.
+    this.spawnGate = opts.spawnGate ?? NO_GATE;
+    this.spawnGateState = {
+      model: this.spawnGate.model === null ? null : formatModelRole(this.spawnGate.model),
+      advisorModel:
+        this.spawnGate.advisorModel === null ? null : formatModelRole(this.spawnGate.advisorModel),
+    };
     this.providerOAuth = new ProviderOAuth({
       getOmpPath: () => this.ompPath,
       scratchDir: path.join(path.dirname(registryFile), "oauth-login"),
@@ -163,7 +176,7 @@ export class MainBackend {
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
         attention: this.notifier,
-        spawnGate: opts.spawnGate,
+        spawnGate: this.spawnGate,
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
@@ -821,6 +834,9 @@ export class MainBackend {
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
       dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),
+      // Instance metadata, not registry state: identical on every read and
+      // broadcast, for the desktop window and remote clients alike.
+      spawnGate: this.spawnGateState,
     };
   }
 

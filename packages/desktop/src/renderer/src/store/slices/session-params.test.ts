@@ -1409,7 +1409,7 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.useStore.getState().rpc[h.TAB]).toEqual(rpcTabState());
   });
 
-  it("a failed branch alerts and changes nothing", async () => {
+  it("a failed branch reports the backend reason and changes nothing", async () => {
     h.mockBackend.forkSession.mockRejectedValueOnce(
       new Error("this session has no transcript to branch yet"),
     );
@@ -1417,7 +1417,7 @@ describe("prompting, slash commands, and session ops", () => {
 
     await h.useStore.getState().branchSession(h.TAB);
 
-    expect(h.alerts.at(-1)).toBe("this session has no transcript to branch yet");
+    expect(h.errorMessages()).toEqual(["this session has no transcript to branch yet"]);
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     expect(h.useStore.getState().activeTabId).toBe(h.TAB);
   });

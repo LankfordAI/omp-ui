@@ -228,6 +228,7 @@ export function Modal({
   mobile = "fullscreen",
   role = "dialog",
   labelledBy,
+  className,
 }: {
   children: ReactNode;
   onClose?: () => void;
@@ -236,6 +237,8 @@ export function Modal({
   mobile?: "fullscreen" | "dialog";
   role?: "dialog" | "alertdialog";
   labelledBy?: string;
+  /** Layout additions for the inner content box (e.g. a bounded column). */
+  className?: string;
 }) {
   const root = useOverlay(true, onClose, restoreFocusTo);
   const t = useT();
@@ -254,6 +257,7 @@ export function Modal({
         className={cn(
           "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-line-strong bg-overlay",
           width,
+          className,
           mobile === "fullscreen" ? "compact-modal-fullscreen" : "compact-modal-dialog",
         )}
       >
@@ -296,8 +300,9 @@ export function ConfirmDialog({
       onClose={onClose}
       width={width}
       mobile="dialog"
+      className="flex flex-col"
     >
-      <header className="border-b border-line px-4 py-3.5">
+      <header className="shrink-0 border-b border-line px-4 py-3.5">
         <p className={cn("mb-1 font-mono text-[10px] uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
           {kicker}
         </p>
@@ -305,8 +310,8 @@ export function ConfirmDialog({
           {title}
         </h2>
       </header>
-      <div className="px-4 py-4">{children}</div>
-      <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">{actions}</footer>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+      <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-4 py-3">{actions}</footer>
     </Modal>
   );
 }

@@ -21,6 +21,7 @@ export function Button({
   title,
   type = "button",
   className,
+  initialFocus,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -34,6 +35,8 @@ export function Button({
   title?: string;
   type?: "button" | "submit";
   className?: string;
+  /** Claims the overlay's initial focus (ui/overlays.tsx data-modal-initial-focus). */
+  initialFocus?: boolean;
 }) {
   const variantClass =
     selected !== undefined
@@ -64,6 +67,7 @@ export function Button({
       disabled={disabled}
       aria-pressed={selected}
       onClick={onClick}
+      {...(initialFocus === true ? { "data-modal-initial-focus": "" } : {})}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-md border font-medium",
         "transition-[background-color,border-color,color,filter,opacity] duration-150",

@@ -302,17 +302,17 @@ describe("settings", () => {
     expect(h.useStore.getState().compactionSettings).toEqual({});
   });
 
-  it("rejects writeOmpSetting to its caller instead of alerting", async () => {
+  it("rejects writeOmpSetting to its caller instead of noticing it", async () => {
     h.mockBackend.writeOmpSetting.mockRejectedValueOnce(
       new Error("unknown setting"),
     );
 
     // The omp settings page renders this inline, so the rejection must survive
-    // the store rather than being swallowed into window.alert.
+    // the store rather than being swallowed into an error notice.
     await expect(
       h.useStore.getState().writeOmpSetting("advisor.enabled", true),
     ).rejects.toThrow("unknown setting");
-    expect(h.alerts).toEqual([]);
+    expect(h.useStore.getState().errorNotices).toEqual([]);
   });
 });
 
@@ -338,20 +338,20 @@ describe("remote access settings", () => {
     expect(h.useStore.getState().remote.enabled).toBe(true);
   });
 
-  it("alerts a real remote-settings failure", async () => {
+  it("reports a real remote-settings failure as an error notice", async () => {
     h.mockBackend.setRemotePort.mockRejectedValueOnce(
       new Error("port must be a whole number between 1024 and 65535"),
     );
     await h.useStore.getState().setRemotePort(80);
-    expect(h.alerts).toEqual([
+    expect(h.errorMessages()).toEqual([
       "port must be a whole number between 1024 and 65535",
     ]);
   });
 
   it("swallows the self-inflicted disconnect a remote client causes", async () => {
     // A REMOTE client changing bind/port/token restarts the server it is asking over, so its own
-    // call never gets a reply. That is the requested outcome — the reconnect banner handles it,
-    // and a modal alert would both lie and block the banner's reload.
+    // call never gets a reply. That is the requested outcome — the reconnect banner handles it;
+    // a blocking alert would both lie and stall that reload.
     for (const [action, arg] of [
       ["setRemoteEnabled", true],
       ["setRemoteBind", "lan"],
@@ -367,7 +367,7 @@ describe("remote access settings", () => {
         arg,
       );
     }
-    expect(h.alerts).toEqual([]);
+    expect(h.useStore.getState().errorNotices).toEqual([]);
   });
 });
 

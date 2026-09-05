@@ -7,7 +7,7 @@ import * as Core from "@omp-ui/core";
 import type { KeyCipher, PtyHandle } from "@omp-ui/core";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
-import { SessionManager } from "./session-manager";
+import { SessionManager, type SessionManagerDependencies } from "./session-manager";
 import type { Attention } from "./desktop-notifier";
 import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
@@ -127,6 +127,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   broadcast: Mock;
   sent: { channel: string; args: unknown[] }[];
   sessionsRoot: string;
+  restart(spawnGate?: SpawnGate): SessionManager;
 } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-"));
   const sessionsRoot = path.join(base, "sessions");
@@ -172,7 +173,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   );
   const sent: { channel: string; args: unknown[] }[] = [];
   const broadcast = vi.fn(async () => {});
-  const manager = new SessionManager({
+  const deps: SessionManagerDependencies = {
     registry,
     providerKeys,
     hasOAuthProvider: opts.hasOAuthProvider,
@@ -183,9 +184,18 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
     send: (channel, ...args) => sent.push({ channel, args }),
     broadcast,
     attention: opts.attention,
-    spawnGate: opts.spawnGate,
-  });
-  return { manager, registry, broadcast, sent, sessionsRoot };
+  };
+  // `restart` rebuilds the manager against the SAME registry: the gate
+  // boundary test needs a gated run followed by an ungated one (issue #372).
+  return {
+    manager: new SessionManager({ ...deps, spawnGate: opts.spawnGate }),
+    registry,
+    broadcast,
+    sent,
+    sessionsRoot,
+    restart: (spawnGate?: SpawnGate): SessionManager =>
+      spawnGate === undefined ? new SessionManager(deps) : new SessionManager({ ...deps, spawnGate }),
+  };
 }
 
 const resume = (manager: SessionManager): Promise<{ tabId: string }> =>
@@ -527,6 +537,56 @@ describe("test-run spawn gate (issue #371)", () => {
     expect(fs.readFileSync(overlay!, "utf8")).toBe(
       'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "gate/advisor:low"\n',
     );
+  });
+
+  it("keeps the saved advisor choice across a gated run and an ungated restart", async () => {
+    // The display contract of issue #372 rests on this persistence boundary:
+    // the gate reaches omp's overlay only. The record keeps its own advisor
+    // tuple, so an ungated launch of the same registry restores the saved
+    // selector — and enabled/disabled stays the record's decision.
+    const { manager, registry, restart } = setup({
+      mode: "rpc-ui",
+      spawnGate: gated(null, "gate/advisor:low"),
+    });
+    registry.setSessionAdvisor(TAB, true, "saved/advisor:medium");
+
+    await resume(manager);
+    let options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] };
+    let overlay = overlayNamed(options.configOverlays, "omp-ui-advisor.yml");
+    expect(fs.readFileSync(overlay!, "utf8")).toBe(
+      'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "gate/advisor:low"\n',
+    );
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({
+      advisor: true,
+      advisorModel: "saved/advisor:medium",
+    });
+
+    // Same registry, no gate in this manager's environment: the record's own
+    // selector wins again, with the record's level suffix intact.
+    await resume(restart());
+    options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] };
+    overlay = overlayNamed(options.configOverlays, "omp-ui-advisor.yml");
+    expect(fs.readFileSync(overlay!, "utf8")).toBe(
+      'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "saved/advisor:medium"\n',
+    );
+  });
+
+  it("an off advisor stays off through a gated resume", async () => {
+    // The gate pins the role, never the posture (issue #372's display claims
+    // the enabled flag follows the switch, not the override).
+    const { manager, registry } = setup({
+      mode: "rpc-ui",
+      spawnGate: gated(null, "gate/advisor:low"),
+    });
+    registry.setSessionAdvisor(TAB, false, "saved/advisor");
+
+    await resume(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] };
+    const overlay = overlayNamed(options.configOverlays, "omp-ui-advisor.yml");
+    expect(fs.readFileSync(overlay!, "utf8")).toBe(
+      'advisor:\n  enabled: false\nmodelRoles:\n  advisor: "gate/advisor:low"\n',
+    );
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({ advisor: false });
   });
 });
 

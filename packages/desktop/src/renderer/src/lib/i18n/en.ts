@@ -106,6 +106,47 @@ export const en = {
   "dialog.worktree.title": "Start a session in a fresh worktree?",
   "dialog.worktree.create": "Create session",
   "dialog.worktree.notGit": "This project isn't inside a git repo, so there's nothing to worktree.",
+
+  // AppFeedback.tsx — staged session/project confirmations (issue #373)
+  "dialog.lifecycle.kicker": "Session action",
+  "dialog.lifecycle.terminateTitle": "Stop the agent?",
+  "dialog.lifecycle.terminateBody": "Terminate the running agent? The session stays resumable.",
+  "dialog.lifecycle.terminateAction": "Stop agent",
+  "dialog.lifecycle.switchTitle": "Switch session mode?",
+  "dialog.lifecycle.switchBody": "Restart this session in {mode} mode? The process is killed and resumed.",
+  "dialog.lifecycle.switchAction": "Restart session",
+  "dialog.lifecycle.terminal": "terminal",
+  "dialog.lifecycle.native": "native",
+  "dialog.lifecycle.removeTitle": "Remove project?",
+  "dialog.lifecycle.removeBody": "Remove project {path} and its session records? Files on disk are kept.",
+  "dialog.lifecycle.removeAction": "Remove project",
+  "dialog.lifecycle.working": "Working…",
+
+  // AppFeedback.tsx — backend-failure acknowledgment dialog (issue #373)
+  "dialog.error.kicker": "Action failed",
+  "dialog.error.title": "Could not complete the action",
+  "dialog.error.dismiss": "Dismiss",
+
+  // Store slices — localized failure notices (issue #373); backend reasons,
+  // tab ids, and paths arrive verbatim as interpolation data.
+  "session.error.deletePartial": "Some sessions could not be deleted:\n{failures}",
+  "session.error.advisorBusy":
+    "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
+  "session.error.advisorEnable":
+    "Could not enable the advisor: {reason}\n\nThe agent has stopped — resume the session to continue.",
+  "session.error.advisorDisable":
+    "Could not disable the advisor: {reason}\n\nThe agent has stopped — resume the session to continue.",
+
+  // AdvisorControl.tsx, PlanReview.tsx — dev/test advisor override (issue #372)
+  "advisor.override.badge": "dev/test",
+  "advisor.override.label": "Dev/test advisor override",
+  "advisor.override.active":
+    "This app instance overrides the advisor model with {selector}. Saved session and project choices are unchanged.",
+  "advisor.override.inactive":
+    "When the advisor is enabled, this app instance uses {selector}. Saved choices are unchanged.",
+  "advisor.override.resume":
+    "On resume, this app instance overrides the advisor model with {selector}. Saved choices are unchanged.",
+
   "transcript.assistant.thinking": "thinking",
   "transcript.speaker.assistant": "assistant",
   "transcript.speaker.you": "you",

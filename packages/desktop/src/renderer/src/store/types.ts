@@ -159,6 +159,35 @@ export interface DeleteConfirmation {
   cascade: PlanHandoffDescendant[];
 }
 
+/**
+ * One destructive/disruptive session decision awaiting a DOM confirmation
+ * (issue #373). Data-only: no promise resolver or callback lives in state —
+ * the dialog calls back into the store actions by id.
+ */
+export type LifecycleConfirmationChoice =
+  | { kind: "terminate"; tabId: string; title: string }
+  | {
+      kind: "switch-mode";
+      tabId: string;
+      title: string;
+      fromMode: SessionMode;
+      mode: SessionMode;
+    }
+  | { kind: "remove-project"; projectPath: string };
+
+export type LifecycleConfirmation = {
+  /** Identity across renders: stale button/Escape invocations must not act. */
+  id: string;
+  /** True while the accepted effect is in flight: dismissals become no-ops. */
+  busy: boolean;
+} & LifecycleConfirmationChoice;
+
+/** One backend failure awaiting acknowledgment (issue #373, replaces alert). */
+export interface ErrorNotice {
+  id: string;
+  message: string;
+}
+
 export type SettingsPage =
   | "general"
   | "appearance"
@@ -283,6 +312,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   branchDiffRevision: Record<string, number>;
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
+  /** A pending session/project decision awaiting DOM confirmation (issue #373). */
+  lifecycleConfirmation: LifecycleConfirmation | null;
+  confirmLifecycleAction(id: string): Promise<void>;
+  cancelLifecycleAction(id: string): void;
+  /** Backend failures awaiting acknowledgment, oldest first (issue #373). */
+  errorNotices: ErrorNotice[];
+  reportError(error: unknown): void;
+  dismissError(id: string): void;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
   /** The working tree the MCP manager resolves and writes at (a worktree
@@ -318,7 +355,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
   /**
    * Creates a worktree session; throws on failure (the dialog renders the
-   * message inline) — unlike newSession's alertError.
+   * message inline) — unlike newSession, which reports to the error notices.
    */
   newWorktreeSession(
     projectCwd: string,
@@ -327,7 +364,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   /**
    * Converts an unprompted session to a worktree session (issue #225);
    * throws on failure (the composer renders the message inline) — unlike
-   * restartSession's alertError.
+   * restartSession, which reports to the error notices.
    */
   convertSessionToWorktree(
     tabId: string,

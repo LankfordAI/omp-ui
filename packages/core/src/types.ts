@@ -256,6 +256,17 @@ export interface ProjectGroup {
   sessions: SessionSummary[];
 }
 
+/**
+ * Instance-only spawn selectors this app instance forces at the spawn choke
+ * point (docs/development.md). Serialized projection of the main-process
+ * `SpawnGate`; never persisted, never a session or project pin.
+ */
+export interface SpawnGateState {
+  /** Instance-only selectors; null means this role is not overridden. */
+  model: string | null;
+  advisorModel: string | null;
+}
+
 export interface BackendState {
   projects: ProjectGroup[];
   defaultMode: SessionMode;
@@ -292,6 +303,8 @@ export interface BackendState {
   dismissedAppUpdateVersion: string | null;
   /** omp version whose install/update card was dismissed, or null. */
   dismissedOmpUpdateVersion: string | null;
+  /** This instance's dev/test spawn selectors; not persisted, not a pin. */
+  spawnGate: SpawnGateState;
 }
 
 /**

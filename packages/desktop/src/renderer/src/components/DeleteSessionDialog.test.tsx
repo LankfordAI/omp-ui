@@ -10,6 +10,7 @@ import type {
   SessionSummary,
 } from "@omp-ui/core/types";
 import type { DeleteConfirmation, RpcTabState } from "../store";
+import { backendState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,43 +108,30 @@ afterEach(() => {
 const stateWith = (
   session: SessionSummary,
   skipDeleteConfirmation: boolean,
-): BackendState => ({
-  projects: [
-    {
-      project: {
-        path: "/repo",
-        name: "repo",
-        addedAt: "2026-01-01T00:00:00.000Z",
-        lastModel: null,
-        lastThinkingLevel: null,
-        lastAdvisor: null,
-        lastAdvisorModel: null,
-        defaultModel: null,
-        defaultAdvisorModel: null,
+): BackendState =>
+  backendState({
+    projects: [
+      {
+        project: {
+          path: "/repo",
+          name: "repo",
+          addedAt: "2026-01-01T00:00:00.000Z",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+        },
+        sessions: [session],
       },
-      sessions: [session],
-    },
-  ],
-  defaultMode: "rpc-ui",
-  defaultAgentMode: "build",
-  defaultCompactionMethod: null,
-  planFormat: "md",
-  hibernateIdleMinutes: 30,
-  streamStallAbortSeconds: 180,
-  advisorAutoReply: false,
-  stallAutoContinue: true,
-  desktopNotifications: true,
-  defaultAdvisor: false,
-  modelFavorites: [],
-  skipDeleteConfirmation,
-  themeId: "default",
-  fontFamilyId: "default",
-  localeId: "en",
-  appUpdateCheckOnLaunch: true,
-  ompUpdateCheckOnLaunch: true,
-  dismissedAppUpdateVersion: null,
-  dismissedOmpUpdateVersion: null,
-});
+    ],
+    defaultAgentMode: "build",
+    planFormat: "md",
+    advisorAutoReply: false,
+    skipDeleteConfirmation,
+    themeId: "default",
+  });
 
 const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   tabId: "tab-1",
