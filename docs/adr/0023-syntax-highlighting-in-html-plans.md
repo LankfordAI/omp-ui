@@ -49,14 +49,15 @@ spans plus a renderer-generated rule per (colour, font-style) pair.
   into its effect deps, so a theme switch re-prepares the plan in the new
   palette — mirroring `useHighlightTokens`'s theme dep.
 - **Code plane follows the theme.** The plan canvas stays light (ADR-0014's
-  explicit light canvas; `svg text` is forced `#111`), but the guardrail
-  paints every `pre`/`code` on the active theme's `--color-sunken` plane
-  with `--color-ink` foreground — the same plane the transcript's code
-  blocks occupy — so the runtime-theme token palette has the surface it was
-  derived against. The declaration rides in the guardrail stylesheet (last
-  in the head, `!important`) where plan-authored code styling cannot
-  displace it, and re-derives live on theme switch through the existing
-  prepare pass.
+  explicit light canvas; `svg text` is forced `#2b3036`), but the guardrail
+  paints every `pre`/`code` on the active theme's `--color-raised` plane
+  with `--color-ink` foreground so the runtime-theme token palette has the
+  surface it was derived against. The declaration rides in the guardrail
+  stylesheet (last in the head, `!important`) where plan-authored code
+  styling cannot displace it, and re-derives live on theme switch through
+  the existing prepare pass. Retuned to `--color-raised` on a `#e9ebee`
+  canvas (issue #375): the sunken plane on paper white read as black-on-white
+  with no mid-tones.
 
 Rejected: hand-authored highlighted spans in the plan HTML (fragile,
 token-bloated, and pushes tokenization onto the model — the same failure class

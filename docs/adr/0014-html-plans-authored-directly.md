@@ -76,3 +76,7 @@ before.
   plan API.** `sendCustomMessage` — without it the agent never learns to write
   html — and `getArtifactsDir` — without it no `local://` path can be resolved or
   probed. Either one missing degrades the session to `md` with one warning.
+- **The canvas is fixed and light, but not white: the guardrail paints
+  `#e9ebee` / `#2b3036` (issue #375).** Agent-authored colours are still
+  overridden, so the prompt's "explicit light canvas" wording remains the
+  authoring contract while the rendered palette is omp-ui's.

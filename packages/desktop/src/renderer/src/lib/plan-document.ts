@@ -32,8 +32,8 @@ html :where(*:not(svg, svg *)) {
 :root,
 body {
   color-scheme: light !important;
-  color: #111 !important;
-  background-color: #fff !important;
+  color: #2b3036 !important;
+  background-color: #e9ebee !important;
   background-image: none !important;
   width: 100% !important;
   max-width: 100% !important;
@@ -88,9 +88,10 @@ pre,
 code {
   white-space: pre-wrap !important;
   /* Code plane (issue #319): the canvas stays light, but code sits on the
-     active theme's sunken plane — the transcript's code plane — so the
-     theme's token palette has the surface it was derived against. */
-  background-color: ${theme.tokens["--color-sunken"]} !important;
+     active theme's raised plane so the theme's token palette has a surface
+     from its own family — one step up from the transcript's sunken plane so
+     the block reads as a card on the gray canvas, not a black well. */
+  background-color: ${theme.tokens["--color-raised"]} !important;
   color: ${theme.code.foreground} !important;
   color-scheme: ${theme.dark ? "dark" : "light"} !important;
 }
@@ -112,7 +113,7 @@ svg {
 }
 
 svg text {
-  fill: #111 !important;
+  fill: #2b3036 !important;
 }
 
 a,
@@ -120,7 +121,7 @@ a:link,
 a:visited,
 a:hover,
 a:active {
-  color: #0645ad !important;
+  color: #1f4e8c !important;
   text-decoration: underline !important;
 }
 /* Rendered mermaid diagrams (issue #285): self-contained SVG with its own
