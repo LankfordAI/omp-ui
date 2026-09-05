@@ -9,7 +9,6 @@
     "./types": "./src/types.ts",
     "./model-role": "./src/model-role.ts",
     "./backend-channels": "./src/backend-channels.ts",
-    "./backend-arg-codecs": "./src/backend-arg-codecs.ts",
     "./plan": "./src/plan.ts",
     "./project-files-limit": "./src/project-files-limit.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",
@@ -18,8 +17,7 @@
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
     "./stream-activity": "./src/stream-activity.ts",
     "./extension-dialog": "./src/extension-dialog.ts",
-    "./rpc/control-frames": "./src/rpc/control-frames.ts",
-    "./guards": "./src/guards.ts"
+    "./rpc/control-frames": "./src/rpc/control-frames.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

@@ -46,6 +46,7 @@ The root scripts delegate to the npm workspaces where appropriate.
 | Test all workspaces | `npm test` | Runs each workspace's `test` script. The desktop test script checks generated themes before Vitest. |
 | Type-check all workspaces | `npm run typecheck` | Runs each workspace's `typecheck` script. |
 | Lint the repository | `npm run lint` | Runs ESLint from the root. |
+| Audit visible strings | `python3 scripts/scan-visible-strings.py` | Heuristic list of renderer chrome literals that may still need an i18n `t()` key (issue #363). Read-only; triage hits by hand — brand names, hotkeys, paths, commands, and data labels are intentionally outside localization. |
 
 `npm run dev` hot reloads the desktop renderer. Restart it when a main-process, preload, native-module, or startup environment change cannot be picked up by the running process.
 

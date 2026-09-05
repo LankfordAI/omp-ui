@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type * as React from "react";
 import { cn } from "../../lib/cn";
 import { copyFallback } from "../../lib/clipboard";
+import { PANEL_KEYBOARD_STEP } from "../../lib/panel-layout";
 import { CheckIcon, Chevron, IconClose } from "./icons";
 import { TONE_BORDER_FULL, TONE_BORDER_FULL_HOVER, TONE_BORDER_OUTLINE_HOVER, TONE_BORDER_RAISED, TONE_CAPSULE, TONE_CHIP, TONE_TEXT, type Tone } from "./tone";
 
@@ -208,8 +209,8 @@ export function ResizeHandle({
         let next: number | null = null;
         if (event.key === "Home") next = min;
         else if (event.key === "End") next = max;
-        else if (event.key === "ArrowLeft") next = value - 16;
-        else if (event.key === "ArrowRight") next = value + 16;
+        else if (event.key === "ArrowLeft") next = value - PANEL_KEYBOARD_STEP;
+        else if (event.key === "ArrowRight") next = value + PANEL_KEYBOARD_STEP;
         if (next === null) return;
         event.preventDefault();
         const committed = clamp(next);
