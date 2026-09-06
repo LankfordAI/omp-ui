@@ -154,6 +154,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/new` | Opens a new tab session; the composer never dispatches it. |
 | `/plan`, `/no-plan` (bare) | Toggle plan mode through the generated extension described above. |
 | `/mcp`, `/mcp list` (bare) | Open the capabilities viewer's MCP tab for the session's own working tree. Every other `/mcp …` subcommand forwards normally — including `/mcp reload`, which the viewer's MCP footer sends. |
+| `/goal …`, `/guided-goal …` | Never forwarded as prose: OMP's `/goal` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about the goal instead of changing it. The composer dispatches a hidden command to the generated goal bridge instead, whose reply settles the command row ([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)). Terminal tabs keep forwarding the line to OMP's own TUI. |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
 | Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
 
@@ -162,6 +163,43 @@ A forwarded command appends a command render item in the transcript that starts 
 `command_output` frames attach to the newest running command item, joined by newlines and capped at 64 KiB with a head-preserving truncation note; with no running command item the text falls back to an info notice. OMP 17.3.8 emits `command_output` for builtin replies over rpc-ui, and the command row renders that text - in the docked transcript and, since the hero treats command rows as ambient, in the fresh-session hero footer as well. Runtimes that emit no reply leave the row settled but textless; omp-ui does not fabricate those replies from adjacent RPC state.
 
 `open_url` extension UI requests, emitted by RPC login and OAuth flows, route to the system browser: the renderer calls `window.open`, main's window-open handler denies the window and passes the URL through `openExternalSafe`, which gates schemes to https, http, and mailto. The request is answered `confirmed: true` and the transcript records an opened-browser marker. A request without a valid URL is cancelled as before.
+
+### Goal mode
+
+A native session can hold an OMP goal: an objective the runtime keeps working
+toward across turns, with token accounting and a budget of its own. The goal
+belongs to OMP. omp-ui stores no goal of its own, meters no tokens, and asks no
+model to pretend; a fifth per-lineage generated extension drives
+`AgentSession.goalRuntime` and publishes what the runtime reports
+([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)).
+
+The channel is an existing frame type claimed ahead of the generic extension
+status: `ui.setStatus("omp-ui:goal", <json>)` publishes a `GoalSnapshot` carrying
+the availability verdict and its reason, OMP's goal with its status and token
+accounting, the continuation state, the pause reason, and any correlated command
+result. Snapshots are monotonic per process (`revision`) and describe the payload
+they carry (a digest), so a stale or duplicate publish loses to what the client
+already holds and a malformed publish leaves the last good snapshot standing. Main
+keeps the newest snapshot per live session, keyed on the process that answered
+rather than the tab, adopts a new process key when a lineage's process is
+replaced, and retires frames from a superseded bridge; `SessionSummary.goal`
+carries it to late subscribers and rehydrating renderers, including remote ones.
+
+Because rpc-ui is not one of the modes OMP's interactive continuation loop serves,
+the bridge replicates that loop: after a clean `agent_end` it waits the TUI's
+800 ms settle window and starts the next turn through `promptCustomMessage`,
+which writes the same `goal-continuation` records and `mode` entries OMP's own TUI
+would. A turn that makes no tool progress trips OMP's no-progress guard and pauses
+with OMP's reason text.
+
+Three UI surfaces read the snapshot: the composer's command family, a HUD chip
+showing status and token use whose click opens the command, and Plan mode's entry
+guard — an unfinished goal blocks entering Plan mode in the renderer *and* in the
+generated plan bridge, so neither the raw RPC path nor a race window slips past
+it. Automatic prompts (advisor reply, stall auto-continue) stand down while a goal
+owns the session, and an active goal vetoes session hibernation, since hibernating
+the process would kill the loop doing the work. A paused or budget-limited idle
+goal owns no loop and applies no veto.
 
 ### Advisor
 
@@ -222,3 +260,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Stall auto-continue after stalled turns](adr/0019-stall-auto-continue-after-stalled-turns.md) | When a turn dies to a stream stall, post the diagnostic at the turn-end and dispatch a bounded continue prompt into the same idle rpc-ui session. |
 | [Plan-handoff descendants are deleted with their source](adr/0021-cascade-delete-of-plan-handoff-descendants.md) | Deleting a session erases its complete plan-handoff descendant closure; a session without descendants is deleted alone. |
 | [Prepared plan documents are verified in the renderer before presentation](adr/0022-prepared-plan-verification-in-the-renderer.md) | Verify a prepared HTML plan structurally and with a script-less layout probe in the renderer; a failed verification presents a named reason and the raw plan source, never a blank frame. |
+| [Goal mode, driven by the same generated-extension discipline](adr/0024-goal-mode-in-native-sessions.md) | Run the `/goal` family in native sessions against OMP's own goal runtime, published as a monotonic snapshot instead of forwarded prose. |
