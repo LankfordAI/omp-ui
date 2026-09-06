@@ -5,6 +5,7 @@ import {
   CH,
   browseDirectories,
   checkoutBranch,
+  createBranch,
   dispatchNotify,
   dispatchRequest,
   formatModelRole,
@@ -23,6 +24,7 @@ import {
   mergeWorktreeBranch,
   readMemoryOverview,
   readMergeBackStatus,
+  resolveMergeDestination,
   pullBranch,
   reclaimCheckouts,
   isWithin,
@@ -61,6 +63,7 @@ import {
   type SessionMode,
   type SpawnGateState,
   type SpawnRequest,
+  type WorktreeReleaseOptions,
   type SessionSummary,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
@@ -461,7 +464,12 @@ export class MainBackend {
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
         [CH.convertToWorktree]: (tabId: string, branch: string, baseRef: string | null) =>
           this.sessions.convertToWorktree(tabId, branch, baseRef),
-        [CH.releaseWorktree]: (tabId: string) => this.sessions.releaseWorktree(tabId),
+        [CH.releaseWorktree]: (tabId: string, opts: WorktreeReleaseOptions) =>
+          this.sessions.releaseWorktree(tabId, opts),
+        [CH.syncWorktree]: (tabId: string, source: string) =>
+          this.sessions.syncWorktree(tabId, source),
+        [CH.renameWorktreeBranch]: (tabId: string, newName: string) =>
+          this.sessions.renameWorktreeBranch(tabId, newName),
         [CH.setSessionAdvisor]: (
           tabId: string,
           advisor: boolean,
@@ -494,10 +502,33 @@ export class MainBackend {
         [CH.checkoutBranch]: (projectCwd: string, name: string, opts?: { create?: boolean }) =>
           checkoutBranch(projectCwd, name, opts),
         [CH.pullBranch]: (projectCwd: string) => pullBranch(projectCwd),
-        [CH.getMergeBackStatus]: (projectCwd: string, branch: string, base: string | null) =>
-          readMergeBackStatus(projectCwd, branch, base),
+        [CH.createBranch]: (projectCwd: string, name: string, startPoint: string) =>
+          createBranch(projectCwd, name, startPoint),
+        [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) =>
+          resolveMergeDestination(projectCwd, base),
+        [CH.getMergeBackStatus]: (
+          projectCwd: string,
+          branch: string,
+          destination: string,
+          worktreePath: string | null,
+        ) =>
+          // The worktreePath is renderer-supplied; only a path inside the
+          // app's worktrees root may steer `git status`. Anything else reads
+          // as null — the status still resolves, worktreeDirty comes back
+          // null (issue #388). Never let a renderer point git at a
+          // user-chosen directory.
+          readMergeBackStatus(
+            projectCwd,
+            branch,
+            destination,
+            worktreePath !== null && !isWithin(this.worktreesRoot, worktreePath)
+              ? null
+              : worktreePath,
+          ),
         [CH.mergeWorktreeBranch]: (projectCwd: string, branch: string, destination: string) =>
-          mergeWorktreeBranch(projectCwd, branch, destination),
+          mergeWorktreeBranch(projectCwd, branch, destination, {
+            scratchRoot: path.join(this.worktreesRoot, ".merge"),
+          }),
         // The memory overview handler is a stateless core call like
         // getBranchDiff: it touches no registry/BackendState field and never
         // calls broadcast().

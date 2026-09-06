@@ -73,7 +73,7 @@ const VALID_ARGS = {
   getAppUpdateState: [],
   getBranchDiff: ["/project", "main"],
   getMcpServers: [null],
-  getMergeBackStatus: ["/project", "feature", null],
+  getMergeBackStatus: ["/project", "feature", "main", null],
   getOmpUpdateState: [],
   getProjectOpenAvailability: [],
   getProviderOAuthState: [],
@@ -101,7 +101,11 @@ const VALID_ARGS = {
   readProviderKeys: [null],
   readProviderOAuth: [],
   regenerateRemoteToken: [],
-  releaseWorktree: ["tab-1"],
+  releaseWorktree: ["tab-1", { keepBranch: false, mergedInto: null }],
+  resolveMergeDestination: ["/project", "main"],
+  createBranch: ["/project", "release/x", "main"],
+  syncWorktree: ["tab-1", "main"],
+  renameWorktreeBranch: ["tab-1", "feat/renamed"],
   removeProject: ["/project"],
   reportStallCap: ["tab-1", true],
   resolveFileMentions: ["/project", "@file"],
@@ -218,7 +222,8 @@ describe("BACKEND_CHANNELS", () => {
       (
         projectCwd: string,
         branch: string,
-        base: string | null,
+        destination: string,
+        worktreePath: string | null,
       ) => MergeBackStatus | Promise<MergeBackStatus>
     >();
   });

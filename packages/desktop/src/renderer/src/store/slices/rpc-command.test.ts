@@ -960,6 +960,70 @@ describe("auto-title gating (setInitialPrompt)", () => {
   });
 });
 
+describe("worktree branch naming from the first prompt (issue #389)", () => {
+  /** The harness tab's record, mounted in a worktree on `branch`. */
+  const worktreeRecord = (branch: string) => {
+    const state = h.stateWithRecord("sess-1");
+    state.projects[0]!.sessions[0]!.worktree = {
+      path: "/wt/deadbeef",
+      branch,
+      base: "main",
+    };
+    return state;
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+    });
+    h.sent.length = 0;
+  });
+
+  it("renames a minted branch from the model's suggestion", async () => {
+    h.useStore.setState({ state: worktreeRecord("omp-ui/deadbeef") });
+    h.mockBackend.suggestBranchName.mockResolvedValueOnce("feat/x");
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.suggestBranchName).toHaveBeenCalledWith(
+      "/p",
+      "Add pagination to the sessions list",
+    );
+    expect(h.mockBackend.renameWorktreeBranch).toHaveBeenCalledWith(h.TAB, "feat/x");
+  });
+
+  it("leaves a branch the user named alone — no suggestion, no rename", async () => {
+    h.useStore.setState({ state: worktreeRecord("feature/invoicing") });
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.suggestBranchName).not.toHaveBeenCalled();
+    expect(h.mockBackend.renameWorktreeBranch).not.toHaveBeenCalled();
+  });
+
+  it("drops the rename when the branch stops being a placeholder mid-flight", async () => {
+    h.useStore.setState({ state: worktreeRecord("omp-ui/deadbeef") });
+    const suggestion = h.deferred<string | null>();
+    h.mockBackend.suggestBranchName.mockReturnValueOnce(suggestion.promise);
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    // The user renamed the branch while the model was still thinking.
+    h.useStore.setState({ state: worktreeRecord("feature/by-hand") });
+    suggestion.resolve("feat/x");
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.renameWorktreeBranch).not.toHaveBeenCalled();
+  });
+});
+
 describe("auto-title end-to-end", () => {
   beforeEach(() => {
     h.backendState = h.stateWithRecord("sess-1");

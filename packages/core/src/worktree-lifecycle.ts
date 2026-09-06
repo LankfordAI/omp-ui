@@ -1,14 +1,20 @@
+import * as path from "node:path";
 import type { OwnedSessionRecord, SessionWorktree, WorktreeReleaseResult } from "./types";
 import {
   isWithin,
-  mintWorktreePath,
   removeWorktree,
   removeWorktreeBranch,
+  resolveMergeDestination,
+  worktreeProjectDir,
 } from "./worktree";
 
 export interface WorktreeCheckoutDescriptor {
   projectCwd: string;
   worktree: SessionWorktree;
+  /** Release asked to keep the branch (issue #386). Default false. */
+  keepBranch?: boolean;
+  /** Destination the caller just merged into; an extra ancestry candidate (issue #385). */
+  mergedInto?: string | null;
 }
 
 export interface ReclaimCheckoutsOptions {
@@ -42,14 +48,18 @@ export async function reclaimCheckouts(
   }
 
   const reclaimed: ReclaimedCheckout[] = [];
-  for (const { projectCwd, worktree } of distinct.values()) {
+  for (const { projectCwd, worktree, keepBranch, mergedInto } of distinct.values()) {
     const result = (
       checkoutKept: ReclaimedCheckout["checkoutKept"],
       branchOutcome: ReclaimedCheckout["branchOutcome"],
     ): ReclaimedCheckout => ({ projectCwd, worktree, checkoutKept, branchOutcome });
+    // Canonicality keys on the project slot directory, not the branch name
+    // (issue #386): a renamed branch stays in the slot its path was minted
+    // into, while a corrupt or foreign path still refuses reclaim.
     const canonical =
-      worktree.path === mintWorktreePath(opts.worktreesRoot, projectCwd, worktree.branch) &&
-      isWithin(opts.worktreesRoot, worktree.path);
+      isWithin(opts.worktreesRoot, worktree.path) &&
+      path.dirname(path.resolve(worktree.path)) ===
+        path.resolve(worktreeProjectDir(opts.worktreesRoot, projectCwd));
     if (!canonical) {
       warn(
         `[sessions] worktree path ${worktree.path} does not match its minted location — leaving it for manual removal`,
@@ -68,9 +78,22 @@ export async function reclaimCheckouts(
       reclaimed.push(result("failed", "not-attempted"));
       continue;
     }
+    if (keepBranch) {
+      // Issue #386: the caller asked; the branch survives without a git call.
+      reclaimed.push(result(null, "kept-requested"));
+      continue;
+    }
     try {
-      const outcome = await removeWorktreeBranch(projectCwd, worktree.branch, worktree.base);
-      if (outcome.kind !== "removed") {
+      const { destination } = await resolveMergeDestination(projectCwd, worktree.base);
+      const candidates = [mergedInto ?? null, destination].filter(
+        (candidate): candidate is string => candidate !== null,
+      );
+      const outcome = await removeWorktreeBranch(
+        projectCwd,
+        worktree.branch,
+        [...new Set(candidates)],
+      );
+      if (outcome.kind !== "removed" && outcome.kind !== "already-gone") {
         warn(
           `[sessions] worktree branch ${worktree.branch} kept (${outcome.kind}${outcome.detail ? `: ${outcome.detail}` : ""})`,
         );

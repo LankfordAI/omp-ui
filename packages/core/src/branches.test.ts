@@ -6,10 +6,12 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   checkoutBranch,
+  createBranch,
   createBranchService,
   listBranches,
   parseBranchStatus,
   pullBranch,
+  readDefaultBranch,
   type GitRunner,
 } from "./branches";
 import type { GitOptions } from "./git";
@@ -396,6 +398,45 @@ describe("checkoutBranch", () => {
 
     await expect(checkoutBranch(dir, "other")).rejects.toThrow(/overwritten by checkout/);
     expect((await listBranches(dir)).current).toBe("main");
+  });
+});
+
+describe("readDefaultBranch", () => {
+  it("prefers origin/HEAD, falls back to main, then master, then null", async () => {
+    const dir = await tmpRepo();
+    // No remote: the local main is the answer.
+    expect(await readDefaultBranch(dir)).toBe("main");
+    await gitIn(dir, ["branch", "-m", "main", "master"]);
+    expect(await readDefaultBranch(dir)).toBe("master");
+    await gitIn(dir, ["branch", "-m", "master", "trunk"]);
+    expect(await readDefaultBranch(dir)).toBeNull();
+    // origin/HEAD wins over the fallbacks once it resolves.
+    const bare = tmpDir();
+    await gitIn(bare, ["init", "-q", "--bare"]);
+    await gitIn(dir, ["remote", "add", "origin", bare]);
+    await gitIn(dir, ["push", "-q", "-u", "origin", "trunk"]);
+    await gitIn(bare, ["symbolic-ref", "HEAD", "refs/heads/trunk"]);
+    await gitIn(dir, ["fetch", "-q", "origin"]);
+    expect(await readDefaultBranch(dir)).toBe("trunk");
+  });
+});
+
+describe("createBranch", () => {
+  it("creates a branch at a start point without checking it out", async () => {
+    const dir = await tmpRepo();
+    const second = await commitFile(dir, "next.txt", "n\n", "next");
+    await gitIn(dir, ["checkout", "-q", "-b", "older", "HEAD~1"]);
+
+    await createBranch(dir, "release/x", "main");
+
+    // No checkout: the working tree did not move.
+    expect((await listBranches(dir)).current).toBe("older");
+    expect(await revParse(dir, "release/x")).toBe(second);
+  });
+
+  it("rejects with git's message on a name collision", async () => {
+    const dir = await tmpRepo();
+    await expect(createBranch(dir, "main", "main")).rejects.toThrow(/already exists/);
   });
 });
 

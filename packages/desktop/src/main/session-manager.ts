@@ -4,6 +4,7 @@ import * as path from "node:path";
 import {
   CH,
   addWorktree,
+  addWorktreeForBranch,
   base64Bytes,
   bracketedImagePaste,
   capabilityToolMutationMessage,
@@ -14,6 +15,8 @@ import {
   goalArmMessage,
   mintLineageDirName,
   mintWorktreePath,
+  readWorktreeDirty,
+  renameWorktreeBranch,
   linkProjectOmpDir,
   isWithin,
   mcpRuntimeStatusMessage,
@@ -23,8 +26,10 @@ import {
   planHandoffDescendants,
   reclaimCheckouts as reclaimWorktreeCheckouts,
   settledWithin,
+  syncWorktree,
   type ProviderKeys,
   type Registry,
+  type WorktreeCheckoutDescriptor,
   resolveSessionLocation,
   RpcClient,
   spawnOmp,
@@ -44,7 +49,9 @@ import {
   type SessionMode,
   type SessionWorktree,
   type SpawnRequest,
+  type WorktreeReleaseOptions,
   type WorktreeReleaseResult,
+  type WorktreeSyncResult,
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
@@ -352,6 +359,17 @@ export class SessionManager {
         if (req.worktree !== null) {
           if ("reuse" in req.worktree) {
             worktree = { ...req.worktree.reuse };
+          } else if ("checkout" in req.worktree) {
+            // Issue #390: a session on an existing local branch. The branch
+            // pre-existed, but the checkout is omp-ui's — rollback reclaims
+            // the path and branch cleanup keeps the branch unless provably
+            // merged (reclaimCheckouts reports kept-unmerged then).
+            const { branch } = req.worktree.checkout;
+            const worktreePath = mintWorktreePath(
+              this.deps.getWorktreesRoot(), req.projectCwd, branch);
+            const base = await addWorktreeForBranch(req.projectCwd, worktreePath, branch);
+            mintedWorktree = { path: worktreePath, branch, base };
+            worktree = mintedWorktree;
           } else {
             const { branch, baseRef } = req.worktree.mint;
             const worktreePath = mintWorktreePath(
@@ -762,12 +780,23 @@ export class SessionManager {
     });
   }
 
-  async releaseWorktree(tabId: string): Promise<WorktreeReleaseResult> {
+  async releaseWorktree(
+    tabId: string,
+    opts: WorktreeReleaseOptions,
+  ): Promise<WorktreeReleaseResult> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       const wt = record.worktree;
       if (!wt) throw new Error("session does not run in a worktree");
+      // Issue #388: a dirty checkout is never force-removed by a return.
+      // Merge-only and keep-branch stay available — those paths do not
+      // remove the checkout; the dialog's delete offers the loss explicitly.
+      if ((await readWorktreeDirty(wt.path)) === true) {
+        throw new Error(
+          "the worktree has uncommitted changes — commit or discard them before returning",
+        );
+      }
       let cleanup: Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome"> = {
         checkoutKept: "failed",
         branchOutcome: "not-attempted",
@@ -775,7 +804,10 @@ export class SessionManager {
       const demote = async (): Promise<void> => {
         this.killShell(tabId);
         this.deps.registry.updateSession(tabId, { worktree: null });
-        cleanup = await this.reclaimWorktree(record.projectCwd, wt);
+        cleanup = await this.reclaimWorktree(record.projectCwd, wt, {
+          keepBranch: opts.keepBranch,
+          mergedInto: opts.mergedInto,
+        });
       };
       const entry = this.live.get(tabId);
       if (!entry) {
@@ -799,6 +831,43 @@ export class SessionManager {
         projectCwd: record.projectCwd,
         ...cleanup,
       };
+    });
+  }
+
+  /**
+   * Merges `source` into the session's worktree checkout (issue #387) so
+   * conflicts land where the owning session can resolve them. Serialised
+   * against release/convert/delete under "relaunch" — no relaunch happens;
+   * a merge must not race a respawn of the same tab.
+   */
+  async syncWorktree(tabId: string, source: string): Promise<WorktreeSyncResult> {
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) throw new Error(`unknown session tab ${tabId}`);
+      if (!record.worktree) throw new Error("session does not run in a worktree");
+      return syncWorktree(record.worktree.path, source);
+    });
+  }
+
+  /**
+   * Renames the branch a worktree session runs on (issues #386, #389): git
+   * updates the checkout's HEAD symref; the record follows; the running omp
+   * process is unaffected by a ref rename, so no respawn. Git's stderr on a
+   * collision or invalid name propagates verbatim.
+   */
+  async renameWorktreeBranch(tabId: string, newName: string): Promise<void> {
+    const name = newName.trim();
+    if (name === "") throw new Error("branch name must not be empty");
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) throw new Error(`unknown session tab ${tabId}`);
+      const wt = record.worktree;
+      if (!wt) throw new Error("session does not run in a worktree");
+      await renameWorktreeBranch(wt.path, wt.branch, name);
+      this.deps.registry.updateSession(tabId, {
+        worktree: { ...wt, branch: name },
+      });
+      await this.deps.broadcast();
     });
   }
 
@@ -1000,8 +1069,9 @@ export class SessionManager {
   private async reclaimWorktree(
     projectCwd: string,
     worktree: SessionWorktree,
+    extra?: Pick<WorktreeCheckoutDescriptor, "keepBranch" | "mergedInto">,
   ): Promise<Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome">> {
-    const [result] = await this.reclaimCheckouts([{ projectCwd, worktree }]);
+    const [result] = await this.reclaimCheckouts([{ projectCwd, worktree, ...extra }]);
     return result
       ? { checkoutKept: result.checkoutKept, branchOutcome: result.branchOutcome }
       : { checkoutKept: "failed", branchOutcome: "not-attempted" };

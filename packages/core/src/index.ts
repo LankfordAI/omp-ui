@@ -3,10 +3,12 @@ export { browseDirectories, expandHomePath, resolveProjectPath } from "./dir-bro
 export { readBranchDiff } from "./branch-diff";
 export {
   checkoutBranch,
+  createBranch,
   createBranchService,
   listBranches,
   parseBranchStatus,
   pullBranch,
+  readDefaultBranch,
   type BranchClock,
   type BranchService,
   type GitRunner,
@@ -14,15 +16,24 @@ export {
 } from "./branches";
 export {
   addWorktree,
+  addWorktreeForBranch,
   isWithin,
   linkProjectOmpDir,
   mergeWorktreeBranch,
   mintWorktreeBranch,
   mintWorktreePath,
+  PLACEHOLDER_BRANCH_RE,
+  previewMerge,
+  readDestinationCheckout,
   readMergeBackStatus,
+  readWorktreeDirty,
   removeWorktree,
   removeWorktreeBranch,
+  renameWorktreeBranch,
+  resolveMergeDestination,
   sweepOrphanWorktrees,
+  syncWorktree,
+  worktreeProjectDir,
 } from "./worktree";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";

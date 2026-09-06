@@ -14,6 +14,14 @@ export type WorkspaceSelection =
   | { mode: "worktree"; branch: string; baseRef: string | null; baseTouched: boolean };
 
 /**
+ * A minted name no human chose: the renderer-side twin of core's
+ * `PLACEHOLDER_BRANCH_RE` (the renderer cannot import core runtime). The
+ * auto-naming and the finish dialog's suggestion pre-fill key on it — a
+ * user-typed branch name is never touched (issue #389).
+ */
+export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/[0-9a-f]{8}$/;
+
+/**
  * Branch mint for a worktree session (issues #224, #225): the renderer-side
  * twin of core's `mintWorktreeBranch`, `omp-ui/` plus 8 hex from a secure
  * random.

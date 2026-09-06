@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchList } from "@omp-ui/core/types";
+import type { BranchList, SpawnRequest } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,7 +27,9 @@ const backendMock = {
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
-  spawnSession: vi.fn(async () => ({ tabId: "wt-1" })),
+  spawnSession: vi.fn<(request: SpawnRequest) => Promise<{ tabId: string }>>(async () => ({
+    tabId: "wt-1",
+  })),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
@@ -182,6 +184,54 @@ describe("NewWorktreeSessionDialog", () => {
       rows: 24,
       worktree: { mint: { branch: "omp-ui/detached", baseRef: null } },
     });
+  });
+
+  it("checks out an existing local branch when the source segment switches", async () => {
+    // With only the checked-out branch, the segment offers nothing: disabled
+    // with the hint, and the mint form stays the only path.
+    const solo: BranchList = { ...fixture, branches: ["main"] };
+    backendMock.listBranches.mockResolvedValue(solo);
+    seed({ "/p": solo });
+    render();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const existingSegment = buttonByText("existing branch");
+    expect(existingSegment).toBeDefined();
+    expect(existingSegment!.disabled).toBe(true);
+    expect(existingSegment!.title).toBe("no other local branch to check out");
+    expect(document.body.querySelector("#worktree-branch")).not.toBeNull();
+
+    // Another branch shows up in the listing: the segment lights up, its
+    // select offers every branch but the checked-out one, and submitting
+    // spawns a checkout of the picked branch (issue #390).
+    await act(async () => {
+      backendMock.listBranches.mockResolvedValue(fixture);
+      useStore.setState({ branches: { "/p": fixture } });
+      await flushMicrotasks();
+    });
+    expect(existingSegment!.disabled).toBe(false);
+    act(() => existingSegment!.click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const select = document.body.querySelector<HTMLSelectElement>("#worktree-existing");
+    expect(select).not.toBeNull();
+    expect([...select!.options].map((option) => option.textContent)).toEqual(["feature/x"]);
+    await selectInto(select!, "feature/x");
+
+    act(() => buttonByText("Create session")!.click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(backendMock.spawnSession.mock.calls.at(-1)![0]).toMatchObject({
+      projectCwd: "/p",
+      worktree: { checkout: { branch: "feature/x" } },
+    });
+    expect(useStore.getState().worktreeDialogProject).toBeNull();
   });
 
   it("disables Create with a hint when the project isn't a git repo", async () => {

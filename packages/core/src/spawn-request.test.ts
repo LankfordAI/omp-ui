@@ -33,6 +33,11 @@ const newPtyRequest: SpawnRequest = {
   },
 };
 
+const newCheckoutRequest: SpawnRequest = {
+  ...newPtyRequest,
+  worktree: { checkout: { branch: "topic" } },
+};
+
 const newProjectRequest: SpawnRequest = {
   ...newPtyRequest,
   worktree: null,
@@ -53,7 +58,7 @@ describe("parseSpawnRequest", () => {
     ...newRpcRequest,
     planImplementationSource: null,
   };
-  it.each([newRpcRequest, newPtyRequest, newProjectRequest, nullPlanSource, resumeRequest])(
+  it.each([newRpcRequest, newPtyRequest, newCheckoutRequest, newProjectRequest, nullPlanSource, resumeRequest])(
     "round-trips a well-shaped $origin request",
     (request) => {
       expect(parseSpawnRequest(request)).toEqual(request);
@@ -78,6 +83,9 @@ describe("parseSpawnRequest", () => {
     ["pty plan mode", { ...newPtyRequest, planMode: false }],
     ["missing worktree", { ...newRpcRequest, worktree: undefined }],
     ["ambiguous worktree", { ...newRpcRequest, worktree: { mint: {}, reuse: {} } }],
+    ["ambiguous checkout worktree", { ...newRpcRequest, worktree: { mint: { branch: "b", baseRef: null }, checkout: { branch: "t" } } }],
+    ["malformed checkout", { ...newRpcRequest, worktree: { checkout: { branch: "" } } }],
+    ["unknown checkout key", { ...newRpcRequest, worktree: { checkout: { branch: "t", path: "/x" } } }],
     ["malformed mint", { ...newRpcRequest, worktree: { mint: { branch: "", baseRef: 1 } } }],
     ["malformed reuse", { ...newRpcRequest, worktree: { reuse: { path: "", branch: "b" } } }],
     [

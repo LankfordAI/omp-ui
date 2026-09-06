@@ -32,6 +32,8 @@ export interface ViewSlice {
   restoringTabs: boolean;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
+  /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
+  finishWorktreeTab: string | null;
   capabilitiesViewer: {
     scopeCwd: string | null;
     tabId?: string;
@@ -47,6 +49,8 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;
+  openFinishWorktree(tabId: string): void;
+  closeFinishWorktree(): void;
   openCapabilitiesViewer(
     scopeCwd: string | null,
     tabId?: string,
@@ -274,6 +278,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   restoringTabs: false,
   projectPickerOpen: false,
   worktreeDialogProject: null,
+  finishWorktreeTab: null,
   capabilitiesViewer: null,
 	projectSettings: null,
   compactSurface: null,
@@ -308,6 +313,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   closeWorktreeDialog() {
     set({ worktreeDialogProject: null });
+  },
+  openFinishWorktree(tabId) {
+    set({ finishWorktreeTab: tabId });
+  },
+  closeFinishWorktree() {
+    set({ finishWorktreeTab: null });
   },
   openCapabilitiesViewer(scopeCwd, tabId, section = "mcp") {
     set({

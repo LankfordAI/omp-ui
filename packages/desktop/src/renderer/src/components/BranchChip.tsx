@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
-import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
-import { MergeBackSection } from "./MergeBackSection";
+import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
-import { useMergeBack } from "./useMergeBack";
 import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
 
 /**
@@ -45,7 +43,7 @@ export function BranchChip({
   onWorkspaceChange,
   workspaceDisabled = false,
   onCreateWorktree,
-  mergeBack,
+  finishTabId,
 }: {
   projectCwd?: string;
   /**
@@ -73,19 +71,12 @@ export function BranchChip({
    */
   onCreateWorktree?: () => Promise<boolean>;
   /**
-   * The session's own worktree merge-back (issue #322): the worktree branch,
-   * its recorded base, the project checkout the merge runs in, and the tab
-   * to exclude from the project's busy guard. The Composer passes it only
-   * for worktree sessions with a non-null base; absent (the default) the
-   * popover is the branch menu alone — every plain session and the compact
-   * sheet instance.
+   * The tab whose Finish worktree dialog this session's worktree belongs to
+   * (issues #385–#389): the Composer passes its own tab for worktree
+   * sessions; absent (the default) the popover is the branch menu alone —
+   * every plain session and the compact sheet instance.
    */
-  mergeBack?: {
-    branch: string;
-    base: string;
-    projectRootCwd: string;
-    tabId: string;
-  };
+  finishTabId?: string;
 }) {
   const t = useT();
   /** The drift count as prose: "3 commits" / "1 commit". */
@@ -104,24 +95,7 @@ export function BranchChip({
   // A session mid-turn on this checkout: a plain checkout or a fast-forward
   // would move the working tree out from under it, so both earn a confirm.
   const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
-  // The checkout path named by the return confirms; null for plain sessions
-  // and when the registry record carries no worktree.
-  const worktreePath = useStore((s) =>
-    mergeBack === undefined
-      ? null
-      : findRecord(s.state, mergeBack.tabId)?.worktree?.path ?? null,
-  );
-  const mergeController = useMergeBack(
-    mergeBack === undefined
-      ? null
-      : {
-          tabId: mergeBack.tabId,
-          branch: mergeBack.branch,
-          base: mergeBack.base,
-          projectCwd: mergeBack.projectRootCwd,
-          worktreePath,
-        },
-  );
+  const openFinishWorktree = useStore((s) => s.openFinishWorktree);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -145,7 +119,6 @@ export function BranchChip({
     setName("");
     setError(null);
     setConfirm(null);
-    mergeController.reset();
   };
 
   /**
@@ -164,10 +137,6 @@ export function BranchChip({
     }
     if (confirm !== null) {
       setConfirm(null);
-      return;
-    }
-    if (mergeController.confirm !== null) {
-      mergeController.cancelConfirm();
       return;
     }
     closeMenu();
@@ -219,10 +188,10 @@ export function BranchChip({
     onClose: closeMenu,
     onEscape: escapeStage,
     restoreFocus: () => {
-      if (mode === "list" && confirm === null && mergeController.confirm === null) {
-        triggerRef.current?.focus();
-      }
+      if (mode === "list" && confirm === null) triggerRef.current?.focus();
     },
+    // The busy-checkout confirm renders inside the popover; keep the
+    // alertdialog exemption so a pointerdown on it is never an outside click.
     exemptSelector: '[role="alertdialog"]',
   });
 
@@ -324,7 +293,6 @@ export function BranchChip({
     // Fresh list *and* fresh upstream on every open — another tab (or the user
     // in a terminal) may have switched branches, and the remote may have moved.
     void refreshBranches(projectCwd, { fetchUpstream: true });
-    mergeController.fetchStatus();
   };
 
   const attempt = async (branch: string, create: boolean): Promise<void> => {
@@ -369,8 +337,7 @@ export function BranchChip({
   const filtered = info.branches.filter((branch) =>
     branch.toLowerCase().includes(filter.toLowerCase()),
   );
-  const displayedError =
-    error ?? (mergeController.phase.s === "error" ? mergeController.phase.message : null);
+  const displayedError = error;
 
   return (
     <span ref={rootRef} className="relative flex min-w-0">
@@ -542,7 +509,19 @@ export function BranchChip({
             </>
           ) : (
             <>
-              <MergeBackSection controller={mergeController} variant="branch" />
+              {finishTabId !== undefined && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeMenu();
+                    openFinishWorktree(finishTabId);
+                  }}
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink-mid hover:bg-hover hover:text-ink"
+                >
+                  {t("composer.branch.finishWorktree")}
+                </button>
+              )}
               {showPull && (
                 <button
                   type="button"

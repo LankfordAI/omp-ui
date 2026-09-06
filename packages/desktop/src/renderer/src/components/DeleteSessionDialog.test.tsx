@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
+  BranchList,
   MergeBackStatus,
   OmpSettingsSnapshot,
   OmpUpdateState,
@@ -53,6 +54,7 @@ const backendMock = {
   readPlanFile: vi.fn(),
   getBranchDiff: vi.fn(),
   getMergeBackStatus: vi.fn(),
+  resolveMergeDestination: vi.fn(async () => ({ destination: "main", reason: null })),
   mergeWorktreeBranch: vi.fn(),
   ptyPasteImage: vi.fn(),
   ptyWrite: vi.fn(),
@@ -158,19 +160,37 @@ const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   streamStalled: false,
   ...overrides,
 });
-/** The merge-feasibility snapshot the merge cases start from: the branch base, checked out in the project. */
+/** The merge-feasibility snapshot the merge cases start from: the destination branch, checked out in the project. */
 const mergeableStatus: MergeBackStatus = {
   destination: "main",
-  reason: null,
-  destinationCheckedOut: true,
+  destinationExists: true,
+  destinationCheckout: "project",
   branchExists: true,
   mergeInProgress: false,
   alreadyMerged: false,
   ahead: 3,
+  behind: 0,
+  worktreeDirty: false,
+  preview: { kind: "clean" },
 };
 
 /** The worktree session the merge cases delete: a branch cut from "main". */
 const worktreeSession = { path: "/worktrees/repo--1234/omp-ui-deadbeef", branch: "omp-ui/deadbeef", base: "main" };
+
+/** The branch listing the no-recorded-base case falls back to (its defaultBranch). */
+const branchListing: BranchList = {
+  repoRoot: "/repo",
+  current: "main",
+  branches: ["main", "feature/x"],
+  defaultBranch: "main",
+  upstreamRef: null,
+  upstreamRemote: null,
+  hasUpstream: false,
+  ahead: 0,
+  behind: 0,
+  upstreamFetchedAt: null,
+  upstreamRefreshError: null,
+};
 
 const worktreeConfirmation: DeleteConfirmation = {
   tabId: "tab-1",
@@ -179,6 +199,7 @@ const worktreeConfirmation: DeleteConfirmation = {
   hasFiles: true,
   worktreeBranch: "omp-ui/deadbeef",
   worktreeBase: "main",
+  worktreePath: "/worktrees/repo--1234/omp-ui-deadbeef",
   cascade: [],
 };
 
@@ -227,6 +248,7 @@ describe("DeleteSessionDialog", () => {
             hasFiles: true,
             worktreeBranch: null,
             worktreeBase: null,
+            worktreePath: null,
             cascade: [],
           }}
         />,
@@ -277,6 +299,7 @@ describe("DeleteSessionDialog", () => {
             hasFiles: true,
             worktreeBranch: "omp-ui/deadbeef",
             worktreeBase: null,
+            worktreePath: "/worktrees/repo--1234/omp-ui-deadbeef",
             cascade: [],
           }}
         />,
@@ -286,8 +309,10 @@ describe("DeleteSessionDialog", () => {
     const dialog = document.body.querySelector<HTMLElement>('[role="alertdialog"]');
     expect(dialog).not.toBeNull();
     expect(dialog!.textContent).toContain(
-      "Its worktree checkout will be removed — uncommitted changes there are lost. Commits survive on omp-ui/deadbeef.",
+      "Its worktree checkout will be removed. Commits survive on omp-ui/deadbeef.",
     );
+    // The loss is named by the dirty check (issue #388), never in the base sentence.
+    expect(dialog!.textContent).not.toContain("ncommitted changes");
   });
 
   it("stages a confirmation for a worktree session even with the skip flag set", async () => {
@@ -330,25 +355,44 @@ describe("DeleteSessionDialog", () => {
     expect(useStore.getState().deleteConfirmation).toBeNull();
     expect(backendMock.deleteSession).toHaveBeenCalledWith("tab-1", false);
   });
-  it("offers the merge row only for a worktree session with a recorded base", async () => {
+  it("offers the merge row by resolving the base or the listing's default branch", async () => {
     backendMock.getMergeBackStatus.mockReset().mockResolvedValue(mergeableStatus);
+    backendMock.resolveMergeDestination.mockClear();
     useStore.setState({
       confirmDeleteSession: vi.fn(async () => {}),
       cancelDeleteSession: vi.fn(),
+      branches: {},
       tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
 
+    // The recorded base resolves to a destination, and the status read names
+    // the checkout being discarded (issue #388).
     renderDialog(worktreeConfirmation);
     await flush();
     expect(document.body.textContent).toContain("merge omp-ui/deadbeef into main first");
+    expect(backendMock.resolveMergeDestination).toHaveBeenCalledWith("/repo", "main");
+    expect(backendMock.getMergeBackStatus).toHaveBeenCalledWith(
+      "/repo",
+      "omp-ui/deadbeef",
+      "main",
+      "/worktrees/repo--1234/omp-ui-deadbeef",
+    );
     unmountDialog();
 
-    // No recorded base: nothing to merge into.
+    // No recorded base: the destination is the listing's default branch.
+    useStore.setState({ branches: { "/repo": branchListing } });
+    backendMock.getMergeBackStatus.mockClear();
     renderDialog({ ...worktreeConfirmation, worktreeBase: null });
     await flush();
-    expect(document.body.textContent).not.toContain("merge omp-ui/deadbeef into");
+    expect(document.body.textContent).toContain("merge omp-ui/deadbeef into main first");
+    expect(backendMock.getMergeBackStatus).toHaveBeenCalledWith(
+      "/repo",
+      "omp-ui/deadbeef",
+      "main",
+      "/worktrees/repo--1234/omp-ui-deadbeef",
+    );
     unmountDialog();
 
     // No worktree branch: nothing to merge.
@@ -377,18 +421,10 @@ describe("DeleteSessionDialog", () => {
     const cases: Array<{ status: MergeBackStatus; title: string }> = [
       // Branch missing: disabled with the branch-gone tooltip.
       { status: { ...mergeableStatus, branchExists: false }, title: "the worktree branch no longer exists — nothing to merge" },
+      { status: { ...mergeableStatus, destinationExists: false }, title: "the recorded base no longer resolves" },
       {
-        status: {
-          ...mergeableStatus,
-          destination: null,
-          reason: "base-gone",
-          destinationCheckedOut: false,
-        },
-        title: "the recorded base no longer resolves",
-      },
-      {
-        status: { ...mergeableStatus, destinationCheckedOut: false },
-        title: "check out main in the project first",
+        status: { ...mergeableStatus, destinationCheckout: "other" },
+        title: "main is checked out in another worktree",
       },
       {
         status: { ...mergeableStatus, mergeInProgress: true },
@@ -439,7 +475,7 @@ describe("DeleteSessionDialog", () => {
     backendMock.getMergeBackStatus.mockReset().mockResolvedValue(mergeableStatus);
     backendMock.mergeWorktreeBranch
       .mockReset()
-      .mockResolvedValue({ kind: "merged", destination: "main", commits: 3, files: [] });
+      .mockResolvedValue({ kind: "merged", destination: "main", commits: 3, files: [], conflictsLeftIn: null });
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
@@ -456,9 +492,9 @@ describe("DeleteSessionDialog", () => {
     // The checked merge names the branch deletion in the copy (issue #323).
     const checked = document.body.querySelector<HTMLElement>('[role="alertdialog"]')!;
     expect(checked.textContent).toContain(
-      "Its worktree checkout will be removed — uncommitted changes there are lost, and the branch " +
-        "omp-ui/deadbeef is deleted.",
+      "Its worktree checkout will be removed and the branch omp-ui/deadbeef deleted.",
     );
+    expect(checked.textContent).not.toContain("ncommitted changes");
     await act(async () => {
       buttonByText("merge & delete").click();
     });
@@ -487,9 +523,9 @@ describe("DeleteSessionDialog", () => {
     const dialog = document.body.querySelector<HTMLElement>('[role="alertdialog"]');
     expect(dialog).not.toBeNull();
     expect(dialog!.textContent).toContain(
-      "Its worktree checkout will be removed — uncommitted changes there are lost. The branch " +
-        "omp-ui/deadbeef (already in main) is deleted.",
+      "Its worktree checkout will be removed. The branch omp-ui/deadbeef (already in main) is deleted.",
     );
+    expect(dialog!.textContent).not.toContain("ncommitted changes");
     unmountDialog();
   });
 
@@ -498,7 +534,13 @@ describe("DeleteSessionDialog", () => {
     backendMock.getMergeBackStatus.mockReset().mockResolvedValue(mergeableStatus);
     backendMock.mergeWorktreeBranch
       .mockReset()
-      .mockResolvedValue({ kind: "conflicts", destination: "main", commits: 0, files: ["src/a.ts", "src/b.ts"] });
+      .mockResolvedValue({
+        kind: "conflicts",
+        destination: "main",
+        commits: 0,
+        files: ["src/a.ts", "src/b.ts"],
+        conflictsLeftIn: "project",
+      });
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
@@ -529,6 +571,112 @@ describe("DeleteSessionDialog", () => {
     });
     expect(confirmDeleteSession).toHaveBeenCalledTimes(1);
     expect(confirmDeleteSession).toHaveBeenCalledWith(false);
+  });
+
+  it("enables the merge on the scratch path when the destination is checked out nowhere", async () => {
+    const confirmDeleteSession = vi.fn(async () => {});
+    backendMock.getMergeBackStatus.mockReset().mockResolvedValue({
+      ...mergeableStatus,
+      destinationCheckout: "none",
+    });
+    backendMock.mergeWorktreeBranch
+      .mockReset()
+      .mockResolvedValue({ kind: "merged", destination: "main", commits: 3, files: [], conflictsLeftIn: null });
+    useStore.setState({
+      confirmDeleteSession,
+      cancelDeleteSession: vi.fn(),
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      rpc: {},
+      state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
+    });
+
+    renderDialog(worktreeConfirmation);
+    await flush();
+    const mergeCheckbox = document.body.querySelectorAll<HTMLInputElement>("input[type='checkbox']")[0];
+    expect(mergeCheckbox.disabled).toBe(false);
+    act(() => mergeCheckbox.click());
+    await act(async () => {
+      buttonByText("merge & delete").click();
+    });
+
+    expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledWith("/repo", "omp-ui/deadbeef", "main");
+    expect(confirmDeleteSession).toHaveBeenCalledTimes(1);
+    expect(confirmDeleteSession).toHaveBeenCalledWith(false);
+    unmountDialog();
+  });
+
+  it("names an aborted conflict merge without touching the repo and deletes nothing", async () => {
+    const confirmDeleteSession = vi.fn(async () => {});
+    backendMock.getMergeBackStatus.mockReset().mockResolvedValue({
+      ...mergeableStatus,
+      destinationCheckout: "none",
+    });
+    backendMock.mergeWorktreeBranch
+      .mockReset()
+      .mockResolvedValue({
+        kind: "conflicts",
+        destination: "main",
+        commits: 0,
+        files: ["src/a.ts", "src/b.ts"],
+        conflictsLeftIn: null,
+      });
+    useStore.setState({
+      confirmDeleteSession,
+      cancelDeleteSession: vi.fn(),
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      rpc: {},
+      state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
+    });
+
+    renderDialog(worktreeConfirmation);
+    await flush();
+    const mergeCheckbox = document.body.querySelectorAll<HTMLInputElement>("input[type='checkbox']")[0];
+    act(() => mergeCheckbox.click());
+    await act(async () => {
+      buttonByText("merge & delete").click();
+    });
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.textContent).toContain(
+      "the merge would conflict on 2 file(s) and was not applied",
+    );
+    expect(confirmDeleteSession).not.toHaveBeenCalled();
+    unmountDialog();
+  });
+
+  it("names lost uncommitted changes only when the checkout is dirty (issue #388)", async () => {
+    useStore.setState({
+      confirmDeleteSession: vi.fn(async () => {}),
+      cancelDeleteSession: vi.fn(),
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      rpc: {},
+      state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
+    });
+
+    backendMock.getMergeBackStatus.mockReset().mockResolvedValue({
+      ...mergeableStatus,
+      worktreeDirty: true,
+    });
+    renderDialog(worktreeConfirmation);
+    await flush();
+    expect(document.body.textContent).toContain(
+      "Its worktree checkout will be removed. Commits survive on omp-ui/deadbeef. " +
+        "Uncommitted changes in its checkout are lost. This cannot be undone.",
+    );
+    unmountDialog();
+
+    backendMock.getMergeBackStatus.mockReset().mockResolvedValue({
+      ...mergeableStatus,
+      worktreeDirty: false,
+    });
+    renderDialog(worktreeConfirmation);
+    await flush();
+    expect(document.body.textContent).toContain(
+      "Its worktree checkout will be removed. Commits survive on omp-ui/deadbeef. This cannot be undone.",
+    );
+    expect(document.body.textContent).not.toContain("Uncommitted changes");
+    unmountDialog();
   });
 
   it("keeps the dialog open with git's message when the merge is refused", async () => {
@@ -640,6 +788,7 @@ describe("DeleteSessionDialog", () => {
       hasFiles: true,
       worktreeBranch: null,
       worktreeBase: null,
+      worktreePath: null,
       cascade: [
         { tabId: "c1", title: "Impl one", running: false },
         { tabId: "c2", title: "Impl two", running: true },
@@ -676,6 +825,7 @@ describe("DeleteSessionDialog", () => {
       hasFiles: true,
       worktreeBranch: null,
       worktreeBase: null,
+      worktreePath: null,
       cascade: [{ tabId: "c1", title: "Impl one", running: false }],
     });
     await flush();

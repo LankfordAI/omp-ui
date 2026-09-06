@@ -161,7 +161,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     refreshBranches: branchesSlice.refreshBranches,
     checkoutGitBranch: branchesSlice.checkoutGitBranch,
     pullGitBranch: branchesSlice.pullGitBranch,
+    resolveMergeDestination: branchesSlice.resolveMergeDestination,
     readMergeBackStatus: branchesSlice.readMergeBackStatus,
+    createBranch: branchesSlice.createBranch,
     mergeWorktreeBranch: branchesSlice.mergeWorktreeBranch,
     suggestBranchName: branchesSlice.suggestBranchName,
 

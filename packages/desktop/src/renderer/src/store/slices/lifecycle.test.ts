@@ -1,6 +1,6 @@
 // Lifecycle slice tests (moved verbatim from store.test.ts for #295).
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState, LiveState, RemoteState } from "@omp-ui/core/types";
+import type { BackendState, LiveState, RemoteState, WorktreeSyncResult } from "@omp-ui/core/types";
 import {
   backendState as makeBackendState,
   rpcTabState,
@@ -249,6 +249,7 @@ describe("lifecycle confirmation acceptance (issue #373)", () => {
         hasFiles: true,
         worktreeBranch: null,
         worktreeBase: null,
+        worktreePath: null,
         cascade: [],
       },
     });
@@ -402,6 +403,7 @@ describe("deleteSession", () => {
       hasFiles: true,
       worktreeBranch: null,
       worktreeBase: null,
+      worktreePath: null,
       cascade: [],
     });
 
@@ -485,7 +487,7 @@ describe("deleteSession", () => {
     expect(h.useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
   });
 
-  it("records the worktree branch and base on the confirmation", async () => {
+  it("records the worktree branch, base, and path on the confirmation", async () => {
     const state = h.stateWithRecord("sess-1", "live");
     state.projects[0]!.sessions[0]!.worktree = {
       path: "/wt",
@@ -514,6 +516,7 @@ describe("deleteSession", () => {
       hasFiles: true,
       worktreeBranch: "omp-ui/abcd1234",
       worktreeBase: "main",
+      worktreePath: "/wt",
       cascade: [],
     });
   });
@@ -608,6 +611,7 @@ describe("deleteSession", () => {
     expect(h.useStore.getState().deleteConfirmation).toMatchObject({
       worktreeBranch: "omp-ui/abcd1234",
       worktreeBase: "main",
+      worktreePath: "/wt",
       cascade: [{ tabId: "child-1", title: "Impl one", running: false }],
     });
   });
@@ -712,14 +716,17 @@ describe("releaseWorktreeSession (issue #334)", () => {
     });
   };
 
-  it("releases through the backend and keeps the tab and its rpc slot", async () => {
+  it("releases through the backend, forwards its branch options, and keeps the tab", async () => {
+    const opts = { keepBranch: false, mergedInto: "main" } as const;
     h.mockBackend.releaseWorktree.mockResolvedValueOnce(release);
     seed();
 
-    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB);
+    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB, opts);
 
     expect(result).toEqual(release);
-    expect(h.mockBackend.releaseWorktree).toHaveBeenCalledWith(h.TAB);
+    // The caller's decision reaches main verbatim: keepBranch false plus the
+    // destination just merged into, or main would delete an unmerged branch.
+    expect(h.mockBackend.releaseWorktree).toHaveBeenCalledWith(h.TAB, opts);
     // The session survives: no delete, no cascade preview, no tab teardown.
     expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
     expect(h.mockBackend.deleteSessionPreview).not.toHaveBeenCalled();
@@ -731,17 +738,79 @@ describe("releaseWorktreeSession (issue #334)", () => {
 
   it("reports and resolves to null when main rejects, leaving the tab intact", async () => {
     h.mockBackend.releaseWorktree.mockRejectedValueOnce(
-      new Error("session tab-1 did not exit — its files were left alone"),
+      new Error("the worktree has uncommitted changes — commit or discard them before returning"),
     );
     seed();
 
-    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB);
+    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB, {
+      keepBranch: false,
+      mergedInto: "main",
+    });
 
     expect(result).toBeNull();
-    expect(h.errorMessages()).toEqual(["session tab-1 did not exit — its files were left alone"]);
+    expect(h.errorMessages()).toEqual([
+      "the worktree has uncommitted changes — commit or discard them before returning",
+    ]);
     const st = h.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB, "tab-2"]);
     expect(st.rpc[h.TAB]).toBeDefined();
+  });
+});
+
+describe("syncWorktreeSession (issue #387)", () => {
+  const synced: WorktreeSyncResult = { kind: "merged", source: "main", files: [] };
+
+  it("syncs through the backend and hands the caller the result", async () => {
+    h.mockBackend.syncWorktree.mockResolvedValueOnce(synced);
+
+    const result = await h.useStore.getState().syncWorktreeSession(h.TAB, "main");
+
+    expect(result).toEqual(synced);
+    expect(h.mockBackend.syncWorktree).toHaveBeenCalledWith(h.TAB, "main");
+    expect(h.errorMessages()).toEqual([]);
+  });
+
+  it("reports and resolves to null when main rejects the sync", async () => {
+    h.mockBackend.syncWorktree.mockRejectedValueOnce(
+      new Error("commit or discard the worktree's changes before syncing"),
+    );
+
+    const result = await h.useStore.getState().syncWorktreeSession(h.TAB, "main");
+
+    expect(result).toBeNull();
+    expect(h.errorMessages()).toEqual([
+      "commit or discard the worktree's changes before syncing",
+    ]);
+  });
+});
+
+describe("renameWorktreeSessionBranch (issue #389)", () => {
+  it("renames through the backend and reports success", async () => {
+    const ok = await h.useStore
+      .getState()
+      .renameWorktreeSessionBranch(h.TAB, "feat/renamed");
+
+    expect(ok).toBe(true);
+    expect(h.mockBackend.renameWorktreeBranch).toHaveBeenCalledWith(
+      h.TAB,
+      "feat/renamed",
+    );
+    expect(h.errorMessages()).toEqual([]);
+  });
+
+  it("reports and resolves to false when the target name is taken", async () => {
+    h.mockBackend.renameWorktreeBranch.mockRejectedValueOnce(
+      new Error("fatal: a branch named 'feat/renamed' already exists"),
+    );
+
+    const ok = await h.useStore
+      .getState()
+      .renameWorktreeSessionBranch(h.TAB, "feat/renamed");
+
+    expect(ok).toBe(false);
+    expect(h.errorMessages()).toEqual([
+      "fatal: a branch named 'feat/renamed' already exists",
+    ]);
   });
 });
 
@@ -758,6 +827,56 @@ describe("convertSessionToWorktree (issue #225)", () => {
         .getState()
         .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: null }),
     ).rejects.toThrow("branch already exists");
+  });
+});
+
+describe("newWorktreeSession (issue #225, #390)", () => {
+  /** A registered project, no mounted tabs, and a spawn that always lands. */
+  const seed = (): void => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: "wt-1" });
+  };
+
+  it("mints a branch off its base and mounts the spawned tab", async () => {
+    seed();
+
+    await h.useStore.getState().newWorktreeSession("/p", {
+      mint: { branch: "omp-ui/deadbeef", baseRef: "main" },
+    });
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch: "omp-ui/deadbeef", baseRef: "main" } },
+    });
+    const st = h.useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual(["wt-1"]);
+    expect(st.activeTabId).toBe("wt-1");
+  });
+
+  it("checks out an existing branch instead of minting one", async () => {
+    seed();
+
+    await h.useStore.getState().newWorktreeSession("/p", {
+      checkout: { branch: "feat/existing" },
+    });
+
+    // The discriminated spec reaches main verbatim; a checkout must never
+    // carry a mint (main would create a second branch of that name).
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktree: { checkout: { branch: "feat/existing" } },
+      }),
+    );
   });
 });
 

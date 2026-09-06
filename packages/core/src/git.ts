@@ -6,14 +6,18 @@ const execFileP = promisify(execFile);
 export interface GitOptions {
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  /** Exit codes that are answers, not failures: their stdout resolves instead of rejecting. */
+  allowExit?: number[];
 }
 
 interface GitFailure extends Error {
   killed?: boolean;
   stderr?: string;
+  stdout?: string;
+  code?: number | null;
 }
 
-/** Runs git in `cwd`; rejects on non-zero exit or when `cwd` is outside a repo. */
+/** Runs git in `cwd`; rejects on non-zero exit or when `cwd` is outside a repo. Exit codes listed in `allowExit` resolve with their stdout instead — probes like `merge-tree` answer through them. */
 export async function git(
   cwd: string,
   args: string[],
@@ -30,6 +34,14 @@ export async function git(
     return stdout;
   } catch (error) {
     const failure = error as GitFailure;
+    const exitCode = typeof failure.code === "number" ? failure.code : null;
+    if (
+      exitCode !== null &&
+      options.allowExit !== undefined &&
+      options.allowExit.includes(exitCode)
+    ) {
+      return typeof failure.stdout === "string" ? failure.stdout : "";
+    }
     const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
     if (stderr) throw new Error(stderr, { cause: error });
     if (failure.killed && options.timeoutMs !== undefined) {

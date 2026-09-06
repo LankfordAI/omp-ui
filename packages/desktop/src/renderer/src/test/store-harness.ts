@@ -10,12 +10,15 @@ import type {
   DeleteSessionPreview,
   DeleteSessionResult,
   LiveState,
+  MergeBackStatus,
+  MergeDestination,
   OmpSettingsSnapshot,
   OmpUpdateState,
   ProviderOAuthState,
   RemoteState,
   SessionWorktree,
   WorktreeReleaseResult,
+  WorktreeSyncResult,
 } from "@omp-ui/core/types";
 import type {
   SessionCapabilitiesResult,
@@ -79,6 +82,24 @@ const emptyOmpSettings: OmpSettingsSnapshot = {
   error: null,
 };
 
+// The merge-back reads a healthy repo answers with (issues #385–#388): the
+// base resolves to main, main is checked out in the project, the branch is
+// ahead and nothing is in flight. Suites override either call per case.
+const defaultMergeDestination: MergeDestination = { destination: "main", reason: null };
+
+const defaultMergeBackStatus: MergeBackStatus = {
+  destination: "main",
+  destinationExists: true,
+  destinationCheckout: "project",
+  branchExists: true,
+  mergeInProgress: false,
+  alreadyMerged: false,
+  ahead: 1,
+  behind: 0,
+  worktreeDirty: false,
+  preview: { kind: "clean" },
+};
+
 // init() registers the shell-exit listener once per file and the global
 // beforeEach wipes mock.calls, so suites running after it read the callback
 // from here instead of re-reading the registration.
@@ -116,6 +137,9 @@ const mockBackend = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   generateTitle: vi.fn(async (): Promise<string | null> => null),
+  // Branch naming shares titling's cold-spawn stance: no name unless a case
+  // arms one, exactly as a session without a configured provider answers.
+  suggestBranchName: vi.fn(async (): Promise<string | null> => null),
   // Boot's optional roster read: a harness tab has no armed bridge unless a
   // case overrides this, exactly as a session without one answers main.
   getSessionCapabilities: vi.fn(
@@ -137,7 +161,22 @@ const mockBackend = {
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   pullBranch: vi.fn(),
-  getMergeBackStatus: vi.fn(),
+  resolveMergeDestination: vi.fn(
+    async (): Promise<MergeDestination> => defaultMergeDestination,
+  ),
+  getMergeBackStatus: vi.fn(
+    async (
+      _projectCwd: string,
+      _branch: string,
+      destination: string,
+      worktreePath: string | null,
+    ): Promise<MergeBackStatus> => ({
+      ...defaultMergeBackStatus,
+      destination,
+      worktreeDirty: worktreePath === null ? null : false,
+    }),
+  ),
+  createBranch: vi.fn(async (): Promise<void> => {}),
   mergeWorktreeBranch: vi.fn(),
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
@@ -161,6 +200,16 @@ const mockBackend = {
       branchOutcome: "removed",
     }),
   ),
+  // The finish dialog's two extra worktree ops: syncing reads as a clean
+  // merge of the requested source, and a branch rename always lands.
+  syncWorktree: vi.fn(
+    async (_tabId: string, source: string): Promise<WorktreeSyncResult> => ({
+      kind: "merged",
+      source,
+      files: [],
+    }),
+  ),
+  renameWorktreeBranch: vi.fn(async (): Promise<void> => {}),
   switchMode: vi.fn(),
   deleteSession: vi.fn(async (tabId: string): Promise<DeleteSessionResult> => ({
     deleted: [tabId],
@@ -436,6 +485,8 @@ export const h = {
   idleOmpUpdate,
   idleRemoteState,
   idleProviderOAuth,
+  defaultMergeDestination,
+  defaultMergeBackStatus,
   TAB,
   stateWithRecord,
   respond,

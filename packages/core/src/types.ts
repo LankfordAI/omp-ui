@@ -91,22 +91,40 @@ export interface SessionWorktree {
   base: string | null;
 }
 
-/** Merge-back feasibility snapshot for a worktree session (issue #272). */
-export interface MergeBackStatus {
-  /** Destination branch in the project; null when unresolvable. */
+/** Default destination resolution from a recorded base (see resolveMergeDestination). */
+export interface MergeDestination {
   destination: string | null;
-  /** Why destination is null; null when destination is set. */
+  /** Why destination is null; null when set. */
   reason: "no-repo" | "base-gone" | "no-branch-match" | null;
-  /** destination is the project checkout's current branch. */
-  destinationCheckedOut: boolean;
+}
+
+/** git merge-tree prediction for destination ← branch. */
+export type MergePreview =
+  | { kind: "clean" }
+  | { kind: "conflicts"; files: string[] }
+  /** git < 2.38 (no --write-tree), or the probe itself failed. */
+  | { kind: "unknown" };
+
+/** Merge-back feasibility for one chosen destination (issues #272, #385, #387, #388). */
+export interface MergeBackStatus {
+  /** The destination this snapshot describes — echoed back verbatim. */
+  destination: string;
+  destinationExists: boolean;
+  /** Where the destination is checked out: the project checkout, nowhere, or another worktree. */
+  destinationCheckout: "project" | "none" | "other";
   /** The worktree session's branch still exists as a local branch. */
   branchExists: boolean;
-  /** A merge is already in progress in the project checkout (.MERGE_HEAD). */
+  /** MERGE_HEAD present in the project checkout. Only blocks when destinationCheckout is "project". */
   mergeInProgress: boolean;
   /** Every commit of the branch is already in destination. */
   alreadyMerged: boolean;
-  /** Commits on the branch that destination lacks; 0 when alreadyMerged. */
+  /** Commits on branch that destination lacks. */
   ahead: number;
+  /** Commits on destination that branch lacks. */
+  behind: number;
+  /** `git status --porcelain` non-empty in the worktree checkout; null when no path was given or it is unreadable. */
+  worktreeDirty: boolean | null;
+  preview: MergePreview;
 }
 
 /** Outcome of a merge-back (issue #272). */
@@ -117,18 +135,36 @@ export interface MergeBackResult {
   commits: number;
   /** Conflicted paths when kind is "conflicts"; [] otherwise. */
   files: string[];
+  /** "project" when a conflicted merge was left in the project checkout; null when it ran in a scratch worktree and was aborted, or when there were no conflicts. */
+  conflictsLeftIn: "project" | null;
 }
 
 /** Outcome of a worktree-branch deletion attempt (issue #323). */
 export interface WorktreeBranchRemoval {
   kind:
     | "removed"
+    | "kept-requested"
     | "kept-unmerged"
     | "kept-no-destination"
     | "kept-refused"
     | "already-gone";
   /** git's message when kind is "kept-refused"; undefined otherwise. */
   detail?: string;
+}
+
+/** Outcome of merging a branch INTO the worktree checkout (issue #387). */
+export interface WorktreeSyncResult {
+  kind: "merged" | "up-to-date" | "conflicts";
+  source: string;
+  /** Conflicted paths left in the worktree when kind is "conflicts". */
+  files: string[];
+}
+
+/** How releaseWorktree treats the branch (issues #386, #385). */
+export interface WorktreeReleaseOptions {
+  keepBranch: boolean;
+  /** The destination the caller just merged into; an extra ancestry candidate. */
+  mergedInto: string | null;
 }
 
 /**
@@ -388,6 +424,7 @@ export interface BranchList {
 
 export type SpawnWorktree =
   | { mint: { branch: string; baseRef: string | null } }
+  | { checkout: { branch: string } }
   | { reuse: SessionWorktree }
   | null;
 

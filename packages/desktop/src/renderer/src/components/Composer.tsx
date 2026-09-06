@@ -130,19 +130,11 @@ export function Composer({
   // and has no worktree of its own.
   const offerWorkspace = unprompted && !hasWorktree && cwd !== undefined;
 
-  // The merge-back offer (issue #322): the session's own worktree branch and
-  // recorded base, plus the project checkout the merge runs in. Absent for
-  // plain sessions and for worktree records without a recorded base.
+  // The finish-worktree offer (issues #385–#389): this tab for any worktree
+  // session — a null base no longer withholds it, the dialog falls back to
+  // the default branch. Undefined for plain sessions and the sheet instance.
   const record = useStore((s) => findRecord(s.state, tabId));
-  const mergeBack =
-    record?.worktree != null && record.worktree.base !== null
-      ? {
-          branch: record.worktree.branch,
-          base: record.worktree.base,
-          projectRootCwd: record.projectCwd,
-          tabId,
-        }
-      : undefined;
+  const finishTabId = record?.worktree != null ? tabId : undefined;
 
   const sendPrompt = useStore((s) => s.sendPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
@@ -842,7 +834,7 @@ export function Composer({
               onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
               workspaceDisabled={unavailable || converting}
               onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
-              mergeBack={mergeBack}
+              finishTabId={finishTabId}
             />
 
             <AttachmentButton disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />

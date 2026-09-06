@@ -91,14 +91,17 @@ function parseSessionWorktree(value: unknown): SessionWorktree {
 function parseWorktree(value: unknown): SpawnWorktree {
   if (value === null) return null;
   const worktree = objectValue(value, "spawn request.worktree");
-  rejectUnknownKeys(worktree, ["mint", "reuse"], "spawn request.worktree");
-  const hasMint = hasOwn(worktree, "mint");
-  const hasReuse = hasOwn(worktree, "reuse");
-  if (hasMint === hasReuse) {
-    throw new Error("spawn request.worktree must contain exactly one of mint or reuse");
+  rejectUnknownKeys(worktree, ["mint", "checkout", "reuse"], "spawn request.worktree");
+  const arms = ["mint", "checkout", "reuse"].filter((arm) => hasOwn(worktree, arm));
+  if (arms.length !== 1) {
+    throw new Error("spawn request.worktree must contain exactly one of mint, checkout or reuse");
   }
-  if (hasReuse) return { reuse: parseSessionWorktree(worktree.reuse) };
-
+  if (arms[0] === "reuse") return { reuse: parseSessionWorktree(worktree.reuse) };
+  if (arms[0] === "checkout") {
+    const checkout = objectValue(worktree.checkout, "spawn request.worktree.checkout");
+    rejectUnknownKeys(checkout, ["branch"], "spawn request.worktree.checkout");
+    return { checkout: { branch: requiredString(checkout, "branch", "spawn request.worktree.checkout") } };
+  }
   const mint = objectValue(worktree.mint, "spawn request.worktree.mint");
   rejectUnknownKeys(mint, ["branch", "baseRef"], "spawn request.worktree.mint");
   const baseRef = mint.baseRef;

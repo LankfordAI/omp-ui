@@ -2757,7 +2757,7 @@ describe("release worktree (issue #334)", () => {
     );
     const predecessor = fakePtys[0]!;
 
-    const result = await manager.releaseWorktree(tabId);
+    const result = await manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: null });
 
     expect(result).toEqual({
       worktreePath,
@@ -2803,7 +2803,7 @@ describe("release worktree (issue #334)", () => {
       `${JSON.stringify({ type: "session", version: 3, id: "wt-release-rebind", cwd: worktreePath })}\n`,
     );
 
-    await manager.releaseWorktree(tabId);
+    await manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: null });
 
     const header = JSON.parse(fs.readFileSync(file, "utf8").trim()) as { cwd: string };
     expect(header.cwd).toBe(project);
@@ -2825,7 +2825,7 @@ describe("release worktree (issue #334)", () => {
       }),
     );
 
-    const result = await manager.releaseWorktree(record.tabId);
+    const result = await manager.releaseWorktree(record.tabId, { keepBranch: false, mergedInto: null });
 
     expect(result.checkoutKept).toBeNull();
     expect(result.branchOutcome).toBe("removed");
@@ -2853,7 +2853,7 @@ describe("release worktree (issue #334)", () => {
       }),
     );
 
-    const result = await manager.releaseWorktree(tabId);
+    const result = await manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: null });
 
     expect(result.checkoutKept).toBe("shared");
     expect(result.branchOutcome).toBe("not-attempted");
@@ -2887,7 +2887,7 @@ describe("release worktree (issue #334)", () => {
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
 
-    const result = await manager.releaseWorktree(tabId);
+    const result = await manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: null });
 
     expect(result.checkoutKept).toBeNull();
     expect(result.branchOutcome).toBe("kept-unmerged");
@@ -2907,12 +2907,163 @@ describe("release worktree (issue #334)", () => {
     cols: 80,
     rows: 24, });
 
-    await expect(manager.releaseWorktree(tabId)).rejects.toThrow(
+    await expect(manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: null })).rejects.toThrow(
       "session does not run in a worktree",
     );
-    await expect(manager.releaseWorktree("tab-nope")).rejects.toThrow("unknown session tab");
+    await expect(manager.releaseWorktree("tab-nope", { keepBranch: false, mergedInto: null })).rejects.toThrow("unknown session tab");
     expect(manager.isLive(tabId)).toBe(true);
     expect(spawnOmpMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to return a dirty checkout, leaving session and process intact (issue #388)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-dirty";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    fs.writeFileSync(path.join(worktreePath, "draft.txt"), "uncommitted\n");
+
+    await expect(
+      manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: null }),
+    ).rejects.toThrow(/uncommitted changes — commit or discard/);
+
+    // Nothing moved: still a worktree session, checkout alive, child unsignaled.
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).not.toBeNull();
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    expect(fakePtys.at(-1)!.signals).toEqual([]);
+    expect(spawnOmpMock).toHaveBeenCalledTimes(1);
+    expect(manager.isLive(tabId)).toBe(true);
+  });
+
+  it("keepBranch: checkout gone, ref alive, kept-requested reported (issue #386)", async () => {
+    const { manager, registry } = setup();
+    const { project, worktreePath, tabId } = await mergedWorktreeSession(
+      manager,
+      registry,
+      "omp-ui/wt-release-keep",
+    );
+
+    const result = await manager.releaseWorktree(tabId, { keepBranch: true, mergedInto: null });
+
+    expect(result.checkoutKept).toBeNull();
+    expect(result.branchOutcome).toBe("kept-requested");
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    const { stdout } = await execFileP("git", ["branch", "--list", "omp-ui/wt-release-keep"], {
+      cwd: project,
+    });
+    expect(stdout).toContain("omp-ui/wt-release-keep");
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+  });
+
+  it("mergedInto a branch the project never held deletes the worktree branch (issue #385)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-mergedinto";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+    // The dialog merged into release/x — a branch the checkout never held.
+    await execFileP("git", ["branch", "release/x", branch], { cwd: project });
+
+    const result = await manager.releaseWorktree(tabId, {
+      keepBranch: false,
+      mergedInto: "release/x",
+    });
+
+    expect(result.branchOutcome).toBe("removed");
+    const { stdout } = await execFileP("git", ["branch", "--list", branch], { cwd: project });
+    expect(stdout).not.toContain(branch);
+    const { stdout: kept } = await execFileP("git", ["branch", "--list", "release/x"], {
+      cwd: project,
+    });
+    expect(kept).toContain("release/x");
+  });
+
+  it("starts a worktree session on an existing branch, recording the default branch as base (issue #390)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    // topic exists, with a commit of its own, checked out nowhere.
+    const tmp = path.join(base, "tmp-topic");
+    await execFileP("git", ["worktree", "add", "-q", "-b", "topic", tmp], { cwd: project });
+    fs.writeFileSync(path.join(tmp, "topic.txt"), "t\n");
+    await execFileP("git", ["add", "topic.txt"], { cwd: tmp });
+    await execFileP("git", ["commit", "-q", "-m", "topic work"], { cwd: tmp });
+    await execFileP("git", ["worktree", "remove", "--force", tmp], { cwd: project });
+
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { checkout: { branch: "topic" } },  });
+
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({
+      path: Core.mintWorktreePath(worktreesRoot(), project, "topic"),
+      branch: "topic",
+      base: "main",
+    });
+    // The branch's prior commit is present in the checkout.
+    expect(fs.readFileSync(path.join(record.worktree!.path, "topic.txt"), "utf8")).toBe("t\n");
+  });
+
+  it("renameWorktreeBranch updates the record and the checkout's HEAD; syncWorktree merges in", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-rename";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+
+    await manager.renameWorktreeBranch(tabId, "feat/renamed");
+
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree!.branch).toBe("feat/renamed");
+    const { stdout: current } = await execFileP("git", ["branch", "--show-current"], {
+      cwd: worktreePath,
+    });
+    expect(current.trim()).toBe("feat/renamed");
+    // A rename colliding with an existing branch surfaces git's refusal.
+    await expect(manager.renameWorktreeBranch(tabId, "main")).rejects.toThrow(/already exists/);
+
+    // Sync brings main's new commit into the checkout (issue #387).
+    fs.writeFileSync(path.join(project, "new.txt"), "n\n");
+    await execFileP("git", ["add", "new.txt"], { cwd: project });
+    await execFileP("git", ["commit", "-q", "-m", "main moves on"], { cwd: project });
+    const sync = await manager.syncWorktree(tabId, "main");
+    expect(sync.kind).toBe("merged");
+    expect(fs.readFileSync(path.join(worktreePath, "new.txt"), "utf8")).toBe("n\n");
+
+    // A plain session tab is not a worktree session.
+    const { tabId: plainTab } = await manager.spawn({ origin: "new", worktree: null, projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, });
+    await expect(manager.syncWorktree(plainTab, "main")).rejects.toThrow(
+      "session does not run in a worktree",
+    );
+    await expect(manager.renameWorktreeBranch(plainTab, "whatever")).rejects.toThrow(
+      "session does not run in a worktree",
+    );
   });
 });
 

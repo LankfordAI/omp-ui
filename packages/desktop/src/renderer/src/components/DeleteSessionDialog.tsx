@@ -6,9 +6,12 @@ import { Button, ConfirmDialog } from "./ui";
 import { shortBase } from "../lib/format";
 import { useT } from "../lib/i18n";
 /**
- * Session delete confirmation. For worktree sessions, offers a merge-back of the
- * branch first (issue #272): the merge into the recorded base runs in the
- * project checkout, and the delete follows only when it does not stop on conflicts.
+ * Session delete confirmation. For worktree sessions, offers a merge-back of
+ * the branch first (issue #272): the destination is the recorded base, or the
+ * repo's default branch when no base was recorded, and the merge runs in the
+ * project checkout or a scratch worktree (issue #385) — the delete follows
+ * only when it does not stop on conflicts. The checkout's dirtiness is read
+ * (issue #388) so the description names the loss only when there is one.
  */
 export function DeleteSessionDialog({
   confirmation,
@@ -24,11 +27,19 @@ export function DeleteSessionDialog({
 
   const confirmDeleteSession = useStore((s) => s.confirmDeleteSession);
   const cancelDeleteSession = useStore((s) => s.cancelDeleteSession);
+  const resolveMergeDestination = useStore((s) => s.resolveMergeDestination);
   const readMergeBackStatus = useStore((s) => s.readMergeBackStatus);
   const mergeWorktreeBranch = useStore((s) => s.mergeWorktreeBranch);
+  const defaultBranch = useStore(
+    (s) =>
+      findRecord(s.state, confirmation.tabId) === undefined
+        ? null
+        : (s.branches[findRecord(s.state, confirmation.tabId)!.projectCwd]?.defaultBranch ?? null),
+  );
 
   const branch = confirmation.worktreeBranch;
   const base = confirmation.worktreeBase;
+  const worktreePath = confirmation.worktreePath;
   const n = confirmation.cascade.length;
   const projectCwd = useStore(
     (s) => findRecord(s.state, confirmation.tabId)?.projectCwd,
@@ -40,59 +51,75 @@ export function DeleteSessionDialog({
   );
 
   useEffect(() => {
-    if (branch === null || base === null || projectCwd === undefined) return;
+    if (branch === null || projectCwd === undefined) return;
     let cancelled = false;
-    readMergeBackStatus(projectCwd, branch, base)
-      .then((status) => {
+    // The recorded base first; a null base falls back to the listing's
+    // default branch (this dialog does not refresh branches — absent means
+    // no merge row, matching the pre-field records' old silence).
+    void (async () => {
+      const destination =
+        base !== null
+          ? ((await resolveMergeDestination(projectCwd, base).catch(() => null))?.destination ??
+            // Unresolvable base: still read it by name so the row explains
+            // itself via destinationExists false ("the base no longer resolves").
+            base)
+          : defaultBranch;
+      if (destination === null || destination === undefined) return;
+      if (cancelled) return;
+      try {
+        const status = await readMergeBackStatus(
+          projectCwd,
+          branch,
+          destination,
+          worktreePath,
+        );
         if (!cancelled) setMergeStatus(status);
-      })
-      .catch(() => {
+      } catch {
         // Unreadable status: treat as un-mergeable. No error shown — delete
         // stays the point of this dialog.
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [branch, base, projectCwd, readMergeBackStatus]);
+  }, [branch, base, worktreePath, projectCwd, defaultBranch, resolveMergeDestination, readMergeBackStatus]);
 
-  const mergeRow = branch !== null && base !== null && projectCwd !== undefined;
-  const destination = mergeStatus?.destination ?? (base !== null ? shortBase(base) : "");
+  const mergeRow = branch !== null && projectCwd !== undefined;
+  const destination =
+    mergeStatus?.destination ?? (base !== null ? shortBase(base) : (defaultBranch ?? ""));
+  const onProjectCheckout = mergeStatus?.destinationCheckout === "project";
   const mergeEnabled =
     mergeStatus !== null &&
-    mergeStatus.destination !== null &&
-    mergeStatus.destinationCheckedOut &&
+    mergeStatus.destinationExists &&
     mergeStatus.branchExists &&
-    !mergeStatus.mergeInProgress &&
-    !mergeStatus.alreadyMerged &&
-    busyTitle === null;
+    mergeStatus.destinationCheckout !== "other" &&
+    !(onProjectCheckout && (mergeStatus.mergeInProgress || busyTitle !== null)) &&
+    !mergeStatus.alreadyMerged;
   const mergeTitle =
-    busyTitle !== null
-      ? t("dialog.delete.busy")
-      : mergeStatus === null
-        ? undefined
-        : mergeStatus.destination === null
-          ? t("dialog.delete.baseGone")
-          : !mergeStatus.destinationCheckedOut
-            ? t("dialog.delete.checkoutFirst", { destination: mergeStatus.destination })
-            : mergeStatus.mergeInProgress
-              ? t("dialog.delete.mergeInProgress")
-              : mergeStatus.alreadyMerged
-                ? t("dialog.delete.alreadyMerged", { destination: mergeStatus.destination })
-                : !mergeStatus.branchExists
-                  ? t("dialog.delete.branchGone")
-                  : undefined;
+    mergeStatus === null
+      ? undefined
+      : mergeStatus.destinationCheckout === "other"
+        ? t("dialog.delete.heldElsewhere", { destination: mergeStatus.destination })
+        : onProjectCheckout && busyTitle !== null
+          ? t("dialog.delete.busy")
+          : mergeStatus === null
+            ? undefined
+            : !mergeStatus.destinationExists
+              ? t("dialog.delete.baseGone")
+              : onProjectCheckout && mergeStatus.mergeInProgress
+                ? t("dialog.delete.mergeInProgress")
+                : mergeStatus.alreadyMerged
+                  ? t("dialog.delete.alreadyMerged", { destination: mergeStatus.destination })
+                  : !mergeStatus.branchExists
+                    ? t("dialog.delete.branchGone")
+                    : undefined;
 
   const handleConfirm = async (): Promise<void> => {
     if (mergeFirst) {
       // The checkbox can only be ticked while mergeable, but the status can
       // change while the dialog is open — never delete without the merge
       // the user asked for.
-      if (
-        !mergeEnabled ||
-        branch === null ||
-        projectCwd === undefined ||
-        mergeStatus?.destination === null
-      ) {
+      if (!mergeEnabled || branch === null || projectCwd === undefined || mergeStatus === null) {
         setMergeError(mergeTitle ?? t("dialog.delete.mergeNoLonger"));
         return;
       }
@@ -102,7 +129,9 @@ export function DeleteSessionDialog({
         const result = await mergeWorktreeBranch(projectCwd, branch, mergeStatus.destination);
         if (result.kind === "conflicts") {
           setMergeError(
-            t("dialog.delete.mergeConflicts", { n: result.files.length, cwd: projectCwd }),
+            result.conflictsLeftIn === "project"
+              ? t("dialog.delete.mergeConflicts", { n: result.files.length, cwd: projectCwd })
+              : t("dialog.delete.mergeAborted", { n: result.files.length }),
           );
         } else {
           // ff / merged / already-merged: the branch is safely in, proceed.
@@ -158,6 +187,7 @@ export function DeleteSessionDialog({
               : mergeStatus?.alreadyMerged
                 ? t("dialog.delete.worktreeAlreadyMerged", { branch: confirmation.worktreeBranch, destination })
                 : t("dialog.delete.worktreeSurvives", { branch: confirmation.worktreeBranch }))}
+          {mergeStatus?.worktreeDirty === true && t("dialog.delete.worktreeDirty")}
           {t("dialog.delete.cannotUndo")}
         </p>
 
