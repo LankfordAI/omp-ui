@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList } from "@omp-ui/core/types";
 import { backendState, rpcTabState } from "../test/fixtures";
-import { emptySessionRuntime } from "../lib/rpc-types";
+import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { markerItem, noticeItem } from "../lib/transcript";
 
 const clipboardImageMock = vi.hoisted(() => ({
@@ -115,6 +115,12 @@ function typeDraft(value: string): HTMLTextAreaElement {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
   act(() => { setter.call(textarea, value); textarea.dispatchEvent(new Event("input", { bubbles: true })); });
   return textarea;
+}
+
+function press(target: HTMLElement, key: string): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  act(() => target.dispatchEvent(event));
+  return event;
 }
 
 function imagePicker(): HTMLInputElement {
@@ -881,6 +887,93 @@ describe("Composer BuildPlanControl", () => {
     expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("/guided-goal ");
   });
 
+});
+
+describe("Composer slash completion (#382)", () => {
+  beforeEach(() => {
+    useStore.setState({ runSlashCommand });
+  });
+
+  /** The mounted palette rows as `/command sub` labels (the part before ": "). */
+  function slashRows(): string[] {
+    return [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((button) => button.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"))
+      .map((label) => label.split(": ")[0]!);
+  }
+
+  it("completes into the subcommand stage", async () => {
+    seed("ready");
+    renderComposer();
+    const textarea = typeDraft("/goal");
+    press(textarea, "Tab");
+    expect(textarea.value).toBe("/goal ");
+    // The completion opens the second stage instead of dismissing: the six
+    // goal verbs in advertised order, no parent row, no guided-goal row.
+    expect(slashRows()).toEqual([
+      "/goal set",
+      "/goal show",
+      "/goal pause",
+      "/goal resume",
+      "/goal drop",
+      "/goal budget",
+    ]);
+    typeDraft("/goal s");
+    // Fuzzy names: set/show start with s, resume/pause merely contain it.
+    expect(slashRows()).toEqual(["/goal set", "/goal show", "/goal resume", "/goal pause"]);
+    press(textarea, "Tab");
+    expect(textarea.value).toBe("/goal set ");
+    // `set <objective>` takes a required argument, so Tab completes; the
+    // needle ("set ") matches no sibling name, so the palette steps aside.
+    expect(slashRows()).toEqual([]);
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    typeDraft("/goal set finish the migration");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal set finish the migration");
+  });
+
+  it("steps aside for a free-form argument so Enter runs the line", async () => {
+    seed("ready");
+    const compact: SlashCommandInfo = {
+      name: "compact",
+      description: "compact the context",
+      source: "builtin",
+      input: { hint: "[soft|remote|snapcompact] [focus]" },
+      subcommands: [
+        { name: "soft", description: "soft compaction", usage: "[focus]" },
+        { name: "remote", description: "remote compaction", usage: "[focus]" },
+        { name: "snapcompact", description: "snap compaction" },
+      ],
+    };
+    useStore.setState({
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, commands: [compact] } },
+    });
+    renderComposer();
+    const textarea = typeDraft("/compact s");
+    expect(slashRows()).toEqual(["/compact soft", "/compact snapcompact"]);
+    // The argument matches no subcommand name — the regression: the palette
+    // must not swallow Enter and rewrite the typed argument into a completion.
+    typeDraft("/compact focus on db");
+    expect(slashRows()).toEqual([]);
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact focus on db");
+    expect(textarea.value).toBe("");
+  });
+
+  it("Escape dismisses the exact draft only", () => {
+    seed("ready");
+    renderComposer();
+    const textarea = typeDraft("/goal ");
+    expect(slashRows()).toHaveLength(6);
+    press(textarea, "Escape");
+    expect(slashRows()).toEqual([]);
+    expect(abortAgent).not.toHaveBeenCalled();
+    typeDraft("/goal s");
+    // A different exact draft reopens: dismissal keys "goal " and "goal s".
+    expect(slashRows()).toHaveLength(4);
+  });
 });
 
 describe("Composer width refit", () => {

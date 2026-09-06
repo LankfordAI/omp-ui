@@ -23,6 +23,7 @@ import {
 import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
+import { slashCompletion } from "../lib/slash-completion";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
@@ -152,9 +153,11 @@ export function Composer({
 
   const [text, setText] = useState("");
   /**
-   * The `/command` whose palette the user dismissed. Scoped to the word, not a
-   * bare boolean: Escape on `/todo` must not keep the palette shut when the
-   * user then clears the line and types `/compact`.
+   * The slash draft (text after `/`) whose palette the user dismissed. Scoped
+   * to the exact draft, not a bare boolean or the word: Escape on `/todo` must
+   * not keep the palette shut when the user then types `/todo ` and its
+   * subcommands become the offer, nor when the line is cleared and `/compact`
+   * typed.
    */
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
   /**
@@ -214,8 +217,11 @@ export function Composer({
   const queueChip = queueChipView(running, queued);
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
-  const commandWord = text.startsWith("/") ? text.slice(1).split(/\s/, 1)[0] : null;
-  const paletteOpen = !unavailable && commandWord !== null && commandWord !== dismissedFor;
+  /** What the slash palette can offer for this draft; null mounts none (lib/slash-completion.ts). */
+  const completion = useMemo(() => slashCompletion(text, paletteCommands), [text, paletteCommands]);
+  /** The exact slash draft a dismissal applies to — `dismissedFor` compares against it. */
+  const paletteKey = text.startsWith("/") ? text.slice(1) : null;
+  const paletteOpen = !unavailable && completion !== null && paletteKey !== dismissedFor;
   // The mention palette is suppressed on slash-command lines: a leading `/`
   // means the draft is a command, never a prompt, and commands take no files.
   // The two palettes are mutually exclusive by that construction.
@@ -402,7 +408,7 @@ export function Composer({
     open: paletteOpen || mentionOpen,
     refs: composer,
     onClose: () => {
-      setDismissedFor(commandWord);
+      setDismissedFor(paletteKey);
       setMentionDismissedFor(mentionKey);
     },
   });
@@ -519,13 +525,15 @@ export function Composer({
   );
 
 
-  /** Applies a palette pick: run it now, or complete the line for its argument. */
+  /** Applies a palette pick: run it now, or complete the line for what follows. */
   const pick = useCallback(
     (name: string, takesArgument: boolean) => {
       if (takesArgument) {
         setText(`/${name} `);
-        // The line is already the pick; re-listing it would just cover the box.
-        setDismissedFor(name.split(/\s/, 1)[0]);
+        // Completing never dismisses: a command with subcommands opens its
+        // second stage, and anything else has nothing left to list — the
+        // completion hides the palette on its own.
+        setDismissedFor(null);
         box.current?.focus({ preventScroll: true });
         return;
       }
@@ -629,12 +637,12 @@ export function Composer({
             onClose={() => setMentionDismissedFor(mentionKey)}
           />
         )}
-        {paletteOpen && (
+        {paletteOpen && completion !== null && (
           <SlashPalette
             ref={palette}
             commands={paletteCommands}
-            query={text.slice(1)}
-            onClose={() => setDismissedFor(commandWord)}
+            completion={completion}
+            onClose={() => setDismissedFor(paletteKey)}
             onPick={(command, subcommand) => {
               if (subcommand !== undefined) {
                 // `usage` is the subcommand's own argument hint; a required one

@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 Since [v0.9.13](https://github.com/LankfordAI/omp-ui/releases/tag/v0.9.13):
 
 - Native sessions run OMP's `/goal` family. `/goal` and `/guided-goal` with their `set` / `show` / `pause` / `resume` / `drop` / `budget` subcommands act on OMP's own goal runtime through a generated per-lineage extension, so the objective, token accounting, budget, and continuation turns are OMP's rather than a prompt that talks about them. A HUD chip shows the goal's status and token use, an unfinished goal blocks entering Plan mode, automatic advisor and stall prompts stand down while a goal owns the session, and an active goal keeps the session's process from hibernating ([#381](https://github.com/LankfordAI/omp-ui/issues/381)).
+- The composer's slash palette completes in two stages. A completed command word followed by a space — `/goal `, `/mcp `, `/todo `, and every other command OMP advertises with subcommands — lists just that command's subcommands, filtered by what follows; `Tab` or `Enter` accepts a row. A typed argument that matches no subcommand hides the palette, so `Enter` runs the line as written instead of replacing the argument with a completion ([#382](https://github.com/LankfordAI/omp-ui/issues/382)).
 
 ## Choose a download
 

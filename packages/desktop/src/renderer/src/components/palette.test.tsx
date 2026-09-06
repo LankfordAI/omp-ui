@@ -3,6 +3,7 @@ import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
+import type { SlashCommandInfo } from "../lib/rpc-types";
 import { usePaletteNav } from "./palette";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -147,7 +148,7 @@ describe("SlashPalette", () => {
         <textarea aria-label="composer" onKeyDown={(event) => palette.current?.handleKey(event)} />
         <SlashPalette
           ref={palette}
-          query=""
+          completion={{ stage: "command", needle: "" }}
           commands={[
             {
               name: "session",
@@ -185,5 +186,58 @@ describe("SlashPalette", () => {
       expect.objectContaining({ name: "session" }),
       expect.objectContaining({ name: "list" }),
     );
+  });
+
+  it("lists one command's subcommands under its header and picks the active row", () => {
+    const onPick = vi.fn();
+    const palette = createRef<SlashPaletteHandle>();
+    const session = {
+      name: "session",
+      description: "session actions",
+      source: "builtin",
+      input: { hint: "[info|delete|pin [account]]" },
+      subcommands: [
+        { name: "info", description: "show session info" },
+        { name: "pin", description: "pin the session", usage: "[account]" },
+      ],
+    } satisfies SlashCommandInfo;
+    mount(
+      <div>
+        <textarea aria-label="composer" onKeyDown={(event) => palette.current?.handleKey(event)} />
+        <SlashPalette
+          ref={palette}
+          commands={[session]}
+          completion={{
+            stage: "subcommand",
+            command: session,
+            needle: "i",
+            matches: [
+              { subcommand: session.subcommands[0]!, hits: [0] },
+              { subcommand: session.subcommands[1]!, hits: [1] },
+            ],
+          }}
+          onPick={onPick}
+          onClose={vi.fn()}
+        />
+      </div>,
+    );
+    const composer = document.body.querySelector<HTMLTextAreaElement>('textarea[aria-label="composer"]')!;
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
+    act(() => composer.focus());
+
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "/session info: show session info",
+      "/session pin: pin the session",
+    ]);
+    // The stage header names the command and shows its hint: an argument is
+    // welcome too, not only the two listed subcommands.
+    expect(document.body.textContent).toContain("/session");
+    expect(document.body.textContent).toContain("[info|delete|pin [account]]");
+
+    press(composer, "ArrowDown");
+    expect(document.activeElement).toBe(composer);
+    press(composer, "Enter");
+    expect(onPick).toHaveBeenCalledWith(session, session.subcommands[1]);
+    expect(document.activeElement).toBe(composer);
   });
 });

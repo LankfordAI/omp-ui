@@ -286,6 +286,19 @@ config (`magicKeywords.*`) can disable each one, which makes the word inert
 literal text — omp-ui mirrors typing, so it neither detects nor overrides that.
 _Avoid_: reserved word, hotword, slash command
 
+**Slash palette**:
+The inline list above the composer that completes a slash-command draft, in
+two stages. While the command word is being typed it fuzzy-searches the
+roster omp advertises plus omp-ui's own entries, nesting each command's
+subcommands under it. Once whitespace follows the word, the word is resolved
+exactly and only that command's subcommands are offered, matched by name
+against everything typed after the word; with nothing to offer — no such
+command, no subcommands, or an argument no name matches — the palette hides
+and Enter runs the line as written. Tab and Enter accept the selected row: a
+row that needs an argument completes the line, any other runs it. Escape
+dismisses the palette for that exact draft only.
+_Avoid_: autocomplete dropdown, command menu, suggestions
+
 **Plan format**:
 How the agent is asked to author a plan for review, set once in Settings →
 General and carried when Plan mode is selected: `html` (default) or `md`. Under
