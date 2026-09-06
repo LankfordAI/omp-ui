@@ -1,18 +1,30 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { preparePlanDocument } from "./plan-document";
-import { currentThemeId, DEFAULT_THEME_ID, resolveTheme } from "./themes";
+import { currentThemeId, DEFAULT_THEME_ID, mixHex, resolveTheme } from "./themes";
 import type { CodeTokenizer } from "./plan-highlight";
 import type { Theme } from "./themes";
+import type { DiagramRenderer, PlanCanvas } from "./plan-diagrams";
+
+const diagrams = vi.hoisted(() => ({ canvasDark: [] as (boolean | undefined)[] }));
 
 vi.mock("./plan-diagrams", async (importOriginal) => {
   const original = await importOriginal<typeof import("./plan-diagrams")>();
   return {
     ...original,
     // Stub the network-weight renderer: unit tests exercise the substitution
-    // contract, not mermaid's layout engine (covered by the smoke test).
-    renderMermaidBlocks: (html: string, render?: (id: string, source: string) => Promise<string>) =>
-      original.renderMermaidBlocks(html, render ?? (async (id) => `<svg data-diagram="${id}"></svg>`)),
+    // contract, not mermaid's layout engine (covered by the smoke test). The
+    // now-real injected renderer is ignored in favour of the stub; the canvas
+    // spec rides through untouched so the tests can assert the plan path no
+    // longer drops darkness (issue #384).
+    renderMermaidBlocks: (html: string, _render: DiagramRenderer, canvas?: PlanCanvas) => {
+      diagrams.canvasDark.push(canvas?.dark);
+      return original.renderMermaidBlocks(
+        html,
+        async (id) => `<svg data-diagram="${id}"></svg>`,
+        canvas,
+      );
+    },
   };
 });
 
@@ -109,26 +121,27 @@ describe("preparePlanDocument injection", () => {
 });
 
 describe("preparePlanDocument guardrails", () => {
-  it("forces a light gray canvas and inherited dark ink over hostile plan colors", async () => {
+  it("paints the canvas and ink from the active theme over hostile plan colors", async () => {
     const source =
       "<html><head><style>:root,body,p{color:#fff;background:transparent}</style></head>" +
       '<body style="color: white; background: transparent"><p>Readable</p></body></html>';
-    const prepared = await preparePlanDocument(source);
-    const css = guardrailCss(prepared);
-
+    const prepared = await preparePlanDocument(source, resolveTheme("graphite"));
+    const graphite = guardrailCss(prepared);
     expect(prepared.indexOf("color:#fff")).toBeLessThan(prepared.indexOf(MARKER));
-    expect(css).toContain(`:root,
+    expect(graphite).toContain(`:root,
+body {
+  color-scheme: dark !important;
+  color: #e8ecf1 !important;
+  background-color: #14171b !important;
+  background-image: none !important;`);
+    const light = guardrailCss(await preparePlanDocument(source, resolveTheme("light")));
+    expect(light).toContain(`:root,
 body {
   color-scheme: light !important;
-  color: #2b3036 !important;
-  background-color: #e9ebee !important;
-  background-image: none !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  min-inline-size: 0 !important;
-  overflow-x: clip !important;
-}`);
-    expect(css).toContain(`html :where(*:not(svg, svg *)) {
+  color: #12161b !important;
+  background-color: #fafbfc !important;
+  background-image: none !important;`);
+    expect(light).toContain(`html :where(*:not(svg, svg *)) {
   max-width: 100% !important;
   min-width: 0 !important;
   color: inherit !important;
@@ -137,7 +150,7 @@ body {
 }`);
   });
 
-  it("paints block code on the theme plane and inline chips on a light tint", async () => {
+  it("paints block code on the theme plane and inline chips on a canvas tint", async () => {
     const source =
       "<html><head><style>pre{background:#f1f5f9;color:#000}code{background:#e8edf3}</style></head>" +
       "<body><p>inline <code>chip</code></p><pre><code>x = 1</code></pre></body></html>";
@@ -154,12 +167,12 @@ body {
       prepared.indexOf("background-color: transparent !important"),
     );
     expect(css).toContain(`code {
-  background-color: #d9dee4 !important;
+  background-color: #2a3037 !important;
 }`);
     expect(css).toContain(`pre,
 pre code {`);
     // chip rule beats the universal transparent rule by order
-    expect(css.indexOf("background-color: #d9dee4 !important")).toBeGreaterThan(
+    expect(css.indexOf("background-color: #2a3037 !important")).toBeGreaterThan(
       css.indexOf("background-color: transparent !important"),
     );
   });
@@ -171,6 +184,7 @@ pre code {`);
     expect(css).toContain(`background-color: #ffffff !important;`);
     expect(css).toContain(`color: #12161b !important;`);
     expect(css).toContain(`color-scheme: light !important;`);
+    expect(css).toContain(`background-color: #e6ebf0 !important;`);
   });
 
   it("contains fixed content-box layouts without erasing authored padding or borders", async () => {
@@ -224,12 +238,16 @@ code {
 code {
   white-space: pre-wrap !important;
 }`);
+    // The link is the accent mixed 30% toward the theme ink (issue #384);
+    // asserted through mixHex so the formula is pinned, not a second literal.
+    const graphite = resolveTheme("graphite");
+    const link = mixHex(graphite.tokens["--color-iris"], graphite.tokens["--color-ink"], 0.7);
     expect(css).toContain(`a,
 a:link,
 a:visited,
 a:hover,
 a:active {
-  color: #1f4e8c !important;
+  color: ${link} !important;
   text-decoration: underline !important;
 }`);
   });
@@ -248,7 +266,7 @@ a:active {
 }`);
   });
 
-  it("constrains oversized media and changes only SVG text paint", async () => {
+  it("constrains oversized media, paints SVG text with theme ink, and washes hand-drawn fills on dark only", async () => {
     const source =
       '<img width="2400" height="1200"><svg width="2400" height="800"><circle cx="30" cy="30" r="20" fill="red"/><text x="0" y="20" fill="white">Plan</text></svg>';
     const prepared = await preparePlanDocument(source);
@@ -281,9 +299,16 @@ svg {
   height: auto !important;
 }`);
     expect(css).toContain(`svg text {
-  fill: #2b3036 !important;
+  fill: #e8ecf1 !important;
 }`);
     expect(css).not.toMatch(/svg\s+(?:circle|ellipse|line|path|polygon|polyline|rect)\s*{/);
+    // Hand-drawn shape fills become washes on a dark canvas (issue #384):
+    // opacity only — the shapes themselves stay outside the guardrail.
+    expect(css).toContain(`svg:not(.omp-ui-diagram svg) :is(rect, path, polygon, circle, ellipse) {
+  fill-opacity: 0.18 !important;
+}`);
+    const lightCss = guardrailCss(await preparePlanDocument(source, resolveTheme("light")));
+    expect(lightCss).not.toContain("fill-opacity");
   });
 });
 describe("preparePlanDocument diagram substitution", () => {
@@ -298,6 +323,17 @@ describe("preparePlanDocument diagram substitution", () => {
     // Diagram substitution happens before guardrail injection, so the
     // rendered SVG is contained by the injected stylesheet like everything else.
     expect(prepared.indexOf("omp-ui-diagram")).toBeGreaterThan(prepared.indexOf(MARKER));
+  });
+
+  it("hands the canvas spec to substitution instead of dropping darkness", async () => {
+    // Issue #384: the plan path forwards the theme's canvas, so mermaid and
+    // the authored-paint fit see the darkness the document actually lands on.
+    diagrams.canvasDark.length = 0;
+    const source = '<html><head></head><body><pre class="mermaid">graph TD; A-->B</pre></body></html>';
+    await preparePlanDocument(source, resolveTheme("graphite"));
+    await preparePlanDocument(source, resolveTheme("light"));
+
+    expect(diagrams.canvasDark).toEqual([true, false]);
   });
 
   it("ships the containment carve-out for rendered diagrams", async () => {

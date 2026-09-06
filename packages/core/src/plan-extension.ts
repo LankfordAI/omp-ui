@@ -116,10 +116,15 @@ const HTML_PLAN_BODY =
   "the implementer executes. Ignore any omp tooling text that names " +
   "local://<slug>-plan.md. The HTML must be a complete, self-contained document: " +
   "inline CSS only, no external resources, no JavaScript (scripts will not run). " +
-  "Give the document an explicit light canvas and dark foreground; do not use " +
-  "omp-ui CSS variables or inherit host or theme colors. Every normal-text " +
-  "foreground/background pair must meet WCAG AA contrast of at least 4.5:1, " +
-  "including readable text in every colored callout. Make the document " +
+  "omp-ui paints the page canvas and the reading ink from the active omp-ui " +
+  "theme — light or dark — and discards plan-authored page and element colours, " +
+  "so author no canvas, background, or text colour of your own and never assume " +
+  "which one you are writing for: leave backgrounds transparent, write " +
+  "\`border: 1px solid\` with no colour so a rule inherits the ink, and carry " +
+  "emphasis with headings, \`<strong>\`, and \`<em>\` instead of hue. Every text " +
+  "pair the renderer produces must meet WCAG AA contrast of at least 4.5:1, so " +
+  "never place a label on a colour you hard-coded. Colour that must survive " +
+  "belongs in SVG only. Make the document " +
   "responsively fit any iframe with no horizontal page scrolling: include a " +
   "viewport meta tag, apply border-box sizing, use fluid widths capped by " +
   "max-width, wrap long code and paths, and fit tables within the viewport " +
@@ -133,9 +138,12 @@ const HTML_PLAN_BODY =
   "diagram types: flowchart, sequenceDiagram, stateDiagram-v2, erDiagram. Keep " +
   "labels short and quote any label containing punctuation. Escape literal < > & " +
   "inside diagram source as HTML entities. Color a mermaid diagram to match what " +
-  "it depicts: use classDef for groups and style for one-offs (fill, stroke, and " +
-  "text color only; both work under the renderer's strict security), keep fills " +
-  "muted, and keep every label readable against its fill (WCAG AA 4.5:1). Pick " +
+  "it depicts: use classDef for groups and style for one-offs (fill and stroke; " +
+  "both work under the renderer's strict security), keep fills muted. The " +
+  "renderer already picks a diagram palette matched to the canvas it lands on " +
+  "and, on a dark canvas, re-fits any authored \`fill:\` or \`stroke:\` hex so it " +
+  "stays readable, so choose fills freely but never set a node \`color:\` — the " +
+  "renderer owns label colour. Pick " +
   "the flowchart direction to fit the content and the space, not by habit: " +
   "flowchart LR (or RL) for pipelines, timelines, and sequences so the chart " +
   "uses the column's width and stays short; flowchart TD for hierarchies and " +
@@ -161,7 +169,11 @@ const HTML_PLAN_BODY =
   "(estimate text width as 0.6 times font-size times character count); and keep " +
   "text out of rotated or clipped regions. The renderer passes hand-drawn SVG " +
   "through unchanged and the guardrail stylesheet scales it to the column, so a " +
-  "well-formed viewBox is all you must get right. " +
+  "well-formed viewBox is all you must get right. For colour, draw with " +
+  '\`stroke="currentColor"\` and \`fill="none"\`, and fill an area with ' +
+  '\`fill="currentColor" fill-opacity="0.08"\` to \`"0.15"\` so it reads as a wash ' +
+  "on either canvas; never set a \`fill\` on \`<text>\` — the renderer paints SVG " +
+  "text with the canvas ink. " +
   "Code blocks are highlighted at review time: put the language on the block's " +
   '<code> element — <pre><code class="language-python">…</code></pre> — and the ' +
   "renderer tokenizes the block in the active theme. Recognized: bash, c, cpp, " +

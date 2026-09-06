@@ -45,7 +45,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
                     title={t("plan.card.proposedPlan")}
                     sandbox=""
                     srcDoc={prepared.status === "ready" ? prepared.doc : ""}
-                    className="h-[28rem] w-full rounded-md border border-line bg-white"
+                    className="h-[28rem] w-full rounded-md border border-line bg-surface"
                   />
                 )
               ) : (

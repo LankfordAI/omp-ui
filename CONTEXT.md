@@ -304,7 +304,9 @@ How the agent is asked to author a plan for review, set once in Settings →
 General and carried when Plan mode is selected: `html` (default) or `md`. Under
 `html` the agent writes exactly one file, `local://<slug>-plan.html` — a
 self-contained document (inline CSS, no external resources, no scripts) that
-the plan review renders in a `sandbox=""` iframe. That file is the plan: it is
+the plan review renders in a `sandbox=""` iframe. The review paints the
+document's canvas and ink from the active theme, discarding plan-authored
+page and element colours (ADR-0014, amended by #384). That file is the plan: it is
 what the propose gate resolves, what gets pinned as the session's reference,
 and what the implementer executes. There is no markdown companion and nothing
 is authored twice. omp's own slug→file resolution is markdown-only, but omp-ui

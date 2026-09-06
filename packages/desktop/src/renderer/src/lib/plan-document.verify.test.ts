@@ -9,6 +9,7 @@ import {
 import { currentThemeId, resolveTheme } from "./themes";
 import type { CodeTokenizer } from "./plan-highlight";
 import type { Theme } from "./themes";
+import type { DiagramRenderer, PlanCanvas } from "./plan-diagrams";
 
 const diagrams = vi.hoisted(() => ({ failure: null as Error | null }));
 
@@ -18,9 +19,13 @@ vi.mock("./plan-diagrams", async (importOriginal) => {
     ...original,
     // Stub the network-weight renderer (same seam as plan-document.test.ts),
     // with a switchable rejection so the preparation-failure path is testable.
-    renderMermaidBlocks: (html: string) => {
+    renderMermaidBlocks: (html: string, _render: DiagramRenderer, canvas?: PlanCanvas) => {
       if (diagrams.failure) return Promise.reject(diagrams.failure);
-      return original.renderMermaidBlocks(html, async (id) => `<svg data-diagram="${id}"></svg>`);
+      return original.renderMermaidBlocks(
+        html,
+        async (id) => `<svg data-diagram="${id}"></svg>`,
+        canvas,
+      );
     },
   };
 });

@@ -76,7 +76,16 @@ before.
   plan API.** `sendCustomMessage` — without it the agent never learns to write
   html — and `getArtifactsDir` — without it no `local://` path can be resolved or
   probed. Either one missing degrades the session to `md` with one warning.
-- **The canvas is fixed and light, but not white: the guardrail paints
-  `#e9ebee` / `#2b3036` (issue #375).** Agent-authored colours are still
-  overridden, so the prompt's "explicit light canvas" wording remains the
-  authoring contract while the rendered palette is omp-ui's.
+- **The canvas is the active theme's canvas: the guardrail paints the
+  theme's `--color-surface` / `--color-ink`, with `--color-raised` code
+  planes, `--color-hover` chips, and ink-mixed `--color-iris` links
+  (issue #384).** Agent-authored colours are still overridden, so the
+  prompt tells the author to write no canvas or text colour of their own
+  while the rendered palette is omp-ui's.
+
+**Amended 2026-09-06 (#384):** the fixed light canvas is superseded — the
+guardrail paints the document from the active theme's tokens and mermaid
+substitution receives the canvas darkness, so the plan review follows light
+and dark themes live. Discarding agent-authored colours is unchanged; the
+prompt's "explicit light canvas" wording was replaced in the same change
+because it described a contract the renderer no longer asks for.

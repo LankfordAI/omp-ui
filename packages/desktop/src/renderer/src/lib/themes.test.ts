@@ -1173,6 +1173,28 @@ describe("theme contrast", () => {
         }
       });
 
+      it("keeps the plan guardrail pairings readable on the plan canvas", () => {
+        // The guardrail derives the plan review palette from these tokens
+        // (issue #384): reading ink on the canvas, ink on the chip tint, and
+        // the ink-mixed accent link on the canvas. A theme failing here would
+        // ship an unreadable plan canvas.
+        expectContrast(theme, "ink on canvas", theme.tokens["--color-ink"], surface, 4.5);
+        expectContrast(
+          theme,
+          "ink on chip",
+          theme.tokens["--color-ink"],
+          theme.tokens["--color-hover"],
+          4.5,
+        );
+        expectContrast(
+          theme,
+          "plan link on canvas",
+          mixHex(theme.tokens["--color-iris"], theme.tokens["--color-ink"], 0.7),
+          surface,
+          4.5,
+        );
+      });
+
       it("keeps every syntax colour readable on the surface", () => {
         for (const [role, colour] of Object.entries(theme.code)) {
           expectContrast(theme, `code.${role}`, colour, surface, 3);

@@ -29,7 +29,8 @@ document, runs the renderer).
   inside an iframe whose subframe navigations `index.ts` already denies.
 - **Failure containment.** A block that fails to render is replaced by a small
   error callout showing the original source; the rest of the plan is
-  unaffected.
+  unaffected. The callout's palette, like the diagram palette itself, follows
+  the darkness of the canvas it lands on (issue #384).
 - **Containment carve-out.** The guardrail stylesheet's
   `:where(*:not(svg, svg *))` negation is not honored by every CSS parser, so
   rendered diagrams get an explicit `.omp-ui-diagram svg` rule (max-width 100%,

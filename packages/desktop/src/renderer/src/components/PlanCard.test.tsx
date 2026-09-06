@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanItem } from "../lib/transcript";
-import type { DiagramRenderer } from "../lib/plan-diagrams";
+import type { DiagramRenderer, PlanCanvas } from "../lib/plan-diagrams";
 import { PlanCard } from "./PlanCard";
 
 const planVerification = vi.hoisted(() => ({ failure: null as string | null }));
@@ -35,10 +35,13 @@ vi.mock("../lib/plan-diagrams", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
   return {
     ...original,
-    renderMermaidBlocks: (html: string, render?: DiagramRenderer) =>
+    // Same seam as PlanReview.test.tsx: ignore the now-real injected renderer
+    // (the production call site passes it since issue #384) and stub here.
+    renderMermaidBlocks: (html: string, _render: DiagramRenderer, canvas?: PlanCanvas) =>
       original.renderMermaidBlocks(
         html,
-        render ?? (async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`),
+        async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`,
+        canvas,
       ),
   };
 });
