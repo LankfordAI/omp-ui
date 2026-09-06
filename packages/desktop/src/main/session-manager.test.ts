@@ -290,12 +290,14 @@ describe("MCP runtime status bridge", () => {
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
     // The flush precedes the mode command; the mode command is published on
-    // every spawn, Build included (issue #142; regression #256). The
-    // capabilities arm rides last, after both (issue #374).
+    // every spawn, Build included (issue #142; regression #256). The goal arm
+    // rides before the mode command so goal restoration answers Plan entry's
+    // unfinished-goal check (issue #381); the capabilities arm rides last.
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
       ?.map((command) => command.message);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
+      Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
     ]);
@@ -315,6 +317,7 @@ describe("MCP runtime status bridge", () => {
       | undefined;
     expect(commands?.map((command) => command.message)).toEqual([
       Core.mcpRuntimeStatusMessage(),
+      Core.goalArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
     ]);
@@ -344,6 +347,7 @@ describe("MCP runtime status bridge", () => {
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
       ?.map((command) => command.message);
     expect(messages).toEqual([
+      Core.goalArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
     ]);
@@ -437,6 +441,7 @@ describe("session capabilities bridge (issue #374)", () => {
     // The arm command rides last: after the MCP flush and the mode command.
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
+      Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
     ]);
@@ -486,7 +491,11 @@ describe("session capabilities bridge (issue #374)", () => {
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
       (command) => command.message,
     );
-    expect(messages).toEqual([Core.mcpRuntimeStatusMessage(), Core.planMessage(false, "html")]);
+    expect(messages).toEqual([
+      Core.mcpRuntimeStatusMessage(),
+      Core.goalArmMessage(),
+      Core.planMessage(false, "html"),
+    ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",
     });
@@ -4601,5 +4610,113 @@ describe("hibernation (issue #246)", () => {
 
     await expect(result).resolves.toBe(true);
     expect(rpc.kill).toHaveBeenCalledTimes(1);
+  });
+
+  /** One goal snapshot as the session's own bridge publishes it (issue #381). */
+  let goalRevision = 0;
+  const goalFrame = (
+    rpc: (typeof rpcInstances)[number],
+    goal: { status: string } | null,
+    continuation: "idle" | "scheduled" | "running" = "idle",
+  ): void => {
+    goalRevision += 1;
+    rpc.frame({
+      type: "extension_ui_request",
+      id: "goal-frame-" + goalRevision,
+      method: "setStatus",
+      statusKey: Core.GOAL_STATUS_KEY,
+      statusText: JSON.stringify({
+        version: 1,
+        processKey: "proc-goal",
+        sessionId: "session-1",
+        revision: goalRevision,
+        available: true,
+        unavailable: null,
+        enabled: goal?.status === "active" || goal?.status === "budget-limited",
+        goal: goal === null
+          ? null
+          : {
+              id: "g1",
+              objective: "finish the migration",
+              status: goal.status,
+              tokenBudget: null,
+              tokensUsed: 10,
+              timeUsedSeconds: 5,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+        continuation,
+        pauseReason: null,
+        result: null,
+      }),
+    });
+  };
+
+  it("never idles out a session whose goal is still working (issue #381)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      goalFrame(rpc, { status: "active" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      await flush();
+
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+      expect(manager.liveCount).toBe(1);
+
+      // Pausing is what makes the session idle-able again; the goal stays put.
+      goalFrame(rpc, { status: "paused" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(manager.liveCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a scheduled continuation alive in a hidden tab (issue #381)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      goalFrame(rpc, { status: "active" }, "scheduled");
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      await flush();
+      expect(rpc.kill).not.toHaveBeenCalled();
+
+      // A goal that finished its work is no protection at all.
+      goalFrame(rpc, null);
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a plan handoff while the source still owns an active goal (issue #381)", async () => {
+    const { manager, registry, rpc } = await readyHandoff();
+    addImplementation(registry);
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    goalFrame(rpc, { status: "active" });
+
+    const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+    await expect(result).resolves.toBe(false);
+    expect(rpc.kill).not.toHaveBeenCalled();
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toBeDefined();
   });
 });

@@ -14,6 +14,7 @@ import {
   writeCompactionMethodOverlay,
   writeDefaultModelOverlay,
   writeMcpStatusExtension,
+  writeGoalExtension,
   writePlanExtension,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
@@ -99,7 +100,7 @@ export async function writeRpcOverlays(
   }
 
   /** The generated `-e` bridges an rpc-ui spawn needs. */
-export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean; capabilitiesLoaded: boolean } {
+export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean; capabilitiesLoaded: boolean; goalLoaded: boolean } {
     const paths: string[] = [];
     try {
       paths.push(writePlanExtension(absLineageDir));
@@ -125,7 +126,14 @@ export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mc
     } catch (err) {
       console.warn("[capabilities] could not write the capabilities extension:", err);
     }
-    return { paths, mcpStatusLoaded, capabilitiesLoaded };
+    let goalLoaded = false;
+    try {
+      paths.push(writeGoalExtension(absLineageDir));
+      goalLoaded = true;
+    } catch (err) {
+      console.warn("[goal] could not write the goal extension:", err);
+    }
+    return { paths, mcpStatusLoaded, capabilitiesLoaded, goalLoaded };
   }
 
 /** Manager-provided paths and registry mutation for prepareResumeRecord. */

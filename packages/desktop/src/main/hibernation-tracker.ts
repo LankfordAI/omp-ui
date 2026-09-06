@@ -54,6 +54,12 @@ export interface HibernationTrackerDeps {
   getLive: (tabId: string) => LiveEntry | undefined;
   awaitingHumanAnswer: (tabId: string) => boolean;
   isViewed: (tabId: string) => boolean;
+  /**
+   * True while the session's own goal bridge reports an active goal or a
+   * scheduled/running continuation (issue #381). The loop runs in the child, so
+   * hibernating here would silently end autonomous work no renderer is watching.
+   */
+  preventsHibernation: (tabId: string) => boolean;
   /** The manager's SIGTERM → grace → SIGKILL reap primitive. */
   hibernate: (tabId: string, entry: LiveEntry) => Promise<boolean>;
   /** Runs the attempt behind the tab's op chain (issue #297). */
@@ -283,6 +289,9 @@ export class HibernationTracker implements FrameObserver {
     if (!rec.armed) return false; // still booting
     if (this.deps.turns.isRunning(tabId)) return false; // mid-turn
     if (this.deps.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
+    // Before the handoff early return: a goal veto applies to both paths, and a
+    // planning session that is also running a goal must not be reaped by either.
+    if (this.deps.preventsHibernation(tabId)) return false;
     if (policy === "plan-handoff") return true;
     if (this.deps.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
     if (this.isLastActiveInProject(tabId)) return false; // the project's last active session stays warm (issue #304)

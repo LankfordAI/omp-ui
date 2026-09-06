@@ -885,6 +885,10 @@ export class MainBackend {
       }
     }
     const gate = this.sessions.planGate(record.tabId);
+    // Ephemeral like the plan gate: the bridge inside the live child owns goal
+    // state, so a session with no live process reports none instead of a
+    // remembered one (issue #381).
+    const goal = this.sessions.goalSnapshot(record.tabId);
     return {
       ...record,
       title: title?.trim() || "New session",
@@ -893,6 +897,7 @@ export class MainBackend {
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
       streamStalled,
+      ...(goal === undefined ? {} : { goal }),
     };
   }
 
