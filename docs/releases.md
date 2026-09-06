@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.9.13](https://github.com/LankfordAI/omp-ui/releases/tag/v0.9.13). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Since [v0.9.13](https://github.com/LankfordAI/omp-ui/releases/tag/v0.9.13):
+
+- Native sessions run OMP's `/goal` family. `/goal` and `/guided-goal` with their `set` / `show` / `pause` / `resume` / `drop` / `budget` subcommands act on OMP's own goal runtime through a generated per-lineage extension, so the objective, token accounting, budget, and continuation turns are OMP's rather than a prompt that talks about them. A HUD chip shows the goal's status and token use, an unfinished goal blocks entering Plan mode, automatic advisor and stall prompts stand down while a goal owns the session, and an active goal keeps the session's process from hibernating ([#381](https://github.com/LankfordAI/omp-ui/issues/381)).
 
 ## Choose a download
 

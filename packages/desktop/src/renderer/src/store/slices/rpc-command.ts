@@ -1,6 +1,7 @@
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
+import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type {
   CapabilitySnapshot,
   SessionCapabilitiesResult,
@@ -176,6 +177,52 @@ export function acceptCapabilitySnapshot(
   // The roster owns the tab now; an in-flight getSessionCapabilities read must
   // not overwrite it (#374).
   bumpCapabilitiesGeneration(m, tabId);
+  return true;
+}
+
+/**
+ * The one acceptance rule for a goal snapshot, shared by the `setStatus` push
+ * path and by the boot-time summary so a live frame and a hydrated record can
+ * never disagree about which goal a tab shows: a same-process snapshot wins only
+ * when its revision is strictly newer, and a snapshot from a different process —
+ * a respawn, or a branch that minted its own bridge — always replaces what an
+ * older generation left behind. Malformed data never reaches here; the parser
+ * already refused it, so the tab keeps the last goal it truly saw.
+ *
+ * Settling the tab's pending goal command row is part of accepting its snapshot:
+ * the result is carried on the snapshot, correlated by requestId, and a result
+ * from another client or an older generation matches no entry in this tab's map.
+ */
+export function acceptGoalSnapshot(
+  tabId: string,
+  snapshot: GoalSnapshot,
+  get: GetState,
+  m: StoreMachinery,
+): boolean {
+  const retained = get().rpc[tabId]?.goal ?? null;
+  if (
+    retained !== null &&
+    retained.processKey === snapshot.processKey &&
+    snapshot.revision <= retained.revision
+  )
+    return false;
+  m.patchRpc(tabId, { goal: snapshot });
+  const result = snapshot.result;
+  if (result === null) return true;
+  const requests = m.runtime(tabId).goalRequests;
+  const itemId = requests.get(result.requestId);
+  if (itemId === undefined) return true;
+  requests.delete(result.requestId);
+  m.patchItems(tabId, (item) =>
+    item.kind === "command" && item.id === itemId && item.status === "running"
+      ? {
+          ...item,
+          status: result.ok ? "done" : "failed",
+          output: result.text,
+          ...(result.ok ? {} : { error: result.text }),
+        }
+      : item,
+  );
   return true;
 }
 
@@ -419,6 +466,9 @@ export function disposeTabRuntime(
     capabilitiesLoad: "idle",
     capabilitiesToolPending: null,
     capabilitiesToolFeedback: null,
+    // The goal belongs to the dying process too; a pending command row settles
+    // as failed by the abandoned rpc call it rode, never by optimism.
+    goal: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);
@@ -458,6 +508,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     plans: [],
     advisorStats: null,
     mcpStatus: null,
+    goal: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     capabilitiesToolPending: null,
@@ -474,7 +525,13 @@ export function createRpcCommandSlice(
   get: GetState,
   m: StoreMachinery,
   deps: RpcCommandDeps,
-): RpcCommandSlice {
+): RpcCommandSlice & {
+  /**
+   * Hydration of the goal each live process reports. Plumbing, not a UI action:
+   * store.ts runs it beside `reconcilePlanGates` on every state read (issue #381).
+   */
+  reconcileGoals(state: BackendState): void;
+} {
   // The bodies moved from the root closure keep their original names.
   const {
     advisorReply: advisorReplyWatcher,
@@ -920,6 +977,29 @@ export function createRpcCommandSlice(
     }
   };
 
+  /**
+   * Hydrates the goal each tab's live process reports (issue #381). The snapshot
+   * rides the session summary, so a renderer that joins late — or a second
+   * remote client — shows the goal that already exists without ever re-reading
+   * the transcript. Through the same acceptance helper as a live frame, so the
+   * two paths cannot disagree, and a summary from an older generation can never
+   * overwrite state this tab already saw.
+   */
+  const reconcileGoals = (state: BackendState): void => {
+    for (const [tabId, tab] of Object.entries(get().rpc)) {
+      const rec = findRecord(state, tabId);
+      const snapshot = rec?.goal;
+      if (snapshot === undefined) {
+        // No live process reports it: a tab that had a goal from a process that
+        // has since died must not keep showing one.
+        if (tab.goal !== null && findRecord(state, tabId)?.live !== "live")
+          m.patchRpc(tabId, { goal: null });
+        continue;
+      }
+      acceptGoalSnapshot(tabId, snapshot, get, m);
+    }
+  };
+
   return {
     bootRpcTab,
     refreshAvailableModels,
@@ -928,5 +1008,6 @@ export function createRpcCommandSlice(
     setInitialPrompt,
     renameSession,
     setSessionToolEnabled,
+    reconcileGoals,
   };
 }

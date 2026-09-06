@@ -50,7 +50,7 @@ The native transcript is derived from OMP's event stream. The session file remai
 
 ### Use the Session HUD
 
-The **Session HUD** runs across the top of a native tab. It shows liveness, a click-to-rename title, context use, total spend, and advisor context and cost when an advisor is active. A worktree chip names the effective branch. The controls let you compact context, toggle auto-compaction, open the console, export the transcript as HTML, open the Capabilities viewer, branch the session, start a new session, refresh runtime state and statistics, and edit queue modes.
+The **Session HUD** runs across the top of a native tab. It shows liveness, a click-to-rename title, context use, total spend, and advisor context and cost when an advisor is active. A goal chip shows the session's OMP goal and its token use, and opens the `/goal` command when clicked ([goal mode](#goal-mode)). A worktree chip names the effective branch. The controls let you compact context, toggle auto-compaction, open the console, export the transcript as HTML, open the Capabilities viewer, branch the session, start a new session, refresh runtime state and statistics, and edit queue modes.
 While auto-compact is on, a notch in the context meter marks the token count where OMP auto-compacts — by default the window minus the larger of 15% of the window and the reserve — and hovering shows the exact value. The threshold is tunable in **Settings → omp → Context** via `compaction.thresholdPercent`, `compaction.thresholdTokens`, and `compaction.reserveTokens`; changing one moves the notch without restarting anything.
 
 Manual compacting summarizes the current context. Auto-compaction lets OMP compact when the context window fills. Export writes an HTML transcript and adds a notice with the path. **Branch this session** copies the full transcript into a new lineage and opens it in a new tab; the source session and its process stay untouched.
@@ -67,7 +67,7 @@ The composer controls what the next native turn receives:
 - Use the branch chip to inspect or switch local branches, pull a branch that is only behind its upstream, create a branch, or prepare a worktree before the first prompt.
 - Add image **attachments** with the paperclip or by pasting an image. An image-only draft is valid. A text-only model shows a warning because OMP would drop the images.
 - Type `@` to search files in the session's effective working tree. Pick a path to include it in the prompt. This also works for a steer or queued follow-up; omp-ui resolves the selected file content before sending those busy-session routes.
-- Type `/` at the start of the draft to search OMP and omp-ui slash commands. A slash-command line runs as a command, not as a prompt, and does not send attachments. omp-ui supplies `/new` and `/plan` as native actions.
+- Type `/` at the start of the draft to search OMP and omp-ui slash commands. A slash-command line runs as a command, not as a prompt, and does not send attachments. omp-ui supplies `/new` and `/plan` as native actions, and runs the `/goal` family through OMP's goal runtime rather than sending it as prompt text.
 
 A new native session gets an **auto-title** from its first substantive prompt. Bare greetings and acknowledgements do not consume the title opportunity. omp-ui asks OMP's configured small model first, then derives a short title from the prompt if that model is unavailable or declines.
 
@@ -103,6 +103,39 @@ Execution always begins in Build mode, regardless of the Default agent mode. Cho
 Before execution you can stage the model, thinking level, advisor, advisor model, git branch, and OMP's `ultrathink`, `orchestrate`, and `workflowz` magic keywords. On a git project, keep the current branch, create and switch to a new one, or switch to an existing one; in the worktree session context, cut a new worktree branch instead, choosing the branch name and base. If another session in that project is mid-turn, omp-ui asks before switching to an existing branch. If Git rejects the checkout, the review stays pending and shows the error. When an advisor reviewed the plan turn, **Address advisor concerns** folds those findings into the implementation prompt; this option starts on.
 
 The Plans pane keeps the pending plan first and settled plans dimmed below it. **Review** restores the same gate, **Request changes** refines without notes, and **Not now** leaves the gate unanswered.
+
+## Goal mode
+
+A **goal** is an objective the session keeps working toward across turns until it
+is met, dropped, or runs out of budget. Goals are OMP's own runtime feature: the
+chip's status, token use, and elapsed time are OMP's accounting, and the
+continuation turns are the same records OMP's terminal writes.
+
+Type `/goal` in the composer, or click the goal chip in the Session HUD:
+
+| Command | Effect |
+|---|---|
+| `/goal <objective>` | Sets the objective and starts working toward it. |
+| `/goal show` | Objective, status, token accounting, and elapsed time. |
+| `/goal pause` | Stops starting new turns; an in-progress turn may still finish. |
+| `/goal resume` | Re-arms the loop after a pause, or after the no-progress guard fires. |
+| `/goal budget <tokens>` | Sets a **total** token ceiling, not an additional one. At or over it, the goal becomes budget-limited and stops continuing. |
+| `/goal drop` | Ends the goal; asks for confirmation, and cancelling changes nothing. |
+| `/guided-goal <objective>` | Sets the objective and asks OMP to shape it with you first. |
+
+The chip shows the goal's status with its token use, and dims when the goal is
+paused or budget-limited. A goal that ends — met, dropped, or exhausted — leaves
+no chip behind.
+
+While a goal is active, omp-ui keeps it to itself: an unfinished goal blocks
+entering Plan mode until you drop it, and the advisor-reply and
+stall-auto-continue prompts stand down, so nothing automatic restarts a goal you
+paused or exhausted. The session's process also stays awake rather than
+hibernating, because hibernation would kill the loop doing the work. A paused or
+budget-limited goal applies neither veto.
+
+OMP pauses a goal on its own when a continuation turn makes no tool progress; the
+chip shows OMP's reason and `/goal resume` decides whether the work continues.
 
 ## Inspector rail
 

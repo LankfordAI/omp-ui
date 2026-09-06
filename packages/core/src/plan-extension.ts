@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { writeLineageArtifact } from "./lineage-artifact";
+import { GOAL_MODE_TRANSITION_KEY } from "./goal";
 import {
   PLAN_COMMAND,
   PLAN_EXECUTE,
@@ -30,6 +31,10 @@ import {
  *   the agent until the renderer answers.
  *
  * The wire constants live in ./plan, which the renderer imports directly.
+ *
+ * Plan entry also joins the mode-transition chain the goal bridge shares under
+ * `Symbol.for("omp-ui:mode-transition")`, and refuses an unfinished goal before
+ * it takes omp's single persisted mode slot (ADR-0007/0013 boundary).
  */
 
 /** The extension file lives beside the transcript so it dies with the lineage. */
@@ -71,6 +76,7 @@ const REVIEW_SENTINEL = ${JSON.stringify(PLAN_REVIEW_SENTINEL)};
 const COMMAND = ${JSON.stringify(PLAN_COMMAND)};
 const EXECUTE = ${JSON.stringify(PLAN_EXECUTE)};
 const REFINE = ${JSON.stringify(PLAN_REFINE)};
+const TRANSITION_KEY = ${JSON.stringify(GOAL_MODE_TRANSITION_KEY)};
 
 /** The single tool name plan mode borrows so the plan file can be written. */
 const WRITE_TOOL = "write";
@@ -206,6 +212,9 @@ const PLAN_MODE_EXIT_INSTRUCTION =
 const HTML_UNAVAILABLE =
   "HTML plans unavailable on this omp; falling back to markdown plans";
 
+/** What Plan entry answers with when a goal still owns the mode slot. */
+const PLAN_GOAL_BLOCK = "Drop the current goal before entering Plan mode.";
+
 /** What omp's plan-mode write guard reads, and what the wrapper below fakes. */
 interface PlanModeState {
   enabled?: boolean;
@@ -255,6 +264,8 @@ interface PlanSession {
    */
   runToolRegistryMutation?: (work: () => Promise<unknown>, signal?: unknown) => unknown;
   hasBuiltInTool?: (name: string) => boolean;
+  /** omp's goal state, read only to decide whether Plan may take the mode slot. */
+  getGoalModeState?: () => unknown;
   /**
    * Delivers a hidden instruction into the conversation. Unsupported surface
    * like the rest of this session access; absent on an older omp, in which
@@ -895,6 +906,63 @@ export default function (pi: PlanExtensionApi) {
     return next;
   }
 
+  // Plan entry and goal activation are one decision, not two: whichever bridge
+  // loaded first owns the queue under this realm-wide symbol, and both enter it
+  // before they touch a mode. Without it, a model-originated \`goal create\` and
+  // a Plan toggle can both pass their own check and leave the session in a mode
+  // whose persisted slot says something else.
+  function transitions(): { queue: Promise<void> } {
+    const key = Symbol.for(TRANSITION_KEY);
+    const global = globalThis as unknown as Record<symbol, unknown>;
+    const existing = global[key];
+    if (existing !== null && typeof existing === "object" && "queue" in existing) {
+      const box = existing as { queue: unknown };
+      if (box.queue instanceof Promise) return box as unknown as { queue: Promise<void> };
+      const fresh = { queue: Promise.resolve() };
+      box.queue = fresh.queue;
+      return fresh;
+    }
+    const created = { queue: Promise.resolve() };
+    try {
+      global[key] = created;
+    } catch {
+      /* a runtime that refuses new symbols keeps the local chain below */
+    }
+    return created;
+  }
+
+  function inTransition(work: () => Promise<void>): Promise<void> {
+    const box = transitions();
+    const next = box.queue.then(work, work);
+    box.queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  /**
+   * An unfinished goal — paused or budget-limited included — blocks Plan entry:
+   * omp persists one mode slot, and entering Plan would silently overwrite the
+   * slot a resumable goal lives in. A completed goal blocks nothing.
+   */
+  function goalBlocksPlan(active: PlanSession): string | null {
+    const read = active.getGoalModeState;
+    if (typeof read !== "function") return null;
+    let state: unknown;
+    try {
+      state = read.call(active);
+    } catch {
+      return null;
+    }
+    if (state === null || typeof state !== "object" || !("goal" in state)) return null;
+    const goal: unknown = state.goal;
+    if (goal === null || typeof goal !== "object" || !("status" in goal)) return null;
+    const status: unknown = goal.status;
+    if (status === undefined || status === "complete" || status === "dropped") return null;
+    return PLAN_GOAL_BLOCK;
+  }
+
   pi.registerCommand(COMMAND, {
     description: "omp-ui plan mode control",
     handler: (args: string, ctx: { ui: PlanUi }) =>
@@ -916,8 +984,24 @@ export default function (pi: PlanExtensionApi) {
           publish();
           return;
         }
-        if (next) await enterPlanMode(active);
-        else await exitPlanMode(active);
+        // Entry and exit join the shared chain *inside* this command's own
+        // serialization: arrival order among toggles stays ours, and the mode
+        // decision itself is the one every other bridge makes.
+        if (next) {
+          const blocked = await inTransition(async () => {
+            const reason = goalBlocksPlan(active);
+            if (reason !== null) return reason;
+            await enterPlanMode(active);
+            return null;
+          });
+          if (blocked !== null) {
+            publish();
+            ctx.ui.notify(blocked, "warning");
+            return;
+          }
+        } else {
+          await inTransition(() => exitPlanMode(active));
+        }
         publish();
       }),
   });

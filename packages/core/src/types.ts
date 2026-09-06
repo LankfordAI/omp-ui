@@ -1,6 +1,6 @@
 // Pure types, zero runtime imports — the renderer imports these type-only via
 // the @omp-ui/core/types subpath.
-
+import type { GoalSnapshot } from "./goal";
 export type SessionStatus =
   | "complete"
   | "interrupted"
@@ -249,6 +249,13 @@ export interface SessionSummary extends OwnedSessionRecord {
   planSettle: PlanSettle | null;
   /** Main-process watchdog aborted a silently wedged turn (issue #248); sidebar badge. */
   streamStalled: boolean;
+  /**
+   * The live session's goal snapshot as its own bridge published it (issue #381).
+   * Ephemeral runtime state like `pendingPlan`: never persisted, absent for a
+   * session with no live goal bridge, and never a second copy of goal state —
+   * omp's runtime inside the child stays the only owner.
+   */
+  goal?: GoalSnapshot;
 }
 
 export interface ProjectGroup {

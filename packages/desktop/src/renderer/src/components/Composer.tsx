@@ -9,9 +9,10 @@ import {
 } from "react";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
+import { GOAL_COMMAND } from "@omp-ui/core/goal";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
-import { currentLocaleId, useT } from "../lib/i18n";
+import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import {
   keywordColors,
@@ -73,11 +74,29 @@ export function Composer({
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
   // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
   // driver the intercept rewrites to, so both are filtered out.
-  const paletteCommands = useMemo(
-    () => [
+  // The goal family is UI-owned the same way (issue #381): it stays listed even
+  // when the bridge is unavailable — an undiscoverable command is the very
+  // failure this surface fixes — and a future omp that advertises `goal` itself
+  // can never produce a second row for the same action.
+  const paletteCommands = useMemo(() => {
+    const uiEntries: SlashCommandInfo[] = [
       // omp-ui's own entries get their palette copy from the catalog (issue #363).
       { ...UI_NEW_COMMAND, description: t("composer.slash.new") },
       { ...UI_PLAN_COMMAND, description: t("composer.slash.plan") },
+      {
+        ...UI_GOAL_COMMAND,
+        description: t("composer.slash.goal"),
+        subcommands: UI_GOAL_SUBCOMMANDS.map((sub) => ({
+          name: sub.name,
+          ...(sub.usage === undefined ? {} : { usage: sub.usage }),
+          description: t(sub.key),
+        })),
+      },
+      { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
+    ];
+    const owned = new Set(uiEntries.map((entry) => entry.name));
+    return [
+      ...uiEntries,
       ...commands.filter(
         // The capabilities bridge is UI-owned: omp advertises its hidden
         // arming command, the palette must not offer it (issue #374).
@@ -85,11 +104,12 @@ export function Composer({
           c.name !== "new" &&
           c.name !== "plan" &&
           c.name !== PLAN_COMMAND &&
-          c.name !== CAPABILITIES_COMMAND,
+          c.name !== CAPABILITIES_COMMAND &&
+          c.name !== GOAL_COMMAND &&
+          !owned.has(c.name),
       ),
-    ],
-    [commands, localeId, t],
-  );
+    ];
+  }, [commands, localeId, t]);
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
@@ -962,6 +982,37 @@ const UI_PLAN_COMMAND: SlashCommandInfo = {
   name: "plan",
   description: "plan mode — read-only; a plan is drafted and reviewed on request",
   source: "omp-ui",
+};
+
+/**
+ * omp's goal family, offered as omp-ui's own rows (issue #381). `goal` and
+ * `guided-goal` reach the model as literal prose over rpc unless the composer
+ * intercepts them, and the hidden `omp-ui-goal` bridge command is the driver the
+ * intercept dispatches — so neither may appear as a second row.
+ */
+const UI_GOAL_COMMAND: SlashCommandInfo = {
+  name: "goal",
+  description: "goal — one objective this session works toward on its own",
+  source: "omp-ui",
+  input: { hint: "[objective]" },
+  subcommands: [],
+};
+
+/** Palette copy for each subcommand, resolved against the locale at build time. */
+const UI_GOAL_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
+  { name: "set", usage: "<objective>", key: "composer.slash.goalSet" },
+  { name: "show", key: "composer.slash.goalShow" },
+  { name: "pause", key: "composer.slash.goalPause" },
+  { name: "resume", key: "composer.slash.goalResume" },
+  { name: "drop", key: "composer.slash.goalDrop" },
+  { name: "budget", usage: "<N|off>", key: "composer.slash.goalBudget" },
+];
+
+const UI_GUIDED_GOAL_COMMAND: SlashCommandInfo = {
+  name: "guided-goal",
+  description: "the agent interviews you, then sets the goal it agrees on",
+  source: "omp-ui",
+  input: { hint: "[rough objective]" },
 };
 
 /** Stable empties keep the per-field selectors from firing on every store tick. */

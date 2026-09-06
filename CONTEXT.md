@@ -542,3 +542,23 @@ root, so every font utility, code block, and xterm surface (terminal tabs,
 console drawer) follows one switch without a CSS rebuild. A fixed set of
 choices, never a free-form picker.
 _Avoid_: font switch, typeface theme, font skin
+
+**Goal**:
+An objective a *live session*'s OMP runtime keeps working toward across turns,
+with OMP's own token accounting and an optional budget. Its state, its
+continuation turns, and its pause reasons are OMP's; omp-ui reads them through a
+per-lineage generated extension and never keeps a parallel goal record, meters
+tokens, or asks a model to role-play one. Offered in native sessions only — a
+terminal tab forwards `/goal` to OMP's own TUI.
+_Avoid_: objective (for the feature; the objective is the goal's text), todo list,
+long-running prompt, autonomous mode
+
+**Goal snapshot**:
+The reduced, monotonic view of one session's goal that the generated extension
+publishes over the existing extension-status frame: availability plus its reason,
+OMP's goal with status and token use, the continuation state, the pause reason, and
+any correlated command result. Keyed in main by the process that answered, not the
+tab, so a replaced process's goal cannot be shown by its successor; a stale or
+malformed publish leaves the last good snapshot standing.
+_Avoid_: goal status (a field of the snapshot), goal cache, goal mirror
+

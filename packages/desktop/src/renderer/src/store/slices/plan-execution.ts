@@ -343,6 +343,20 @@ export function createPlanExecutionSlice(
   };
 
   /**
+   * True while the session's own goal bridge owns autonomous work (issue #381):
+   * an active or paused goal, a budget-limited goal, or a continuation the child
+   * has scheduled or is running. ADR-0019's watchers are bounded auto-prompts; an
+   * unbounded goal loop must never be restarted, contradicted, or raced by one,
+   * which is exactly what a paused or budget-limited goal forbids.
+   */
+  const goalOwnsSession = (tabId: string): boolean => {
+    const goal = get().rpc[tabId]?.goal ?? null;
+    if (goal === null) return false;
+    if (goal.continuation !== "idle") return true;
+    return goal.goal !== null && goal.goal.status !== "complete";
+  };
+
+  /**
    * Holds an approve verdict's dispatch for the drafting turn's advisor
    * review. This is the store's whole concern-wait surface: the watcher owns
    * the per-tab timers and the single-source settle/fold, and the store just
@@ -383,6 +397,9 @@ export function createPlanExecutionSlice(
       if (handedOffPlanSources.has(tabId)) return false;
       const tab = get().rpc[tabId];
       if (!tab) return false;
+      // #381: an auto-prompt must not bypass an explicit goal pause or budget;
+      // goal diagnostics still render — this gates dispatch, not display.
+      if (goalOwnsSession(tabId)) return false;
       if (!tab.advisorReply) return false;
       // "ready" only: starting/running/error are all no-prompt states, and a
       // running turn already receives the advisor's notes in its own context.
@@ -414,6 +431,9 @@ export function createPlanExecutionSlice(
       if (handedOffPlanSources.has(tabId)) return false;
       const tab = get().rpc[tabId];
       if (!tab) return false;
+      // #381: an auto-prompt must not bypass an explicit goal pause or budget;
+      // goal diagnostics still render — this gates dispatch, not display.
+      if (goalOwnsSession(tabId)) return false;
       if (get().state?.stallAutoContinue === false) return false;
       // "ready" only: a running turn already has the continue in flight or
       // the user is mid-prompt; a dead process must never receive one.

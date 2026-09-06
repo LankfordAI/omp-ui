@@ -4,6 +4,11 @@
 import type { ImageAttachment } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { planMessage } from "@omp-ui/core/plan";
+import {
+  GOAL_OBJECTIVE_CHAR_LIMIT,
+  goalMessage,
+  type GoalCommandRequest,
+} from "@omp-ui/core/goal";
 import { backend } from "../../backend";
 import { t } from "../../lib/i18n";
 import { arrField, boolField, field, strField } from "../../lib/fields";
@@ -23,6 +28,7 @@ import {
   noticeItem,
   type CommandItem,
 } from "../../lib/transcript";
+import { randomId } from "../../lib/random-id";
 import {
   RPC_COMMAND_TIMEOUT_MS,
   handedOffPlanSources,
@@ -60,6 +66,7 @@ export type SessionParamsSlice = Pick<
   | "renameSessionTo"
   | "setPlanMode"
   | "runSlashCommand"
+  | "runGoalCommand"
   | "setTodos"
   | "refreshState"
   | "refreshStats"
@@ -80,7 +87,8 @@ type LocalCommandResult = false | void | Promise<void>;
 
 interface LocalCommand {
   readonly match: RegExp;
-  run(tabId: string, get: GetState): LocalCommandResult;
+  /** `line` is the trimmed slash line, so a family can read its own arguments. */
+  run(tabId: string, get: GetState, line: string): LocalCommandResult;
 }
 
 /** Renderer-owned commands, in the order they take precedence over omp. */
@@ -117,6 +125,17 @@ const localCommands: readonly LocalCommand[] = [
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       return get().setPlanMode(tabId, false);
+    },
+  },
+  {
+    // omp's goal family is TUI-only: over rpc a `/goal` line would reach the
+    // model as literal prompt text (issue #381). A native tab drives the root
+    // goal bridge instead; a terminal tab's TUI keeps omp's own implementation.
+    match: /^\/(?:goal|guided-goal)(?:\s[\s\S]*)?$/,
+    run(tabId, get, line) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      return get().runGoalCommand(tabId, line);
     },
   },
   {
@@ -490,7 +509,7 @@ export function createSessionParamsSlice(
     if (trimmed === "/") return;
     const localCommand = localCommands.find(({ match }) => match.test(trimmed));
     if (localCommand !== undefined) {
-      const result = localCommand.run(tabId, get);
+      const result = localCommand.run(tabId, get, trimmed);
       if (result !== false) {
         if (result !== undefined) await result;
         return;
@@ -547,6 +566,72 @@ export function createSessionParamsSlice(
     if (command.name === "compact") await m.refreshUsage(tabId);
     // `agentInvoked` absent (older runtime): stay running — prompt_result's
     // id mapping or the next agent_start settles it.
+  };
+
+  /**
+   * One goal-family line, dispatched as a command rather than as prose (issue
+   * #381). The row keeps the line the user typed; the wire carries the hidden
+   * bridge command with this client's requestId, and the bridge's published
+   * snapshot — not the prompt acknowledgement — supplies the outcome. An
+   * unavailable bridge is answered here with an actionable reason and sends
+   * nothing at all to the model.
+   */
+  const runGoalCommand = async (tabId: string, line: string): Promise<void> => {
+    const message = line.startsWith("/") ? line : `/${line}`;
+    const body = message.slice(1).trim();
+    const spaceAt = body.search(/\s/);
+    const name = spaceAt === -1 ? body : body.slice(0, spaceAt);
+    const args = spaceAt === -1 ? "" : body.slice(spaceAt + 1);
+    const item = commandItem(name, args);
+    m.appendItem(tabId, item);
+    const settle = (patch: Partial<CommandItem>): void => {
+      m.patchItems(tabId, (i) =>
+        i.kind === "command" && i.id === item.id && i.status === "running"
+          ? { ...i, ...patch }
+          : i,
+      );
+    };
+    const snapshot = get().rpc[tabId]?.goal ?? null;
+    if (snapshot === null) {
+      // An older live process cannot gain an extension by refreshing the
+      // composer, and nothing is respawned on the user's behalf.
+      settle({ status: "failed", error: t("composer.goal.needsRestart") });
+      return;
+    }
+    if (!snapshot.available) {
+      settle({
+        status: "failed",
+        error: t("composer.goal.unavailable", {
+          reason: snapshot.unavailable ?? t("composer.goal.unavailableUnknown"),
+        }),
+      });
+      return;
+    }
+    if (args.length > GOAL_OBJECTIVE_CHAR_LIMIT) {
+      settle({ status: "failed", error: t("composer.goal.tooLong") });
+      return;
+    }
+    const request: GoalCommandRequest = {
+      requestId: randomId(),
+      sessionId: snapshot.sessionId,
+      processKey: snapshot.processKey,
+      command: name === "guided-goal" ? "guided-goal" : "goal",
+      args,
+    };
+    m.runtime(tabId).goalRequests.set(request.requestId, item.id);
+    const resp = await m.runCommand(tabId, {
+      type: "prompt",
+      message: goalMessage(request),
+    });
+    if (resp !== null) return;
+    // The prompt never reached the bridge: the snapshot can no longer answer
+    // for it, so the row settles failed and its correlation is dropped. A
+    // result that arrived first has already settled the row.
+    m.runtime(tabId).goalRequests.delete(request.requestId);
+    settle({
+      status: "failed",
+      error: get().rpc[tabId]?.failure?.message ?? "command failed",
+    });
   };
 
   const setTodos = async (tabId: string, phases: TodoPhase[]): Promise<void> => {
@@ -658,6 +743,7 @@ export function createSessionParamsSlice(
     renameSessionTo,
     setPlanMode,
     runSlashCommand,
+    runGoalCommand,
     setTodos,
     refreshState,
     refreshStats,

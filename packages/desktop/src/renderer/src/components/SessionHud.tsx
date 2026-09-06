@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
+import type { NativeGoal } from "@omp-ui/core/goal";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
@@ -178,6 +179,66 @@ function StreamStallChip({
         ? t("hud.stall.short", { duration: formatDuration(stallMs) })
         : t("hud.stall.long", { duration: formatDuration(stallMs) })}
     </Chip>
+  );
+}
+
+/**
+ * One session's goal, as the child's own bridge reports it (issue #381). The
+ * HUD's job is the glanceable half — is a goal running, is it waiting on me,
+ * how much budget is left — and nothing else: the objective belongs in the
+ * accessible name and in `/goal show` output, never wrapped in HUD chrome.
+ * Clicking dispatches bare `/goal`, which answers with the menu the current
+ * state warrants or opens the objective editor when there is no goal yet.
+ */
+function GoalChip({
+  goal,
+  tabId,
+  className,
+}: {
+  goal: NativeGoal;
+  tabId: string;
+  className?: string;
+}) {
+  const t = useT();
+  const runSlashCommand = useStore((s) => s.runSlashCommand);
+  const tone: Tone = goal.status === "active" ? "signal" : "copper";
+  const label =
+    goal.status === "active"
+      ? t("hud.goal.active")
+      : goal.status === "paused"
+        ? t("hud.goal.paused")
+        : goal.status === "budget-limited"
+          ? t("hud.goal.limited")
+          : t("hud.goal.complete");
+  const title =
+    goal.status === "active"
+      ? t("hud.goal.objective", { objective: goal.objective })
+      : goal.status === "paused"
+        ? t("hud.goal.pausedObjective", { objective: goal.objective })
+        : goal.status === "budget-limited"
+          ? t("hud.goal.limitedObjective", { objective: goal.objective })
+          : t("hud.goal.completeObjective", { objective: goal.objective });
+  const usage =
+    goal.tokenBudget === null
+      ? t("hud.goal.unbounded", { used: exactNum(goal.tokensUsed) })
+      : t("hud.goal.usage", {
+          used: exactNum(goal.tokensUsed),
+          budget: exactNum(goal.tokenBudget),
+        });
+  return (
+    <button
+      type="button"
+      onClick={() => void runSlashCommand(tabId, "/goal")}
+      title={`${title} — ${usage}. ${t("hud.goal.openTitle")}`}
+      aria-label={title}
+      className={cn("shrink-0 rounded border border-transparent", className)}
+    >
+      <Chip tone={tone} mono>
+        {goal.status === "active" && <Dot tone="signal" />}
+        {label}
+        <span className="opacity-70">{usage}</span>
+      </Chip>
+    </button>
   );
 }
 
@@ -574,6 +635,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
+  const goal = useStore((s) => s.rpc[tabId]?.goal);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
@@ -652,6 +714,15 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {exceptionalAgentMode}
     </Chip>
   );
+  // The goal chip renders in both faces beside the mode chip, inside a no-drag
+  // box in the wide HUD like every other control in that row.
+  const goalChip = goal?.goal != null && (
+    <GoalChip
+      goal={goal.goal}
+      tabId={tabId}
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+    />
+  );
 
 
   const refresh = () => {
@@ -667,6 +738,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           <LivenessBadge compacting={session?.isCompacting === true} stallMs={streamStallMs} face={face} label={label} short />
           {agentModeChip}
+          {goalChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -724,6 +796,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       />
 
       {agentModeChip}
+      {goalChip}
       {worktree && projectCwd !== undefined && (
         <WorktreeChip
           worktree={worktree}

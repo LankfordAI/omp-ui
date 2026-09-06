@@ -182,6 +182,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         syncFontFamily(state);
         syncLocale(state);
         reconcilePlanGates(state);
+        rpcCommandSlice.reconcileGoals(state);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) =>
@@ -234,6 +235,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       syncFontFamily(state);
       syncLocale(state);
       reconcilePlanGates(state);
+      rpcCommandSlice.reconcileGoals(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);

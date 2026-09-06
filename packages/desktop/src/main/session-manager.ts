@@ -11,6 +11,7 @@ import {
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
   forkSessionFile,
+  goalArmMessage,
   mintLineageDirName,
   mintWorktreePath,
   linkProjectOmpDir,
@@ -36,6 +37,7 @@ import {
   type OwnedSessionRecord,
   type RpcFrame,
   type ResumeSpawnRequest,
+  type GoalSnapshot,
   type CapabilityToolMutationRequest,
   type SessionCapabilitiesResult,
   type SetSessionToolEnabledResult,
@@ -56,6 +58,7 @@ import {
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
+import { GoalStatusTracker } from "./goal-status-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnTracker } from "./turns";
@@ -114,6 +117,7 @@ export class SessionManager {
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
   private readonly toolControl: CapabilityControlTracker;
+  private readonly goals: GoalStatusTracker;
   private readonly gate: SpawnGate;
 
   constructor(private readonly deps: SessionManagerDependencies) {
@@ -140,6 +144,8 @@ export class SessionManager {
       isViewed: (tabId) => this.viewTracker.isViewed(tabId),
       hibernate: (tabId, entry) => this.hibernate(tabId, entry),
       runSerialized: (tabId, work) => this.enqueueOp(tabId, "hibernate", work),
+      /** An active goal or a live continuation keeps the child's loop running (issue #381). */
+      preventsHibernation: (tabId) => this.goals.preventsHibernation(tabId),
     });
     this.planGates = new PlanGateTracker({
       registry: deps.registry,
@@ -160,7 +166,8 @@ export class SessionManager {
       registry: deps.registry,
       getLive: (tabId) => this.live.get(tabId),
     });
-    this.frameObservers = [this.hibernation, this.planGates, this.stallWatchdog, this.toolControl];
+    this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
+    this.frameObservers = [this.hibernation, this.planGates, this.stallWatchdog, this.toolControl, this.goals];
   }
 
   get liveCount(): number {
@@ -517,7 +524,7 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
-    const { paths: extensions, mcpStatusLoaded, capabilitiesLoaded } =
+    const { paths: extensions, mcpStatusLoaded, capabilitiesLoaded, goalLoaded } =
       writeRpcExtensions(absLineageDir);
     entry.capabilitiesBridgeLoaded = capabilitiesLoaded;
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
@@ -526,6 +533,16 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-mcp-${randomUUID()}`,
         message: mcpRuntimeStatusMessage(),
+      });
+    }
+    // The goal bridge arms before the plan command: its restoration is what
+    // tells Plan entry whether an unfinished goal owns the mode slot, and a plan
+    // that started before it would read an unrestored session and enter anyway.
+    if (goalLoaded) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-goal-${randomUUID()}`,
+        message: goalArmMessage(),
       });
     }
     initialCommands.push({
@@ -846,6 +863,11 @@ export class SessionManager {
       default:
         unreachableLiveEntry(entry);
     }
+  }
+
+  /** The live session's goal snapshot, as its own bridge published it (issue #381). */
+  goalSnapshot(tabId: string): GoalSnapshot | undefined {
+    return this.goals.snapshot(tabId);
   }
 
   planGate(tabId: string): PlanGate | undefined {
