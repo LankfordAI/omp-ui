@@ -1098,7 +1098,7 @@ export function CapabilitiesViewer({
         <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">{t("viewer.header.coverage")}</p>
       </header>
 
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-4 py-2">
         <div role="tablist" aria-label={t("viewer.header.title")} onKeyDown={onTabListKeyDown} className="flex gap-1">
           {TABS.map((tab) => {
             const selected = tab.id === active;
