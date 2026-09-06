@@ -15,6 +15,7 @@
     "./advisor-stats": "./src/advisor-stats.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./goal": "./src/goal.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
     "./stream-activity": "./src/stream-activity.ts",
     "./extension-dialog": "./src/extension-dialog.ts",
