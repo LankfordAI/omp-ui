@@ -87,10 +87,26 @@ caption {
 pre,
 code {
   white-space: pre-wrap !important;
-  /* Code plane (issue #319): the canvas stays light, but code sits on the
-     active theme's raised plane so the theme's token palette has a surface
-     from its own family — one step up from the transcript's sunken plane so
-     the block reads as a card on the gray canvas, not a black well. */
+}
+
+/* Inline chips (issue #380): a prose chip carries no syntax tokens, so it
+   never needed the theme's plane. The dark raised plane made every chip a
+   black pill on the light canvas — #375 lifted the block well one step and
+   the chips rode along. Chips now take a canvas-family tint and no colour
+   rule: they inherit the surrounding ink, so code inside a link stays
+   link-coloured. */
+code {
+  background-color: #d9dee4 !important;
+}
+
+/* Code plane (issues #319, #375): block code keeps the active theme's raised
+   plane so the token palette has a surface from its own family — one step up
+   from the transcript's sunken plane, a card on the gray canvas, not a black
+   well. A pre code selector outranks the chip rule by specificity
+   (0-0-2 vs 0-0-1); the chip rule outranks the universal transparent rule by sheet order, the
+   same tier-and-order mechanism the plane rule already relied on. */
+pre,
+pre code {
   background-color: ${theme.tokens["--color-raised"]} !important;
   color: ${theme.code.foreground} !important;
   color-scheme: ${theme.dark ? "dark" : "light"} !important;
