@@ -533,6 +533,472 @@ describe("session capabilities bridge (issue #374)", () => {
   });
 });
 
+describe("session tool control (issue #379)", () => {
+  /** Main's own wait for a correlated completion; the request carries it as `expiresAt`. */
+  const TOOL_TTL = 30_000;
+  const MUTATION_ARG = `/${Core.CAPABILITIES_COMMAND} ${Core.CAPABILITIES_TOOL_ARG_PREFIX}`;
+
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+  const toolRow = (name: string, enabled: boolean) => ({
+    name,
+    description: `${name} description`,
+    descriptionTruncated: false,
+    source: "builtin",
+    sourcePath: null,
+    enabled,
+    direct: true,
+    xdev: false,
+    evalBridge: true,
+    mcpServerName: null,
+    mcpToolName: null,
+  });
+  const roster = (overrides: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      version: 1,
+      processKey: "proc-1",
+      sessionId: null,
+      revision: 3,
+      updatedAt: 1_700_000_000_000,
+      ompVersion: "18.1.10",
+      skillCommandsEnabled: true,
+      skills: { status: "available", items: [] },
+      tools: { status: "available", items: [toolRow("read", true), toolRow("write", true)] },
+      toolControl: "available",
+      toolMutation: null,
+      ...overrides,
+    });
+  const mutationRecord = (
+    request: Core.CapabilityToolMutationRequest,
+    status: Core.ToolMutationStatus,
+  ) => ({ id: request.id, name: request.name, enabled: request.enabled, status });
+
+  let capSeq = 0;
+  /** Publishes a roster through one live instance, exactly as its bridge would. */
+  const publish = (rpc: (typeof rpcInstances)[number], statusText: string): void => {
+    capSeq += 1;
+    rpc.frame({
+      type: "extension_ui_request",
+      id: `cap-${capSeq}`,
+      method: "setStatus",
+      statusKey: Core.CAPABILITIES_STATUS_KEY,
+      statusText,
+    });
+  };
+  /** The hidden tool prompts an instance received: rpc id plus decoded request. */
+  const mutationPrompts = (
+    rpc: (typeof rpcInstances)[number],
+  ): Array<{ id: string; request: Core.CapabilityToolMutationRequest }> =>
+    rpc.send.mock.calls
+      .map((call) => call[0] as { type?: unknown; id?: unknown; message?: unknown })
+      .filter(
+        (cmd) =>
+          cmd.type === "prompt" &&
+          typeof cmd.message === "string" &&
+          cmd.message.startsWith(MUTATION_ARG),
+      )
+      .map((cmd) => {
+        const request = Core.parseCapabilityToolMutationRequest(
+          (cmd.message as string).slice(1 + Core.CAPABILITIES_COMMAND.length),
+        );
+        expect(request).not.toBeNull();
+        return { id: cmd.id as string, request: request as Core.CapabilityToolMutationRequest };
+      });
+
+  /** Microtask drain: settle → promise callbacks → queued op work. */
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  };
+  /** Tracks a toggle's outcome without awaiting it, so "not yet" is observable. */
+  const watch = (
+    pending: Promise<Core.SetSessionToolEnabledResult>,
+  ): { current: () => Core.SetSessionToolEnabledResult | undefined } => {
+    let value: Core.SetSessionToolEnabledResult | undefined;
+    void pending.then((result) => {
+      value = result;
+    });
+    return { current: () => value };
+  };
+
+  it("sends one hidden prompt built from the observed snapshot identity", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const startedAt = Date.now();
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "web search", false);
+    await flush();
+    const prompts = mutationPrompts(rpc);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.request).toMatchObject({
+      processKey: "proc-1",
+      sessionId: null,
+      name: "web search",
+      enabled: false,
+    });
+    expect(prompts[0]!.request.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(prompts[0]!.request.expiresAt).toBeGreaterThanOrEqual(startedAt + TOOL_TTL);
+    expect(prompts[0]!.request.expiresAt).toBeLessThanOrEqual(Date.now() + TOOL_TTL);
+    // No auto prompt, no streaming behavior, no config write: one hidden command.
+    const sent = rpc.send.mock.calls.map((call) => call[0] as Record<string, unknown>);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "prompt" });
+    expect(sent[0]).not.toHaveProperty("streamingBehavior");
+    rpc.exit(0);
+    await expect(pending).resolves.toEqual({ status: "stale" });
+  });
+
+  it("holds the wait to the deadline and lands unconfirmed when no completion correlates", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances.at(-1)!;
+      publish(rpc, roster());
+
+      const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+      await flush();
+      const [prompt] = mutationPrompts(rpc);
+      // A prompt the runtime accepted is an echo of its queue, not of the
+      // mutation: it must not settle the wait in either direction.
+      rpc.frame({ type: "response", id: prompt!.id, success: true });
+      await vi.advanceTimersByTimeAsync(TOOL_TTL - 1_000);
+      const seen = watch(pending);
+      expect(seen.current()).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(pending).resolves.toEqual({ status: "unconfirmed" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("settles a refused prompt early instead of waiting out the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances.at(-1)!;
+      publish(rpc, roster());
+
+      const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+      await flush();
+      const [prompt] = mutationPrompts(rpc);
+      rpc.frame({ type: "response", id: prompt!.id, success: false, error: "unknown command" });
+      await expect(pending).resolves.toEqual({ status: "apply-failed" });
+      // The early verdict also releases the tab's op instead of a 30 s hold.
+      await vi.advanceTimersByTimeAsync(TOOL_TTL + 1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports applied only from a Tools row that agrees with the request", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "write", false);
+    await flush();
+    const [prompt] = mutationPrompts(rpc);
+    const seen = watch(pending);
+    const applied = (
+      revision: number,
+      tools: unknown,
+    ) => publish(rpc, roster({ revision, tools, toolMutation: mutationRecord(prompt!.request, "applied") }));
+
+    // An `applied` ack the roster contradicts is not success.
+    applied(4, { status: "available", items: [toolRow("read", true), toolRow("write", true)] });
+    await flush();
+    expect(seen.current()).toBeUndefined();
+    // Nor is an `applied` ack whose roster could not be read at all.
+    applied(5, { status: "unavailable", reason: "read-failed" });
+    await flush();
+    expect(seen.current()).toBeUndefined();
+
+    applied(6, { status: "available", items: [toolRow("read", true), toolRow("write", false)] });
+    await expect(pending).resolves.toEqual({
+      status: "applied",
+      snapshot: expect.objectContaining({ revision: 6 }),
+    });
+  });
+
+  it("maps a runtime refusal onto the status it reported", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "write", false);
+    await flush();
+    const [prompt] = mutationPrompts(rpc);
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        toolControl: "unsupported",
+        toolMutation: mutationRecord(prompt!.request, "mode-required"),
+      }),
+    );
+    await expect(pending).resolves.toEqual({ status: "mode-required" });
+  });
+
+  it.each([
+    ["a running turn", (rpc: (typeof rpcInstances)[number]) => rpc.frame({ type: "agent_start" })],
+    [
+      "an unanswered dialog",
+      (rpc: (typeof rpcInstances)[number]) =>
+        rpc.frame({ type: "extension_ui_request", id: "q1", method: "select", title: "Pick" }),
+    ],
+  ] as const)("refuses busy while %s holds the session, and sends nothing", async (_case, block) => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+    block(rpc);
+
+    await expect(manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual(
+      { status: "busy" },
+    );
+    expect(mutationPrompts(rpc)).toHaveLength(0);
+  });
+
+  it("refuses busy while a lifecycle op holds the tab", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances.at(-1)!;
+      publish(rpc, roster());
+      // The child ignores SIGTERM: the relaunch op stays in flight.
+      const restart = manager.restart(TAB);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual(
+        { status: "busy" },
+      );
+      expect(mutationPrompts(rpc)).toHaveLength(0);
+
+      rpc.exit(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await restart;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a second concurrent toggle as busy", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const first = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    await expect(manager.setSessionToolEnabled(TAB, "proc-1", null, "write", false)).resolves.toEqual(
+      { status: "busy" },
+    );
+    expect(mutationPrompts(rpc)).toHaveLength(1);
+
+    const [prompt] = mutationPrompts(rpc);
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await expect(first).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("answers stale for a successor's identity under the same tab", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster({ sessionId: "sess-1" }));
+
+    await expect(
+      manager.setSessionToolEnabled(TAB, "proc-old", "sess-1", "read", false),
+    ).resolves.toEqual({ status: "stale" });
+    await expect(manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual({
+      status: "stale",
+    });
+    expect(mutationPrompts(rpc)).toHaveLength(0);
+
+    // Only the identity the viewer actually saw reaches the runtime.
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", "sess-1", "read", false);
+    await flush();
+    expect(mutationPrompts(rpc)).toHaveLength(1);
+    rpc.exit(0);
+    await expect(pending).resolves.toEqual({ status: "stale" });
+  });
+
+  it("mirrors the read path's lifecycle verdicts", async () => {
+    const terminal = setup();
+    await resume(terminal.manager);
+    await expect(terminal.manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual(
+      { status: "terminal" },
+    );
+    await expect(
+      terminal.manager.setSessionToolEnabled("tab-gone", "proc-1", null, "read", false),
+    ).resolves.toEqual({ status: "missing-session" });
+
+    const dormant = setup({ mode: "rpc-ui" });
+    await expect(dormant.manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual(
+      { status: "not-live" },
+    );
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    writeCapabilitiesExtensionMock.mockImplementationOnce(() => {
+      throw new Error("read-only lineage");
+    });
+    const bridged = setup({ mode: "rpc-ui" });
+    await resumeRpc(bridged.manager);
+    warn.mockRestore();
+    await expect(bridged.manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual(
+      { status: "bridge-unavailable" },
+    );
+
+    const silent = setup({ mode: "rpc-ui" });
+    await resumeRpc(silent.manager);
+    await expect(silent.manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false)).resolves.toEqual(
+      { status: "starting" },
+    );
+  });
+
+  it("settles a pending toggle as stale when the process exits", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    rpc.exit(0);
+
+    await expect(pending).resolves.toEqual({ status: "stale" });
+  });
+
+  it("lets a dead predecessor's completion settle nothing", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const predecessor = rpcInstances[0]!;
+    predecessor.kill.mockImplementation(() => predecessor.exit(0));
+    publish(predecessor, roster());
+    await manager.restart(TAB);
+    const successor = rpcInstances.at(-1)!;
+    publish(successor, roster({ revision: 4 }));
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    const [prompt] = mutationPrompts(successor);
+    const seen = watch(pending);
+    // The killed process publishes a completion that matches on every field.
+    publish(
+      predecessor,
+      roster({
+        revision: 99,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await flush();
+    expect(seen.current()).toBeUndefined();
+
+    publish(
+      successor,
+      roster({
+        revision: 5,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await expect(pending).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("never cross-settles two sequential toggles", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const first = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    const [firstPrompt] = mutationPrompts(rpc);
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(firstPrompt!.request, "applied"),
+      }),
+    );
+    await expect(first).resolves.toMatchObject({ status: "applied" });
+
+    const second = manager.setSessionToolEnabled(TAB, "proc-1", null, "write", false);
+    await flush();
+    const prompts = mutationPrompts(rpc);
+    expect(prompts[1]!.request.id).not.toBe(prompts[0]!.request.id);
+    const seen = watch(second);
+    // The retained record of the first toggle still rides the roster: it names a
+    // different request and must settle nothing.
+    publish(rpc, roster({ revision: 5 }));
+    publish(
+      rpc,
+      roster({
+        revision: 6,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(firstPrompt!.request, "busy"),
+      }),
+    );
+    await flush();
+    expect(seen.current()).toBeUndefined();
+
+    publish(
+      rpc,
+      roster({
+        revision: 7,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", false)] },
+        toolMutation: mutationRecord(prompts[1]!.request, "applied"),
+      }),
+    );
+    await expect(second).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("serializes a lifecycle op requested behind a pending toggle", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    const [prompt] = mutationPrompts(rpc);
+    const restarted = manager.restart(TAB);
+    await flush();
+    // The relaunch waits: the process the toggle targets is untouched.
+    expect(rpc.kill).not.toHaveBeenCalled();
+    expect(rpcInstances).toHaveLength(1);
+
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await expect(pending).resolves.toMatchObject({ status: "applied" });
+    await restarted;
+    expect(rpcInstances).toHaveLength(2);
+  });
+});
+
 describe("default compaction method (issue #268)", () => {
   it("captures a fresh native preference and promotes it in the lineage overlay", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
