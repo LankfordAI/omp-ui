@@ -67,7 +67,7 @@ The composer controls what the next native turn receives:
 - Use the branch chip to inspect or switch local branches, pull a branch that is only behind its upstream, create a branch, or prepare a worktree before the first prompt.
 - Add image **attachments** with the paperclip or by pasting an image. An image-only draft is valid. A text-only model shows a warning because OMP would drop the images.
 - Type `@` to search files in the session's effective working tree. Pick a path to include it in the prompt. This also works for a steer or queued follow-up; omp-ui resolves the selected file content before sending those busy-session routes.
-- Type `/` at the start of the draft to search OMP and omp-ui slash commands. A slash-command line runs as a command, not as a prompt, and does not send attachments. omp-ui supplies `/new` and `/plan` as native actions, and runs the `/goal` family through OMP's goal runtime rather than sending it as prompt text.
+- Type `/` at the start of the draft to search OMP and omp-ui slash commands. The slash palette completes in two stages: while you type the command word it searches the whole roster; once the word is followed by a space, a command with subcommands — `/goal`, `/mcp`, `/todo`, `/compact`, `/memory`, and the rest OMP advertises — lists only those, filtered by what you type next. `Tab` or `Enter` accepts the selected row: a row that needs an argument completes the line and leaves the caret after it; any other row runs at once. Type an argument no subcommand matches and the palette steps aside so `Enter` runs the line as written. A slash-command line runs as a command, not as a prompt, and does not send attachments. omp-ui supplies `/new` and `/plan` as native actions, and runs the `/goal` family through OMP's goal runtime rather than sending it as prompt text.
 
 A new native session gets an **auto-title** from its first substantive prompt. Bare greetings and acknowledgements do not consume the title opportunity. omp-ui asks OMP's configured small model first, then derives a short title from the prompt if that model is unavailable or declines.
 
@@ -230,6 +230,7 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Mod+Shift+Enter` | Abort the current turn and send the draft as a fresh prompt. |
 | `Escape` | Abort a running agent. When a slash or `@` picker is open, close that picker first. |
 | `Up` / `Down` | Recall sent composer text when the draft is empty, or navigate an open slash or `@` picker. |
+| `Tab` | Accept the selected row of an open slash or `@` picker. |
 
 In the plan review's revision box, `Enter` sends the refinement and `Shift+Enter` inserts a line break.
 
