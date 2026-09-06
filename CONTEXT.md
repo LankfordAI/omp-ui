@@ -432,8 +432,11 @@ The modal with three tabs — MCP servers, Skills, and Tools — opened from the
 Session HUD, the command palette, Settings → omp, or /mcp. Its MCP tab is the
 MCP manager, contract unchanged; Skills and Tools show, for one pinned live
 native session, the skills it loaded and every tool it registered, delivered
-by a generated `-e` extension (ADR-0008), never by a parse or a prompt. Scope
-and session are captured at open and never retargeted by focus, and the roster
+by a generated `-e` extension (ADR-0008), never by a parse or a prompt. The
+Tools tab can also change one registered tool's enabled membership in that
+live session at runtime — session-local, never a config write, never a
+restart, and confirmed only by the snapshot omp publishes. Scope and session
+are captured at open and never retargeted by focus, and the roster
 describes the main session even while a subagent view is shown. It is a
 viewer, not a package manager, and not an inspector rail pane. Coverage is
 runtime-only, not on-disk: skill files the session never loaded, and tools
@@ -441,7 +444,11 @@ registered only by other sessions, are not represented, while a loaded skill
 hidden from the model stays listed and marked. A registered tool is listed
 even when not enabled, with its access facts (model-direct, `xd://`, the eval
 bridge); enabled is omp's enablement state, not a permission grant — plan
-mode and approvals still gate use.
+mode and approvals still gate use, and changing membership can legitimately
+re-partition those facts, which the viewer then reports as omp confirmed them.
+The switch cannot disable `write` while plan mode is on: entering the mode
+borrows `write` only when it was off, and exiting returns exactly that
+borrowed addition, so every other choice made during plan mode survives.
 _Avoid_: capabilities panel, plugin manager, tool browser
 
 **Project settings**:
