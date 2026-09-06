@@ -37,7 +37,7 @@ the app's data dir (`worktreesDir`), creating it with
 the thread is deleted. omp-ui follows the same shape, with a recognizable
 temp-branch prefix of its own — `omp-ui/<8 hex>` here, `t3code/<8 hex>`
 there — so a minted branch reads as app scratch work, never as a branch
-the user made.
+the user made (superseded by the finish dialog addendum).
 
 ## Consequences
 
@@ -62,7 +62,8 @@ the user made.
   merge into the destination needs a worktree with it checked out; git
   refuses to check out a branch held by another worktree, and the worktree
   checkout belongs to the session — so the destination must be the project
-  checkout's current branch, otherwise the merge is unavailable.
+  checkout's current branch, otherwise the merge is unavailable (superseded
+  by the finish dialog addendum).
 - **The destination resolves from the recorded `base`**: a local branch
   named by it, else — when `base` resolves to a commit — the unique local
   branch pointing at it, else the project's current branch when it
@@ -74,7 +75,7 @@ the user made.
   detached (SHA bases resolve through the same rules).
 - **Conflicts are left in the project checkout for the user** — `git merge
   --continue` to finish, `git merge --abort` to undo. omp-ui never
-  resolves or aborts a merge.
+  resolves or aborts a merge (superseded by the finish dialog addendum).
 - **The delete confirmation offers the same merge first.** Merging is
   additive: "deletion is one-way on the checkout only" still stands — the
   branch and its commits survive deletion either way.
@@ -100,7 +101,8 @@ the user made.
   `-d`, never force: git's own guards (branch checked out elsewhere,
   not merged) keep the branch when they say so, and the merge-first path
   can never hit the refusal because the merge required the destination
-  checked out in the project. The release path (issue #334) shares this
+  checked out in the project (superseded by the finish dialog addendum).
+  The release path (issue #334) shares this
   reclaim with the delete rather than riding on it.
 - **The refusal is a warn, not a failure.** An unmerged branch, a base
   that no longer resolves, or a git refusal keeps the branch (commits
@@ -171,7 +173,8 @@ the user made.
 - **The session lands on the base branch for free.** A merge-back already
   requires the destination to be the project checkout's current branch, so
   after the merge the project checkout is sitting on the branch the worktree
-  was cut from. No `git checkout` is performed.
+  was cut from. No `git checkout` is performed (superseded by the finish
+  dialog addendum).
 - **The order is forced by git and by the resume guard**: reap the child (and
   its console shell) → null the record → `git worktree remove --force` →
   `git branch -d` → respawn at `projectCwd`. `git branch -d` refuses a branch
@@ -235,3 +238,96 @@ the user made.
   survivor, checkout-removal, and branch-removal policy for delete, release,
   and rollback. Desktop supplies the current survivor snapshot; it does not
   duplicate those guards.
+
+## Finish dialog addendum (issues #385–#390)
+
+- **One dialog settles a worktree session.** The merge-back rows are gone
+  from the HUD's worktree chip and the composer's branch chip: both open the
+  finish dialog, which runs create branch → rename → merge → release in that
+  order (issue #385). The delete confirmation pairs with the dialog from its
+  own side: it still merges first when asked — destination resolved from the
+  recorded base, or the listing's default branch when no base was recorded —
+  and deletes only when the merge does not stop on conflicts. A conflicted
+  merge leaves the dialog open on the conflict; a conflicted sync closes it
+  and moves the work into the checkout.
+- **The destination is chosen, not derived.** The dialog defaults to
+  `resolveMergeDestination(projectCwd, base)`, offers any local branch, and
+  offers a new branch cut from a chosen start point — `createBranch` first,
+  then a merge into it like into any other destination. While a new branch
+  is selected, its feasibility reads against the start point: merging into a
+  fresh branch at X is byte-identical to merging into X. This supersedes
+  "the destination must be the project checkout's current branch, otherwise
+  the merge is unavailable" (merge-back addendum, issue #272).
+- **The merge runs wherever the destination lives.** When the project
+  checkout holds the destination, the merge runs there as before. When the
+  destination is checked out nowhere, it runs in a scratch worktree under
+  `<worktreesRoot>/.merge`: `git worktree add`, merge, remove — the checkout
+  exists only for the duration of the call (issue #385). A conflicted merge
+  there is `git merge --abort`ed and leaves nothing behind
+  (`conflictsLeftIn: null`), so the session can sync and finish again. A
+  destination held by ANOTHER worktree refuses: git would refuse too, and
+  picking elsewhere is the user's call. The scratch directory lives under
+  the worktrees root, so a crash leaves at most a leftover that
+  `sweepOrphanWorktrees` deletes at next boot.
+- **Conflicts are previewed, then resolved in the sandbox.** Before any
+  merge runs, `git merge-tree --write-tree` answers whether it would conflict
+  and in which files; an older git or a failed probe reads "unknown" and the
+  dialog simply cannot predict (issue #387). On conflict the dialog offers
+  to sync the destination into the worktree — the destination merged into
+  the session's own clean checkout, conflicts left in place for the session
+  that owns the change to resolve in the sandbox. This supersedes "conflicts
+  are left in the project checkout for the user" (merge-back addendum) as
+  the default story; it stays true exactly when the project checkout holds
+  the destination.
+- **A dirty checkout cannot be returned.** `releaseWorktree` refuses while
+  the checkout has uncommitted or untracked changes — main reads
+  `git status --porcelain` (issue #388). The dialog's return checkbox
+  follows the status, not the other way round. Merge-only and keep-branch
+  still work on a dirty checkout — neither removes it — and the delete
+  confirmation remains the one surface that force-removes it, now naming
+  the loss only when there is one.
+- **Keep-branch and rename are first-class outcomes** (issue #386). The
+  keep outcome releases the session and the reclaim records
+  `kept-requested` without a git call — the branch survives because nothing
+  deletes it. The keep path can rename the branch first: `git branch -m`
+  inside the checkout, so git moves that worktree's HEAD symref along with
+  the ref. A merge path instead hands its destination to branch-deletion
+  verification as `mergedInto`.
+- **Branch deletion verifies, then forces.** `removeWorktreeBranch` runs
+  `git branch -D` only after proving `isAncestor(branch, candidate)`
+  against its candidate destinations — the branch just merged into, plus
+  the one resolved from the recorded base (issue #385). The safety property
+  plain `-d` borrowed from git ("never delete unmerged work") moves into
+  that check, because plain `-d` tests against HEAD only and would refuse a
+  branch merged into a destination that is not checked out; git still
+  refuses a branch another worktree holds (`kept-refused`), and the checkout
+  is always removed before the branch is attempted. This supersedes "Plain
+  `-d`, never force" (worktree close addendum) and the `git branch -d` step
+  in the release order (worktree release addendum).
+- **Canonicality keys on the slot directory, not the branch name.** A
+  checkout is canonical when the parent of its path equals
+  `worktreeProjectDir(worktreesRoot, projectCwd)` — a directory derived from
+  the project path alone (issue #386). The mint-time path shape above
+  stands; what changed is that the leaf is never re-derived from the current
+  branch name, so a renamed branch stays in the slot its path was minted
+  into, while a corrupt or foreign path still refuses reclaim and is left
+  for manual removal.
+- **Auto-naming retires the prior-art read for renamed branches.** When a
+  worktree session's first prompt fires and its branch still matches the
+  `omp-ui/<8 hex>` placeholder, a name is suggested from the prompt and
+  renamed in place — provided the record still shows that placeholder and
+  the same session id (issue #389). This supersedes "a minted branch reads
+  as app scratch work" for the branches it renames; the placeholder that
+  survives is what still reads that way, and a user-typed name is never
+  touched. The finish dialog offers the same suggestion as the rename
+  field's pre-fill, again only for placeholders.
+- **An existing-branch checkout records the repo's default branch as its
+  base** (issue #390): the session cut nothing, so the branch's own history
+  is not this session's work, and the default branch is the honest
+  destination default — falling back to the project checkout's branch, then
+  its HEAD commit. When the default branch is the branch checked out
+  itself, merge status reads already-merged, which is honest.
+- **Rejected: merging only into whatever the base resolution names.** The
+  recorded base answers where the work was cut from, not where the user
+  wants it to land; the resolution survives as the dialog's default, not its
+  only option (issue #385).

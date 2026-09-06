@@ -34,22 +34,29 @@ export function shortBase(base: string): string {
  * The transcript notice for a worktree release (issue #334). The session
  * survives, so this is the only durable record in the UI of where it moved and
  * what happened to its checkout and branch. `commits` is the merge's folded
- * count, or null when the branch was already merged.
+ * count, null when the branch was already merged or nothing was merged;
+ * `keepBranch` (issue #386) names the finish-dialog outcome where the branch
+ * deliberately survives.
  */
 export function releaseNoticeText(
   release: WorktreeReleaseResult,
   commits: number | null,
+  keepBranch = false,
 ): string {
-  const merged =
-    commits === null
-      ? `${release.branch} was already in`
-      : `merged ${release.branch} (${commits} commit${commits === 1 ? "" : "s"}) into`;
-  const head = `${merged} the project checkout — this session now runs in ${release.projectCwd}`;
+  const head =
+    commits === null && keepBranch
+      ? `this session now runs in ${release.projectCwd}`
+      : commits === null
+        ? `${release.branch} was already in the project checkout — this session now runs in ${release.projectCwd}`
+        : `merged ${release.branch} (${commits} commit${commits === 1 ? "" : "s"}) into the project checkout — this session now runs in ${release.projectCwd}`;
   if (release.checkoutKept === "shared") {
     return `${head}. The checkout ${release.worktreePath} and branch ${release.branch} are kept: another session still runs there.`;
   }
   if (release.checkoutKept !== null) {
     return `${head}. The checkout ${release.worktreePath} could not be removed (${release.checkoutKept}) and the branch was kept — remove it by hand, or omp-ui sweeps it at next launch.`;
+  }
+  if (keepBranch) {
+    return `${head}. The checkout is gone; branch ${release.branch} is kept.`;
   }
   if (release.branchOutcome !== "removed" && release.branchOutcome !== "already-gone") {
     return `${head}. The checkout is gone; branch ${release.branch} was kept (${release.branchOutcome}).`;
@@ -57,10 +64,15 @@ export function releaseNoticeText(
   return `${head}. The checkout and branch ${release.branch} are gone.`;
 }
 
-/** info when everything was reclaimed, warn when something was left behind. */
+/**
+ * info when everything landed as asked — reclaimed, already gone, or kept on
+ * purpose (issue #386) — warn when something was left behind by accident.
+ */
 export function releaseNoticeLevel(release: WorktreeReleaseResult): "info" | "warn" {
   return release.checkoutKept === null &&
-    (release.branchOutcome === "removed" || release.branchOutcome === "already-gone")
+    (release.branchOutcome === "removed" ||
+      release.branchOutcome === "already-gone" ||
+      release.branchOutcome === "kept-requested")
     ? "info"
     : "warn";
 }

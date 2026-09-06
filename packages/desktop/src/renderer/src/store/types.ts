@@ -10,6 +10,7 @@ import type {
   LiveState,
   MergeBackResult,
   MergeBackStatus,
+  MergeDestination,
   OmpSettingsSnapshot,
   OmpSettingValue,
   OmpUpdateState,
@@ -21,7 +22,9 @@ import type {
   RemoteBind,
   RemoteState,
   SessionMode,
+  WorktreeReleaseOptions,
   WorktreeReleaseResult,
+  WorktreeSyncResult,
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
@@ -224,6 +227,8 @@ export interface DeleteConfirmation {
   worktreeBranch: string | null;
   /** The worktree record's base; null for non-worktree sessions and pre-field records. */
   worktreeBase: string | null;
+  /** The checkout's path; lets the dialog read the worktree's dirtiness (issue #388). */
+  worktreePath: string | null;
   /** Plan-handoff descendants deleted with this session; empty = plain delete (issue #309). */
   cascade: PlanHandoffDescendant[];
 }
@@ -391,6 +396,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   dismissError(id: string): void;
   projectPickerOpen: boolean;
   worktreeDialogProject: string | null;
+  /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
+  finishWorktreeTab: string | null;
   /** The capabilities viewer's resolved working tree (a worktree session's
    *  checkout, else the project root); null = global scope. `tabId` is the
    *  pinned live session whose roster the skills/tools tabs show. */
@@ -434,10 +441,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   /**
    * Creates a worktree session; throws on failure (the dialog renders the
    * message inline) — unlike newSession, which reports to the error notices.
+   * The spec mints a new branch or checks out an existing local one
+   * (issue #390); it lands verbatim in the spawn request's worktree field.
    */
   newWorktreeSession(
     projectCwd: string,
-    opts: { branch: string; baseRef: string | null },
+    spec: { mint: { branch: string; baseRef: string | null } } | { checkout: { branch: string } },
   ): Promise<void>;
   /**
    * Converts an unprompted session to a worktree session (issue #225);
@@ -450,6 +459,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   ): Promise<void>;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;
+  openFinishWorktree(tabId: string): void;
+  closeFinishWorktree(): void;
   openSession(tabId: string): Promise<void>;
   focusTab(tabId: string): void;
   hideTab(tabId: string): void;
@@ -458,7 +469,20 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   resumeDead(tabId: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
-  releaseWorktreeSession(tabId: string): Promise<WorktreeReleaseResult | null>;
+  releaseWorktreeSession(
+    tabId: string,
+    opts: WorktreeReleaseOptions,
+  ): Promise<WorktreeReleaseResult | null>;
+  /**
+   * Merges `source` into a worktree session's checkout (issue #387); null
+   * when main rejected — already reported to the error notices.
+   */
+  syncWorktreeSession(tabId: string, source: string): Promise<WorktreeSyncResult | null>;
+  /**
+   * Renames a worktree session's branch in the checkout and on its record
+   * (issues #386, #389); false when main rejected — already reported.
+   */
+  renameWorktreeSessionBranch(tabId: string, newName: string): Promise<boolean>;
   cancelDeleteSession(): void;
   bootRpcTab(tabId: string): Promise<void>;
   /** Re-runs get_available_models on a live tab (issue #368: new subscription accounts). */
@@ -567,11 +591,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     opts?: { create?: boolean },
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string): Promise<string | null>;
+  resolveMergeDestination(projectCwd: string, base: string | null): Promise<MergeDestination>;
   readMergeBackStatus(
     projectCwd: string,
     branch: string,
-    base: string | null,
+    destination: string,
+    worktreePath: string | null,
   ): Promise<MergeBackStatus>;
+  createBranch(projectCwd: string, name: string, startPoint: string): Promise<void>;
   mergeWorktreeBranch(
     projectCwd: string,
     branch: string,

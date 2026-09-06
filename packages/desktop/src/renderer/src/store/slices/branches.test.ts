@@ -307,18 +307,21 @@ describe("merge-back (issue #272)", () => {
     destination: "main",
     commits: 3,
     files: [],
+    conflictsLeftIn: null,
   };
   const alreadyMerged: MergeBackResult = {
     kind: "already-merged",
     destination: "main",
     commits: 0,
     files: [],
+    conflictsLeftIn: null,
   };
   const conflicts: MergeBackResult = {
     kind: "conflicts",
     destination: "main",
     commits: 1,
     files: ["src/a.ts", "src/b.ts"],
+    conflictsLeftIn: "project",
   };
   const listing: BranchList = {
     repoRoot: "/p",
@@ -388,36 +391,80 @@ describe("merge-back (issue #272)", () => {
     expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
   });
 
-  it("readMergeBackStatus passes through to the backend with exact args", async () => {
+  it("readMergeBackStatus passes destination and worktree path through to the backend", async () => {
     const status: MergeBackStatus = {
       destination: "main",
-      reason: null,
-      destinationCheckedOut: true,
+      destinationExists: true,
+      destinationCheckout: "project",
       branchExists: true,
       mergeInProgress: false,
       alreadyMerged: false,
       ahead: 3,
+      behind: 1,
+      worktreeDirty: false,
+      preview: { kind: "clean" },
     };
     h.mockBackend.getMergeBackStatus.mockResolvedValueOnce(status);
 
     await expect(
-      h.useStore.getState().readMergeBackStatus("/p", BR, "main"),
+      h.useStore.getState().readMergeBackStatus("/p", BR, "main", "/wt"),
     ).resolves.toBe(status);
-    expect(h.mockBackend.getMergeBackStatus).toHaveBeenCalledWith("/p", BR, "main");
+    expect(h.mockBackend.getMergeBackStatus).toHaveBeenCalledWith("/p", BR, "main", "/wt");
 
-    const unresolvable: MergeBackStatus = {
+    // Without a checkout path main cannot probe the worktree's dirtiness and
+    // answers null; the destination still echoes back verbatim.
+    const untracked: MergeBackStatus = {
       ...status,
-      destination: null,
-      reason: "base-gone",
-      destinationCheckedOut: false,
+      destination: "feature/x",
+      destinationCheckout: "none",
+      worktreeDirty: null,
     };
-    h.mockBackend.getMergeBackStatus.mockResolvedValueOnce(unresolvable);
+    h.mockBackend.getMergeBackStatus.mockResolvedValueOnce(untracked);
 
-    // pre-field records pass a null base
     await expect(
-      h.useStore.getState().readMergeBackStatus("/p", BR, null),
-    ).resolves.toBe(unresolvable);
-    expect(h.mockBackend.getMergeBackStatus).toHaveBeenLastCalledWith("/p", BR, null);
+      h.useStore.getState().readMergeBackStatus("/p", BR, "feature/x", null),
+    ).resolves.toBe(untracked);
+    expect(h.mockBackend.getMergeBackStatus).toHaveBeenLastCalledWith(
+      "/p",
+      BR,
+      "feature/x",
+      null,
+    );
+  });
+
+  it("createBranch creates through the backend, then locally refreshes the listing", async () => {
+    h.mockBackend.createBranch.mockResolvedValueOnce(undefined);
+    h.mockBackend.listBranches.mockResolvedValueOnce(listing);
+    h.useStore.setState({ branches: {}, branchActivity: {} });
+
+    await h.useStore.getState().createBranch("/p", "feat/new", BR);
+
+    expect(h.mockBackend.createBranch).toHaveBeenCalledWith("/p", "feat/new", BR);
+    expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", {
+      fetchUpstream: false,
+    });
+    expect(h.useStore.getState().branches["/p"]).toEqual(listing);
+    // The refresh has to follow the create, or the listing it fetches is the
+    // one without the new branch.
+    expect(h.mockBackend.createBranch.mock.invocationCallOrder[0]).toBeLessThan(
+      h.mockBackend.listBranches.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("createBranch propagates git's rejection and refreshes nothing", async () => {
+    // The slice throws on purpose — the finish dialog renders git's message
+    // inline instead of reporting it as an error notice.
+    h.mockBackend.createBranch.mockRejectedValueOnce(
+      new Error("fatal: a branch named 'feat/new' already exists"),
+    );
+    h.useStore.setState({ branches: {}, branchActivity: {} });
+
+    await expect(
+      h.useStore.getState().createBranch("/p", "feat/new", BR),
+    ).rejects.toThrow("a branch named 'feat/new' already exists");
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(h.useStore.getState().branches).toEqual({});
   });
 
   it("appendNotice appends a notice item to a live rpc tab", () => {

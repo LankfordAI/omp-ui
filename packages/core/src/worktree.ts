@@ -2,9 +2,17 @@ import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
+import { readDefaultBranch } from "./branches";
 import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
-import type { MergeBackResult, MergeBackStatus, WorktreeBranchRemoval } from "./types";
+import type {
+  MergeBackResult,
+  MergeBackStatus,
+  MergeDestination,
+  MergePreview,
+  WorktreeBranchRemoval,
+  WorktreeSyncResult,
+} from "./types";
 
 const ADD_TIMEOUT_MS = 60_000;
 const REMOVE_TIMEOUT_MS = 30_000;
@@ -24,19 +32,35 @@ export function mintWorktreeBranch(): string {
 }
 
 /**
+ * A minted name no human chose (issue #389): only branches matching this
+ * are auto-renamed from the first prompt; a user-typed name is never touched.
+ */
+export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/[0-9a-f]{8}$/;
+
+/**
+ * The per-project slot directory holding a project's worktree checkouts:
+ * `<projectSlug>--<hash8>`. hash8 is the sha256 of the resolved project cwd,
+ * so same-named projects in different locations stay distinct. Canonicality
+ * of a checkout keys on this directory, not on the branch name — a renamed
+ * branch stays in the slot its path was minted into.
+ */
+export function worktreeProjectDir(worktreesRoot: string, projectCwd: string): string {
+  const hash8 = createHash("sha256").update(path.resolve(projectCwd)).digest("hex").slice(0, 8);
+  return path.join(worktreesRoot, `${projectSlug(projectCwd)}--${hash8}`);
+}
+
+/**
  * The checkout path for a worktree session under `worktreesRoot`:
- * `<projectSlug>--<hash8>/<branchSlug>`. hash8 is the sha256 of the resolved
- * project cwd, so same-named projects in different locations stay distinct.
+ * `<projectSlug>--<hash8>/<branchSlug>`.
  */
 export function mintWorktreePath(
   worktreesRoot: string,
   projectCwd: string,
   branch: string,
 ): string {
-  const hash8 = createHash("sha256").update(path.resolve(projectCwd)).digest("hex").slice(0, 8);
   const branchSlug =
     branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "branch";
-  return path.join(worktreesRoot, `${projectSlug(projectCwd)}--${hash8}`, branchSlug);
+  return path.join(worktreeProjectDir(worktreesRoot, projectCwd), branchSlug);
 }
 
 /**
@@ -74,6 +98,31 @@ export async function addWorktree(
     ["worktree", "add", "-b", branch, worktreePath, ...(baseRef ? [baseRef] : [])],
     { timeoutMs: ADD_TIMEOUT_MS },
   );
+  return base;
+}
+
+/**
+ * Creates a checkout at `worktreePath` on an EXISTING local branch (issue
+ * #390): `git worktree add <path> <branch>`, no `-b`. Rejects with git's
+ * stderr when the branch is missing or already held by another worktree.
+ * Resolves the recorded base: the repo's default branch, else the project
+ * checkout's branch, else its HEAD commit. When the default branch is
+ * `branch` itself the base is still that name — merge status then reads
+ * `alreadyMerged`, which is honest.
+ */
+export async function addWorktreeForBranch(
+  projectCwd: string,
+  worktreePath: string,
+  branch: string,
+): Promise<string> {
+  const current = await currentBranch(projectCwd);
+  const base =
+    (await readDefaultBranch(projectCwd)) ??
+    (current !== "" ? current : (await git(projectCwd, ["rev-parse", "HEAD"])).trim());
+  await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });
+  await git(projectCwd, ["worktree", "add", worktreePath, branch], {
+    timeoutMs: ADD_TIMEOUT_MS,
+  });
   return base;
 }
 
@@ -165,7 +214,11 @@ export async function removeWorktree(projectCwd: string, worktreePath: string): 
  * Removes checkout directories under `worktreesRoot` that no session record
  * references (issue #262). Layout is fixed two-level
  * (`<projectSlug--hash8>/<branchSlug>`), so anything else at those depths is
- * either an orphan checkout or stray debris — both deletable. `referenced`
+ * either an orphan checkout or stray debris — both deletable. The
+ * `.merge/<8 hex>` scratch checkouts of mergeWorktreeBranch (issue #385)
+ * obey the same rule: the two-level sweep reads `.merge` as a project dir
+ * and its children as unreferenced leaves, so a crash between add and
+ * remove is cleaned at the next boot. `referenced`
  * only *protects* paths; deletions remain gated by isWithin(worktreesRoot),
  * so a corrupt registry path can never steer removal outside the root.
  * Returns the removed paths. Never throws: a missing root resolves to [];
@@ -238,11 +291,11 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
 }
 
 /**
- * Destination resolution shared by readMergeBackStatus and removeWorktreeBranch
- * (issue #323): (1) a local branch named by `base`; (2) else, when `base`
- * resolves to a commit — a unique local branch pointing at it, else the
- * project's current branch when it contains that commit; (3) else null with
- * "base-gone" (deleted name / unknown SHA) or "no-branch-match".
+ * Destination resolution from a recorded base (issue #323), the body behind
+ * resolveMergeDestination: (1) a local branch named by `base`; (2) else, when
+ * `base` resolves to a commit — a unique local branch pointing at it, else
+ * the project's current branch when it contains that commit; (3) else null
+ * with "base-gone" (deleted name / unknown SHA) or "no-branch-match".
  */
 async function currentBranch(projectCwd: string): Promise<string> {
   try {
@@ -256,13 +309,13 @@ async function resolveMergeDestinationForCurrent(
   projectCwd: string,
   base: string | null,
   current: string,
-): Promise<{ destination: string | null; reason: MergeBackStatus["reason"] }> {
+): Promise<MergeDestination> {
   const baseIsBranch =
     base !== null &&
     !/^[0-9a-f]{40}$/.test(base) &&
     (await hasRef(projectCwd, `refs/heads/${base}`));
   let destination: string | null = null;
-  let reason: MergeBackStatus["reason"] = "base-gone";
+  let reason: MergeDestination["reason"] = "base-gone";
   if (baseIsBranch) {
     destination = base;
     reason = null;
@@ -299,70 +352,196 @@ async function resolveMergeDestinationForCurrent(
   return { destination, reason };
 }
 
+/**
+ * Resolves the default merge destination from a recorded base (issue #323).
+ * The rev-parse toplevel probe lives here: a non-repo resolves to
+ * `{ destination: null, reason: "no-repo" }` instead of throwing (issue #385
+ * — callers ask before the finish dialog shows any destination UI).
+ */
 export async function resolveMergeDestination(
   projectCwd: string,
   base: string | null,
-): Promise<{ destination: string | null; reason: MergeBackStatus["reason"] }> {
+): Promise<MergeDestination> {
+  try {
+    await git(projectCwd, ["rev-parse", "--show-toplevel"]);
+  } catch {
+    return { destination: null, reason: "no-repo" };
+  }
   return resolveMergeDestinationForCurrent(projectCwd, base, await currentBranch(projectCwd));
 }
 
 /**
- * Merge-back feasibility (issue #272). Never throws: an unreadable repo
- * resolves to destination null, reason "no-repo". Destination resolution:
- * (1) a local branch named by `base`; (2) else, when `base` resolves to a
- * commit — a unique local branch pointing at it, else the project's
- * current branch when it contains that commit; (3) else null with
- * "base-gone" (deleted name / unknown SHA) or "no-branch-match".
- * All ref reads are local; `rev-list --count` is the only potentially slow one.
+ * True when the checkout at `worktreePath` has uncommitted or untracked
+ * changes (issue #388). Any failure — not a repo, missing path — resolves to
+ * null, "unreadable", never an error. `.omp` is a symlink omp-ui creates; it
+ * is gitignored in most repos but not all, and is deliberately not
+ * special-cased: a repo that would show it as untracked shows it in
+ * `git status` too.
+ */
+export async function readWorktreeDirty(worktreePath: string): Promise<boolean | null> {
+  try {
+    const out = await git(worktreePath, ["status", "--porcelain", "--untracked-files=normal"]);
+    return out.trim() !== "";
+  } catch {
+    return null;
+  }
+}
+
+/** Compares two filesystem paths for sameness across platform separators. */
+function sameCheckoutPath(a: string, b: string): boolean {
+  const real = (p: string): string => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  // git emits porcelain paths in forward-slash form on every platform, but
+  // realpathSync.native carries the platform separator — normalize both sides
+  // so the comparison holds on Windows too (issues #230, #317).
+  const norm = (p: string): string => real(p).replace(/[\\/]+/g, "/");
+  const [left, right] =
+    process.platform === "win32" ? [norm(a).toLowerCase(), norm(b).toLowerCase()] : [norm(a), norm(b)];
+  return left === right;
+}
+
+/**
+ * Where the local branch `destination` is checked out (issue #385): the
+ * project checkout, nowhere, or another worktree. Parsed from
+ * `git worktree list --porcelain` — blocks separated by blank lines,
+ * `worktree <path>` and `branch refs/heads/<name>` within a block. Any
+ * failure answers "none": an unreadable repo holds nothing.
+ */
+export async function readDestinationCheckout(
+  projectCwd: string,
+  destination: string,
+): Promise<MergeBackStatus["destinationCheckout"]> {
+  let listing: string;
+  let toplevel: string;
+  try {
+    [listing, toplevel] = await Promise.all([
+      git(projectCwd, ["worktree", "list", "--porcelain"]),
+      git(projectCwd, ["rev-parse", "--show-toplevel"]),
+    ]);
+  } catch {
+    return "none";
+  }
+  for (const block of listing.split(/\r?\n\r?\n/)) {
+    let worktree: string | null = null;
+    let branch: string | null = null;
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("worktree ")) worktree = line.slice("worktree ".length).trim();
+      else if (line.startsWith("branch refs/heads/"))
+        branch = line.slice("branch refs/heads/".length).trim();
+    }
+    if (branch !== destination || worktree === null) continue;
+    return sameCheckoutPath(worktree, toplevel.trim()) ? "project" : "other";
+  }
+  return "none";
+}
+
+/**
+ * Predicts the merge destination ← branch without touching any working tree
+ * (issue #387): `git merge-tree --write-tree --name-only`. Exit 0 is clean;
+ * exit 1's output is the tree OID, then conflicted paths up to the first
+ * blank line. Anything else — exit ≥ 2, git without `--write-tree` (< 2.38),
+ * a non-repo — answers "unknown": the dialog works, it just cannot predict.
+ */
+export async function previewMerge(
+  projectCwd: string,
+  destination: string,
+  branch: string,
+): Promise<MergePreview> {
+  let out: string;
+  try {
+    out = await git(
+      projectCwd,
+      ["merge-tree", "--write-tree", "--name-only", destination, branch],
+      { allowExit: [0, 1] },
+    );
+  } catch {
+    return { kind: "unknown" };
+  }
+  const lines = out.split(/\r?\n/);
+  if (lines.length === 0) return { kind: "unknown" };
+  // The probe answered (exit 0 or 1): everything from line 2 up to the
+  // first blank line is a conflicted path.
+  const files: string[] = [];
+  for (const line of lines.slice(1)) {
+    if (line.trim() === "") break;
+    files.push(line.trim());
+  }
+  return files.length > 0 ? { kind: "conflicts", files } : { kind: "clean" };
+}
+
+/**
+ * Merge-back feasibility for one CHOSEN destination (issues #272, #385,
+ * #387, #388). Never throws: an unreadable repo resolves to
+ * all-false/zero with `destinationExists: false`. The caller selects the
+ * destination — the finish dialog passes the user's pick; the default
+ * suggestion comes from resolveMergeDestination(base).
  */
 export async function readMergeBackStatus(
   projectCwd: string,
   branch: string,
-  base: string | null,
+  destination: string,
+  worktreePath: string | null,
 ): Promise<MergeBackStatus> {
-  try {
-    await git(projectCwd, ["rev-parse", "--show-toplevel"]);
-  } catch {
+  const [branchExists, destinationExists, mergeInProgress, destinationCheckout, worktreeDirty] =
+    await Promise.all([
+      hasRef(projectCwd, `refs/heads/${branch}`),
+      hasRef(projectCwd, `refs/heads/${destination}`),
+      hasRef(projectCwd, "MERGE_HEAD"),
+      readDestinationCheckout(projectCwd, destination),
+      worktreePath === null ? Promise.resolve(null) : readWorktreeDirty(worktreePath),
+    ]);
+  if (!branchExists || !destinationExists) {
     return {
-      destination: null,
-      reason: "no-repo",
-      destinationCheckedOut: false,
-      branchExists: false,
-      mergeInProgress: false,
+      destination,
+      destinationExists,
+      destinationCheckout,
+      branchExists,
+      mergeInProgress,
       alreadyMerged: false,
       ahead: 0,
+      behind: 0,
+      worktreeDirty,
+      preview: { kind: "unknown" },
     };
   }
-
-  const current = await currentBranch(projectCwd);
-  const [branchExists, mergeInProgress, { destination, reason }] = await Promise.all([
-    hasRef(projectCwd, `refs/heads/${branch}`),
-    hasRef(projectCwd, "MERGE_HEAD"),
-    resolveMergeDestinationForCurrent(projectCwd, base, current),
-  ]);
-  let alreadyMerged = false;
+  const alreadyMerged = await isAncestor(projectCwd, branch, destination);
   let ahead = 0;
-  if (destination !== null && branchExists) {
-    alreadyMerged = await isAncestor(projectCwd, branch, destination);
-    if (!alreadyMerged) {
-      try {
-        ahead = Number(
-          (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
-        );
-      } catch {
-        ahead = 0;
-      }
+  let behind = 0;
+  if (!alreadyMerged) {
+    try {
+      ahead = Number(
+        (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
+      );
+    } catch {
+      ahead = 0;
+    }
+    try {
+      behind = Number(
+        (await git(projectCwd, ["rev-list", "--count", `${branch}..${destination}`])).trim(),
+      );
+    } catch {
+      behind = 0;
     }
   }
-
+  const preview: MergePreview = alreadyMerged
+    ? { kind: "clean" }
+    : await previewMerge(projectCwd, destination, branch);
   return {
     destination,
-    reason,
-    destinationCheckedOut: destination !== null && current === destination,
+    destinationExists,
+    destinationCheckout,
     branchExists,
     mergeInProgress,
     alreadyMerged,
     ahead,
+    behind,
+    worktreeDirty,
+    preview,
   };
 }
 
@@ -396,45 +575,26 @@ async function foldedCommitMessages(
 }
 
 /**
- * Merges `branch` into `destination` in the project checkout (issue #272),
- * always as a `--no-ff` merge commit whose message records the session's work
- * (issue #333): the folded commits' subjects and every closing reference they
- * carry. A fast-forward would leave no trace that a worktree session landed —
- * and finishing a worktree deletes the branch — so the merge commit is the
- * only durable record.
- *
- * A conflicted merge stops with the conflicts left in the project checkout
- * (kind "conflicts" + files) — never resolved, never aborted by omp-ui; the
- * generated message waits in MERGE_MSG for `git merge --continue`. Throws with
- * git's own message when the branch or destination no longer exists, when
- * destination is not the checkout's current branch, or when git refuses the
- * merge (dirty overlap, unresolvable committer identity, ...).
+ * Runs the merge of `branch` into the current branch of `cwd`: one `--no-ff`
+ * merge commit whose message records the session's work (issue #333) — the
+ * folded commits' subjects and every closing reference they carry. A
+ * fast-forward would leave no trace that a worktree session landed — and
+ * finishing a worktree deletes the branch — so the merge commit is the only
+ * durable record. Conflicts are detected by the `--diff-filter=U` probe and
+ * left exactly as git abandoned them; any other failure rethrows.
  */
-export async function mergeWorktreeBranch(
-  projectCwd: string,
+async function mergeInto(
+  cwd: string,
   branch: string,
   destination: string,
-): Promise<MergeBackResult> {
-  if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
-    throw new Error(`branch ${branch} no longer exists`);
-  }
-  if (!(await hasRef(projectCwd, `refs/heads/${destination}`))) {
-    throw new Error(`destination ${destination} no longer exists`);
-  }
-  const current = (await git(projectCwd, ["branch", "--show-current"])).trim();
-  if (current !== destination) {
-    throw new Error(`check out ${destination} in the project before merging`);
-  }
-  if (await isAncestor(projectCwd, branch, destination)) {
-    return { kind: "already-merged", destination, commits: 0, files: [] };
-  }
+): Promise<Omit<MergeBackResult, "conflictsLeftIn">> {
   const commits = Number(
-    (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
+    (await git(cwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
   );
   const message = buildMergeMessage({
     branch,
     destination,
-    messages: await foldedCommitMessages(projectCwd, destination, branch),
+    messages: await foldedCommitMessages(cwd, destination, branch),
   });
   // `--no-edit` alongside `-m` so a repo with merge.edit set cannot park the
   // merge in an editor no one can see.
@@ -442,11 +602,11 @@ export async function mergeWorktreeBranch(
   if (message.body !== "") args.push("-m", message.body);
   args.push(branch);
   try {
-    await git(projectCwd, args, { timeoutMs: MERGE_TIMEOUT_MS });
+    await git(cwd, args, { timeoutMs: MERGE_TIMEOUT_MS });
   } catch (error) {
     let conflicted: string[] = [];
     try {
-      conflicted = (await git(projectCwd, ["diff", "--name-only", "--diff-filter=U"]))
+      conflicted = (await git(cwd, ["diff", "--name-only", "--diff-filter=U"]))
         .split("\n")
         .map((line) => line.trim())
         .filter((line) => line !== "");
@@ -462,28 +622,167 @@ export async function mergeWorktreeBranch(
 }
 
 /**
- * Deletes the worktree branch once it is verified fully merged into the
- * destination resolved from its recorded base (issue #323). Runs in the
- * project checkout, after the checkout's worktree has been removed, so git's
- * own `git branch -d` guards (merged-into-HEAD, not checked out elsewhere)
- * apply. A refusal keeps the branch and reports it — never throws, never
- * uses -D: an unverified unmerged branch must survive.
+ * Merges `branch` into `destination` (issue #272), wherever the destination
+ * lives (issue #385): in the project checkout when that holds it — conflicts
+ * then stop there, unresolved, `conflictsLeftIn: "project"`, the generated
+ * message waiting in MERGE_MSG for `git merge --continue` — or in a scratch
+ * worktree under `opts.scratchRoot` when the destination is checked out
+ * nowhere. The scratch checkout exists only for the duration of this call; a
+ * conflicted merge there is aborted and leaves nothing behind
+ * (`conflictsLeftIn: null`), so the worktree session can sync, resolve, and
+ * finish again. A destination held by ANOTHER worktree refuses: git would
+ * refuse too, and picking elsewhere is the user's call. The scratch directory
+ * is under the worktrees root, so a crash leaves a leftover that
+ * sweepOrphanWorktrees deletes at next boot.
+ */
+export async function mergeWorktreeBranch(
+  projectCwd: string,
+  branch: string,
+  destination: string,
+  opts: { scratchRoot: string },
+): Promise<MergeBackResult> {
+  if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
+    throw new Error(`branch ${branch} no longer exists`);
+  }
+  if (!(await hasRef(projectCwd, `refs/heads/${destination}`))) {
+    throw new Error(`destination ${destination} no longer exists`);
+  }
+  if (await isAncestor(projectCwd, branch, destination)) {
+    return { kind: "already-merged", destination, commits: 0, files: [], conflictsLeftIn: null };
+  }
+  const checkout = await readDestinationCheckout(projectCwd, destination);
+  if (checkout === "other") {
+    throw new Error(`${destination} is checked out in another worktree — pick another destination`);
+  }
+  if (checkout === "project") {
+    const result = await mergeInto(projectCwd, branch, destination);
+    return {
+      ...result,
+      conflictsLeftIn: result.kind === "conflicts" ? "project" : null,
+    };
+  }
+  const scratch = path.join(opts.scratchRoot, randomBytes(4).toString("hex"));
+  await fs.promises.mkdir(path.dirname(scratch), { recursive: true });
+  try {
+    await git(projectCwd, ["worktree", "add", scratch, destination], {
+      timeoutMs: ADD_TIMEOUT_MS,
+    });
+  } catch (err) {
+    // The add may have half-created the directory; the rm+prune fallback of
+    // removeWorktree cleans whatever is there before the error propagates.
+    await removeWorktree(projectCwd, scratch).catch(() => {});
+    throw err;
+  }
+  let result: Omit<MergeBackResult, "conflictsLeftIn"> | undefined;
+  let failure: unknown;
+  try {
+    result = await mergeInto(scratch, branch, destination);
+    if (result.kind === "conflicts") {
+      // Nothing is left behind (issue #385): undo the conflicted merge.
+      await git(scratch, ["merge", "--abort"]).catch(() => {});
+    }
+  } catch (err) {
+    failure = err;
+  }
+  await removeWorktree(projectCwd, scratch).catch((err) =>
+    console.warn(`[worktree] scratch cleanup failed for ${scratch}:`, err),
+  );
+  if (failure !== undefined) throw failure;
+  return { ...result!, conflictsLeftIn: null };
+}
+
+/**
+ * Merges `source` INTO the worktree checkout at `worktreePath` (issue #387):
+ * the branch catching up with its destination, so conflicts are resolved in
+ * the sandbox by the session that owns the change. Precondition: the checkout
+ * is clean — a dirty tree would mix the sync's conflicts with the user's
+ * uncommitted work. Unlike merge-back this may fast-forward; the durable
+ * merge commit belongs to the landing, not the catch-up. Conflicts are LEFT
+ * IN PLACE (MERGE_HEAD and the files) and reported — that is the point.
+ */
+export async function syncWorktree(
+  worktreePath: string,
+  source: string,
+): Promise<WorktreeSyncResult> {
+  if ((await readWorktreeDirty(worktreePath)) !== false) {
+    throw new Error("commit or discard the worktree's changes before syncing");
+  }
+  // Worktrees share refs; the read answers in any checkout of the repo.
+  if (!(await hasRef(worktreePath, `refs/heads/${source}`))) {
+    throw new Error(`branch ${source} no longer exists`);
+  }
+  if (await isAncestor(worktreePath, source, "HEAD")) {
+    return { kind: "up-to-date", source, files: [] };
+  }
+  try {
+    await git(worktreePath, ["merge", "--no-edit", source], { timeoutMs: MERGE_TIMEOUT_MS });
+  } catch (error) {
+    let conflicted: string[] = [];
+    try {
+      conflicted = (await git(worktreePath, ["diff", "--name-only", "--diff-filter=U"]))
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+    } catch {
+      // The probe itself failed — git's own message below is the better answer.
+    }
+    if (conflicted.length > 0) {
+      return { kind: "conflicts", source, files: conflicted };
+    }
+    throw error;
+  }
+  return { kind: "merged", source, files: [] };
+}
+
+/**
+ * Renames the branch the checkout at `worktreePath` has checked out (issue
+ * #389): `git branch -m <from> <to>` inside the checkout, so git updates that
+ * worktree's HEAD symref along with the ref. Git is the authority on names —
+ * an existing or invalid `to` rejects with git's stderr, no pre-validation
+ * (same stance as checkoutBranch).
+ */
+export async function renameWorktreeBranch(
+  worktreePath: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await git(worktreePath, ["branch", "-m", from, to]);
+}
+
+/**
+ * Deletes the worktree branch once it is verified fully merged into one of
+ * the candidate destinations (issue #323, widened by #386: the caller's
+ * mergedInto plus the destination resolved from the recorded base). Runs in
+ * the project checkout, after the checkout's worktree has been removed. The
+ * explicit `isAncestor(branch, candidate)` check is what licenses `branch
+ * -D` — plain `-d` tests against HEAD only and would refuse a branch merged
+ * into a destination that is not checked out (issue #385); the safety
+ * property, never deleting unmerged work, moves into that check. git still
+ * refuses a branch another worktree holds — reported as kept-refused.
  */
 export async function removeWorktreeBranch(
   projectCwd: string,
   branch: string,
-  base: string | null,
+  destinations: readonly string[],
 ): Promise<WorktreeBranchRemoval> {
   if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
     return { kind: "already-gone" };
   }
-  const { destination } = await resolveMergeDestination(projectCwd, base);
-  if (destination === null) return { kind: "kept-no-destination" };
-  if (!(await isAncestor(projectCwd, branch, destination))) {
-    return { kind: "kept-unmerged" };
+  const existing: string[] = [];
+  for (const candidate of destinations) {
+    if (await hasRef(projectCwd, `refs/heads/${candidate}`)) existing.push(candidate);
   }
+  if (existing.length === 0) return { kind: "kept-no-destination" };
+  let merged = false;
+  for (const candidate of existing) {
+    if (await isAncestor(projectCwd, branch, candidate)) {
+      merged = true;
+      break;
+    }
+  }
+  if (!merged) return { kind: "kept-unmerged" };
   try {
-    await git(projectCwd, ["branch", "-d", branch]);
+    await git(projectCwd, ["branch", "-D", branch]);
   } catch (err) {
     return {
       kind: "kept-refused",

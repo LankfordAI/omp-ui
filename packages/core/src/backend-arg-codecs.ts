@@ -14,6 +14,7 @@ import type {
   SessionMode,
   SpawnRequest,
   ScopedCapabilityMutation,
+  WorktreeReleaseOptions,
 } from "./types";
 
 export interface ArgCodec<T> {
@@ -185,6 +186,12 @@ export const checkoutOptionsCodec: ArgCodec<{ create?: boolean }> = objectOf<{
 }>({
   create: optional(bool()),
 });
+
+export const worktreeReleaseOptionsCodec: ArgCodec<WorktreeReleaseOptions> =
+  objectOf<WorktreeReleaseOptions>({
+    keepBranch: bool(),
+    mergedInto: nullable(str()),
+  });
 
 export const rpcFrameCodec: ArgCodec<RpcFrame> = record();
 

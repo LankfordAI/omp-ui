@@ -9,7 +9,9 @@ import type {
   SessionWorktree,
   SpawnRequest,
   SpawnWorktree,
+  WorktreeReleaseOptions,
   WorktreeReleaseResult,
+  WorktreeSyncResult,
 } from "@omp-ui/core/types";
 import { backend } from "../../backend";
 import {
@@ -69,6 +71,8 @@ export type LifecycleSlice = Pick<
   | "deleteSession"
   | "confirmDeleteSession"
   | "releaseWorktreeSession"
+  | "syncWorktreeSession"
+  | "renameWorktreeSessionBranch"
   | "cancelDeleteSession"
   | "clearShellExited"
   | "toggleConsole"
@@ -550,7 +554,7 @@ export function createLifecycleSlice(
 
   const newWorktreeSession = async (
     projectCwd: string,
-    opts: { branch: string; baseRef: string | null },
+    spec: { mint: { branch: string; baseRef: string | null } } | { checkout: { branch: string } },
   ): Promise<void> => {
     const { mode, advisor, advisorModel } =
       await resolveSpawnParams(projectCwd);
@@ -564,7 +568,7 @@ export function createLifecycleSlice(
             advisorModel,
             cols: 80,
             rows: 24,
-            worktree: { mint: opts },
+            worktree: spec,
           }
         : {
             origin: "new",
@@ -574,7 +578,7 @@ export function createLifecycleSlice(
             advisorModel,
             cols: 80,
             rows: 24,
-            worktree: { mint: opts },
+            worktree: spec,
           };
     const { tabId } = await backend.spawnSession(request);
     set((s) => ({
@@ -849,6 +853,7 @@ export function createLifecycleSlice(
         hasFiles: rec.live !== "missing",
         worktreeBranch: rec.worktree?.branch ?? null,
         worktreeBase: rec.worktree?.base ?? null,
+        worktreePath: rec.worktree?.path ?? null,
         cascade,
       },
     });
@@ -878,14 +883,49 @@ export function createLifecycleSlice(
    */
   const releaseWorktreeSession = async (
     tabId: string,
+    opts: WorktreeReleaseOptions,
   ): Promise<WorktreeReleaseResult | null> => {
     const rec = findRecord(get().state, tabId);
     try {
       if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
-      return await backend.releaseWorktree(tabId);
+      return await backend.releaseWorktree(tabId, opts);
     } catch (err) {
       get().reportError(err);
       return null;
+    }
+  };
+
+  /**
+   * Merges `source` into the session's worktree checkout (issue #387). The
+   * relaunch-prep is the same guard as release: main serialises the merge
+   * against the tab's other lifecycle ops without respawning anything.
+   */
+  const syncWorktreeSession = async (
+    tabId: string,
+    source: string,
+  ): Promise<WorktreeSyncResult | null> => {
+    try {
+      return await backend.syncWorktree(tabId, source);
+    } catch (err) {
+      get().reportError(err);
+      return null;
+    }
+  };
+
+  /**
+   * Renames the branch a worktree session runs on (issues #386, #389): main
+   * moves the ref and the record; the broadcast refreshes every reader.
+   */
+  const renameWorktreeSessionBranch = async (
+    tabId: string,
+    newName: string,
+  ): Promise<boolean> => {
+    try {
+      await backend.renameWorktreeBranch(tabId, newName);
+      return true;
+    } catch (err) {
+      get().reportError(err);
+      return false;
     }
   };
 
@@ -981,6 +1021,8 @@ export function createLifecycleSlice(
     deleteSession,
     confirmDeleteSession,
     releaseWorktreeSession,
+    syncWorktreeSession,
+    renameWorktreeSessionBranch,
     cancelDeleteSession,
     clearShellExited,
     toggleConsole,

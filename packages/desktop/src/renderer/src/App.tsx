@@ -6,6 +6,7 @@ import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { inspectorBadges } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
+import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -264,6 +265,7 @@ export default function App() {
 	const state = useStore((s) => s.state);
   const worktreeDialogProject = useStore((s) => s.worktreeDialogProject);
   const newSession = useStore((s) => s.newSession);
+  const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
   const toggleConsole = useStore((s) => s.toggleConsole);
@@ -480,6 +482,9 @@ export default function App() {
 				<ProjectSettings project={projectSettingsProject} onClose={closeProjectSettings} />
 			)}
       {worktreeDialogProject !== null && <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} />}
+      {finishWorktreeTab !== null && (
+        <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
+      )}
       {settingsPage && <Settings />}
       {/* Feedback last of the root surfaces: its dialogs must outrank every
           other overlay in the stack (issue #373). */}

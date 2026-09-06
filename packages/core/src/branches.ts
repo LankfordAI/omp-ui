@@ -177,18 +177,9 @@ export function createBranchService(
       .map((name) => name.trim())
       .filter((name) => name !== "");
 
-  const readDefaultBranch = async (root: string, branches: string[]): Promise<string | null> => {
-    try {
-      const head = (
-        await runGit(root, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
-      ).trim();
-      return head.startsWith("origin/") ? head.slice("origin/".length) : head;
-    } catch {
-      if (branches.includes("main")) return "main";
-      if (branches.includes("master")) return "master";
-      return null;
-    }
-  };
+  // The module-level readDefaultBranch (below) reads its own branch
+  // listing; the extra local for-each-ref is cheap and keeps one signature
+  // (issue #390).
 
   const readConfiguredUpstream = async (
     root: string,
@@ -287,7 +278,7 @@ export function createBranchService(
     let status = await readStatus(root);
     const current = status.head;
     const branches = await readLocalBranches(root);
-    const defaultBranch = await readDefaultBranch(root, branches);
+    const defaultBranch = await readDefaultBranch(root, runGit);
     const configured = current === null ? null : await readConfiguredUpstream(root, current);
     const remote = configured?.remote ?? null;
     let entry: FetchCacheEntry | null = null;
@@ -411,4 +402,50 @@ export async function checkoutBranch(
   opts?: { create?: boolean },
 ): Promise<void> {
   await git(projectCwd, opts?.create ? ["checkout", "-b", name] : ["checkout", name]);
+}
+
+/**
+ * The repo's default branch: `origin/HEAD` when it resolves, else a local
+ * `main`, else a local `master`, else null (issue #390: the base recorded
+ * for an existing-branch worktree). Local reads only; `runGit` is the test
+ * seam the branch service shares.
+ */
+export async function readDefaultBranch(
+  projectCwd: string,
+  runGit: GitRunner = git,
+): Promise<string | null> {
+  try {
+    const head = (
+      await runGit(projectCwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    ).trim();
+    return head.startsWith("origin/") ? head.slice("origin/".length) : head;
+  } catch {
+    let branches: string[];
+    try {
+      branches = (
+        await runGit(projectCwd, ["for-each-ref", "refs/heads", "--format=%(refname:short)"])
+      )
+        .split("\n")
+        .map((name) => name.trim())
+        .filter((name) => name !== "");
+    } catch {
+      branches = [];
+    }
+    if (branches.includes("main")) return "main";
+    if (branches.includes("master")) return "master";
+    return null;
+  }
+}
+
+/**
+ * Creates `name` at `startPoint` without checking it out (issue #385: the
+ * finish dialog's new-branch destination). No checkout, no validation —
+ * git's stderr is the validation, same stance as checkoutBranch.
+ */
+export async function createBranch(
+  projectCwd: string,
+  name: string,
+  startPoint: string,
+): Promise<void> {
+  await git(projectCwd, ["branch", name, startPoint]);
 }

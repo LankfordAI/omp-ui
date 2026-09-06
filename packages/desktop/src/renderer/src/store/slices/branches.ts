@@ -5,6 +5,7 @@ import type {
   BranchListOptions,
   MergeBackResult,
   MergeBackStatus,
+  MergeDestination,
 } from "@omp-ui/core/types";
 import { backend } from "../../backend";
 import type { GetState, SetState } from "./shared";
@@ -21,11 +22,14 @@ export interface BranchesSlice {
     opts?: { create?: boolean },
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string): Promise<string | null>;
+  resolveMergeDestination(projectCwd: string, base: string | null): Promise<MergeDestination>;
   readMergeBackStatus(
     projectCwd: string,
     branch: string,
-    base: string | null,
+    destination: string,
+    worktreePath: string | null,
   ): Promise<MergeBackStatus>;
+  createBranch(projectCwd: string, name: string, startPoint: string): Promise<void>;
   mergeWorktreeBranch(
     projectCwd: string,
     branch: string,
@@ -138,12 +142,31 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     }
   };
 
+  const resolveMergeDestination = async (
+    projectCwd: string,
+    base: string | null,
+  ): Promise<MergeDestination> => {
+    return backend.resolveMergeDestination(projectCwd, base);
+  };
+
   const readMergeBackStatus = async (
     projectCwd: string,
     branch: string,
-    base: string | null,
+    destination: string,
+    worktreePath: string | null,
   ): Promise<MergeBackStatus> => {
-    return backend.getMergeBackStatus(projectCwd, branch, base);
+    return backend.getMergeBackStatus(projectCwd, branch, destination, worktreePath);
+  };
+
+  // Throws — git's stderr is the validation, same stance as checkoutBranch;
+  // the finish dialog renders the message inline rather than via reportError.
+  const createBranch = async (
+    projectCwd: string,
+    name: string,
+    startPoint: string,
+  ): Promise<void> => {
+    await backend.createBranch(projectCwd, name, startPoint);
+    await get().refreshBranches(projectCwd, { fetchUpstream: false });
   };
 
   const mergeWorktreeBranch = async (
@@ -175,7 +198,9 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     refreshBranches,
     checkoutGitBranch,
     pullGitBranch,
+    resolveMergeDestination,
     readMergeBackStatus,
+    createBranch,
     mergeWorktreeBranch,
     suggestBranchName,
   };

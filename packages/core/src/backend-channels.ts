@@ -17,6 +17,7 @@ import type {
   MemoryOverview,
   MergeBackResult,
   MergeBackStatus,
+  MergeDestination,
   OmpSettingValue,
   OmpSettingsSnapshot,
   OmpUpdateState,
@@ -34,7 +35,9 @@ import type {
   ScopedCapabilityMutation,
   SessionMode,
   SpawnRequest,
+  WorktreeReleaseOptions,
   WorktreeReleaseResult,
+  WorktreeSyncResult,
 } from "./types";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { RpcFrame } from "./rpc/codec";
@@ -58,6 +61,7 @@ import {
   spawnRequestCodec,
   str,
   trailingOptional,
+  worktreeReleaseOptionsCodec,
   type ArgCodec,
   type ArgCodecs,
 } from "./backend-arg-codecs";
@@ -475,15 +479,43 @@ export const BACKEND_CHANNELS = {
     channel: "branch:pull",
     ...request<[projectCwd: string], void>([str()]),
   },
-  /** Merge-back feasibility for a worktree session's recorded base (issue #272). */
+  /**
+   * Default merge destination resolved from a recorded base (issue #385):
+   * the finish dialog's initial suggestion. A non-repo resolves to
+   * destination null, reason "no-repo" — never throws.
+   */
+  resolveMergeDestination: {
+    channel: "branch:mergeDestination",
+    ...request<[projectCwd: string, base: string | null], MergeDestination>([
+      str(),
+      nullable(str()),
+    ]),
+  },
+  /**
+   * Merge-back feasibility for one CHOSEN destination (issues #272, #385):
+   * where it is checked out, divergence both ways, the worktree's dirtiness
+   * (#388), and the merge-tree conflict preview (#387).
+   */
   getMergeBackStatus: {
     channel: "branch:mergeStatus",
-    ...request<[projectCwd: string, branch: string, base: string | null], MergeBackStatus>([str(), str(), nullable(str())]),
+    ...request<
+      [projectCwd: string, branch: string, destination: string, worktreePath: string | null],
+      MergeBackStatus
+    >([str(), str(), str(), nullable(str())]),
   },
-  /** Merges the worktree branch into its destination in the project checkout (issue #272). */
+  /** Merges the worktree branch into the chosen destination — in the project checkout when it holds it, else in a scratch worktree (issues #272, #385). */
   mergeWorktreeBranch: {
     channel: "branch:mergeBack",
     ...request<[projectCwd: string, branch: string, destination: string], MergeBackResult>([str(), str(), str()]),
+  },
+  /**
+   * Creates a local branch at a start point without checking it out (issue
+   * #385: the finish dialog's "new branch…" destination). Rejects with git's
+   * stderr when the name exists or is invalid.
+   */
+  createBranch: {
+    channel: "branch:create",
+    ...request<[projectCwd: string, name: string, startPoint: string], void>([str(), str(), str()]),
   },
   /**
    * Resolved mnemopi memory overview for a project; never rejects — failures
@@ -520,15 +552,40 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string, branch: string, baseRef: string | null], void>([str(), str(), nullable(str())]),
   },
   /**
+   * Merges the destination INTO the session's worktree checkout so conflicts
+   * are resolved there by the session that owns the change (issue #387).
+   * Rejects when the tab is unknown, not a worktree session, or the checkout
+   * is dirty; predicted conflicts are LEFT IN PLACE and reported.
+   */
+  syncWorktree: {
+    channel: "worktree:sync",
+    ...request<[tabId: string, source: string], WorktreeSyncResult>([str(), str()]),
+  },
+  /**
+   * Renames the branch a worktree session runs on, in the checkout and on
+   * its record (issues #386, #389). No respawn — a running omp process is
+   * unaffected by a ref rename. Rejects with git's stderr on a collision.
+   */
+  renameWorktreeBranch: {
+    channel: "worktree:renameBranch",
+    ...request<[tabId: string, newName: string], void>([str(), str()]),
+  },
+  /**
    * Returns a worktree session to its project checkout (issue #334) — the
    * inverse of `session:convert-to-worktree`. Nulls the record's worktree,
    * reclaims the checkout and branch, and respawns in place with `--resume`:
    * the session, its transcript, its lineage and its tab all survive.
-   * Rejects when the tab is unknown or is not a worktree session.
+   * Rejects when the tab is unknown, is not a worktree session, or the
+   * checkout is dirty (issue #388). `keepBranch` skips branch deletion;
+   * `mergedInto` is the destination the caller just merged into — verified
+   * by ancestry before any deletion (issues #386, #385).
    */
   releaseWorktree: {
     channel: "session:release-worktree",
-    ...request<[tabId: string], WorktreeReleaseResult>([str()]),
+    ...request<[tabId: string, opts: WorktreeReleaseOptions], WorktreeReleaseResult>([
+      str(),
+      worktreeReleaseOptionsCodec,
+    ]),
   },
   /**
    * Capabilities roster observed by a live session's bridge; never rejects —

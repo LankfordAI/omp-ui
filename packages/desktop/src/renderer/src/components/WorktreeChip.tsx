@@ -7,21 +7,20 @@ import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { shortBase } from "../lib/format";
 import { Chip, CopyButton, Panel } from "./ui";
-import { MergeBackSection } from "./MergeBackSection";
-import { useMergeBack } from "./useMergeBack";
+import { useStore } from "../store";
 
 /**
  * The Session HUD's worktree chip as an actionable popover (issue #260): the
  * chip itself is unchanged — mono `⎇ branch`, checkout path in the tooltip —
  * but clicking it opens copy rows for the branch and the checkout path, a
- * quiet "cut from <base>" line, a merge-back section for the recorded base
- * (issue #272), and open targets (VS Code when available, Files always) that
- * hand the checkout path to the existing openProject channel. Neutral chrome
- * throughout — the signal accent stays reserved for liveness (ADR-0004), and
- * the merge section escalates to copper where the user must act, quiet when
- * the work is already done, and failures to the rose error slot. Positioning
- * and dismissal follow the sidebar's terminal-menu convention; Escape
- * restores focus to the trigger, matching BranchChip.
+ * quiet "cut from <base>" line, one row that opens the Finish worktree
+ * dialog (issues #385–#389 — the merge-and-return decisions moved there,
+ * out of this popover), and open targets (VS Code when available, Files
+ * always) that hand the checkout path to the existing openProject channel.
+ * Neutral chrome throughout — the signal accent stays reserved for liveness
+ * (ADR-0004). No status fetch on open: feasibility is the dialog's business.
+ * Positioning and dismissal follow the sidebar's terminal-menu convention;
+ * Escape restores focus to the trigger, matching BranchChip.
  */
 const rowText =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
@@ -29,11 +28,11 @@ const rowText =
 export function WorktreeChip({
   worktree,
   tabId,
-  projectCwd,
   className,
 }: {
   worktree: SessionWorktree;
   tabId: string;
+  /** Kept for the HUD call site; the finish dialog reads it from the record. */
   projectCwd: string;
   className?: string;
 }) {
@@ -43,19 +42,8 @@ export function WorktreeChip({
   /** null = never asked; asked once per mount, like the sidebar's discovery. */
   const [vsCodeAvailable, setVsCodeAvailable] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const mergeBack = useMergeBack(
-    worktree.base === null
-      ? null
-      : {
-          tabId,
-          branch: worktree.branch,
-          base: worktree.base,
-          projectCwd,
-          worktreePath: worktree.path,
-        },
-  );
-  const displayedError =
-    error ?? (mergeBack.phase.s === "error" ? mergeBack.phase.message : null);
+  const openFinishWorktree = useStore((s) => s.openFinishWorktree);
+  const displayedError = error;
 
   /** The trigger's wrapper; the portaled panel is tracked separately. */
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -71,7 +59,6 @@ export function WorktreeChip({
   const close = (): void => {
     setOpen(false);
     setError(null);
-    mergeBack.reset();
   };
 
   const toggle = (): void => {
@@ -88,22 +75,18 @@ export function WorktreeChip({
         .then((a) => setVsCodeAvailable(a.vsCode))
         .catch(() => setVsCodeAvailable(false));
     }
-    mergeBack.fetchStatus();
   };
 
   // Click-outside / Escape dismissal, matching BranchChip. The trigger is
   // inside rootRef and the portaled panel is panelRef, so a pointerdown on
   // either is not an outside click — the trigger's own onClick toggles, and
-  // the popover closes exactly once. A pointerdown on the confirm modal
-  // (portaled outside both) is not an outside click either: it is this
-  // popover's own decision surface.
+  // the popover closes exactly once.
   useDismissal({
     open,
     refs: [rootRef, panelRef],
     onClose: close,
     onEscape: close,
     restoreFocus: () => triggerRef.current?.focus(),
-    exemptSelector: '[role="alertdialog"]',
   });
 
   const openIn = (target: "vscode" | "files"): void => {
@@ -157,7 +140,17 @@ export function WorktreeChip({
                 </p>
               )}
               <div className="my-1 border-t border-line-soft" />
-              <MergeBackSection controller={mergeBack} variant="worktree" />
+              <button
+                type="button"
+                role="menuitem"
+                className={rowText}
+                onClick={() => {
+                  close();
+                  openFinishWorktree(tabId);
+                }}
+              >
+                {t("worktree.actions.finish")}
+              </button>
               {vsCodeAvailable === true && (
                 <button type="button" role="menuitem" className={rowText} onClick={() => openIn("vscode")}>
                   {t("worktree.actions.openVsCode")}

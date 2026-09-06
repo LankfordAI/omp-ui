@@ -22,6 +22,7 @@ import {
   rpcFrameCodec,
   sessionModeCodec,
   spawnRequestCodec,
+  worktreeReleaseOptionsCodec,
   str,
   trailingOptional,
 } from "./backend-arg-codecs";
@@ -156,6 +157,23 @@ describe("domain argument codecs", () => {
     expect(() => decode(branchListOptionsCodec, { fetchUpstream: null })).toThrow(
       "argument 0.fetchUpstream",
     );
+  });
+
+  it("decodes worktree release options exactly", () => {
+    const opts = { keepBranch: true, mergedInto: "release/x" };
+    expect(decode(worktreeReleaseOptionsCodec, opts)).toBe(opts);
+    expect(
+      decode(worktreeReleaseOptionsCodec, { keepBranch: false, mergedInto: null }),
+    ).toEqual({ keepBranch: false, mergedInto: null });
+    expect(() => decode(worktreeReleaseOptionsCodec, { keepBranch: true })).toThrow(
+      "argument 0.mergedInto",
+    );
+    expect(() =>
+      decode(worktreeReleaseOptionsCodec, { keepBranch: "yes", mergedInto: null }),
+    ).toThrow("argument 0.keepBranch");
+    expect(() =>
+      decode(worktreeReleaseOptionsCodec, { keepBranch: false, mergedInto: null, force: true }),
+    ).toThrow();
   });
 
   it("accepts every OMP setting value shape and rejects invalid members", () => {

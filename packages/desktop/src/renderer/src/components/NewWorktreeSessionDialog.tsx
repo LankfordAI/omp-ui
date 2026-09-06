@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
-import { Button, ConfirmDialog } from "./ui";
+import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
 import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
@@ -12,23 +12,45 @@ import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
  * renders its message inline instead of pre-checking names or refs here. The
  * fields themselves are shared with the composer's workspace selector
  * (issue #225) — see WorktreeBranchFields.
+ *
+ * The dialog also starts a session on an EXISTING local branch (issue #390):
+ * the source segment switches from a minted branch to any other local branch,
+ * checked out in its own worktree with the repo's default branch recorded as
+ * the cut point. The composer's branch-chip section keeps minting; converting
+ * an existing session never picks branches.
  */
 export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string }) {
   const [branch, setBranch] = useState(mintBranchName);
   const t = useT();
   // null = cut from the checkout's HEAD (the "current HEAD" option).
   const [baseRef, setBaseRef] = useState<string | null>(null);
+  const [source, setSource] = useState<"new" | "existing">("new");
+  const [existingBranch, setExistingBranch] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const info = useStore((s) => s.branches[projectCwd]);
   const newWorktreeSession = useStore((s) => s.newWorktreeSession);
   const closeWorktreeDialog = useStore((s) => s.closeWorktreeDialog);
+  const refreshBranches = useStore((s) => s.refreshBranches);
 
   // repoRoot null (not undefined — undefined means the listing hasn't
   // loaded yet, and the form then just shows the HEAD fallback) means the
   // project isn't a git repository at all.
   const notGit = info?.repoRoot === null;
+  // The checkout's own branch cannot be worked in twice: git would refuse
+  // the second checkout, so the candidate list drops it.
+  const otherBranches = (info?.branches ?? []).filter((name) => name !== info?.current);
+
+  // The existing list is opened rarely; refresh it when the segment is
+  // picked so a branch created outside omp-ui shows up (local refs only).
+  useEffect(() => {
+    if (source === "existing") void refreshBranches(projectCwd, { fetchUpstream: false });
+  }, [source, projectCwd, refreshBranches]);
+
+  useEffect(() => {
+    if (existingBranch === "" && otherBranches.length > 0) setExistingBranch(otherBranches[0]);
+  }, [otherBranches.length]);
 
   const close = (): void => {
     setError(null);
@@ -40,7 +62,12 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
     setPending(true);
     setError(null);
     try {
-      await newWorktreeSession(projectCwd, { branch, baseRef });
+      await newWorktreeSession(
+        projectCwd,
+        source === "new"
+          ? { mint: { branch, baseRef } }
+          : { checkout: { branch: existingBranch } },
+      );
       closeWorktreeDialog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -48,6 +75,8 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
       setPending(false);
     }
   };
+
+  const noOtherBranches = source === "existing" && otherBranches.length === 0;
 
   return (
     <ConfirmDialog
@@ -59,10 +88,9 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
       actions={
         <>
           <Button variant="ghost" onClick={close}>
-0:
             {t("common.dialog.cancel")}
           </Button>
-          <Button variant="solid" disabled={pending || notGit} onClick={() => void submit()}>
+          <Button variant="solid" disabled={pending || notGit || noOtherBranches} onClick={() => void submit()}>
             {t("dialog.worktree.create")}
           </Button>
         </>
@@ -74,14 +102,51 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
         </p>
       ) : (
         <div className="space-y-4">
-          <WorktreeBranchFields
-            projectCwd={projectCwd}
-            branch={branch}
-            onBranchChange={setBranch}
-            baseRef={baseRef}
-            onBaseRefChange={setBaseRef}
-            idPrefix="worktree"
+          <ChoiceCapsule
+            label={t("dialog.worktree.sourceLabel")}
+            value={source}
+            onChange={setSource}
+            options={[
+              { value: "new", label: t("dialog.worktree.sourceNew") },
+              {
+                value: "existing",
+                label: t("dialog.worktree.sourceExisting"),
+                disabled: otherBranches.length === 0,
+                title: otherBranches.length === 0 ? t("dialog.worktree.noOtherBranches") : undefined,
+              },
+            ]}
           />
+          {source === "new" ? (
+            <WorktreeBranchFields
+              projectCwd={projectCwd}
+              branch={branch}
+              onBranchChange={setBranch}
+              baseRef={baseRef}
+              onBaseRefChange={setBaseRef}
+              idPrefix="worktree"
+            />
+          ) : (
+            <div>
+              <label htmlFor="worktree-existing" className="block text-[10px] text-ink-faint">
+                {t("dialog.worktree.existingBranch")}
+              </label>
+              <select
+                id="worktree-existing"
+                value={existingBranch}
+                onChange={(event) => setExistingBranch(event.target.value)}
+                className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+              >
+                {otherBranches.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-[10px] leading-snug text-ink-faint">
+                {t("dialog.worktree.existingHint")}
+              </p>
+            </div>
+          )}
           {error !== null && (
             <p className="text-xs leading-relaxed text-rose">{error}</p>
           )}

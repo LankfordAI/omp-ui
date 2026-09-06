@@ -408,26 +408,44 @@ drift. The record also carries what the
 branch was cut from (`base`: the picked ref, or the project checkout's
 branch at creation (its HEAD commit when detached)), which the branch diff
 pane and the HUD's worktree chip read; records from before this field show
-plain HEAD diffs. The HUD's worktree chip, the composer's branch chip (first
-row of its menu while a worktree session is focused), and the delete
-confirmation (merge first, before deleting) each offer a merge-back into the
-recorded base — always a merge commit, whose message records the folded
-commits' subjects and the issues they close. A successful merge-back
-**releases the worktree**: the session, its transcript and its tab survive and
-move back to the project checkout, which is already on the base branch; the
-checkout is removed and the branch deleted. A conflicted merge stops both the
-merge and the release, leaving its files in the project checkout for the user
-to resolve with the worktree left open. Deleting the
+plain HEAD diffs. Finishing goes through one **Finish worktree dialog**: the
+HUD's worktree chip and the composer's branch chip (first row of its menu
+while a worktree session is focused) open it; the delete confirmation pairs
+with it from its own side, offering the merge into the resolved base first,
+before deleting. The dialog carries three independent decisions (issues
+#385–#389): where the work goes — the branch resolved from the recorded
+base by default, any local branch, or a new branch cut from a chosen start
+point; how it lands — one merge commit, whose message records the folded
+commits' subjects and the issues they close, or the branch kept, optionally
+renamed; and whether the session returns to the project checkout or stays
+in its worktree. It previews the merge with `git merge-tree`, runs merges
+into a destination checked out nowhere in a scratch worktree under the
+worktrees root, and on a conflict offers to sync the destination into the
+worktree, so the owning session resolves it in the checkout that holds the
+change rather than in the project checkout. A checkout with uncommitted
+changes cannot be returned — main enforces it, and the delete dialog is the
+one surface that offers the loss explicitly. Returning **releases the
+worktree**: the record, its transcript, its tab and its lineage survive back
+at the project checkout; the checkout is removed, and the branch is deleted
+only once omp-ui has verified it fully merged into a candidate destination
+— a kept branch is not deleted, an unmerged one is kept. Deleting the
 session removes the checkout; an unmerged branch and its commits survive in
-the repo, while a branch already in its destination is deleted too (plain
-`git branch -d`; a branch that will not delete is kept). Resume, restart and
-mode switches keep the worktree — it lives on the session record. A
+the repo, while a branch already in its destination is deleted too. Resume,
+restart and mode switches keep the worktree — it lives on the session
+record. A
 record's checkout may be shared — forking a worktree session, and a plan
 handoff from a worktree planning session (issue #316), give the new record
 the same `path`/`branch`/`base`, and the last record deleted removes the
 checkout.
 _Avoid_: sandbox session, isolated session, branch session, close the
-worktree, merge & close
+worktree, merge & close, merge & return as the sole exit
+
+**Finish worktree**:
+The single dialog that settles a worktree session's destination, outcome
+and session — where the work goes, whether it lands as a merge commit or a
+kept branch, and whether the session returns to the project checkout or
+stays in its worktree.
+_Avoid_: closing the worktree, merge & close
 
 **MCP manager**:
 The capabilities viewer's MCP tab listing every MCP server omp resolves
