@@ -49,7 +49,7 @@ never false-positive-block a valid plan or hang a test.
 - **This is a blank-frame catch, not a rendering guarantee.** Inconclusive
   probes pass through, and readability concerns such as unreadable contrast
   remain prompt-guardrail territory (#176, #284) — the injected guardrail
-  stylesheet already forces dark-on-white at render time.
+  stylesheet already forces the theme's ink onto the theme's canvas at render time.
 - **A failed plan is still reviewable.** The raw source shown in the
   fallback is the artifact the execute verdict dispatches, so reviewing it
   as text remains a real review; refine sends the planner back to rewrite.

@@ -48,20 +48,25 @@ spans plus a renderer-generated rule per (colour, font-style) pair.
 - **Live theme.** `usePreparedPlanDocument` takes the current `useTheme()`
   into its effect deps, so a theme switch re-prepares the plan in the new
   palette — mirroring `useHighlightTokens`'s theme dep.
-- **Code plane follows the theme.** The plan canvas stays light (ADR-0014's
-  explicit light canvas; `svg text` is forced `#2b3036`), but the guardrail
-  paints every `pre`/`code` on the active theme's `--color-raised` plane
-  with `--color-ink` foreground so the runtime-theme token palette has the
-  surface it was derived against. The declaration rides in the guardrail
-  stylesheet (last in the head, `!important`) where plan-authored code
-  styling cannot displace it, and re-derives live on theme switch through
-  the existing prepare pass. Retuned to `--color-raised` on a `#e9ebee`
-  canvas (issue #375): the sunken plane on paper white read as black-on-white
-  with no mid-tones.
+- **Code plane follows the theme — and since issue #384 amended ADR-0014,
+  the canvas follows the theme too.** The guardrail paints every
+  `pre`/`code` on the active theme's `--color-raised` plane with
+  `--color-ink` foreground so the runtime-theme token palette has the
+  surface it was derived against, and the canvas itself now comes from
+  `--color-surface` / `--color-ink` — so `raised` sits one step above the
+  canvas in both directions (graphite `#1a1e23` over `#14171b`, light
+  `#ffffff` over `#fafbfc`), the relationship issue #375 asked for. The
+  declaration rides in the guardrail stylesheet (last in the head,
+  `!important`) where plan-authored code styling cannot displace it, and
+  re-derives live on theme switch through the existing prepare pass.
+  Retuned to `--color-raised` on the then-fixed light canvas (issue #375):
+  the sunken plane on paper white read as black-on-white with no
+  mid-tones.
   Split again (issue #380): only block code (`pre, pre code`) keeps the plane.
-  Inline prose chips carry no tokens, so they ride a light canvas-family tint
-  (`#d9dee4`) with inherited ink — the dark plane on a light canvas read as
-  black pills (#375 lifted the block well and left the chips with it).
+  Inline prose chips carry no tokens, so they ride a tint one step off the
+  canvas (`--color-hover`) with inherited ink — the dark plane under a light
+  canvas read as black pills (#375 lifted the block well and left the chips
+  with it).
 
 Rejected: hand-authored highlighted spans in the plan HTML (fragile,
 token-bloated, and pushes tokenization onto the model — the same failure class
@@ -91,6 +96,8 @@ lexical analysis it is bad at).
 - **A new verification reason**: a surviving `<!--omp-ui-highlight-N-->`
   placeholder fails structural verification, in parity with the
   diagram-placeholder check (issue #312).
-- **The guardrail stylesheet becomes theme-scoped**: the const becomes
+- **The guardrail stylesheet is theme-scoped**: the const is
   `guardrailStylesheet(theme)`, called from `preparePlanDocument` with the
   theme it already receives — no new parameter threading, no caller edits.
+  Issue #384 completed the scoping: the canvas, ink, chip tint, link, and
+  code plane all derive from `theme`, not only the code plane.

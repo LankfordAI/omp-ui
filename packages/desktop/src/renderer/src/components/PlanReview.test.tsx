@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 import type { ThemedToken } from "shiki/core";
-import type { DiagramRenderer } from "../lib/plan-diagrams";
+import type { DiagramRenderer, PlanCanvas } from "../lib/plan-diagrams";
 import type { CodeTokenizer } from "../lib/plan-highlight";
 import type { Theme } from "../lib/themes";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
@@ -46,10 +46,14 @@ vi.mock("../lib/plan-diagrams", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
   return {
     ...original,
-    renderMermaidBlocks: (html: string, render?: DiagramRenderer) =>
+    // The now-real injected renderer is ignored in favour of the stub: the
+    // production call site passes renderMermaid itself (issue #384), so
+    // `render ?? stub` would no longer stub anything.
+    renderMermaidBlocks: (html: string, _render: DiagramRenderer, canvas?: PlanCanvas) =>
       original.renderMermaidBlocks(
         html,
-        render ?? (async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`),
+        async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`,
+        canvas,
       ),
   };
 });
@@ -1179,8 +1183,9 @@ describe("PlanReview code highlighting (issue #319)", () => {
     // The code plane follows the pinned theme: Graphite's raised plane.
     expect(srcdoc).toContain("background-color: #1a1e23 !important");
     expect(srcdoc).toContain("color: #e8ecf1 !important");
-    // Inline chips ride the light tint, not the plane (issue #380).
-    expect(srcdoc).toContain("background-color: #d9dee4 !important");
+    // Inline chips ride one step off the canvas, not the plane (issues #380,
+    // #384): Graphite's hover tint.
+    expect(srcdoc).toContain("background-color: #2a3037 !important");
     // The unclass'd block stays plain.
     expect(srcdoc).toContain("no class stays plain");
     expect(frame.getAttribute("sandbox")).toBe("");

@@ -420,7 +420,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       title={t("plan.review.proposedPlan")}
                       sandbox=""
                       srcDoc={prepared.status === "ready" ? prepared.doc : ""}
-                      className="min-h-0 w-full flex-1 rounded-md border border-line bg-white"
+                      className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
                     />
                   )
                 ) : planText ? (

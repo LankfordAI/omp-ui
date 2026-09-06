@@ -92,11 +92,11 @@ describe("writePlanExtension", () => {
     const h = harness(await loadExtension());
     await h.run("on html");
     const instruction = entries(h.sent)[0]?.content ?? "";
-    expect(instruction).toContain("explicit light canvas and dark foreground");
+    expect(instruction).toContain(
+      "paints the page canvas and the reading ink from the active omp-ui theme",
+    );
     expect(instruction).toContain("WCAG AA contrast of at least 4.5:1");
-    expect(instruction).toContain("readable text in every colored callout");
-    expect(instruction).toContain("do not use omp-ui CSS variables");
-    expect(instruction).toContain("inherit host or theme colors");
+    expect(instruction).toContain("never set a node `color:`");
     expect(instruction).toContain("fit any iframe with no horizontal page scrolling");
     expect(instruction).toContain("viewport meta tag");
     expect(instruction).toContain("border-box sizing");
@@ -109,7 +109,7 @@ describe("writePlanExtension", () => {
     expect(instruction).toContain("mermaid source");
     expect(instruction).toContain("error callout");
     expect(instruction).toContain("classDef");
-    expect(instruction).toContain("fill, stroke, and text color");
+    expect(instruction).toContain("classDef for groups and style for one-offs");
     // Spatial figures may be hand-drawn, but only with the layout recipe that
     // prevents the overlap/clipping that made us ban freehand SVG (#287).
     // Direction is a deliberate choice, not a TD default (#289): LR for

@@ -47,4 +47,20 @@ describe("renderMermaid (real mermaid)", () => {
     expect(out).not.toContain("<foreignObject");
     expect(out).not.toContain('<pre class="mermaid">');
   }, 30_000);
+
+  it("fits an authored classDef fill for a dark canvas before rendering", async () => {
+    // Issue #384: on a graphite canvas a pale authored fill must not survive
+    // into the rendered SVG — mermaid receives the fitted hex, so the node
+    // arrives dark under canvas-ink labels.
+    const source = "flowchart TD\nA-->B\nclassDef hot fill:#fef3c7\nclass A hot";
+    const out = await renderMermaidBlocks(
+      `<p>plan</p><pre class="mermaid">${source}</pre>`,
+      renderMermaid,
+      { dark: true, surface: "#14171b", ink: "#e8ecf1" },
+    );
+
+    expect(out).toContain("<svg");
+    expect(out).toContain('class="omp-ui-diagram"');
+    expect(out).not.toContain("#fef3c7");
+  }, 30_000);
 });
