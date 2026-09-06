@@ -926,6 +926,59 @@ export const en = {
   "viewer.tools.originMcp": "mcp",
   "viewer.tools.originSdk": "sdk",
   "viewer.tools.originUnknown": "unknown",
+  // Tools tab: session-local enable/disable (issue #379). Scope copy first,
+  // then the control, then one message per outcome the bridge can report.
+  "viewer.tools.scope":
+    "Changes apply to this live session only. Restarting or switching sessions resets tool selection. OMP settings changes and MCP reload may change it again.",
+  "viewer.tools.registeredVsAbsent":
+    "Every row here is registered in this session; enabled means the model may call it directly. A tool absent from this list was never registered — that is OMP's registry, not a setting here.",
+  "viewer.tools.mcpNote":
+    "Reloading MCP can re-enable its tools. Use MCP servers to change server configuration.",
+  "viewer.tools.enable": "Enable {name}",
+  "viewer.tools.disable": "Disable {name}",
+  "viewer.tools.applying": "Applying…",
+  "viewer.tools.applyingNamed": "Applying {name} to this session…",
+  "viewer.tools.applied": "{name} is now {state} in this session.",
+  "viewer.tools.planWriteLock":
+    "Required to write plan artifacts while Plan mode is on.",
+  "viewer.tools.lockUnsupported":
+    "This bridge publishes no tool control, so the roster cannot be changed here.",
+  "viewer.tools.lockStale":
+    "The last refresh failed, so this roster may be out of date — changes are paused until a fresh one arrives.",
+  "viewer.tools.lockDetached":
+    "The pinned session moved to a different working tree, so its tools are detached from this viewer.",
+  "viewer.tools.lockBusy":
+    "This session is mid-turn or has queued messages — tool changes wait until it settles.",
+  "viewer.tools.lockPending":
+    "Another tool change for this session is still in flight.",
+  "viewer.tools.errorBusy": "OMP was busy, so it refused the change to {name}.",
+  "viewer.tools.errorStale":
+    "This tab is no longer the session the change to {name} was issued against — the roster on screen is the current one.",
+  "viewer.tools.errorUnsupported":
+    "This session's bridge exposes no tool control, so {name} cannot be changed from here.",
+  "viewer.tools.errorUnknownTool":
+    "OMP has no tool named {name} in this session.",
+  "viewer.tools.errorModeRequired":
+    "OMP needs {name} enabled for the session's current mode.",
+  "viewer.tools.errorExpired":
+    "The change to {name} expired before OMP reported back.",
+  "viewer.tools.errorApplyFailed":
+    "OMP could not apply the change to {name}.",
+  "viewer.tools.errorNotApplied":
+    "The roster did not confirm {name} as {state} after the change.",
+  "viewer.tools.errorUnconfirmed":
+    "Could not confirm the change. Refresh to check the current tool state.",
+  "viewer.tools.errorMissingSession":
+    "{name}: the session this viewer was pinned to no longer exists.",
+  "viewer.tools.errorNotLive":
+    "{name}: the pinned session is dormant, so there is no live session to change.",
+  "viewer.tools.errorTerminal":
+    "{name}: this tab runs an omp TUI, which exposes no tool control over rpc.",
+  "viewer.tools.errorBridgeUnavailable":
+    "{name}: this session's bridge exposes no tool control.",
+  "viewer.tools.errorStarting":
+    "{name}: the session is still starting — try again once it is live.",
+  "viewer.tools.retryHint": "Click the switch again to retry.",
   // Markdown code-block chrome (content untouched)
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",

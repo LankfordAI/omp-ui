@@ -29,6 +29,7 @@ import {
 import type { RpcTabState, UiStore } from "./store/types";
 export type {
   BranchActivity,
+  CapabilitiesToolFeedbackStatus,
   CompactSurface,
   CompactionMethodsLoad,
   DeleteConfirmation,
@@ -241,6 +242,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     bootRpcTab: rpcCommandSlice.bootRpcTab,
     refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
     refreshCapabilities: rpcCommandSlice.refreshCapabilities,
+    setSessionToolEnabled: rpcCommandSlice.setSessionToolEnabled,
     rpcCommand: rpcCommandSlice.rpcCommand,
     handleRpcFrame: frame.handleRpcFrame,
 

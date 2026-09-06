@@ -9,6 +9,7 @@ import type {
   OmpUpdateState,
 } from "@omp-ui/core/types";
 import type { CapabilitySnapshot, CapabilityTool } from "@omp-ui/core/capabilities";
+import type { RpcTabState } from "../store";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -56,6 +57,9 @@ const backendMock = {
   getMcpServers: vi.fn(),
   setMcpServerEnabled: vi.fn(),
   getSessionCapabilities: vi.fn(async () => ({ status: "missing-session" as const })),
+  // The viewer reaches this only through the store action; the default
+  // answers like a session whose bridge cannot change tools (issue #379).
+  setSessionToolEnabled: vi.fn(async () => ({ status: "bridge-unavailable" as const })),
   restartSession: vi.fn(),
   ptyPasteImage: vi.fn(),
   ptyWrite: vi.fn(),
@@ -219,6 +223,12 @@ async function renderManager(): Promise<void> {
   document.body.appendChild(host);
   root = createRoot(host);
   await act(async () => root!.render(<Gate />));
+  // The modal claims initial focus from a requestAnimationFrame once it is
+  // mounted (ui/overlays.tsx useOverlay), so that handoff is still queued when
+  // the render's promise settles. Drain the frame — the real signal, never a
+  // guessed sleep — or it lands later and steals focus mid-assertion from any
+  // test that tracks focus itself.
+  await act(async () => new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame())));
 }
 
 function switchFor(label: string): HTMLButtonElement {
@@ -819,6 +829,10 @@ const baseSnapshot = (patch: Partial<CapabilitySnapshot> = {}): CapabilitySnapsh
   skillCommandsEnabled: true,
   skills: { status: "available", items: [] },
   tools: { status: "available", items: [] },
+  // Tool-capable bridge by default: the roster-control cases opt out of it
+  // explicitly, the way a legacy snapshot arrives with the field absent.
+  toolControl: "available",
+  toolMutation: null,
   ...patch,
 });
 
@@ -1039,5 +1053,286 @@ describe("CapabilitiesViewer — live sections", () => {
     });
     await renderManager();
     expect(document.body.textContent).toContain("The pinned session is dormant");
+  });
+});
+
+/* ------------------------------------------- session-local tool control */
+
+const realSetSessionToolEnabled = useStore.getState().setSessionToolEnabled;
+
+/** The Tools tab of one live pinned session, on whatever roster the case needs. */
+function toolsTab(
+  tools: CapabilityTool[],
+  rpcPatch: Partial<RpcTabState> = {},
+  snapshotPatch: Partial<CapabilitySnapshot> = {},
+): void {
+  useStore.setState({
+    capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+    state: liveState,
+    rpc: {
+      [TAB]: rpcTabState({
+        capabilitiesLoad: "available",
+        capabilities: baseSnapshot({ tools: { status: "available", items: tools }, ...snapshotPatch }),
+        ...rpcPatch,
+      }),
+    },
+  });
+}
+
+function toolSwitches(): HTMLButtonElement[] {
+  return [...document.body.querySelectorAll<HTMLButtonElement>('li button[role="switch"]')];
+}
+
+function statusFilter(): HTMLElement {
+  const group = document.querySelector('[role="group"][aria-label="enabled state"]');
+  if (group === null) throw new Error("the status filter is not rendered");
+  return group as HTMLElement;
+}
+
+async function chooseStatus(option: string): Promise<void> {
+  const button = [...statusFilter().querySelectorAll<HTMLButtonElement>("button")].find(
+    (b) => b.textContent === option,
+  );
+  if (button === undefined) throw new Error(`status option not rendered: ${option}`);
+  await act(async () => {
+    button.click();
+  });
+}
+
+function rowFor(name: string): HTMLElement {
+  const row = [...document.body.querySelectorAll("li")].find((li) =>
+    li.textContent?.includes(name),
+  );
+  if (row === undefined) throw new Error(`row not rendered: ${name}`);
+  return row;
+}
+
+describe("CapabilitiesViewer — Tools tab enable/disable (issue #379)", () => {
+  afterEach(() => {
+    useStore.setState({ setSessionToolEnabled: realSetSessionToolEnabled });
+  });
+
+  it("hands one deliberate click to the store with the exact tool and state", async () => {
+    const toggle = vi.fn(async () => ({ status: "bridge-unavailable" as const }));
+    useStore.setState({ setSessionToolEnabled: toggle });
+    toolsTab([baseTool("bash", { enabled: true })]);
+    await renderManager();
+
+    await act(async () => {
+      switchFor("Disable bash").click();
+    });
+    expect(toggle).toHaveBeenCalledWith(TAB, "bash", false);
+  });
+
+  it("keeps every switch out of reach while a mutation is in flight", async () => {
+    toolsTab(
+      [baseTool("bash", { enabled: true }), baseTool("write", { enabled: true })],
+      { capabilitiesToolPending: { name: "write", enabled: false, processKey: "pk", sessionId: "s1" } },
+    );
+    await renderManager();
+
+    const applying = switchFor("Applying…");
+    expect(applying.disabled).toBe(true);
+    // The checked state stays at the confirmed value: an attempt is not a result.
+    expect(applying.getAttribute("aria-checked")).toBe("true");
+    expect(switchFor("Disable bash").disabled).toBe(true);
+    expect(document.body.textContent).toContain("Applying write to this session…");
+  });
+
+  it("locks the switches and says why when the bridge has no tool control", async () => {
+    toolsTab([baseTool("bash", { enabled: true })], {}, { toolControl: "unsupported" });
+    await renderManager();
+
+    expect(document.body.textContent).toContain("This bridge publishes no tool control");
+    expect(toolSwitches().length).toBeGreaterThan(0);
+    expect(toolSwitches().every((s) => s.disabled)).toBe(true);
+  });
+
+  it("locks the switches while the session is mid-turn", async () => {
+    toolsTab([baseTool("bash", { enabled: true })], { status: "running" });
+    await renderManager();
+
+    expect(document.body.textContent).toContain("mid-turn or has queued messages");
+    expect(toolSwitches().every((s) => s.disabled)).toBe(true);
+    // Browsing stays available: the search field and Refresh are untouched.
+    expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Search this category"]')!.disabled).toBe(false);
+  });
+
+  it("explains the write row's own lock without locking the other rows", async () => {
+    toolsTab(
+      [baseTool("write", { enabled: true }), baseTool("bash", { enabled: true })],
+      { plan: { enabled: true, planFilePath: null, planAbsPath: null, approved: false } },
+    );
+    await renderManager();
+
+    expect(rowFor("write").textContent).toContain(
+      "Required to write plan artifacts while Plan mode is on.",
+    );
+    expect(switchFor("Disable write").disabled).toBe(true);
+    expect(switchFor("Disable bash").disabled).toBe(false);
+  });
+
+  it("shows an unknown membership as a chip, never as an off-looking switch", async () => {
+    toolsTab([baseTool("mystery", { enabled: null })]);
+    await renderManager();
+
+    const row = rowFor("mystery");
+    expect(row.querySelector('[role="switch"]')).toBeNull();
+    expect(row.textContent).toContain("unknown");
+  });
+
+  it("reflects the roster's membership, not the mutation record it carries", async () => {
+    toolsTab(
+      [baseTool("bash", { enabled: true })],
+      {},
+      { toolMutation: { id: "m1", name: "bash", enabled: false, status: "applied" } },
+    );
+    await renderManager();
+
+    expect(switchFor("Disable bash").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("keeps a refusal on screen with its tool even when the row is filtered away", async () => {
+    toolsTab([baseTool("bash", { enabled: true })], {
+      capabilitiesToolFeedback: { name: "bash", enabled: false, status: "busy" },
+    });
+    await renderManager();
+    await typeSearch("nothing-matches-this");
+
+    expect(document.body.querySelector("li")).toBeNull();
+    expect(document.body.textContent).toContain(
+      "OMP was busy, so it refused the change to bash.",
+    );
+  });
+
+  it("names the tool and the state a confirmed change left it in", async () => {
+    toolsTab([baseTool("bash", { enabled: false })], {}, {
+      toolMutation: { id: "m2", name: "bash", enabled: true, status: "applied" },
+    });
+    await renderManager();
+
+    expect(document.body.textContent).toContain("bash is now enabled in this session.");
+  });
+
+  it("moves focus to the status filter when the confirmed change hides the row", async () => {
+    toolsTab([baseTool("bash", { enabled: true }), baseTool("write", { enabled: true })]);
+    await renderManager();
+    await chooseStatus("enabled");
+    const bash = switchFor("Disable bash");
+    bash.focus();
+
+    // The reader's own click, now in flight: the pending row answers to the
+    // pending label while its checked state stays at the confirmed value.
+    await act(async () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: rpcTabState({
+            capabilitiesLoad: "available",
+            capabilities: baseSnapshot({
+              tools: {
+                status: "available",
+                items: [baseTool("bash", { enabled: true }), baseTool("write", { enabled: true })],
+              },
+            }),
+            capabilitiesToolPending: { name: "bash", enabled: false, processKey: "pk", sessionId: "s1" },
+          }),
+        },
+      });
+    });
+    expect(switchFor("Applying…").getAttribute("aria-checked")).toBe("true");
+
+    // OMP answers with the roster in which bash is no longer enabled, so the
+    // "enabled" filter has just hidden the row that held the focus.
+    await act(async () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: rpcTabState({
+            capabilitiesLoad: "available",
+            capabilities: baseSnapshot({
+              revision: 2,
+              tools: {
+                status: "available",
+                items: [baseTool("bash", { enabled: false }), baseTool("write", { enabled: true })],
+              },
+              toolMutation: { id: "m1", name: "bash", enabled: false, status: "applied" },
+            }),
+          }),
+        },
+      });
+    });
+
+    expect(statusFilter().contains(document.activeElement)).toBe(true);
+    expect(document.body.textContent).toContain("bash is now not enabled in this session.");
+    // Nothing was cleared or widened to make that row disappear.
+    expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Search this category"]')!.value).toBe("");
+  });
+
+  it("keeps focus on the switch when the confirmed change leaves it visible", async () => {
+    toolsTab([baseTool("bash", { enabled: false })]);
+    await renderManager();
+    const bash = switchFor("Enable bash");
+    bash.focus();
+    // A browser drops focus to the document as soon as the click disables the
+    // control; jsdom never blurs a disabled element, so the drop is applied
+    // here, before the pending render, to model the reader's real browser.
+    bash.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    await act(async () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: rpcTabState({
+            capabilitiesLoad: "available",
+            capabilities: baseSnapshot({
+              tools: { status: "available", items: [baseTool("bash", { enabled: false })] },
+            }),
+            capabilitiesToolPending: { name: "bash", enabled: true, processKey: "pk", sessionId: "s1" },
+          }),
+        },
+      });
+    });
+
+    // The click is in flight.
+    await act(async () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: rpcTabState({
+            capabilitiesLoad: "available",
+            capabilities: baseSnapshot({
+              revision: 2,
+              tools: { status: "available", items: [baseTool("bash", { enabled: true })] },
+              toolMutation: { id: "m1", name: "bash", enabled: true, status: "applied" },
+            }),
+          }),
+        },
+      });
+    });
+
+    expect(document.activeElement).toBe(bash);
+    expect(bash.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("says what a toggle changes and what it does not", async () => {
+    toolsTab([
+      baseTool("grep", { enabled: true }),
+      baseTool("mcp__linear__search", { source: "mcp", mcpServerName: "linear", mcpToolName: "search", enabled: true }),
+    ]);
+    await renderManager();
+
+    expect(document.body.textContent).toContain(
+      "Changes apply to this live session only. Restarting or switching sessions resets tool selection. OMP settings changes and MCP reload may change it again.",
+    );
+    expect(document.body.textContent).toContain("was never registered");
+    expect(document.body.textContent).toContain(
+      "Reloading MCP can re-enable its tools. Use MCP servers to change server configuration.",
+    );
+    // The roster's own coverage explanation is still the header's business.
+    expect(document.body.textContent).toContain("not a machine-wide catalog");
+  });
+
+  it("offers no MCP note when the session registered no MCP tools", async () => {
+    toolsTab([baseTool("grep", { enabled: true })]);
+    await renderManager();
+    expect(document.body.textContent).not.toContain("Reloading MCP can re-enable its tools");
   });
 });

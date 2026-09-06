@@ -1,7 +1,11 @@
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
-import type { SessionCapabilitiesResult } from "@omp-ui/core/capabilities";
+import type {
+  CapabilitySnapshot,
+  SessionCapabilitiesResult,
+  SetSessionToolEnabledResult,
+} from "@omp-ui/core/capabilities";
 import { backend } from "../../backend";
 import { formatDuration } from "../../lib/duration";
 import { arrField } from "../../lib/fields";
@@ -31,7 +35,11 @@ import {
   type Watchers,
 } from "./shared";
 import { findRecord } from "./view";
-import type { RpcTabState, UiStore } from "../types";
+import type {
+  CapabilitiesToolPending,
+  RpcTabState,
+  UiStore,
+} from "../types";
 
 export type RpcCommandSlice = Pick<
   UiStore,
@@ -41,6 +49,7 @@ export type RpcCommandSlice = Pick<
   | "rpcCommand"
   | "setInitialPrompt"
   | "renameSession"
+  | "setSessionToolEnabled"
 >;
 
 /**
@@ -81,8 +90,93 @@ export function noteCapabilitiesSessionChange(
   if (retained === null || observedSessionId === null) return;
   if (retained.sessionId === null || retained.sessionId === observedSessionId)
     return;
-  m.patchRpc(tabId, { capabilities: null });
+  // The pending mutation and its report describe the predecessor session, so
+  // they retire with its roster (#379).
+  m.patchRpc(tabId, {
+    capabilities: null,
+    capabilitiesToolPending: null,
+    capabilitiesToolFeedback: null,
+  });
   void get().refreshCapabilities(tabId);
+}
+
+/** The roster identity a mutation request is bound to. */
+interface RosterIdentity {
+  processKey: string;
+  sessionId: string | null;
+}
+
+/**
+ * True when both sides describe one observed session. An unobserved root id
+ * (`null`) is unknown rather than different — the bridge is allowed to learn
+ * it later, and main re-validates the identity it was handed before it touches
+ * the registry, so the renderer never invents a mismatch out of a gap.
+ */
+function sameRosterIdentity(a: RosterIdentity, b: RosterIdentity): boolean {
+  return (
+    a.processKey === b.processKey &&
+    (a.sessionId === null || b.sessionId === null || a.sessionId === b.sessionId)
+  );
+}
+
+/** True when the published Tools section itself reports the membership. */
+function reportsMembership(
+  roster: CapabilitySnapshot | null,
+  name: string,
+  enabled: boolean,
+): boolean {
+  if (roster === null || roster.tools.status !== "available") return false;
+  return roster.tools.items.some(
+    (tool) => tool.name === name && tool.enabled === enabled,
+  );
+}
+
+/**
+ * The one acceptance rule for a complete capability snapshot (#379), shared by
+ * the `setStatus` push path and by an `applied` mutation result so the two can
+ * never disagree about which roster a tab shows: a same-process snapshot
+ * replaces the roster only when its revision is strictly newer, a new process
+ * always wins, and the roster is replaced wholesale — skills and tools come
+ * and go between publishes, so a merge would resurrect what omp dropped, and a
+ * single patched row would claim a change OMP never confirmed. It is data,
+ * never a transcript row, chip, or dialog entry.
+ *
+ * A different process or a different root session is a different runtime: this
+ * tab's tool-mutation state retires with it, because whatever was pending or
+ * refused describes a session that no longer exists. Returns false when the
+ * snapshot is older than what the tab already retains, which is how an
+ * out-of-order `applied` result is kept from retargeting the tab.
+ */
+export function acceptCapabilitySnapshot(
+  tabId: string,
+  snapshot: CapabilitySnapshot,
+  get: GetState,
+  m: StoreMachinery,
+): boolean {
+  const retained = get().rpc[tabId]?.capabilities ?? null;
+  if (
+    retained !== null &&
+    retained.processKey === snapshot.processKey &&
+    snapshot.revision <= retained.revision
+  )
+    return false;
+  const replacement =
+    retained !== null && !sameRosterIdentity(retained, snapshot);
+  m.patchRpc(
+    tabId,
+    replacement
+      ? {
+          capabilities: snapshot,
+          capabilitiesLoad: "available",
+          capabilitiesToolPending: null,
+          capabilitiesToolFeedback: null,
+        }
+      : { capabilities: snapshot, capabilitiesLoad: "available" },
+  );
+  // The roster owns the tab now; an in-flight getSessionCapabilities read must
+  // not overwrite it (#374).
+  bumpCapabilitiesGeneration(m, tabId);
+  return true;
 }
 
 export interface RpcCommandDeps extends Watchers {
@@ -316,12 +410,16 @@ export function disposeTabRuntime(
 ): void {
   deps.concern.cancel(tabId);
   deps.advisorReply.cancel(tabId);
-  deps.stall.cancel(tabId);
   // The roster belongs to the dying process, not to whatever session reuses
   // this tab id: retire it, and retire its observation token so a read that
   // is still in flight can never publish it into the next lifetime (#374).
-  m.patchRpc(tabId, { capabilities: null, capabilitiesLoad: "idle" });
-  bumpCapabilitiesGeneration(m, tabId);
+  // So does any tool mutation: its answer belongs to the dead runtime (#379).
+  m.patchRpc(tabId, {
+    capabilities: null,
+    capabilitiesLoad: "idle",
+    capabilitiesToolPending: null,
+    capabilitiesToolFeedback: null,
+  });
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);
 }
@@ -362,6 +460,8 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     mcpStatus: null,
     capabilities: null,
     capabilitiesLoad: "idle",
+    capabilitiesToolPending: null,
+    capabilitiesToolFeedback: null,
     advisorReply,
   };
 }
@@ -708,8 +808,116 @@ export function createRpcCommandSlice(
       });
       return;
     }
-    // An unavailable session has no roster to show — never a stale one.
-    m.patchRpc(tabId, { capabilities: null, capabilitiesLoad: result.status });
+    // An unavailable session has no roster to show — never a stale one, and
+    // never a mutation record for a session that stopped answering (#379).
+    m.patchRpc(tabId, {
+      capabilities: null,
+      capabilitiesLoad: result.status,
+      capabilitiesToolPending: null,
+      capabilitiesToolFeedback: null,
+    });
+  };
+
+  /**
+   * Session-local enable/disable of one registered tool (issue #379). The
+   * change is OMP runtime state only — no config write, no restart, no prompt —
+   * and the published roster is the only thing allowed to confirm it: this
+   * action never patches a single row, and an answer that arrives after the
+   * process or session moved on retires instead of retargeting the tab.
+   */
+  const setSessionToolEnabled = async (
+    tabId: string,
+    name: string,
+    enabled: boolean,
+  ): Promise<SetSessionToolEnabledResult> => {
+    const tab = get().rpc[tabId];
+    if (tab === undefined) return { status: "missing-session" };
+    const observed = tab.capabilities;
+    // The roster is the only session identity this tab has observed, so
+    // without one there is nothing to bind the request to; a legacy bridge
+    // that publishes no tool control is never probed at all.
+    if (observed === null) return { status: "bridge-unavailable" };
+    if (observed.toolControl !== "available") return { status: "unsupported" };
+    const attempt: CapabilitiesToolPending = {
+      name,
+      enabled,
+      processKey: observed.processKey,
+      sessionId: observed.sessionId,
+    };
+    // One mutation per live session at a time, guarded in the store rather
+    // than in React: the modal can close and reopen over the same session, and
+    // a second deliberate click must never reach the runtime twice.
+    const pending = tab.capabilitiesToolPending ?? null;
+    if (pending !== null && sameRosterIdentity(pending, attempt))
+      return { status: "busy" };
+    m.patchRpc(tabId, {
+      capabilitiesToolPending: attempt,
+      capabilitiesToolFeedback: null,
+    });
+    let result: SetSessionToolEnabledResult;
+    try {
+      result = await backend.setSessionToolEnabled(
+        tabId,
+        attempt.processKey,
+        attempt.sessionId,
+        name,
+        enabled,
+      );
+    } catch (err) {
+      // The channel never rejects by contract, so a rejection is a lost reply:
+      // the change may or may not have landed. That is "could not confirm",
+      // and it is never reported as a failure that left everything alone.
+      console.warn("[capabilities] setSessionToolEnabled failed:", err);
+      result = { status: "unconfirmed" };
+    }
+    // Our attempt must still own the pending slot. Process replacement, a root
+    // session change, and teardown all clear it, so a late answer for a
+    // retired session writes nothing here.
+    const oursNow = (): boolean => {
+      const record = get().rpc[tabId]?.capabilitiesToolPending ?? null;
+      return (
+        record !== null &&
+        record.name === attempt.name &&
+        record.enabled === attempt.enabled &&
+        sameRosterIdentity(record, attempt)
+      );
+    };
+    if (!oursNow()) return { status: "stale" };
+    try {
+      if (result.status !== "applied") {
+        m.patchRpc(tabId, {
+          capabilitiesToolFeedback: { name, enabled, status: result.status },
+        });
+        return result;
+      }
+      const reply = result.snapshot;
+      if (!sameRosterIdentity(reply, attempt)) {
+        // An "applied" answer about a different runtime is not this session's
+        // answer, whatever it carries.
+        m.patchRpc(tabId, {
+          capabilitiesToolFeedback: { name, enabled, status: "stale" },
+        });
+        return { status: "stale" };
+      }
+      // The completion force-publishes first — which bumps the observation
+      // generation, so that token is deliberately NOT consulted here — and the
+      // shared acceptance rule then decides by revision which roster this tab
+      // shows. Either way the published membership is the confirmation the
+      // switch may show; the reply's word alone never is.
+      const accepted = acceptCapabilitySnapshot(tabId, reply, get, m);
+      const roster = get().rpc[tabId]?.capabilities ?? null;
+      const confirmed = accepted || reportsMembership(roster, name, enabled);
+      m.patchRpc(tabId, {
+        capabilitiesToolFeedback: confirmed
+          ? null
+          : { name, enabled, status: "not-applied" },
+      });
+      return confirmed
+        ? { status: "applied", snapshot: roster ?? reply }
+        : { status: "not-applied" };
+    } finally {
+      if (oursNow()) m.patchRpc(tabId, { capabilitiesToolPending: null });
+    }
   };
 
   return {
@@ -719,5 +927,6 @@ export function createRpcCommandSlice(
     rpcCommand,
     setInitialPrompt,
     renameSession,
+    setSessionToolEnabled,
   };
 }

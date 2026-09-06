@@ -44,11 +44,14 @@ export function planExtensionPath(lineageDir: string): string {
  * delivered per-lineage next to the transcript, and because the constants above
  * are the wire contract — they must not drift between the two sides.
  *
- * Two `AgentSession.prototype` methods are patched. `prompt` captures the live
- * session: omp's `ExtensionContext` exposes `sessionManager` (a
- * `ReadonlySessionManager` whose 20 picked methods contain no plan API) but
- * never the `AgentSession`. `getPlanModeState` is wrapped so that, while the
- * mode is on, omp's own plan-mode write guard sees plan mode — without omp's
+ * Two `AgentSession.prototype` methods are patched. `prompt` binds the FIRST
+ * prompting session as the root: omp's `ExtensionContext` exposes
+ * `sessionManager` (a `ReadonlySessionManager` whose 20 picked methods contain
+ * no plan API) but never the `AgentSession`, and the `registerCommand` handler's
+ * `this` is not a session either, so the prompt wrapper is the only correct
+ * binding (ADR-0008 discipline: descendants never retarget the root).
+ * `getPlanModeState` is wrapped so that, while the mode is on, omp's own
+ * plan-mode write guard sees plan mode for every session — without omp's
  * per-turn plan-authoring mandate, which omp injects off a private field no
  * caller can reach, so arming real state would drag the mandate back in
  * (ADR-0013).
@@ -68,6 +71,9 @@ const REVIEW_SENTINEL = ${JSON.stringify(PLAN_REVIEW_SENTINEL)};
 const COMMAND = ${JSON.stringify(PLAN_COMMAND)};
 const EXECUTE = ${JSON.stringify(PLAN_EXECUTE)};
 const REFINE = ${JSON.stringify(PLAN_REFINE)};
+
+/** The single tool name plan mode borrows so the plan file can be written. */
+const WRITE_TOOL = "write";
 
 /**
  * Sent hidden when plan mode is entered, in place of omp's own per-turn
@@ -213,6 +219,8 @@ interface PlanSession {
   sessionManager: {
     getArtifactsDir?: () => string | null;
     appendModeChange: (mode: string, data?: { planFilePath: string }) => void;
+    /** Which session the root currently is; the ownership token's subject. */
+    getSessionId?: () => unknown;
   };
   getPlanModeState: () => PlanModeState | undefined;
   setPlanModeState: (
@@ -222,8 +230,30 @@ interface PlanSession {
   setPlanReferencePath: (path: string) => void;
   setPlanProposalHandler: (handler: ((title: string) => Promise<ToolResult>) | null) => void;
   preparePlanForReview: (title: string) => Promise<ToolResult>;
-  setActiveToolsByName: (names: string[]) => Promise<void>;
+  /** Legacy apply path; the presentation setter below is used when present. */
+  setActiveToolsByName?: (names: string[]) => Promise<void>;
+  /**
+   * omp's presentation-aware apply path — the same call the capabilities bridge
+   * applies with, so a plan transition and a tool toggle agree on which mounted
+   * tools survive the write. Optional: an omp without it falls back to
+   * \`setActiveToolsByName\`.
+   */
+  setActiveToolPresentation?: (
+    enabled: string[],
+    mounted: string[],
+    forcePromptRefresh?: boolean,
+  ) => unknown;
   getEnabledToolNames: () => string[];
+  /** Mounted xd:// names; absent on an omp with no xdev surface. */
+  getMountedXdevToolNames?: () => unknown;
+  /** Every tool the session knows, enabled or not: the roster \`write\` is checked in. */
+  getAllToolInfos?: () => unknown;
+  /**
+   * omp's re-entrant registry queue. The capabilities bridge serializes its
+   * toggles on it, so a plan transition joins the same queue when the runtime
+   * exposes one; its absence never blocks a transition.
+   */
+  runToolRegistryMutation?: (work: () => Promise<unknown>, signal?: unknown) => unknown;
   hasBuiltInTool?: (name: string) => boolean;
   /**
    * Delivers a hidden instruction into the conversation. Unsupported surface
@@ -260,13 +290,22 @@ interface PlanExtensionApi {
 }
 
 export default function (pi: PlanExtensionApi) {
-  let session: PlanSession | null = null;
+  // The first prompting AgentSession. Every command operation runs on it, and
+  // no later prompt — descendant or not — may retarget it (ADR-0008 discipline).
+  let rootSession: PlanSession | null = null;
   let unavailable: string | undefined;
   let approved = false;
   // Which format the renderer asked for on the last \`on\`. A bare \`on\` typed by
   // hand keeps markdown — the renderer always sends the format explicitly.
   let format: "html" | "md" = "md";
-  let previousTools: string[] | undefined;
+  // Ownership of the one roster change plan mode makes, not a saved roster:
+  // true only while THIS mode span added \`write\` to a roster that lacked it,
+  // tagged with the session id whose roster was borrowed. Nothing else about
+  // the user's tools is remembered, so a toggle made during Plan mode survives
+  // the exit in both directions and a new session never has its own \`write\`
+  // taken away as though this extension had added it.
+  let tempWriteAdded = false;
+  let tempWriteSessionId: string | null = null;
   let ui: PlanUi | null = null;
   // Plan mode's on/off flag. Named for what it enforces: while set, the
   // getPlanModeState wrapper below fakes enabled state so omp's own write
@@ -281,7 +320,9 @@ export default function (pi: PlanExtensionApi) {
   // through this, so the extension never sees its own fake.
   let realGetPlanModeState: ((this: PlanSession) => PlanModeState | undefined) | null = null;
 
-  // Capture the live AgentSession. omp hands extensions no reference to it.
+  // Bind the root AgentSession. omp hands extensions no reference to it, and
+  // the command handler's \`this\` is not the session either, so the prototype
+  // prompt wrapper is the only correct place to capture it — first prompt wins.
   try {
     const prototype = pi.pi?.AgentSession?.prototype;
     const originalPrompt = prototype?.prompt;
@@ -290,7 +331,9 @@ export default function (pi: PlanExtensionApi) {
     } else {
       const call = originalPrompt as (this: PlanSession, ...a: unknown[]) => unknown;
       prototype.prompt = function (this: PlanSession, ...args: unknown[]): unknown {
-        session = this;
+        // Assign once: a subagent or branch session prompting must not move the
+        // object every entry/exit transaction runs on.
+        if (rootSession === null) rootSession = this;
         return call.apply(this, args);
       };
     }
@@ -331,23 +374,28 @@ export default function (pi: PlanExtensionApi) {
     "setPlanReferencePath",
     "setPlanProposalHandler",
     "preparePlanForReview",
-    "setActiveToolsByName",
     "getEnabledToolNames",
   ] as const;
 
   /** Null when the session is usable; otherwise the reason it is not. */
   function unusable(): string | undefined {
     if (unavailable) return unavailable;
-    const active = session;
+    const active = rootSession;
     if (!active) return "no active omp session";
     const missing = REQUIRED.filter(name => typeof active[name] !== "function");
-    return missing.length > 0 ? "omp session is missing: " + missing.join(", ") : undefined;
+    if (missing.length > 0) return "omp session is missing: " + missing.join(", ");
+    // At least one apply path must exist; either one is enough to borrow write.
+    if (typeof active.setActiveToolPresentation !== "function" &&
+      typeof active.setActiveToolsByName !== "function") {
+      return "omp session is missing: setActiveToolPresentation, setActiveToolsByName";
+    }
+    return undefined;
   }
 
   /** \`local://x.md\` -> absolute path under the session's artifact sandbox. */
   function absolutePlanPath(planFilePath: string | null): string | null {
     if (!planFilePath) return null;
-    const artifactsDir = session?.sessionManager?.getArtifactsDir?.();
+    const artifactsDir = rootSession?.sessionManager?.getArtifactsDir?.();
     if (!artifactsDir) return null;
     const match = /^local:\\/{0,2}(.+)$/.exec(planFilePath);
     if (!match) return null;
@@ -381,7 +429,7 @@ export default function (pi: PlanExtensionApi) {
 
   /** The session's local:// root, or null when omp exposes no artifacts dir. */
   function localRoot(): string | null {
-    const artifactsDir = session?.sessionManager?.getArtifactsDir?.();
+    const artifactsDir = rootSession?.sessionManager?.getArtifactsDir?.();
     return artifactsDir ? nodePath.resolve(artifactsDir, "local") : null;
   }
 
@@ -446,7 +494,7 @@ export default function (pi: PlanExtensionApi) {
 
   function publish(): void {
     if (!ui) return;
-    const active = session;
+    const active = rootSession;
     const state = active && realGetPlanModeState ? realGetPlanModeState.call(active) : undefined;
     const enabled = state?.enabled === true || readOnly;
     // \`||\`, not \`??\`: getPlanReferencePath returns "" when no plan is pinned,
@@ -464,17 +512,164 @@ export default function (pi: PlanExtensionApi) {
     ui.setStatus(STATUS_KEY, JSON.stringify(status));
   }
 
+  function isString(value: unknown): value is string {
+    return typeof value === "string";
+  }
+
+  /** The session id omp reports, or null when omp does not say. */
+  function sessionIdOf(active: PlanSession | null): string | null {
+    const manager = active?.sessionManager;
+    const read = manager?.getSessionId;
+    if (typeof read !== "function") return null;
+    try {
+      const id = read.call(manager);
+      return typeof id === "string" && id.length > 0 ? id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Run \`work\` on the runtime queue the capabilities bridge uses to serialize
+   * tool toggles, so a plan transition and a toggle cannot interleave a read
+   * with someone else's write. An omp with no queue applies directly — the
+   * queue is interop, not a requirement. omp may swallow a handler error inside
+   * the queue, so the failure travels out in a closure rather than being
+   * trusted from the queue's own resolution.
+   */
+  async function routeQueue(active: PlanSession, work: () => Promise<void>): Promise<void> {
+    const run = active.runToolRegistryMutation;
+    if (typeof run !== "function") {
+      await work();
+      return;
+    }
+    let ran = false;
+    // A box, not a bare \`unknown\`: "nothing thrown" and "thrown undefined" differ.
+    let failure: { error: unknown } | null = null;
+    try {
+      await run.call(active, async () => {
+        ran = true;
+        try {
+          await work();
+        } catch (err) {
+          failure = { error: err };
+        }
+      });
+    } catch (err) {
+      // omp may swallow a work error inside the queue; when the work never even
+      // ran, the queue's own rejection is the failure to report.
+      if (!ran) failure = { error: err };
+    }
+    if (failure !== null) throw failure.error;
+    // Silence with no work is its own failure: a transition must never report a
+    // tool change the queue never made.
+    if (!ran) throw new Error("omp's tool registry queue never ran the transition");
+  }
+
+  /**
+   * The enabled roster as of right now. A roster that is not an array is an
+   * error, never an empty list: guessing one would drop every other tool.
+   */
+  function readEnabled(active: PlanSession): string[] {
+    const names = active.getEnabledToolNames() as unknown;
+    if (!Array.isArray(names)) throw new Error("getEnabledToolNames answered with no roster");
+    return (names as unknown[]).filter(isString);
+  }
+
+  /** Mounted xd:// names; an omp with no xdev surface mounts nothing. */
+  function readMounted(active: PlanSession): string[] {
+    const read = active.getMountedXdevToolNames;
+    if (typeof read !== "function") return [];
+    const names = read.call(active) as unknown;
+    return Array.isArray(names) ? (names as unknown[]).filter(isString) : [];
+  }
+
+  /** Whether the roster knows a write tool at all; unknown counts as no. */
+  function writeInRoster(active: PlanSession): boolean {
+    const list = active.getAllToolInfos;
+    if (typeof list === "function") {
+      try {
+        const infos = list.call(active) as unknown;
+        if (Array.isArray(infos)) {
+          return (infos as unknown[]).some(info => info !== null && typeof info === "object" &&
+            !Array.isArray(info) && (info as Record<string, unknown>).name === WRITE_TOOL);
+        }
+      } catch {
+        /* fall through to the older probe */
+      }
+    }
+    const builtin = active.hasBuiltInTool;
+    if (typeof builtin !== "function") return false;
+    try {
+      return builtin.call(active, WRITE_TOOL) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Hand a freshly computed roster to omp: the presentation setter when the
+   * runtime has one — the same call the capabilities bridge applies with, which
+   * is why the mounted list it gets is the intersection, not the old mounts —
+   * and the by-name setter on an omp that predates it.
+   */
+  async function applyTools(
+    active: PlanSession,
+    nextEnabled: string[],
+    currentMounted: string[],
+  ): Promise<void> {
+    const present = active.setActiveToolPresentation;
+    if (typeof present === "function") {
+      const mounted = currentMounted.filter(name => nextEnabled.indexOf(name) >= 0);
+      await Promise.resolve(present.call(active, nextEnabled, mounted, false));
+      return;
+    }
+    const byName = active.setActiveToolsByName;
+    if (typeof byName !== "function") throw new Error("this omp session can apply no tool roster");
+    await byName.call(active, nextEnabled);
+  }
+
+  /**
+   * Leave plan mode. The only roster change is handing back the write tool this
+   * span borrowed, and only while that ownership is still live. A session id
+   * change drops the ownership first: the session that borrowed write is gone,
+   * its roster went with it, and the current session's own \`write\` — which it
+   * may well have had from the start — must never be removed on its behalf, just
+   * as no roster from the old session is ever replayed onto the new one.
+   * A failed removal aborts the teardown instead of half-finishing it: the
+   * guard, the ownership, and the proposal handler all stay so the mode remains
+   * coherent and the exit can be retried.
+   */
   async function exitPlanMode(
     active: PlanSession,
     options?: { announce?: boolean },
   ): Promise<void> {
+    if (tempWriteAdded) {
+      await routeQueue(active, async () => {
+        if (!tempWriteAdded) return;
+        if (sessionIdOf(active) !== tempWriteSessionId) {
+          tempWriteAdded = false;
+          tempWriteSessionId = null;
+          return;
+        }
+        const enabled = readEnabled(active);
+        // Already gone (the user turned it off during Plan): nothing changed,
+        // so nothing is applied.
+        if (enabled.indexOf(WRITE_TOOL) < 0) {
+          tempWriteAdded = false;
+          tempWriteSessionId = null;
+          return;
+        }
+        await applyTools(active, enabled.filter(name => name !== WRITE_TOOL), readMounted(active));
+        tempWriteAdded = false;
+        tempWriteSessionId = null;
+      });
+    }
     active.setPlanProposalHandler(null);
     // Defensive no-op: this extension never sets real plan state, but an
     // omp-internal path might have, and that would outlive the flag below.
     active.setPlanModeState(undefined);
     readOnly = false;
-    if (previousTools) await active.setActiveToolsByName(previousTools);
-    previousTools = undefined;
     active.sessionManager.appendModeChange("none");
     // The execute path answers the agent with a ToolResult that already says
     // plan mode exited, and the agent is blocked mid-turn inside its own
@@ -594,13 +789,21 @@ export default function (pi: PlanExtensionApi) {
 
   async function enterPlanMode(active: PlanSession): Promise<void> {
     const planFilePath = active.getPlanReferencePath() || "local://PLAN.md";
-    previousTools = active.getEnabledToolNames();
-    // write stays active: plan mode's read-only guarantee is enforced by omp's
-    // own plan-mode write guard, and the plan file itself needs writing.
-    const tools = active.hasBuiltInTool?.("write")
-      ? [...new Set([...previousTools, "write"])]
-      : previousTools;
-    await active.setActiveToolsByName(tools);
+    // A fresh span owns nothing yet, whatever an unfinished earlier span left.
+    tempWriteAdded = false;
+    tempWriteSessionId = null;
+    // \`write\` is not the guard — omp's own plan-mode write guard is — but the
+    // plan file still has to be writable, so the mode borrows that one tool name
+    // from the roster exactly as it reads right now. No roster is snapshotted:
+    // every other name belongs to the user and to the capabilities bridge.
+    await routeQueue(active, async () => {
+      const enabled = readEnabled(active);
+      if (enabled.indexOf(WRITE_TOOL) >= 0) return;
+      if (!writeInRoster(active)) return;
+      await applyTools(active, enabled.concat(WRITE_TOOL), readMounted(active));
+      tempWriteAdded = true;
+      tempWriteSessionId = sessionIdOf(active);
+    });
     readOnly = true;
     active.setPlanProposalHandler(title => {
       const dialog = ui;
@@ -677,7 +880,7 @@ export default function (pi: PlanExtensionApi) {
 
   // omp dispatches each /omp-ui-plan through AgentSession.prototype.prompt without
   // waiting for the previous one, so two quick toggles interleave: an "off" that
-  // lands while "on" is awaiting setActiveToolsByName reads a still-false readOnly,
+  // lands while "on" is awaiting its tool apply reads a still-false readOnly,
   // decides it is a no-op, publishes enabled:false while the mode arms behind it,
   // and is swallowed (issue #118). One chain keeps transitions in arrival order.
   let chain: Promise<void> = Promise.resolve();
@@ -698,7 +901,7 @@ export default function (pi: PlanExtensionApi) {
       serialize(async () => {
         ui = ctx.ui;
         const reason = unusable();
-        const active = session;
+        const active = rootSession;
         if (reason || !active) {
           publish();
           ctx.ui.notify("Plan mode unavailable: " + (reason ?? "no active omp session"), "error");

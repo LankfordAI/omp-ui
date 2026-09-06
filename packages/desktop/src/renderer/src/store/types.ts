@@ -29,6 +29,7 @@ import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type {
   CapabilitySectionId,
   CapabilitySnapshot,
+  SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
@@ -80,6 +81,36 @@ export interface PlanRecord {
   title: string;
   /** `pending` while the agent waits on a verdict; settles on the others. */
   status: "pending" | "executed" | "refined";
+}
+
+/**
+ * One tool enable/disable this session has in flight (issue #379). The roster
+ * identity travels with the attempt: it is what lets a late answer be judged
+ * as belonging to this observation or to one that has already been retired.
+ */
+export interface CapabilitiesToolPending {
+  /** Exact registry name, as the published roster reports it. */
+  name: string;
+  /** The membership the user asked for. */
+  enabled: boolean;
+  processKey: string;
+  sessionId: string | null;
+}
+
+/**
+ * Why the last mutation this tab attempted did not land (issue #379). Every
+ * non-`applied` branch of the bridge's reply, so the viewer can name the one
+ * lever that actually applies.
+ */
+export type CapabilitiesToolFeedbackStatus = Exclude<
+  SetSessionToolEnabledResult["status"],
+  "applied"
+>;
+
+export interface CapabilitiesToolFeedback {
+  name: string;
+  enabled: boolean;
+  status: CapabilitiesToolFeedbackStatus;
 }
 
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
@@ -145,6 +176,21 @@ export interface RpcTabState {
     | "not-live"
     | "missing-session"
     | "error";
+  /**
+   * The one tool enable/disable this session has in flight, recorded against
+   * the roster identity it was issued from; null when idle (issue #379). It
+   * lives in the tab, not in the viewer, so closing and reopening the modal
+   * cannot issue a second mutation for the same session, and so a result that
+   * arrives after the process or session moved on can be recognised as late.
+   */
+  capabilitiesToolPending?: CapabilitiesToolPending | null;
+  /**
+   * The outcome of the last mutation this tab attempted that did NOT land,
+   * kept for the Tools tab's live region (issue #379). `applied` is absent by
+   * construction: a confirmed change is told by the roster itself, never by a
+   * duplicated flag.
+   */
+  capabilitiesToolFeedback?: CapabilitiesToolFeedback | null;
   advisorReply: boolean;
 }
 
@@ -413,6 +459,18 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   refreshAvailableModels(tabId: string): Promise<void>;
   /** Reads the live session's capability roster through the backend getter. */
   refreshCapabilities(tabId: string): Promise<void>;
+  /**
+   * Session-local enable/disable of one registered tool in the pinned live
+   * native session (issue #379): OMP runtime state only — no config write, no
+   * restart, no prompt. Resolves with the bridge's own outcome and never
+   * throws; the published roster stays authoritative for what the switch
+   * shows, so a refusal or an unconfirmed answer leaves it untouched.
+   */
+  setSessionToolEnabled(
+    tabId: string,
+    name: string,
+    enabled: boolean,
+  ): Promise<SetSessionToolEnabledResult>;
 
   rpcCommand(
     tabId: string,

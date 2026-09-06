@@ -6,6 +6,7 @@ import {
   addWorktree,
   base64Bytes,
   bracketedImagePaste,
+  capabilityToolMutationMessage,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
@@ -35,7 +36,9 @@ import {
   type OwnedSessionRecord,
   type RpcFrame,
   type ResumeSpawnRequest,
+  type CapabilityToolMutationRequest,
   type SessionCapabilitiesResult,
+  type SetSessionToolEnabledResult,
   type SessionMode,
   type SessionWorktree,
   type SpawnRequest,
@@ -51,6 +54,7 @@ import {
   wireRpc,
 } from "./live-entry";
 import { HibernationTracker } from "./hibernation-tracker";
+import { CapabilityControlTracker } from "./capability-control-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
@@ -62,6 +66,9 @@ import { gateSelector, NO_GATE, type SpawnGate } from "./spawn-gate";
 
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
+
+/** How long a tool toggle waits for its correlated completion before `unconfirmed`. */
+const TOOL_MUTATION_TTL_MS = 30_000;
 
 const NOOP_DETACH_PTY_DATA = (): void => {};
 
@@ -92,7 +99,8 @@ export interface SessionManagerDependencies {
   spawnGate?: SpawnGate;
 }
 
-type OpKind = "spawn" | "delete" | "hibernate" | "relaunch";
+/** `tool`: a session-local tool enable/disable holding the tab while it waits. */
+type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "tool";
 
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -105,6 +113,7 @@ export class SessionManager {
   private readonly frameObservers: FrameObserver[] = [];
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
+  private readonly toolControl: CapabilityControlTracker;
   private readonly gate: SpawnGate;
 
   constructor(private readonly deps: SessionManagerDependencies) {
@@ -147,7 +156,11 @@ export class SessionManager {
       liveEntries: () => this.live,
       awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
     });
-    this.frameObservers = [this.hibernation, this.planGates, this.stallWatchdog];
+    this.toolControl = new CapabilityControlTracker({
+      registry: deps.registry,
+      getLive: (tabId) => this.live.get(tabId),
+    });
+    this.frameObservers = [this.hibernation, this.planGates, this.stallWatchdog, this.toolControl];
   }
 
   get liveCount(): number {
@@ -181,6 +194,7 @@ export class SessionManager {
     this.watcherHub.disposeAll();
     this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
+    this.toolControl.disposeAll();
   }
 
   private killLive(entry: LiveEntry): void {
@@ -554,9 +568,11 @@ export class SessionManager {
           // A malformed roster never masquerades as an empty one: drop it and
           // keep the last good snapshot the bridge published.
           if (snapshot === null) return;
-          entry.capabilities = snapshot;
-          // A killed spawn must not publish into its successor's tab.
+          // A killed spawn must not publish into its successor's tab: identity
+          // is decided before any capability state is accepted.
           if (this.live.get(record.tabId) !== entry) return;
+          entry.capabilities = snapshot;
+          this.toolControl.observe(record.tabId, snapshot, entry);
         }
         for (const obs of this.frameObservers) obs.onFrame(record.tabId, frame, entry);
         this.deps.send(CH.onRpcFrame, record.tabId, frame);
@@ -617,6 +633,77 @@ export class SessionManager {
     if (!entry.capabilitiesBridgeLoaded) return { status: "bridge-unavailable" };
     if (entry.capabilities === null) return { status: "starting" };
     return { status: "available", snapshot: entry.capabilities };
+  }
+
+  /**
+   * The capabilities viewer's tool toggle (issue #379): one deliberate
+   * enable/disable of one registered tool inside one pinned live session. It
+   * writes no config, restarts nothing, and prompts the model never — OMP's
+   * published snapshot is the only authority on whether it landed.
+   *
+   * The lifecycle verdicts mirror {@link getSessionCapabilities}, and the
+   * identity check is stricter than the read path: `processKey`/`sessionId` are
+   * what the viewer saw, so a successor under the same tabId answers `stale`
+   * instead of quietly mutating the new process.
+   */
+  async setSessionToolEnabled(
+    tabId: string,
+    processKey: string,
+    sessionId: string | null,
+    name: string,
+    enabled: boolean,
+  ): Promise<SetSessionToolEnabledResult> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return { status: "missing-session" };
+    const entry = this.live.get(tabId);
+    if (!entry) return { status: "not-live" };
+    if (entry.kind === "pty") return { status: "terminal" };
+    if (entry.rpc === null) return { status: "not-live" };
+    if (!entry.capabilitiesBridgeLoaded) return { status: "bridge-unavailable" };
+    const snapshot = entry.capabilities;
+    if (snapshot === null) return { status: "starting" };
+    if (snapshot.processKey !== processKey || snapshot.sessionId !== sessionId) {
+      return { status: "stale" };
+    }
+    // Refused outright, never queued: a toggle that fires behind a running
+    // turn, an unanswered question, or another operation could land in a state
+    // nobody asked about. The same holds for a second concurrent toggle.
+    if (this.toolControl.isPending(tabId)) return { status: "busy" };
+    if (this.turns.isRunning(tabId)) return { status: "busy" };
+    if (this.awaitingHumanAnswer(tabId)) return { status: "busy" };
+    if (this.pendingOp(tabId)) return { status: "busy" };
+
+    const request: CapabilityToolMutationRequest = {
+      id: randomUUID(),
+      processKey: snapshot.processKey,
+      sessionId: snapshot.sessionId,
+      name,
+      enabled,
+      expiresAt: Date.now() + TOOL_MUTATION_TTL_MS,
+    };
+    // The op is registered before the frame leaves and held until the wait
+    // settles, so any lifecycle op requested afterwards serializes behind it.
+    return this.enqueueOp(
+      tabId,
+      "tool",
+      () =>
+        new Promise<SetSessionToolEnabledResult>((resolve) => {
+          this.toolControl.track(tabId, request, entry, (result) => {
+            // Identity is re-checked on the one success path: OMP's snapshot,
+            // not our optimism, is what proves the toggle landed.
+            if (result.status === "applied" && this.live.get(tabId) !== entry) {
+              resolve({ status: "not-live" });
+              return;
+            }
+            resolve(result);
+          });
+          this.rpcSend(tabId, {
+            type: "prompt",
+            id: `omp-ui-capabilities-tool-${randomUUID()}`,
+            message: capabilityToolMutationMessage(request),
+          });
+        }),
+    );
   }
 
   async restart(tabId: string): Promise<void> {
@@ -905,6 +992,7 @@ export class SessionManager {
     if (entry) await this.killAndReap(tabId, entry);
     this.stallWatchdog.dispose(tabId);
     this.hibernation.dispose(tabId);
+    this.toolControl.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     try {

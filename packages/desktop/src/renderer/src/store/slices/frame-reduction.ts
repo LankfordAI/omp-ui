@@ -42,7 +42,7 @@ import {
   type AgentEventEffect,
 } from "./reduce-agent-event";
 import {
-  bumpCapabilitiesGeneration,
+  acceptCapabilitySnapshot,
   disposeTabRuntime,
   noteCapabilitiesSessionChange,
   rpcCommandMachinery,
@@ -575,23 +575,10 @@ export function createFrameReductionSlice(
             const snapshot = parseCapabilitySnapshot(entry.text);
             // Malformed JSON never replaces a good roster with an empty one.
             if (snapshot === null) return;
-            const retained = tab.capabilities;
-            if (
-              retained !== null &&
-              retained.processKey === snapshot.processKey &&
-              snapshot.revision <= retained.revision
-            )
-              return;
-            // The roster replaces wholesale: skills and tools come and go
-            // between publishes, so a merge would resurrect what omp dropped.
-            // It is data, never a transcript row, chip, or dialog entry.
-            m.patchRpc(tabId, {
-              capabilities: snapshot,
-              capabilitiesLoad: "available",
-            });
-            // The push owns the roster now; an in-flight
-            // getSessionCapabilities read must not overwrite it (#374).
-            bumpCapabilitiesGeneration(m, tabId);
+            // The one acceptance rule, shared with the applied-mutation result
+            // path so a push and a reply can never disagree about which roster
+            // this tab shows (#379; the read race is #374's).
+            acceptCapabilitySnapshot(tabId, snapshot, get, m);
             return;
           }
           const action = routeExtensionRequest(frame);

@@ -4,7 +4,9 @@ import {
   CAPABILITY_DESCRIPTION_LIMIT,
   CAPABILITY_STATUS_BYTE_LIMIT,
   capabilitiesMessage,
+  capabilityToolMutationMessage,
   parseCapabilitySnapshot,
+  parseCapabilityToolMutationRequest,
   type CapabilitySnapshot,
 } from "./capabilities";
 
@@ -49,6 +51,8 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
     skillCommandsEnabled: true,
     skills: { status: "available", items: [skill()] },
     tools: { status: "available", items: [tool()] },
+    toolControl: "available",
+    toolMutation: { id: "mut-1", name: "alpha", enabled: true, status: "applied" },
     ...overrides,
   };
 }
@@ -172,11 +176,86 @@ describe("parseCapabilitySnapshot", () => {
     expect(parseCapabilitySnapshot("[1,2]")).toBeNull();
     expect(parseCapabilitySnapshot('{"version":1}')).toBeNull();
   });
+
+  it("maps a legacy snapshot without control fields to read-only defaults", () => {
+    const legacy = snapshot();
+    delete legacy.toolControl;
+    delete legacy.toolMutation;
+    const parsed = parse(legacy);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toolControl).toBe("unsupported");
+    expect(parsed!.toolMutation).toBeNull();
+  });
+
+  it.each([
+    { toolControl: null },
+    { toolControl: "maybe" },
+    { toolMutation: "applied" },
+    { toolMutation: { id: "", name: "alpha", enabled: true, status: "applied" } },
+    { toolMutation: { id: "m", name: "", enabled: true, status: "applied" } },
+    { toolMutation: { id: "m", name: "alpha", enabled: "yes", status: "applied" } },
+    { toolMutation: { id: "m", name: "alpha", enabled: true, status: "done" } },
+    { toolMutation: { id: "m", name: "alpha", enabled: true } },
+  ])("rejects malformed present control fields %p", (overrides) => {
+    expect(parse(snapshot(overrides))).toBeNull();
+  });
+
+  it("never lets a malformed toolMutation enter the DTO as null", () => {
+    const parsed = parse(snapshot({ toolMutation: null }));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.toolMutation).toBeNull();
+  });
 });
 
 describe("capabilitiesMessage", () => {
   it("is the hidden slash command that arms the bridge", () => {
     expect(capabilitiesMessage()).toBe("/omp-ui-capabilities");
     expect(capabilitiesMessage()).toBe("/" + CAPABILITIES_COMMAND);
+  });
+});
+
+describe("capabilityToolMutationMessage + parse", () => {
+  const request = {
+    id: "req-1",
+    processKey: "proc-1",
+    sessionId: "session-1",
+    name: "web search",
+    enabled: false,
+    expiresAt: 1_725_000_000_000,
+  };
+
+  it("carries the exact JSON payload behind the tool verb", () => {
+    const message = capabilityToolMutationMessage(request);
+    expect(message.startsWith(`/${CAPABILITIES_COMMAND} tool `)).toBe(true);
+    const args = message.slice(1 + CAPABILITIES_COMMAND.length + 1);
+    expect(parseCapabilityToolMutationRequest(args)).toEqual(request);
+  });
+
+  it("keeps the no-args arm path distinct from any mutation verb", () => {
+    expect(capabilitiesMessage()).toBe("/omp-ui-capabilities");
+    expect(parseCapabilityToolMutationRequest("")).toBeNull();
+    expect(parseCapabilityToolMutationRequest("alpha beta")).toBeNull();
+  });
+
+  it("round-trips a null session id and exact punctuation in names", () => {
+    const variant = { ...request, sessionId: null, name: "mcp:server/tool (v2)" };
+    const args = capabilityToolMutationMessage(variant).slice(1 + CAPABILITIES_COMMAND.length + 1);
+    expect(parseCapabilityToolMutationRequest(args)).toEqual(variant);
+  });
+
+  it.each([
+    "tool not-json",
+    "tool {}",
+    `tool ${JSON.stringify({ ...request, extra: 1 })}`,
+    `tool ${JSON.stringify({ ...request, enabled: "true" })}`,
+    `tool ${JSON.stringify({ ...request, id: "" })}`,
+    `tool ${JSON.stringify({ ...request, name: "" })}`,
+    `tool ${JSON.stringify({ ...request, sessionId: 4 })}`,
+    `tool ${JSON.stringify({ ...request, expiresAt: "soon" })}`,
+    `tool ${JSON.stringify({ ...request, expiresAt: Number.NaN })}`,
+    `tool ${JSON.stringify({ ...request, expiresAt: Number.POSITIVE_INFINITY })}`,
+    JSON.stringify(request),
+  ])("rejects malformed mutation args %p", (args) => {
+    expect(parseCapabilityToolMutationRequest(args)).toBeNull();
   });
 });

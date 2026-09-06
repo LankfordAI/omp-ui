@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.9.12](https://github.com/LankfordAI/omp-ui/releases/tag/v0.9.12). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- The **Capabilities viewer**'s **Tools** tab grows an enable/disable switch on every row whose enabled state OMP reports: one click changes that one tool's enabled membership in the pinned live session at runtime — no configuration write, no restart, and no agent turn — and the switch follows the snapshot OMP publishes instead of an optimistic guess. The change is session-local, so restarting or switching sessions resets tool selection, and an OMP settings change or MCP reload may change it again; a toggle is refused while the session is busy rather than queued, and `write` cannot be turned off while **Plan mode** is on, since entering the mode borrows it and exiting returns only that borrowing (issue #379).
 
 ## Choose a download
 

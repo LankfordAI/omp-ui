@@ -34,7 +34,7 @@ import type {
   SpawnRequest,
   WorktreeReleaseResult,
 } from "./types";
-import type { SessionCapabilitiesResult } from "./capabilities";
+import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { RpcFrame } from "./rpc/codec";
 import {
   agentModeCodec,
@@ -535,6 +535,21 @@ export const BACKEND_CHANNELS = {
   getSessionCapabilities: {
     channel: "session:capabilities",
     ...request<[tabId: string], SessionCapabilitiesResult>([str()]),
+  },
+  /**
+   * Session-local enable/disable of one registered tool in a pinned live
+   * native session (issue #379). `processKey`/`sessionId` carry the identity
+   * the renderer observed, and main re-validates them against the live entry;
+   * a stale request is rejected, never redirected to a successor. Never
+   * rejects — the result reports applied+snapshot, a runtime refusal reason,
+   * or an unconfirmed/bridge lifecycle status (issue #374 lineage).
+   */
+  setSessionToolEnabled: {
+    channel: "session:tool-enabled",
+    ...request<
+      [tabId: string, processKey: string, sessionId: string | null, name: string, enabled: boolean],
+      SetSessionToolEnabledResult
+    >([str(), str(), nullable(str()), str(), bool()]),
   },
   /**
    * Project-relative file listing for the composer's @ picker;

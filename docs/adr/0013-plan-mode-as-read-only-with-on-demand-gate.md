@@ -85,6 +85,17 @@ so a delivery failure is silent and the next entry supersedes the stale copy. Th
 execute path is the one exception: its `ToolResult` already tells the agent plan mode
 exited, and the agent is blocked mid-turn inside its own proposal._
 
+_Amended after issue #379: the mode edges no longer snapshot and restore the
+enabled-tool roster. Entering Plan adds `write` only when the user had it off
+and records that borrowing; exiting removes exactly that addition and restores
+nothing else, so every tool the user enabled or disabled in the capabilities
+viewer while the mode was on keeps the state they chose. The borrow and its
+release run on omp's own tool-registry mutation queue — the same queue the
+viewer's switches serialize on — and nothing here touches the
+guard-versus-mandate separation above: `write` being enabled is not a lifted
+guard, because omp's write guard still rejects working-tree writes for as long
+as the mode reports on._
+
 ## Risk
 
 ADR-0007's unsupported-surface note now covers two wrapped prototype methods

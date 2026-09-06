@@ -543,6 +543,13 @@ export class MainBackend {
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),
+        [CH.setSessionToolEnabled]: (
+          tabId: string,
+          processKey: string,
+          sessionId: string | null,
+          name: string,
+          enabled: boolean,
+        ) => this.sessions.setSessionToolEnabled(tabId, processKey, sessionId, name, enabled),
         [CH.listProjectFiles]: (projectCwd: string) => listProjectFiles(projectCwd),
         [CH.resolveFileMentions]: (projectCwd: string, message: string) =>
           resolveFileMentions(projectCwd, message),
