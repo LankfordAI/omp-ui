@@ -717,7 +717,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "palette.action.switchMode": "{mode} 모드로 전환",
   "palette.action.switchModeDesc": "{title} — 프로세스 재시작",
   "palette.action.capabilities": "기능 보기",
-  "palette.action.capabilitiesDesc": "이 세션의 작업 트리에 대한 MCP 서버, 스킬, 도구",
+  "palette.action.capabilitiesDesc": "전역 MCP 서버, 스킬, 도구 설정",
+  "palette.action.capabilitiesSession": "이 세션의 기능",
+  "palette.action.capabilitiesSessionDesc":
+    "이 라이브 세션이 로드한 내용 — 목록, 세션 현지 스위치, MCP 실행 상태",
   "palette.action.checkApp": "업데이트 확인",
   "palette.action.checkAppDesc": "새 omp-ui 릴리스 확인",
   "palette.action.checkOmp": "omp 업데이트 확인",
@@ -767,6 +770,38 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "viewer.header.session": "세션: {title}",
   "viewer.header.globalPath": "전역 MCP 구성",
   "viewer.header.coverage": "스킬과 도구는 선택한 라이브 네이티브 세션에 로드된 목록을 표시하며, 컴퓨터 전체의 기능 카탈로그가 아닙니다. 비활성화되거나 필터링되어 로드되지 않은 스킬 파일은 표시되지 않고, 숨김으로 표시된 스킬도 로드되면 목록에 나타납니다.",
+  "viewer.header.coverageCatalog":
+    "스킬과 도구는 이 범위의 파일과 설정을 표시합니다 — 어떤 세션이 로드했느냐가 아니라 omp가 로드할 수 있는 항목입니다. 세션 기능 보기에서는 라이브 목록을 대신 표시합니다.",
+  "viewer.catalog.loading": "구성 읽는 중…",
+  "viewer.catalog.loadingHint": "이 범위의 파일과 설정 — 세션은 관여하지 않습니다.",
+  "viewer.catalog.error": "이 범위의 구성을 읽을 수 없습니다",
+  "viewer.catalog.masterOff":
+    "이 범위에서 skills.enabled가 꺼져 있어 어떤 루트의 스킬도 로드되지 않습니다; 파일은 계속 표시되며 스위치는 일시 중지됩니다.",
+  "viewer.catalog.bundles":
+    "omp의 번들 스킬은 바이너리에 내장되어 여기에 표시되지 않습니다; 라이브 세션의 목록이 실제로 로드된 항목을 보여줍니다.",
+  "viewer.catalog.truncated": "이 범위는 스캔 한도보다 많은 스킬 파일을 포함합니다 — 목록이 한도에서 중단되었습니다.",
+  "viewer.catalog.roots": "살펴본 위치",
+  "viewer.catalog.rootMissing": "없음",
+  "viewer.catalog.rootGate": "루트 비활성화",
+  "viewer.catalog.coverageSkills":
+    "이 범위의 파일과 설정 — omp가 로드할 수 있는 항목입니다. 세션 탭은 라이브 세션이 실제로 로드한 내용을 표시합니다.",
+  "viewer.catalog.coverageTools":
+    "이 범위의 도구 활성화 설정이며, 이후 시작되는 세션에 적용됩니다. 세션별 스위치는 세션 기능 뷰에 있습니다.",
+  "viewer.catalog.filterIgnored": "무시됨",
+  "viewer.catalog.ignored": "무시됨",
+  "viewer.catalog.disabledInFile": "파일에서 비활성화",
+  "viewer.catalog.ignore": "{name} 무시",
+  "viewer.catalog.unignore": "{name} 무시 해제",
+  "viewer.catalog.ignoreGlobal":
+    "omp 전역 설정의 skills.ignoredSkills를 현재 값에서 다시 씁니다",
+  "viewer.catalog.ignoreProject": "이 프로젝트의 .omp/config.yml에 skills.ignoredSkills를 씁니다",
+  "viewer.catalog.gateEnable": "{name} 뒤의 루트 활성화",
+  "viewer.catalog.gateOffTitle":
+    "{scope} 수준에서 {key}이(가) 꺼져 있습니다; 이 스위치를 켜면 루트의 스킬이 다시 로드됩니다",
+  "viewer.catalog.toolUnknown":
+    "omp가 이 키를 불리언 상태 없이 공개합니다 — 여기서 전환할 항목이 없습니다",
+  "viewer.catalog.toolGlobal": "omp config set으로 설정을 omp 전역 레이어에 씁니다",
+  "viewer.catalog.toolProject": "설정을 이 프로젝트의 .omp/config.yml에 그 자리에서 씁니다",
   "viewer.tab.mcp": "MCP 서버",
   "viewer.tab.skills": "스킬",
   "viewer.tab.tools": "도구",
@@ -1184,6 +1219,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.settings.title": "프로젝트 설정",
   "project.settings.mcpServers": "MCP 서버",
   "project.settings.mcpHint": "변경 사항은 이 프로젝트의 새 세션에 적용됩니다.",
+  "project.settings.skills": "스킬",
+  "project.settings.skillsHint":
+    "이 프로젝트 범위의 파일과 설정 — 스위치는 여기에 .omp/config.yml를 쓰며, 변경 사항은 이후 시작되는 세션에 적용됩니다.",
+  "project.settings.tools": "도구",
+  "project.settings.toolsHint":
+    "이 프로젝트 범위의 도구 활성화 설정이며, 이후 시작되는 세션에 적용됩니다.",
   "project.settings.defaultModels": "기본 모델",
 
   "sidebar.status.workingLabel": "작업 중",

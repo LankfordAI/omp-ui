@@ -354,6 +354,21 @@ describe("writeOmpSetting", () => {
     expect(run.calls).toBe(0);
   });
 
+  it("admits the capability mirror keys — and still refuses strangers", async () => {
+    // The scope catalogs (issue #383) widened the boundary with the skills
+    // and tool-gate keys; everything else must still fail closed.
+    for (const key of ["skills.ignoredSkills", "skills.enablePiProject", "bash.enabled", "security.enabled"]) {
+      const run = fakeRunner({ global: {}, pristine: {} }, null);
+      await writeOmpSetting({ ompPath: OMP, key, value: true }, run);
+      expect(run.calls).toBeGreaterThan(0);
+    }
+    const run = fakeRunner({ global: {}, pristine: {} }, null);
+    await expect(
+      writeOmpSetting({ ompPath: OMP, key: "skills.someFutureKey", value: true }, run),
+    ).rejects.toThrow(/refusing to write unlisted omp setting/);
+    expect(run.calls).toBe(0);
+  });
+
   it("refuses a missing binary without invoking the runner", async () => {
     const run = fakeRunner({ global: {}, pristine: {} }, null);
     await expect(

@@ -13,6 +13,8 @@ HTMLElement.prototype.scrollIntoView = vi.fn();
 const backendMock = {
   getMcpServers: vi.fn(),
   setMcpServerEnabled: vi.fn(),
+  getScopedCapabilities: vi.fn(),
+  setScopedCapability: vi.fn(),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: "omp/advisor" })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
@@ -94,6 +96,23 @@ const project: ProjectRecord = {
   defaultAdvisorModel: "pin/advisor:high",
 };
 
+/** A catalog read with no rows: the sections still render, per #374's rule. */
+const emptyCatalog = () => ({
+  skills: {
+    status: "available" as const,
+    items: [],
+    roots: [],
+    masterEnabled: true,
+    skillCommandsEnabled: true,
+    note: "bundles-not-listed" as const,
+    truncated: false,
+  },
+  tools: { status: "available" as const, items: [] },
+  agentDir: "/home/u/.omp/agent",
+  projectConfigPath: null,
+  ompVersion: "18.1.10",
+});
+
 /** Mirrors App.tsx's mounting: the dialog exists only while the store says so. */
 function Gate() {
   const projectSettings = useStore((s) => s.projectSettings);
@@ -151,6 +170,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
   backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [], errors: [] });
+  backendMock.getScopedCapabilities.mockResolvedValue(emptyCatalog());
+  backendMock.setScopedCapability.mockResolvedValue(emptyCatalog());
   useStore.setState({
     capabilitiesViewer: null,
     projectSettings: { projectCwd: PROJECT },
@@ -170,7 +191,7 @@ afterEach(() => {
 });
 
 describe("ProjectSettings", () => {
-  it("renders both sections for the project", async () => {
+  it("renders all four sections for the project", async () => {
     await renderDialog();
 
     // Header carries the project identity.
@@ -182,11 +203,50 @@ describe("ProjectSettings", () => {
     expect(backendMock.getMcpServers).toHaveBeenCalledWith(PROJECT);
     expect(document.body.textContent).toContain("No MCP servers configured for this project.");
 
+    // Skills and Tools sections: the catalogs resolve at THIS project's scope.
+    expect(backendMock.getScopedCapabilities).toHaveBeenCalledWith(PROJECT);
+    expect(document.body.textContent).toContain("Skills");
+    expect(document.body.textContent).toContain("Tools");
+    expect(document.body.textContent).toContain("what omp can load");
+
     // Models section: both pins are visible.
     expect(document.body.textContent).toContain("Default model");
     expect(document.body.textContent).toContain("Default advisor model");
     expect(document.body.textContent).toContain("pin/main");
     expect(document.body.textContent).toContain("pin/advisor:high");
+  });
+
+  it("routes catalog toggles to the project scope, never across it", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      tools: {
+        status: "available",
+        items: [{ tool: "bash", key: "bash.enabled", enabled: true, layer: "default" }],
+      },
+    });
+    backendMock.setScopedCapability.mockImplementation(
+      async (req: { scopeCwd: string | null }) => ({
+        ...emptyCatalog(),
+        tools: {
+          status: "available",
+          items: [{ tool: "bash", key: "bash.enabled", enabled: false, layer: "project" }],
+        },
+        projectConfigPath: `${req.scopeCwd}/.omp/config.yml`,
+      }),
+    );
+    await renderDialog();
+
+    await act(async () => {
+      switchFor("Disable bash").click();
+    });
+    // scopeCwd is the project path: a project toggle never writes the global layer.
+    expect(backendMock.setScopedCapability).toHaveBeenCalledWith({
+      scopeCwd: PROJECT,
+      kind: "tool",
+      tool: "bash",
+      enabled: false,
+    });
+    expect(document.body.textContent).toContain("bash.enabled");
   });
 
   it("writes project-scoped toggles with no sourcePath", async () => {

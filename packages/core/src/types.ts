@@ -1,6 +1,8 @@
 // Pure types, zero runtime imports — the renderer imports these type-only via
 // the @omp-ui/core/types subpath.
 import type { GoalSnapshot } from "./goal";
+import type { SkillOrigin } from "./omp-capability-keys";
+export type { SkillOrigin } from "./omp-capability-keys";
 export type SessionStatus =
   | "complete"
   | "interrupted"
@@ -473,6 +475,90 @@ export interface OmpSettingsSnapshot {
   /** Non-null when omp could not be run at all; entries is then empty. */
   error: string | null;
 }
+
+/**
+ * One skill file discovered on disk at a scope (issue #383, ADR-0025). A
+ * capability catalog entry is config truth — what omp CAN load — never a
+ * claim that a live session loaded it; the roster in the session-pinned
+ * viewer remains bridge truth (#374).
+ */
+export interface SkillCatalogEntry {
+  name: string;
+  description: string;
+  /** SKILL.md path, verbatim; display truncation is the renderer's choice. */
+  filePath: string;
+  origin: SkillOrigin;
+  scope: "user" | "project";
+  /** Matches `skills.ignoredSkills` (or is excluded by `skills.includeSkills`). */
+  ignored: boolean;
+  /** The root's `skills.enableX` gate; true when the root has no gate. */
+  gateEnabled: boolean;
+  /** The gate key when the root has one; null when ungated. */
+  gateKey: string | null;
+  /** SKILL.md `hide`/`disableModelInvocation`; null when the field is absent. */
+  hidden: boolean | null;
+  /** SKILL.md `enabled: false` — omp's scan drops the file before anything else. */
+  disabledInFile: boolean;
+  /** Label of the winning entry (`origin:path`) when a higher-precedence root has the same name. */
+  shadowedBy: string | null;
+}
+
+/** One root the skills walk looked at — the "where did we look" disclosure. */
+export interface SkillRootInfo {
+  origin: SkillOrigin;
+  scope: "user" | "project";
+  path: string;
+  exists: boolean;
+  gateEnabled: boolean;
+}
+
+export interface SkillsAtScope {
+  status: "available";
+  items: SkillCatalogEntry[];
+  roots: SkillRootInfo[];
+  /** Effective `skills.enabled`; false locks every skills switch. */
+  masterEnabled: boolean;
+  /** Effective `skills.enableSkillCommands`. */
+  skillCommandsEnabled: boolean;
+  /** omp's curated/bundled skills are embedded in the binary, not on disk. */
+  note: "bundles-not-listed" | null;
+  /** The walk hit its file cap; the list is not the whole truth. */
+  truncated: boolean;
+}
+
+export interface ToolsAtScope {
+  status: "available";
+  items: Array<{
+    tool: string;
+    /** The `<tool>.enabled` settings key this gate writes. */
+    key: string;
+    /** Effective value; null when omp publishes the key without a boolean. */
+    enabled: boolean | null;
+    layer: OmpSettingLayer;
+  }>;
+}
+
+export interface ScopedCapabilitiesResult {
+  skills: SkillsAtScope | { status: "error"; message: string };
+  tools: ToolsAtScope | { status: "error"; message: string };
+  /** omp's agent config dir, from core's own resolution (not from omp). */
+  agentDir: string | null;
+  /** The project-layer config file that was accounted for, when it exists. */
+  projectConfigPath: string | null;
+  ompVersion: string | null;
+}
+
+/**
+ * One capability mutation, routed by scope (issue #383): a null `scopeCwd`
+ * writes omp's global layer through `omp config set`; a working tree writes
+ * that tree's `.omp/config.yml` through core's line-scoped editor. A mutation
+ * never crosses scopes.
+ */
+export type ScopedCapabilityMutation = { scopeCwd: string | null } & (
+  | { kind: "tool"; tool: string; enabled: boolean }
+  | { kind: "skill-ignore"; name: string; ignored: boolean }
+  | { kind: "skill-gate"; key: string; enabled: boolean }
+);
 
 /**
  * Snapshot of the omp install/update situation (see core/omp-update.ts). Kept

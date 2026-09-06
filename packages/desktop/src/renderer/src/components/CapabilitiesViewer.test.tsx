@@ -7,6 +7,8 @@ import type {
   McpServersResult,
   OmpSettingsSnapshot,
   OmpUpdateState,
+  ScopedCapabilitiesResult,
+  SkillCatalogEntry,
 } from "@omp-ui/core/types";
 import type { CapabilitySnapshot, CapabilityTool } from "@omp-ui/core/capabilities";
 import type { RpcTabState } from "../store";
@@ -29,6 +31,61 @@ const emptyOmpSettings: OmpSettingsSnapshot = {
   projectConfigPath: null,
   error: null,
 };
+
+/** Catalog reads: the panels' single backend verb (issue #383). */
+function emptyCatalog(): ScopedCapabilitiesResult {
+  return {
+    skills: {
+      status: "available",
+      items: [],
+      roots: [],
+      masterEnabled: true,
+      skillCommandsEnabled: true,
+      note: "bundles-not-listed",
+      truncated: false,
+    },
+    tools: { status: "available", items: [] },
+    agentDir: "/home/u/.omp/agent",
+    projectConfigPath: null,
+    ompVersion: "18.1.10",
+  };
+}
+
+/** Concrete-typed skills section; emptyCatalog().skills is a union. */
+function skillsWith(
+  items: SkillCatalogEntry[],
+  patch: Partial<
+    Omit<Extract<ScopedCapabilitiesResult["skills"], { status: "available" }>, "items" | "status">
+  > = {},
+) {
+  return {
+    status: "available" as const,
+    items,
+    roots: [],
+    masterEnabled: true,
+    skillCommandsEnabled: true,
+    note: "bundles-not-listed" as const,
+    truncated: false,
+    ...patch,
+  };
+}
+
+function catalogSkill(patch: Partial<SkillCatalogEntry> = {}): SkillCatalogEntry {
+  return {
+    name: "sk",
+    description: "does things",
+    filePath: "/home/u/.claude/skills/sk/SKILL.md",
+    origin: "claude",
+    scope: "user",
+    ignored: false,
+    gateEnabled: true,
+    gateKey: "skills.enableClaudeUser",
+    hidden: null,
+    disabledInFile: false,
+    shadowedBy: null,
+    ...patch,
+  };
+}
 
 // store.ts and backend.ts capture the preload bridge at module load, so
 // install the mock before dynamically importing either.
@@ -56,6 +113,8 @@ const backendMock = {
   getBranchDiff: vi.fn(),
   getMcpServers: vi.fn(),
   setMcpServerEnabled: vi.fn(),
+  getScopedCapabilities: vi.fn(async () => emptyCatalog()),
+  setScopedCapability: vi.fn(async () => emptyCatalog()),
   getSessionCapabilities: vi.fn(async () => ({ status: "missing-session" as const })),
   // The viewer reaches this only through the store action; the default
   // answers like a session whose bridge cannot change tools (issue #379).
@@ -1334,5 +1393,168 @@ describe("CapabilitiesViewer — Tools tab enable/disable (issue #379)", () => {
     toolsTab([baseTool("grep", { enabled: true })]);
     await renderManager();
     expect(document.body.textContent).not.toContain("Reloading MCP can re-enable its tools");
+  });
+});
+
+describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
+  it("renders catalog skills instead of the roster empty state", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      skills: skillsWith([
+          catalogSkill({ name: "deploy-app" }),
+          catalogSkill({
+            name: "shadowed-one",
+            filePath: "/p/.omp/skills/shadowed-one/SKILL.md",
+            origin: "pi",
+            scope: "project",
+            shadowedBy: "claude:/home/u/.claude/skills/shadowed-one",
+          }),
+          catalogSkill({
+            name: "gate-off",
+            filePath: "/home/u/.codex/skills/gate-off/SKILL.md",
+            origin: "codex",
+            gateEnabled: false,
+            gateKey: "skills.enableCodexUser",
+          }),
+      ]),
+    });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    await renderManager();
+
+    expect(backendMock.getScopedCapabilities).toHaveBeenCalledWith(null);
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("deploy-app");
+    expect(body).toContain("shadowed by claude");
+    expect(body).toContain("root disabled");
+    // The headline lie this issue removes: catalogs never defer to a session.
+    expect(body).not.toContain("require a live native session");
+    // Catalog coverage copy, not roster copy.
+    expect(body).toContain("what omp can load");
+  });
+
+  it("routes a global tool switch to the global layer", async () => {
+    const disabledResult = {
+      ...emptyCatalog(),
+      tools: {
+        status: "available" as const,
+        items: [{ tool: "web_search", key: "web_search.enabled", enabled: false, layer: "global" as const }],
+      },
+    };
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      tools: {
+        status: "available",
+        items: [{ tool: "web_search", key: "web_search.enabled", enabled: true, layer: "default" as const }],
+      },
+    });
+    backendMock.setScopedCapability.mockResolvedValue(disabledResult);
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "tools" }, state: null, rpc: {} });
+    await renderManager();
+
+    await act(async () => {
+      switchFor("Disable web_search").click();
+    });
+    expect(backendMock.setScopedCapability).toHaveBeenCalledWith({
+      scopeCwd: null,
+      kind: "tool",
+      tool: "web_search",
+      enabled: false,
+    });
+    // The rows rest from the write's returned catalog.
+    expect(document.body.textContent).toContain("web_search.enabled");
+  });
+
+  it("writes an ignore toggle as skill-ignore at the panel's scope", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      skills: skillsWith([catalogSkill({ name: "noisy" })]),
+    });
+    backendMock.setScopedCapability.mockResolvedValue({
+      ...emptyCatalog(),
+      skills: skillsWith([catalogSkill({ name: "noisy", ignored: true })]),
+    });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, section: "skills" }, state: null, rpc: {} });
+    await renderManager();
+
+    await act(async () => {
+      switchFor("Ignore noisy").click();
+    });
+    expect(backendMock.setScopedCapability).toHaveBeenCalledWith({
+      scopeCwd: PROJECT,
+      kind: "skill-ignore",
+      name: "noisy",
+      ignored: true,
+    });
+    expect(document.body.textContent).toContain("ignored");
+  });
+
+  it("offers the gate switch when a root's gate is off", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      skills: skillsWith([catalogSkill({ name: "gated", gateEnabled: false })]),
+    });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    await renderManager();
+
+    const gateSwitch = switchFor("Enable the root behind gated");
+    expect(gateSwitch.getAttribute("title")).toContain("skills.enableClaudeUser");
+    await act(async () => {
+      gateSwitch.click();
+    });
+    expect(backendMock.setScopedCapability).toHaveBeenCalledWith({
+      scopeCwd: null,
+      kind: "skill-gate",
+      key: "skills.enableClaudeUser",
+      enabled: true,
+    });
+  });
+
+  it("locks every switch and names the master gate when skills.enabled is off", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      skills: skillsWith([catalogSkill({ name: "listed-anyway" })], {
+        masterEnabled: false,
+      }),
+    });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    await renderManager();
+
+    expect(document.body.textContent).toContain("skills.enabled is off");
+    expect(document.body.textContent).toContain("listed-anyway");
+    expect(switchFor("Ignore listed-anyway").disabled).toBe(true);
+    expect(backendMock.setScopedCapability).not.toHaveBeenCalled();
+  });
+
+  it("keeps the rows and shows the message when a catalog write fails", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      tools: {
+        status: "available",
+        items: [{ tool: "todo", key: "todo.enabled", enabled: true, layer: "global" as const }],
+      },
+    });
+    backendMock.setScopedCapability.mockRejectedValue(new Error("Invalid value: nope"));
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "tools" }, state: null, rpc: {} });
+    await renderManager();
+
+    await act(async () => {
+      switchFor("Disable todo").click();
+    });
+    expect(document.body.textContent).toContain("Invalid value: nope");
+    // No optimistic flip: the row still reports the last read state.
+    expect(document.body.textContent).toContain("todo.enabled");
+  });
+
+  it("surfaces a per-section settings error with omp's message", async () => {
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      skills: { status: "error", message: "omp binary not found" },
+      tools: { status: "error", message: "omp binary not found" },
+    });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    await renderManager();
+
+    expect(document.body.textContent).toContain("Could not read the configuration at this scope");
+    expect(document.body.textContent).toContain("omp binary not found");
   });
 });

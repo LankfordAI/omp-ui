@@ -145,6 +145,27 @@ The last snapshot that parsed is cached on the main-process `RpcLiveEntry`: tran
 
 Tool control adds the bridge's one write (issue #379): beside its read-only arm command the generated extension registers a strict `tool "…JSON…"` verb, and a malformed or unknown-field payload is rejected rather than falling through to the arm path. Main holds the busy barrier before it dispatches — a running turn, a queued prompt, an abort, an unresolved human-answer request, a lifecycle operation, or another tool mutation is refused with `busy`, never queued — and OMP's own `runToolRegistryMutation` is the runtime lock the verb queues on, the same queue the MCP reload chain and lifecycle paths serialize through. Completion cannot come from that verb's RPC response, which proves only that the dispatch was accepted, so the runtime retains the latest mutation result and force-publishes it into the snapshot — refusals included — and the observer confirms a change only by matching request id + `processKey` + `sessionId` + tool name + requested value inside the published roster; OMP's tool policy answers a refused change as `mode-required`, and the republished roster, never an error string, is what proves it. The request carries a 30 s main-clock deadline minted in main; past it the outcome is `unconfirmed`, never a retry, so a switch that could not be observed is never reported as moved. The plan bridge shares that queue and now owns only the temporary `write` addition it makes on Plan entry, which it removes on exit; it no longer snapshots and restores the enabled roster, so a tool the user toggled during Plan keeps that choice ([ADR-0013](adr/0013-plan-mode-as-read-only-with-on-demand-gate.md)).
 
+Beside the rosters, the same three tabs carry **scoped capability catalogs**
+(issue #383, [ADR-0025](adr/0025-scoped-capability-catalogs.md)): config truth
+resolved at global or project scope, never a roster imitation and never a
+probe session. Reads go through one core module,
+[`capability-catalog.ts`](../packages/core/src/capability-catalog.ts), which
+parses the omp settings layers (one `readOmpSettings` call feeds the tool
+gates and the `skills.*` gates alike) and walks the SKILL.md roots from the
+version-pinned table in
+[`omp-capability-keys.ts`](../packages/core/src/omp-capability-keys.ts) —
+shadowed losers included and labeled, omp's embedded curated skills named as
+un-listable rather than guessed at. Writes route by scope and never across it:
+global mutations go through `omp config set` (omp validates the value);
+project mutations edit `<cwd>/.omp/config.yml` through a line-scoped editor
+([`project-config-writer.ts`](../packages/core/src/project-config-writer.ts))
+that preserves every untouched byte — comments included — and refuses with the
+offending file and line rather than reformatting YAML it cannot read in its
+two-level grammar. The catalogs reach the renderer over the
+`capabilities:scoped` channels; the HUD button and the palette's global action
+open them unpinned, project settings embeds them at the project's scope, and
+the session-pinned viewer is unchanged.
+
 ### Slash commands in native sessions
 
 A native session's composer accepts the same slash commands as the terminal TUI. A few commands map to omp-ui surfaces and never reach the child; every other command line is forwarded to OMP.

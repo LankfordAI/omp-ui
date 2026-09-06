@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getOmpAgentDir } from "./omp-config";
+import { SKILLS_SETTING_KEYS, TOOL_SETTING_KEYS } from "./omp-capability-keys";
 import { OMP_MODEL_ROLES_KEY, OMP_SETTING_KEYS } from "./omp-settings-keys";
 import type {
   OmpSettingEntry,
@@ -46,8 +47,19 @@ export {
   OMP_SETTING_KEYS,
 } from "./omp-settings-keys";
 
-/** Every key this module will read or write, in the order entries are emitted. */
-const ALLOWED_KEYS: readonly string[] = [...OMP_SETTING_KEYS, OMP_MODEL_ROLES_KEY];
+/**
+ * Every key this module will read or write, in the order entries are emitted.
+ * The skills and tool-gate keys come from the capability mirror tables
+ * (omp-capability-keys.ts) so the scope catalogs and this write boundary share
+ * one list; the settings omp page renders only OMP_SETTING_GROUPS, so widening
+ * this boundary adds no rows to that page.
+ */
+const ALLOWED_KEYS: readonly string[] = [
+  ...OMP_SETTING_KEYS,
+  ...SKILLS_SETTING_KEYS,
+  ...TOOL_SETTING_KEYS,
+  OMP_MODEL_ROLES_KEY,
+];
 
 /** One omp invocation: resolves stdout, rejects Error(trimmed stderr) on failure. */
 export type OmpConfigRunner = (

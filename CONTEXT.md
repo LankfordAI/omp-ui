@@ -440,21 +440,37 @@ live native tab hand http/sse reauth to omp's own TUI. The DTO is redacted at
 the core boundary (issue #17, #36, #220, #325, #327).
 _Avoid_: MCP settings page, integrations panel, server browser
 
+**Capability catalog**:
+What the scope views of the capabilities viewer and project settings show for
+Skills and Tools: config truth — `SKILL.md` roots and the settings layers
+resolved at one **scope** (global, i.e. the user's omp config; or project,
+i.e. one registered project's `.omp/config.yml` beside the global layer),
+labeled "what omp *can* load". Scope is also the routing rule for writes:
+a global switch flips the global layer through `omp config set`; a project
+switch edits that project's config file in place; a switch never crosses
+scopes (issue #383, ADR-0025). It is not what any session loaded — that is
+the roster — and omp's embedded curated skills are not enumerable from it.
+_Avoid_: machine-wide roster, skill list, tool browser
+
 **Capabilities viewer**:
 The modal with three tabs — MCP servers, Skills, and Tools — opened from the
 Session HUD, the command palette, Settings → omp, or /mcp. Its MCP tab is the
-MCP manager, contract unchanged; Skills and Tools show, for one pinned live
-native session, the skills it loaded and every tool it registered, delivered
-by a generated `-e` extension (ADR-0008), never by a parse or a prompt. The
-Tools tab can also change one registered tool's enabled membership in that
-live session at runtime — session-local, never a config write, never a
-restart, and confirmed only by the snapshot omp publishes. Scope and session
-are captured at open and never retargeted by focus, and the roster
-describes the main session even while a subagent view is shown. It is a
-viewer, not a package manager, and not an inspector rail pane. Coverage is
-runtime-only, not on-disk: skill files the session never loaded, and tools
-registered only by other sessions, are not represented, while a loaded skill
-hidden from the model stays listed and marked. A registered tool is listed
+MCP manager, contract unchanged; Skills and Tools have two sources that never
+imitate each other: with a pinned live native session they are that session's
+**roster** — the skills it loaded and every tool it registered, delivered by
+a generated `-e` extension (ADR-0008), never by a parse or a prompt — and
+without a pin (the HUD button and palette now always open it unpinned, at
+global scope) they are the **capability catalog** for that scope. In the
+pinned view the Tools tab can also change one registered tool's enabled
+membership in that live session at runtime — session-local, never a config
+write, never a restart, and confirmed only by the snapshot omp publishes.
+Scope and session are captured at open and never retargeted by focus, and
+the roster describes the main session even while a subagent view is shown.
+It is a viewer, not a package manager, and not an inspector rail pane. A
+catalog row states which layer its switch flips. The roster's coverage is
+runtime-only: skill files the session never loaded, and tools registered
+only by other sessions, are not represented, while a loaded skill hidden
+from the model stays listed and marked. A registered tool is listed
 even when not enabled, with its access facts (model-direct, `xd://`, the eval
 bridge); enabled is omp's enablement state, not a permission grant — plan
 mode and approvals still gate use, and changing membership can legitimately
@@ -467,16 +483,19 @@ _Avoid_: capabilities panel, plugin manager, tool browser
 **Project settings**:
 The modal the project header's settings button (desktop cluster) and the
 compact sheet's "Project settings…" row open: one dialog for the project with
-two stacked sections — the project's MCP servers (the same resolved list,
+four stacked sections — the project's MCP servers (the same resolved list,
 per-server toggles, per-source provenance, and per-file errors the MCP manager
-renders, project-scoped with no pinned tab) and the project's default-model
-pins (main-model and advisor-model with their pickers and Clear actions).
-Toggles write through core's mcp-config module; pins through
-setProjectDefaultModel / setProjectDefaultAdvisorModel; both take effect on
-the next session spawn. Session-scoped surfaces keep the capabilities
-viewer's MCP tab: the Session HUD's per-tab Capabilities button (with
-in-place `/mcp reload` and TUI reauth handoff), the command palette, /mcp,
-and Settings → omp, including Global MCP servers.
+renders, project-scoped with no pinned tab), the project's **capability
+catalogs** for Skills and Tools (issue #383: the same panels the global viewer
+uses, scoped to this project, their switches writing `.omp/config.yml` in
+place), and the project's default-model pins (main-model and advisor-model
+with their pickers and Clear actions).
+Toggles write through core's mcp-config and capability modules; pins through
+setProjectDefaultModel / setProjectDefaultAdvisorModel; all take effect on
+the next session spawn. Session-scoped control keeps the capabilities
+viewer's pinned tab: the palette's "Capabilities for this session", /mcp,
+and Settings → omp; the Session HUD's Capabilities button itself opens the
+global catalog, badge and all.
 _Avoid_: project preferences, per-project settings page, project options
 
 **Memory settings**:
