@@ -87,11 +87,85 @@ export interface CapabilitySnapshot {
   skillCommandsEnabled: boolean | null;
   skills: CapabilitySection<CapabilitySkill>;
   tools: CapabilitySection<CapabilityTool>;
+  /**
+   * Whether this bridge can execute tool mutations at all. A legacy bridge
+   * that predates tool control omits the field; the parser maps that to
+   * `"unsupported"` so the roster stays inspectable but not mutable. Never
+   * inferred from an OMP version string.
+   */
+  toolControl: "available" | "unsupported";
+  /**
+   * The most recent correlated mutation result retained by the publisher
+   * until it is replaced or the root session id changes; null before the
+   * first mutation (and on any legacy snapshot).
+   */
+  toolMutation: CapabilityToolMutation | null;
 }
 
 export type SessionCapabilitiesResult =
   | { status: "available"; snapshot: CapabilitySnapshot }
   | { status: "starting" | "bridge-unavailable" | "terminal" | "not-live" | "missing-session" };
+
+/**
+ * Outcome of one deliberate tool enable/disable attempt inside the runtime.
+ * `applied` is the only success: it requires the published Tools section to
+ * actually report the requested enabled membership for the requested name.
+ */
+export type ToolMutationStatus =
+  | "applied"
+  | "busy"
+  | "stale"
+  | "unsupported"
+  | "unknown-tool"
+  | "mode-required"
+  | "expired"
+  | "apply-failed"
+  | "not-applied";
+
+/** A correlated mutation result carried on every snapshot after the request. */
+export interface CapabilityToolMutation {
+  /** UUID minted in main; the observer's correlation key. */
+  id: string;
+  name: string;
+  enabled: boolean;
+  status: ToolMutationStatus;
+}
+
+/**
+ * The exact payload the main process sends inside the hidden capabilities
+ * command. Identity fields are checked inside the runtime lock before any
+ * mutation; `expiresAt` is main-clock ms, re-checked after queue acquisition.
+ */
+export interface CapabilityToolMutationRequest {
+  /** Generated in main, never in the renderer. */
+  id: string;
+  processKey: string;
+  sessionId: string | null;
+  /** Exact registry identity; may contain spaces and punctuation. */
+  name: string;
+  enabled: boolean;
+  /** Absolute deadline (main clock); mutation refuses after it. */
+  expiresAt: number;
+}
+
+/**
+ * Reply for the `setSessionToolEnabled` backend request. `applied` carries the
+ * confirmed snapshot; everything else is a refusal or an unconfirmed outcome —
+ * `unconfirmed` means the change may have landed but could not be observed
+ * before the deadline, which is deliberately not reported as success.
+ */
+export type SetSessionToolEnabledResult =
+  | { status: "applied"; snapshot: CapabilitySnapshot }
+  | {
+      status:
+        | Exclude<ToolMutationStatus, "applied">
+        | "missing-session"
+        | "not-live"
+        | "terminal"
+        | "bridge-unavailable"
+        | "starting"
+        | "unconfirmed";
+    };
 
 /**
  * Parses the JSON published on {@link CAPABILITIES_STATUS_KEY}. Builds a
@@ -129,6 +203,16 @@ export function parseCapabilitySnapshot(text: string | undefined): CapabilitySna
       names.add(tool.name);
     }
   }
+  let toolControl: "available" | "unsupported" = "unsupported";
+  if (record.toolControl !== undefined) {
+    if (record.toolControl !== "available" && record.toolControl !== "unsupported") return null;
+    toolControl = record.toolControl;
+  }
+  let toolMutation: CapabilityToolMutation | null = null;
+  if (record.toolMutation !== undefined && record.toolMutation !== null) {
+    toolMutation = parseCapabilityToolMutation(record.toolMutation);
+    if (toolMutation === null) return null;
+  }
   return {
     version: 1,
     processKey: record.processKey,
@@ -139,12 +223,103 @@ export function parseCapabilitySnapshot(text: string | undefined): CapabilitySna
     skillCommandsEnabled,
     skills,
     tools,
+    toolControl,
+    toolMutation,
   };
 }
 
 /** Hidden slash command that arms the bridge and binds its UI context. */
 export function capabilitiesMessage(): string {
   return `/${CAPABILITIES_COMMAND}`;
+}
+
+/** Every status the mutation protocol may report; the generated bridge shares this list. */
+export const TOOL_MUTATION_STATUSES = [
+  "applied",
+  "busy",
+  "stale",
+  "unsupported",
+  "unknown-tool",
+  "mode-required",
+  "expired",
+  "apply-failed",
+  "not-applied",
+] as const satisfies readonly ToolMutationStatus[];
+
+/** Arg prefix distinguishing a mutation verb from the no-args arm/read path. */
+export const CAPABILITIES_TOOL_ARG_PREFIX = "tool ";
+
+/**
+ * Hidden slash command requesting one tool mutation with an explicit
+ * correlated completion. The payload is JSON — tool names are exact registry
+ * identities and may contain whitespace.
+ */
+export function capabilityToolMutationMessage(
+  request: CapabilityToolMutationRequest,
+): string {
+  return `/${CAPABILITIES_COMMAND} ${CAPABILITIES_TOOL_ARG_PREFIX}${JSON.stringify(request)}`;
+}
+
+/**
+ * Strictly parses a mutation request embedded in command args. Malformed or
+ * over-budget payloads return null — never the no-args arm path. Unknown
+ * fields are rejected so a future schema cannot be silently half-applied.
+ */
+export function parseCapabilityToolMutationRequest(
+  args: string,
+): CapabilityToolMutationRequest | null {
+  const trimmed = args.trim();
+  if (!trimmed.startsWith(CAPABILITIES_TOOL_ARG_PREFIX)) return null;
+  const json = trimmed.slice(CAPABILITIES_TOOL_ARG_PREFIX.length);
+  if (utf8Length(`/${CAPABILITIES_COMMAND} ${json}`) > CAPABILITY_STATUS_BYTE_LIMIT) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  return validateToolMutationRequest(parsed);
+}
+
+function validateToolMutationRequest(value: unknown): CapabilityToolMutationRequest | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  const expected = ["enabled", "expiresAt", "id", "name", "processKey", "sessionId"];
+  if (keys.length !== expected.length) return null;
+  for (let i = 0; i < expected.length; i++) if (keys[i] !== expected[i]) return null;
+  if (typeof record.id !== "string" || record.id.length === 0) return null;
+  if (typeof record.processKey !== "string" || record.processKey.length === 0) return null;
+  if (record.sessionId !== null && typeof record.sessionId !== "string") return null;
+  if (typeof record.name !== "string" || record.name.length === 0) return null;
+  if (record.enabled !== true && record.enabled !== false) return null;
+  if (typeof record.expiresAt !== "number" || !Number.isFinite(record.expiresAt)) return null;
+  return {
+    id: record.id,
+    processKey: record.processKey,
+    sessionId: (record.sessionId as string | null) ?? null,
+    name: record.name,
+    enabled: record.enabled,
+    expiresAt: record.expiresAt,
+  };
+}
+
+function parseCapabilityToolMutation(value: unknown): CapabilityToolMutation | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || record.id.length === 0) return null;
+  if (typeof record.name !== "string" || record.name.length === 0) return null;
+  if (record.enabled !== true && record.enabled !== false) return null;
+  const status = record.status;
+  if (typeof status !== "string" || !(TOOL_MUTATION_STATUSES as readonly string[]).includes(status)) {
+    return null;
+  }
+  return {
+    id: record.id,
+    name: record.name,
+    enabled: record.enabled,
+    status: status as ToolMutationStatus,
+  };
 }
 
 const INVALID = Symbol("invalid");
