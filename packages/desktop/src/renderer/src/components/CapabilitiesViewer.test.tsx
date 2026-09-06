@@ -223,6 +223,12 @@ async function renderManager(): Promise<void> {
   document.body.appendChild(host);
   root = createRoot(host);
   await act(async () => root!.render(<Gate />));
+  // The modal claims initial focus from a requestAnimationFrame once it is
+  // mounted (ui/overlays.tsx useOverlay), so that handoff is still queued when
+  // the render's promise settles. Drain the frame — the real signal, never a
+  // guessed sleep — or it lands later and steals focus mid-assertion from any
+  // test that tracks focus itself.
+  await act(async () => new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame())));
 }
 
 function switchFor(label: string): HTMLButtonElement {
