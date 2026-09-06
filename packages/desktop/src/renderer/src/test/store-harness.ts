@@ -17,7 +17,10 @@ import type {
   SessionWorktree,
   WorktreeReleaseResult,
 } from "@omp-ui/core/types";
-import type { SessionCapabilitiesResult } from "@omp-ui/core/capabilities";
+import type {
+  SessionCapabilitiesResult,
+  SetSessionToolEnabledResult,
+} from "@omp-ui/core/capabilities";
 import { backendState as makeBackendState } from "./fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
@@ -117,6 +120,13 @@ const mockBackend = {
   // case overrides this, exactly as a session without one answers main.
   getSessionCapabilities: vi.fn(
     async (): Promise<SessionCapabilitiesResult> => ({
+      status: "bridge-unavailable",
+    }),
+  ),
+  // Same shape as an unbound session's answer: a harness tab has no armed
+  // tool control unless a case overrides this (issue #379).
+  setSessionToolEnabled: vi.fn(
+    async (): Promise<SetSessionToolEnabledResult> => ({
       status: "bridge-unavailable",
     }),
   ),

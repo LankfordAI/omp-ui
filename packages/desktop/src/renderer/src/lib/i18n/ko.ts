@@ -820,6 +820,49 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "viewer.tools.originMcp": "MCP",
   "viewer.tools.originSdk": "SDK",
   "viewer.tools.originUnknown": "확인 안 됨",
+  "viewer.tools.scope":
+    "변경은 이 라이브 세션에만 적용됩니다. 세션을 재시작하거나 전환하면 도구 선택이 초기화됩니다. OMP 설정 변경이나 MCP 재로드 시에도 다시 바뀔 수 있습니다.",
+  "viewer.tools.registeredVsAbsent":
+    "여기에 있는 항목은 모두 이 세션에 등록된 도구이며, 활성화됨은 모델이 직접 호출할 수 있다는 뜻입니다. 이 목록에 없는 도구는 등록되지 않은 것이지 여기서 설정할 수 있는 것이 아닙니다.",
+  "viewer.tools.mcpNote":
+    "MCP를 다시 불러오면 해당 서버의 도구가 다시 활성화될 수 있습니다. 서버 설정은 MCP 서버 탭에서 변경하세요.",
+  "viewer.tools.enable": "{name} 활성화",
+  "viewer.tools.disable": "{name} 비활성화",
+  "viewer.tools.applying": "적용 중…",
+  "viewer.tools.applyingNamed": "이 세션에 {name} 적용 중…",
+  "viewer.tools.applied": "이 세션에서 {name}이(가) {state}(으)로 변경되었습니다.",
+  "viewer.tools.planWriteLock": "Plan 모드에서 계획 산출물을 작성하려면 필요합니다.",
+  "viewer.tools.lockUnsupported":
+    "이 브리지는 도구 제어 기능을 게시하지 않아 여기서 목록을 변경할 수 없습니다.",
+  "viewer.tools.lockStale":
+    "마지막 새로 고침이 실패하여 이 목록이 최신이 아닐 수 있습니다 — 새 목록이 도착할 때까지 변경이 중지됩니다.",
+  "viewer.tools.lockDetached":
+    "고정된 세션이 다른 작업 트리로 이동하여 이 세션의 도구는 이 뷰어에서 연결이 해제되었습니다.",
+  "viewer.tools.lockBusy":
+    "이 세션은 턴 실행 중이거나 대기열이 있습니다 — 세션이 안정될 때까지 도구 변경을 기다립니다.",
+  "viewer.tools.lockPending": "이 세션에 대한 다른 도구 변경이 아직 진행 중입니다.",
+  "viewer.tools.errorBusy": "omp가 바빠서 {name} 변경을 거부했습니다.",
+  "viewer.tools.errorStale":
+    "이 탭은 {name} 변경을 요청한 세션이 아닙니다 — 화면의 목록이 현재 상태입니다.",
+  "viewer.tools.errorUnsupported":
+    "이 세션의 브리지는 도구 제어 기능을 제공하지 않아 여기서 {name}을(를) 변경할 수 없습니다.",
+  "viewer.tools.errorUnknownTool": "이 세션에는 이름이 {name}인 도구가 없습니다.",
+  "viewer.tools.errorModeRequired":
+    "세션의 현재 모드에서는 {name}이(가) 활성화되어 있어야 합니다.",
+  "viewer.tools.errorExpired": "omp가 응답하기 전에 {name} 변경의 기한이 만료되었습니다.",
+  "viewer.tools.errorApplyFailed": "omp가 {name} 변경을 적용하지 못했습니다.",
+  "viewer.tools.errorNotApplied":
+    "변경 후에도 목록에서 {name}이(가) {state}(으)로 확인되지 않았습니다.",
+  "viewer.tools.errorUnconfirmed":
+    "변경을 확인할 수 없습니다. 현재 도구 상태를 확인하려면 새로 고침하세요.",
+  "viewer.tools.errorMissingSession":
+    "{name}: 이 뷰어가 고정했던 세션이 더 이상 존재하지 않습니다.",
+  "viewer.tools.errorNotLive": "{name}: 고정된 세션이 휴면 상태여서 변경할 라이브 세션이 없습니다.",
+  "viewer.tools.errorTerminal":
+    "{name}: 이 탭은 omp TUI로 실행 중이며 rpc로 도구 제어 기능을 제공하지 않습니다.",
+  "viewer.tools.errorBridgeUnavailable": "{name}: 이 세션의 브리지는 도구 제어 기능을 제공하지 않습니다.",
+  "viewer.tools.errorStarting": "{name}: 세션이 아직 시작 중입니다 — 라이브가 되면 다시 시도하세요.",
+  "viewer.tools.retryHint": "스위치를 다시 눌러 재시도하세요.",
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",

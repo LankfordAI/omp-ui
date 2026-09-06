@@ -5,8 +5,11 @@ import { generateTitleFromPrompt } from "../../lib/session-title";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import type {
+  CapabilitySection,
   CapabilitySnapshot,
+  CapabilityTool,
   SessionCapabilitiesResult,
+  SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
 describe("native RPC relaunch preparation", () => {
@@ -1476,6 +1479,10 @@ describe("session capability roster (issue #374)", () => {
     processKey: string,
     revision: number,
     sessionId: string | null = "sess-1",
+    tools: CapabilitySection<CapabilityTool> = {
+      status: "unavailable",
+      reason: "read-failed",
+    },
   ): CapabilitySnapshot => ({
     version: 1,
     processKey,
@@ -1498,7 +1505,11 @@ describe("session capability roster (issue #374)", () => {
         },
       ],
     },
-    tools: { status: "unavailable", reason: "read-failed" },
+    // Tool control is on so a mutation may bind to this roster; the roster's
+    // own membership stays unread until a case supplies it (#379).
+    toolControl: "available",
+    toolMutation: null,
+    tools,
   });
 
   /** The bridge's own publication channel: a setStatus frame. */
@@ -1599,5 +1610,241 @@ describe("session capability roster (issue #374)", () => {
     expect(tab().session.sessionId).toBe("sess-new");
     expect(tab().capabilities?.sessionId).toBe("sess-new");
     expect(tab().capabilities?.revision).toBe(4);
+  });
+});
+
+describe("session-local tool control (issue #379)", () => {
+  const toolOf = (name: string, enabled: boolean | null): CapabilityTool => ({
+    name,
+    description: "",
+    descriptionTruncated: false,
+    source: "builtin",
+    sourcePath: null,
+    enabled,
+    direct: enabled,
+    xdev: null,
+    evalBridge: null,
+    mcpServerName: null,
+    mcpToolName: null,
+  });
+  const rosterWithTools = (
+    processKey: string,
+    revision: number,
+    items: CapabilityTool[],
+    sessionId: string | null = "sess-1",
+  ): CapabilitySnapshot => ({
+    version: 1,
+    processKey,
+    sessionId,
+    revision,
+    updatedAt: 1_700_000_000_000 + revision,
+    ompVersion: "18.1.10",
+    skillCommandsEnabled: true,
+    skills: { status: "unavailable", reason: "missing-api" },
+    tools: { status: "available", items },
+    toolControl: "available",
+    toolMutation: null,
+  });
+  const withoutToolControl = (snapshot: CapabilitySnapshot): CapabilitySnapshot => ({
+    ...snapshot,
+    toolControl: "unsupported",
+  });
+
+  const tab = () => h.useStore.getState().rpc[h.TAB]!;
+  const mount = (snapshot: CapabilitySnapshot | null): void =>
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ capabilities: snapshot, capabilitiesLoad: snapshot ? "available" : "idle" }) },
+    });
+  /** The bridge's own publication channel: a setStatus frame. */
+  const publish = (snapshot: CapabilitySnapshot): void =>
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "capabilities",
+      method: "setStatus",
+      statusKey: CAPABILITIES_STATUS_KEY,
+      statusText: JSON.stringify(snapshot),
+    });
+  const toolItems = (): CapabilityTool[] => {
+    const section = tab().capabilities?.tools;
+    return section !== undefined && section.status === "available"
+      ? section.items
+      : [];
+  };
+  const membership = (name: string): boolean | null | undefined =>
+    toolItems().find((item) => item.name === name)?.enabled;
+
+  it("lets the published roster, not the reply, prove the change", async () => {
+    mount(rosterWithTools("proc-1", 3, [toolOf("bash", true), toolOf("write", true)]));
+    const call = h.deferred<SetSessionToolEnabledResult>();
+    h.mockBackend.setSessionToolEnabled.mockReturnValueOnce(call.promise);
+    const done = h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    await h.flushMicrotasks();
+
+    // Bound to the identity the viewer was looking at, and pending only: the
+    // switch still reports OMP's last confirmed state, never the requested one.
+    expect(h.mockBackend.setSessionToolEnabled).toHaveBeenCalledWith(
+      h.TAB,
+      "proc-1",
+      "sess-1",
+      "write",
+      false,
+    );
+    expect(tab().capabilitiesToolPending).toEqual({
+      name: "write",
+      enabled: false,
+      processKey: "proc-1",
+      sessionId: "sess-1",
+    });
+    expect(tab().capabilitiesToolFeedback).toBeNull();
+    expect(membership("write")).toBe(true);
+
+    // The completion arrives as a whole roster: whatever else OMP now reports
+    // replaces what was on screen, so this also proves no row was patched.
+    call.resolve({
+      status: "applied",
+      snapshot: rosterWithTools("proc-1", 4, [toolOf("write", false)]),
+    });
+    expect((await done).status).toBe("applied");
+    expect(tab().capabilities?.revision).toBe(4);
+    expect(toolItems()).toHaveLength(1);
+    expect(membership("write")).toBe(false);
+    expect(tab().capabilitiesToolPending).toBeNull();
+    expect(tab().capabilitiesToolFeedback).toBeNull();
+  });
+
+  it("keeps a reopening of the modal from issuing a second mutation", async () => {
+    mount(rosterWithTools("proc-1", 3, [toolOf("write", true)]));
+    const call = h.deferred<SetSessionToolEnabledResult>();
+    h.mockBackend.setSessionToolEnabled.mockReturnValueOnce(call.promise);
+    const done = h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    await h.flushMicrotasks();
+
+    const second = await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    expect(second).toEqual({ status: "busy" });
+    expect(h.mockBackend.setSessionToolEnabled).toHaveBeenCalledTimes(1);
+    expect(tab().capabilitiesToolFeedback).toBeNull();
+
+    call.resolve({ status: "applied", snapshot: rosterWithTools("proc-1", 4, [toolOf("write", false)]) });
+    await done;
+    expect(tab().capabilitiesToolPending).toBeNull();
+  });
+
+  it("will not retarget the tab with an older applied snapshot", async () => {
+    // A push owns a newer roster than the one the reply carries (#374's rule).
+    mount(rosterWithTools("proc-1", 9, [toolOf("write", true)]));
+    h.mockBackend.setSessionToolEnabled.mockResolvedValueOnce({
+      status: "applied",
+      snapshot: rosterWithTools("proc-1", 4, [toolOf("write", false)]),
+    });
+
+    const result = await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    expect(result).toEqual({ status: "not-applied" });
+    expect(tab().capabilities?.revision).toBe(9);
+    expect(membership("write")).toBe(true);
+    expect(tab().capabilitiesToolFeedback).toEqual({
+      name: "write",
+      enabled: false,
+      status: "not-applied",
+    });
+    expect(tab().capabilitiesToolPending).toBeNull();
+  });
+
+  it("confirms the attempt from a roster that already carries the change", async () => {
+    // The completion publishes before main replies, so the push usually wins.
+    mount(rosterWithTools("proc-1", 9, [toolOf("write", false)]));
+    h.mockBackend.setSessionToolEnabled.mockResolvedValueOnce({
+      status: "applied",
+      snapshot: rosterWithTools("proc-1", 4, [toolOf("write", false)]),
+    });
+
+    const result = await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    expect(result.status).toBe("applied");
+    expect(tab().capabilities?.revision).toBe(9);
+    expect(membership("write")).toBe(false);
+    expect(tab().capabilitiesToolFeedback).toBeNull();
+  });
+
+  it("drops the attempt and its answer when the process is replaced", async () => {
+    mount(rosterWithTools("proc-1", 3, [toolOf("write", true)]));
+    const call = h.deferred<SetSessionToolEnabledResult>();
+    h.mockBackend.setSessionToolEnabled.mockReturnValueOnce(call.promise);
+    const done = h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    await h.flushMicrotasks();
+
+    publish(rosterWithTools("proc-2", 1, [toolOf("write", true)]));
+    expect(tab().capabilitiesToolPending).toBeNull();
+
+    call.resolve({ status: "applied", snapshot: rosterWithTools("proc-1", 4, [toolOf("write", false)]) });
+    expect(await done).toEqual({ status: "stale" });
+    expect(tab().capabilities?.processKey).toBe("proc-2");
+    expect(membership("write")).toBe(true);
+    expect(tab().capabilitiesToolFeedback).toBeNull();
+  });
+
+  it("drops the attempt and its answer when the session changes", async () => {
+    mount(rosterWithTools("proc-1", 3, [toolOf("write", true)]));
+    const call = h.deferred<SetSessionToolEnabledResult>();
+    h.mockBackend.setSessionToolEnabled.mockReturnValueOnce(call.promise);
+    h.mockBackend.getSessionCapabilities.mockResolvedValueOnce({ status: "bridge-unavailable" });
+    const done = h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+    await h.flushMicrotasks();
+
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "session_info_update", sessionId: "sess-new" });
+    await h.flushMicrotasks();
+    expect(tab().capabilitiesToolPending).toBeNull();
+
+    call.resolve({ status: "applied", snapshot: rosterWithTools("proc-1", 4, [toolOf("write", false)]) });
+    expect(await done).toEqual({ status: "stale" });
+    expect(tab().capabilities).toBeNull();
+    expect(tab().capabilitiesToolFeedback).toBeNull();
+  });
+
+  it("keeps a refusal as feedback for the tool that was attempted", async () => {
+    for (const status of ["busy", "unconfirmed", "stale"] as const) {
+      mount(rosterWithTools("proc-1", 3, [toolOf("write", true)]));
+      h.mockBackend.setSessionToolEnabled.mockResolvedValueOnce({ status });
+
+      const result = await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false);
+      expect(result).toEqual({ status });
+      expect(tab().capabilitiesToolFeedback).toEqual({ name: "write", enabled: false, status });
+      expect(tab().capabilitiesToolPending).toBeNull();
+      // A refusal never edits the roster: what is on screen is still OMP's word.
+      expect(tab().capabilities?.revision).toBe(3);
+      expect(membership("write")).toBe(true);
+    }
+  });
+
+  it("reports a lost reply as unconfirmed, never as a failure that undid it", async () => {
+    mount(rosterWithTools("proc-1", 3, [toolOf("write", true)]));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.mockBackend.setSessionToolEnabled.mockRejectedValueOnce(new Error("ipc channel gone"));
+
+    expect(await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false)).toEqual({
+      status: "unconfirmed",
+    });
+    expect(tab().capabilitiesToolFeedback).toEqual({
+      name: "write",
+      enabled: false,
+      status: "unconfirmed",
+    });
+    expect(tab().capabilitiesToolPending).toBeNull();
+    warn.mockRestore();
+  });
+
+  it("never probes a bridge that publishes no tool control", async () => {
+    mount(withoutToolControl(rosterWithTools("proc-1", 3, [toolOf("write", true)])));
+    expect(await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false)).toEqual({
+      status: "unsupported",
+    });
+    expect(h.mockBackend.setSessionToolEnabled).not.toHaveBeenCalled();
+
+    // No roster means no observed identity to bind the request to.
+    mount(null);
+    expect(await h.useStore.getState().setSessionToolEnabled(h.TAB, "write", false)).toEqual({
+      status: "bridge-unavailable",
+    });
+    expect(h.mockBackend.setSessionToolEnabled).not.toHaveBeenCalled();
   });
 });

@@ -11,7 +11,7 @@ import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyBest } from "../lib/fuzzy";
 import { useT, type MessageKey } from "../lib/i18n";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { findRecord, sessionCwd, useStore, type CapabilitiesToolFeedbackStatus } from "../store";
 import { Button, Chip, ChoiceCapsule, Empty, IconButton, Modal, Panel, Switch } from "./ui";
 
 /**
@@ -588,74 +588,143 @@ const REASON_KEYS: Record<CapabilityReason, MessageKey> = {
   "payload-too-large": "viewer.reason.payloadTooLarge",
 };
 
-function ToolRow({ tool }: { tool: CapabilityTool }) {
+/**
+ * One message per outcome a session-local tool mutation can report (#379).
+ * Every branch says what OMP reported about the named tool and where to look
+ * for the truth; none of them claims the session is back the way it was.
+ */
+const TOOL_ERROR_KEYS: Record<CapabilitiesToolFeedbackStatus, MessageKey> = {
+  busy: "viewer.tools.errorBusy",
+  stale: "viewer.tools.errorStale",
+  unsupported: "viewer.tools.errorUnsupported",
+  "unknown-tool": "viewer.tools.errorUnknownTool",
+  "mode-required": "viewer.tools.errorModeRequired",
+  expired: "viewer.tools.errorExpired",
+  "apply-failed": "viewer.tools.errorApplyFailed",
+  "not-applied": "viewer.tools.errorNotApplied",
+  "missing-session": "viewer.tools.errorMissingSession",
+  "not-live": "viewer.tools.errorNotLive",
+  terminal: "viewer.tools.errorTerminal",
+  "bridge-unavailable": "viewer.tools.errorBridgeUnavailable",
+  starting: "viewer.tools.errorStarting",
+  unconfirmed: "viewer.tools.errorUnconfirmed",
+};
+
+function ToolRow({
+  tool,
+  onToggle,
+  pending,
+  disabledReason,
+  ownReason,
+}: {
+  tool: CapabilityTool;
+  /** One deliberate click; the store decides whether it lands (#379). */
+  onToggle: (next: boolean) => void;
+  /** This row's own mutation is the one in flight. */
+  pending: boolean;
+  /** Why the switch cannot be clicked — the row's own restriction when
+   *  `ownReason`, else the reason the whole tab is locked. */
+  disabledReason: string | null;
+  /** True when `disabledReason` belongs to THIS row, so it belongs on it. */
+  ownReason: boolean;
+}) {
   const t = useT();
   const access: string[] = [];
   if (tool.direct === null) access.push(t("viewer.tools.direct"));
   if (tool.xdev === null) access.push(t("viewer.tools.xdev"));
   if (tool.evalBridge === null) access.push(t("viewer.tools.eval"));
+  // An unobserved membership gets no switch at all: an off-looking control
+  // would report "not enabled", which the roster never said.
+  const togglable = tool.enabled !== null;
   return (
-    <li className="px-4 py-2.5">
-      <div className="flex items-center gap-2">
-        <span className="truncate text-xs font-medium text-ink">{tool.name}</span>
-        <Chip mono>{t(TOOL_SOURCE_KEYS[tool.source])}</Chip>
-        <Chip>
-          {tool.enabled === true
-            ? t("viewer.tools.enabled")
-            : tool.enabled === false
-              ? t("viewer.tools.notEnabled")
-              : t("viewer.state.unknown")}
-        </Chip>
-        {/* Access paths: shown when true, absent when false — never a
-            "disabled" label for a tool that is reachable via xd:// or the
-            eval bridge instead of the model. Null is its own chip. */}
-        {tool.direct === true && <Chip>{t("viewer.tools.direct")}</Chip>}
-        {tool.direct === null && (
-          <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.direct") })}>
-            {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.direct") })}
+    // `data-tool` is the row's stable address for the settle handler below:
+    // registry names may contain anything, so they travel as data, never as a
+    // selector built at runtime.
+    <li data-tool={tool.name} className="flex items-start gap-3 px-4 py-2.5">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="break-all text-xs font-medium text-ink">{tool.name}</span>
+          <Chip mono>{t(TOOL_SOURCE_KEYS[tool.source])}</Chip>
+          <Chip>
+            {tool.enabled === true
+              ? t("viewer.tools.enabled")
+              : tool.enabled === false
+                ? t("viewer.tools.notEnabled")
+                : t("viewer.state.unknown")}
           </Chip>
-        )}
-        {tool.xdev === true && <Chip>{t("viewer.tools.xdev")}</Chip>}
-        {tool.xdev === null && (
-          <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.xdev") })}>
-            {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.xdev") })}
-          </Chip>
-        )}
-        {tool.evalBridge === true && <Chip>{t("viewer.tools.eval")}</Chip>}
-        {tool.evalBridge === null && (
-          <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.eval") })}>
-            {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.eval") })}
-          </Chip>
-        )}
-        {tool.mcpServerName !== null && <Chip mono>{tool.mcpServerName}</Chip>}
-      </div>
-      {tool.description.length > 0 && (
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-mid">
-          {tool.description}
-          {tool.descriptionTruncated && (
-            <span className="text-ink-faint"> {t("viewer.row.truncated")}</span>
+          {/* Access paths: shown when true, absent when false — never a
+              "disabled" label for a tool that is reachable via xd:// or the
+              eval bridge instead of the model. Null is its own chip. */}
+          {tool.direct === true && <Chip>{t("viewer.tools.direct")}</Chip>}
+          {tool.direct === null && (
+            <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.direct") })}>
+              {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.direct") })}
+            </Chip>
           )}
-        </p>
-      )}
-      <details className="mt-1">
-        <summary className="cursor-pointer text-[10px] text-ink-faint">{t("viewer.row.details")}</summary>
-        {tool.sourcePath !== null && (
-          <p className="mt-0.5 truncate font-mono text-[10px] text-ink-dim" title={tool.sourcePath}>
-            {tool.sourcePath}
+          {tool.xdev === true && <Chip>{t("viewer.tools.xdev")}</Chip>}
+          {tool.xdev === null && (
+            <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.xdev") })}>
+              {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.xdev") })}
+            </Chip>
+          )}
+          {tool.evalBridge === true && <Chip>{t("viewer.tools.eval")}</Chip>}
+          {tool.evalBridge === null && (
+            <Chip title={t("viewer.tools.fieldUnknown", { field: t("viewer.tools.eval") })}>
+              {t("viewer.tools.fieldUnknown", { field: t("viewer.tools.eval") })}
+            </Chip>
+          )}
+          {tool.mcpServerName !== null && <Chip mono>{tool.mcpServerName}</Chip>}
+        </div>
+        {tool.description.length > 0 && (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-mid">
+            {tool.description}
+            {tool.descriptionTruncated && (
+              <span className="text-ink-faint"> {t("viewer.row.truncated")}</span>
+            )}
           </p>
         )}
-        {tool.mcpServerName !== null && (
-          <p className="font-mono text-[10px] text-ink-dim">
-            {tool.mcpServerName}
-            {tool.mcpToolName !== null ? ` · ${tool.mcpToolName}` : ""}
+        {ownReason && disabledReason !== null && (
+          <p className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">
+            {disabledReason}
           </p>
         )}
-        {access.length > 0 && (
-          <p className="text-[10px] text-ink-faint">
-            {t("viewer.tools.notReported", { fields: access.join(", ") })}
-          </p>
+        <details className="mt-1">
+          <summary className="cursor-pointer text-[10px] text-ink-faint">{t("viewer.row.details")}</summary>
+          {tool.sourcePath !== null && (
+            <p className="mt-0.5 truncate font-mono text-[10px] text-ink-dim" title={tool.sourcePath}>
+              {tool.sourcePath}
+            </p>
+          )}
+          {tool.mcpServerName !== null && (
+            <p className="font-mono text-[10px] text-ink-dim">
+              {tool.mcpServerName}
+              {tool.mcpToolName !== null ? ` · ${tool.mcpToolName}` : ""}
+            </p>
+          )}
+          {access.length > 0 && (
+            <p className="text-[10px] text-ink-faint">
+              {t("viewer.tools.notReported", { fields: access.join(", ") })}
+            </p>
+          )}
+        </details>
+      </div>
+      <div className="flex w-7 shrink-0 justify-end pt-0.5">
+        {togglable && (
+          <Switch
+            on={tool.enabled === true}
+            label={
+              pending
+                ? t("viewer.tools.applying")
+                : tool.enabled === true
+                  ? t("viewer.tools.disable", { name: tool.name })
+                  : t("viewer.tools.enable", { name: tool.name })
+            }
+            title={disabledReason ?? undefined}
+            disabled={pending || disabledReason !== null}
+            onChange={onToggle}
+          />
         )}
-      </details>
+      </div>
     </li>
   );
 }
@@ -671,6 +740,7 @@ export function CapabilitiesViewer({
 }) {
   const closeCapabilitiesViewer = useStore((s) => s.closeCapabilitiesViewer);
   const refreshCapabilities = useStore((s) => s.refreshCapabilities);
+  const setSessionToolEnabled = useStore((s) => s.setSessionToolEnabled);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const state = useStore((s) => s.state);
   const record = useStore((s) => (tabId === undefined ? undefined : findRecord(s.state, tabId)));
@@ -685,6 +755,32 @@ export function CapabilitiesViewer({
     tabId === undefined ? ("bridge-unavailable" as const) : (s.rpc[tabId]?.capabilitiesLoad ?? "idle"),
   );
   const snapshot = useStore((s) => (tabId === undefined ? null : (s.rpc[tabId]?.capabilities ?? null)));
+  // Session-local tool control (issue #379): the in-flight mutation and the
+  // last outcome that did not land, both owned by the tab so the modal can
+  // close and reopen without losing either.
+  const toolPending = useStore((s) =>
+    tabId === undefined ? null : (s.rpc[tabId]?.capabilitiesToolPending ?? null),
+  );
+  const toolFeedback = useStore((s) =>
+    tabId === undefined ? null : (s.rpc[tabId]?.capabilitiesToolFeedback ?? null),
+  );
+  // Plan mode owns the write tool: omp hands it to the session while planning,
+  // so taking it away would break the mode that needs it.
+  const planModeOn = useStore((s) =>
+    tabId === undefined ? false : (s.rpc[tabId]?.plan?.enabled ?? false),
+  );
+  // The runtime's own busy signal — a turn in flight or messages queued — not
+  // this viewer's idea of busy. The bridge refuses mutations mid-turn anyway;
+  // locking the switches here just avoids a click that can only be refused.
+  const runtimeBusy = useStore((s) => {
+    const tab = tabId === undefined ? undefined : s.rpc[tabId];
+    if (tab === undefined) return false;
+    return (
+      tab.status === "running" ||
+      tab.session.isStreaming === true ||
+      tab.session.queuedMessageCount > 0
+    );
+  });
   const t = useT();
 
   const [active, setActive] = useState<CapabilitySectionId>(section);
@@ -807,6 +903,116 @@ export function CapabilitiesViewer({
       .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
       .map((row) => row.tool);
   }, [roster, needle, toolStatus, toolOrigin, toolServer]);
+
+  // --- session-local tool control (issue #379) -----------------------------
+  // Every persistent restriction on this tab's switches, in the order a reader
+  // should hear them. Each is also the switch's own tooltip, so a locked
+  // control never has to be discovered by clicking it. A missing, dormant, or
+  // terminal session never renders rows at all — `liveUnavailable` says why —
+  // so nothing here has to repeat it.
+  const toolLocks: string[] = [];
+  if (roster !== null) {
+    if (roster.toolControl !== "available")
+      toolLocks.push(t("viewer.tools.lockUnsupported"));
+    if (loadStatus === "error") toolLocks.push(t("viewer.tools.lockStale"));
+    if (runtimeBusy) toolLocks.push(t("viewer.tools.lockBusy"));
+  }
+  const tabToolLock = toolLocks.length > 0 ? toolLocks.join(" ") : null;
+
+  /** One deliberate click. The store owns the guard, the pending record, and
+   *  the roster that confirms the change; this forwards the intent and claims
+   *  nothing on its own. */
+  const toggleTool = useCallback(
+    (name: string, next: boolean): void => {
+      if (tabId === undefined || drifted) return;
+      void setSessionToolEnabled(tabId, name, next);
+    },
+    [tabId, drifted, setSessionToolEnabled],
+  );
+
+  const statusFilterRef = useRef<HTMLSpanElement | null>(null);
+  const settledTool = useRef<string | null>(null);
+
+  // A settled change recomputes the rows and the counts from the new roster.
+  // A disabled control drops focus to the document in every browser, so a
+  // dropped focus goes back to the row's switch — and when the confirmed
+  // membership no longer matches the filter the reader set, that row is gone
+  // and focus lands on the filter that hid it rather than vanishing. The live
+  // region above tells the result either way; nothing here clears a search or
+  // moves a filter on its own.
+  useEffect(() => {
+    if (toolPending !== null) {
+      settledTool.current = toolPending.name;
+      return;
+    }
+    const settled = settledTool.current;
+    settledTool.current = null;
+    if (settled === null || active !== "tools" || toolFeedback !== null) return;
+    if (document.activeElement !== null && document.activeElement !== document.body) return;
+    if ((toolRows ?? []).some((row) => row.name === settled)) {
+      const row = [...document.body.querySelectorAll<HTMLElement>("[data-tool]")].find(
+        (node) => node.dataset.tool === settled,
+      );
+      row?.querySelector<HTMLButtonElement>('[role="switch"]')?.focus();
+      return;
+    }
+    const group = statusFilterRef.current;
+    const target =
+      group?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]') ??
+      group?.querySelector<HTMLButtonElement>("button");
+    target?.focus();
+  }, [toolPending, toolFeedback, toolRows, active]);
+
+  /**
+   * The Tools tab's live region (issue #379): keyed to the tool the reader
+   * attempted, and rendered at tab level so filtering can never hide an
+   * answer about a row the filter now excludes.
+   */
+  const toolLiveRegion = (): React.ReactNode => {
+    if (toolFeedback !== null) {
+      const wanted = toolFeedback.enabled
+        ? t("viewer.tools.enabled")
+        : t("viewer.tools.notEnabled");
+      return (
+        <>
+          <p className="text-[11px] leading-relaxed text-rose">
+            {t(TOOL_ERROR_KEYS[toolFeedback.status], {
+              name: toolFeedback.name,
+              state: wanted,
+            })}
+          </p>
+          {toolFeedback.status !== "unsupported" &&
+            toolFeedback.status !== "mode-required" &&
+            toolFeedback.status !== "unknown-tool" && (
+              <p className="mt-0.5 text-[10px] text-ink-faint">
+                {t("viewer.tools.retryHint")}
+              </p>
+            )}
+        </>
+      );
+    }
+    if (toolPending !== null) {
+      return (
+        <p className="text-[11px] text-ink-mid">
+          {t("viewer.tools.applyingNamed", { name: toolPending.name })}
+        </p>
+      );
+    }
+    const record = roster?.toolMutation ?? null;
+    if (record !== null && record.status === "applied") {
+      return (
+        <p className="text-[11px] text-ink-mid">
+          {t("viewer.tools.applied", {
+            name: record.name,
+            state: record.enabled
+              ? t("viewer.tools.enabled")
+              : t("viewer.tools.notEnabled"),
+          })}
+        </p>
+      );
+    }
+    return null;
+  };
 
   const TABS: { id: CapabilitySectionId; label: string }[] = [
     { id: "mcp", label: t("viewer.tab.mcp") },
@@ -1027,6 +1233,21 @@ export function CapabilitiesViewer({
         )}
         {active === "tools" && (
           <>
+            {/* Session-local tool control lives here: one live region for the
+                attempted tool plus the persistent restrictions, both above the
+                rows so a filter can never hide an answer (#379). */}
+            <div role="status" aria-live="polite" className="px-4 pt-1.5">
+              {toolLiveRegion()}
+            </div>
+            {toolLocks.length > 0 && (
+              <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
+                {toolLocks.map((reason) => (
+                  <p key={reason} className="text-[11px] leading-relaxed text-ink-mid">
+                    {reason}
+                  </p>
+                ))}
+              </Panel>
+            )}
             {roster === null && liveUnavailable()}
             {roster !== null && roster.tools.status === "unavailable" && (
               <Empty title={t(REASON_KEYS[roster.tools.reason])} hint={t("viewer.tools.unavailableHint")} />
@@ -1034,17 +1255,19 @@ export function CapabilitiesViewer({
             {roster !== null && roster.tools.status === "available" && (
               <div className="py-1.5">
                 <div className="flex flex-wrap items-center gap-2 px-4 pb-1.5">
-                  <ChoiceCapsule
-                    label={t("viewer.tools.statusFilter")}
-                    value={toolStatus}
-                    onChange={setToolStatus}
-                    options={[
-                      { value: "all", label: t("viewer.filter.all") },
-                      { value: "enabled", label: t("viewer.tools.enabled") },
-                      { value: "disabled", label: t("viewer.tools.notEnabled") },
-                      { value: "unknown", label: t("viewer.filter.unknown") },
-                    ]}
-                  />
+                  <span ref={statusFilterRef}>
+                    <ChoiceCapsule
+                      label={t("viewer.tools.statusFilter")}
+                      value={toolStatus}
+                      onChange={setToolStatus}
+                      options={[
+                        { value: "all", label: t("viewer.filter.all") },
+                        { value: "enabled", label: t("viewer.tools.enabled") },
+                        { value: "disabled", label: t("viewer.tools.notEnabled") },
+                        { value: "unknown", label: t("viewer.filter.unknown") },
+                      ]}
+                    />
+                  </span>
                   <select
                     aria-label={t("viewer.tools.originFilter")}
                     value={toolOrigin}
@@ -1070,6 +1293,19 @@ export function CapabilitiesViewer({
                     </span>
                   )}
                 </div>
+                <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+                  {t("viewer.tools.scope")}
+                </p>
+                <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+                  {t("viewer.tools.registeredVsAbsent")}
+                </p>
+                {(sessionTools ?? []).some(
+                  (tool) => tool.source === "mcp" || tool.mcpServerName !== null,
+                ) && (
+                  <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+                    {t("viewer.tools.mcpNote")}
+                  </p>
+                )}
                 {toolRows !== null && toolRows.length === 0 && (
                   <Empty
                     title={roster.tools.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
@@ -1077,9 +1313,30 @@ export function CapabilitiesViewer({
                 )}
                 {toolRows !== null && toolRows.length > 0 && (
                   <ul className="divide-y divide-line-soft">
-                    {toolRows.map((tool) => (
-                      <ToolRow key={`${tool.source}:${tool.name}`} tool={tool} />
-                    ))}
+                    {toolRows.map((tool) => {
+                      // Plan mode owns `write`: omp hands it to the session
+                      // while planning, so this row's lock is its own story.
+                      const ownReason =
+                        planModeOn && tool.name === "write"
+                          ? t("viewer.tools.planWriteLock")
+                          : null;
+                      const disabledReason =
+                        ownReason ??
+                        tabToolLock ??
+                        (toolPending !== null && toolPending.name !== tool.name
+                          ? t("viewer.tools.lockPending")
+                          : null);
+                      return (
+                        <ToolRow
+                          key={`${tool.source}:${tool.name}`}
+                          tool={tool}
+                          pending={toolPending?.name === tool.name}
+                          disabledReason={disabledReason}
+                          ownReason={ownReason !== null}
+                          onToggle={(next) => toggleTool(tool.name, next)}
+                        />
+                      );
+                    })}
                   </ul>
                 )}
               </div>
