@@ -58,6 +58,10 @@ spans plus a renderer-generated rule per (colour, font-style) pair.
   the existing prepare pass. Retuned to `--color-raised` on a `#e9ebee`
   canvas (issue #375): the sunken plane on paper white read as black-on-white
   with no mid-tones.
+  Split again (issue #380): only block code (`pre, pre code`) keeps the plane.
+  Inline prose chips carry no tokens, so they ride a light canvas-family tint
+  (`#d9dee4`) with inherited ink — the dark plane on a light canvas read as
+  black pills (#375 lifted the block well and left the chips with it).
 
 Rejected: hand-authored highlighted spans in the plan HTML (fragile,
 token-bloated, and pushes tokenization onto the model — the same failure class

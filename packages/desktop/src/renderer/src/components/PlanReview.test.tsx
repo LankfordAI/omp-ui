@@ -1179,6 +1179,8 @@ describe("PlanReview code highlighting (issue #319)", () => {
     // The code plane follows the pinned theme: Graphite's raised plane.
     expect(srcdoc).toContain("background-color: #1a1e23 !important");
     expect(srcdoc).toContain("color: #e8ecf1 !important");
+    // Inline chips ride the light tint, not the plane (issue #380).
+    expect(srcdoc).toContain("background-color: #d9dee4 !important");
     // The unclass'd block stays plain.
     expect(srcdoc).toContain("no class stays plain");
     expect(frame.getAttribute("sandbox")).toBe("");

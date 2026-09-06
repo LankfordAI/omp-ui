@@ -137,7 +137,7 @@ body {
 }`);
   });
 
-  it("paints pre and code on the active theme's raised plane, after the universal rule", async () => {
+  it("paints block code on the theme plane and inline chips on a light tint", async () => {
     const source =
       "<html><head><style>pre{background:#f1f5f9;color:#000}code{background:#e8edf3}</style></head>" +
       "<body><p>inline <code>chip</code></p><pre><code>x = 1</code></pre></body></html>";
@@ -152,6 +152,15 @@ body {
     // holds only because it sits later in the sheet.
     expect(prepared.indexOf("background-color: #1a1e23 !important")).toBeGreaterThan(
       prepared.indexOf("background-color: transparent !important"),
+    );
+    expect(css).toContain(`code {
+  background-color: #d9dee4 !important;
+}`);
+    expect(css).toContain(`pre,
+pre code {`);
+    // chip rule beats the universal transparent rule by order
+    expect(css.indexOf("background-color: #d9dee4 !important")).toBeGreaterThan(
+      css.indexOf("background-color: transparent !important"),
     );
   });
 
@@ -214,13 +223,6 @@ code {
     expect(css).toContain(`pre,
 code {
   white-space: pre-wrap !important;
-  /* Code plane (issue #319): the canvas stays light, but code sits on the
-     active theme's raised plane so the theme's token palette has a surface
-     from its own family — one step up from the transcript's sunken plane so
-     the block reads as a card on the gray canvas, not a black well. */
-  background-color: #1a1e23 !important;
-  color: #e8ecf1 !important;
-  color-scheme: dark !important;
 }`);
     expect(css).toContain(`a,
 a:link,
