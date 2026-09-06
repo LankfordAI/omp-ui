@@ -4,7 +4,7 @@ import type { ProjectRecord } from "@omp-ui/core/types";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { useStore } from "../store";
-import { McpServersPanel } from "./CapabilitiesViewer";
+import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./CapabilitiesViewer";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Label, Modal } from "./ui";
 
@@ -325,12 +325,15 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
 }
 
 /**
- * The per-project settings dialog (issue #281): one modal for a project's MCP
- * servers and its default-model pins, opened from the desktop project header
- * and the compact actions sheet. Session-scoped MCP behavior (in-place
- * restart, TUI reauth handoff) stays in CapabilitiesViewer; this dialog pins
- * no tab, so McpServersPanel gets only the project scope — omitted viewer
- * props keep the panel exactly the manager it always was.
+ * The per-project settings dialog (issues #281, #383): one modal holding a
+ * project's standing configuration — MCP servers, the skills and tools
+ * catalogs at project scope, and the default-model pins — opened from the
+ * desktop project header and the compact actions sheet. Session-scoped
+ * behavior (rosters, session-local switches, restart, TUI reauth handoff)
+ * stays in CapabilitiesViewer; this dialog pins no tab, so every panel gets
+ * only the project scope — omitted viewer props keep each panel exactly the
+ * manager it always was. Catalog switches write this project's
+ * `.omp/config.yml` in place (core/project-config-writer.ts).
  */
 export function ProjectSettings({
   project,
@@ -368,6 +371,26 @@ export function ProjectSettings({
             <McpServersPanel scopeCwd={project.path} />
             <p className="px-4 pt-2 text-[11px] text-ink-faint">
               {t("project.settings.mcpHint")}
+            </p>
+          </section>
+
+          <section aria-labelledby="project-settings-skills" className="border-b border-line pb-3">
+            <h3 id="project-settings-skills" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              {t("project.settings.skills")}
+            </h3>
+            <SkillsScopePanel scopeCwd={project.path} />
+            <p className="px-4 pt-2 text-[11px] text-ink-faint">
+              {t("project.settings.skillsHint")}
+            </p>
+          </section>
+
+          <section aria-labelledby="project-settings-tools" className="border-b border-line pb-3">
+            <h3 id="project-settings-tools" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              {t("project.settings.tools")}
+            </h3>
+            <ToolsScopePanel scopeCwd={project.path} />
+            <p className="px-4 pt-2 text-[11px] text-ink-faint">
+              {t("project.settings.toolsHint")}
             </p>
           </section>
 

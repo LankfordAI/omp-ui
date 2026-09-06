@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { McpServerEntry, McpServersResult } from "@omp-ui/core/types";
+import type {
+  McpServerEntry,
+  McpServersResult,
+  ScopedCapabilitiesResult,
+  SkillCatalogEntry,
+} from "@omp-ui/core/types";
 import type { McpRuntimeFailure } from "@omp-ui/core/mcp-status";
 import type {
   CapabilityReason,
@@ -13,11 +18,20 @@ import { fuzzyBest } from "../lib/fuzzy";
 import { useT, type MessageKey } from "../lib/i18n";
 import { findRecord, sessionCwd, useStore, type CapabilitiesToolFeedbackStatus } from "../store";
 import { Button, Chip, ChoiceCapsule, Empty, IconButton, Modal, Panel, Switch } from "./ui";
+import { layerBadge } from "./settings/rows";
 
 /**
- * The session-capabilities viewer (issue #374): one modal, three categories —
- * MCP servers (resolved config), Skills, and Tools (the loaded rosters a live
- * native session publishes through the generated capabilities bridge).
+ * The capabilities viewer (issues #374, #383): one modal, three categories,
+ * TWO sources of truth. MCP servers always show resolved config. Skills and
+ * Tools show the loaded ROSTER a live native session publishes through the
+ * generated bridge when the modal is pinned to a tab — and the scope's
+ * CATALOG (config layers + skill roots, `getScopedCapabilities`, ADR-0025)
+ * when it is not. Catalogs say what omp CAN load at a scope; rosters say
+ * what a session DID load. Neither imitates the other, and an unavailable
+ * section says why; it is never rendered as an empty list.
+ *
+ * Both unpinned entry points — the global viewer and a ProjectSettings embed —
+ * read and write the catalog at that scope; the pinned viewer changes nothing.
  *
  * The MCP half inherits the manager's full contract (issue #17): every server
  * omp resolves for one scope — a working tree (`scopeCwd`) or global (`null`,
@@ -51,9 +65,10 @@ import { Button, Chip, ChoiceCapsule, Empty, IconButton, Modal, Panel, Switch } 
  * pinned tab offer a handoff instead of a reauth button: the viewer stages
  * the verb for an omp TUI in the tab's console drawer and closes (#243).
  *
- * Skills and Tools describe the selected live native session's loaded roster
- * — never a machine-wide catalog. An unavailable section says why; it is
- * never rendered as an empty list.
+ * Pinned (a `tabId`): Skills and Tools are the live roster — never imitated
+ * by disk reads; an unavailable section says why. Unpinned (the global viewer
+ * and every ProjectSettings embed): they are the scope catalog — files and
+ * settings at that scope, mutations routed to that scope's layer only.
  */
 
 type Load =
@@ -542,6 +557,431 @@ export function McpServersPanel({
   );
 }
 
+/**
+ * A catalog mutation without its scope — the panels' scope is fixed at
+ * mount, and the union must stay distributive (Omit over a union collapses
+ * it to its common keys).
+ */
+type CatalogMutation =
+  | { kind: "tool"; tool: string; enabled: boolean }
+  | { kind: "skill-ignore"; name: string; ignored: boolean }
+  | { kind: "skill-gate"; key: string; enabled: boolean };
+/**
+ * One source of catalog truth per mount: `getScopedCapabilities` reads config
+ * layers and skill roots — no session, no bridge, no runtime status. Both
+ * scope panels share this load shape and its generation guard (the
+ * {@link McpServersPanel} skeleton, issue #383 / ADR-0025).
+ */
+type CatalogLoad =
+  | { status: "loading" }
+  | { status: "loaded"; result: ScopedCapabilitiesResult }
+  | { status: "error"; message: string };
+
+function useCatalogLoad(scopeCwd: string | null, refreshKey: number | undefined): [
+  CatalogLoad,
+  (next: CatalogLoad) => void,
+  () => void,
+] {
+  const [load, setLoad] = useState<CatalogLoad>({ status: "loading" });
+  const [retryKey, setRetryKey] = useState(0);
+  const gen = useRef(0);
+  useEffect(() => {
+    const g = ++gen.current;
+    setLoad({ status: "loading" });
+    backend.getScopedCapabilities(scopeCwd).then(
+      (result) => {
+        if (g === gen.current) setLoad({ status: "loaded", result });
+      },
+      (err: unknown) => {
+        if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
+      },
+    );
+  }, [scopeCwd, refreshKey, retryKey]);
+  return [load, setLoad, () => setRetryKey((k) => k + 1)];
+}
+
+function CatalogError({ load, onRetry }: { load: { status: "error"; message: string }; onRetry: () => void }) {
+  const t = useT();
+  return (
+    <Empty
+      title={t("viewer.catalog.error")}
+      hint={load.message}
+      action={
+        <Button size="xs" onClick={onRetry}>
+          {t("mcp.panel.retry")}
+        </Button>
+      }
+    />
+  );
+}
+
+function CatalogLoading() {
+  const t = useT();
+  return <Empty title={t("viewer.catalog.loading")} hint={t("viewer.catalog.loadingHint")} />;
+}
+
+/** The scope's skills as config truth: files and settings, not a roster. */
+export function SkillsScopePanel({
+  scopeCwd,
+  query,
+  refreshKey,
+  onCounts,
+}: {
+  scopeCwd: string | null;
+  /** The viewer's shared search box; omitted = no filtering. */
+  query?: string;
+  /** Bumped by the viewer's Refresh; reruns the read like a remount. */
+  refreshKey?: number;
+  /** Reports (visible, total) rows up so the tab strip can count. */
+  onCounts?: (visible: number, total: number | null) => void;
+}) {
+  const t = useT();
+  const [load, setLoad, retry] = useCatalogLoad(scopeCwd, refreshKey);
+  const [pendingRow, setPendingRow] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  const [stateFilter, setStateFilter] = useState<"all" | "listed" | "hidden" | "ignored">("all");
+
+  const skills = load.status === "loaded" ? load.result.skills : null;
+  const needle = (query ?? "").trim();
+  const rows = useMemo(() => {
+    if (skills === null || skills.status !== "available") return null;
+    const scored: { skill: SkillCatalogEntry; score: number }[] = [];
+    for (const skill of skills.items) {
+      if (stateFilter === "listed" && (skill.hidden === true || skill.ignored)) continue;
+      if (stateFilter === "hidden" && skill.hidden !== true) continue;
+      if (stateFilter === "ignored" && !skill.ignored) continue;
+      const score = scoreFields(
+        needle,
+        skill.name,
+        skill.description,
+        `${skill.origin} ${skill.filePath} ${skill.scope}`,
+      );
+      if (score !== null) scored.push({ skill, score });
+    }
+    if (needle.length === 0) {
+      return scored.map((row) => row.skill).sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return scored
+      .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
+      .map((row) => row.skill);
+  }, [skills, needle, stateFilter]);
+
+  const totalCount = skills !== null && skills.status === "available" ? skills.items.length : null;
+  const visibleCount = rows === null ? 0 : rows.length;
+  useEffect(() => {
+    onCounts?.(visibleCount, totalCount);
+  }, [onCounts, visibleCount, totalCount]);
+
+  /** One switch click; the refreshed catalogs answer, the row claims nothing. */
+  const mutate = (rowKey: string, mutation: CatalogMutation): void => {
+    setPendingRow(rowKey);
+    setToggleError(null);
+    backend
+      .setScopedCapability({ scopeCwd, ...mutation })
+      .then(
+        (result) => setLoad({ status: "loaded", result }),
+        (err: unknown) => setToggleError(displayMessage(err)),
+      )
+      .finally(() => setPendingRow(null));
+  };
+
+  const lockedBy =
+    skills !== null && skills.status === "available" && !skills.masterEnabled
+      ? t("viewer.catalog.masterOff")
+      : null;
+  const filterable = refreshKey !== undefined;
+
+  return (
+    <>
+      {load.status === "loading" && <CatalogLoading />}
+      {load.status === "error" && <CatalogError load={load} onRetry={retry} />}
+      {skills !== null && skills.status === "error" && (
+        <CatalogError load={skills} onRetry={retry} />
+      )}
+      {skills !== null && skills.status === "available" && (
+        <div className="py-1.5">
+          {toggleError !== null && (
+            <p className="mx-4 my-2 rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 text-xs text-rose">
+              {toggleError}
+            </p>
+          )}
+          {lockedBy !== null && (
+            <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
+              <p className="text-[11px] leading-relaxed text-ink-mid">{lockedBy}</p>
+            </Panel>
+          )}
+          {filterable && (
+            <div className="flex items-center gap-2 px-4 pb-1">
+              <ChoiceCapsule
+                label={t("viewer.skills.filterLabel")}
+                value={stateFilter}
+                onChange={setStateFilter}
+                options={[
+                  { value: "all", label: t("viewer.filter.all") },
+                  { value: "listed", label: t("viewer.skills.filterListed") },
+                  { value: "hidden", label: t("viewer.skills.filterHidden") },
+                  { value: "ignored", label: t("viewer.catalog.filterIgnored") },
+                ]}
+              />
+            </div>
+          )}
+          <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+            {t("viewer.catalog.coverageSkills")}
+          </p>
+          {skills.note === "bundles-not-listed" && (
+            <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+              {t("viewer.catalog.bundles")}
+            </p>
+          )}
+          {skills.truncated && (
+            <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+              {t("viewer.catalog.truncated")}
+            </p>
+          )}
+          <details className="px-4 py-1">
+            <summary className="cursor-pointer text-[10px] text-ink-faint">
+              {t("viewer.catalog.roots")}
+            </summary>
+            <ul className="mt-1 space-y-0.5">
+              {skills.roots.map((root) => (
+                <li key={root.path} className="flex items-center gap-2">
+                  <span className="truncate font-mono text-[10px] text-ink-dim" title={root.path}>
+                    {root.path}
+                  </span>
+                  {!root.exists && <Chip>{t("viewer.catalog.rootMissing")}</Chip>}
+                  {!root.gateEnabled && <Chip tone="copper">{t("viewer.catalog.rootGate")}</Chip>}
+                </li>
+              ))}
+            </ul>
+          </details>
+          {rows !== null && rows.length === 0 && (
+            <Empty
+              title={skills.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
+            />
+          )}
+          {rows !== null && rows.length > 0 && (
+            <ul className="divide-y divide-line-soft">
+              {rows.map((skill) => (
+                <SkillCatalogRow
+                  key={`${skill.origin}:${skill.filePath}:${skill.name}`}
+                  skill={skill}
+                  scopeCwd={scopeCwd}
+                  pending={pendingRow === `${skill.origin}:${skill.filePath}`}
+                  lockedBy={lockedBy}
+                  onMutate={mutate}
+                />
+              ))}
+            </ul>
+          )}
+          <p className="px-4 pt-2 text-[11px] text-ink-faint">
+            {scopeCwd === null ? t("mcp.footer.global") : t("mcp.footer.project")}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
+function SkillCatalogRow({
+  skill,
+  scopeCwd,
+  pending,
+  lockedBy,
+  onMutate,
+}: {
+  skill: SkillCatalogEntry;
+  scopeCwd: string | null;
+  pending: boolean;
+  lockedBy: string | null;
+  onMutate: (
+    rowKey: string,
+    mutation: CatalogMutation,
+  ) => void;
+}) {
+  const t = useT();
+  const rowKey = `${skill.origin}:${skill.filePath}`;
+  const gateOff = !skill.gateEnabled && skill.gateKey !== null;
+  const shadowSource = skill.shadowedBy?.split(":", 1)[0];
+  return (
+    <li className={cn("px-4 py-2.5", !skill.gateEnabled && "opacity-55")}>
+      <div className="flex items-center gap-2">
+        <span className="truncate text-xs font-medium text-ink">{skill.name}</span>
+        <Chip mono>{skill.origin}</Chip>
+        <Chip mono>{skill.scope}</Chip>
+        {skill.hidden === true && <Chip>{t("viewer.skills.hidden")}</Chip>}
+        {skill.ignored && <Chip tone="copper">{t("viewer.catalog.ignored")}</Chip>}
+        {skill.disabledInFile && <Chip>{t("viewer.catalog.disabledInFile")}</Chip>}
+        {gateOff && (
+          <Chip title={skill.gateKey ?? undefined}>{t("viewer.catalog.rootGate")}</Chip>
+        )}
+        {shadowSource !== undefined && (
+          <Chip tone="copper" title={skill.shadowedBy ?? undefined}>
+            {t("mcp.row.shadowed", { source: shadowSource })}
+          </Chip>
+        )}
+      </div>
+      {skill.description.length > 0 && (
+        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-mid">{skill.description}</p>
+      )}
+      <details className="mt-1">
+        <summary className="cursor-pointer text-[10px] text-ink-faint">{t("viewer.row.details")}</summary>
+        <p className="mt-0.5 truncate font-mono text-[10px] text-ink-dim" title={skill.filePath}>
+          {skill.filePath}
+        </p>
+      </details>
+      <div className="mt-1 flex justify-end">
+        {gateOff ? (
+          <Switch
+            on={false}
+            label={t("viewer.catalog.gateEnable", { name: skill.name })}
+            title={
+              lockedBy ??
+              t("viewer.catalog.gateOffTitle", {
+                key: skill.gateKey ?? "",
+                scope: scopeCwd === null ? t("viewer.header.globalKicker") : t("viewer.header.projectKicker"),
+              })
+            }
+            disabled={pending || lockedBy !== null}
+            onChange={(next) =>
+              onMutate(rowKey, { kind: "skill-gate", key: skill.gateKey ?? "", enabled: next })
+            }
+          />
+        ) : (
+          <Switch
+            on={skill.ignored}
+            label={
+              skill.ignored
+                ? t("viewer.catalog.unignore", { name: skill.name })
+                : t("viewer.catalog.ignore", { name: skill.name })
+            }
+            title={
+              lockedBy ??
+              (scopeCwd === null
+                ? t("viewer.catalog.ignoreGlobal")
+                : t("viewer.catalog.ignoreProject"))
+            }
+            disabled={pending || lockedBy !== null}
+            onChange={(next) => onMutate(rowKey, { kind: "skill-ignore", name: skill.name, ignored: next })}
+          />
+        )}
+      </div>
+    </li>
+  );
+}
+
+/** The scope's tool-enable settings as config truth, one row per omp tool gate. */
+export function ToolsScopePanel({
+  scopeCwd,
+  query,
+  refreshKey,
+  onCounts,
+}: {
+  scopeCwd: string | null;
+  query?: string;
+  refreshKey?: number;
+  onCounts?: (visible: number, total: number | null) => void;
+}) {
+  const t = useT();
+  const [load, setLoad, retry] = useCatalogLoad(scopeCwd, refreshKey);
+  const [pendingTool, setPendingTool] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
+  const tools = load.status === "loaded" ? load.result.tools : null;
+  const needle = (query ?? "").trim();
+  const rows = useMemo(() => {
+    if (tools === null || tools.status !== "available") return null;
+    const scored: { tool: (typeof tools.items)[number]; score: number }[] = [];
+    for (const tool of tools.items) {
+      const score = scoreFields(needle, tool.tool, "", tool.key);
+      if (score !== null) scored.push({ tool, score });
+    }
+    if (needle.length === 0) {
+      return scored.map((row) => row.tool).sort((a, b) => a.tool.localeCompare(b.tool));
+    }
+    return scored
+      .sort((a, b) => b.score - a.score || a.tool.tool.localeCompare(b.tool.tool))
+      .map((row) => row.tool);
+  }, [tools, needle]);
+
+  const totalCount = tools !== null && tools.status === "available" ? tools.items.length : null;
+  useEffect(() => {
+    onCounts?.(rows === null ? 0 : rows.length, totalCount);
+  }, [onCounts, rows, totalCount]);
+
+  const toggle = (tool: string, next: boolean): void => {
+    setPendingTool(tool);
+    setToggleError(null);
+    backend
+      .setScopedCapability({ scopeCwd, kind: "tool", tool, enabled: next })
+      .then(
+        (result) => setLoad({ status: "loaded", result }),
+        (err: unknown) => setToggleError(displayMessage(err)),
+      )
+      .finally(() => setPendingTool(null));
+  };
+
+  return (
+    <>
+      {load.status === "loading" && <CatalogLoading />}
+      {load.status === "error" && <CatalogError load={load} onRetry={retry} />}
+      {tools !== null && tools.status === "error" && <CatalogError load={tools} onRetry={retry} />}
+      {tools !== null && tools.status === "available" && (
+        <div className="py-1.5">
+          {toggleError !== null && (
+            <p className="mx-4 my-2 rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 text-xs text-rose">
+              {toggleError}
+            </p>
+          )}
+          <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+            {t("viewer.catalog.coverageTools")}
+          </p>
+          {rows !== null && rows.length === 0 && (
+            <Empty
+              title={tools.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
+            />
+          )}
+          {rows !== null && rows.length > 0 && (
+            <ul className="divide-y divide-line-soft">
+              {rows.map((row) => (
+                <li key={row.tool} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-xs font-medium text-ink">{row.tool}</span>
+                      <Chip mono>{row.key}</Chip>
+                      {row.enabled === null && <Chip>{t("viewer.state.unknown")}</Chip>}
+                      {layerBadge(row.layer)}
+                    </div>
+                  </div>
+                  <Switch
+                    on={row.enabled === true}
+                    label={
+                      row.enabled === true
+                        ? t("viewer.tools.disable", { name: row.tool })
+                        : t("viewer.tools.enable", { name: row.tool })
+                    }
+                    title={
+                      row.enabled === null
+                        ? t("viewer.catalog.toolUnknown")
+                        : scopeCwd === null
+                          ? t("viewer.catalog.toolGlobal")
+                          : t("viewer.catalog.toolProject")
+                    }
+                    disabled={pendingTool === row.tool || row.enabled === null}
+                    onChange={(next) => toggle(row.tool, next)}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="px-4 pt-2 text-[11px] text-ink-faint">
+            {scopeCwd === null ? t("mcp.footer.global") : t("mcp.footer.project")}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 function SkillRow({ skill }: { skill: CapabilitySkill }) {
   const t = useT();
   return (
@@ -794,6 +1234,9 @@ export function CapabilitiesViewer({
   const [toolServer, setToolServer] = useState<string | null>(null);
   const [skillView, setSkillView] = useState<"all" | "listed" | "hidden" | "unknown">("all");
   const [mcpCounts, setMcpCounts] = useState<{ visible: number; total: number | null } | null>(null);
+  // Unpinned tabs count from the scope panels' own reads instead of a roster.
+  const [skillCatalogCounts, setSkillCatalogCounts] = useState<{ visible: number; total: number | null } | null>(null);
+  const [toolCatalogCounts, setToolCatalogCounts] = useState<{ visible: number; total: number | null } | null>(null);
   const tabRefs = useRef<Record<CapabilitySectionId, HTMLButtonElement | null>>({
     mcp: null,
     skills: null,
@@ -851,6 +1294,18 @@ export function CapabilitiesViewer({
 
   const reportMcpCounts = useCallback((visible: number, total: number | null) => {
     setMcpCounts((prev) =>
+      prev !== null && prev.visible === visible && prev.total === total ? prev : { visible, total },
+    );
+  }, []);
+
+  const reportSkillCatalogCounts = useCallback((visible: number, total: number | null) => {
+    setSkillCatalogCounts((prev) =>
+      prev !== null && prev.visible === visible && prev.total === total ? prev : { visible, total },
+    );
+  }, []);
+
+  const reportToolCatalogCounts = useCallback((visible: number, total: number | null) => {
+    setToolCatalogCounts((prev) =>
       prev !== null && prev.visible === visible && prev.total === total ? prev : { visible, total },
     );
   }, []);
@@ -1095,7 +1550,9 @@ export function CapabilitiesViewer({
             ⎇ {worktree.branch}{t("mcp.header.worktree", { cwd: record?.projectCwd ?? "" })}
           </p>
         )}
-        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">{t("viewer.header.coverage")}</p>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+          {t(tabId === undefined ? "viewer.header.coverageCatalog" : "viewer.header.coverage")}
+        </p>
       </header>
 
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-4 py-2">
@@ -1106,8 +1563,12 @@ export function CapabilitiesViewer({
               tab.id === "mcp"
                 ? countLabel(mcpCounts?.total ?? null, mcpCounts?.visible ?? null)
                 : tab.id === "skills"
-                  ? countLabel(skillTotal, skillRows?.length ?? null)
-                  : countLabel(toolTotal, toolRows?.length ?? null);
+                  ? tabId === undefined
+                    ? countLabel(skillCatalogCounts?.total ?? null, skillCatalogCounts?.visible ?? null)
+                    : countLabel(skillTotal, skillRows?.length ?? null)
+                  : tabId === undefined
+                    ? countLabel(toolCatalogCounts?.total ?? null, toolCatalogCounts?.visible ?? null)
+                    : countLabel(toolTotal, toolRows?.length ?? null);
             return (
               <button
                 key={tab.id}
@@ -1183,7 +1644,15 @@ export function CapabilitiesViewer({
             onCounts={reportMcpCounts}
           />
         )}
-        {active === "skills" && (
+        {active === "skills" && tabId === undefined && (
+          <SkillsScopePanel
+            scopeCwd={scopeCwd}
+            query={query}
+            refreshKey={refreshKey}
+            onCounts={reportSkillCatalogCounts}
+          />
+        )}
+        {active === "skills" && tabId !== undefined && (
           <>
             {roster === null && liveUnavailable()}
             {roster !== null && roster.skills.status === "unavailable" && (
@@ -1231,7 +1700,15 @@ export function CapabilitiesViewer({
             )}
           </>
         )}
-        {active === "tools" && (
+        {active === "tools" && tabId === undefined && (
+          <ToolsScopePanel
+            scopeCwd={scopeCwd}
+            query={query}
+            refreshKey={refreshKey}
+            onCounts={reportToolCatalogCounts}
+          />
+        )}
+        {active === "tools" && tabId !== undefined && (
           <>
             {/* Session-local tool control lives here: one live region for the
                 attempted tool plus the persistent restrictions, both above the

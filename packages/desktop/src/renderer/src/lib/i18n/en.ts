@@ -810,7 +810,10 @@ export const en = {
   "palette.action.switchMode": "Switch to {mode} mode",
   "palette.action.switchModeDesc": "{title} — restarts the process",
   "palette.action.capabilities": "View capabilities",
-  "palette.action.capabilitiesDesc": "MCP servers, skills, tools for this session's working tree",
+  "palette.action.capabilitiesDesc": "global MCP servers, skills, and tools settings",
+  "palette.action.capabilitiesSession": "Capabilities for this session",
+  "palette.action.capabilitiesSessionDesc":
+    "what this live session loaded — roster, session-local switches, MCP runtime status",
   "palette.action.checkApp": "Check for updates",
   "palette.action.checkAppDesc": "look for a newer omp-ui release",
   "palette.action.checkOmp": "Check for omp updates",
@@ -868,6 +871,39 @@ export const en = {
   "viewer.header.globalPath": "Global MCP configuration",
   "viewer.header.coverage":
     "Skills and Tools describe the loaded roster of the selected live native session — not a machine-wide catalog. Skill files that are disabled or filtered from loading are not listed; loaded skills marked hidden are.",
+  "viewer.header.coverageCatalog":
+    "Skills and Tools show the files and settings at this scope — what omp can load, not what any session loaded. The session's capabilities view shows a live roster instead.",
+  // Scope catalogs (issue #383, ADR-0025): config truth at global/project scope.
+  "viewer.catalog.loading": "reading configuration…",
+  "viewer.catalog.loadingHint": "Files and settings at this scope — no session involved.",
+  "viewer.catalog.error": "Could not read the configuration at this scope",
+  "viewer.catalog.masterOff":
+    "skills.enabled is off at this scope, so no skill loads from any root; the files still list here and switches are paused.",
+  "viewer.catalog.bundles":
+    "omp's bundled skills are embedded in the binary and are not listed here; a live session's roster shows whatever it loaded.",
+  "viewer.catalog.truncated": "This scope holds more skill files than the scan lists — the inventory stops at its cap.",
+  "viewer.catalog.roots": "where we looked",
+  "viewer.catalog.rootMissing": "not present",
+  "viewer.catalog.rootGate": "root disabled",
+  "viewer.catalog.coverageSkills":
+    "Files and settings at this scope — what omp can load. The session tab shows what a live session did load.",
+  "viewer.catalog.coverageTools":
+    "Tool enable settings at this scope; they apply to sessions started afterwards. Per-session switches live in the session's capabilities view.",
+  "viewer.catalog.filterIgnored": "ignored",
+  "viewer.catalog.ignored": "ignored",
+  "viewer.catalog.disabledInFile": "disabled in file",
+  "viewer.catalog.ignore": "Ignore {name}",
+  "viewer.catalog.unignore": "Un-ignore {name}",
+  "viewer.catalog.ignoreGlobal":
+    "rewrites skills.ignoredSkills in omp's global settings from its current value",
+  "viewer.catalog.ignoreProject": "writes skills.ignoredSkills to this project's .omp/config.yml",
+  "viewer.catalog.gateEnable": "Enable the root behind {name}",
+  "viewer.catalog.gateOffTitle":
+    "{key} is off at the {scope} level; this switch turns it on so the root's skills load again",
+  "viewer.catalog.toolUnknown":
+    "omp publishes this key without a boolean state — nothing to toggle here",
+  "viewer.catalog.toolGlobal": "writes the setting to omp's global layer via omp config set",
+  "viewer.catalog.toolProject": "writes the setting to this project's .omp/config.yml in place",
   "viewer.tab.mcp": "MCP servers",
   "viewer.tab.skills": "Skills",
   "viewer.tab.tools": "Tools",
@@ -1307,6 +1343,12 @@ export const en = {
   "project.settings.title": "Project settings",
   "project.settings.mcpServers": "MCP servers",
   "project.settings.mcpHint": "Changes apply to new sessions in this project.",
+  "project.settings.skills": "Skills",
+  "project.settings.skillsHint":
+    "Files and settings at this project's scope — switches write .omp/config.yml here; changes apply to sessions started afterwards.",
+  "project.settings.tools": "Tools",
+  "project.settings.toolsHint":
+    "Tool enable settings for this project's scope; they apply to sessions started afterwards.",
   "project.settings.defaultModels": "Default models",
 
   "sidebar.status.workingLabel": "working",

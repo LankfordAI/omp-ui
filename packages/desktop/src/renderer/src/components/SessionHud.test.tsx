@@ -338,6 +338,40 @@ describe("wide Session HUD", () => {
     expect(trigger?.title).toBe("Capabilities — 120 MCP failures");
     expect(trigger?.parentElement?.textContent).toContain("99+");
   });
+  it("opens the global catalog viewer, pinning no session (issue #383)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Capabilities"]')!.click());
+    // Not (scopeCwd, tabId): the catalog modal is scope-global from any context.
+    expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp" });
+  });
+
+  it("renders the button even when the record has no working tree", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const group = state.projects[0]!;
+    useStore.setState({
+      state: {
+        ...state,
+        projects: [
+          // No record answers the tab at all: sessionCwd() is undefined here —
+          // the case that used to hide the button.
+          { ...group, sessions: [] },
+        ],
+      },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+
+    expect(host.querySelector('button[aria-label="Capabilities"]')).not.toBeNull();
+  });
 });
 
 describe("compact Session HUD", () => {

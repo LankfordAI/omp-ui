@@ -9,7 +9,7 @@ import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
 import { useT } from "../lib/i18n";
 import type { ContextUsage } from "../lib/rpc-types";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -639,9 +639,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
-  // The viewer resolves and writes where omp does: this session's own working
-  // tree, which for a worktree session is its checkout (#325).
-  const scopeCwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const compact = useCompactShell();
   const surface = useStore((s) => s.compactSurface);
@@ -765,7 +762,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
-                {scopeCwd !== undefined && <Button onClick={() => openCapabilitiesViewer(scopeCwd, tabId, "mcp")} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>}
+                <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp")} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
@@ -867,21 +864,22 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <IconButton label={t("hud.actions.exportTitle")} onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>
-        {scopeCwd !== undefined && (
-          <span className="relative shrink-0">
-            <IconButton
-              label={mcpFailureCount > 0 ? t("hud.actions.capabilitiesFailed", { count: mcpFailureCount }) : t("hud.actions.capabilities")}
-              onClick={() => openCapabilitiesViewer(scopeCwd, tabId, "mcp")}
-            >
-              <IconMcp />
-            </IconButton>
-            {mcpFailureCount > 0 && (
-              <span className="pointer-events-none absolute -right-1.5 -top-1 min-w-3 rounded-full bg-rose-wash px-0.5 text-center font-mono text-[9px] leading-3 text-rose">
-                {mcpFailureCount > 99 ? "99+" : mcpFailureCount}
-              </span>
-            )}
-          </span>
-        )}
+        {/* The button opens the global catalog (issue #383) — it needs no
+            session cwd. The badge still counts THIS session's failed MCP
+            servers, the one context the reader is standing in (D5). */}
+        <span className="relative shrink-0">
+          <IconButton
+            label={mcpFailureCount > 0 ? t("hud.actions.capabilitiesFailed", { count: mcpFailureCount }) : t("hud.actions.capabilities")}
+            onClick={() => openCapabilitiesViewer(null, undefined, "mcp")}
+          >
+            <IconMcp />
+          </IconButton>
+          {mcpFailureCount > 0 && (
+            <span className="pointer-events-none absolute -right-1.5 -top-1 min-w-3 rounded-full bg-rose-wash px-0.5 text-center font-mono text-[9px] leading-3 text-rose">
+              {mcpFailureCount > 99 ? "99+" : mcpFailureCount}
+            </span>
+          )}
+        </span>
         <IconButton label={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)}>
           <IconBranch />
         </IconButton>

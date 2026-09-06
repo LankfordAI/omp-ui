@@ -30,6 +30,8 @@ import type {
   RemoteBind,
   RemoteState,
   ResolvedMentionContext,
+  ScopedCapabilitiesResult,
+  ScopedCapabilityMutation,
   SessionMode,
   SpawnRequest,
   WorktreeReleaseResult,
@@ -51,6 +53,7 @@ import {
   projectOpenTargetCodec,
   remoteBindCodec,
   rpcFrameCodec,
+  scopedCapabilityMutationCodec,
   sessionModeCodec,
   spawnRequestCodec,
   str,
@@ -535,6 +538,30 @@ export const BACKEND_CHANNELS = {
   getSessionCapabilities: {
     channel: "session:capabilities",
     ...request<[tabId: string], SessionCapabilitiesResult>([str()]),
+  },
+  /**
+   * The capability CATALOGS (issue #383, ADR-0025): skills and tools as
+   * config truth resolved at a scope — null `scopeCwd` is the global scope,
+   * a path is that working tree's project scope. Config + disk only: it
+   * spawns no session and connects to nothing (the probe-session alternative
+   * was rejected — ADR-0025). Never rejects for a config reason: a failed
+   * settings read answers with per-section errors carrying omp's message.
+   */
+  getScopedCapabilities: {
+    channel: "capabilities:scoped",
+    ...request<[scopeCwd: string | null], ScopedCapabilitiesResult>([nullable(str())]),
+  },
+  /**
+   * Applies one catalog mutation and answers with the scope's refreshed
+   * catalogs. Global requests write omp's global layer via `omp config set`;
+   * project requests edit `.omp/config.yml` in place (comments preserved) or
+   * refuse naming the offending line. Validation rejects before any spawn.
+   */
+  setScopedCapability: {
+    channel: "capabilities:scoped:set",
+    ...request<[req: ScopedCapabilityMutation], ScopedCapabilitiesResult>(
+      [scopedCapabilityMutationCodec],
+    ),
   },
   /**
    * Session-local enable/disable of one registered tool in a pinned live

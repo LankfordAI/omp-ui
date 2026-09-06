@@ -13,6 +13,7 @@ import type {
   RemoteBind,
   SessionMode,
   SpawnRequest,
+  ScopedCapabilityMutation,
 } from "./types";
 
 export interface ArgCodec<T> {
@@ -30,6 +31,12 @@ type DecodedFields<Fields extends FieldCodecs> = {
   [Key in keyof Fields]: CodecValue<Fields[Key]>;
 };
 
+/** Reject objects carrying fields the shape does not name — no silent halves. */
+function exactKeys(fields: Record<string, unknown>, keys: readonly string[], path: string): void {
+  for (const name of Object.keys(fields)) {
+    if (!keys.includes(name)) fail(`${path}.${name}`, `absent (known: ${keys.join(", ")})`);
+  }
+}
 function fail(path: string, expected: string): never {
   throw new Error(`${path} must be ${expected}`);
 }
@@ -190,6 +197,45 @@ export const ompSettingValueCodec: ArgCodec<OmpSettingValue> = {
     if (typeof value === "number") return num().decode(value, path);
     if (Array.isArray(value)) return stringArrayCodec.decode(value, path);
     return openRecordCodec.decode(value, path);
+  },
+};
+
+/**
+ * The scoped capability mutation (issue #383), decoded as a strict discriminated
+ * union: unknown fields are rejected, so a half-formed mutation can never be
+ * silently half-applied — the capabilities.ts mutation-request rule, reused.
+ */
+export const scopedCapabilityMutationCodec: ArgCodec<ScopedCapabilityMutation> = {
+  expected: "a scoped capability mutation",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    const scopeCwd = nullable(str()).decode(fields["scopeCwd"], `${path}.scopeCwd`);
+    const kind = oneOf("tool", "skill-ignore", "skill-gate").decode(fields["kind"], `${path}.kind`);
+    if (kind === "tool") {
+      exactKeys(fields, ["scopeCwd", "kind", "tool", "enabled"], path);
+      return {
+        scopeCwd,
+        kind,
+        tool: str().decode(fields["tool"], `${path}.tool`),
+        enabled: bool().decode(fields["enabled"], `${path}.enabled`),
+      };
+    }
+    if (kind === "skill-ignore") {
+      exactKeys(fields, ["scopeCwd", "kind", "name", "ignored"], path);
+      return {
+        scopeCwd,
+        kind,
+        name: str().decode(fields["name"], `${path}.name`),
+        ignored: bool().decode(fields["ignored"], `${path}.ignored`),
+      };
+    }
+    exactKeys(fields, ["scopeCwd", "kind", "key", "enabled"], path);
+    return {
+      scopeCwd,
+      kind,
+      key: str().decode(fields["key"], `${path}.key`),
+      enabled: bool().decode(fields["enabled"], `${path}.enabled`),
+    };
   },
 };
 

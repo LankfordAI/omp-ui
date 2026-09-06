@@ -110,6 +110,7 @@ export {
   type OmpCompactionMethods,
   type OmpConfigRunner,
 } from "./omp-settings";
+export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";
 export {
   captureLoginShellKeys,
   maskKey,

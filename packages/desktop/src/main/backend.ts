@@ -11,6 +11,7 @@ import {
   generateBranchNameWithOmp,
   generateTitleWithOmp,
   getArchiveRoot,
+  getScopedCapabilities,
   getSessionsRoot,
   hydrateSessionFile,
   readOmpAdvisorDefaults,
@@ -31,6 +32,7 @@ import {
   resolveMcpServers,
   resolveProjectPath,
   setMcpServerEnabled,
+  setScopedCapability,
   ProviderOAuth,
   ProviderKeys,
   Registry,
@@ -46,6 +48,7 @@ import {
   type ConsoleProgram,
   type ImageAttachment,
   type McpSetEnabledRequest,
+  type ScopedCapabilityMutation,
   type LiveState,
   type OmpSettingValue,
   type OwnedSessionRecord,
@@ -540,6 +543,12 @@ export class MainBackend {
         },
         [CH.getMcpServers]: (projectCwd: string | null) => resolveMcpServers(projectCwd),
         [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => setMcpServerEnabled(req),
+        // Capability catalogs (issue #383): stateless core reads like
+        // getMcpServers — one ompSettings spawn chain, no session involved.
+        [CH.getScopedCapabilities]: (scopeCwd: string | null) =>
+          getScopedCapabilities(scopeCwd, this.ompPath),
+        [CH.setScopedCapability]: (req: ScopedCapabilityMutation) =>
+          setScopedCapability(req, this.ompPath),
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),

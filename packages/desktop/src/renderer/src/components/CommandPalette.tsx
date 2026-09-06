@@ -132,6 +132,16 @@ export function CommandPalette() {
       desc: t("palette.action.addProjectDesc"),
       run: () => openProjectPicker(),
     });
+    // The catalog viewer is scope-global: same content from any context, no
+    // session required (issue #383) — the HUD button and this action always
+    // open it unpinned.
+    out.push({
+      id: "app:capabilities",
+      group: t("palette.group.app"),
+      name: t("palette.action.capabilities"),
+      desc: t("palette.action.capabilitiesDesc"),
+      run: () => openCapabilitiesViewer(null, undefined, "mcp"),
+    });
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     if (tab) {
@@ -153,15 +163,17 @@ export function CommandPalette() {
           run: () => void switchMode(tab.tabId, other),
         },
       );
-      // The viewer pins to this tab, so it resolves at the session's own
-      // working tree — a worktree session's checkout (#325).
+      // The session-pinned viewer (#379's door): live roster, session-local
+      // switches, MCP runtime status, resolved at the session's own working
+      // tree — a worktree session's checkout (#325). Gated to native tabs
+      // with a cwd: a terminal tab shows the same facts in its own TUI.
       const scopeCwd = sessionCwd(findRecord(state, tab.tabId));
-      if (scopeCwd !== undefined) {
+      if (scopeCwd !== undefined && tab.mode === "rpc-ui") {
         out.push({
           id: "session:capabilities",
           group: t("palette.group.session"),
-          name: t("palette.action.capabilities"),
-          desc: t("palette.action.capabilitiesDesc"),
+          name: t("palette.action.capabilitiesSession"),
+          desc: t("palette.action.capabilitiesSessionDesc"),
           run: () => openCapabilitiesViewer(scopeCwd, tab.tabId, "mcp"),
         });
       }
@@ -175,19 +187,19 @@ export function CommandPalette() {
       run: () => void checkAppUpdate(),
     });
     out.push({
-      id: "omp:check-updates",
-      group: t("palette.group.app"),
-      name: t("palette.action.checkOmp"),
-      desc: t("palette.action.checkOmpDesc"),
-      run: () => void checkOmpUpdate(),
-    });
-    out.push({
       id: "app:settings",
       group: t("palette.group.app"),
       name: t("palette.action.settings"),
       desc: t("palette.action.settingsDesc"),
       hint: "mod+,",
       run: () => openSettings(),
+    });
+    out.push({
+      id: "omp:check-updates",
+      group: t("palette.group.app"),
+      name: t("palette.action.checkOmp"),
+      desc: t("palette.action.checkOmpDesc"),
+      run: () => void checkOmpUpdate(),
     });
 
     return out;

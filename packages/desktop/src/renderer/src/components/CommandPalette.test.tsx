@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { backendState, tabInfo } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -91,5 +92,100 @@ describe("CommandPalette close controls", () => {
     pressPalette("Enter");
     expect(useStore.getState().projectPickerOpen).toBe(true);
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+const CWD_RECORD = {
+  tabId: "tab-1",
+  sessionId: "s1",
+  lineageDir: "omp-ui--p--s1",
+  projectCwd: "/p",
+  launchedAt: "t",
+  mode: "rpc-ui" as const,
+  worktree: null,
+  planImplementationSource: null,
+  agentMode: "build" as const,
+  compactionMethod: null,
+  model: null,
+  thinkingLevel: null,
+  advisor: false,
+  advisorModel: null,
+  cachedTitle: "T",
+  cachedModified: "t",
+  title: "T",
+  status: "complete" as const,
+  live: "live" as const,
+  pendingPlan: null,
+  planSettle: null,
+  streamStalled: false,
+};
+
+describe("CommandPalette capabilities actions (issue #383)", () => {
+  function renderWithTab(mode: "rpc-ui" | "pty"): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({
+      projectPickerOpen: false,
+      state: backendState({
+        defaultAdvisor: false,
+        projects: [
+          {
+            project: {
+              path: "/p",
+              name: "P",
+              addedAt: "t",
+              lastModel: null,
+              lastThinkingLevel: null,
+              lastAdvisor: null,
+              lastAdvisorModel: null,
+              defaultModel: null,
+              defaultAdvisorModel: null,
+            },
+            sessions: [{ ...CWD_RECORD, mode: "rpc-ui" }],
+          },
+        ],
+      }),
+      tabs: [tabInfo({ tabId: "tab-1", mode })],
+      activeTabId: "tab-1",
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<CommandPalette />));
+    act(() => openPalette());
+  }
+
+  function runVisible(needle: string): void {
+    typeQuery(needle);
+    pressPalette("Enter");
+  }
+
+  it("offers the global viewer with no session at all", () => {
+    renderPalette(false);
+    expect(document.body.textContent).toContain("View capabilities");
+    // No live session exists, so the pinned variant cannot be offered.
+    expect(document.body.textContent).not.toContain("Capabilities for this session");
+    runVisible("View capabilities");
+    expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp" });
+  });
+
+  it("offers the pinned session action for a native tab, global untouched", () => {
+    renderWithTab("rpc-ui");
+    expect(document.body.textContent).toContain("View capabilities");
+    expect(document.body.textContent).toContain("Capabilities for this session");
+    runVisible("Capabilities for this session");
+    expect(useStore.getState().capabilitiesViewer).toEqual({
+      scopeCwd: "/p",
+      tabId: "tab-1",
+      section: "mcp",
+    });
+  });
+
+  it("pins nothing for a terminal tab — its TUI shows the roster itself", () => {
+    renderWithTab("pty");
+    expect(document.body.textContent).toContain("View capabilities");
+    expect(document.body.textContent).not.toContain("Capabilities for this session");
   });
 });
