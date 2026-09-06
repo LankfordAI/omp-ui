@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GoalSnapshot, NativeGoal } from "@omp-ui/core/goal";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, rpcTabState } from "../test/fixtures";
 
@@ -653,5 +654,104 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     const notch = bar.querySelector("span");
     expect(notch).not.toBeNull();
     expect(notch!.style.left).toBe("calc(85% - 1px)");
+  });
+});
+
+describe("SessionHud goal chip (issue #381)", () => {
+  const runSlashCommand = vi.fn(async () => {});
+
+  const seedGoal = (goal: GoalSnapshot | null): void => {
+    useStore.setState({
+      runSlashCommand,
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, goal } },
+    });
+  };
+
+  const nativeGoal = (patch: Partial<NativeGoal> = {}): NativeGoal => ({
+    id: "g1",
+    objective: "finish the migration",
+    status: "active",
+    tokenBudget: 40_000,
+    tokensUsed: 12_345,
+    timeUsedSeconds: 90,
+    createdAt: 1,
+    updatedAt: 2,
+    ...patch,
+  });
+
+  const render = (): HTMLElement => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  it("shows the goal's status and OMP's token accounting", () => {
+    seedGoal({
+      version: 1,
+      processKey: "proc",
+      sessionId: "s",
+      revision: 3,
+      available: true,
+      unavailable: null,
+      enabled: true,
+      goal: nativeGoal(),
+      continuation: "running",
+      pauseReason: null,
+      result: null,
+    });
+    const host = render();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label^="goal: finish the migration"]');
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain("goal");
+    // The numbers are OMP's accounting, rendered exactly.
+    expect(chip?.textContent).toContain("12,345 / 40,000 tokens");
+  });
+
+  it("opens the goal command when clicked", () => {
+    seedGoal({
+      version: 1,
+      processKey: "proc",
+      sessionId: "s",
+      revision: 3,
+      available: true,
+      unavailable: null,
+      enabled: true,
+      goal: nativeGoal({ status: "paused", tokenBudget: null }),
+      continuation: "idle",
+      pauseReason: "Paused by /goal pause.",
+      result: null,
+    });
+    const host = render();
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label^="goal paused"]')!.click());
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal");
+  });
+
+  it("leaves no chip behind when the goal is gone or the bridge is unavailable", () => {
+    const gone: Array<GoalSnapshot | null> = [
+      null,
+      {
+        version: 1,
+        processKey: "proc",
+        sessionId: "s",
+        revision: 4,
+        available: false,
+        unavailable: "omp session does not expose the goal runtime",
+        enabled: false,
+        goal: null,
+        continuation: "idle",
+        pauseReason: null,
+        result: null,
+      },
+    ];
+    for (const goal of gone) {
+      seedGoal(goal);
+      const host = render();
+      expect(host.textContent).not.toContain("tokens");
+      if (root) act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
   });
 });

@@ -117,6 +117,7 @@ function diffResult(
 function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
+    goal: null,
     items: [],
     todos: [{ phase: "work", tasks: [{ content: "First task", status: "pending" }] }],
     model: null,

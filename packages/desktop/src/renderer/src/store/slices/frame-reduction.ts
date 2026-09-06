@@ -10,6 +10,7 @@ import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
+import { GOAL_STATUS_KEY, parseGoalSnapshot } from "@omp-ui/core/goal";
 import {
   CAPABILITIES_STATUS_KEY,
   parseCapabilitySnapshot,
@@ -43,6 +44,7 @@ import {
 } from "./reduce-agent-event";
 import {
   acceptCapabilitySnapshot,
+  acceptGoalSnapshot,
   disposeTabRuntime,
   noteCapabilitiesSessionChange,
   rpcCommandMachinery,
@@ -569,6 +571,16 @@ export function createFrameReductionSlice(
               m.appendItem(tabId, noticeItem(text, "warn"));
             }
             m.patchRpc(tabId, { mcpStatus });
+            return;
+          }
+          if (entry?.key === GOAL_STATUS_KEY) {
+            const snapshot = parseGoalSnapshot(entry.text);
+            // Malformed status never becomes "no goal": the last goal the tab
+            // really saw keeps standing until a valid publish replaces it.
+            if (snapshot === null) return;
+            // The same acceptance rule the summary hydration uses, so a live
+            // frame and a late joiner can never disagree (#381).
+            acceptGoalSnapshot(tabId, snapshot, get, m);
             return;
           }
           if (entry?.key === CAPABILITIES_STATUS_KEY) {

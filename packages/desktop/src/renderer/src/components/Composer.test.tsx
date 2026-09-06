@@ -754,6 +754,133 @@ describe("Composer BuildPlanControl", () => {
     act(() => rows[0]!.click());
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/plan");
   });
+
+  it("refuses Plan entry while the session still owns a goal (#381)", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          goal: {
+            version: 1,
+            processKey: "proc",
+            sessionId: "s",
+            revision: 3,
+            available: true,
+            unavailable: null,
+            enabled: true,
+            goal: {
+              id: "g1",
+              objective: "finish the migration",
+              status: "paused",
+              tokenBudget: null,
+              tokensUsed: 10,
+              timeUsedSeconds: 5,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+            continuation: "idle",
+            pauseReason: "Paused by /goal pause.",
+            result: null,
+          },
+        },
+      },
+    });
+    renderComposer();
+    const plan = modeSegment("plan");
+    expect(plan.disabled).toBe(true);
+    expect(plan.title).toBe("drop the current goal before entering plan mode");
+    act(() => plan.click());
+    expect(setPlanMode).not.toHaveBeenCalled();
+  });
+
+  it("releases Plan entry once the goal is complete", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          goal: {
+            version: 1,
+            processKey: "proc",
+            sessionId: "s",
+            revision: 4,
+            available: true,
+            unavailable: null,
+            enabled: false,
+            goal: {
+              id: "g1",
+              objective: "finish the migration",
+              status: "complete",
+              tokenBudget: null,
+              tokensUsed: 10,
+              timeUsedSeconds: 5,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+            continuation: "idle",
+            pauseReason: null,
+            result: null,
+          },
+        },
+      },
+    });
+    renderComposer();
+    const plan = modeSegment("plan");
+    expect(plan.disabled).toBe(false);
+    expect(plan.title).not.toContain("drop the current goal");
+  });
+
+  it("offers the goal family once, with its subcommands", () => {
+    seed("ready");
+    // OMP's own `/goal` spec is TUI-only and reaches the client as an advertised
+    // command; the palette must show one goal entry, not two (#381).
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          commands: [{ name: "goal", description: "tui only", source: "builtin" }],
+        },
+      },
+    });
+    renderComposer();
+    typeDraft("/goal");
+    const texts = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((b) => b.textContent?.trim() ?? "")
+      .filter((text) => text.startsWith("/goal"));
+    // OMP's TUI-only builtin `goal` is filtered out of the roster, so the family
+    // appears exactly once, parent plus the bridge's six subcommands (#381).
+    expect(texts.filter((t) => /^\/goal(?:\[|$)/.test(t))).toHaveLength(1);
+    for (const verb of ["set", "show", "pause", "resume", "drop", "budget"]) {
+      expect(texts.filter((t) => t.startsWith(`/goal ${verb}`))).toHaveLength(1);
+    }
+    expect(texts).toHaveLength(7);
+    expect(document.body.textContent).toContain(
+      "goal — one objective this session works toward on its own",
+    );
+    const parent = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim().startsWith("/goal[") ?? false,
+    )!;
+    // The parent row takes an argument, so picking it completes the draft rather
+    // than dispatching a bare `/goal`.
+    act(() => parent.click());
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("/goal ");
+  });
+
+  it("completes the guided-goal draft with its argument", () => {
+    seed("ready");
+    renderComposer();
+    typeDraft("/guided-goal");
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("/guided-goal"),
+    )!;
+    // Its palette row takes an argument, so the pick completes the draft instead
+    // of dispatching it half-written.
+    act(() => row.click());
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("/guided-goal ");
+  });
+
 });
 
 describe("Composer width refit", () => {

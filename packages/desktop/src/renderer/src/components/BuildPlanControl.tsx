@@ -19,10 +19,16 @@ export function BuildPlanControl({
 }) {
   const t = useT();
   const plan = useStore((s) => s.rpc[tabId]?.plan);
+  const goal = useStore((s) => s.rpc[tabId]?.goal);
   const setPlanMode = useStore((s) => s.setPlanMode);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const planEnabled = plan?.enabled ?? false;
   const unavailable = plan?.unavailable;
+  // A goal the session still owns — paused or budget-limited included — reserves
+  // the continuation; only a complete one releases plan entry. UI half of a
+  // decision whose authority lives in the generated plan extension, so raw RPC
+  // and the race window stay refused (issue #381).
+  const goalBlocksPlan = goal?.goal != null && goal.goal.status !== "complete";
   const sheet = layout === "sheet";
 
   const select = (target: boolean) => {
@@ -42,11 +48,13 @@ export function BuildPlanControl({
         return {
           value: mode,
           label: mode,
-          disabled: disabled || (target && unavailable !== undefined),
+          disabled: disabled || (target && unavailable !== undefined) || (target && goalBlocksPlan),
           title: target
-            ? unavailable === undefined
-              ? t("hud.mode.planDescription")
-              : t("hud.mode.planUnavailable", { unavailable })
+            ? unavailable !== undefined
+              ? t("hud.mode.planUnavailable", { unavailable })
+              : goalBlocksPlan
+                ? t("hud.mode.planGoalBlocked")
+                : t("hud.mode.planDescription")
             : t("hud.mode.buildDescription"),
           className: sheet ? "flex-1 justify-center" : "text-[11px]",
           selectedClassName: alternate ? "bg-iris-wash text-iris" : "bg-hover text-ink",

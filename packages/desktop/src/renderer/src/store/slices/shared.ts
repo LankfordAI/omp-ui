@@ -73,6 +73,14 @@ export interface TabRuntime {
   subagentPendingLevel?: "progress" | "events";
   /** Bumped by every capability push and by teardown; invalidates reads (#374). */
   capabilitiesGeneration: number;
+  /**
+   * Goal commands awaiting their correlated result: requestId → transcript
+   * command-row id (issue #381). The result arrives on a snapshot, not on the
+   * prompt's acknowledgement, and a snapshot answered by another client or an
+   * older generation must never settle this row. Lives in the runtime so a
+   * reboot or abandon drops it with everything else process-local.
+   */
+  goalRequests: Map<string, string>;
 }
 
 export interface StoreMachinery {
@@ -312,6 +320,7 @@ function freshTabRuntime(): TabRuntime {
     pendingNotices: [],
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
+    goalRequests: new Map(),
   };
 }
 /** Test seam for the renderer store harness's whole-state reset. */

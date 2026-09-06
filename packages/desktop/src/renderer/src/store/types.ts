@@ -31,6 +31,7 @@ import type {
   CapabilitySnapshot,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
+import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -165,6 +166,11 @@ export interface RpcTabState {
   mcpStatus: McpRuntimeStatus | null;
   /** The root session's loaded skills/tool roster; null until first observed. */
   capabilities: CapabilitySnapshot | null;
+  /**
+   * The session's goal snapshot as the root goal bridge published it (issue #381).
+   * Display state only: the child process owns the goal and its continuation.
+   */
+  goal: GoalSnapshot | null;
   /** How the roster read went; the viewer's own state machine (issue #374). */
   capabilitiesLoad:
     | "idle"
@@ -532,6 +538,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   deferPlanReview(tabId: string): void;
   showPlanReview(tabId: string): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
+  /**
+   * One `/goal` or `/guided-goal` line as a command against the session's own
+   * goal bridge (issue #381). Never sends goal prose to the model: with no
+   * usable bridge it settles the row with the reason instead. */
+  runGoalCommand(tabId: string, line: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;
