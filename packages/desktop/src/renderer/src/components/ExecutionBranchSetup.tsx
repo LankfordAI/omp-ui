@@ -42,6 +42,8 @@ export interface ExecutionBranch {
   /** New-name empty, or existing unchosen, in a repo. */
   branchInvalid: boolean;
   currentBranch: string | null;
+  /** Exact unlocalized branch target for prompt composition. */
+  targetBranch: string | null;
   branches: string[];
   /** The footer's "· <branch>" fragment; null off-repo. */
   summary: string | null;
@@ -55,12 +57,14 @@ export interface ExecutionBranch {
 
 export function useExecutionBranch({
   tabId,
+  proposalKey,
   projectCwd,
   planFilePath,
   planText,
   planTitle,
 }: {
   tabId: string;
+  proposalKey: unknown;
   projectCwd: string | undefined;
   planFilePath: string | undefined;
   planText: string | null;
@@ -75,13 +79,27 @@ export function useExecutionBranch({
   // plain checkout would move the working tree out from under it.
   const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd, tabId));
 
+  const [seededFor, setSeededFor] = useState(proposalKey);
   const [branchChoice, setBranchChoice] = useState<BranchChoice>("current");
-  const [newName, setNewName] = useState("");
+  const [newName, setNewName] = useState(() =>
+    planFilePath === undefined ? "" : branchNameFromPlanPath(planFilePath),
+  );
   const [existingName, setExistingName] = useState<string | null>(null);
   const [branchFilter, setBranchFilter] = useState("");
   const [branchError, setBranchError] = useState<string | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+
+  if (proposalKey !== seededFor) {
+    setSeededFor(proposalKey);
+    setBranchChoice("current");
+    setNewName(planFilePath === undefined ? "" : branchNameFromPlanPath(planFilePath));
+    setExistingName(null);
+    setBranchFilter("");
+    setBranchError(null);
+    setConfirmBusy(false);
+    setCheckingOut(false);
+  }
 
   const isRepo =
     projectCwd !== undefined && branchInfo !== undefined && branchInfo.repoRoot !== null;
@@ -96,7 +114,7 @@ export function useExecutionBranch({
     if (planFilePath !== undefined) {
       setNewName((cur) => (cur === "" ? branchNameFromPlanPath(planFilePath) : cur));
     }
-  }, [planFilePath]);
+  }, [planFilePath, proposalKey]);
 
   // The model's suggestion replaces the fallback only while the field is
   // untouched (the current value still IS the fallback) — it never overwrites
@@ -116,7 +134,7 @@ export function useExecutionBranch({
     return () => {
       live = false;
     };
-  }, [isRepo, projectCwd, planFilePath, planText, planTitle, suggestBranchName]);
+  }, [isRepo, projectCwd, planFilePath, planText, planTitle, proposalKey, suggestBranchName]);
 
   const selectChoice = useCallback((choice: BranchChoice) => {
     setBranchChoice(choice);
@@ -130,6 +148,13 @@ export function useExecutionBranch({
     isRepo &&
     ((branchChoice === "new" && newName.trim() === "") ||
       (branchChoice === "existing" && existingName === null));
+
+  const targetBranch =
+    branchChoice === "current"
+      ? branchInfo?.current ?? null
+      : branchChoice === "new"
+        ? newName.trim() || null
+        : existingName;
 
   const summary = isRepo
     ? branchChoice === "current"
@@ -185,6 +210,7 @@ export function useExecutionBranch({
     checkingOut,
     branchInvalid,
     currentBranch: branchInfo?.current ?? null,
+    targetBranch,
     branches: branchInfo?.branches ?? [],
     summary,
     resolve,

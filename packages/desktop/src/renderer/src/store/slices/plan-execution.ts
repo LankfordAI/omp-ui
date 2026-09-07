@@ -16,6 +16,7 @@ import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import {
   PlanConcernWatcher,
   withConcerns,
+  withExecutionDestination,
   withKeywords,
   type PlanExecutionContext,
   type PlanExecutionOptions,
@@ -252,7 +253,10 @@ export function createPlanExecutionSlice(
     options?: PlanExecutionOptions,
   ): void => {
     const message = withKeywords(
-      withConcerns(EXECUTION_PROMPT, concerns),
+      withExecutionDestination(
+        withConcerns(EXECUTION_PROMPT, concerns),
+        options?.destination,
+      ),
       options ?? {},
     );
     if (context === "fresh" || context === "worktree") {

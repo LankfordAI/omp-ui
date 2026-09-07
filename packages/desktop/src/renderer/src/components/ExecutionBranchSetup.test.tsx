@@ -39,8 +39,10 @@ const { useStore } = await import("../store");
 const { ExecutionBranchSetup, useExecutionBranch } = await import("./ExecutionBranchSetup");
 
 const TAB = "tab-1";
+const PROPOSAL = {};
 
 interface HookProps {
+  proposalKey?: unknown;
   projectCwd?: string;
   planFilePath?: string;
   planText?: string | null;
@@ -49,12 +51,14 @@ interface HookProps {
 
 function hookProps(p: HookProps = {}): {
   tabId: string;
+  proposalKey: unknown;
   projectCwd: string | undefined;
   planFilePath: string | undefined;
   planText: string | null;
   planTitle: string | null;
 } {
   return {
+    proposalKey: p.proposalKey ?? PROPOSAL,
     tabId: TAB,
     projectCwd: p.projectCwd,
     planFilePath: p.planFilePath ?? "local://fix-login-race-plan.md",
@@ -82,6 +86,12 @@ function Probe(p: HookProps = {}) {
       <span data-testid="confirmBusy">{String(branch.confirmBusy)}</span>
       <span data-testid="busyTitle">{branch.busyTitle ?? ""}</span>
       <span data-testid="checkingOut">{String(branch.checkingOut)}</span>
+      <span data-testid="target">{branch.targetBranch ?? ""}</span>
+      <input
+        data-testid="filter"
+        value={branch.branchFilter}
+        onChange={(e) => branch.onBranchFilterChange(e.target.value)}
+      />
       <span data-testid="summary">{branch.summary ?? ""}</span>
       <span data-testid="result">{result ?? ""}</span>
       <button data-testid="resolve" onClick={() => void branch.resolve().then((ok) => setResult(String(ok)))}>
@@ -103,6 +113,10 @@ function mount(p: HookProps = {}): void {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+  act(() => root!.render(<Probe {...p} />));
+}
+
+function rerender(p: HookProps = {}): void {
   act(() => root!.render(<Probe {...p} />));
 }
 
@@ -369,6 +383,76 @@ describe("useExecutionBranch prefill", () => {
     expect(byId("summary").textContent).toBe("choose a branch");
     click("select-feature");
     expect(byId("summary").textContent).toBe("feature/y");
+  });
+
+  it("exposes the exact unlocalized target for all three choices", async () => {
+    seed();
+    mount({ projectCwd: "/p" });
+    expect(byId("target").textContent).toBe("main");
+    click("select-new");
+    await typeNewName("  feat/exact  ");
+    expect(byId("target").textContent).toBe("feat/exact");
+    click("select-existing");
+    click("select-feature");
+    expect(byId("target").textContent).toBe("feature/y");
+  });
+
+  it("preserves staging while the same proposal gate remains pending", async () => {
+    const proposalKey = {};
+    seed();
+    mount({ projectCwd: "/p", proposalKey });
+    click("select-existing");
+    click("select-feature");
+    rerender({ projectCwd: "/p", proposalKey });
+    expect(byId("choice").textContent).toBe("existing");
+    expect(byId("existing").textContent).toBe("feature/y");
+  });
+
+  it("resets location staging synchronously for a new proposal", async () => {
+    seed();
+    mount({ projectCwd: "/p", proposalKey: "first" });
+    click("select-new");
+    await typeNewName("feat/old");
+    click("select-existing");
+    click("select-feature");
+    const filter = byId("filter") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(filter, "feat");
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    rerender({
+      projectCwd: "/p",
+      proposalKey: "second",
+      planFilePath: "local://ship-search-plan.md",
+    });
+    expect(byId("choice").textContent).toBe("current");
+    expect((byId("newName") as HTMLInputElement).value).toBe("ship-search");
+    expect(byId("existing").textContent).toBe("");
+    expect((byId("filter") as HTMLInputElement).value).toBe("");
+    expect(byId("target").textContent).toBe("main");
+  });
+
+  it("ignores a late model suggestion from the previous proposal", async () => {
+    let resolveOld!: (value: string | null) => void;
+    backendMock.suggestBranchName
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveOld = resolve;
+      }))
+      .mockResolvedValueOnce(null);
+    seed();
+    mount({ projectCwd: "/p", proposalKey: "first" });
+    await act(async () => {});
+    rerender({
+      projectCwd: "/p",
+      proposalKey: "second",
+      planFilePath: "local://ship-search-plan.md",
+      planTitle: "Ship search",
+    });
+    await act(async () => {});
+    await act(async () => resolveOld("feat/stale"));
+    expect((byId("newName") as HTMLInputElement).value).toBe("ship-search");
   });
 });
 

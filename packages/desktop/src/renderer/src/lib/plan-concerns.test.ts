@@ -5,6 +5,7 @@ import {
   PLAN_CONCERNS_WAIT_MS,
   PlanConcernWatcher,
   withConcerns,
+  withExecutionDestination,
   withKeywords,
   type PlanConcernIntent,
 } from "./plan-concerns";
@@ -38,6 +39,47 @@ describe("withConcerns", () => {
 
   it("returns base unchanged when there are no concerns", () => {
     expect(withConcerns("base", null)).toBe("base");
+  });
+});
+
+describe("withExecutionDestination", () => {
+  it("returns base byte-for-byte when no destination was staged", () => {
+    const base = "base\nwith exact bytes\n";
+    expect(withExecutionDestination(base, undefined)).toBe(base);
+  });
+
+  it("locks a named project branch", () => {
+    expect(
+      withExecutionDestination("base", { kind: "project-checkout", branch: "feat/exact" }),
+    ).toBe(
+      'base\n\nExecution destination: omp-ui has already prepared the project branch "feat/exact". Perform all implementation work and commits on exactly this branch. Do not create, switch, rename, or delete any branch or worktree.',
+    );
+  });
+
+  it("locks the detached project checkout without inventing a branch", () => {
+    const result = withExecutionDestination("base", {
+      kind: "project-checkout",
+      branch: null,
+    });
+    expect(result).toBe(
+      "base\n\nExecution destination: omp-ui has selected the project's current detached checkout. Perform all implementation work and commits in exactly this checkout. Do not change checkout, branch, or worktree state.",
+    );
+    expect(result).not.toContain('branch "');
+  });
+
+  it("locks an existing worktree branch", () => {
+    expect(withExecutionDestination("base", { kind: "worktree", branch: "omp-ui/exact" })).toBe(
+      'base\n\nExecution destination: this session already runs in the worktree branch "omp-ui/exact". Perform all implementation work and commits on exactly this branch in the existing worktree. Do not create or switch to another branch or worktree.',
+    );
+  });
+
+  it("keeps magic keywords outermost", () => {
+    const result = withKeywords(
+      withExecutionDestination("base", { kind: "project-checkout", branch: "feat/exact" }),
+      { ultrathink: true },
+    );
+    expect(result.startsWith("ultrathink\n\nbase")).toBe(true);
+    expect(result.endsWith("Do not create, switch, rename, or delete any branch or worktree.")).toBe(true);
   });
 });
 

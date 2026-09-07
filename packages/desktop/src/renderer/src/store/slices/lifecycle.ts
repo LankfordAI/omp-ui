@@ -16,6 +16,7 @@ import type {
 import { backend } from "../../backend";
 import {
   withConcerns,
+  withExecutionDestination,
   withKeywords,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
@@ -366,7 +367,10 @@ export function createLifecycleSlice(
     const accepted = await get().sendPrompt(
       freshId,
       withKeywords(
-        withConcerns(seed, concerns),
+        withExecutionDestination(
+          withConcerns(seed, concerns),
+          options?.destination,
+        ),
         options ?? {},
       ),
       "prompt",

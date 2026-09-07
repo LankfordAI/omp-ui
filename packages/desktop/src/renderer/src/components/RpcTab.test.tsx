@@ -224,6 +224,25 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(box!.closest(".hidden")).toBeNull();
   });
 
+  it("preserves the staged execution context when the same gate is reopened", () => {
+    seedPendingReview();
+    renderTab(true);
+    const fresh = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
+      (button) => button.textContent?.startsWith("fresh session"),
+    )!;
+    act(() => fresh.click());
+    expect(fresh.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => useStore.getState().deferPlanReview(TAB));
+    expect(dock()).toBeNull();
+    act(() => useStore.getState().showPlanReview(TAB));
+
+    const reopenedFresh = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find(
+      (button) => button.textContent?.startsWith("fresh session"),
+    )!;
+    expect(reopenedFresh.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("keeps an active tab's composer draft while the review is on screen", () => {
     seedPendingReview();
     renderTab(true);

@@ -445,6 +445,9 @@ export const en = {
     "This is this session's worktree branch — the implementation reuses this checkout in place. Change the branch to cut a fresh checkout instead.",
   "plan.review.worktreeDedicated":
     "The implementation runs in a dedicated checkout under the app's worktrees root; the project's working tree is untouched.",
+  "plan.review.lockedWorktreeBranch": "Worktree branch",
+  "plan.review.lockedWorktreeHint":
+    "This context stays in the planning session's worktree. The branch is a fixed execution target.",
   "plan.review.magicKeywords": "Magic keywords",
   "plan.review.magicKeywordsHint":
     "Armed words lead the implementation prompt, in this order — omp appends each one's hidden notice.",

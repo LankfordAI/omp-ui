@@ -245,7 +245,9 @@ describe("compacted execution context holds the prompt when compaction stalls (i
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
     h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame(id));
     h.sent.splice(0);
-    h.useStore.getState().executePlan(h.TAB, "compacted");
+    h.useStore.getState().executePlan(h.TAB, "compacted", {
+      destination: { kind: "project-checkout", branch: "feature/compacted" },
+    });
   };
 
   const implementationPrompts = () =>
@@ -296,6 +298,9 @@ describe("compacted execution context holds the prompt when compaction stalls (i
     }
 
     expect(implementationPrompts()).toHaveLength(1);
+    expect(String(implementationPrompts()[0]!.cmd.message)).toMatch(
+      /Execution destination: omp-ui has already prepared the project branch "feature\/compacted"\..*Do not create, switch, rename, or delete any branch or worktree\.$/s,
+    );
     const notices = h.useStore
       .getState()
       .rpc[h.TAB]!.items.filter((i) => i.kind === "notice");
