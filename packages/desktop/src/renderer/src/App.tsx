@@ -143,7 +143,7 @@ function TitleBar() {
 
   return (
     <header
-      className="relative flex h-9 shrink-0 select-none items-center gap-1 bg-void [app-region:drag]"
+      className="relative flex h-9 shrink-0 select-none items-center gap-1 glass-void [app-region:drag]"
       style={
         IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined
       }
@@ -390,7 +390,7 @@ export default function App() {
   const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
 
   return (
-    <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden bg-void font-sans text-ink">
+    <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">
       {!compact && <TitleBar />}
       {compact && (
         /*
@@ -403,7 +403,7 @@ export default function App() {
          * however long the session title is.
          */
         <nav
-          className="flex min-h-11 shrink-0 items-center gap-1 border-b border-line bg-void px-[max(0.25rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.25rem,var(--safe-right))] [app-region:drag]"
+          className="flex min-h-11 shrink-0 items-center gap-1 border-b border-line glass-void px-[max(0.25rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.25rem,var(--safe-right))] [app-region:drag]"
           style={IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
         >
           <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>

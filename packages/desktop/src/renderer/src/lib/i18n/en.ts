@@ -526,6 +526,24 @@ export const en = {
   "settings.appearance.fontFamilyHint":
     "Default is the app's own typeface — Bricolage Grotesque, Instrument Sans, and JetBrains Mono. Ubuntu swaps the whole set, code and terminals included.",
   "settings.appearance.fontFamilyAria": "{name} font family",
+  "settings.appearance.transcriptWidth": "Transcript width",
+  "settings.appearance.transcriptWidthHint":
+    "How wide the native transcript and composer column may grow. Prose keeps a readable measure at every step; tool cards, code, and diffs take the whole column.",
+  "settings.appearance.transcriptWidthAria": "{name} transcript width",
+  "settings.appearance.widthComfortable": "Comfortable",
+  "settings.appearance.widthWide": "Wide",
+  "settings.appearance.widthFull": "Full",
+  "settings.appearance.glassChrome": "Glass chrome",
+  "settings.appearance.glassChromeHint":
+    "Lets the sidebar, rail, title bar, composer card, and dialogs show a soft backdrop through them. Text is never blurred; terminals stay opaque.",
+  "settings.appearance.glassChromeAria": "{name} glass chrome",
+  "settings.appearance.glassOff": "Off",
+  "settings.appearance.glassOffHint": "Opaque planes, as before.",
+  "settings.appearance.glassSubtle": "Subtle",
+  "settings.appearance.glassSubtleHint": "A hint of depth; light blur.",
+  "settings.appearance.glassFrosted": "Frosted",
+  "settings.appearance.glassFrostedHint":
+    "Stronger blur and wash; costs a little GPU.",
 
   // UpdatesPage
   "settings.updates.newerRelease": "a newer release",

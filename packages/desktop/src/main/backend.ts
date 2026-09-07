@@ -48,6 +48,7 @@ import {
   type ChannelTable,
   type BranchListOptions,
   type ConsoleProgram,
+  type GlassChrome,
   type ImageAttachment,
   type McpSetEnabledRequest,
   type ScopedCapabilityMutation,
@@ -63,6 +64,7 @@ import {
   type SessionMode,
   type SpawnGateState,
   type SpawnRequest,
+  type TranscriptWidth,
   type WorktreeReleaseOptions,
   type SessionSummary,
 } from "@omp-ui/core";
@@ -419,6 +421,14 @@ export class MainBackend {
         },
         [CH.setFontFamilyId]: async (id: string) => {
           this.registry.setSetting("fontFamilyId", id);
+          await this.broadcast();
+        },
+        [CH.setTranscriptWidth]: async (width: TranscriptWidth) => {
+          this.registry.setSetting("transcriptWidth", width);
+          await this.broadcast();
+        },
+        [CH.setGlassChrome]: async (level: GlassChrome) => {
+          this.registry.setSetting("glassChrome", level);
           await this.broadcast();
         },
         [CH.setLocaleId]: async (id: string) => {
@@ -878,6 +888,8 @@ export class MainBackend {
       skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
       themeId: this.registry.getSetting("themeId"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
+      transcriptWidth: this.registry.getSetting("transcriptWidth"),
+      glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),

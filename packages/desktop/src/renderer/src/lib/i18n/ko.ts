@@ -479,6 +479,24 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.appearance.fontFamily": "글꼴 모음",
   "settings.appearance.fontFamilyHint": "기본값은 앱의 Bricolage Grotesque, Instrument Sans, JetBrains Mono입니다. Ubuntu를 선택하면 코드와 터미널을 포함한 전체 글꼴 세트가 바뀝니다.",
   "settings.appearance.fontFamilyAria": "{name} 글꼴 모음",
+  "settings.appearance.transcriptWidth": "대화 기록 너비",
+  "settings.appearance.transcriptWidthHint":
+    "네이티브 대화 기록과 작성기 열의 최대 너비입니다. 본문은 모든 단계에서 읽기 좋은 폭을 유지하고, 도구 카드·코드·diff는 열 전체를 사용합니다.",
+  "settings.appearance.transcriptWidthAria": "{name} 대화 기록 너비",
+  "settings.appearance.widthComfortable": "편안하게",
+  "settings.appearance.widthWide": "넓게",
+  "settings.appearance.widthFull": "전체",
+  "settings.appearance.glassChrome": "글래스 크롬",
+  "settings.appearance.glassChromeHint":
+    "사이드바, 레일, 제목 표시줄, 작성기 카드, 대화 상자가 뒤의 부드러운 배경을 비추게 합니다. 텍스트는 흐려지지 않으며 터미널은 불투명하게 유지됩니다.",
+  "settings.appearance.glassChromeAria": "{name} 글래스 크롬",
+  "settings.appearance.glassOff": "끄기",
+  "settings.appearance.glassOffHint": "이전과 같은 불투명한 면.",
+  "settings.appearance.glassSubtle": "은은하게",
+  "settings.appearance.glassSubtleHint": "약간의 깊이감과 가벼운 흐림.",
+  "settings.appearance.glassFrosted": "프로스트",
+  "settings.appearance.glassFrostedHint":
+    "더 강한 흐림과 배경 색조. GPU를 약간 더 사용합니다.",
 
   "settings.updates.newerRelease": "새 릴리스",
   "settings.updates.available": "{version} 사용 가능",

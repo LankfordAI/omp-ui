@@ -81,6 +81,18 @@
    can't spell the calc, so the width lives here. */
 .find-bar { width: min(28rem, calc(100% - 2rem)); }
 
+/* Hanging speaker labels (issue #392). TranscriptView measures the centred
+   column's side slack and flips data-hanging; below the threshold the labels
+   keep their stacked, in-flow position. */
+.transcript-column[data-hanging="true"] .speaker-run { position: relative; }
+.transcript-column[data-hanging="true"] .speaker-label {
+  position: absolute;
+  top: 0.25rem;
+  white-space: nowrap;
+}
+.transcript-column[data-hanging="true"] .speaker-label-left { right: 100%; margin-right: 1rem; }
+.transcript-column[data-hanging="true"] .speaker-label-right { left: 100%; margin-left: 1rem; top: 0.625rem; }
+
 /*
  * omp-ui design system — "precision instrument".
  *
@@ -218,6 +230,26 @@
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
+    /* Transcript column (issue #391). lib/transcript-width.ts rewrites both on
+       the root; these are the "wide" first-paint values. */
+    --transcript-max: 72rem;
+    --prose-max: 80ch;
+    /* Glass chrome (issue #393, ADR-0026). lib/glass-chrome.ts sets
+       data-glass on <html>; "subtle" is the first-paint default. These are the
+       only literal numbers; every chrome plane reads them. */
+    --glass-alpha: 86%; /* plane fill opacity */
+    --glass-filter: blur(14px) saturate(1.08); /* backdrop-filter of chrome planes */
+    --glass-wash: 55%; /* strength of the backdrop light */
+  }
+  :root[data-glass="off"] {
+    --glass-alpha: 100%;
+    --glass-filter: none;
+    --glass-wash: 0%;
+  }
+  :root[data-glass="frosted"] {
+    --glass-alpha: 70%;
+    --glass-filter: blur(24px) saturate(1.12);
+    --glass-wash: 100%;
   }
 
 @layer base {
@@ -312,12 +344,50 @@
 /* One-step top-lit plane: overlay falls to raised across the card's top,
  * so the fill reads as a lit surface instead of flat cardboard. */
 @utility plane-lit {
-  background-color: var(--color-raised);
+  background-color: color-mix(in srgb, var(--color-raised) var(--glass-alpha), transparent);
   background-image: linear-gradient(
     to bottom,
-    var(--color-overlay),
-    var(--color-raised) 45%
+    color-mix(in srgb, var(--color-overlay) var(--glass-alpha), transparent),
+    color-mix(in srgb, var(--color-raised) var(--glass-alpha), transparent) 45%
   );
+  backdrop-filter: var(--glass-filter);
+}
+
+/* The backdrop every glass plane looks through: void, lit from the top-left
+ * by the theme's own overlay plane. Achromatic on purpose — no accent hue is
+ * spent on decoration (ADR-0004); --glass-wash scales it to nothing for "off". */
+@utility backdrop-wash {
+  background-color: var(--color-void);
+  background-image:
+    radial-gradient(
+      70rem 44rem at 8% -12%,
+      color-mix(in oklab, var(--color-overlay) var(--glass-wash), transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      48rem 36rem at 104% 108%,
+      color-mix(
+        in oklab,
+        var(--color-raised) calc(var(--glass-wash) * 0.6),
+        transparent
+      ) 0%,
+      transparent 70%
+    );
+}
+
+/* A chrome plane at glass opacity: same token, alpha from --glass-alpha,
+ * blurring only what lies behind it (never its own text — ADR-0026). */
+@utility glass-void {
+  background-color: color-mix(in srgb, var(--color-void) var(--glass-alpha), transparent);
+  backdrop-filter: var(--glass-filter);
+}
+@utility glass-sunken {
+  background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
+  backdrop-filter: var(--glass-filter);
+}
+@utility glass-overlay {
+  background-color: color-mix(in srgb, var(--color-overlay) var(--glass-alpha), transparent);
+  backdrop-filter: var(--glass-filter);
 }
 
 /* A gradient ring occupying only the border zone: transparent border +

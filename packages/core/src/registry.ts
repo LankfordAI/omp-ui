@@ -3,12 +3,14 @@ import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
 import type {
   AgentMode,
+  GlassChrome,
   OwnedSessionRecord,
   PlanFormat,
   PlanImplementationSource,
   ProjectRecord,
   RemoteBind,
   SessionMode,
+  TranscriptWidth,
 } from "./types";
 
 export interface RegistrySettings {
@@ -43,6 +45,10 @@ export interface RegistrySettings {
   themeId: string;
   /** Active font family id (see renderer lib/font-families.ts). */
   fontFamilyId: string;
+  /** Transcript column width step (see renderer lib/transcript-width.ts); default wide (issue #391). */
+  transcriptWidth: TranscriptWidth;
+  /** Chrome translucency step (see renderer lib/glass-chrome.ts); default subtle (issue #393). */
+  glassChrome: GlassChrome;
   /** Active UI locale id; the renderer resolves it against its own locale table. */
   localeId: string;
   /** Check for a newer omp-ui release at launch. */
@@ -171,6 +177,14 @@ export const SETTINGS: SettingDescriptors = {
   fontFamilyId: validatedSetting(
     () => "default",
     (value): value is string => typeof value === "string" && value !== "",
+  ),
+  transcriptWidth: validatedSetting<TranscriptWidth>(
+    () => "wide",
+    (value): value is TranscriptWidth => value === "comfortable" || value === "full",
+  ),
+  glassChrome: validatedSetting<GlassChrome>(
+    () => "subtle",
+    (value): value is GlassChrome => value === "off" || value === "frosted",
   ),
   // Any non-empty string is kept as-is: locale ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.

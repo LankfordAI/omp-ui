@@ -736,7 +736,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
 
   // Desktop: the strip is always the rail; at most one pane opens beside it.
   return (
-    <aside className="ambient flex shrink-0 bg-sunken">
+    <aside className="ambient flex shrink-0 glass-sunken">
       {open && (
         <div
           className={cn(

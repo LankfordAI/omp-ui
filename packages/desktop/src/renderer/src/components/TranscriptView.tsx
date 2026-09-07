@@ -178,8 +178,8 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
   const t = useT();
   const images = item.images ?? [];
   return (
-    <div className="animate-rise flex flex-col items-end gap-1">
-      {first && <Label>{t("transcript.speaker.you")}</Label>}
+    <div className="speaker-run animate-rise flex flex-col items-end gap-1">
+      {first && <Label className="speaker-label speaker-label-right">{t("transcript.speaker.you")}</Label>}
       <div className="max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
         {item.text !== "" && <Markdown text={item.text} />}
         {images.length > 0 && (
@@ -523,6 +523,14 @@ export interface FindState {
   nonce: number; // jump counter: changing it re-runs the scroll
 }
 
+/**
+ * Minimum side slack, in visual px, for speaker labels to hang in the
+ * gutters (issue #392). Widest label ("assistant"/"어시스턴트" at 10px with
+ * 0.14em tracking) is ~90px, plus the 1rem label margin and the scroll pane's
+ * 1rem padding.
+ */
+const HANGING_GUTTER_PX = 128;
+
 export function TranscriptView({
   items,
   tabId,
@@ -541,6 +549,10 @@ export function TranscriptView({
   const contentRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
+  // Whether the centred column leaves enough side slack for speaker labels
+  // to hang in the gutters (issue #392). The ref guards renders on resize.
+  const [hanging, setHanging] = useState(false);
+  const hangingRef = useRef(false);
   // Last observed scrollTop, for scroll direction.
   const lastScrollTopRef = useRef(0);
   const [menu, setMenu] = useState<TranscriptMenuState | null>(null);
@@ -592,10 +604,25 @@ export function TranscriptView({
     const el = scrollRef.current;
     const content = contentRef.current;
     if (!el || !content) return;
+    const measureHanging = () => {
+      // Gutter slack (issue #392). getBoundingClientRect on both: under the
+      // content's `zoom` it reports visual px for either element, offsetWidth
+      // does not.
+      const slack =
+        (el.getBoundingClientRect().width - content.getBoundingClientRect().width) / 2;
+      const next = slack >= HANGING_GUTTER_PX;
+      if (next !== hangingRef.current) {
+        hangingRef.current = next;
+        setHanging(next);
+      }
+    };
     const observer = new ResizeObserver(() => {
       if (followingRef.current) pinToBottom();
+      measureHanging();
     });
-    observer.observe(el); // clientHeight changes: window resize, zoom
+    // Measure once synchronously so the first paint already hangs or stacks.
+    measureHanging();
+    observer.observe(el); // clientHeight and width changes: window resize, zoom
     observer.observe(content); // content height changes: cards, images, markdown
     return () => observer.disconnect();
   }, []);
@@ -698,7 +725,8 @@ export function TranscriptView({
       >
         <div
           ref={contentRef}
-          className="mx-auto flex max-w-4xl flex-col gap-5"
+          data-hanging={hanging}
+          className="transcript-column mx-auto flex max-w-[var(--transcript-max)] flex-col gap-5"
           // Transcript-scoped text size (issue #30): `zoom` scales every px
           // value inside the document surface — markdown, tool cards, slabs —
           // while the chrome around it stays fixed. The ResizeObserver above
@@ -712,7 +740,7 @@ export function TranscriptView({
           {runs.map((run, runIndex) => (
             <div
               key={run.key}
-              className={cn("flex flex-col", run.speaker === "meta" ? "gap-1" : "gap-1.5")}
+              className={cn("speaker-run flex flex-col", run.speaker === "meta" ? "gap-1" : "gap-1.5")}
             >
               {/* The assistant's hanging speaker label, mirroring the user's
                   "you" (issue #32): with turn markers deliberately absent, this
@@ -721,7 +749,9 @@ export function TranscriptView({
                   a tool run are the same reply, and labeling each one would
                   rebuild the marker-noise problem the markers solved. */}
               {run.speaker === "assistant" && opensExchange(runs, runIndex) && (
-                <Label>{t("transcript.speaker.assistant")}</Label>
+                <Label className="speaker-label speaker-label-left">
+                  {t("transcript.speaker.assistant")}
+                </Label>
               )}
               {run.rows.map(({ item, count }, i) => {
                 const findClass = findClassById?.get(item.id);

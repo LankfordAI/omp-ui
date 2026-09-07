@@ -5,6 +5,7 @@ import type {
   AgentMode,
   BranchListOptions,
   ConsoleProgram,
+  GlassChrome,
   ImageAttachment,
   McpSetEnabledRequest,
   OmpSettingValue,
@@ -14,6 +15,7 @@ import type {
   SessionMode,
   SpawnRequest,
   ScopedCapabilityMutation,
+  TranscriptWidth,
   WorktreeReleaseOptions,
 } from "./types";
 
@@ -155,6 +157,8 @@ export function record(): ArgCodec<Record<string, unknown>> {
 export const sessionModeCodec: ArgCodec<SessionMode> = oneOf("pty", "rpc-ui");
 export const agentModeCodec: ArgCodec<AgentMode> = oneOf("plan", "build");
 export const planFormatCodec: ArgCodec<PlanFormat> = oneOf("html", "md");
+export const transcriptWidthCodec: ArgCodec<TranscriptWidth> = oneOf("comfortable", "wide", "full");
+export const glassChromeCodec: ArgCodec<GlassChrome> = oneOf("off", "subtle", "frosted");
 export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
   "vscode",
   "files",

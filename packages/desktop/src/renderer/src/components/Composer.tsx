@@ -618,7 +618,7 @@ export function Composer({
       )}
     >
 
-      <div className={cn("relative", !compact && "mx-auto w-full max-w-3xl")}>
+      <div className={cn("relative", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
         {mentionOpen && atQuery !== null && (
           <MentionPalette
             ref={mentionPalette}
