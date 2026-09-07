@@ -413,6 +413,14 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                   data-composer-float
                   className={cn(
                     floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
+                    // The stack floats on the tail fade's constant band, so the
+                    // glass planes inside it shift tone to match it (#398). Same
+                    // flag that publishes --transcript-bottom-inset above: no
+                    // reserve, no band, no shift. While the transcript is still a
+                    // TranscriptSkeleton no fade element is mounted to darken the
+                    // field, so the card reads a few levels dark for a boot frame
+                    // — accepted, not gated.
+                    floating && "tail-field",
                   )}
                 >
                   <ExtensionDialogHost tabId={tabId} />
