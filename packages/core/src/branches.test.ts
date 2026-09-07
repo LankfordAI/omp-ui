@@ -410,13 +410,25 @@ describe("readDefaultBranch", () => {
     expect(await readDefaultBranch(dir)).toBe("master");
     await gitIn(dir, ["branch", "-m", "master", "trunk"]);
     expect(await readDefaultBranch(dir)).toBeNull();
-    // origin/HEAD wins over the fallbacks once it resolves.
+    // origin/HEAD wins over the fallbacks once it resolves. The symref is
+    // created explicitly instead of being left to `fetch`: git only started
+    // following the remote's HEAD during a plain fetch in 2.48
+    // (remote.<name>.followRemoteHEAD), so relying on it pinned this test to
+    // the git on the developer's machine (issue #397).
     const bare = tmpDir();
     await gitIn(bare, ["init", "-q", "--bare"]);
     await gitIn(dir, ["remote", "add", "origin", bare]);
     await gitIn(dir, ["push", "-q", "-u", "origin", "trunk"]);
     await gitIn(bare, ["symbolic-ref", "HEAD", "refs/heads/trunk"]);
     await gitIn(dir, ["fetch", "-q", "origin"]);
+    // Decoy local `main`: without it the assertion only proves that no
+    // fallback matched, not that origin/HEAD outranks one that did.
+    await gitIn(dir, ["branch", "main", "trunk"]);
+    await gitIn(dir, [
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/trunk",
+    ]);
     expect(await readDefaultBranch(dir)).toBe("trunk");
   });
 });
