@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.10.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Highlights no longer ship dead documentation links: the generator rewrites each relative target in a lifted bullet to the same file at the tag, so `[ADR-0026](adr/0026-glass-chrome-via-backdrop-filter.md)` resolves on the release page (#404).
 
 ## Choose a download
 
@@ -115,7 +115,7 @@ Do not rename release files by hand. The updater, installer, workflow assertions
 
 ### Write the release highlights
 
-Each release's Highlights come verbatim from the `## Unreleased` section of this document at the tag's commit. Before cutting the tag, give every shipped change one bullet there, in [`CONTEXT.md`](../CONTEXT.md) vocabulary, citing its issue as `#N`. Clear those bullets in the same version-stamp commit that precedes the tag. The generator also drops a lifted bullet whose issues all already appear in the previous release's notes, so forgetting to clear costs a duplicate only once.
+Each release's Highlights come verbatim from the `## Unreleased` section of this document at the tag's commit. Before cutting the tag, give every shipped change one bullet there, in [`CONTEXT.md`](../CONTEXT.md) vocabulary, citing its issue as `#N`. Clear those bullets in the same version-stamp commit that precedes the tag. The generator also drops a lifted bullet whose issues all already appear in the previous release's notes, so forgetting to clear costs a duplicate only once. A bullet may link to a document relative to this file, for example `[ADR-0026](adr/0026-glass-chrome-via-backdrop-filter.md)`; the generator rewrites each such target to `https://github.com/<owner>/<repo>/blob/<tag>/docs/<target>`, leaving absolute URLs and `#anchor` targets untouched. Keep writing them relative so the local link check in [development.md](development.md) § Documentation-only changes still applies.
 
 Every release published before the [Release Notes](../.github/workflows/release-notes.yml) workflow existed has an empty body. Run that workflow from *Actions → Run workflow* with the release's tag and `force: true` to regenerate its notes; a run without `force` leaves human-written notes untouched.
 
