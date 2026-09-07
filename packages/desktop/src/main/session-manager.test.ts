@@ -111,6 +111,10 @@ async function gitProject(baseDir: string): Promise<string> {
   await git(["init", "-q", "-b", "main"]);
   await git(["config", "user.email", "test@example.com"]);
   await git(["config", "user.name", "test"]);
+  // Windows runners default to core.autocrlf=true, so a worktree checkout of
+  // this repo's LF content comes back CRLF and assertions on file text fail
+  // there but not here (issue #291; re-encountered in this harness as #403).
+  await git(["config", "core.autocrlf", "false"]);
   fs.writeFileSync(path.join(dir, ".seed"), "seed\n");
   await git(["add", "."]);
   await git(["commit", "-q", "-m", "init"]);
