@@ -616,8 +616,22 @@ The Settings → Appearance step (Off / Subtle / Frosted) that lets chrome
 planes — title bar, sidebar, inspector rail, composer card, sheets, modals —
 composite at reduced opacity with a backdrop blur over an achromatic wash
 under the app. Text is never filtered; the transcript's reading plane and
-xterm hosts stay opaque (ADR-0026).
+xterm hosts stay opaque (ADR-0026). The composer is the one glass plane with
+live content moving behind it: the transcript scrolls under the floating
+composer.
 _Avoid_: transparency mode, acrylic, vibrancy, glassmorphism
+
+**Floating composer**:
+The bottom-anchored stack a desktop rpc-ui tab floats over its transcript —
+the pending extension dialog card and the composer card — lifted clear of the
+pane's bottom edge. The native transcript runs the full height of the session
+column beneath it and reserves the stack's measured height as tail clearance,
+so the newest row always scrolls clear of the card while older content passes
+behind its glass. Measured, never assumed: the tab publishes the reserve as a
+custom property the transcript reads. In flow instead of floating in the
+compact shell, at the fresh-session hero, in the subagent view, and while the
+plan review owns the column.
+_Avoid_: input bar, bottom panel, sticky composer, floating toolbar
 
 **Goal**:
 An objective a *live session*'s OMP runtime keeps working toward across turns,

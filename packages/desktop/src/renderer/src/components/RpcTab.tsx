@@ -170,8 +170,23 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
     (status === "starting" || status === "ready") &&
     preExchange(items);
   const hero = centered && status === "ready";
+  /**
+   * The composer floats over the transcript instead of sitting under it
+   * (issue #395): the pane runs to the column's bottom edge and its content
+   * scrolls behind the card's glass. Every geometry that does not hold keeps
+   * the stack in flow — the compact strip, the hero (whose FLIP dock measures
+   * a flow position), the subagent view (no composer at all), and the
+   * plan-review takeover, whose own actions footer must never be covered.
+   */
+  const floating =
+    !compact && !centered && viewingSubagent === null && !(planReviewOpen && active);
+
 
   const slotRef = useRef<HTMLDivElement | null>(null);
+  /** The session column the float is positioned against and the inset is written to. */
+  const columnRef = useRef<HTMLDivElement | null>(null);
+  /** The floating stack itself: the extension dialog card plus the composer. */
+  const floatRef = useRef<HTMLDivElement | null>(null);
   const centeredRect = useRef<DOMRect | null>(null);
   const wasCentered = useRef(false);
 
@@ -211,6 +226,35 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
     window.addEventListener("resize", capture);
     return () => window.removeEventListener("resize", capture);
   }, [centered]);
+
+  // Tail clearance for the floating composer: the distance from the column's
+  // bottom edge to the float's top edge, published as a CSS custom property
+  // that the transcript reads for its bottom spacer, its bottom fade, and its
+  // jump-to-latest pill. A custom property, never state — a draft grows the
+  // box on every keystroke, and re-rendering the tab for that would re-render
+  // the whole transcript with it. Measuring both rects (not the float's own
+  // height) keeps the lift off the bottom edge in the number, so the reserve
+  // stays correct if that offset ever changes.
+  useLayoutEffect(() => {
+    const column = columnRef.current;
+    const float = floatRef.current;
+    if (!floating || column === null || float === null) {
+      column?.style.removeProperty("--transcript-bottom-inset");
+      return;
+    }
+    const write = () => {
+      const inset = column.getBoundingClientRect().bottom - float.getBoundingClientRect().top;
+      column.style.setProperty("--transcript-bottom-inset", `${Math.max(0, inset)}px`);
+    };
+    write();
+    const observer = new ResizeObserver(write);
+    observer.observe(float); // draft growth, attachments, the dialog card
+    observer.observe(column); // window resize, console drawer, rail pane
+    return () => {
+      observer.disconnect();
+      column.style.removeProperty("--transcript-bottom-inset");
+    };
+  }, [floating]);
 
   // In-session find (issue #270). The open flag lives in the store so App's
   // mod+f can open it from anywhere; the query and match index are local.
@@ -320,7 +364,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           rail — docked at the bottom edge below the composer (issue #33). */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div ref={columnRef} className="relative flex min-w-0 flex-1 flex-col">
             {viewingSubagent !== null ? (
               <>
                 <SubagentView tabId={tabId} agentKey={viewingSubagent} />
@@ -358,17 +402,31 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     }
                   />
                 )}
-                <ExtensionDialogHost tabId={tabId} />
-                {/* While the review owns the column, its send-it-back input is
-                    the only free-text control: the composer is hidden — not
-                    unmounted, so any half-typed draft survives — for the
-                    review's duration, and returns with the transcript
-                    (issue #277). */}
+                {/* The floating composer (issue #395): the pending extension
+                    dialog card and the composer as one bottom-anchored stack.
+                    While it floats it is transparent to the pointer — only its
+                    own cards take clicks (Composer's inner column and the
+                    dialog card re-enable them), so a wheel or a drag in the
+                    side gutters still reaches the transcript underneath. */}
                 <div
-                  ref={slotRef}
-                  className={cn(centered && "pb-2", planReviewOpen && active && "hidden")}
+                  ref={floatRef}
+                  data-composer-float
+                  className={cn(
+                    floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
+                  )}
                 >
-                  <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
+                  <ExtensionDialogHost tabId={tabId} />
+                  {/* While the review owns the column, its send-it-back input is
+                      the only free-text control: the composer is hidden — not
+                      unmounted, so any half-typed draft survives — for the
+                      review's duration, and returns with the transcript
+                      (issue #277). */}
+                  <div
+                    ref={slotRef}
+                    className={cn(centered && "pb-2", planReviewOpen && active && "hidden")}
+                  >
+                    <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
+                  </div>
                 </div>
                 {centered && <HeroFooter items={items} tabId={tabId} />}
               </>

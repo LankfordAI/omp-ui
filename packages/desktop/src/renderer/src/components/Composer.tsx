@@ -618,7 +618,10 @@ export function Composer({
       )}
     >
 
-      <div className={cn("relative", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
+      {/* pointer-events-auto: the float above is transparent to the pointer so
+          its side gutters do not swallow wheel and selection aimed at the
+          transcript; the card column itself takes clicks (issue #395). */}
+      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
         {mentionOpen && atQuery !== null && (
           <MentionPalette
             ref={mentionPalette}

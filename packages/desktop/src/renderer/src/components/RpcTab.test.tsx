@@ -9,12 +9,24 @@ import type { RpcFailure } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
+// jsdom has neither layout nor ResizeObserver. The stub records callbacks so a
+// test can deliver the resize a browser would.
+const resizeCallbacks = new Set<ResizeObserverCallback>();
 class ResizeObserverStub {
+  constructor(private readonly cb: ResizeObserverCallback) {
+    resizeCallbacks.add(cb);
+  }
   observe() {}
   unobserve() {}
-  disconnect() {}
+  disconnect() {
+    resizeCallbacks.delete(this.cb);
+  }
 }
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
+
+function fireResize(): void {
+  for (const cb of [...resizeCallbacks]) cb([], {} as ResizeObserver);
+}
 
 const backendMock = {
   rpcSend: vi.fn(),
@@ -101,6 +113,27 @@ function seedExited(failure?: RpcFailure): void {
   });
 }
 
+function seedPendingReview(): void {
+  seed(null);
+  useStore.setState((current) => ({
+    rpc: {
+      ...current.rpc,
+      [TAB]: {
+        ...current.rpc[TAB]!,
+        planReview: {
+          request: {
+            title: "Fix the login race",
+            planFilePath: "local://fix-login-race-plan.md",
+            planAbsPath: "/x/fix-login-race-plan.md",
+          },
+          frame: { id: "p1" },
+        },
+        planText: "# Fix\n\nsteps",
+      },
+    },
+  }));
+}
+
 function renderTab(active = false): void {
   const host = document.createElement("div");
   document.body.append(host);
@@ -152,26 +185,6 @@ describe("RpcTab subagent view", () => {
 });
 
 describe("RpcTab plan-review takeover (issue #277)", () => {
-  function seedPendingReview(): void {
-    seed(null);
-    useStore.setState((current) => ({
-      rpc: {
-        ...current.rpc,
-        [TAB]: {
-          ...current.rpc[TAB]!,
-          planReview: {
-            request: {
-              title: "Fix the login race",
-              planFilePath: "local://fix-login-race-plan.md",
-              planAbsPath: "/x/fix-login-race-plan.md",
-            },
-            frame: { id: "p1" },
-          },
-          planText: "# Fix\n\nsteps",
-        },
-      },
-    }));
-  }
 
   const dock = () =>
     document.body.querySelector<HTMLElement>(
@@ -401,5 +414,44 @@ describe("RpcTab hero slash-command replies", () => {
     renderTab();
     expect(document.body.textContent).toContain("What's next in p?");
     expect(handoffButton()).toBeUndefined();
+  });
+});
+
+describe("RpcTab floating composer (issue #395)", () => {
+  /** Column bottom 800, float top 660 => 140px of tail clearance. */
+  function measure(): { column: HTMLElement; float: HTMLElement } {
+    const float = document.body.querySelector<HTMLElement>("[data-composer-float]")!;
+    const column = float.parentElement!;
+    vi.spyOn(column, "getBoundingClientRect").mockReturnValue({ bottom: 800 } as DOMRect);
+    vi.spyOn(float, "getBoundingClientRect").mockReturnValue({ top: 660 } as DOMRect);
+    act(() => fireResize());
+    return { column, float };
+  }
+
+  it("floats the composer and reserves its height as the transcript's tail inset", () => {
+    seed(null); // a settled assistant item: the session is docked, not at the hero
+    renderTab(true);
+    const { column, float } = measure();
+    expect(float.className).toContain("absolute");
+    expect(column.style.getPropertyValue("--transcript-bottom-inset")).toBe("140px");
+  });
+
+  it("keeps the stack in flow at the hero, where the transcript is not mounted", () => {
+    seed(null);
+    useStore.setState((current) => ({
+      rpc: { ...current.rpc, [TAB]: { ...current.rpc[TAB]!, items: [] } },
+    }));
+    renderTab(true);
+    const { column, float } = measure();
+    expect(float.className).not.toContain("absolute");
+    expect(column.style.getPropertyValue("--transcript-bottom-inset")).toBe("");
+  });
+
+  it("keeps the stack in flow while the plan review owns the column", () => {
+    seedPendingReview();
+    renderTab(true);
+    const { column, float } = measure();
+    expect(float.className).not.toContain("absolute");
+    expect(column.style.getPropertyValue("--transcript-bottom-inset")).toBe("");
   });
 });
