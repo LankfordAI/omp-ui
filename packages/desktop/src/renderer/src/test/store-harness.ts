@@ -236,6 +236,8 @@ const mockBackend = {
   onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
+  setTranscriptWidth: vi.fn(async () => {}),
+  setGlassChrome: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),

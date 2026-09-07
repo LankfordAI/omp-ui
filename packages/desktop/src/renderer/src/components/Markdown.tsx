@@ -183,12 +183,13 @@ export function linkify(text: string): ReactNode[] {
 }
 
 /**
- * Prose blocks cap at ~70ch (issue #26): past that, long lines cost more eye
- * travel than they save in height. Code, tables, and rules deliberately keep
- * the full column — they earn their width. The cap lives per-block rather
- * than on the container so both can be true at once.
+ * Prose blocks cap at a readable measure (issue #26): past that, long lines
+ * cost more eye travel than they save in height. Code, tables, and rules
+ * deliberately keep the full column — they earn their width. The cap lives
+ * per-block rather than on the container so both can be true at once. The
+ * measure follows the Transcript width step (issue #391) via --prose-max.
  */
-const MEASURE = "max-w-[70ch]";
+const MEASURE = "max-w-[var(--prose-max)]";
 
 /**
  * One list block, recursing into nested child lists. Markers are manual

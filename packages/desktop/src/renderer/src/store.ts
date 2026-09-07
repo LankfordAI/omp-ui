@@ -8,6 +8,16 @@ import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
+import {
+  applyTranscriptWidth,
+  currentTranscriptWidthId,
+  resolveTranscriptWidth,
+} from "./lib/transcript-width";
+import {
+  applyGlassChrome,
+  currentGlassChromeId,
+  resolveGlassChrome,
+} from "./lib/glass-chrome";
 import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
@@ -137,6 +147,26 @@ export const useStore = create<UiStore>()((set, get, api) => {
   };
 
   /**
+   * Repoints the transcript column caps to match the registry's persisted
+   * transcriptWidth — the same registry-authoritative, localStorage-mirror
+   * split as syncTheme. The id guard stops a redundant broadcast from
+   * re-writing the two custom properties on every state change.
+   */
+  const syncTranscriptWidth = (s: BackendState): void => {
+    const w = resolveTranscriptWidth(s.transcriptWidth);
+    if (w.id !== currentTranscriptWidthId()) applyTranscriptWidth(w);
+  };
+
+  /**
+   * Re-applies the registry's persisted glassChrome — the same
+   * registry-authoritative, localStorage-mirror split as syncTheme.
+   */
+  const syncGlassChrome = (s: BackendState): void => {
+    const g = resolveGlassChrome(s.glassChrome);
+    if (g.id !== currentGlassChromeId()) applyGlassChrome(g);
+  };
+
+  /**
    * Re-applies the registry's persisted localeId — the same
    * registry-authoritative, localStorage-mirror split as syncTheme.
    */
@@ -182,6 +212,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
         }));
         syncTheme(state);
         syncFontFamily(state);
+        syncTranscriptWidth(state);
+        syncGlassChrome(state);
         syncLocale(state);
         reconcilePlanGates(state);
         rpcCommandSlice.reconcileGoals(state);
@@ -235,6 +267,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       set({ state, appUpdate, ompUpdate, remote, providerOAuth });
       syncTheme(state);
       syncFontFamily(state);
+      syncTranscriptWidth(state);
+      syncGlassChrome(state);
       syncLocale(state);
       reconcilePlanGates(state);
       rpcCommandSlice.reconcileGoals(state);

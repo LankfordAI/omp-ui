@@ -3,6 +3,16 @@ import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
 import { applyTheme, currentThemeId, resolveTheme } from "../../lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "../../lib/font-families";
+import {
+  applyTranscriptWidth,
+  currentTranscriptWidthId,
+  resolveTranscriptWidth,
+} from "../../lib/transcript-width";
+import {
+  applyGlassChrome,
+  currentGlassChromeId,
+  resolveGlassChrome,
+} from "../../lib/glass-chrome";
 import { applyLocale, currentLocaleId, resolveLocale } from "../../lib/i18n";
 import type { SettingsSlice, UiStore } from "../types";
 
@@ -203,6 +213,28 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         await backend.setFontFamilyId(id);
       } catch (err) {
         applyFontFamily(resolveFontFamily(previousId));
+        get().reportError(err);
+      }
+    },
+
+    async setTranscriptWidth(width) {
+      const previousId = currentTranscriptWidthId();
+      applyTranscriptWidth(resolveTranscriptWidth(width));
+      try {
+        await backend.setTranscriptWidth(width);
+      } catch (err) {
+        applyTranscriptWidth(resolveTranscriptWidth(previousId));
+        get().reportError(err);
+      }
+    },
+
+    async setGlassChrome(level) {
+      const previousId = currentGlassChromeId();
+      applyGlassChrome(resolveGlassChrome(level));
+      try {
+        await backend.setGlassChrome(level);
+      } catch (err) {
+        applyGlassChrome(resolveGlassChrome(previousId));
         get().reportError(err);
       }
     },

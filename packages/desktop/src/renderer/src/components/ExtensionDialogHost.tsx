@@ -316,7 +316,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
       "animate-rise shrink-0",
       compact
         ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[min(70dvh,var(--app-viewport-height,70dvh))] flex-col border-t border-line bg-raised pb-[var(--safe-bottom)]"
-        : "mx-auto mb-2 w-full max-w-3xl rounded-xl border border-line ambient plane-lit shadow-float",
+        : "mx-auto mb-2 w-full max-w-[var(--transcript-max)] rounded-xl border border-line ambient plane-lit shadow-float",
     )}>
       <div className={cn("px-4 pt-3", compact && "sticky top-0 z-10 shrink-0 bg-raised pb-3")}>
         {series !== null && series.total > 1 && (

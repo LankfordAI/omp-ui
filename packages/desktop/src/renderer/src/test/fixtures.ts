@@ -19,6 +19,8 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     skipDeleteConfirmation: false,
     themeId: "graphite",
     fontFamilyId: "default",
+    transcriptWidth: "wide",
+    glassChrome: "subtle",
     localeId: "en",
     appUpdateCheckOnLaunch: true,
     ompUpdateCheckOnLaunch: true,

@@ -5,6 +5,7 @@ import type {
   AppUpdateState,
   BackendState,
   BranchList,
+  GlassChrome,
   BranchListOptions,
   ImageAttachment,
   LiveState,
@@ -22,6 +23,7 @@ import type {
   RemoteBind,
   RemoteState,
   SessionMode,
+  TranscriptWidth,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
   WorktreeSyncResult,
@@ -308,6 +310,8 @@ export interface SettingsSlice {
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
+  setTranscriptWidth(width: TranscriptWidth): Promise<void>;
+  setGlassChrome(level: GlassChrome): Promise<void>;
   setLocaleId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
   setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;

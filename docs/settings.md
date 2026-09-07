@@ -27,6 +27,10 @@ Choose a theme from the fixed theme grid. The choice updates the app chrome, ter
 
 The application and Ubuntu families both use bundled Pretendard Variable after their Latin sans face for Korean chrome. Code, paths, terminal text, and other monospace content keep their selected monospace face.
 
+Transcript width chooses the column the native transcript, the composer card, and the hero column share: Comfortable (56rem), Wide (72rem, the default), or Full (uncapped). Prose keeps a readable measure at every step while tool cards, code, and diffs take the whole column. The choice applies immediately and is remembered for the next launch.
+
+Glass chrome lets the sidebar, inspector rail, title bar, composer card, sheets, and modals show a soft backdrop through them: Off (opaque, as before), Subtle (the default; light blur), or Frosted (stronger blur; costs a little GPU). Text is never blurred and terminals, transcripts, and dialogs' reading surfaces stay opaque ([ADR-0026](adr/0026-glass-chrome-via-backdrop-filter.md)). The choice applies immediately and is remembered for the next launch.
+
 ## Updates
 
 The two update sections are independent. Each has its own current version, status, launch check, manual check, dismissed version, and **Re-offer** action. Downloads always require a click.

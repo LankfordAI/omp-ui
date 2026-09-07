@@ -595,6 +595,30 @@ console drawer) follows one switch without a CSS rebuild. A fixed set of
 choices, never a free-form picker.
 _Avoid_: font switch, typeface theme, font skin
 
+**Transcript width**:
+The Settings → Appearance step (Comfortable 56rem / Wide 72rem / Full uncapped)
+that caps the native transcript column, the composer card, and the hero column
+together. Prose keeps a readable measure at each step (70/80/88ch) while tool
+cards, code, and diffs take the whole column. It persists in the registry like
+the theme id and repoints `--transcript-max` and `--prose-max` on the document
+root.
+_Avoid_: chat width, layout density, zoom
+
+**Hanging speaker label**:
+The "you"/"assistant" micro-label hung in the transcript's side gutter —
+assistant left, user right — whenever the centred column leaves at least 128px
+of slack per side; otherwise it stacks above its run as before. Measured, not
+queried: the transcript's own resize observer decides.
+_Avoid_: margin note, sidebar label, avatar
+
+**Glass chrome**:
+The Settings → Appearance step (Off / Subtle / Frosted) that lets chrome
+planes — title bar, sidebar, inspector rail, composer card, sheets, modals —
+composite at reduced opacity with a backdrop blur over an achromatic wash
+under the app. Text is never filtered; the transcript's reading plane and
+xterm hosts stay opaque (ADR-0026).
+_Avoid_: transparency mode, acrylic, vibrancy, glassmorphism
+
 **Goal**:
 An objective a *live session*'s OMP runtime keeps working toward across turns,
 with OMP's own token accounting and an optional budget. Its state, its

@@ -116,6 +116,8 @@ const backendMock = {
   onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
+  setTranscriptWidth: vi.fn(async () => {}),
+  setGlassChrome: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
@@ -1207,5 +1209,51 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(backendMock.submitProviderOAuthInput).toHaveBeenCalledWith(
       "https://auth.openai.com/callback?code=abc123",
     );
+  });
+});
+
+describe("Settings Appearance page transcript width and glass chrome (issues #391, #393)", () => {
+  const seedAppearance = (): void => {
+    useStore.setState({
+      settingsPage: "appearance",
+      state: backendState({ transcriptWidth: "wide", glassChrome: "subtle" }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const card = (label: string): HTMLButtonElement =>
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+
+  it("shows the persisted steps and persists switches from the cards", async () => {
+    seedAppearance();
+    await renderSettings();
+    expect(document.body.textContent).toContain("Transcript width");
+    expect(document.body.textContent).toContain("Glass chrome");
+    expect(card("Wide transcript width").getAttribute("aria-pressed")).toBe("true");
+    expect(card("Comfortable transcript width").getAttribute("aria-pressed")).toBe("false");
+    expect(card("Subtle glass chrome").getAttribute("aria-pressed")).toBe("true");
+    expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("false");
+
+    click(card("Full transcript width"));
+    expect(backendMock.setTranscriptWidth).toHaveBeenCalledWith("full");
+    expect(document.documentElement.style.getPropertyValue("--transcript-max")).toBe("none");
+    expect(document.documentElement.style.getPropertyValue("--prose-max")).toBe("88ch");
+
+    click(card("Frosted glass chrome"));
+    expect(backendMock.setGlassChrome).toHaveBeenCalledWith("frosted");
+    expect(document.documentElement.dataset.glass).toBe("frosted");
+  });
+
+  it("reflects a persisted comfortable/off pair", async () => {
+    useStore.setState({
+      settingsPage: "appearance",
+      state: backendState({ transcriptWidth: "comfortable", glassChrome: "off" }),
+    });
+    await renderSettings();
+    expect(card("Comfortable transcript width").getAttribute("aria-pressed")).toBe("true");
+    expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("true");
   });
 });

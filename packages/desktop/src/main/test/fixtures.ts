@@ -4,9 +4,11 @@ import type {
   AgentMode,
   OwnedSessionRecord,
   PlanFormat,
+  GlassChrome,
   ProjectRecord,
   RemoteBind,
   SessionMode,
+  TranscriptWidth,
 } from "@omp-ui/core";
 
 interface RegistrySettings {
@@ -25,6 +27,8 @@ interface RegistrySettings {
   dismissedOmpUpdateVersion: string | null;
   themeId: string;
   fontFamilyId: string;
+  transcriptWidth: TranscriptWidth;
+  glassChrome: GlassChrome;
   localeId: string;
   appUpdateCheckOnLaunch: boolean;
   ompUpdateCheckOnLaunch: boolean;
@@ -92,6 +96,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     dismissedOmpUpdateVersion: null,
     themeId: "graphite",
     fontFamilyId: "default",
+    transcriptWidth: "wide",
+    glassChrome: "subtle",
     localeId: "en",
     appUpdateCheckOnLaunch: true,
     ompUpdateCheckOnLaunch: true,

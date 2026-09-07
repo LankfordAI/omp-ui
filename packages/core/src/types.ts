@@ -24,6 +24,12 @@ export type LiveState = "live" | "dormant" | "archived" | "missing";
  */
 export type PlanFormat = "html" | "md";
 
+/** Transcript column step (issue #391). */
+export type TranscriptWidth = "comfortable" | "wide" | "full";
+/** Chrome translucency step (issue #393). */
+export type GlassChrome = "off" | "subtle" | "frosted";
+
+
 /**
  * A pasted image, shaped exactly like omp's `ImageContent` (minus the
  * OpenAI-only `detail` hint). `data` is bare base64 — never a `data:` URL.
@@ -340,6 +346,10 @@ export interface BackendState {
   themeId: string;
   /** Active font family id; the renderer resolves it against its own font table. */
   fontFamilyId: string;
+  /** Transcript column width step; the renderer maps it to a CSS length. */
+  transcriptWidth: TranscriptWidth;
+  /** Translucency of chrome planes over the backdrop wash. */
+  glassChrome: GlassChrome;
   /** Active UI locale id; the renderer resolves it against its own locale table. */
   localeId: string;
   appUpdateCheckOnLaunch: boolean;
