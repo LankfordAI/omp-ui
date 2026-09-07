@@ -14,6 +14,10 @@ const RE = {
   refTail: /\s*\((?:(?:[A-Za-z]+\s+)?#\d+[,)?\s]*)+\)\s*$/,
   unreleased: /## Unreleased\n([\s\S]*?)(?=\n## |\s*$)/,
   bullet: /^\s*[-*]\s+(.*)$/,
+  // Markdown link syntax with the target isolated: group 2 is the <…> form,
+  // group 3 the bare form, which cannot contain a space or a ")".
+  link: /(!?\[(?:[^[\]]|\[[^\]]*\])*\]\(\s*)(?:<([^>]*)>|([^)\s]*))/g,
+  scheme: /^[a-z][a-z0-9+.-]*:/i,
 };
 
 const CONVENTIONAL = new Set([
@@ -40,6 +44,7 @@ const HOUSEKEEPING = new Set(["chore", "test", "build", "ci", "refactor", "style
 const LABEL_GROUP = { enhancement: "Features", bug: "Fixes" };
 export const GROUP_ORDER = ["Features", "Fixes", "Performance", "Docs", "Internal", "Other changes"];
 export const BODY_LIMIT = 120_000;
+export const RELEASES_DOC = "docs/releases.md";
 
 function run(command, args) {
   try {
@@ -201,22 +206,56 @@ export function collectWorkItems({ commits, prItems, branchChildren, firstParent
   return { entries, untracked };
 }
 
-export function liftHighlights(markdown, previousRefs, issueUrl) {
+// A lifted bullet's relative link is correct in docs/releases.md and dead on a
+// release page, which has no document tree to resolve it against. Rewrite each
+// such target to the same file at the tag. Anything unresolvable is left
+// verbatim: a highlight with one imperfect link still beats a lost highlight.
+function absolutizeLinks(text, baseDir, blobUrl) {
+  return text.replace(RE.link, (match, lead, bracketed, bare, offset, source) => {
+    const raw = (bracketed ?? bare ?? "").trim();
+    const odd = (source.slice(0, offset).match(/`/g) ?? []).length % 2;
+    if (
+      !raw ||
+      /[()]/.test(raw) ||
+      raw.startsWith("#") ||
+      raw.startsWith("//") ||
+      RE.scheme.test(raw) ||
+      odd
+    ) {
+      return match;
+    }
+    const [, target = "", suffix = ""] = /^([^?#]*)([\s\S]*)$/.exec(raw);
+    const resolved = path.posix.join(baseDir, target);
+    if (resolved.startsWith("..")) return match; // escapes the repository root
+    const href = resolved
+      .split("/")
+      .map((segment) => segment.replace(/[^\w.\-~]/g, (ch) => encodeURIComponent(ch)))
+      .join("/");
+    return `${lead}${blobUrl(href)}${suffix}`;
+  });
+}
+
+export function liftHighlights(markdown, previousRefs, url) {
   const block = RE.unreleased.exec(markdown ?? "");
+  const baseDir = path.posix.dirname(RELEASES_DOC);
   const out = [];
   for (const line of (block?.[1] ?? "").split("\n")) {
     const bullet = RE.bullet.exec(line);
     if (!bullet) continue;
     const refs = [...parseRefs(bullet[1]).keys()];
     if (refs.length && refs.every((number) => previousRefs.has(number))) continue;
-    out.push(bullet[1].replace(RE.bare, (_match, before, number) => `${before}[#${number}](${issueUrl(number)})`));
+    const linked = bullet[1].replace(
+      RE.bare,
+      (_match, before, number) => `${before}[#${number}](${url.issue(number)})`,
+    );
+    out.push(absolutizeLinks(linked, baseDir, url.blob));
   }
   return out;
 }
 
 export function finalizeNotes({ entries, untracked, issueMeta, releasesDoc, prevBody, url }) {
   const previousRefs = new Set(bareNumbers(prevBody ?? ""));
-  const highlights = liftHighlights(releasesDoc, previousRefs, url.issue);
+  const highlights = liftHighlights(releasesDoc, previousRefs, url);
   const planned = [];
   for (const entry of entries.values()) {
     const isPR = entry.keyedBy === "pr";
@@ -343,6 +382,7 @@ export async function runCli(argv) {
     pull: (number) => `https://github.com/${repo}/pull/${number}`,
     issue: (number) => `https://github.com/${repo}/issues/${number}`,
     compare: (left, right) => `https://github.com/${repo}/compare/${left}...${right}`,
+    blob: (target) => `https://github.com/${repo}/blob/${tag}/${target}`,
   };
 
   const previousTag = gitOrEmpty("describe", "--tags", "--abbrev=0", `${tag}^`).trim();
@@ -390,7 +430,7 @@ export async function runCli(argv) {
     }
   }
 
-  const releasesDoc = gitOrEmpty("show", `${tag}:docs/releases.md`);
+  const releasesDoc = gitOrEmpty("show", `${tag}:${RELEASES_DOC}`);
   let prevBody = "";
   if (previousTag) {
     try {

@@ -21,6 +21,7 @@ const url = {
   pull: (number) => `https://github.com/${repo}/pull/${number}`,
   issue: (number) => `https://github.com/${repo}/issues/${number}`,
   compare: (left, right) => `https://github.com/${repo}/compare/${left}...${right}`,
+  blob: (target) => `https://github.com/${repo}/blob/v1.2.3/${target}`,
 };
 
 function commit(index, sha, subject, extra = {}) {
@@ -290,11 +291,35 @@ test("highlights lift verbatim, linkify refs, and drop stale bullets", () => {
     "- old bullet",
   ].join("\n");
 
-  const highlights = liftHighlights(releasesDoc, new Set([360]), url.issue);
+  const highlights = liftHighlights(releasesDoc, new Set([360]), url);
 
   assert.deepEqual(highlights, [
     "Settings → Providers gains a **Subscriptions** group (issue [#368](https://github.com/octo/widgets/issues/368)).",
     "Prose with no issue reference at all.",
+  ]);
+});
+
+test("a lifted bullet's relative doc link becomes a blob URL at the tag", () => {
+  const doc = [
+    "# Release notes", "", "## Unreleased", "",
+    "- Glass chrome (#393, [ADR-0026](adr/0026-glass.md)).",
+    "- Vocabulary comes from [CONTEXT.md](../CONTEXT.md).",
+    "- The lane lives in [release.yml](../.github/workflows/release.yml).",
+    "- See the [screenshot](img/shot.png) and [ADR-0001](adr/0001-x.md#context).",
+    "- Anchors and absolute URLs travel unchanged: [a](#unreleased), [up](https://example.com/x.md), [m](mailto:a@b.c).",
+    "- An example keeps its shape: `[ADR](adr/in-code.md)`.",
+    "- Escaping or malformed targets stay verbatim: [x](../../out.md), [y](adr/a(1).md).",
+    "", "## v0.9.10", "", "- old bullet",
+  ].join("\n");
+
+  assert.deepEqual(liftHighlights(doc, new Set(), url), [
+    "Glass chrome ([#393](https://github.com/octo/widgets/issues/393), [ADR-0026](https://github.com/octo/widgets/blob/v1.2.3/docs/adr/0026-glass.md)).",
+    "Vocabulary comes from [CONTEXT.md](https://github.com/octo/widgets/blob/v1.2.3/CONTEXT.md).",
+    "The lane lives in [release.yml](https://github.com/octo/widgets/blob/v1.2.3/.github/workflows/release.yml).",
+    "See the [screenshot](https://github.com/octo/widgets/blob/v1.2.3/docs/img/shot.png) and [ADR-0001](https://github.com/octo/widgets/blob/v1.2.3/docs/adr/0001-x.md#context).",
+    "Anchors and absolute URLs travel unchanged: [a](#unreleased), [up](https://example.com/x.md), [m](mailto:a@b.c).",
+    "An example keeps its shape: `[ADR](adr/in-code.md)`.",
+    "Escaping or malformed targets stay verbatim: [x](../../out.md), [y](adr/a(1).md).",
   ]);
 });
 
