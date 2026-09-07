@@ -524,6 +524,19 @@ export interface OmpSettingsSnapshot {
 }
 
 /**
+ * The web-search provider ids the installed omp publishes (see core/omp-settings.ts).
+ * Declared here so the shared channel spec stays transport-agnostic.
+ */
+export interface WebSearchProviderSnapshot {
+  /** omp's own provider ids in omp's own order, without the `auto` sentinel. */
+  providers: string[];
+  /** False when this omp published nothing; the page then lists configured ids only. */
+  discovered: boolean;
+  /** Short synthetic reason when discovery failed; never omp's raw stderr. Null on success. */
+  error: string | null;
+}
+
+/**
  * One skill file discovered on disk at a scope (issue #383, ADR-0025). A
  * capability catalog entry is config truth — what omp CAN load — never a
  * claim that a live session loaded it; the roster in the session-pinned

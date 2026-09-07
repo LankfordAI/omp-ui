@@ -79,6 +79,8 @@ Keys saved in omp-ui are encrypted through the operating system credential store
 
 omp reads provider credentials when its process starts. A saved or removed key affects the next session spawn, not an already running process; to apply it to an existing session, stop its agent from the Session HUD or sidebar and open the session again.
 
+Under the **Web search** credentials, **Preferred provider** chooses which provider omp's native `web_search` tool tries first. It writes omp's `providers.webSearchOrder`, one provider deep: providers you do not list stay available in omp's own order afterward, so **Automatic — omp's default order** means an empty order, not a disabled tool. The choices are the provider ids the installed omp itself publishes, so they are accurate for that version rather than a list omp-ui maintains; a provider omp does not recognise is still listed, labelled as outside omp's list. Like a credential, the choice applies to sessions started after the change. A value badged `project` comes from the focused project's `.omp/config.yml`, which outranks the global file, and choosing here writes omp's global config only.
+
 Under **Subscriptions**, a provider's subscription plan (currently ChatGPT, provider id `openai-codex`) signs in through its own browser flow. The page tracks the flow's phase: starting, waiting on the browser omp opened, and — only when the provider asks — a field for the pasted redirect URL. Sign-in runs in a short-lived, session-less omp process; the credential lands in omp's own auth broker, shared with terminal omp, and omp-ui stores nothing. A signed-in row lists the provider's identity (account email) and offers **sign out**. New sessions can pick `openai-codex/…` models after a sign-in; a running session needs a restart. With no API key stored, a signed-in subscription also satisfies the provider gate for new sessions.
 
 ## Memory
@@ -94,6 +96,8 @@ Memory configuration applies to sessions started after the change. Existing omp 
 ## omp
 
 This page is a schema-driven view over omp-ui's curated allowlist of omp configuration keys. The installed omp version supplies each reported key's description, value type, enum choices, validation, value, and effective layer. If that version does not report an allowlisted key, omp-ui omits it. The page groups the available controls under model roles, advisor, context, providers, and display.
+
+The web-search provider order is not on this page: it is edited on **Providers**, beside the credentials it depends on.
 
 With a session focused, the page resolves values as that project would see them. With no focused session, it shows global configuration. A `project` badge means the focused project's `.omp/config.yml` supplies the effective value. A `global` badge means omp's global file supplies it. Defaults remain unbadged.
 

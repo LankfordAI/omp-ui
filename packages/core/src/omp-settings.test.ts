@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { resolveOmpBinary } from "./paths";
 import {
-  OMP_MODEL_ROLES_KEY,
   parseEnumOptions,
-  readOmpSettings,
   readOmpCompactionMethods,
-  pristineEnvironment,
+  readOmpSettings,
+  readWebSearchProviders,
   writeOmpSetting,
+  OMP_MODEL_ROLES_KEY,
+  pristineEnvironment,
   type OmpConfigRunner,
 } from "./omp-settings";
 
@@ -461,4 +463,121 @@ describe("writeOmpSetting", () => {
       ),
     ).rejects.toThrow("Invalid value: nope. Valid values: off, 1, 3, 5");
   });
+});
+
+describe("readWebSearchProviders", () => {
+  /** omp 18.1.10's rejection of the probe sentinel. */
+  const ENUM_STDERR =
+    'error: Expected --provider to be one of: auto, exa, brave, duckduckgo; got "omp-ui-provider-probe"';
+
+  interface Probe {
+    calls: { args: readonly string[]; env: NodeJS.ProcessEnv }[];
+  }
+
+  /**
+   * A probe runner: `fakeRunner` routes on `--json`, which would send this
+   * probe's args down its "human" branch, so discovery records instead.
+   */
+  function probeRunner(
+    respond: () => Promise<string>,
+  ): OmpConfigRunner & Probe {
+    const calls: Probe["calls"] = [];
+    const run = async (
+      args: readonly string[],
+      opts: { cwd: string; env: NodeJS.ProcessEnv },
+    ): Promise<string> => {
+      calls.push({ args, env: opts.env });
+      return respond();
+    };
+    return Object.assign(run, { calls });
+  }
+
+  it("reads the ids omp lists when it rejects the sentinel", async () => {
+    const run = probeRunner(() => Promise.reject(new Error(ENUM_STDERR)));
+    expect(await readWebSearchProviders({ ompPath: OMP }, run)).toEqual({
+      providers: ["exa", "brave", "duckduckgo"],
+      discovered: true,
+      error: null,
+    });
+  });
+
+  it("probes with omp's own flag and an replaced HOME, never a credential-carrying env", async () => {
+    const run = probeRunner(() => Promise.reject(new Error(ENUM_STDERR)));
+    await readWebSearchProviders({ ompPath: OMP }, run);
+    expect(run.calls).toHaveLength(1);
+    expect(run.calls[0]?.args).toEqual(["search", "--provider=omp-ui-provider-probe"]);
+    expect(run.calls[0]?.env.HOME).not.toBe(process.env.HOME);
+  });
+
+  it("degrades to a short reason when omp accepts the sentinel", async () => {
+    const run = probeRunner(() => Promise.resolve(""));
+    const snapshot = await readWebSearchProviders({ ompPath: OMP }, run);
+    expect(snapshot).toEqual({
+      providers: [],
+      discovered: false,
+      error: "this omp did not publish a provider list",
+    });
+  });
+
+  it("keeps omp's raw stderr out of the result when the probe fails for another reason", async () => {
+    const run = probeRunner(() =>
+      Promise.reject(new Error("Error: command search not found\nUSAGE\n$ omp search")),
+    );
+    const snapshot = await readWebSearchProviders({ ompPath: OMP }, run);
+    expect(snapshot.providers).toEqual([]);
+    expect(snapshot.discovered).toBe(false);
+    expect(snapshot.error).not.toContain("USAGE");
+    expect(snapshot.error).not.toContain("command search not found");
+  });
+
+  it("spawns nothing without an omp binary", async () => {
+    const run = probeRunner(() => Promise.reject(new Error(ENUM_STDERR)));
+    expect(await readWebSearchProviders({ ompPath: null }, run)).toEqual({
+      providers: [],
+      discovered: false,
+      error: "omp binary not found",
+    });
+    expect(run.calls).toEqual([]);
+  });
+
+  it("carries providers.webSearchOrder in the settings snapshot", async () => {
+    const order = entry(["brave"], "array", "Prioritized providers for the web_search tool");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: { "providers.webSearchOrder": order },
+          pristine: { "providers.webSearchOrder": entry([], "array", "") },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.entries.find((e) => e.key === "providers.webSearchOrder")).toMatchObject({
+      type: "array",
+      description: "Prioritized providers for the web_search tool",
+      value: ["brave"],
+      layer: "global",
+    });
+  });
+
+  it("drops the key when a fictional omp stops publishing it", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: { "advisor.enabled": entry(true) }, pristine: {} }, null),
+    );
+    expect(snapshot.entries.some((e) => e.key === "providers.webSearchOrder")).toBe(false);
+  });
+
+  it("parity with the live omp binary — skipped when there is none", async () => {
+    const ompPath = resolveOmpBinary();
+    if (ompPath === null) return;
+    const snapshot = await readOmpSettings({ ompPath, projectCwd: null });
+    if (snapshot.error !== null) return;
+    const published = new Set(snapshot.entries.map((e) => e.key));
+    for (const key of ["providers.webSearchOrder", "providers.webSearchExclude"]) {
+      expect(published.has(key), `omp no longer publishes ${key}`).toBe(true);
+    }
+    const discovered = await readWebSearchProviders({ ompPath });
+    expect(discovered.providers.length, "omp published no web-search provider list").toBeGreaterThan(0);
+  }, 30_000);
 });

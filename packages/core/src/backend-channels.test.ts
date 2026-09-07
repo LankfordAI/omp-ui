@@ -100,6 +100,7 @@ const VALID_ARGS = {
   readPlanFile: ["tab-1", "/tmp/plan.html"],
   readProviderKeys: [null],
   readProviderOAuth: [],
+  readWebSearchProviders: [],
   regenerateRemoteToken: [],
   releaseWorktree: ["tab-1", { keepBranch: false, mergedInto: null }],
   resolveMergeDestination: ["/project", "main"],

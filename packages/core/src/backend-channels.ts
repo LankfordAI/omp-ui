@@ -37,6 +37,7 @@ import type {
   SessionMode,
   SpawnRequest,
   TranscriptWidth,
+  WebSearchProviderSnapshot,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
   WorktreeSyncResult,
@@ -286,6 +287,15 @@ export const BACKEND_CHANNELS = {
   writeOmpSetting: {
     channel: "omp-settings:write",
     ...request<[key: string, value: OmpSettingValue], void>([str(), ompSettingValueCodec]),
+  },
+  /**
+   * The installed omp's own web-search provider ids, discovered by probing its `omp search`
+   * flag validation. Never a curated omp-ui list (ADR-0027). Never rejects for an
+   * undiscoverable list — `discovered` and `error` say so.
+   */
+  readWebSearchProviders: {
+    channel: "web-search-providers:read",
+    ...request<[], WebSearchProviderSnapshot>([]),
   },
   /**
    * Provider credentials omp-ui supplies to every omp it launches, with the

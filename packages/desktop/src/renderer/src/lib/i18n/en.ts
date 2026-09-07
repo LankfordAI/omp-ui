@@ -647,6 +647,23 @@ export const en = {
   "settings.providers.readFailed": "Could not read provider keys",
   "settings.providers.modelProviders": "Model providers",
   "settings.providers.webSearch": "Web search",
+  "settings.providers.webSearchOrder": "Preferred provider",
+  "settings.providers.webSearchAria": "Preferred web-search provider",
+  "settings.providers.webSearchAutomatic": "Automatic — omp's default order",
+  "settings.providers.webSearchCustom": "Custom order: {order}",
+  "settings.providers.webSearchUnknown": "{provider} (not in this omp's list)",
+  "settings.providers.webSearchHint":
+    "The provider the native web_search tool tries first. Unlisted providers stay available in omp's own order, and a provider needs its credential above or in the environment. Applies to sessions started after the change.",
+  "settings.providers.webSearchProjectOverride":
+    "The focused project's .omp/config.yml sets its own order, so this shows the project's value. A choice here writes omp's global config and applies to projects without that override.",
+  "settings.providers.webSearchUnavailable":
+    "omp's configuration could not be read, so the search order is unknown.",
+  "settings.providers.webSearchUndiscovered":
+    "This omp did not publish its provider list, so only providers already configured are listed.",
+  "settings.providers.webSearchExcluded":
+    "{provider} is also listed in providers.webSearchExclude, so omp always skips it.",
+  "settings.providers.webSearchToolOff":
+    "The web_search tool is switched off (web_search.enabled), so no provider is consulted.",
   "settings.providers.noneConfigured":
     "No provider credentials — omp can only offer models that need no key",
   "settings.providers.someConfigured":

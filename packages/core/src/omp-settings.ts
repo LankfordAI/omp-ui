@@ -5,12 +5,17 @@ import * as path from "node:path";
 import { getOmpAgentDir } from "./omp-config";
 import { SKILLS_SETTING_KEYS, TOOL_SETTING_KEYS } from "./omp-capability-keys";
 import { OMP_MODEL_ROLES_KEY, OMP_SETTING_KEYS } from "./omp-settings-keys";
+import {
+  parseWebSearchProviderList,
+  WEB_SEARCH_PROBE_SENTINEL,
+} from "./web-search-order";
 import type {
   OmpSettingEntry,
   OmpSettingLayer,
   OmpSettingsSnapshot,
   OmpSettingType,
   OmpSettingValue,
+  WebSearchProviderSnapshot,
 } from "./types";
 
 /**
@@ -45,6 +50,7 @@ export {
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
   OMP_SETTING_KEYS,
+  WEB_SEARCH_SETTING_GROUP,
 } from "./omp-settings-keys";
 
 /**
@@ -341,6 +347,46 @@ export async function readOmpCompactionMethods(
     }
     const supportedSet = new Set(supported);
     return { supported, configuredOrder: configured.filter((id) => supportedSet.has(id)) };
+  } finally {
+    removeTempDirs(neutralCwd, pristineHome);
+  }
+}
+
+/**
+ * The provider ids the installed omp accepts for the native web_search tool.
+ *
+ * omp publishes them nowhere structured: `providers.webSearchOrder` is a plain array whose
+ * pristine default is also `[]`, so neither `config list --json` nor the pristine read can
+ * enumerate them (verified, omp 18.1.10). They surface in exactly one machine-readable place
+ * — the arg-validation rejection of `omp search --provider=<sentinel>`, which fires before
+ * any query handling and before any network call. The probe runs under an empty HOME so it
+ * can neither read nor send a credential. Never throws; omp's raw stderr stays out of the
+ * result — an undiscoverable list is a short reason plus an empty array (ADR-0027).
+ */
+export async function readWebSearchProviders(
+  { ompPath }: { ompPath: string | null },
+  run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
+): Promise<WebSearchProviderSnapshot> {
+  if (ompPath === null) {
+    return { providers: [], discovered: false, error: "omp binary not found" };
+  }
+  let neutralCwd: string | null = null;
+  let pristineHome: string | null = null;
+  try {
+    neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-wssearch-"));
+    pristineHome = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-wssearch-"));
+    const text = await run(
+      ["search", `--provider=${WEB_SEARCH_PROBE_SENTINEL}`],
+      { cwd: neutralCwd, env: pristineEnvironment(pristineHome) },
+    ).then(
+      // omp accepted the sentinel, so it publishes no closed list: nothing was learned.
+      () => "",
+      (err: unknown) => errorMessage(err),
+    );
+    const providers = parseWebSearchProviderList(text);
+    return providers === null
+      ? { providers: [], discovered: false, error: "this omp did not publish a provider list" }
+      : { providers, discovered: true, error: null };
   } finally {
     removeTempDirs(neutralCwd, pristineHome);
   }
