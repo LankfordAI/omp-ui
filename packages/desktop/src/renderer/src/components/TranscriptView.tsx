@@ -547,6 +547,8 @@ export function TranscriptView({
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  /** The tail spacer that reserves the floating composer's height. */
+  const insetRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
   // Whether the centred column leaves enough side slack for speaker labels
@@ -624,6 +626,11 @@ export function TranscriptView({
     measureHanging();
     observer.observe(el); // clientHeight and width changes: window resize, zoom
     observer.observe(content); // content height changes: cards, images, markdown
+    // The tail spacer's height is the floating composer's (issue #395): a
+    // growing draft must re-pin, or follow mode would leave the newest row
+    // parked behind the card. Neither `el` nor `content` changes box when the
+    // spacer does, so the spacer is observed in its own right.
+    if (insetRef.current !== null) observer.observe(insetRef.current);
     return () => observer.disconnect();
   }, []);
   // Find wash classes per row (issue #270). Memoized from the find state so a
@@ -766,6 +773,16 @@ export function TranscriptView({
             </div>
           ))}
         </div>
+        {/* Tail clearance for the floating composer (issue #395). RpcTab
+            publishes its measured height; every other host of this view — the
+            subagent view — leaves the property unset, so the fallback keeps
+            the old geometry exactly. Outside .transcript-column on purpose:
+            the reserve is chrome pixels, and `zoom` must not scale it. */}
+        <div
+          ref={insetRef}
+          aria-hidden
+          className="h-[var(--transcript-bottom-inset,0px)]"
+        />
       </div>
 
       {/* Reading-depth cue: content falls away under the pane's top hairline.
@@ -775,11 +792,19 @@ export function TranscriptView({
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-void/25 to-transparent"
       />
+      {/* Its mirror at the tail: content falls away under the floating
+          composer's edge instead of ending on a hard line. Anchored to the
+          reserve, so with no floating composer it rides the pane's own
+          bottom edge. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-[var(--transcript-bottom-inset,0px)] h-14 bg-gradient-to-t from-void/25 to-transparent"
+      />
       {!following && items.length > 0 && (
         <button
           type="button"
           onClick={() => updateFollowing(true)}
-          className="edge-lit animate-rise absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-[11px] text-ink-mid transition-colors hover:text-ink"
+          className="edge-lit animate-rise absolute bottom-[calc(0.75rem+var(--transcript-bottom-inset,0px))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-[11px] text-ink-mid transition-colors hover:text-ink"
         >
           <svg
             viewBox="0 0 16 16"
