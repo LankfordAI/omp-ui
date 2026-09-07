@@ -405,36 +405,62 @@ export async function checkoutBranch(
 }
 
 /**
- * The repo's default branch: `origin/HEAD` when it resolves, else a local
- * `main`, else a local `master`, else null (issue #390: the base recorded
- * for an existing-branch worktree). Local reads only; `runGit` is the test
- * seam the branch service shares.
+ * The branch `refs/remotes/origin/HEAD` names, validated: null when the
+ * symref is absent, prints empty, or points at a ref git no longer has
+ * (issue #399 — `symbolic-ref --short` exits 0 on a dangling target, so
+ * the read alone is not an existence proof). The probe verifies the short
+ * name as printed (`origin/trunk`), not the stripped tail: tail resolution
+ * answers from a same-named local branch and would re-admit the pruned
+ * remote-tracking ref the symref no longer reaches.
+ */
+async function resolveOriginHeadBranch(
+  projectCwd: string,
+  runGit: GitRunner,
+): Promise<string | null> {
+  let head: string;
+  try {
+    head = (
+      await runGit(projectCwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    ).trim();
+  } catch {
+    return null;
+  }
+  if (head === "") return null;
+  try {
+    await runGit(projectCwd, ["rev-parse", "--verify", "--quiet", head]);
+  } catch {
+    return null;
+  }
+  return head.startsWith("origin/") ? head.slice("origin/".length) : head;
+}
+
+/**
+ * The repo's default branch: `origin/HEAD` when it resolves to a ref that
+ * exists, else a local `main`, else a local `master`, else null (issue
+ * #390: the base recorded for an existing-branch worktree; issue #399:
+ * a dangling symref does not count as resolving). Local reads only;
+ * `runGit` is the test seam the branch service shares.
  */
 export async function readDefaultBranch(
   projectCwd: string,
   runGit: GitRunner = git,
 ): Promise<string | null> {
+  const originHead = await resolveOriginHeadBranch(projectCwd, runGit);
+  if (originHead !== null) return originHead;
+  let branches: string[];
   try {
-    const head = (
-      await runGit(projectCwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
-    ).trim();
-    return head.startsWith("origin/") ? head.slice("origin/".length) : head;
+    branches = (
+      await runGit(projectCwd, ["for-each-ref", "refs/heads", "--format=%(refname:short)"])
+    )
+      .split("\n")
+      .map((name) => name.trim())
+      .filter((name) => name !== "");
   } catch {
-    let branches: string[];
-    try {
-      branches = (
-        await runGit(projectCwd, ["for-each-ref", "refs/heads", "--format=%(refname:short)"])
-      )
-        .split("\n")
-        .map((name) => name.trim())
-        .filter((name) => name !== "");
-    } catch {
-      branches = [];
-    }
-    if (branches.includes("main")) return "main";
-    if (branches.includes("master")) return "master";
-    return null;
+    branches = [];
   }
+  if (branches.includes("main")) return "main";
+  if (branches.includes("master")) return "master";
+  return null;
 }
 
 /**
