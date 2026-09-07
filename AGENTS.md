@@ -74,3 +74,23 @@ Body must cover (matching `.github/ISSUE_TEMPLATE/feature_request.yml`):
 - If you then implement the fix/feature, reference the issue in the commit or
   PR (`Fixes #N` / `Closes #N`).
 - Do not close an issue until the change is verified working.
+
+## Landing changes
+
+Worktree agents never land a branch on `main`. The user's tooling does.
+
+- Commit on the worktree's branch (`omp-ui/<sha>`) and push **that branch
+  only**: `git push origin <branch>`. Then stop and report "ready to merge".
+- **NEVER** push a merge or a squashed commit onto `main`, including via
+  plumbing (`git commit-tree -p <main> -p <branch>` + `git push … :main`).
+  That bypasses the merge gate, and the `Merge omp-ui/<sha>: <subject>`
+  commits in `git log --merges` are the parent app's work, not a pattern for
+  agents to imitate.
+- Pushing a branch is not landing it. A `Closes #N` trailer or PR link only
+  closes the issue once the branch is merged into `main`, so leave the issue
+  open and say which branch is pending; the user closes after landing.
+- Rebuilding a packaged app or replacing a running binary is likewise the
+  user's call — a fix that is merged but not yet released is not a defect.
+  When behavior seems unchanged, first check which build the user is running
+  (`git merge-base --is-ancestor <fix> HEAD` against the binary's bundle)
+  before reopening the investigation.
