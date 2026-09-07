@@ -416,17 +416,16 @@ export async function readDestinationCheckout(
   projectCwd: string,
   destination: string,
 ): Promise<MergeBackStatus["destinationCheckout"]> {
-  let listing: string;
-  let toplevel: string;
-  try {
-    [listing, toplevel] = await Promise.all([
-      git(projectCwd, ["worktree", "list", "--porcelain"]),
-      git(projectCwd, ["rev-parse", "--show-toplevel"]),
-    ]);
-  } catch {
-    return "none";
-  }
-  for (const block of listing.split(/\r?\n\r?\n/)) {
+  // Both probes are awaited even when one fails. `Promise.all` answered "none"
+  // the moment the first rejected, leaving the sibling `git` child alive and —
+  // on Windows — holding a handle on `projectCwd` until it was reaped, which is
+  // what outlived the test harness's delete retries (issue #402).
+  const [listing, toplevel] = await Promise.allSettled([
+    git(projectCwd, ["worktree", "list", "--porcelain"]),
+    git(projectCwd, ["rev-parse", "--show-toplevel"]),
+  ]);
+  if (listing.status === "rejected" || toplevel.status === "rejected") return "none";
+  for (const block of listing.value.split(/\r?\n\r?\n/)) {
     let worktree: string | null = null;
     let branch: string | null = null;
     for (const line of block.split(/\r?\n/)) {
@@ -435,7 +434,7 @@ export async function readDestinationCheckout(
         branch = line.slice("branch refs/heads/".length).trim();
     }
     if (branch !== destination || worktree === null) continue;
-    return sameCheckoutPath(worktree, toplevel.trim()) ? "project" : "other";
+    return sameCheckoutPath(worktree, toplevel.value.trim()) ? "project" : "other";
   }
   return "none";
 }
