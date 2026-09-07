@@ -17,7 +17,6 @@ import type { OmpConfigRunner } from "./omp-settings";
  */
 
 const dirs: string[] = [];
-const savedHome = process.env.HOME;
 
 function tmp(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -124,11 +123,31 @@ function fixture(): { home: string; agent: string; cwd: string; env: NodeJS.Proc
   return { home, agent, cwd, env: { PI_CODING_AGENT_DIR: agent } };
 }
 
+/**
+ * The catalog resolves a user's skill roots through `os.homedir()`, and libuv
+ * reads HOME on POSIX but `%USERPROFILE%` — never HOME — on Windows; that is
+ * why `pristineEnvironment` in omp-settings.ts sets both. Faking only HOME left
+ * the fixture pointed at the runner's real profile on the Windows lane, so no
+ * `~/.claude/skills` root was ever found (issue #401).
+ */
 function withHome(home: string, runTest: () => Promise<void>): Promise<void> {
+  const saved: Record<string, string | undefined> = {};
+  for (const key of ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
+    saved[key] = process.env[key];
+  }
   process.env.HOME = home;
+  if (process.platform === "win32") {
+    process.env.USERPROFILE = home;
+    // libuv falls back to HOMEDRIVE + HOMEPATH when USERPROFILE is unset, the
+    // same fallback `pristineEnvironment` removes (omp-settings.ts:203-207).
+    delete process.env.HOMEDRIVE;
+    delete process.env.HOMEPATH;
+  }
   return runTest().finally(() => {
-    if (savedHome === undefined) delete process.env.HOME;
-    else process.env.HOME = savedHome;
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 }
 
