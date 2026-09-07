@@ -565,6 +565,16 @@ leaves omp with no catalog at all (ADR-0010). Stored keys are encrypted by the O
 credential store; the renderer only ever sees a masked tail.
 _Avoid_: secret, token, API config, credential vault
 
+**Web search order**:
+The Settings → Providers choice naming which provider OMP's native `web_search`
+tool tries first. It is OMP's `providers.webSearchOrder` global value written one
+provider deep — unlisted providers keep OMP's own fallback order afterward — and
+the provider list comes from the installed OMP binary, never transcribed into
+omp-ui (ADR-0027). `web_search.enabled` only gates whether the tool exists at all;
+a value badged `project` belongs to that project's `.omp/config.yml`, not to this
+choice.
+_Avoid_: search provider picker, search backend, engine, fallback list
+
 **Theme**:
 A curated token set covering all three consumers of the palette at once — the
 `@theme` custom properties, the xterm ITheme, and the shiki code theme —

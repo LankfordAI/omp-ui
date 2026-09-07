@@ -1,19 +1,29 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
+  OmpSettingEntry,
+  OmpSettingValue,
   ProviderKeysSnapshot,
   ProviderKeyStatus,
   ProviderOAuthState,
   ProviderOAuthStatus,
+  WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
+import {
+  normalizeWebSearchOrder,
+  unknownWebSearchProviders,
+  WEB_SEARCH_CUSTOM_OPTION,
+  webSearchOrderForOption,
+  webSearchSelection,
+} from "@omp-ui/core/web-search-order";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import { Button, Chip, Dot, Empty, Label, Panel } from "../ui";
-import { FIELD } from "./rows";
+import { FIELD, Row, layerBadge } from "./rows";
 import { t, useT } from "../../lib/i18n";
-import type { FooterContext } from "./types";
+import { OMP_MISSING, type FooterContext, type Load } from "./types";
 
-type ProviderLoad =
+type ProviderKeysLoad =
   | { status: "loading" }
   | { status: "loaded"; snapshot: ProviderKeysSnapshot }
   | { status: "error"; message: string };
@@ -22,6 +32,10 @@ type OAuthLoad =
   | { status: "loading" }
   | { status: "loaded"; rows: ProviderOAuthStatus[] }
   | { status: "error"; message: string };
+
+type WebSearchLoad =
+  | { status: "loading" }
+  | { status: "loaded"; snapshot: WebSearchProviderSnapshot };
 
 /** How the row labels each source, and how loudly. */
 function sourceChip(row: ProviderKeyStatus): ReactNode {
@@ -322,7 +336,173 @@ function SubscriptionRow({
   );
 }
 
-export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
+const WEB_SEARCH_ORDER_KEY = "providers.webSearchOrder";
+const WEB_SEARCH_EXCLUDE_KEY = "providers.webSearchExclude";
+const WEB_SEARCH_TOOL_KEY = "web_search.enabled";
+
+/**
+ * Which provider the native web_search tool tries first. The value and its layer come from
+ * omp's own snapshot (never a parallel omp-ui preference); the choices come from the installed
+ * omp; the write goes through `omp config set` to the GLOBAL layer only. An order omp-ui cannot
+ * represent as "one provider first" stays visible as a labelled custom state rather than being
+ * silently collapsed.
+ */
+function WebSearchProviderRow({
+  load,
+  entries,
+  discovery,
+  pendingKey,
+  commit,
+  retry,
+}: {
+  load: Load;
+  entries: Map<string, OmpSettingEntry>;
+  discovery: WebSearchLoad;
+  pendingKey: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+  retry: () => void;
+}) {
+  const t = useT();
+  if (load.status === "loading") {
+    return (
+      <p className="py-2.5 text-[11px] text-ink-faint">{t("settings.omp.reading")}</p>
+    );
+  }
+  // readOmpSettings never rejects — snapshot.error carries omp's own failure —
+  // but the IPC hop can, so both land in the same treatment. Unlike the omp
+  // page, this one never replaces the whole body: the credentials below stay
+  // readable and editable with omp unreachable.
+  const failure =
+    load.status === "error"
+      ? load.message
+      : load.status === "loaded" && load.snapshot.error !== null
+        ? load.snapshot.error
+        : null;
+  if (failure !== null || load.status !== "loaded") {
+    return (
+      <div className="flex items-center justify-between gap-3 py-2.5">
+        <p className="text-[11px] leading-relaxed text-rose">
+          {t("settings.providers.webSearchUnavailable")}{" "}
+          {failure === OMP_MISSING ? t("settings.omp.ompMissingHint") : failure}
+        </p>
+        <Button size="xs" onClick={retry}>
+          {t("settings.omp.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  const entry = entries.get(WEB_SEARCH_ORDER_KEY);
+  // omp without the key cannot be configured from here — readOmpSettings'
+  // per-entry rule, so the row is simply absent.
+  if (entry === undefined) return null;
+  if (entry.type !== "array") {
+    // A future omp may reshape it into something this control cannot model; show
+    // the raw value rather than guess a writer.
+    return (
+      <Row
+        title={t("settings.providers.webSearchOrder")}
+        hint={entry.description}
+        badge={layerBadge(entry.layer)}
+      >
+        <span className="max-w-56 truncate font-mono text-[11px] text-ink-mid">
+          {entry.value === undefined ? "—" : JSON.stringify(entry.value)}
+        </span>
+      </Row>
+    );
+  }
+
+  const order = normalizeWebSearchOrder(entry.value);
+  const selection = webSearchSelection(entry.value);
+  const list = discovery.status === "loaded" ? discovery.snapshot.providers : [];
+  const undiscovered =
+    discovery.status === "loaded" && !discovery.snapshot.discovered;
+  const extra = unknownWebSearchProviders(order, list);
+  const selectValue =
+    selection.kind === "automatic"
+      ? ""
+      : selection.kind === "provider"
+        ? selection.provider
+        : WEB_SEARCH_CUSTOM_OPTION;
+  const excludedOrder = normalizeWebSearchOrder(entries.get(WEB_SEARCH_EXCLUDE_KEY)?.value);
+  const chosen = selection.kind === "provider" ? selection.provider : null;
+  const toolOff = entries.get(WEB_SEARCH_TOOL_KEY)?.value === false;
+  const pending = pendingKey === WEB_SEARCH_ORDER_KEY;
+
+  return (
+    <div className="pt-1">
+      <Row
+        title={t("settings.providers.webSearchOrder")}
+        hint={
+          entry.layer === "project"
+            ? t("settings.providers.webSearchProjectOverride")
+            : t("settings.providers.webSearchHint")
+        }
+        badge={layerBadge(entry.layer)}
+      >
+        <select
+          aria-label={t("settings.providers.webSearchAria")}
+          value={selectValue}
+          disabled={pending}
+          onChange={(event) =>
+            commit(WEB_SEARCH_ORDER_KEY, webSearchOrderForOption(event.target.value))
+          }
+          className={FIELD}
+        >
+          <option value="">{t("settings.providers.webSearchAutomatic")}</option>
+          {list.map((id) => (
+            <option key={id} value={id}>
+              {id}
+            </option>
+          ))}
+          {extra.map((id) => (
+            <option key={id} value={id}>
+              {t("settings.providers.webSearchUnknown", { provider: id })}
+            </option>
+          ))}
+          {selection.kind === "custom" && (
+            <option value={WEB_SEARCH_CUSTOM_OPTION} disabled>
+              {t("settings.providers.webSearchCustom", { order: order.join(" → ") })}
+            </option>
+          )}
+        </select>
+      </Row>
+      {undiscovered && (
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          {t("settings.providers.webSearchUndiscovered")}
+        </p>
+      )}
+      {chosen !== null && excludedOrder.includes(chosen) && (
+        <p className="text-[11px] leading-relaxed text-rose">
+          {t("settings.providers.webSearchExcluded", { provider: chosen })}
+        </p>
+      )}
+      {toolOff && (
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          {t("settings.providers.webSearchToolOff")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function ProvidersPage({
+  projectCwd,
+  load,
+  pendingKey,
+  ompError,
+  commit,
+  retry,
+}: {
+  projectCwd: string | null;
+  /** The shell's omp-settings snapshot: where webSearchOrder's value and layer live. */
+  load: Load;
+  pendingKey: string | null;
+  /** The shell's omp-write failure, shown beside this page's own credential errors. */
+  ompError: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+  retry: () => void;
+}) {
   const t = useT();
   const readProviderKeys = useStore((s) => s.readProviderKeys);
   const setProviderKey = useStore((s) => s.setProviderKey);
@@ -333,26 +513,29 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
   const cancelProviderOAuth = useStore((s) => s.cancelProviderOAuth);
   const signOutProviderOAuth = useStore((s) => s.signOutProviderOAuth);
   const providerOAuth = useStore((s) => s.providerOAuth);
+  const readWebSearchProviders = useStore((s) => s.readWebSearchProviders);
 
-  const [load, setLoad] = useState<ProviderLoad>({ status: "loading" });
+  const [keysLoad, setKeysLoad] = useState<ProviderKeysLoad>({ status: "loading" });
   const [oauth, setOauth] = useState<OAuthLoad>({ status: "loading" });
+  const [webSearch, setWebSearch] = useState<WebSearchLoad>({ status: "loading" });
   /** env name of the row with a write in flight; its controls stay disabled. */
   const [pendingEnv, setPendingEnv] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const gen = useRef(0);
   const oauthGen = useRef(0);
+  const webSearchGen = useRef(0);
   const previousPhase = useRef<ProviderOAuthState["phase"]>("idle");
 
   useEffect(() => {
     const g = ++gen.current;
-    setLoad({ status: "loading" });
+    setKeysLoad({ status: "loading" });
     readProviderKeys(projectCwd).then(
       (snapshot) => {
-        if (g === gen.current) setLoad({ status: "loaded", snapshot });
+        if (g === gen.current) setKeysLoad({ status: "loaded", snapshot });
       },
       (err: unknown) => {
         if (g === gen.current)
-          setLoad({ status: "error", message: displayMessage(err) });
+          setKeysLoad({ status: "error", message: displayMessage(err) });
       },
     );
   }, [readProviderKeys, projectCwd]);
@@ -372,6 +555,25 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
       },
     );
   }, [readProviderOAuth]);
+
+  // A third independent read: the installed omp's own provider list (ADR-0027).
+  // Its failure must not blank the page — the row then lists configured ids only.
+  useEffect(() => {
+    const g = ++webSearchGen.current;
+    setWebSearch({ status: "loading" });
+    readWebSearchProviders().then(
+      (snapshot) => {
+        if (g === webSearchGen.current) setWebSearch({ status: "loaded", snapshot });
+      },
+      (err: unknown) => {
+        if (g !== webSearchGen.current) return;
+        setWebSearch({
+          status: "loaded",
+          snapshot: { providers: [], discovered: false, error: displayMessage(err) },
+        });
+      },
+    );
+  }, [readWebSearchProviders]);
 
   // A finished sign-in adds accounts: re-read the rows (main already
   // refreshed its cache before publishing "done").
@@ -402,7 +604,7 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
     op.then(
       (snapshot) => {
         setWriteError(null);
-        setLoad({ status: "loaded", snapshot });
+        setKeysLoad({ status: "loaded", snapshot });
       },
       (err: unknown) => setWriteError(displayMessage(err)),
     ).finally(() => setPendingEnv(null));
@@ -432,14 +634,14 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
     );
   };
 
-  if (load.status === "loading") {
+  if (keysLoad.status === "loading") {
     return <Empty title={t("settings.providers.reading")} />;
   }
-  if (load.status === "error") {
-    return <Empty title={t("settings.providers.readFailed")} hint={load.message} />;
+  if (keysLoad.status === "error") {
+    return <Empty title={t("settings.providers.readFailed")} hint={keysLoad.message} />;
   }
 
-  const { providers, encryptionAvailable, backend } = load.snapshot;
+  const { providers, encryptionAvailable, backend } = keysLoad.snapshot;
   const oauthRows = oauth.status === "loaded" ? oauth.rows : [];
   const configured = providers.filter((p) => p.source !== "none");
   const configuredCount =
@@ -452,6 +654,12 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
     { id: "models", label: t("settings.providers.modelProviders") },
     { id: "search", label: t("settings.providers.webSearch") },
   ];
+
+  // The web-search row reads its value from the shell's snapshot, the same
+  // `byKey` map the omp page builds (one Map per render, no per-row scans).
+  const ompEntries = new Map<string, OmpSettingEntry>(
+    load.status === "loaded" ? load.snapshot.entries.map((e) => [e.key, e]) : [],
+  );
 
   return (
     <div className="space-y-3 px-4 py-3">
@@ -480,8 +688,10 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
         )}
       </Panel>
 
-      {writeError !== null && (
-        <p className="text-[11px] leading-relaxed text-rose">{writeError}</p>
+      {(writeError ?? ompError) !== null && (
+        <p className="text-[11px] leading-relaxed text-rose">
+          {writeError ?? ompError}
+        </p>
       )}
 
       {groups.map(({ id, label }, index) => {
@@ -527,6 +737,16 @@ export function ProvidersPage({ projectCwd }: { projectCwd: string | null }) {
                     onClear={() => run(row.env, clearProviderKey(row.activeEnv))}
                   />
                 ))}
+                {id === "search" && (
+                  <WebSearchProviderRow
+                    load={load}
+                    entries={ompEntries}
+                    discovery={webSearch}
+                    pendingKey={pendingKey}
+                    commit={commit}
+                    retry={retry}
+                  />
+                )}
               </div>
             </div>
             {index === 0 && withSubscription}

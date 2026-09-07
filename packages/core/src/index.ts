@@ -117,10 +117,23 @@ export {
   parseEnumOptions,
   readOmpCompactionMethods,
   readOmpSettings,
+  readWebSearchProviders,
+  WEB_SEARCH_SETTING_GROUP,
   writeOmpSetting,
   type OmpCompactionMethods,
   type OmpConfigRunner,
 } from "./omp-settings";
+export {
+  normalizeWebSearchOrder,
+  parseWebSearchProviderList,
+  unknownWebSearchProviders,
+  WEB_SEARCH_AUTO_CHOICE,
+  WEB_SEARCH_CUSTOM_OPTION,
+  WEB_SEARCH_PROBE_SENTINEL,
+  webSearchOrderForOption,
+  webSearchSelection,
+  type WebSearchSelection,
+} from "./web-search-order";
 export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";
 export {
   captureLoginShellKeys,

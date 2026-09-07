@@ -17,6 +17,7 @@
     "./capabilities": "./src/capabilities.ts",
     "./goal": "./src/goal.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
+    "./web-search-order": "./src/web-search-order.ts",
     "./capability-catalog": "./src/capability-catalog.ts",
     "./stream-activity": "./src/stream-activity.ts",
     "./extension-dialog": "./src/extension-dialog.ts",

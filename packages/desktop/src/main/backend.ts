@@ -19,6 +19,7 @@ import {
   readOmpModelRole,
   readOmpSettings,
   readOmpCompactionMethods,
+  readWebSearchProviders,
   readBranchDiff,
   listBranches,
   mergeWorktreeBranch,
@@ -549,6 +550,9 @@ export class MainBackend {
           readOmpSettings({ ompPath: this.ompPath, projectCwd }),
         [CH.writeOmpSetting]: (key: string, value: OmpSettingValue) =>
           writeOmpSetting({ ompPath: this.ompPath, key, value }),
+        // The provider list is omp-version-scoped, not app state: one probe per
+        // Providers mount, no cache, no broadcast (ADR-0027).
+        [CH.readWebSearchProviders]: () => readWebSearchProviders({ ompPath: this.ompPath }),
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.
         [CH.readProviderKeys]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),

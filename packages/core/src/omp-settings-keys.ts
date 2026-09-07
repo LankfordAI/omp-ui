@@ -27,6 +27,17 @@ export const MEMORY_SETTING_GROUP: OmpSettingGroup = {
   ],
 };
 
+/**
+ * The web_search routing keys. Allowlisted but NOT in OMP_SETTING_GROUPS: an array-valued
+ * setting renders as a read-only JSON span on the omp page (rows.tsx), so the Providers page
+ * carries a dedicated closed select for webSearchOrder instead. webSearchExclude has no editor
+ * here — it is read only to warn when a chosen provider is one omp will always skip.
+ */
+export const WEB_SEARCH_SETTING_GROUP: OmpSettingGroup = {
+  title: "Web search",
+  keys: ["providers.webSearchOrder", "providers.webSearchExclude"],
+};
+
 /** The omp settings the settings surface exposes, grouped for the omp page. */
 export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
@@ -72,6 +83,7 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
 export const OMP_SETTING_KEYS: readonly string[] = [
   ...OMP_SETTING_GROUPS.flatMap((group) => group.keys),
   ...MEMORY_SETTING_GROUP.keys,
+  ...WEB_SEARCH_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";

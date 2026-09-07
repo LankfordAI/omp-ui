@@ -26,6 +26,7 @@ import type {
   TranscriptWidth,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
+  WebSearchProviderSnapshot,
   WorktreeSyncResult,
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
@@ -326,6 +327,8 @@ export interface SettingsSlice {
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
   ensureCompactionSettings(projectCwd: string): Promise<void>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
+  /** The installed omp's own web-search provider ids (ADR-0027); never a curated list. */
+  readWebSearchProviders(): Promise<WebSearchProviderSnapshot>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
   clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;

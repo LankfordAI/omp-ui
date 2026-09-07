@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
   MemoryOverview,
+  OmpSettingValue,
   OmpSettingsSnapshot,
   OmpUpdateState,
   PlanFormat,
@@ -12,6 +13,7 @@ import type {
   ProviderOAuthState,
   ProviderOAuthStatus,
   RemoteState,
+  WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
@@ -33,6 +35,13 @@ const emptyOmpSettings: OmpSettingsSnapshot = {
   agentDir: null,
   projectConfigPath: null,
   error: null,
+};
+
+/** The Providers page's discovery answer when there is no omp binary. */
+const emptyWebSearchProviders: WebSearchProviderSnapshot = {
+  providers: [],
+  discovered: false,
+  error: "omp binary not found",
 };
 
 const idleRemote: RemoteState = {
@@ -136,6 +145,7 @@ const backendMock = {
       backend: "none",
     }),
   ),
+  readWebSearchProviders: vi.fn(async () => emptyWebSearchProviders),
   memoryOverview: vi.fn(),
   writeOmpSetting: vi.fn(async () => {}),
   getRemoteState: vi.fn(async () => idleRemote),
@@ -1209,6 +1219,186 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(backendMock.submitProviderOAuthInput).toHaveBeenCalledWith(
       "https://auth.openai.com/callback?code=abc123",
     );
+  });
+});
+
+describe("Settings Providers page web-search order (issue #394)", () => {
+  const searchRow: ProviderKeyStatus = {
+    id: "brave",
+    label: "Brave Search",
+    group: "search",
+    env: "BRAVE_API_KEY",
+    activeEnv: "BRAVE_API_KEY",
+    source: "none",
+    masked: null,
+    hint: null,
+    shadowsEnvironment: false,
+  };
+
+  const entryFor = (
+    key: string,
+    value: OmpSettingValue | undefined,
+    layer: OmpSettingsSnapshot["entries"][number]["layer"] = "global",
+    type: OmpSettingsSnapshot["entries"][number]["type"] = "array",
+  ): OmpSettingsSnapshot["entries"][number] => ({
+    key,
+    type,
+    description: "",
+    value,
+    options: null,
+    layer,
+  });
+
+  /** Mounts Providers with one search credential, `entries`, and a discovered list. */
+  function seedWebSearch(
+    entries: OmpSettingsSnapshot["entries"],
+    providers: string[] = ["brave", "exa"],
+  ): void {
+    backendMock.readOmpSettings.mockResolvedValueOnce({ ...emptyOmpSettings, entries });
+    backendMock.readWebSearchProviders.mockResolvedValueOnce({
+      providers,
+      discovered: providers.length > 0,
+      error: providers.length > 0 ? null : "this omp did not publish a provider list",
+    });
+    backendMock.readProviderKeys.mockResolvedValueOnce({
+      providers: [searchRow],
+      encryptionAvailable: true,
+      backend: "secret-service",
+    });
+    backendMock.readProviderOAuth.mockResolvedValueOnce([]);
+    useStore.setState({
+      settingsPage: "providers",
+      state: null,
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const orderSelect = (): HTMLSelectElement | null =>
+    document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Preferred web-search provider"]',
+    );
+
+  async function choose(optionValue: string): Promise<void> {
+    const select = orderSelect()!;
+    await act(async () => {
+      select.value = optionValue;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  it("lists omp's providers over Automatic for an empty order", async () => {
+    seedWebSearch([entryFor("providers.webSearchOrder", [], "default")]);
+    await renderSettings();
+    const select = orderSelect()!;
+    expect(select.value).toBe("");
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "",
+      "brave",
+      "exa",
+    ]);
+    expect(select.options[0]?.textContent).toBe("Automatic — omp's default order");
+  });
+
+  it("writes the chosen provider as a one-element order", async () => {
+    seedWebSearch([entryFor("providers.webSearchOrder", [], "default")]);
+    await renderSettings();
+    await choose("brave");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "providers.webSearchOrder",
+      ["brave"],
+    );
+  });
+
+  it("clears the preference when Automatic is chosen back", async () => {
+    seedWebSearch([entryFor("providers.webSearchOrder", ["brave"])]);
+    await renderSettings();
+    await choose("");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "providers.webSearchOrder",
+      [],
+    );
+  });
+
+  it("shows a hand-written multi-order as a disabled custom option", async () => {
+    seedWebSearch([entryFor("providers.webSearchOrder", ["brave", "exa"])]);
+    await renderSettings();
+    const select = orderSelect()!;
+    const custom = [...select.options].find((option) => option.value === "__custom__");
+    expect(custom?.textContent).toBe("Custom order: brave → exa");
+    expect(custom?.disabled).toBe(true);
+    expect(select.value).toBe("__custom__");
+    // Choosing away from it still works.
+    await choose("exa");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "providers.webSearchOrder",
+      ["exa"],
+    );
+  });
+
+  it("badges and explains a value the focused project overrides", async () => {
+    seedWebSearch([entryFor("providers.webSearchOrder", ["exa"], "project")]);
+    await renderSettings();
+    const select = orderSelect()!;
+    expect(select.value).toBe("exa");
+    expect(
+      [...document.body.querySelectorAll("span")].some(
+        (el) => el.textContent === "project",
+      ),
+    ).toBe(true);
+    expect(document.body.textContent).toContain(
+      "The focused project's .omp/config.yml sets its own order",
+    );
+    expect(document.body.textContent).not.toContain(
+      "The provider the native web_search tool tries first",
+    );
+  });
+
+  it("keeps a configured id selectable and notes an undiscovered list", async () => {
+    seedWebSearch([entryFor("providers.webSearchOrder", ["bogus"])], []);
+    await renderSettings();
+    const select = orderSelect()!;
+    expect(select.value).toBe("bogus");
+    expect(
+      [...select.options].some((option) =>
+        (option.textContent ?? "").includes("not in this omp's list"),
+      ),
+    ).toBe(true);
+    expect(document.body.textContent).toContain(
+      "This omp did not publish its provider list",
+    );
+  });
+
+  it("notes when the web_search tool itself is off", async () => {
+    seedWebSearch([
+      entryFor("providers.webSearchOrder", ["brave"]),
+      entryFor("web_search.enabled", false, "default", "boolean"),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).toContain(
+      "The web_search tool is switched off (web_search.enabled)",
+    );
+    expect(orderSelect()!.disabled).toBe(false);
+  });
+
+  it("warns when the chosen provider is also excluded", async () => {
+    seedWebSearch([
+      entryFor("providers.webSearchOrder", ["brave"]),
+      entryFor("providers.webSearchExclude", ["brave"], "default"),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).toContain(
+      "brave is also listed in providers.webSearchExclude, so omp always skips it.",
+    );
+  });
+
+  it("renders no row when omp does not publish the key", async () => {
+    seedWebSearch([entryFor("advisor.enabled", true, "default", "boolean")]);
+    await renderSettings();
+    expect(orderSelect()).toBeNull();
+    expect(document.body.textContent).not.toContain("Preferred provider");
   });
 });
 

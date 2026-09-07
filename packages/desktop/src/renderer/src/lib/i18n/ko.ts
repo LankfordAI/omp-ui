@@ -587,6 +587,23 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.providers.readFailed": "프로바이더 키를 읽을 수 없음",
   "settings.providers.modelProviders": "모델 프로바이더",
   "settings.providers.webSearch": "웹 검색",
+  "settings.providers.webSearchOrder": "우선 검색 제공자",
+  "settings.providers.webSearchAria": "우선 웹 검색 제공자",
+  "settings.providers.webSearchAutomatic": "자동 — omp 기본 순서",
+  "settings.providers.webSearchCustom": "사용자 지정 순서: {order}",
+  "settings.providers.webSearchUnknown": "{provider} (이 omp 목록에 없음)",
+  "settings.providers.webSearchHint":
+    "네이티브 web_search 도구가 먼저 시도하는 제공자입니다. 목록에 없는 제공자도 omp의 기본 순서로 사용할 수 있으며, 제공자는 위 또는 환경 변수에 자격 증명이 있어야 합니다. 변경 이후 시작하는 세션부터 적용됩니다.",
+  "settings.providers.webSearchProjectOverride":
+    "포커스한 프로젝트의 .omp/config.yml이 자체 순서를 지정하므로 프로젝트 값이 표시됩니다. 여기서 선택하면 omp 전역 설정에 저장되며, 해당 오버라이드가 없는 프로젝트에 적용됩니다.",
+  "settings.providers.webSearchUnavailable":
+    "omp 설정을 읽을 수 없어 검색 순서를 알 수 없습니다.",
+  "settings.providers.webSearchUndiscovered":
+    "이 omp가 제공자 목록을 공개하지 않아 이미 설정된 제공자만 표시됩니다.",
+  "settings.providers.webSearchExcluded":
+    "{provider}은(는) providers.webSearchExclude에도 지정되어 있어 omp가 항상 건너뜁니다.",
+  "settings.providers.webSearchToolOff":
+    "web_search 도구(web_search.enabled)가 꺼져 있어 어떤 제공자도 호출되지 않습니다.",
   "settings.providers.noneConfigured": "프로바이더 credential 없음 — omp는 키가 필요 없는 모델만 제공할 수 있습니다",
   "settings.providers.someConfigured": "프로바이더 {total}개 중 {configured}개에 credential 있음",
   "settings.providers.encryptedPrefix": "추가한 키는 OS credential store에서 암호화됩니다(",

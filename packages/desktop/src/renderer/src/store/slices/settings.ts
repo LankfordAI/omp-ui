@@ -334,6 +334,12 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return backend.readOmpSettings(projectCwd);
     },
 
+    readWebSearchProviders() {
+      // Uncached on purpose: the list belongs to the installed omp version, the
+      // probe is ~1 s, and re-mounting the Providers page is the retry path.
+      return backend.readWebSearchProviders();
+    },
+
     async ensureCompactionSettings(projectCwd) {
       // Cache hit (a failed read lands null, which is also cached): the value
       // is valid until a compaction.* write clears it or the app relaunches.

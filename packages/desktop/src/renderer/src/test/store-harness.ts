@@ -19,6 +19,7 @@ import type {
   SessionWorktree,
   WorktreeReleaseResult,
   WorktreeSyncResult,
+  WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
 import type {
   SessionCapabilitiesResult,
@@ -80,6 +81,13 @@ const emptyOmpSettings: OmpSettingsSnapshot = {
   agentDir: null,
   projectConfigPath: null,
   error: null,
+};
+
+/** What an absent omp binary answers with; Providers tests override per case. */
+export const emptyWebSearchProviders: WebSearchProviderSnapshot = {
+  providers: [],
+  discovered: false,
+  error: "omp binary not found",
 };
 
 // The merge-back reads a healthy repo answers with (issues #385–#388): the
@@ -246,6 +254,7 @@ const mockBackend = {
   setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
   writeOmpSetting: vi.fn(async () => {}),
+  readWebSearchProviders: vi.fn(async () => emptyWebSearchProviders),
   getRemoteState: vi.fn(async () => idleRemoteState),
   setRemoteEnabled: vi.fn(async () => {}),
   setRemoteBind: vi.fn(async () => {}),

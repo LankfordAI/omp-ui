@@ -57,7 +57,21 @@ const PAGES: ReadonlyArray<{
   { id: "appearance", labelKey: "settings.nav.appearance", render: () => <AppearancePage /> },
   { id: "updates", labelKey: "settings.nav.updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
   { id: "remote", labelKey: "settings.nav.remote", render: () => <RemotePage />, footer: RemoteFooter },
-  { id: "providers", labelKey: "settings.nav.providers", render: (ctx) => <ProvidersPage projectCwd={ctx.projectCwd} />, footer: ProvidersFooter },
+  {
+    id: "providers",
+    labelKey: "settings.nav.providers",
+    render: (ctx) => (
+      <ProvidersPage
+        projectCwd={ctx.projectCwd}
+        load={ctx.load}
+        pendingKey={ctx.pendingKey}
+        ompError={ctx.writeError}
+        commit={ctx.commit}
+        retry={ctx.retry}
+      />
+    ),
+    footer: ProvidersFooter,
+  },
   {
     id: "memory",
     labelKey: "settings.nav.memory",
