@@ -187,7 +187,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
 
   /** The paperclip's hidden file input; picked images ride the same draft path as paste. */
   const imagePicker = useRef<HTMLInputElement>(null);
-  const branch = useExecutionBranch({ tabId, projectCwd, planFilePath, planText: planText ?? null, planTitle: planTitle ?? null });
+  const branch = useExecutionBranch({
+    tabId,
+    proposalKey: review,
+    projectCwd,
+    planFilePath,
+    planText: planText ?? null,
+    planTitle: planTitle ?? null,
+  });
 
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const currentThinking = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
@@ -219,6 +226,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const [seededFor, setSeededFor] = useState<unknown>(null);
   if (review !== seededFor) {
     setSeededFor(review);
+    setContext("existing");
     setStagedModel(currentModel);
     setStagedThinking(currentThinking);
     setStagedAdvisor(sessionRecord?.advisor ?? false);
@@ -274,10 +282,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
 
   const contextKey = CONTEXTS.find((candidate) => candidate.id === context)?.labelKey;
   const contextLabel = contextKey === undefined ? context : t(contextKey);
+  const branchApplies = sourceWorktree === null && context !== "worktree";
   const dispatchBranch =
     context === "worktree" && worktreeSel !== null
       ? worktreeSel.branch.trim() || t("plan.review.newBranch")
-      : context === "fresh" && sourceWorktree !== null
+      : sourceWorktree !== null
         ? sourceWorktree.branch
         : branch.summary;
   const executeDisabled =
@@ -285,7 +294,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
       ? worktreeSel === null ||
         worktreeSel.branch.trim() === "" ||
         (worktreeSel.baseBranch !== null && worktreeSel.baseBranch.trim() === "")
-      : branch.checkingOut || branch.branchInvalid;
+      : branchApplies && (branch.checkingOut || branch.branchInvalid);
 
   const refine = () => {
     const notes = { text: changes, images: images.length ? images : undefined };
@@ -306,10 +315,17 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   };
 
   const execute = async (): Promise<void> => {
+    const destination =
+      context === "worktree" && worktreeSel !== null
+        ? { kind: "worktree" as const, branch: worktreeSel.branch.trim() }
+        : sourceWorktree !== null
+          ? { kind: "worktree" as const, branch: sourceWorktree.branch }
+          : { kind: "project-checkout" as const, branch: branch.targetBranch };
     // Staged parameters ride as one options bag; the store applies them to
     // whichever session receives the implementation.
     const options: PlanExecutionOptions = {
       addressAdvisor,
+      destination,
       ultrathink,
       orchestrate,
       workflowz,
@@ -330,12 +346,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             }
           : null,
     };
-    // A worktree dispatch never moves the project's working tree, and a
-    // fresh dispatch from a worktree planning session is pinned to the
-    // planning checkout — so the branch-checkout dance is a
-    // project-checkout concern.
-    const branchApplies =
-      context !== "worktree" && !(context === "fresh" && sourceWorktree !== null);
+    // Only a project-checkout destination may move the registered project's checkout.
     if (branchApplies && !(await branch.resolve())) return;
     executePlan(tabId, context, options);
   };
@@ -782,11 +793,24 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               )}
             </fieldset>
 
-            {branch.isRepo &&
-              context !== "worktree" &&
-              !(context === "fresh" && sourceWorktree !== null) && (
-                <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />
-              )}
+            {branch.isRepo && sourceWorktree === null && context !== "worktree" && (
+              <ExecutionBranchSetup branch={branch} onExecute={() => void execute()} />
+            )}
+            {sourceWorktree !== null && context !== "worktree" && (
+              <fieldset className="mt-5 border-t border-line pt-4">
+                <legend className="text-[11px] font-medium text-ink">
+                  {t("plan.review.lockedWorktreeBranch")}
+                </legend>
+                <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                  {t("plan.review.lockedWorktreeHint")}
+                </p>
+                <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
+                  <span className="block truncate font-mono text-xs text-ink" title={sourceWorktree.branch}>
+                    {sourceWorktree.branch}
+                  </span>
+                </div>
+              </fieldset>
+            )}
             {context === "worktree" && worktreeSel !== null && projectCwd !== undefined && (
               <fieldset className="mt-5 border-t border-line pt-4">
                 <legend className="text-[11px] font-medium text-ink">{t("plan.review.worktree")}</legend>

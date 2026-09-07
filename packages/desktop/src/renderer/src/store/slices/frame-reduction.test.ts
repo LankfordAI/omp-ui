@@ -914,7 +914,9 @@ describe("handleRpcFrame routing", () => {
         "omp-ui:plan-review:" +
         JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
     });
-    h.useStore.getState().executePlan(h.TAB, "existing");
+    h.useStore.getState().executePlan(h.TAB, "existing", {
+      destination: { kind: "project-checkout", branch: "feature/selected" },
+    });
     const prompt = h.sent.find(
       (s) =>
         s.tabId === h.TAB &&
@@ -925,6 +927,9 @@ describe("handleRpcFrame routing", () => {
     // followUp queues the prompt until the just-accepted plan turn ends, so it
     // races nothing — the implementer runs after the planner stops.
     expect(prompt!.cmd.streamingBehavior).toBe("followUp");
+    expect(String(prompt!.cmd.message)).toMatch(
+      /Execution destination: omp-ui has already prepared the project branch "feature\/selected"\..*Do not create, switch, rename, or delete any branch or worktree\.$/s,
+    );
     await h.flushMicrotasks();
   });
 
@@ -1093,7 +1098,9 @@ describe("handleRpcFrame routing", () => {
     });
     // Let the plan file read resolve so executePlan captures the plan text.
     await h.flushMicrotasks();
-    h.useStore.getState().executePlan(h.TAB, "fresh");
+    h.useStore.getState().executePlan(h.TAB, "fresh", {
+      destination: { kind: "project-checkout", branch: "feature/fresh" },
+    });
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p7", value: "execute" });
     await h.flushMicrotasks();
@@ -1129,6 +1136,9 @@ describe("handleRpcFrame routing", () => {
     );
     expect(prompt).toBeDefined();
     expect(prompt!.cmd.message).toContain("Implement it now");
+    expect(String(prompt!.cmd.message)).toMatch(
+      /Execution destination: omp-ui has already prepared the project branch "feature\/fresh"\..*Do not create, switch, rename, or delete any branch or worktree\.$/s,
+    );
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
     expect(
       h.useStore
@@ -1305,6 +1315,7 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "worktree", {
       worktree: { branch: "omp-ui/cafebabe", baseRef: "main", baseBranch: null },
+      destination: { kind: "worktree", branch: "omp-ui/cafebabe" },
     });
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p-wt", value: "execute" });
@@ -1338,6 +1349,9 @@ describe("handleRpcFrame routing", () => {
     expect(prompt).toBeDefined();
     expect(String(prompt!.cmd.message)).toContain("Implement it now");
     expect(String(prompt!.cmd.message)).toContain("# Plan");
+    expect(String(prompt!.cmd.message)).toMatch(
+      /Execution destination: this session already runs in the worktree branch "omp-ui\/cafebabe"\..*Do not create or switch to another branch or worktree\.$/s,
+    );
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
 
     h.respond("wt-tab", prompt!.cmd, {});
@@ -1384,7 +1398,9 @@ describe("handleRpcFrame routing", () => {
     h.useStore.setState({ state: h.stateWithRecord(null, "live", REUSE_WT) });
     openReview("handoff-reuse-fresh");
     await h.flushMicrotasks();
-    h.useStore.getState().executePlan(h.TAB, "fresh");
+    h.useStore.getState().executePlan(h.TAB, "fresh", {
+      destination: { kind: "worktree", branch: "omp-ui/deadbeef" },
+    });
     await h.flushMicrotasks();
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "handoff-reuse-fresh", value: "execute" });
@@ -1416,6 +1432,9 @@ describe("handleRpcFrame routing", () => {
     const prompt = h.sent.find((s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
     expect(String(prompt!.cmd.message)).toContain("Implement it now");
+    expect(String(prompt!.cmd.message)).toMatch(
+      /Execution destination: this session already runs in the worktree branch "omp-ui\/deadbeef"\..*Do not create or switch to another branch or worktree\.$/s,
+    );
     h.respond("fresh-tab", prompt!.cmd, {});
     await h.flushMicrotasks();
     expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");

@@ -21,6 +21,26 @@ export function withConcerns(base: string, concerns: string | null): string {
   return concerns ? `${base}\n\n${concerns}` : base;
 }
 
+/** The checkout that plan review prepared for the implementation. */
+export type PlanExecutionDestination =
+  | { kind: "project-checkout"; branch: string | null }
+  | { kind: "worktree"; branch: string };
+
+/** Appends the prepared checkout as the implementation prompt's final contract. */
+export function withExecutionDestination(
+  base: string,
+  destination: PlanExecutionDestination | undefined,
+): string {
+  if (destination === undefined) return base;
+  if (destination.kind === "worktree") {
+    return `${base}\n\nExecution destination: this session already runs in the worktree branch ${JSON.stringify(destination.branch)}. Perform all implementation work and commits on exactly this branch in the existing worktree. Do not create or switch to another branch or worktree.`;
+  }
+  if (destination.branch === null) {
+    return `${base}\n\nExecution destination: omp-ui has selected the project's current detached checkout. Perform all implementation work and commits in exactly this checkout. Do not change checkout, branch, or worktree state.`;
+  }
+  return `${base}\n\nExecution destination: omp-ui has already prepared the project branch ${JSON.stringify(destination.branch)}. Perform all implementation work and commits on exactly this branch. Do not create, switch, rename, or delete any branch or worktree.`;
+}
+
 /**
  * Everything the review pane stages for the implementation dispatch. Undefined
  * fields keep the receiving session's current value; the modal always sends
@@ -29,6 +49,8 @@ export function withConcerns(base: string, concerns: string | null): string {
 export interface PlanExecutionOptions {
   /** Fold the advisor's plan-turn review into the implementation prompt (default true). */
   addressAdvisor?: boolean;
+  /** Exact checkout prepared by plan review; appended as the final prompt contract. */
+  destination?: PlanExecutionDestination;
   /** Prepend omp's `ultrathink` magic keyword to the implementation prompt. */
   ultrathink?: boolean;
   /** Prepend omp's `orchestrate` magic keyword to the implementation prompt. */

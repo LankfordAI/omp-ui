@@ -384,6 +384,36 @@ describe("PlanReview git branch section (issue #25)", () => {
     expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["current", "main"],
+    ["new", "feat/exact"],
+    ["existing", "feature/y"],
+  ] as const)("submits the exact %s project destination", async (choice, expectedBranch) => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      if (choice === "new") {
+        await act(async () => branchOption("new branch").click());
+        await typeInto(newNameInput(), expectedBranch);
+      } else if (choice === "existing") {
+        await act(async () => branchOption("existing branch").click());
+        await act(async () => buttonByText(expectedBranch).click());
+      }
+      await act(async () => executeButton().click());
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({
+          destination: { kind: "project-checkout", branch: expectedBranch },
+        }),
+      );
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
   it("creates and switches to a new branch before answering the gate", async () => {
     render();
     await act(async () => branchOption("new branch").click());
@@ -635,6 +665,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         "worktree",
         expect.objectContaining({
           worktree: { branch: input.value, baseRef: base.value === "" ? null : base.value, baseBranch: null },
+          destination: { kind: "worktree", branch: input.value },
         }),
       );
       expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
@@ -668,11 +699,15 @@ describe("PlanReview worktree execution context (issue #313)", () => {
       expect(executePlanSpy).toHaveBeenCalledTimes(1);
       const options = executePlanSpy.mock.calls[0]![2] as {
         worktree: { branch: string; baseRef: string | null; baseBranch: string | null };
+        destination: { kind: "worktree"; branch: string };
       };
       expect(options.worktree).toEqual({
         branch: expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
         baseRef: "main",
         baseBranch: "TECH-123",
+      });
+      expect(options).toMatchObject({
+        destination: { kind: "worktree", branch: options.worktree.branch },
       });
     } finally {
       useStore.setState({ executePlan: realExecutePlan });
@@ -702,10 +737,10 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         },
       });
     });
-    // The context survives the re-seed but its spec is gone: the fields hide
-    // and execute stays disabled until the row is picked again.
+    // A refined-and-reproposed gate returns to the safe visible default.
     expect(document.body.querySelector("#plan-worktree-branch")).toBeNull();
-    expect(buttonByText("execute in worktree session").disabled).toBe(true);
+    expect(buttonByText("execute in this session").disabled).toBe(false);
+    expect(document.body.textContent).toContain("Git branch");
 
     await act(async () => contextRow("worktree session").click());
     const second = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
@@ -745,9 +780,13 @@ describe("PlanReview worktree execution context (issue #313)", () => {
       expect(executePlanSpy).toHaveBeenCalledTimes(1);
       const options = executePlanSpy.mock.calls[0]![2] as {
         worktree: { branch: string; baseBranch: string | null };
+        destination: { kind: "worktree"; branch: string };
       };
       expect(options.worktree.branch).toBe("omp-ui/planning1");
       expect(options.worktree.baseBranch).toBeNull();
+      expect(options).toMatchObject({
+        destination: { kind: "worktree", branch: "omp-ui/planning1" },
+      });
     } finally {
       useStore.setState({ executePlan: realExecutePlan });
     }
@@ -766,22 +805,44 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(document.body.textContent).not.toContain("reuses this checkout in place");
   });
 
-  it("a fresh context from a worktree planning session hides the git-branch section and dispatches without a checkout (issue #316)", async () => {
-    seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
-    render();
-    await act(async () => contextRow("fresh session").click());
+  it.each([
+    ["this session", "existing"],
+    ["this session, compacted", "compacted"],
+    ["fresh session", "fresh"],
+  ] as const)(
+    "pins %s execution to the planning worktree",
+    async (contextLabel, context) => {
+      const realExecutePlan = useStore.getState().executePlan;
+      const executePlanSpy = vi.fn();
+      useStore.setState({ executePlan: executePlanSpy });
+      try {
+        seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
+        render();
+        if (context !== "existing") {
+          await act(async () => contextRow(contextLabel).click());
+        }
 
-    // The pinned destination is named: hint and ready-to-dispatch line.
-    expect(document.body.textContent).toContain("in this session's worktree");
-    expect(document.body.textContent).toContain("omp-ui/planning1");
-    expect(document.body.textContent).not.toContain("Git branch");
+        expect(document.body.textContent).toContain("Worktree branch");
+        expect(document.body.textContent).toContain(
+          "This context stays in the planning session's worktree",
+        );
+        expect(document.body.textContent).toContain("omp-ui/planning1");
+        expect(document.body.textContent).not.toContain("Git branch");
 
-    await act(async () => buttonByText("execute in fresh session").click());
-    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
-    // The fresh session runs in the planning checkout: the project's
-    // working tree is never moved.
-    expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
-  });
+        await act(async () => buttonByText(`execute in ${contextLabel}`).click());
+        expect(executePlanSpy).toHaveBeenCalledWith(
+          TAB,
+          context,
+          expect.objectContaining({
+            destination: { kind: "worktree", branch: "omp-ui/planning1" },
+          }),
+        );
+        expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+      } finally {
+        useStore.setState({ executePlan: realExecutePlan });
+      }
+    },
+  );
 
   it("a fresh context from a non-worktree planning session keeps the git-branch section (issue #316)", async () => {
     render();

@@ -412,6 +412,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "이 세션의 워크트리 브랜치입니다. 구현은 이 checkout을 그대로 재사용합니다. 새 checkout을 분리하려면 브랜치를 변경하세요.",
   "plan.review.worktreeDedicated":
     "구현은 앱의 worktrees root 아래 전용 checkout에서 실행되며 프로젝트의 working tree는 변경되지 않습니다.",
+  "plan.review.lockedWorktreeBranch": "워크트리 브랜치",
+  "plan.review.lockedWorktreeHint":
+    "이 컨텍스트는 플랜 세션의 워크트리에 유지됩니다. 이 브랜치는 고정된 실행 대상입니다.",
   "plan.review.magicKeywords": "Magic keywords",
   "plan.review.magicKeywordsHint":
     "활성화된 단어가 이 순서대로 구현 프롬프트 맨 앞에 붙고, omp가 각 단어의 숨은 안내를 덧붙입니다.",

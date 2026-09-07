@@ -377,31 +377,30 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
               </>
             ) : (
               <>
-                {planReviewOpen && active ? (
-                  // The pending review owns the chat-history slot at full
-                  // column height (issue #277): the agent is gate-paused, so
-                  // the transcript behind it is static. Inactive tabs keep the
-                  // transcript — the dock stays unmounted there, as before.
-                  <PlanReview tabId={tabId} fill />
-                ) : centered ? (
-                  hero ? (
-                    <HeroGreeting projectCwd={projectCwd} />
+                {/* Keep a deferred gate mounted while its transcript is shown:
+                    PlanReview returns null while deferred, but its staged
+                    execution destination survives reopening the same gate. */}
+                {active && rpc?.planReview != null && <PlanReview tabId={tabId} fill />}
+                {(!planReviewOpen || !active) &&
+                  (centered ? (
+                    hero ? (
+                      <HeroGreeting projectCwd={projectCwd} />
+                    ) : (
+                      <TranscriptSkeleton centered />
+                    )
+                  ) : status === "starting" && items.length === 0 ? (
+                    <TranscriptSkeleton />
                   ) : (
-                    <TranscriptSkeleton centered />
-                  )
-                ) : status === "starting" && items.length === 0 ? (
-                  <TranscriptSkeleton />
-                ) : (
-                  <TranscriptView
-                    items={items}
-                    tabId={tabId}
-                    find={
-                      searchOpen && activeId !== null
-                        ? { ids: matches, activeId, nonce }
-                        : null
-                    }
-                  />
-                )}
+                    <TranscriptView
+                      items={items}
+                      tabId={tabId}
+                      find={
+                        searchOpen && activeId !== null
+                          ? { ids: matches, activeId, nonce }
+                          : null
+                      }
+                    />
+                  ))}
                 {/* The floating composer (issue #395): the pending extension
                     dialog card and the composer as one bottom-anchored stack.
                     While it floats it is transparent to the pointer — only its
