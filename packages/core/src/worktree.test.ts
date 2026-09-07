@@ -26,7 +26,13 @@ import { reclaimCheckouts } from "./worktree-lifecycle";
 
 const cleanups: string[] = [];
 afterEach(() => {
-  for (const dir of cleanups.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  // A git child spawned in the temp repo can still hold a handle on it when the
+  // test returns, and Windows then refuses the removal with EBUSY even though
+  // every assertion passed. git.test.ts already rides out the same lock
+  // (issue #291); the worktree harness now matches it (issue #402).
+  for (const dir of cleanups.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });
 
 /** A throwaway git repo with one committed seed file, like branch-diff.test.ts. */
