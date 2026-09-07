@@ -217,6 +217,31 @@ describe("compact Composer", () => {
   });
 });
 
+describe("desktop floating Composer card", () => {
+  it("fills the floating card with the reading plane, never a raised panel", () => {
+    // matches: false → the desktop branch; compact fills the card bg-raised,
+    // so passing this assertion also proves the floating geometry was exercised.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    seed("ready");
+    renderComposer();
+    const card = document.body.querySelector("textarea")!.parentElement!.parentElement!;
+    // ADR-0026: the composer card is a glass plane. Its tone must equal the
+    // transcript's reading plane — plane-lit (raised) paints a lighter
+    // rectangle over the prose the card now floats above (#396, lineage of
+    // #194/#395). The tab root carries ambient grain over bg-surface, so the
+    // card keeps ambient too and the grain layers cancel in the comparison.
+    expect(card.className).toContain("glass-surface");
+    expect(card.className).not.toContain("plane-lit");
+  });
+});
+
 describe("Composer relaunch handoff", () => {
   it("disables every process control while starting and restores them when ready", () => {
     Object.defineProperty(window, "matchMedia", {
