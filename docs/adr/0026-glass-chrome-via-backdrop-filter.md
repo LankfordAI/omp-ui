@@ -44,7 +44,10 @@ soften a glyph.
 
 - **Three knobs, no more.** A new chrome plane reads the existing utilities
   (`glass-void`, `glass-sunken`, `glass-overlay`, `glass-surface`, `plane-lit`); a plane that
-  needs its own alpha is a plane that has not found its token.
+  needs its own alpha is a plane that has not found its token. A plane may shift
+  *tone* — never alpha — to match the field it floats on, through `--field-fade`
+  on the floating stack (#398); the colour it shifts between is still a theme
+  token.
 - **The wash is achromatic.** It mixes `overlay`/`raised` — plane tokens —
   with transparency; no accent hue is spent on decoration (ADR-0004).
 - **Opaque surfaces are named, not incidental**: `bg-surface` under the
