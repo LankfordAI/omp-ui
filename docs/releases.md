@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- A worktree checkout can now be cut from a branch that does not exist yet: the trailing *new branch…* option in **Base** reveals a name field and a start point, and omp-ui creates the branch and the checkout in one operation — `git branch <name> <start point>`, then `git worktree add` — rolling the new ref back if git rejects the add. The new branch is what the session records as its base, so the branch diff pane, syncing the destination into the worktree, and finish-time merge-back all target it rather than the trunk it was cut from. A minted session branch now states that cut point in its name, `omp-ui/<base>/<hash>`, or `omp-ui/<hash>` when nothing names a base; editing the base recomposes an untouched mint and keeps its hash (#405).
 - Highlights no longer ship dead documentation links: the generator rewrites each relative target in a lifted bullet to the same file at the tag, so `[ADR-0026](adr/0026-glass-chrome-via-backdrop-filter.md)` resolves on the release page (#404).
 - Plan execution now stays on the branch shown in review, and a later proposal no longer inherits stale worktree, new-branch, or existing-branch choices (#406).
 
