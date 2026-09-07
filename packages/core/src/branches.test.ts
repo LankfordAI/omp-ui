@@ -430,6 +430,19 @@ describe("readDefaultBranch", () => {
       "refs/remotes/origin/trunk",
     ]);
     expect(await readDefaultBranch(dir)).toBe("trunk");
+    // Upstream deletes trunk and a pruned fetch removes the tracking ref
+    // (issue #399). The symref still READS — symbolic-ref exits 0 on a
+    // dangling target — but must no longer count as resolving. Assert the
+    // precondition so a git that starts validating can't pass vacuously.
+    await gitIn(dir, ["update-ref", "-d", "refs/remotes/origin/trunk"]);
+    const read = await gitIn(dir, [
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    expect(read.stdout.trim()).toBe("origin/trunk");
+    expect(await readDefaultBranch(dir)).toBe("main");
   });
 });
 
