@@ -60,7 +60,7 @@ const VALID_ARGS = {
   clearDismissedOmpUpdate: [],
   clearProviderKey: ["OPENROUTER_API_KEY"],
   clearRemotePassword: [],
-  convertToWorktree: ["tab-1", "feature", null],
+  convertToWorktree: ["tab-1", "feature", null, "TECH-123"],
   deleteSession: ["tab-1", true],
   deleteSessionPreview: ["tab-1"],
   dismissAppUpdate: ["1.2.3", true],

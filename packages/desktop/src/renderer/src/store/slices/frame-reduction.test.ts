@@ -1304,7 +1304,7 @@ describe("handleRpcFrame routing", () => {
     // Let the plan file read resolve so executePlan captures the plan text.
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "worktree", {
-      worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+      worktree: { branch: "omp-ui/cafebabe", baseRef: "main", baseBranch: null },
     });
     const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
     expect(response?.cmd).toMatchObject({ id: "p-wt", value: "execute" });
@@ -1318,7 +1318,7 @@ describe("handleRpcFrame routing", () => {
       advisorModel: null,
       cols: 80,
       rows: 24,
-      worktree: { mint: { branch: "omp-ui/cafebabe", baseRef: "main" } },
+      worktree: { mint: { branch: "omp-ui/cafebabe", baseRef: "main", baseBranch: null } },
       planMode: false,
       planImplementationSource: {
         sourceTabId: h.TAB,
@@ -1364,7 +1364,7 @@ describe("handleRpcFrame routing", () => {
     openReview("p-wt-refused");
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "worktree", {
-      worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+      worktree: { branch: "omp-ui/cafebabe", baseRef: "main", baseBranch: null },
     });
     await h.flushMicrotasks();
     // The verdict answers the gate before the add is refused, so the plan is
@@ -1438,7 +1438,7 @@ describe("handleRpcFrame routing", () => {
     openReview("handoff-reuse-worktree");
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "worktree", {
-      worktree: { branch: "omp-ui/deadbeef", baseRef: "main" },
+      worktree: { branch: "omp-ui/deadbeef", baseRef: "main", baseBranch: null },
     });
     await h.flushMicrotasks();
     expect(h.mockBackend.spawnSession.mock.calls.at(-1)![0]).toEqual({
@@ -1465,7 +1465,7 @@ describe("handleRpcFrame routing", () => {
     openReview("handoff-rename-mint");
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "worktree", {
-      worktree: { branch: "omp-ui/renamed", baseRef: "main" },
+      worktree: { branch: "omp-ui/renamed", baseRef: "main", baseBranch: null },
     });
     await h.flushMicrotasks();
     expect(h.mockBackend.spawnSession.mock.calls.at(-1)![0]).toEqual({
@@ -1476,7 +1476,7 @@ describe("handleRpcFrame routing", () => {
       advisorModel: null,
       cols: 80,
       rows: 24,
-      worktree: { mint: { branch: "omp-ui/renamed", baseRef: "main" } },
+      worktree: { mint: { branch: "omp-ui/renamed", baseRef: "main", baseBranch: null } },
       planMode: false,
       planImplementationSource: {
         sourceTabId: h.TAB,

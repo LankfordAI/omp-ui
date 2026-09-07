@@ -473,8 +473,12 @@ export class MainBackend {
         [CH.deleteSession]: (tabId: string, cascade: boolean) =>
           this.sessions.deleteSession(tabId, cascade),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
-        [CH.convertToWorktree]: (tabId: string, branch: string, baseRef: string | null) =>
-          this.sessions.convertToWorktree(tabId, branch, baseRef),
+        [CH.convertToWorktree]: (
+          tabId: string,
+          branch: string,
+          baseRef: string | null,
+          baseBranch: string | null,
+        ) => this.sessions.convertToWorktree(tabId, branch, baseRef, baseBranch),
         [CH.releaseWorktree]: (tabId: string, opts: WorktreeReleaseOptions) =>
           this.sessions.releaseWorktree(tabId, opts),
         [CH.syncWorktree]: (tabId: string, source: string) =>

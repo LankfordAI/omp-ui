@@ -453,7 +453,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
    */
   newWorktreeSession(
     projectCwd: string,
-    spec: { mint: { branch: string; baseRef: string | null } } | { checkout: { branch: string } },
+    spec:
+      | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
+      | { checkout: { branch: string } },
   ): Promise<void>;
   /**
    * Converts an unprompted session to a worktree session (issue #225);
@@ -462,7 +464,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
    */
   convertSessionToWorktree(
     tabId: string,
-    opts: { branch: string; baseRef: string | null },
+    opts: { branch: string; baseRef: string | null; baseBranch: string | null },
   ): Promise<void>;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;

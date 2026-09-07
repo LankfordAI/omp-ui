@@ -1948,7 +1948,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
     // base is the project's current branch at spawn time (issue #272; SHA when detached).
@@ -1974,7 +1974,7 @@ describe("worktree sessions (issue #224)", () => {
       mode: "pty",
       advisor: false,
       cols: 80,
-      rows: 24, worktree: { mint: { branch, baseRef: null } },  }),
+      rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  }),
     ).rejects.toBe(publicationFailure);
 
     expect(fakePtys.at(-1)?.signals).toEqual(["default"]);
@@ -2002,7 +2002,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  })
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  })
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(AggregateError);
@@ -2054,7 +2054,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
 
     // omp resolves project scope from its cwd, and that cwd is the checkout —
     // which lives outside the project and carries no `.omp/` of its own.
@@ -2089,7 +2089,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
 
     // No current branch to record: the detached commit itself is the base.
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
@@ -2110,11 +2110,33 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: "cut-point" } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: "cut-point", baseBranch: null } },  });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
     expect(record.worktree).toEqual({ path: worktreePath, branch, base: "cut-point" });
     expect(fs.existsSync(worktreePath)).toBe(true);
+  });
+
+  it("creates the new base branch and records it when minting a worktree (issue #405)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/TECH-123/wt-newbase";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: "main", baseBranch: "TECH-123" } },  });
+
+    const record = registry.sessions.find((s) => s.tabId === tabId)!;
+    expect(record.worktree).toEqual({ path: worktreePath, branch, base: "TECH-123" });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    const { stdout: current } = await execFileP("git", ["branch", "--show-current"], {
+      cwd: project,
+    });
+    expect(current.trim()).toBe("main");
   });
 
   it("resumes a worktree session in its persisted checkout, not the project root", async () => {
@@ -2158,7 +2180,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     expect(fs.existsSync(worktreePath)).toBe(true);
     // A branch-side commit: the branch is unmerged, so it must survive.
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
@@ -2191,7 +2213,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     // forkSessionFile reads the source transcript — seed one in the lineage dir.
     const source = registry.sessions.find((s) => s.tabId === tabId)!;
     const transcript = path.join(
@@ -2245,7 +2267,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     const worktree = registry.sessions.find((record) => record.tabId === tabId)!.worktree!;
     const childLineage = "omp-ui--project--11111111-2222-4333-8444-555555555555";
     fs.mkdirSync(path.join(sessionsRoot, childLineage), { recursive: true });
@@ -2282,7 +2304,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     const worktree = registry.sessions.find((record) => record.tabId === tabId)!.worktree!;
     const childLineage = "omp-ui--project--failed-cascade-child";
     fs.mkdirSync(path.join(sessionsRoot, childLineage), { recursive: true });
@@ -2329,7 +2351,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     // Land the branch's work in main, so the delete can verify the merge.
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
@@ -2360,7 +2382,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -2387,7 +2409,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -2470,7 +2492,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
 
     const record = registry.sessions.find((s) => s.tabId === tabId)!;
     expect(record.worktree).toEqual({ path: worktreePath, branch, base: "main" });
@@ -2491,7 +2513,7 @@ describe("worktree sessions (issue #224)", () => {
       mode: "pty",
       advisor: false,
       cols: 80,
-      rows: 24, worktree: { mint: { branch, baseRef: null } },  }),
+      rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  }),
     ).rejects.toThrow(/already exists/);
 
     expect(registry.sessions.length).toBe(before);
@@ -2602,7 +2624,7 @@ describe("worktree sessions (issue #224)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     const { tabId: reuseTabId } = await manager.spawn({ origin: "new", projectCwd: project,
     mode: "pty",
     advisor: false,
@@ -2642,7 +2664,7 @@ describe("convert to worktree (issue #225)", () => {
     rows: 24, });
     const predecessor = fakePtys[0]!;
 
-    await manager.convertToWorktree(tabId, branch, null);
+    await manager.convertToWorktree(tabId, branch, null, null);
 
     // The idle process was killed (the fake exited on the default signal)…
     expect(predecessor.signals).toEqual(["default"]);
@@ -2672,7 +2694,7 @@ describe("convert to worktree (issue #225)", () => {
     rows: 24, });
     const predecessor = fakePtys[0]!;
 
-    await expect(manager.convertToWorktree(tabId, branch, null)).rejects.toThrow(
+    await expect(manager.convertToWorktree(tabId, branch, null, null)).rejects.toThrow(
       /already exists/,
     );
 
@@ -2695,7 +2717,7 @@ describe("convert to worktree (issue #225)", () => {
       ownedSessionRecord({ tabId: "tab-dormant", projectCwd: project, mode: "pty" }),
     );
 
-    await manager.convertToWorktree(record.tabId, branch, null);
+    await manager.convertToWorktree(record.tabId, branch, null, null);
 
     const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
     expect(updated.worktree).toEqual({ path: worktreePath, branch, base: "main" });
@@ -2716,11 +2738,59 @@ describe("convert to worktree (issue #225)", () => {
       ownedSessionRecord({ tabId: "tab-convert-base", projectCwd: project, mode: "pty" }),
     );
 
-    await manager.convertToWorktree(record.tabId, branch, "cut-point");
+    await manager.convertToWorktree(record.tabId, branch, "cut-point", null);
 
     const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
     expect(updated.worktree).toEqual({ path: worktreePath, branch, base: "cut-point" });
     expect(fs.existsSync(worktreePath)).toBe(true);
+  });
+
+  it("creates the new base branch and records it as the base (issue #405)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/TECH-123/wt-convert-newbase";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const record = registry.addSession(
+      ownedSessionRecord({ tabId: "tab-convert-newbase", projectCwd: project, mode: "pty" }),
+    );
+
+    await manager.convertToWorktree(record.tabId, branch, "main", "TECH-123");
+
+    const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
+    // The recorded base is the NEW branch, not the trunk it was cut from.
+    expect(updated.worktree).toEqual({ path: worktreePath, branch, base: "TECH-123" });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    // Both refs exist; the project checkout never moved off main.
+    const { stdout: newBase } = await execFileP("git", ["branch", "--list", "TECH-123"], {
+      cwd: project,
+    });
+    expect(newBase).toContain("TECH-123");
+    const { stdout: current } = await execFileP("git", ["branch", "--show-current"], {
+      cwd: project,
+    });
+    expect(current.trim()).toBe("main");
+  });
+
+  it("rolls the new base back when the session branch collides with it (issue #405)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const record = registry.addSession(
+      ownedSessionRecord({ tabId: "tab-convert-collide", projectCwd: project, mode: "pty" }),
+    );
+    // The session branch name equals the new base name: git's worktree add
+    // refuses after the base was created, so the helper deletes the ref.
+    await expect(
+      manager.convertToWorktree(record.tabId, "TECH-123", "main", "TECH-123"),
+    ).rejects.toThrow(/already exists|already used/);
+
+    const { stdout: branches } = await execFileP("git", ["branch", "--list", "TECH-123"], {
+      cwd: project,
+    });
+    expect(branches).not.toContain("TECH-123");
+    const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
+    expect(updated.worktree).toBeNull();
   });
 });
 
@@ -2744,7 +2814,7 @@ describe("release worktree (issue #334)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -2886,7 +2956,7 @@ describe("release worktree (issue #334)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -2930,7 +3000,7 @@ describe("release worktree (issue #334)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     fs.writeFileSync(path.join(worktreePath, "draft.txt"), "uncommitted\n");
 
     await expect(
@@ -2976,7 +3046,7 @@ describe("release worktree (issue #334)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
     fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
     await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
     await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
@@ -3035,7 +3105,7 @@ describe("release worktree (issue #334)", () => {
     mode: "pty",
     advisor: false,
     cols: 80,
-    rows: 24, worktree: { mint: { branch, baseRef: null } },  });
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
 
     await manager.renameWorktreeBranch(tabId, "feat/renamed");
 

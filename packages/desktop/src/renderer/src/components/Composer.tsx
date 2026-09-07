@@ -420,6 +420,7 @@ export function Composer({
         await convertSessionToWorktree(tabId, {
           branch: selection.branch,
           baseRef: selection.baseRef,
+          baseBranch: selection.baseBranch,
         });
       } catch (err) {
         setWorkspaceError(err instanceof Error ? err.message : String(err));

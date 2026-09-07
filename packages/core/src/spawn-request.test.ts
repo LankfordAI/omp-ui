@@ -11,7 +11,7 @@ const newRpcRequest: SpawnRequest = {
   cols: 120,
   rows: 40,
   worktree: {
-    mint: { branch: "omp-ui/feature", baseRef: "main" },
+    mint: { branch: "omp-ui/TECH-123/feature", baseRef: "main", baseBranch: "TECH-123" },
   },
   planMode: false,
   planImplementationSource: {
@@ -87,6 +87,8 @@ describe("parseSpawnRequest", () => {
     ["malformed checkout", { ...newRpcRequest, worktree: { checkout: { branch: "" } } }],
     ["unknown checkout key", { ...newRpcRequest, worktree: { checkout: { branch: "t", path: "/x" } } }],
     ["malformed mint", { ...newRpcRequest, worktree: { mint: { branch: "", baseRef: 1 } } }],
+    ["non-string mint baseBranch", { ...newRpcRequest, worktree: { mint: { branch: "b", baseRef: null, baseBranch: 42 } } }],
+    ["unknown mint key", { ...newRpcRequest, worktree: { mint: { branch: "b", baseRef: null, baseBranch: null, extra: true } } }],
     ["malformed reuse", { ...newRpcRequest, worktree: { reuse: { path: "", branch: "b" } } }],
     [
       "malformed plan source",
@@ -99,5 +101,13 @@ describe("parseSpawnRequest", () => {
     ["legacy plan field", { ...newRpcRequest, startInPlanMode: false }],
   ] as const)("rejects %s", (_label, raw) => {
     expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
+  });
+
+  it("normalises an absent mint baseBranch to null (older remote client)", () => {
+    const parsed = parseSpawnRequest({
+      ...newRpcRequest,
+      worktree: { mint: { branch: "omp-ui/feature", baseRef: "main" } },
+    });
+    expect(parsed).toMatchObject({ worktree: { mint: { baseBranch: null } } });
   });
 });

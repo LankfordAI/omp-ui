@@ -581,7 +581,7 @@ describe("BranchChip worktree section (issue #227)", () => {
 
     const input = document.body.querySelector<HTMLInputElement>("#composer-worktree-branch");
     expect(input).not.toBeNull();
-    expect(input!.value).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    expect(input!.value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
     await flushMicrotasks();
     expect(
       document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!.value,
@@ -638,6 +638,7 @@ describe("BranchChip worktree section (issue #227)", () => {
       mode: "worktree",
       branch: "feature/mine",
       baseRef: "main",
+      baseBranch: null,
       baseTouched: false,
     });
 
@@ -649,6 +650,7 @@ describe("BranchChip worktree section (issue #227)", () => {
       mode: "worktree",
       branch: "feature/mine",
       baseRef: "feature/x",
+      baseBranch: null,
       baseTouched: true,
     });
   });
@@ -780,6 +782,76 @@ describe("BranchChip worktree section (issue #227)", () => {
     await flushMicrotasks();
     await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-branch")!, "");
     expect(buttonByText("create").disabled).toBe(true);
+    createWorktreeHandler = null;
+  });
+
+  // Issue #405: the Base select can create its branch, and the mint follows
+  // the base while the name is untouched.
+  const baseSelect = (): HTMLSelectElement =>
+    document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!;
+  const branchInput = (): HTMLInputElement =>
+    document.body.querySelector<HTMLInputElement>("#composer-worktree-branch")!;
+  const openWorktreeFields = async (): Promise<void> => {
+    renderWorkspaceChip();
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+  };
+
+  it("*new branch…* reveals the name and cut-from rows and reports baseBranch empty", async () => {
+    await openWorktreeFields();
+    await selectInto(baseSelect(), "__new__");
+
+    expect(document.body.querySelector("#composer-worktree-new-base")).not.toBeNull();
+    expect(document.body.querySelector("#composer-worktree-new-base-from")).not.toBeNull();
+    const last = changes.at(-1)!;
+    expect(last).toMatchObject({ mode: "worktree", baseRef: "main", baseBranch: "", baseTouched: true });
+  });
+
+  it("typing the new base recomposes the mint and keeps the hash", async () => {
+    await openWorktreeFields();
+    const before = branchInput().value;
+    expect(before).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+
+    await selectInto(baseSelect(), "__new__");
+    await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-new-base")!, "TECH-123");
+
+    const after = branchInput().value;
+    expect(after).toMatch(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/);
+    expect(after.slice(after.lastIndexOf("/") + 1)).toBe(before.slice(before.lastIndexOf("/") + 1));
+  });
+
+  it("switching the base to an existing branch recomposes the mint the same way", async () => {
+    await openWorktreeFields();
+    const hash = branchInput().value.split("/").at(-1);
+
+    await selectInto(baseSelect(), "feature/x");
+
+    expect(branchInput().value).toBe(`omp-ui/feature/x/${hash}`);
+    expect(changes.at(-1)).toMatchObject({ baseBranch: null, baseRef: "feature/x" });
+  });
+
+  it("a hand-typed branch survives a new-base toggle and typing untouched", async () => {
+    await openWorktreeFields();
+    await typeInto(branchInput(), "feature/mine");
+
+    await selectInto(baseSelect(), "__new__");
+    await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-new-base")!, "TECH-123");
+
+    expect(branchInput().value).toBe("feature/mine");
+  });
+
+  it("create stays disabled while the new base name is blank", async () => {
+    createWorktreeHandler = async () => true;
+    await openWorktreeFields();
+    await selectInto(baseSelect(), "__new__");
+    expect(buttonByText("create").disabled).toBe(true);
+
+    await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-new-base")!, " ");
+    expect(buttonByText("create").disabled).toBe(true);
+
+    await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-new-base")!, "TECH-123");
+    expect(buttonByText("create").disabled).toBe(false);
     createWorktreeHandler = null;
   });
 });

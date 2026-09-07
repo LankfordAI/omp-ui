@@ -39,7 +39,7 @@ const validSpawnRequest: SpawnRequest = {
   advisorModel: "openrouter/advisor",
   cols: 120,
   rows: 40,
-  worktree: { mint: { branch: "omp-ui/feature", baseRef: "main" } },
+  worktree: { mint: { branch: "omp-ui/main/feature", baseRef: "main", baseBranch: null } },
   planMode: false,
   planImplementationSource: {
     sourceTabId: "planning-tab",

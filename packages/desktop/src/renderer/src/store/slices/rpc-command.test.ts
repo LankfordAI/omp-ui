@@ -992,7 +992,39 @@ describe("worktree branch naming from the first prompt (issue #389)", () => {
       "/p",
       "Add pagination to the sessions list",
     );
-    expect(h.mockBackend.renameWorktreeBranch).toHaveBeenCalledWith(h.TAB, "feat/x");
+    // The minted prefix survives the rename (issue #405): the placeholder's
+    // `omp-ui/` prefix is kept in front of the suggestion.
+    expect(h.mockBackend.renameWorktreeBranch).toHaveBeenCalledWith(h.TAB, "omp-ui/feat/x");
+  });
+
+  it("keeps the base segment when renaming a segmented mint (issue #405)", async () => {
+    h.useStore.setState({ state: worktreeRecord("omp-ui/TECH-123/deadbeef") });
+    h.mockBackend.suggestBranchName.mockResolvedValueOnce("fix-pagination");
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.renameWorktreeBranch).toHaveBeenCalledWith(
+      h.TAB,
+      "omp-ui/TECH-123/fix-pagination",
+    );
+  });
+
+  it("uses a suggestion that already carries the prefix verbatim (issue #405)", async () => {
+    h.useStore.setState({ state: worktreeRecord("omp-ui/TECH-123/deadbeef") });
+    h.mockBackend.suggestBranchName.mockResolvedValueOnce("omp-ui/TECH-123/fix-pagination");
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.renameWorktreeBranch).toHaveBeenCalledWith(
+      h.TAB,
+      "omp-ui/TECH-123/fix-pagination",
+    );
   });
 
   it("leaves a branch the user named alone — no suggestion, no rename", async () => {

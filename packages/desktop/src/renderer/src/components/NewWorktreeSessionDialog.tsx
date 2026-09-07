@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
-import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
+import {
+  baseBranchSegment,
+  mintBranchName,
+  remintForBase,
+  WorktreeBranchFields,
+} from "./WorktreeBranchFields";
 
 /**
  * Asks for the branch and base of a worktree session (issue #224): the branch
@@ -20,10 +25,23 @@ import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
  * an existing session never picks branches.
  */
 export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string }) {
-  const [branch, setBranch] = useState(mintBranchName);
+  const [branch, setBranch] = useState(() => mintBranchName());
   const t = useT();
   // null = cut from the checkout's HEAD (the "current HEAD" option).
   const [baseRef, setBaseRef] = useState<string | null>(null);
+  // Issue #405: null = cut from baseRef; ""/name = create that base branch
+  // from baseRef first. The setters recompose the minted branch so the name
+  // always states its cut point; the functional setBranch keeps a same-event
+  // sibling update from clobbering it.
+  const [baseBranch, setBaseBranch] = useState<string | null>(null);
+  const applyBaseBranch = (value: string | null): void => {
+    setBaseBranch(value);
+    setBranch((prev) => remintForBase(prev, baseBranchSegment(value, baseRef)));
+  };
+  const applyBaseRef = (value: string | null): void => {
+    setBaseRef(value);
+    setBranch((prev) => remintForBase(prev, baseBranchSegment(baseBranch, value)));
+  };
   const [source, setSource] = useState<"new" | "existing">("new");
   const [existingBranch, setExistingBranch] = useState("");
   const [pending, setPending] = useState(false);
@@ -65,7 +83,7 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
       await newWorktreeSession(
         projectCwd,
         source === "new"
-          ? { mint: { branch, baseRef } }
+          ? { mint: { branch, baseRef, baseBranch } }
           : { checkout: { branch: existingBranch } },
       );
       closeWorktreeDialog();
@@ -90,7 +108,7 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
           <Button variant="ghost" onClick={close}>
             {t("common.dialog.cancel")}
           </Button>
-          <Button variant="solid" disabled={pending || notGit || noOtherBranches} onClick={() => void submit()}>
+          <Button variant="solid" disabled={pending || notGit || noOtherBranches || (source === "new" && baseBranch !== null && baseBranch.trim() === "")} onClick={() => void submit()}>
             {t("dialog.worktree.create")}
           </Button>
         </>
@@ -122,7 +140,9 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
               branch={branch}
               onBranchChange={setBranch}
               baseRef={baseRef}
-              onBaseRefChange={setBaseRef}
+              onBaseRefChange={applyBaseRef}
+              baseBranch={baseBranch}
+              onBaseBranchChange={applyBaseBranch}
               idPrefix="worktree"
             />
           ) : (

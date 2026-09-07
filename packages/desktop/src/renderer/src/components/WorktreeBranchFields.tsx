@@ -7,38 +7,97 @@ import { useStore } from "../store";
  * the project checkout as-is, or a fresh worktree cut on the first send.
  * `baseTouched` lives in the selection, not in the fields, because the
  * composer's popover unmounts the fields when it closes — a hand-picked base
- * must survive that round-trip (issue #227).
+ * must survive that round-trip (issue #227). `baseBranch` (issue #405):
+ * null = the session branch is cut from `baseRef`; "" = the new-branch mode
+ * was toggled on with the name not typed yet; non-empty = create that branch
+ * from `baseRef` first, cut the session branch from it, and record it as
+ * the base.
  */
 export type WorkspaceSelection =
   | { mode: "checkout" }
-  | { mode: "worktree"; branch: string; baseRef: string | null; baseTouched: boolean };
+  | {
+      mode: "worktree";
+      branch: string;
+      baseRef: string | null;
+      baseBranch: string | null;
+      baseTouched: boolean;
+    };
+
+/**
+ * Select value meaning "create a new base branch" instead of naming an
+ * existing ref. Shared with the finish dialog's destination select, which
+ * uses the same reveal pattern; `__new__` is a legal refname, so the option
+ * list filters it out rather than risking a duplicate value.
+ */
+export const NEW_BRANCH_SENTINEL = "__new__";
 
 /**
  * A minted name no human chose: the renderer-side twin of core's
  * `PLACEHOLDER_BRANCH_RE` (the renderer cannot import core runtime). The
- * auto-naming and the finish dialog's suggestion pre-fill key on it — a
- * user-typed branch name is never touched (issue #389).
+ * auto-naming, the finish dialog's suggestion pre-fill, and the
+ * base-following recomposition key on it — a user-typed branch name is
+ * never touched (issues #389, #405).
  */
-export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/[0-9a-f]{8}$/;
+export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/(?:[^/]+\/)*[0-9a-f]{8}$/;
+
+/** The one composition rule — the renderer twin of core's
+ * `composeWorktreeBranch`. */
+function composeWorktreeBranch(segment: string | null, hash: string): string {
+  return segment === null ? `omp-ui/${hash}` : `omp-ui/${segment}/${hash}`;
+}
 
 /**
- * Branch mint for a worktree session (issues #224, #225): the renderer-side
- * twin of core's `mintWorktreeBranch`, `omp-ui/` plus 8 hex from a secure
- * random.
+ * Branch mint for a worktree session (issues #224, #225, #405): the
+ * renderer-side twin of core's `mintWorktreeBranch`, `omp-ui/` plus an
+ * optional base segment plus 8 hex from a secure random.
  */
-export function mintBranchName(): string {
+export function mintBranchName(segment: string | null = null): string {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
-  return `omp-ui/${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  return composeWorktreeBranch(
+    segment,
+    Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  );
+}
+
+/**
+ * The sanitised `<base>` segment — the renderer-side twin of core's
+ * `baseBranchSegment`. Keep the two in lockstep.
+ */
+export function baseBranchSegment(
+  baseBranch: string | null,
+  baseRef: string | null,
+): string | null {
+  const raw = (baseBranch ?? "").trim() !== "" ? baseBranch!.trim() : (baseRef ?? "").trim();
+  if (raw === "") return null;
+  const segments = raw
+    .split("/")
+    .map((s) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32))
+    .filter((s) => s !== "");
+  return segments.length === 0 ? null : segments.join("/").slice(0, 64);
+}
+
+/**
+ * Follows the base while the name is still a mint — the renderer-side twin
+ * of core's `remintForBase` (issue #405). Every surface applies it in its
+ * base setters so the chip, the hint, the tooltip, and the sent payload can
+ * never disagree about the branch name.
+ */
+export function remintForBase(branch: string, segment: string | null): string {
+  if (!PLACEHOLDER_BRANCH_RE.test(branch)) return branch;
+  return composeWorktreeBranch(segment, branch.slice(branch.lastIndexOf("/") + 1));
 }
 
 /**
  * The branch and base fields of a worktree session (issues #224, #225),
- * shared by the sidebar's new-worktree dialog and the composer's branch chip
- * (issue #227): the branch is cut from the base and checked out under the
- * app's worktrees root, so the project's own working tree is never touched.
- * The base defaults to the checkout's current branch once known and follows
- * the select until the user picks one by hand. Ids are prefixed by the caller
- * so both surfaces can live in one document.
+ * shared by the sidebar's new-worktree dialog, the composer's branch chip
+ * (issue #227), and plan review (issue #313): the branch is cut from the
+ * base and checked out under the app's worktrees root, so the project's own
+ * working tree is never touched. The base defaults to the checkout's current
+ * branch once known and follows the select until the user picks one by hand.
+ * The select's trailing *new branch…* option (issue #405) creates the base
+ * inside the same create operation; a surface that passes no
+ * `onBaseBranchChange` renders the existing-refs select verbatim. Ids are
+ * prefixed by the caller so the three surfaces can live in one document.
  */
 export function WorktreeBranchFields({
   projectCwd,
@@ -50,6 +109,8 @@ export function WorktreeBranchFields({
   baseTouched,
   onBaseTouchedChange,
   showBase,
+  baseBranch,
+  onBaseBranchChange,
 }: {
   projectCwd: string;
   branch: string;
@@ -67,6 +128,13 @@ export function WorktreeBranchFields({
   onBaseTouchedChange?: (touched: boolean) => void;
   /** false renders the branch field only — nothing is cut from a base. */
   showBase?: boolean;
+  /**
+   * The new base branch to create (issue #405): null = cut from `baseRef`;
+   * "" = *new branch…* toggled on, name not typed yet; non-empty = create
+   * that branch from `baseRef` and cut the session branch from it.
+   */
+  baseBranch?: string | null;
+  onBaseBranchChange?: (value: string | null) => void;
 }) {
   const t = useT();
   // The base defaults to the checkout's current branch once known; a manual
@@ -108,6 +176,19 @@ export function WorktreeBranchFields({
   // checkout's HEAD itself.
   const branchNames = info?.branches ?? [];
   const headOnly = branchNames.length === 0 || info?.current === null;
+  const creatingBase = (baseBranch ?? null) !== null;
+  // The sentinel lives only in the top select's value space; `__new__` is a
+  // legal refname, so the option rows never carry it.
+  const baseOptions = branchNames.filter((name) => name !== NEW_BRANCH_SENTINEL);
+  const optionRows = headOnly ? (
+    <option value="">{t("worktree.field.currentHead")}</option>
+  ) : (
+    baseOptions.map((name) => (
+      <option key={name} value={name}>
+        {name}
+      </option>
+    ))
+  );
 
   return (
     <>
@@ -129,23 +210,66 @@ export function WorktreeBranchFields({
           </label>
           <select
             id={`${idPrefix}-base`}
-            value={baseRef ?? ""}
+            value={creatingBase ? NEW_BRANCH_SENTINEL : (baseRef ?? "")}
             onChange={(event) => {
+              const value = event.target.value;
+              // Lift the latch before any change: the default-base effect
+              // must not rewrite baseRef under the new *cut from* select.
               markTouched();
-              onBaseRefChange(event.target.value === "" ? null : event.target.value);
+              if (value === NEW_BRANCH_SENTINEL) {
+                // baseRef keeps its value and becomes the new base's start.
+                onBaseBranchChange?.("");
+                return;
+              }
+              onBaseBranchChange?.(null);
+              onBaseRefChange(value === "" ? null : value);
             }}
             className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
           >
-            {headOnly ? (
-              <option value="">{t("worktree.field.currentHead")}</option>
-            ) : (
-              branchNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))
+            {optionRows}
+            {onBaseBranchChange !== undefined && (
+              <option value={NEW_BRANCH_SENTINEL}>{t("worktree.field.newBaseOption")}</option>
             )}
           </select>
+          {creatingBase && (
+            <div className="mt-1.5 space-y-2">
+              <div>
+                <label htmlFor={`${idPrefix}-new-base`} className="block text-[10px] text-ink-faint">
+                  {t("worktree.field.newBaseName")}
+                </label>
+                <input
+                  id={`${idPrefix}-new-base`}
+                  autoFocus
+                  spellCheck={false}
+                  value={baseBranch ?? ""}
+                  onChange={(event) => onBaseBranchChange?.(event.target.value)}
+                  className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                />
+              </div>
+              <div>
+                <label htmlFor={`${idPrefix}-new-base-from`} className="block text-[10px] text-ink-faint">
+                  {t("worktree.field.newBaseFrom")}
+                </label>
+                <select
+                  id={`${idPrefix}-new-base-from`}
+                  value={baseRef ?? ""}
+                  onChange={(event) => {
+                    markTouched();
+                    onBaseRefChange(event.target.value === "" ? null : event.target.value);
+                  }}
+                  className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+                >
+                  {optionRows}
+                </select>
+                <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                  {t("worktree.field.newBaseHint", {
+                    name: (baseBranch ?? "").trim() || "…",
+                    from: baseRef ?? t("worktree.field.currentHead"),
+                  })}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>

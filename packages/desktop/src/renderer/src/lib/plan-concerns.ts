@@ -45,10 +45,13 @@ export interface PlanExecutionOptions {
   advisorModel?: string | null;
   /**
    * Dedicated worktree for a "worktree" context spawn: the branch is cut from
-   * baseRef (null = the project checkout's HEAD) under the app's worktrees root.
-   * Set only when context is "worktree"; ignored by every other context.
+   * baseRef (null = the project checkout's HEAD) under the app's worktrees
+   * root. With baseBranch (issue #405) that branch is created from baseRef
+   * first and the session branch is cut from it, so it becomes the recorded
+   * base. Set only when context is "worktree"; ignored by every other
+   * context; null when the planning checkout is reused.
    */
-  worktree?: { branch: string; baseRef: string | null } | null;
+  worktree?: { branch: string; baseRef: string | null; baseBranch: string | null } | null;
 }
 
 /**

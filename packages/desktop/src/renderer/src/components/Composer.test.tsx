@@ -1279,7 +1279,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await act(async () => buttonByText("send").click());
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
-    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^omp-ui\/[0-9a-f]{8}$/), "main");
+    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^omp-ui\/main\/[0-9a-f]{8}$/), "main", null);
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", []);
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
@@ -1307,8 +1307,9 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(
       TAB,
-      expect.stringMatching(/^omp-ui\/[0-9a-f]{8}$/),
+      expect.stringMatching(/^omp-ui\/main\/[0-9a-f]{8}$/),
       "main",
+      null,
     );
     expect(sendPrompt).not.toHaveBeenCalled();
     // The selection resets; the chip reads the checkout's branch again.
@@ -1339,6 +1340,42 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await flush();
     expect(document.body.textContent).toContain("cutting the worktree…");
     expect(buttonByText("creating…").disabled).toBe(true);
+  });
+
+  it("create with a typed new base sends baseBranch and the composed branch (issue #405)", async () => {
+    renderUnprompted();
+    await enterWorktreeSection();
+    const base = document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!;
+    act(() => {
+      base.value = "__new__";
+      base.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const name = document.body.querySelector<HTMLInputElement>("#composer-worktree-new-base")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(name, "TECH-123");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonByText("create").click());
+    await flush();
+    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(
+      TAB,
+      expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
+      "main",
+      "TECH-123",
+    );
+  });
+
+  it("create stays disabled while the new base name is blank (issue #405)", async () => {
+    renderUnprompted();
+    await enterWorktreeSection();
+    const base = document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!;
+    act(() => {
+      base.value = "__new__";
+      base.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(buttonByText("create").disabled).toBe(true);
+    expect(backendMock.convertToWorktree).not.toHaveBeenCalled();
   });
 
 });

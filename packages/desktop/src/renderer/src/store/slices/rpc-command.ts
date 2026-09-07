@@ -737,9 +737,12 @@ export function createRpcCommandSlice(
    * Name a placeholder worktree branch from the first substantive prompt
    * (issue #389): the same small model that titles the session names the
    * branch, and main renames the ref in the checkout plus the record. Only
-   * `omp-ui/<8 hex>` names — minted, never chosen — are candidates; a user
-   * branch is never touched. Failures are silent by design: the placeholder
-   * stands, and the finish dialog still offers a rename.
+   * minted names — `omp-ui/[<base>/]<8 hex>` under `PLACEHOLDER_BRANCH_RE` —
+   * are candidates; a user branch is never touched. The minted prefix is
+   * kept (issue #405), so a branch named from a ticket base renames to
+   * `omp-ui/TECH-123/<suggestion>`, not a bare suggestion. Failures are
+   * silent by design: the placeholder stands, and the finish dialog still
+   * offers a rename.
    */
   const nameWorktreeBranch = (tabId: string, prompt: string): void => {
     const record = findRecord(get().state, tabId);
@@ -753,9 +756,15 @@ export function createRpcCommandSlice(
       const now = findRecord(get().state, tabId);
       // Deleted, released, renamed by the user, or a /new since: leave it.
       if (!now || now.worktree?.branch !== placeholder || now.sessionId !== sessionId) return;
-      await backend.renameWorktreeBranch(tabId, name).catch((err: unknown) =>
-        console.warn("[worktree-name] rename failed, keeping placeholder:", err),
-      );
+      // The prefix is everything up to the mint: `omp-ui` or `omp-ui/<base>`.
+      // A suggestion that already carries it is used verbatim; on a rename
+      // collision the catch below keeps the placeholder (issue #389 stance).
+      const prefix = placeholder.slice(0, placeholder.lastIndexOf("/"));
+      await backend
+        .renameWorktreeBranch(tabId, name.startsWith(`${prefix}/`) ? name : `${prefix}/${name}`)
+        .catch((err: unknown) =>
+          console.warn("[worktree-name] rename failed, keeping placeholder:", err),
+        );
     })();
   };
 

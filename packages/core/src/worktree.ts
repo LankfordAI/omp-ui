@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
-import { readDefaultBranch } from "./branches";
+import { createBranch, readDefaultBranch } from "./branches";
 import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
 import type {
@@ -26,16 +26,71 @@ const MERGE_TIMEOUT_MS = 60_000;
  * callers can surface the failure verbatim.
  */
 
-/** Mints a worktree branch name: `omp-ui/` + 8 random hex chars. */
-export function mintWorktreeBranch(): string {
-  return `omp-ui/${randomBytes(4).toString("hex")}`;
+const WORKTREE_BRANCH_PREFIX = "omp-ui";
+
+/** 8 random hex chars — the only part of a worktree branch no human chose. */
+export function mintBranchHash(): string {
+  return randomBytes(4).toString("hex");
 }
 
 /**
- * A minted name no human chose (issue #389): only branches matching this
- * are auto-renamed from the first prompt; a user-typed name is never touched.
+ * A minted name no human chose (issue #389): `omp-ui/`, an optional run of
+ * base segments (issue #405), then the 8-hex mint. Only these are auto-named
+ * from the first prompt, and only these are recomposed when the base changes;
+ * a user-typed name is never touched.
  */
-export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/[0-9a-f]{8}$/;
+export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/(?:[^/]+\/)*[0-9a-f]{8}$/;
+
+/**
+ * Mints a worktree branch name (issues #224, #405): `omp-ui/`, the base
+ * segment when a named branch is the cut point, then the 8-hex mint. With no
+ * base this keeps the pre-#405 `omp-ui/<hash>` shape (detached HEAD, or a
+ * repo with no branches).
+ */
+export function mintWorktreeBranch(segment: string | null = null): string {
+  return composeWorktreeBranch(segment, mintBranchHash());
+}
+
+/**
+ * Sanitised `<base>` segment of a minted branch (issue #405): null when
+ * nothing is cut from a named branch. Case is preserved — a ticket key is
+ * the segment users actually read (`sanitizeBranchName` is for model
+ * output and lowercases; this is not it).
+ */
+export function baseBranchSegment(
+  baseBranch: string | null,
+  baseRef: string | null,
+): string | null {
+  const raw = (baseBranch ?? "").trim() !== "" ? baseBranch!.trim() : (baseRef ?? "").trim();
+  if (raw === "") return null;
+  const segments = raw
+    .split("/")
+    .map((s) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32))
+    .filter((s) => s !== "");
+  return segments.length === 0 ? null : segments.join("/").slice(0, 64);
+}
+
+/** The one composition rule: `omp-ui/[<segment>/]<hash>`. */
+export function composeWorktreeBranch(segment: string | null, hash: string): string {
+  return segment === null
+    ? `${WORKTREE_BRANCH_PREFIX}/${hash}`
+    : `${WORKTREE_BRANCH_PREFIX}/${segment}/${hash}`;
+}
+
+/**
+ * Follows the base while the name is still a mint (issue #405): a hand-typed
+ * branch is never touched, and the hash survives so the checkout slot's slug
+ * stays recognisable across base edits.
+ */
+export function remintForBase(branch: string, segment: string | null): string {
+  if (!PLACEHOLDER_BRANCH_RE.test(branch)) return branch;
+  return composeWorktreeBranch(segment, branch.slice(branch.lastIndexOf("/") + 1));
+}
+
+/** hex sha256 of `value`; the digest source for slot and slug suffixes. */
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 /**
  * The per-project slot directory holding a project's worktree checkouts:
@@ -45,8 +100,7 @@ export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/[0-9a-f]{8}$/;
  * branch stays in the slot its path was minted into.
  */
 export function worktreeProjectDir(worktreesRoot: string, projectCwd: string): string {
-  const hash8 = createHash("sha256").update(path.resolve(projectCwd)).digest("hex").slice(0, 8);
-  return path.join(worktreesRoot, `${projectSlug(projectCwd)}--${hash8}`);
+  return path.join(worktreesRoot, `${projectSlug(projectCwd)}--${sha256(path.resolve(projectCwd)).slice(0, 8)}`);
 }
 
 /**
@@ -58,9 +112,17 @@ export function mintWorktreePath(
   projectCwd: string,
   branch: string,
 ): string {
-  const branchSlug =
-    branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "branch";
-  return path.join(worktreeProjectDir(worktreesRoot, projectCwd), branchSlug);
+  const branchSlug = branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  // Issue #405: `omp-ui/<base>/<hash>` names can run long. A truncation that
+  // drops the mint would collide two sessions on one slot, so an over-long
+  // slug keeps a per-session tail: hash-of-branch for distinctness, last
+  // chars of the sanitized branch for recognition. Deterministic — a renamed
+  // branch still resolves to the slot its path was minted into.
+  const slug =
+    branchSlug.length <= 64
+      ? branchSlug
+      : `${branchSlug.slice(0, 47)}-${sha256(branch).slice(0, 8)}-${branchSlug.slice(-8)}`;
+  return path.join(worktreeProjectDir(worktreesRoot, projectCwd), slug || "branch");
 }
 
 /**
@@ -124,6 +186,36 @@ export async function addWorktreeForBranch(
     timeoutMs: ADD_TIMEOUT_MS,
   });
   return base;
+}
+
+/**
+ * Creates the checkout on a new session branch cut from a NEW base branch
+ * (issue #405): `git branch <baseBranch> <startPoint|HEAD>`, then
+ * `git worktree add -b <branch> <path> <baseBranch>`. The recorded base is
+ * `baseBranch`, so the branch diff, sync, and merge-back all target the
+ * feature branch rather than the trunk it was cut from. Neither call checks
+ * out anything, so the project's working tree never moves. Rolls the new ref
+ * back when the add fails — git's message still propagates — so a rejected
+ * create leaves no stray branch.
+ */
+export async function addWorktreeFromNewBase(
+  projectCwd: string,
+  worktreePath: string,
+  branch: string,
+  baseBranch: string,
+  startPoint: string | null,
+): Promise<string> {
+  await createBranch(projectCwd, baseBranch, startPoint ?? "HEAD");
+  try {
+    await addWorktree(projectCwd, worktreePath, branch, baseBranch);
+  } catch (err) {
+    // Best-effort: an add that died after registering the checkout leaves the
+    // new ref held by it and -D then refuses. The primary error still surfaces
+    // and spawn rollback reclaims the path.
+    await git(projectCwd, ["branch", "-D", baseBranch]).catch(() => undefined);
+    throw err;
+  }
+  return baseBranch;
 }
 
 /**

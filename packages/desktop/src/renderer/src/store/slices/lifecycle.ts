@@ -554,7 +554,9 @@ export function createLifecycleSlice(
 
   const newWorktreeSession = async (
     projectCwd: string,
-    spec: { mint: { branch: string; baseRef: string | null } } | { checkout: { branch: string } },
+    spec:
+      | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
+      | { checkout: { branch: string } },
   ): Promise<void> => {
     const { mode, advisor, advisorModel } =
       await resolveSpawnParams(projectCwd);
@@ -581,6 +583,12 @@ export function createLifecycleSlice(
             worktree: spec,
           };
     const { tabId } = await backend.spawnSession(request);
+    // Issue #405: the create operation may have just minted a base branch.
+    // Surface it in the lists without a network round trip (mirrors the
+    // branches slice's createBranch).
+    if ("mint" in spec && spec.mint.baseBranch !== null) {
+      void get().refreshBranches(projectCwd, { fetchUpstream: false });
+    }
     set((s) => ({
       tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
       ...focusOn(s, tabId, projectCwd),
@@ -596,9 +604,15 @@ export function createLifecycleSlice(
    */
   const convertSessionToWorktree = async (
     tabId: string,
-    opts: { branch: string; baseRef: string | null },
+    opts: { branch: string; baseRef: string | null; baseBranch: string | null },
   ): Promise<void> => {
-    await backend.convertToWorktree(tabId, opts.branch, opts.baseRef);
+    const projectCwd = findRecord(get().state, tabId)?.projectCwd;
+    await backend.convertToWorktree(tabId, opts.branch, opts.baseRef, opts.baseBranch);
+    // Issue #405: a new base branch created by the convert shows up in the
+    // lists locally, same as the spawn path above.
+    if (opts.baseBranch !== null && projectCwd !== undefined) {
+      void get().refreshBranches(projectCwd, { fetchUpstream: false });
+    }
   };
 
   const openSession = async (tabId: string): Promise<void> => {

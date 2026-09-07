@@ -6,15 +6,20 @@ import { git } from "./git";
 import {
   addWorktree,
   addWorktreeForBranch,
+  addWorktreeFromNewBase,
+  baseBranchSegment,
+  composeWorktreeBranch,
   isWithin,
   linkProjectOmpDir,
   mergeWorktreeBranch,
   mintWorktreeBranch,
   mintWorktreePath,
+  PLACEHOLDER_BRANCH_RE,
   previewMerge,
   readDestinationCheckout,
   readMergeBackStatus,
   readWorktreeDirty,
+  remintForBase,
   removeWorktree,
   removeWorktreeBranch,
   renameWorktreeBranch,
@@ -73,6 +78,59 @@ describe("mintWorktreeBranch", () => {
   });
 });
 
+describe("mintWorktreeBranch with a base segment (issue #405)", () => {
+  it("names the cut point between the prefix and the hash", () => {
+    expect(mintWorktreeBranch("TECH-123")).toMatch(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/);
+    expect(mintWorktreeBranch("main")).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+  });
+
+  it("keeps the hash across a recomposition and follows the base", () => {
+    const first = mintWorktreeBranch("TECH-123");
+    const hash = first.slice(first.lastIndexOf("/") + 1);
+    const next = remintForBase(first, "release/2.0");
+    expect(next).toBe(`omp-ui/release/2.0/${hash}`);
+  });
+});
+
+describe("branch naming composition (issue #405)", () => {
+  it("composes with and without a segment", () => {
+    expect(composeWorktreeBranch("TECH-123", "f918c1d1")).toBe("omp-ui/TECH-123/f918c1d1");
+    expect(composeWorktreeBranch(null, "f918c1d1")).toBe("omp-ui/f918c1d1");
+  });
+
+  it("prefers the new base name and falls back to the cut-from ref", () => {
+    expect(baseBranchSegment("TECH-123", "main")).toBe("TECH-123");
+    expect(baseBranchSegment("", "main")).toBe("main");
+    expect(baseBranchSegment("   ", "main")).toBe("main");
+    expect(baseBranchSegment(null, null)).toBeNull();
+    expect(baseBranchSegment(null, "  ")).toBeNull();
+  });
+
+  it("sanitises unsafe runs but preserves case and slashes", () => {
+    expect(baseBranchSegment("release/2.0", null)).toBe("release/2.0");
+    expect(baseBranchSegment("feat: two spaces~~", null)).toBe("feat-two-spaces");
+    expect(baseBranchSegment("a".repeat(50), null)).toBe("a".repeat(32));
+  });
+
+  it("recognises mints with and without base segments, and nothing else", () => {
+    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/f918c1d1")).toBe(true);
+    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/TECH-123/f918c1d1")).toBe(true);
+    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/release/2.0/f918c1d1")).toBe(true);
+    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/TECH-123/deadBEEF")).toBe(false);
+    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/fix-login-bug")).toBe(false);
+    expect(PLACEHOLDER_BRANCH_RE.test("feature/TECH-123")).toBe(false);
+  });
+
+  it("remint follows the base while the name is a mint, never a hand-typed one", () => {
+    expect(remintForBase("omp-ui/f918c1d1", "TECH-123")).toBe("omp-ui/TECH-123/f918c1d1");
+    expect(remintForBase("omp-ui/old/f918c1d1", null)).toBe("omp-ui/f918c1d1");
+    expect(remintForBase("omp-ui/TECH-123/f918c1d1", "TECH-123")).toBe("omp-ui/TECH-123/f918c1d1");
+    // A hand-typed name survives base edits untouched, mint-shaped or not.
+    expect(remintForBase("feature/mine", "TECH-123")).toBe("feature/mine");
+    expect(remintForBase("omp-ui/deadBEEF", "TECH-123")).toBe("omp-ui/deadBEEF");
+  });
+});
+
 describe("isWithin", () => {
   const root = "/state/worktrees";
 
@@ -114,7 +172,19 @@ describe("mintWorktreePath", () => {
   it("slugs degenerate branch names to a trimmed, capped, or fallback name", () => {
     expect(path.basename(mintWorktreePath(root, "/abs/proj", "///"))).toBe("branch");
     expect(path.basename(mintWorktreePath(root, "/abs/proj", "-a-"))).toBe("a");
-    expect(path.basename(mintWorktreePath(root, "/abs/proj", "x".repeat(100)))).toHaveLength(64);
+    const long = mintWorktreePath(root, "/abs/proj", "x".repeat(100));
+    // Deterministic (a rename reuses its slot) and bounded, with a distinct
+    // tail so over-long branches never collide (issue #405).
+    expect(long).toBe(mintWorktreePath(root, "/abs/proj", "x".repeat(100)));
+    expect(path.basename(long).length).toBeLessThanOrEqual(66);
+  });
+
+  it("keeps the mint visible past 64 chars and separates two sessions", () => {
+    const stem = "omp-ui/base-branch-whose-name-runs-on-and-on-and-on-and-on-for-miles-";
+    const a = mintWorktreePath(root, "/abs/proj", `${stem}abcd1234`);
+    const b = mintWorktreePath(root, "/abs/proj", `${stem}eeee5678`);
+    expect(path.basename(a).endsWith("abcd1234")).toBe(true);
+    expect(a).not.toBe(b);
   });
 });
 
@@ -729,6 +799,70 @@ describe("addWorktreeForBranch", () => {
     await expect(
       addWorktreeForBranch(dir, path.join(dir, "wt", "ghost"), "ghost"),
     ).rejects.toThrow(/ghost/);
+  });
+});
+
+describe("addWorktreeFromNewBase (issue #405)", () => {
+  const listBranches = async (dir: string): Promise<string[]> =>
+    (await git(dir, ["for-each-ref", "refs/heads", "--format=%(refname:short)"]))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+
+  it("creates both branches, cuts the session from the base, records the base", async () => {
+    const dir = await tmpRepo();
+    await commitFile(dir, "other.txt", "o\n", "base tip");
+    const wtPath = path.join(dir, "wt", "omp-ui-TECH-123-f918c1d1");
+
+    const base = await addWorktreeFromNewBase(
+      dir, wtPath, "omp-ui/TECH-123/f918c1d1", "TECH-123", "main");
+
+    expect(base).toBe("TECH-123");
+    expect((await listBranches(dir)).sort()).toEqual(
+      ["TECH-123", "main", "omp-ui/TECH-123/f918c1d1"].sort(),
+    );
+    // The project's checkout never moved.
+    expect((await git(dir, ["branch", "--show-current"])).trim()).toBe("main");
+    // The session branch is cut AT the new base's commit: same tip until
+    // session work lands on top of it.
+    const sessionTip = (await git(wtPath, ["rev-parse", "HEAD"])).trim();
+    const tip = (await git(dir, ["rev-parse", "TECH-123"])).trim();
+    expect(sessionTip).toBe(tip);
+    expect((await git(wtPath, ["branch", "--show-current"])).trim()).toBe(
+      "omp-ui/TECH-123/f918c1d1",
+    );
+  });
+
+  it("cuts the base at HEAD when no start point is given", async () => {
+    const dir = await tmpRepo();
+    const head = (await git(dir, ["rev-parse", "HEAD"])).trim();
+    const wtPath = path.join(dir, "wt", "s");
+
+    const base = await addWorktreeFromNewBase(dir, wtPath, "omp-ui/s1a2b3c4", "NEWBASE", null);
+
+    expect(base).toBe("NEWBASE");
+    expect((await git(dir, ["rev-parse", "NEWBASE"])).trim()).toBe(head);
+  });
+
+  it("rolls the new base back when the session branch collides with it", async () => {
+    const dir = await tmpRepo();
+    await expect(
+      addWorktreeFromNewBase(dir, path.join(dir, "wt", "x"), "TECH-123", "TECH-123", "main"),
+    ).rejects.toThrow(/already exists/);
+    // Neither the checkout nor the created ref survives the rollback.
+    expect(await listBranches(dir)).toEqual(["main"]);
+    expect(fs.existsSync(path.join(dir, "wt", "x"))).toBe(false);
+  });
+
+  it("propagates git's refusal for a taken base name and creates nothing", async () => {
+    const dir = await tmpRepo();
+    await git(dir, ["branch", "TECH-123"]);
+    await expect(
+      addWorktreeFromNewBase(
+        dir, path.join(dir, "wt", "y"), "omp-ui/TECH-123/f918c1d1", "TECH-123", "main"),
+    ).rejects.toThrow(/already exists/);
+    expect(await listBranches(dir)).toEqual(["TECH-123", "main"].sort());
+    expect(fs.existsSync(path.join(dir, "wt", "y"))).toBe(false);
   });
 });
 

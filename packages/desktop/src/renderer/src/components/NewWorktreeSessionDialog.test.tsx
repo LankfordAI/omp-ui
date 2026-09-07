@@ -123,7 +123,7 @@ describe("NewWorktreeSessionDialog", () => {
     });
 
     const input = branchInput();
-    expect(input.value).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    expect(input.value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
     expect(baseSelect().value).toBe("main");
 
     await typeInto(input, "feature/mine");
@@ -142,7 +142,7 @@ describe("NewWorktreeSessionDialog", () => {
       advisorModel: null,
       cols: 80,
       rows: 24,
-      worktree: { mint: { branch: "feature/mine", baseRef: "feature/x" } },
+      worktree: { mint: { branch: "feature/mine", baseRef: "feature/x", baseBranch: null } },
     });
     expect(useStore.getState().worktreeDialogProject).toBeNull();
   });
@@ -156,8 +156,9 @@ describe("NewWorktreeSessionDialog", () => {
     expect(baseSelect().value).toBe("main");
 
     // The listing refreshes while the dialog is open and the checkout has
-    // since detached: the select collapses to the single "current HEAD"
-    // option, and the submitted base must follow it.
+    // since detached: the select collapses to the "current HEAD" option (plus
+    // the trailing *new branch…*, which creates the base at HEAD, #405), and
+    // the submitted base must follow HEAD.
     const detached: BranchList = { ...fixture, current: null };
     await act(async () => {
       useStore.setState({ branches: { "/p": detached } });
@@ -166,6 +167,7 @@ describe("NewWorktreeSessionDialog", () => {
     expect(baseSelect().value).toBe("");
     expect([...baseSelect().options].map((option) => option.textContent)).toEqual([
       "current HEAD",
+      "new branch…",
     ]);
 
     await typeInto(branchInput(), "omp-ui/detached");
@@ -182,8 +184,42 @@ describe("NewWorktreeSessionDialog", () => {
       advisorModel: null,
       cols: 80,
       rows: 24,
-      worktree: { mint: { branch: "omp-ui/detached", baseRef: null } },
+      worktree: { mint: { branch: "omp-ui/detached", baseRef: null, baseBranch: null } },
     });
+  });
+
+  it("submits a new base branch with the recomposed mint (issue #405)", async () => {
+    seed({ "/p": fixture });
+    render();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    const base = baseSelect();
+    act(() => {
+      base.value = "__new__";
+      base.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await typeInto(
+      document.body.querySelector<HTMLInputElement>("#worktree-new-base")!,
+      "TECH-123",
+    );
+
+    act(() => buttonByText("Create session")!.click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(backendMock.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktree: {
+          mint: {
+            branch: expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
+            baseRef: "main",
+            baseBranch: "TECH-123",
+          },
+        },
+      }),
+    );
   });
 
   it("checks out an existing local branch when the source segment switches", async () => {

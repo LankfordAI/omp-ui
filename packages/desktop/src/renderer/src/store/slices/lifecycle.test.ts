@@ -818,14 +818,14 @@ describe("convertSessionToWorktree (issue #225)", () => {
   it("converts via the backend channel and rethrows failures", async () => {
     await h.useStore
       .getState()
-      .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: "main" });
-    expect(h.mockBackend.convertToWorktree).toHaveBeenCalledWith(h.TAB, "omp-ui/abcd1234", "main");
+      .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: "main", baseBranch: null });
+    expect(h.mockBackend.convertToWorktree).toHaveBeenCalledWith(h.TAB, "omp-ui/abcd1234", "main", null);
 
     h.mockBackend.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
     await expect(
       h.useStore
         .getState()
-        .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: null }),
+        .convertSessionToWorktree(h.TAB, { branch: "omp-ui/abcd1234", baseRef: null, baseBranch: null }),
     ).rejects.toThrow("branch already exists");
   });
 });
@@ -845,7 +845,7 @@ describe("newWorktreeSession (issue #225, #390)", () => {
     seed();
 
     await h.useStore.getState().newWorktreeSession("/p", {
-      mint: { branch: "omp-ui/deadbeef", baseRef: "main" },
+      mint: { branch: "omp-ui/deadbeef", baseRef: "main", baseBranch: null },
     });
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
@@ -856,7 +856,7 @@ describe("newWorktreeSession (issue #225, #390)", () => {
       advisorModel: null,
       cols: 80,
       rows: 24,
-      worktree: { mint: { branch: "omp-ui/deadbeef", baseRef: "main" } },
+      worktree: { mint: { branch: "omp-ui/deadbeef", baseRef: "main", baseBranch: null } },
     });
     const st = h.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual(["wt-1"]);

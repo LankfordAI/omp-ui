@@ -571,7 +571,9 @@ export const BACKEND_CHANNELS = {
   },
   convertToWorktree: {
     channel: "session:convert-to-worktree",
-    ...request<[tabId: string, branch: string, baseRef: string | null], void>([str(), str(), nullable(str())]),
+    ...request<[tabId: string, branch: string, baseRef: string | null, baseBranch: string | null], void>(
+      [str(), str(), nullable(str()), nullable(str())],
+    ),
   },
   /**
    * Merges the destination INTO the session's worktree checkout so conflicts

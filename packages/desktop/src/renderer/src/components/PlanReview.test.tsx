@@ -552,8 +552,9 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     const input = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
     expect(input).not.toBeNull();
-    // Minted once on first pick: omp-ui/<8 hex> (ADR-0018 app scratch work).
-    expect(input.value).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    // Minted once on first pick; once the base resolves the mint names its
+    // cut point (issue #405): omp-ui/<base>/<hex> (ADR-0018 app scratch work).
+    expect(input.value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
     const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
     expect(base).not.toBeNull();
     // Base defaults to the checkout's current branch once the fields mount.
@@ -633,10 +634,46 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         TAB,
         "worktree",
         expect.objectContaining({
-          worktree: { branch: input.value, baseRef: base.value === "" ? null : base.value },
+          worktree: { branch: input.value, baseRef: base.value === "" ? null : base.value, baseBranch: null },
         }),
       );
       expect(backendMock.checkoutBranch).not.toHaveBeenCalled();
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("stages a dispatch whose base is a new branch with baseBranch (issue #405)", async () => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await act(async () => contextRow("worktree session").click());
+      await act(async () => {});
+      const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
+      act(() => {
+        base.value = "__new__";
+        base.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await typeInto(
+        document.body.querySelector<HTMLInputElement>("#plan-worktree-new-base")!,
+        "TECH-123",
+      );
+      await act(async () => {
+        buttonByText("execute in worktree session").click();
+        await Promise.resolve();
+      });
+
+      expect(executePlanSpy).toHaveBeenCalledTimes(1);
+      const options = executePlanSpy.mock.calls[0]![2] as {
+        worktree: { branch: string; baseRef: string | null; baseBranch: string | null };
+      };
+      expect(options.worktree).toEqual({
+        branch: expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
+        baseRef: "main",
+        baseBranch: "TECH-123",
+      });
     } finally {
       useStore.setState({ executePlan: realExecutePlan });
     }
@@ -672,7 +709,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     await act(async () => contextRow("worktree session").click());
     const second = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
-    expect(second).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
+    expect(second).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
     expect(second).not.toBe(first);
   });
 
@@ -689,6 +726,31 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(document.body.textContent).toContain("reuses this checkout in place");
     // The Git-branch fieldset is a project-checkout concern: hidden here.
     expect(document.body.textContent).not.toContain("Git branch");
+  });
+
+  it("dispatching on the planning checkout sends no base and keeps its branch (issue #405)", async () => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
+      render();
+      await act(async () => contextRow("worktree session").click());
+      await act(async () => {});
+      await act(async () => {
+        buttonByText("execute in worktree session").click();
+        await Promise.resolve();
+      });
+
+      expect(executePlanSpy).toHaveBeenCalledTimes(1);
+      const options = executePlanSpy.mock.calls[0]![2] as {
+        worktree: { branch: string; baseBranch: string | null };
+      };
+      expect(options.worktree.branch).toBe("omp-ui/planning1");
+      expect(options.worktree.baseBranch).toBeNull();
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
   });
 
   it("editing the branch away from the planning branch restores the base select (issue #316)", async () => {

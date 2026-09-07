@@ -433,7 +433,7 @@ export interface BranchList {
 }
 
 export type SpawnWorktree =
-  | { mint: { branch: string; baseRef: string | null } }
+  | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
   | { checkout: { branch: string } }
   | { reuse: SessionWorktree }
   | null;

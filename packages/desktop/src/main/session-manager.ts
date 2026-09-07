@@ -5,6 +5,7 @@ import {
   CH,
   addWorktree,
   addWorktreeForBranch,
+  addWorktreeFromNewBase,
   base64Bytes,
   bracketedImagePaste,
   capabilityToolMutationMessage,
@@ -371,10 +372,19 @@ export class SessionManager {
             mintedWorktree = { path: worktreePath, branch, base };
             worktree = mintedWorktree;
           } else {
-            const { branch, baseRef } = req.worktree.mint;
+            const { branch, baseRef, baseBranch } = req.worktree.mint;
             const worktreePath = mintWorktreePath(
               this.deps.getWorktreesRoot(), req.projectCwd, branch);
-            const base = await addWorktree(req.projectCwd, worktreePath, branch, baseRef);
+            // Issue #405: with a new base branch the checkout is cut from the
+            // branch created in this same operation, and the recorded base is
+            // that branch — diffs, sync, and merge-back never target the
+            // trunk it was cut from. The new ref is rolled back only if the
+            // add fails; a later spawn-step failure leaves it (the user
+            // explicitly asked for it, as #390 keeps a pre-existing branch).
+            const base = baseBranch === null
+              ? await addWorktree(req.projectCwd, worktreePath, branch, baseRef)
+              : await addWorktreeFromNewBase(
+                  req.projectCwd, worktreePath, branch, baseBranch, baseRef);
             mintedWorktree = { path: worktreePath, branch, base };
             worktree = mintedWorktree;
           }
@@ -755,14 +765,24 @@ export class SessionManager {
     });
   }
 
-  async convertToWorktree(tabId: string, branch: string, baseRef: string | null): Promise<void> {
+  async convertToWorktree(
+    tabId: string,
+    branch: string,
+    baseRef: string | null,
+    baseBranch: string | null,
+  ): Promise<void> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       if (record.worktree) throw new Error("session already runs in a worktree");
       const worktreePath = mintWorktreePath(
         this.deps.getWorktreesRoot(), record.projectCwd, branch);
-      const base = await addWorktree(record.projectCwd, worktreePath, branch, baseRef);
+      // Issue #405: the same two entries as the spawn mint arm; with a new
+      // base branch the record's base is that branch's name, not its start.
+      const base = baseBranch === null
+        ? await addWorktree(record.projectCwd, worktreePath, branch, baseRef)
+        : await addWorktreeFromNewBase(
+            record.projectCwd, worktreePath, branch, baseBranch, baseRef);
       this.deps.registry.updateSession(tabId, {
         worktree: { path: worktreePath, branch, base },
       });

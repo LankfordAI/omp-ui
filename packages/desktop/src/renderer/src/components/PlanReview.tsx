@@ -16,7 +16,12 @@ import { ModelPalette } from "./ModelSelector";
 import { PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
-import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
+import {
+  baseBranchSegment,
+  mintBranchName,
+  remintForBase,
+  WorktreeBranchFields,
+} from "./WorktreeBranchFields";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
@@ -162,6 +167,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const [worktreeSel, setWorktreeSel] = useState<{
     branch: string;
     baseRef: string | null;
+    baseBranch: string | null;
     baseTouched: boolean;
   } | null>(null);
   /** Change notes for the planner; text + optional images ride a steer prompt. */
@@ -276,7 +282,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
         : branch.summary;
   const executeDisabled =
     context === "worktree"
-      ? worktreeSel === null || worktreeSel.branch.trim() === ""
+      ? worktreeSel === null ||
+        worktreeSel.branch.trim() === "" ||
+        (worktreeSel.baseBranch !== null && worktreeSel.baseBranch.trim() === "")
       : branch.checkingOut || branch.branchInvalid;
 
   const refine = () => {
@@ -313,7 +321,13 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
       // every other context leaves it null (ignored on the spawn side).
       worktree:
         context === "worktree" && worktreeSel !== null
-          ? { branch: worktreeSel.branch.trim(), baseRef: worktreeSel.baseRef }
+          ? {
+              branch: worktreeSel.branch.trim(),
+              baseRef: worktreeSel.baseRef,
+              // A reused planning checkout has no base to create (#405);
+              // its own branch name is kept as-is by the reuse arm.
+              baseBranch: reusingWorktree ? null : worktreeSel.baseBranch,
+            }
           : null,
     };
     // A worktree dispatch never moves the project's working tree, and a
@@ -533,6 +547,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                           setWorktreeSel({
                             branch: sourceWorktree?.branch ?? mintBranchName(),
                             baseRef: null,
+                            baseBranch: null,
                             baseTouched: false,
                           });
                         }
@@ -784,11 +799,49 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   <WorktreeBranchFields
                     projectCwd={projectCwd}
                     branch={worktreeSel.branch}
-                    onBranchChange={(b) => setWorktreeSel({ ...worktreeSel, branch: b })}
+                    onBranchChange={(b) =>
+                      setWorktreeSel((prev) => (prev === null ? prev : { ...prev, branch: b }))
+                    }
                     baseRef={worktreeSel.baseRef}
-                    onBaseRefChange={(baseRef) => setWorktreeSel({ ...worktreeSel, baseRef })}
+                    onBaseRefChange={(baseRef) =>
+                      // Recompose the minted branch to name its cut point
+                      // (#405) — except while the selection still IS the
+                      // planning checkout, where the #316 reuse contract
+                      // keys on exact branch equality.
+                      setWorktreeSel((prev) =>
+                        prev === null
+                          ? prev
+                          : {
+                              ...prev,
+                              baseRef,
+                              branch:
+                                sourceWorktree !== null &&
+                                prev.branch.trim() === sourceWorktree.branch.trim()
+                                  ? prev.branch
+                                  : remintForBase(prev.branch, baseBranchSegment(prev.baseBranch, baseRef)),
+                            },
+                      )
+                    }
+                    baseBranch={worktreeSel.baseBranch}
+                    onBaseBranchChange={(baseBranch) =>
+                      setWorktreeSel((prev) =>
+                        prev === null
+                          ? prev
+                          : {
+                              ...prev,
+                              baseBranch,
+                              branch:
+                                sourceWorktree !== null &&
+                                prev.branch.trim() === sourceWorktree.branch.trim()
+                                  ? prev.branch
+                                  : remintForBase(prev.branch, baseBranchSegment(baseBranch, prev.baseRef)),
+                            },
+                      )
+                    }
                     baseTouched={worktreeSel.baseTouched}
-                    onBaseTouchedChange={(baseTouched) => setWorktreeSel({ ...worktreeSel, baseTouched })}
+                    onBaseTouchedChange={(baseTouched) =>
+                      setWorktreeSel((prev) => (prev === null ? prev : { ...prev, baseTouched }))
+                    }
                     showBase={!reusingWorktree}
                     idPrefix="plan-worktree"
                   />

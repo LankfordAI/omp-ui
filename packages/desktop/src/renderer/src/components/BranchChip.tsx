@@ -4,7 +4,13 @@ import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
-import { mintBranchName, WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
+import {
+  baseBranchSegment,
+  mintBranchName,
+  remintForBase,
+  WorktreeBranchFields,
+  type WorkspaceSelection,
+} from "./WorktreeBranchFields";
 
 /**
  * The composer's git-branch indicator and switcher (issues #35, #168): a
@@ -259,7 +265,7 @@ export function BranchChip({
       setMode("worktree");
       return;
     }
-    onWorkspaceChange?.({ mode: "worktree", branch: mintBranchName(), baseRef: null, baseTouched: false });
+    onWorkspaceChange?.({ mode: "worktree", branch: mintBranchName(), baseRef: null, baseBranch: null, baseTouched: false });
     setMode("worktree");
   };
 
@@ -349,7 +355,10 @@ export function BranchChip({
           workspace?.mode === "worktree"
             ? t("composer.branch.worktreeTitle", {
                 branch: workspace.branch,
-                base: workspace.baseRef ?? t("composer.branch.currentHead"),
+                base:
+                  baseBranchSegment(workspace.baseBranch, workspace.baseRef) ??
+                  workspace.baseRef ??
+                  t("composer.branch.currentHead"),
               })
             : behindReading === null
               ? t("composer.branch.title", { branch: current ?? t("composer.branch.detachedHead") })
@@ -474,11 +483,36 @@ export function BranchChip({
               <WorktreeBranchFields
                 projectCwd={projectCwd}
                 branch={workspace.branch}
-                onBranchChange={(branch) => onWorkspaceChange?.({ ...workspace, branch })}
+                onBranchChange={(branch) =>
+                  onWorkspaceChange?.((prev) =>
+                    prev.mode === "worktree" ? { ...prev, branch } : prev,
+                  )
+                }
                 baseRef={workspace.baseRef}
                 onBaseRefChange={(baseRef) =>
+                  // The functional form merges against the latest selection;
+                  // one event can emit a ref change and a branch change, and
+                  // each base setter recomposes the minted branch (#405).
                   onWorkspaceChange?.((prev) =>
-                    prev.mode === "worktree" ? { ...prev, baseRef } : prev,
+                    prev.mode === "worktree"
+                      ? {
+                          ...prev,
+                          baseRef,
+                          branch: remintForBase(prev.branch, baseBranchSegment(prev.baseBranch, baseRef)),
+                        }
+                      : prev,
+                  )
+                }
+                baseBranch={workspace.baseBranch}
+                onBaseBranchChange={(baseBranch) =>
+                  onWorkspaceChange?.((prev) =>
+                    prev.mode === "worktree"
+                      ? {
+                          ...prev,
+                          baseBranch,
+                          branch: remintForBase(prev.branch, baseBranchSegment(baseBranch, prev.baseRef)),
+                        }
+                      : prev,
                   )
                 }
                 baseTouched={workspace.baseTouched}
@@ -496,7 +530,7 @@ export function BranchChip({
                 {onCreateWorktree !== undefined && (
                   <Button
                     size="xs"
-                    disabled={cutting || worktreeLocked || workspace.branch.trim() === ""}
+                    disabled={cutting || worktreeLocked || workspace.branch.trim() === "" || (workspace.baseBranch !== null && workspace.baseBranch.trim() === "")}
                     onClick={() => void attemptCreate()}
                   >
                     {cutting ? t("composer.branch.creating") : t("composer.branch.create")}

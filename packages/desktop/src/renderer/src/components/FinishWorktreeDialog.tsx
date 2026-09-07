@@ -3,6 +3,7 @@ import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 import { useFinishWorktree, type FinishStep } from "./useFinishWorktree";
+import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
 
 /**
  * The Finish worktree dialog (issues #385–#389): one surface, three
@@ -210,9 +211,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           <select
             id={`${ids}-dest`}
             className={fieldClass}
-            value={c.newBranch !== null ? "__new__" : (c.destination ?? "")}
+            value={c.newBranch !== null ? NEW_BRANCH_SENTINEL : (c.destination ?? "")}
             onChange={(event) => {
-              if (event.target.value === "__new__") c.chooseNewBranch();
+              if (event.target.value === NEW_BRANCH_SENTINEL) c.chooseNewBranch();
               else c.setDestination(event.target.value);
             }}
           >
@@ -226,7 +227,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 {name}
               </option>
             ))}
-            <option value="__new__">{t("finish.dialog.newBranchOption")}</option>
+            <option value={NEW_BRANCH_SENTINEL}>{t("finish.dialog.newBranchOption")}</option>
           </select>
           {c.newBranch !== null && (
             <div className="mt-2 space-y-2">

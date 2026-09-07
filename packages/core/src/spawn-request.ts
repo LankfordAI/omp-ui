@@ -103,15 +103,22 @@ function parseWorktree(value: unknown): SpawnWorktree {
     return { checkout: { branch: requiredString(checkout, "branch", "spawn request.worktree.checkout") } };
   }
   const mint = objectValue(worktree.mint, "spawn request.worktree.mint");
-  rejectUnknownKeys(mint, ["branch", "baseRef"], "spawn request.worktree.mint");
+  rejectUnknownKeys(mint, ["branch", "baseRef", "baseBranch"], "spawn request.worktree.mint");
   const baseRef = mint.baseRef;
   if (baseRef !== null && typeof baseRef !== "string") {
     throw new Error("spawn request.worktree.mint.baseRef must be a string or null");
+  }
+  // `?? null`: an absent key (an older remote client) maps to null rather
+  // than undefined, which the non-optional type forbids.
+  const baseBranch = mint.baseBranch ?? null;
+  if (baseBranch !== null && typeof baseBranch !== "string") {
+    throw new Error("spawn request.worktree.mint.baseBranch must be a string or null");
   }
   return {
     mint: {
       branch: requiredString(mint, "branch", "spawn request.worktree.mint"),
       baseRef,
+      baseBranch,
     },
   };
 }

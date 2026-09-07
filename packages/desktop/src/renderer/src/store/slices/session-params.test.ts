@@ -1687,7 +1687,7 @@ describe("project default models (issue #257)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
     h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "wt-staged" });
     h.useStore.getState().executePlan(h.TAB, "worktree", {
-      worktree: { branch: "omp-ui/cafebabe", baseRef: "main" },
+      worktree: { branch: "omp-ui/cafebabe", baseRef: "main", baseBranch: null },
       advisor: true,
       advisorModel: "staged/advisor",
     });
@@ -1701,7 +1701,7 @@ describe("project default models (issue #257)", () => {
       advisorModel: "staged/advisor",
       cols: 80,
       rows: 24,
-      worktree: { mint: { branch: "omp-ui/cafebabe", baseRef: "main" } },
+      worktree: { mint: { branch: "omp-ui/cafebabe", baseRef: "main", baseBranch: null } },
       planMode: false,
       planImplementationSource: {
         sourceTabId: h.TAB,

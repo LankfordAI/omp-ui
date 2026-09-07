@@ -1088,6 +1088,10 @@ export const en = {
   "worktree.field.branch": "Branch",
   "worktree.field.base": "Base",
   "worktree.field.currentHead": "current HEAD",
+  "worktree.field.newBaseOption": "new branch…",
+  "worktree.field.newBaseName": "new base branch",
+  "worktree.field.newBaseFrom": "cut from",
+  "worktree.field.newBaseHint": "creates {name} from {from}, then cuts the worktree branch from it",
   // Native tab failure and dormant-session chrome
   "tab.failure.copy": "Copy",
   "tab.failure.retryBoot": "Retry boot",
