@@ -390,6 +390,16 @@
   backdrop-filter: var(--glass-filter);
 }
 
+/* The reading plane's own tone at glass opacity: for chrome that floats over
+ * the transcript and must mute the text behind it without painting a lighter
+ * rectangle on the page (ADR-0026). The page's ambient layer carries the
+ * grain; this utility declares no background-image, so an `ambient` site
+ * composites it identically to the reading plane beneath it. */
+@utility glass-surface {
+  background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha), transparent);
+  backdrop-filter: var(--glass-filter);
+}
+
 /* A gradient ring occupying only the border zone: transparent border +
  * border-box background, masked padding-box out of border-box. The gradient
  * itself arrives per-instance via --perimeter-glow (colours + rotation are
