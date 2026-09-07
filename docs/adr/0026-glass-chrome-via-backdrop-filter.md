@@ -43,7 +43,7 @@ soften a glyph.
 ## Consequences
 
 - **Three knobs, no more.** A new chrome plane reads the existing utilities
-  (`glass-void`, `glass-sunken`, `glass-overlay`, `plane-lit`); a plane that
+  (`glass-void`, `glass-sunken`, `glass-overlay`, `glass-surface`, `plane-lit`); a plane that
   needs its own alpha is a plane that has not found its token.
 - **The wash is achromatic.** It mixes `overlay`/`raised` — plane tokens —
   with transparency; no accent hue is spent on decoration (ADR-0004).

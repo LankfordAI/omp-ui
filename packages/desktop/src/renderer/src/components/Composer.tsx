@@ -661,7 +661,7 @@ export function Composer({
             "focus-within:border-line-strong",
             compact
               ? "bg-raised"
-              : "ambient plane-lit rounded-xl shadow-float " +
+              : "ambient glass-surface rounded-xl shadow-float " +
                 "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
             unavailable && "opacity-50",
