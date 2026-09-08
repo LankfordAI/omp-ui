@@ -46,6 +46,8 @@ export * from "./fetch";
 export * from "./download";
 export * from "./omp-update";
 export * from "./app-update";
+export * from "./diagnostics";
+export { buildZip, type ZipEntryInput } from "./zip-writer";
 export * from "./session-file";
 export * from "./types";
 export { parseSpawnRequest } from "./spawn-request";

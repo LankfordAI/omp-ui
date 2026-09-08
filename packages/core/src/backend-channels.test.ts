@@ -61,6 +61,7 @@ const VALID_ARGS = {
   clearDismissedOmpUpdate: [],
   clearProviderKey: ["OPENROUTER_API_KEY"],
   clearRemotePassword: [],
+  chooseDiagnosticsPath: ["omp-ui-diagnostics.zip"],
   convertToWorktree: ["tab-1", "feature", null, "TECH-123"],
   deleteSession: ["tab-1", true],
   deleteSessionPreview: ["tab-1"],
@@ -68,6 +69,7 @@ const VALID_ARGS = {
   dismissOmpUpdate: ["1.2.3", false],
   downloadAppUpdate: [],
   downloadOmpUpdate: [],
+  exportDiagnosticsBundle: [{ includeTranscripts: false, destinationPath: null }],
   forkSession: ["tab-1"],
   generateTitle: ["/project", "prompt"],
   getAdvisorDefaults: ["/project"],
@@ -97,6 +99,7 @@ const VALID_ARGS = {
   ptyResize: ["tab-1", 120, 40],
   ptyWrite: ["tab-1", "input"],
   pullBranch: ["/project"],
+  previewDiagnosticsBundle: [],
   readOmpSettings: [null],
   readPlanFile: ["tab-1", "/tmp/plan.html"],
   readProviderKeys: [null],
@@ -280,6 +283,11 @@ describe("transport dispatch", () => {
     [CH.ptyPasteImage, ["tab-1", { type: "secret-type", data: "x", mimeType: "x" }], "argument 1.type"],
     [CH.setRemotePort, [Number.POSITIVE_INFINITY], "argument 0"],
     [CH.getState, ["secret-extra"], "expected at most 0"],
+    [
+      CH.exportDiagnosticsBundle,
+      [{ includeTranscripts: false, destinationPath: null, rogue: "secret-rogue" }],
+      "argument 0",
+    ],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

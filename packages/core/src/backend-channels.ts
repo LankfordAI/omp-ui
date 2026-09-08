@@ -10,6 +10,9 @@ import type {
   ConsoleProgram,
   DeleteSessionPreview,
   DeleteSessionResult,
+  DiagnosticsExportRequest,
+  DiagnosticsExportResult,
+  DiagnosticsPreview,
   DirBrowseResult,
   GlassChrome,
   ImageAttachment,
@@ -47,6 +50,7 @@ import type { RpcFrame } from "./rpc/codec";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
+  diagnosticsExportRequestCodec,
   bool,
   branchListOptionsCodec,
   checkoutOptionsCodec,
@@ -849,6 +853,26 @@ export const BACKEND_CHANNELS = {
   /** Clears the password; remote access falls back to token-only. Restarts the server. */
   clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>([]) },
   onRemoteState: { channel: "remote:state", ...event<[state: RemoteState]>() },
+  /**
+   * Manifest for the export dialog: sections, file names, sizes — no contents
+   * read beyond stat/git (issue #413).
+   */
+  previewDiagnosticsBundle: {
+    channel: "diagnostics:preview",
+    ...request<[], DiagnosticsPreview>([]),
+  },
+  /** Builds the zip and writes it to destinationPath (absolute) or beside the registry when null. */
+  exportDiagnosticsBundle: {
+    channel: "diagnostics:export",
+    ...request<[req: DiagnosticsExportRequest], DiagnosticsExportResult>([
+      diagnosticsExportRequestCodec,
+    ]),
+  },
+  /** Desktop-only: native save dialog; resolves the chosen path or null on cancel. */
+  chooseDiagnosticsPath: {
+    channel: "diagnostics:choosePath",
+    ...request<[basename: string], string | null>([str()]),
+  },
   /** The app-wide subscription sign-in flow's phase changes. */
   onProviderOAuthState: { channel: "provider-oauth:state", ...event<[state: ProviderOAuthState]>() },
 } as const;
