@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.10.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.2). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+* Diagnostic bundle export with crash breadcrumbs ([#413](https://github.com/LankfordAI/omp-ui/issues/413)): **Settings → Advanced** and the command palette build one zip with the main-process logs, a lifecycle breadcrumb trail that survives crashes, versions, platform facts, registry state with per-project git status, and session-lineage listings. Provider keys and remote credentials are never included, and transcripts are a warned, capped opt-in.
 
 ## Choose a download
 

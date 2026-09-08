@@ -2,7 +2,7 @@
 
 Start with the symptom you see. These checks use app status and supported controls. Do not edit omp-ui's registry, session JSONL files, or stored credential files.
 
-[Documentation home](README.md) · [Getting started](getting-started.md) · [User guide](user-guide.md) · [Settings](settings.md) · [Remote access](remote-access.md) · [Releases](releases.md)
+When an app problem needs a report, export a diagnostic bundle first: **Settings → Advanced → Export diagnostic bundle…**, or the command palette's **Export diagnostic bundle…**. The zip collects the logs, lifecycle breadcrumbs, versions, registry state, and per-project git status in one file, with credentials scrubbed and transcripts excluded unless you tick that option ([Settings → Advanced](settings.md#advanced)). For an app that never starts, there is no dialog to reach — fall back to the raw log paths below.
 
 ## `omp` is missing or a new session exits
 

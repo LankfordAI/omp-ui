@@ -105,6 +105,14 @@ Every edit runs through `omp config set`, uses omp's own validation, and writes 
 
 **Session capabilities** opens the **Capabilities viewer** at its MCP section, pinned to the focused session's own working tree — its worktree checkout when it has one, otherwise its project root — and is disabled until a session tab is focused. **Global MCP servers…** opens the same viewer's MCP section at global scope, without a session. Opening either closes Settings. The viewer's Skills and Tools sections describe the loaded roster of the one selected live native session — never a machine-wide catalog — so they read unavailable at global scope, where no session is pinned; in a terminal tab, whose omp TUI publishes no roster over rpc; while the pinned session is dormant, because there is no live process to read; and on OMP builds that expose no session inventory, which report that instead of an empty list.
 
+## Advanced
+
+The Advanced page holds the **Diagnostic bundle** export: one zip with the main-process logs, the lifecycle breadcrumb trail (launch, window, session spawn/resume/exit/terminate/hibernate/mode, update transitions, remote enable/token-regenerate, renderer and child-process deaths, main-process exceptions and rejections), versions (omp-ui, omp, Electron/Node/Chrome, package format), platform facts, the registry plus per-working-tree `git status --porcelain` output, session-lineage listings, the generated per-session extension files of live sessions, window geometry, and a manifest describing all of it and its warnings.
+
+Redaction is fixed, not configurable: provider keys are never read, the remote token and password hash/salt become `hasRemoteToken`/`hasRemotePassword` booleans, the OAuth login scratch directory is never walked, and plan bodies and project file contents stay out. Transcript JSONL is excluded by default — the dialog's **Include transcripts** checkbox is an explicit, warned opt-in, capped at 64 MiB per bundle. Absolute paths, project paths, session titles, and git status filenames are included by design; the manifest inside the zip records exactly which sections exist.
+
+The export is also reachable from the command palette ("Export diagnostic bundle…"). On a remote (browser) client the same action writes the bundle into a `diagnostics/` directory beside the registry on the machine omp-ui runs on; the native save dialog appears only in the desktop app.
+
 ## About
 
 About reports exactly these runtime facts:

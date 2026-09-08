@@ -47,13 +47,16 @@ Request and notification argument codecs are required metadata on each `BACKEND_
 
 | Channel kind | Direction | Contract | Examples |
 |---|---|---|---|
-| Request | Renderer to backend, then one reply | Returns a promise that resolves a value or rejects with the backend error. | `state:get`, `session:spawn`, `plan:read`, `memory:overview`, `app:updateCheck` |
+| Request | Renderer to backend, then one reply | Returns a promise that resolves a value or rejects with the backend error. | `state:get`, `session:spawn`, `plan:read`, `memory:overview`, `app:updateCheck`, `diagnostics:export` |
 | Notify | Renderer to backend | Fire-and-forget input with no reply path. A handler must not depend on acknowledgement. | `pty:write`, `pty:resize`, `rpc:send`, `shell:write` |
 | Event | Backend to every registered sink | Pushes state or process output to the desktop renderer and all connected browser clients. | `state:changed`, `pty:data`, `rpc:frame`, `shell:exit`, update and remote-state events |
 
 The preload builds `OmpBackend` with `ipcRenderer.invoke`, `ipcRenderer.send`, and typed listeners. The browser adapter builds the same interface with WebSocket request ids, notifications, and event listeners. PTY and shell byte events use WebSocket binary frames, so remote terminal output is not base64-inflated. Other remote frames are JSON. The server rejects inbound WebSocket payloads larger than 64 MiB.
 
 There is one renderer implementation under [`packages/desktop/src/renderer/src`](../packages/desktop/src/renderer/src/). The Electron build receives `window.ompBackend` from preload. The web bootstrap connects first, assigns the WebSocket-backed client to the same global, and only then imports the renderer entry. Backend-facing stores and views therefore use no transport-specific call path.
+
+The diagnostic bundle ([`core/src/diagnostics.ts`](../packages/core/src/diagnostics.ts)) is the feature-seam example for redaction: callers hand the collector the raw settings object, and the scrub that replaces `remoteToken`/`remotePasswordHash`/`remotePasswordSalt` with presence booleans lives inside the collector, not in any caller — a new call site cannot forget it. The bundle's own `manifest.json` states the policy and lists every section with byte counts, so a recipient sees what the file holds.
+
 
 ## Process and isolation invariants
 
