@@ -31,6 +31,7 @@ import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
 import { ComposerSheet } from "./ComposerSheet";
+import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -449,6 +450,27 @@ export function Composer({
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
       if ((message === "" && payload.length === 0) || unavailable || converting) return;
+      // While a free-text-capable question heads the tab's extension
+      // queue, this box *is* the card's Other field (issue #421): Enter
+      // answers it instead of prompting. A leading "/" stays a command and
+      // interrupt keeps its abort-and-prompt route. The handler consults
+      // the store at call time, so a frame that vanished between render
+      // and Enter answers nothing and falls through to the prompt path —
+      // exactly what the second Enter of a double-tap on a loop frame
+      // does until the editor frame lands. On "kept-draft" the draft (and
+      // the tray) stay put for that editor frame; an answer is not a
+      // prompt, so no history push, no hero dismissal, no conversion.
+      if (!compact && route !== "interrupt" && !message.startsWith("/")) {
+        const outcome = answerPendingQuestion(tabId, message);
+        if (outcome !== "not-answerable") {
+          if (outcome === "answered") {
+            setText("");
+            clearImages();
+          }
+          box.current?.focus({ preventScroll: true });
+          return;
+        }
+      }
       // A first prompt with the branch chip's worktree section set to a fresh
       // worktree converts the session before anything else happens (issue
       // #225) — the same conversion the chip's create button runs (issue #314):
@@ -504,6 +526,7 @@ export function Composer({
       text,
       images,
       unavailable,
+      compact,
       tabId,
       cwd,
       runSlashCommand,
@@ -596,13 +619,18 @@ export function Composer({
     }
   };
 
+  // Head of the tab's pending extension dialogs — while it accepts free
+  // text, this box is the question's Other field (issue #421).
+  const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
   const placeholder = dead
     ? t("composer.placeholder.exited")
     : relaunching
       ? t("composer.placeholder.restarting")
-      : running
-        ? t("composer.placeholder.running")
-        : t("composer.placeholder.idle");
+      : !compact && freeTextTarget(pendingFrame) !== "none"
+        ? t("composer.placeholder.answer")
+        : running
+          ? t("composer.placeholder.running")
+          : t("composer.placeholder.idle");
 
   // An image alone is sendable: "what is this?" is in the picture, not the text.
   const canSend = (trimmed !== "" || images.length > 0) && !unavailable && !converting;

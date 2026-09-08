@@ -373,7 +373,9 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     on switch; a half-typed editor draft resets, while pending
                     requests themselves live in the store. */}
                 {active && <PlanReview tabId={tabId} />}
-                <ExtensionDialogHost tabId={tabId} />
+                {/* No composer here (issue #421): the card keeps its own
+                    free-text field for editor/input frames. */}
+                <ExtensionDialogHost tabId={tabId} composerVisible={false} />
               </>
             ) : (
               <>
@@ -414,7 +416,10 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
                   )}
                 >
-                  <ExtensionDialogHost tabId={tabId} />
+                  <ExtensionDialogHost
+                    tabId={tabId}
+                    composerVisible={!compact && !(planReviewOpen && active)}
+                  />
                   {/* While the review owns the column, its send-it-back input is
                       the only free-text control: the composer is hidden — not
                       unmounted, so any half-typed draft survives — for the
