@@ -1,18 +1,28 @@
 /**
- * Syntax highlighting for HTML plan code blocks (issue #319, ADR-0023).
+ * Syntax highlighting for HTML plan code blocks (issue #319, ADR-0023,
+ * reworked for the source-range pipeline of the issue #312 follow-up).
  *
- * The ADR-0020 posture for code: the agent authors source in a language-
- * classed `<code>` element, the renderer tokenizes in the trusted process at
- * review time, and the sandboxed iframe receives only inert spans. Plain
- * text is the fallback for anything that cannot be tokenized — no callout,
- * because the text is the content (unlike mermaid, whose SVG is the content).
+ * The ADR-0020 posture for code is unchanged: the agent authors source in a
+ * language-classed `<code>` element, the renderer tokenizes in the trusted
+ * process at review time, and the sandboxed iframe receives only inert spans.
+ * Plain text is the fallback for anything that cannot be tokenized — no
+ * callout, because the text is the content (unlike mermaid, whose SVG is the
+ * content).
  *
- * Kept separate from plan-document.ts so the transform stays unit-testable
- * with an injected stub tokenizer (the same seam as plan-diagrams.ts).
+ * What changed: there is no placeholder protocol any more. Blocks come from
+ * `parsePlanSource` with original source ranges; the output is a list of
+ * splice operations the composer joins once, so an authored `$'`, `$&`, or
+ * backtick-dollar inside code text can never act as a replacement pattern
+ * (issue #412), and an authored marker-looking comment is just source.
  */
 import type { ThemedToken } from "shiki/core";
-import { HIGHLIGHT_CHAR_CAP, resolveLang, tokenizeCode } from "./highlight";
-import { decodeEntities, escapeHtml } from "./plan-diagrams";
+import { tokenizeCode } from "./highlight";
+import { escapeHtml } from "./plan-diagrams";
+import type {
+  ParsedPlanSource,
+  PlanElement,
+  PlanReplacement,
+} from "./plan-source";
 import type { Theme } from "./themes";
 
 /** Tokenizer seam; `null` leaves the block plain. */
@@ -22,78 +32,21 @@ export type CodeTokenizer = (
   theme: Theme,
 ) => Promise<ThemedToken[][] | null>;
 
-export interface CodeBlock {
-  /** Unique inert placeholder substituted into the document string. */
-  placeholder: string;
-  /** Full matched `<pre>…</pre>` block, re-emitted verbatim when the block stays plain. */
-  pre: string;
-  /** `<pre>` attribute string (class lookup + re-emission). */
-  preAttrs: string;
-  /** `<code>` attribute string (class lookup + re-emission). */
-  codeAttrs: string;
-  /** Canonical grammar name. */
-  lang: string;
-  /** HTML-entity-decoded code text. */
-  source: string;
-}
-
-export interface HighlightOutcome {
-  html: string;
-  /** Token-class rules for the pairs used; `""` when nothing was highlighted. */
+export interface HighlightTransform {
+  /** Splices into the composed document; empty when nothing highlighted. */
+  replacements: PlanReplacement[];
+  /** Token-class rules for the pairs used; `""` when nothing highlighted. */
   tokenCss: string;
 }
 
-// A plan code block cannot contain a literal `</code>` or `</pre>`: the
-// authoring contract escapes < > & (the same assumption MERMAID_BLOCK relies
-// on). The class match is a token match so `class="language-python fancy"`
-// still counts.
-const PRE_BLOCK = /<pre\b([^>]*)>([\s\S]*?)<\/pre\s*>/gi;
-const CODE_ELEMENT = /<code\b([^>]*)>([\s\S]*?)<\/code\s*>/i;
-const BLOCK_PLACEHOLDER = (n: number) => `<!--omp-ui-highlight-${n}-->`;
-
-/** Consumed by verifyPlanStructure (parity with the diagram-placeholder check). */
-export const HIGHLIGHT_PLACEHOLDER = /<!--omp-ui-highlight-\d+-->/;
-
 const LANGUAGE_CLASS = /^language-[\w+#-]+$/i;
 
-function languageFrom(attrs: string): string | null {
-  const cls = attrs.match(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
-  const value = cls?.[1] ?? cls?.[2] ?? "";
-  const token = value.split(/\s+/).find((t) => LANGUAGE_CLASS.test(t));
-  return token ? token.slice("language-".length) : null;
-}
+/** The pair key separator: a byte that can appear in neither a color nor a number. */
+const PAIR_SEP = String.fromCharCode(0);
 
-/**
- * Finds every `<pre>…<code>…</code>…</pre>` block whose `<code>` (or, when the
- * code carries none, the `<pre>`) is language-classed, resolves the language,
- * and replaces the block in `html` with a unique inert HTML-comment
- * placeholder. Blocks without a `<code>` child, without a recognized
- * language, or over the character cap stay in place, untouched.
- */
-export function extractCodeBlocks(
-  html: string,
-): { html: string; blocks: CodeBlock[] } {
-  const blocks: CodeBlock[] = [];
-  const out = html.replace(PRE_BLOCK, (match, preAttrs: string, inner: string) => {
-    const code = CODE_ELEMENT.exec(inner);
-    if (!code) return match; // bare <pre> without a <code> child stays plain
-    const lang = languageFrom(code[1]) ?? languageFrom(preAttrs);
-    const resolved = resolveLang(lang);
-    if (!resolved) return match; // unknown language: plain, never guess
-    const source = decodeEntities(code[2]);
-    if (source.length > HIGHLIGHT_CHAR_CAP) return match;
-    const placeholder = BLOCK_PLACEHOLDER(blocks.length);
-    blocks.push({
-      placeholder,
-      pre: match,
-      preAttrs,
-      codeAttrs: code[1],
-      lang: resolved,
-      source,
-    });
-    return placeholder;
-  });
-  return { html: out, blocks };
+/** `\r\n`/`\r` → `\n`; the comparison normalizer for parsed vs token text. */
+function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
 }
 
 interface TokenPair {
@@ -104,44 +57,56 @@ interface TokenPair {
 }
 
 /**
- * Replaces every language-classed code block in `html` with a highlighted
- * re-emission: `<pre class="omp-ui-hl"><code>` wrapping inert per-token
- * `<span class="tk-N">` spans, plus one color/style rule per (color,
- * fontStyle) pair used anywhere in the document. A block whose tokenizer
- * rejects (or returns `null`) is re-emitted verbatim; siblings are
- * unaffected.
+ * Replaces every classified code block that tokenizes cleanly with a
+ * highlighted re-emission: per-token `<span class="tk-N">` spans plus one
+ * color/style rule per (color, fontStyle) pair used anywhere in the document.
  *
- * Idempotent by consumption: `rebuildAttrs` drops the `language-*` token, so
- * a second prepare pass over the output finds no language classes and returns
- * the bytes unchanged.
+ * Each accepted block yields surgical splices — the class attribute bytes,
+ * and the code element's inner range — so every other byte of the block and
+ * the whole untouched document survive the composition literally. A block
+ * whose tokenizer rejects, returns `null`, or whose token stream fails to
+ * reconstruct the decoded source keeps its original bytes; siblings are
+ * unaffected. The `language-*` token is consumed from the class. Highlighting
+ * stays a successful, content-preserving fallback: a grammar that fails to
+ * load never blocks anything (the input contract is authored source only —
+ * prepared output is never re-prepared).
  */
-export async function highlightCodeBlocks(
-  html: string,
+export async function planHighlightTransform(
+  parsed: ParsedPlanSource,
   theme: Theme,
   tokenize: CodeTokenizer = tokenizeWithShiki,
-): Promise<HighlightOutcome> {
-  const { html: staged, blocks } = extractCodeBlocks(html);
+): Promise<HighlightTransform> {
   const pairs = new Map<string, TokenPair>();
-  let out = staged;
-  for (const block of blocks) {
-    let highlighted: string | null = null;
+  const replacements: PlanReplacement[] = [];
+  for (const block of parsed.codeBlocks) {
+    let lines: ThemedToken[][] | null = null;
     try {
-      const lines = await tokenize(block.source, block.lang, theme);
-      if (lines) {
-        const spans = serializeLines(lines, pairs);
-        highlighted =
-          `<pre${rebuildAttrs(block.preAttrs, true, "omp-ui-hl")}>` +
-          `<code${rebuildAttrs(block.codeAttrs, true)}>` +
-          `${spans}</code></pre>`;
-      }
+      lines = await tokenize(block.sourceText, block.lang, theme);
     } catch {
-      // Failed grammar/engine load: the block stays plain.
+      // Failed grammar/engine load: the block stays plain. Highlighting is
+      // an enhancement, never a gate.
+      continue;
     }
-    // The placeholder is a unique comment token by construction, so a plain
-    // string replace cannot collide with authored content.
-    out = out.replace(block.placeholder, highlighted ?? block.pre);
+    if (lines === null) continue;
+    // Reconstruction check before accepting the token stream: the spans must
+    // carry exactly the decoded source back, or the block stays plain.
+    // Newline handling is normalized on both sides (HTML parsers deliver \n;
+    // shiki reports token lines joined with \n).
+    const reconstructed = lines.map((line) => line.map((t) => t.content).join("")).join("\n");
+    if (normalizeNewlines(reconstructed) !== normalizeNewlines(block.sourceText)) {
+      continue;
+    }
+    replacements.push({
+      startOffset: block.inner.startOffset,
+      endOffset: block.inner.endOffset,
+      text: serializeLines(lines, pairs),
+    });
+    replacements.push(
+      ...classAttrSplices(parsed.html, block.pre, { consumeLanguage: true, addClass: "omp-ui-hl" }),
+      ...classAttrSplices(parsed.html, block.code, { consumeLanguage: true }),
+    );
   }
-  return { html: out, tokenCss: tokenCss(pairs) };
+  return { replacements, tokenCss: tokenCss(pairs) };
 }
 
 /**
@@ -161,7 +126,7 @@ function serializeLines(
           const color = t.color ?? null;
           const fontStyle = t.fontStyle ?? 0;
           if (color === null && fontStyle === 0) return escapeHtml(t.content);
-          const key = `${color ?? ""}\u0000${fontStyle}`;
+          const key = `${color ?? ""}${PAIR_SEP}${fontStyle}`;
           let entry = pairs.get(key);
           if (!entry) {
             entry = { idx: pairs.size, color, fontStyle };
@@ -207,23 +172,49 @@ const tokenizeWithShiki: CodeTokenizer = async (source, lang, theme) => {
 };
 
 /**
- * Drops the `language-*` token from the class attribute (consuming the
- * convention, which is what makes a second prepare pass a no-op) and adds
- * `addClass` where asked. Other attributes pass through byte-for-byte.
+ * Splices that consume the `language-*` token (the convention is consumed,
+ * not rewritten elsewhere) and add `addClass` — applied to the class
+ * attribute's OWN source range so every other byte of the tag passes through
+ * untouched. When the element has no class attribute, the addition inserts
+ * before the start tag's `>`; nothing is consumed.
  */
-function rebuildAttrs(attrs: string, consumeLanguage: boolean, addClass?: string): string {
-  const cls = attrs.match(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
-  if (!cls) return addClass ? `${attrs} class="${addClass}"` : attrs;
-  const quote = cls[1] !== undefined ? '"' : "'";
-  let value = (cls[1] ?? cls[2] ?? "").split(/\s+/).filter(Boolean);
-  if (consumeLanguage) value = value.filter((t) => !LANGUAGE_CLASS.test(t));
-  if (addClass && !value.includes(addClass)) value.push(addClass);
-  const next = value.length ? ` class=${quote}${value.join(" ")}${quote}` : "";
-  // Swap the attribute (and the whitespace preceding it) so an emptied class
-  // leaves no stray space in the tag; every other byte of the attributes is
-  // preserved.
-  const at = cls.index!;
-  let from = at;
-  while (from > 0 && /\s/.test(attrs.charAt(from - 1))) from -= 1;
-  return attrs.slice(0, from) + next + attrs.slice(at + cls[0].length);
+function classAttrSplices(
+  html: string,
+  el: PlanElement,
+  opts: { consumeLanguage: boolean; addClass?: string },
+): PlanReplacement[] {
+  const attr = el.attrs.find((a) => a.name === "class");
+  if (attr === undefined || attr.range === null) {
+    if (opts.addClass === undefined || el.startTag === null) return [];
+    return [
+      {
+        startOffset: el.startTag.endOffset - 1,
+        endOffset: el.startTag.endOffset - 1,
+        text: ` class="${opts.addClass}"`,
+      },
+    ];
+  }
+  const raw = html.slice(attr.range.startOffset, attr.range.endOffset);
+  const eq = raw.indexOf("=");
+  const tokens =
+    eq === -1
+      ? []
+      : raw
+          .slice(eq + 1)
+          .replace(/^['"]|['"]$/g, "")
+          .split(/\s+/)
+          .filter(Boolean);
+  const kept = opts.consumeLanguage ? tokens.filter((t) => !LANGUAGE_CLASS.test(t)) : tokens;
+  if (opts.addClass && !kept.includes(opts.addClass)) kept.push(opts.addClass);
+  const quote = raw.includes("'") ? "'" : '"';
+  const replacement = kept.length > 0 ? `class=${quote}${kept.join(" ")}${quote}` : "";
+  if (replacement === raw) return [];
+  if (replacement === "") {
+    // Swallow the whitespace preceding the attribute so removal leaves no
+    // stray gap; every other byte of the tag is preserved by the composition.
+    let from = attr.range.startOffset;
+    while (from > 0 && /\s/.test(html.charAt(from - 1))) from -= 1;
+    return [{ startOffset: from, endOffset: attr.range.endOffset, text: "" }];
+  }
+  return [{ startOffset: attr.range.startOffset, endOffset: attr.range.endOffset, text: replacement }];
 }

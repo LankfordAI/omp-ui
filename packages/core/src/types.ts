@@ -277,12 +277,22 @@ export interface PendingPlan {
   frameId: string;
   /** ISO-8601 timestamp of the proposal. */
   proposedAt: string;
+  /**
+   * SHA-256 (hex) of the artifact bytes main validated before publishing the
+   * gate (HTML plans only; absent for markdown). `answerPlanReview` executes
+   * only while the artifact still hashes to it (issue #312 follow-up).
+   */
+  sourceHash?: string;
 }
 
 /** Latest verdict that closed a gate, so renderers that did not answer can settle their rows. */
 export interface PlanSettle {
   frameId: string;
-  verdict: "executed" | "refined";
+  /**
+   * `invalidated` is not a user verdict: the gate's validated source changed
+   * under review, so no implementation started (issue #312 follow-up).
+   */
+  verdict: "executed" | "refined" | "invalidated";
 }
 
 export interface SessionSummary extends OwnedSessionRecord {

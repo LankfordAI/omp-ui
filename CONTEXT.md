@@ -267,6 +267,10 @@ the proposal frame is recorded as the session's `pendingPlan` on its summary,
 and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a
 remote client) hydrates the review from the record and settles a verdict
 another client already made; the gate never outlives the session process.
+An HTML gate carries the `sourceHash` main's preflight validated: answering
+execute re-checks the artifact's bytes before anything dispatches, and a
+gate whose artifact changed settles as `invalidated` — not a user verdict,
+no implementation, no advisor fold (issue #312 follow-up).
 Because the advisor reviews a turn only after it ends, the
 plan turn's review can outlive the gate — so on execute, a session with a
 configured advisor answers the verdict first, waits (bounded) for that review
@@ -274,6 +278,23 @@ to land, then folds its concerns into the implementation prompt in every
 context; refine stays immediate because the planner revises in situ, where the
 advisor's notes already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
+
+**Plan preflight**:
+The main-process validation an HTML plan must pass before a plan review can
+exist at all (issue #312 follow-up, ADR-0022 amended): the proposal's
+`select` request is claimed at the session's frame edge — before observers,
+clients, notifications, or the pending-plan record — the artifact is read
+through the confined plan reader, and the same parser, transforms, and real
+layout probe every surface uses runs in a hidden, script-less Chromium
+verifier. A passed proposal is delivered once with a main-authored
+`sourceHash`; a failed or unavailable one answers the agent directly with
+bounded, source-located diagnostics as the proposal tool result, so the
+agent repairs the reported ranges of the existing artifact instead of the
+user discovering a broken document in review. `unavailable` is honest: an
+inconclusive verification never presents a plan, and never claims one is
+fine. Application failures say "omp-ui could not verify" and stop — they
+must never send the agent to rewrite valid source.
+_Avoid_: plan lint, plan validation prompt, renderer check
 
 **Magic keyword**:
 One of omp's three prose keywords — `ultrathink`, `orchestrate`, `workflowz` —

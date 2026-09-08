@@ -291,6 +291,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     deferPlanReview: plan.deferPlanReview,
     showPlanReview: plan.showPlanReview,
     loadPlanText: plan.loadPlanText,
+    setPlanReadiness: plan.setPlanReadiness,
 
     appendNotice: frame.appendNotice,
   };

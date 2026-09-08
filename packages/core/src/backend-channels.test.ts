@@ -51,6 +51,7 @@ const spawnRequest: SpawnRequest = {
 
 const VALID_ARGS = {
   addProject: ["/project"],
+  answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   browseDirectories: ["/project"],
   cancelProviderOAuth: [],
   checkAppUpdate: [],

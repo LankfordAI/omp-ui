@@ -44,6 +44,11 @@ export interface PlanExecutionSlice {
     absPath: string | null,
     itemId?: string,
   ): Promise<void>;
+  /** PlanReview publishes its local preparation readiness here (§6 guard). */
+  setPlanReadiness(
+    tabId: string,
+    readiness: { status: "pending" | "ready" | "failed" | "unavailable"; identity?: string } | null,
+  ): void;
 }
 
 export interface PlanRuntime extends Watchers {
@@ -154,6 +159,9 @@ export function createPlanExecutionSlice(
                 title: pending.title,
                 planFilePath: pending.planFilePath,
                 planAbsPath: pending.planAbsPath,
+                // The hash survives late-join hydration (§6): a client that
+                // never saw the frame answers with the same identity.
+                ...(pending.sourceHash !== undefined ? { sourceHash: pending.sourceHash } : {}),
               },
               // Minimal reconstructed frame: answerPlanSelect reads only `.id`.
               frame: { id: pending.frameId },
@@ -191,8 +199,11 @@ export function createPlanExecutionSlice(
   };
 
   /**
-   * Answers the blocked plan-review `select` and clears the pane. Returns
-   * false when there is no pending review to answer, so callers skip dispatch.
+   * Answers the blocked plan-review `select` and clears the pane — the
+   * UNACKNOWLEDGED path, kept for markdown gates, whose semantics are
+   * unchanged. HTML gates go through `acknowledgePlanReview`: only main's
+   * accepted answer may settle one (issue #312 follow-up, §6). Returns false
+   * when there is no pending review to answer, so callers skip dispatch.
    */
   const answerPlanSelect = (tabId: string, value: string): boolean => {
     const tab = get().rpc[tabId];
@@ -215,6 +226,34 @@ export function createPlanExecutionSlice(
       planDeferred: false,
     });
     return true;
+  };
+
+  /**
+   * The acknowledged answer for an HTML gate (§6): main checks the live
+   * entry, the gate identity, and — for execute — the validated artifact
+   * hash. NOTHING local settles or dispatches before `accepted`; a rejected
+   * answer settles through the state reconcile (the record wins), never from
+   * this client.
+   */
+  const acknowledgePlanReview = async (
+    tabId: string,
+    verdict: "execute" | "refine",
+  ): Promise<boolean> => {
+    const tab = get().rpc[tabId];
+    const review = tab?.planReview;
+    if (!review) return false;
+    const frameId = strField(review.frame, "id") ?? "";
+    try {
+      const result = await backend.answerPlanReview(
+        tabId,
+        frameId,
+        verdict,
+        review.request.sourceHash ?? null,
+      );
+      return result.status === "accepted";
+    } catch {
+      return false;
+    }
   };
 
   /**
@@ -475,54 +514,88 @@ export function createPlanExecutionSlice(
           planFilePath: review.planFilePath,
         })
       : null;
-    // Answer the gate first — omp's agent is blocked on the reply, so every
-    // exit from the review pane must land its verdict before any dispatch.
+    if (!planImplementationSource || review === undefined) return;
+    const html = isHtmlPlanPath(review.planFilePath);
     if (
-      !planImplementationSource ||
-      !answerPlanSelect(tabId, PLAN_EXECUTE)
+      html &&
+      !(
+        tab?.planReadiness != null &&
+        tab.planReadiness.status === "ready" &&
+        tab.planReadiness.identity === review.sourceHash
+      )
     ) {
+      // The store-side execution guard (§6): pending/failed/unavailable
+      // local preparation, or a different source identity, never executes —
+      // not even through a non-button caller.
       return;
     }
-    if (planKey) settlePlanReview(tabId, planKey, "executed");
-    // The drafting turn's review lands after the verdict, so hold dispatch
-    // for it when the user wants the advisor's concerns actioned. Execute
-    // only: the execute ToolResult tells the agent to stop and wait, so this
-    // turn ends and its review genuinely follows — refine keeps the planner
-    // in the same turn and is left immediate. The watcher owns the gate; the
-    // store just checks its own advisor config for whether a review is coming.
-    const configured = get().rpc[tabId]?.advisorStats?.configured === true;
-    if ((options?.addressAdvisor ?? true) && configured) {
-      concern.begin(tabId, {
+    // Everything that follows the verdict: settle the history rows, then
+    // hold for the drafting turn's advisor review or dispatch directly.
+    const proceed = (): void => {
+      if (planKey) settlePlanReview(tabId, planKey, "executed");
+      // The drafting turn's review lands after the verdict, so hold dispatch
+      // for it when the user wants the advisor's concerns actioned. Execute
+      // only: the execute ToolResult tells the agent to stop and wait, so this
+      // turn ends and its review genuinely follows — refine keeps the planner
+      // in the same turn and is left immediate. The watcher owns the gate; the
+      // store just checks its own advisor config for whether a review is coming.
+      const configured = get().rpc[tabId]?.advisorStats?.configured === true;
+      if ((options?.addressAdvisor ?? true) && configured) {
+        concern.begin(tabId, {
+          context,
+          planText,
+          planImplementationSource,
+          options,
+        });
+        return;
+      }
+      dispatchExecutePlan(
+        tabId,
         context,
         planText,
         planImplementationSource,
+        null,
         options,
-      });
+      );
+    };
+    // Answer the gate first — omp's agent is blocked on the reply, so every
+    // exit from the review pane must land its verdict before any dispatch.
+    if (html) {
+      // HTML: the acknowledged path settles; nothing dispatches unaccepted.
+      void (async () => {
+        if (await acknowledgePlanReview(tabId, "execute")) proceed();
+      })();
       return;
     }
-    dispatchExecutePlan(
-      tabId,
-      context,
-      planText,
-      planImplementationSource,
-      null,
-      options,
-    );
+    if (!answerPlanSelect(tabId, PLAN_EXECUTE)) return;
+    proceed();
   };
 
   const refinePlan = (tabId: string, notes?: PlanRevisionNotes): void => {
-    const planKey = get().rpc[tabId]?.planReview?.request.planFilePath;
+    const review = get().rpc[tabId]?.planReview?.request;
+    const planKey = review?.planFilePath;
+    const sendNotes = (): void => {
+      if (planKey) settlePlanReview(tabId, planKey, "refined");
+      const text = notes?.text?.trim() ?? "";
+      const images = notes?.images;
+      if (text === "" && !images?.length) return;
+      // The planner's current turn continues after the refine verdict; the
+      // notes steer it live, and omp appends images after the text block.
+      const message = text
+        ? `Revise the plan to incorporate these requested changes:\n\n${text}`
+        : "Revise the plan per the attached change notes.";
+      void get().sendPrompt(tabId, message, "steer", images);
+    };
+    if (review !== undefined && isHtmlPlanPath(review.planFilePath)) {
+      // Refine needs the same gate identity but NOT unchanged disk bytes —
+      // the planner re-reads the artifact itself (§6).
+      void (async () => {
+        if (await acknowledgePlanReview(tabId, "refine")) sendNotes();
+      })();
+      return;
+    }
     if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
-    if (planKey) settlePlanReview(tabId, planKey, "refined");
-    const text = notes?.text?.trim() ?? "";
-    const images = notes?.images;
-    if (text === "" && !images?.length) return;
-    // The planner's current turn continues after the refine verdict; the
-    // notes steer it live, and omp appends images after the text block.
-    const message = text
-      ? `Revise the plan to incorporate these requested changes:\n\n${text}`
-      : "Revise the plan per the attached change notes.";
-    void get().sendPrompt(tabId, message, "steer", images);
+    sendNotes();
   };
 
   const deferPlanReview = (tabId: string): void => {
@@ -542,14 +615,24 @@ export function createPlanExecutionSlice(
       m.patchRpc(tabId, { planText: null, planHtml: null });
       return;
     }
+    // §6: a slow read of the PREVIOUS proposal must not overwrite a newer
+    // one. Capture the reviewing frame identity; patch the pane only while
+    // it still stands.
+    const wanted = get().rpc[tabId]?.planReview ?? null;
     try {
       const text = await backend.readPlanFile(tabId, absPath);
-      // One file, one read: the html plan IS the plan, so `planHtml` is the
-      // render-mode flag rather than a second document (ADR-0014).
-      m.patchRpc(tabId, {
-        planText: text,
-        planHtml: isHtmlPlanPath(absPath) ? text : null,
-      });
+      const now = get().rpc[tabId]?.planReview ?? null;
+      const stillCurrent =
+        wanted === null ||
+        strField(now?.frame ?? null, "id") === strField(wanted.frame, "id");
+      if (stillCurrent) {
+        // One file, one read: the html plan IS the plan, so `planHtml` is the
+        // render-mode flag rather than a second document (ADR-0014).
+        m.patchRpc(tabId, {
+          planText: text,
+          planHtml: isHtmlPlanPath(absPath) ? text : null,
+        });
+      }
       if (itemId !== undefined) {
         m.patchItems(tabId, (i) =>
           i.kind === "plan" && i.id === itemId ? { ...i, text } : i,
@@ -558,7 +641,11 @@ export function createPlanExecutionSlice(
     } catch {
       // The pane falls back to the plan's path — a failed read must never
       // strand the review, because the agent is waiting on the verdict.
-      m.patchRpc(tabId, { planText: null, planHtml: null });
+      const now = get().rpc[tabId]?.planReview ?? null;
+      const stillCurrent =
+        wanted === null ||
+        strField(now?.frame ?? null, "id") === strField(wanted.frame, "id");
+      if (stillCurrent) m.patchRpc(tabId, { planText: null, planHtml: null });
     }
   };
 
@@ -572,5 +659,6 @@ export function createPlanExecutionSlice(
     deferPlanReview,
     showPlanReview,
     loadPlanText,
+    setPlanReadiness: (tabId, readiness) => m.patchRpc(tabId, { planReadiness: readiness }),
   };
 }

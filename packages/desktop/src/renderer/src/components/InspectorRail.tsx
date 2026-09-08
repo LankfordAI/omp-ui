@@ -411,11 +411,16 @@ const PLAN_TONE: Record<PlanRecord["status"], Tone> = {
   pending: "copper",
   executed: "signal",
   refined: "neutral",
+  invalidated: "rose",
 };
-const PLAN_LABEL_KEY: Record<PlanRecord["status"], "rail.plans.waiting" | "rail.plans.executed" | "rail.plans.sentBack"> = {
+const PLAN_LABEL_KEY: Record<
+  PlanRecord["status"],
+  "rail.plans.waiting" | "rail.plans.executed" | "rail.plans.sentBack" | "rail.plans.invalidated"
+> = {
   pending: "rail.plans.waiting",
   executed: "rail.plans.executed",
   refined: "rail.plans.sentBack",
+  invalidated: "rail.plans.invalidated",
 };
 
 /**

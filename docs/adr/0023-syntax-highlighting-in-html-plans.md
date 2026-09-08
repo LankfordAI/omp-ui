@@ -101,3 +101,22 @@ lexical analysis it is bad at).
   theme it already receives — no new parameter threading, no caller edits.
   Issue #384 completed the scoping: the canvas, ink, chip tint, link, and
   code plane all derive from `theme`, not only the code plane.
+
+**Amended 2026-09-08 (#312 follow-up): the placeholder protocol is replaced
+by source-range composition.** The pipeline no longer swaps blocks through
+`String.replace` with replacement strings — an authored `$'`, `$&`, or
+backtick-dollar sequence in code text could substitute document text through
+the replacement-pattern grammar (issue #412) — and an authored comment that
+looked like a marker was indistinguishable from the pipeline's own.
+`parsePlanSource` (parse5, source locations on) now classifies blocks and
+carries their original ranges; transforms return splice lists; the composer
+interleaves original slices with generated strings exactly once. Unchanged
+bytes survive byte-for-byte, transformed code keeps its browser-decoded
+text, the reconstruction check before accepting a token stream stands, and
+"highlighting is an enhancement, never a gate" still holds — a grammar load
+failure leaves the block plain and passes preflight. The
+`<!--omp-ui-highlight-N-->` verification reason dies with the protocol;
+structural verification queries the parsed result instead. The
+language-class consumption rule lives on as attribute-range splices, and
+the "never re-prepare generated HTML" rule is now enforced by the
+authored-source-only input contract rather than by byte-idempotence.

@@ -53,3 +53,24 @@ never false-positive-block a valid plan or hang a test.
 - **A failed plan is still reviewable.** The raw source shown in the
   fallback is the artifact the execute verdict dispatches, so reviewing it
   as text remains a real review; refine sends the planner back to rewrite.
+
+**Amended 2026-09-08 (#312 follow-up): main owns the submission gate.** The
+rejected option above assumed a main-process probe would *replace* remote
+verification; it does not — it *precedes* it. An HTML plan proposal is now
+validated by the main process before a review gate exists for any client
+(see `plan-preflight.ts`, `plan-verifier.ts`, and the *Plan preflight* entry
+in CONTEXT.md): the select frame is claimed ahead of observers, fan-out,
+notifications, and the pending-plan record, a hidden script-less Chromium
+verifier window runs the SAME parser, transforms, structural checks, and
+layout probe described here, and a failed or inconclusive outcome answers
+the agent with located diagnostics through the proposal tool result instead
+of opening a review. Renderer-local preparation stays exactly as specified
+here as the final check of each actual display surface (review dock,
+transcript card, remote browsers), and displayed frames keep `sandbox=""`.
+The placeholder-survival checks this ADR introduced are gone with the
+placeholder protocol (see the ADR-0023 amendment): verification queries the
+parsed structure for the generated guardrail and CSP instead of scanning
+prose for marker text. A Chromium preflight is a claim about the app-owned
+pipeline, not about every remote browser's precise pixels; "verification
+could not conclude" is reported as `unavailable`, which never presents and
+never passes.

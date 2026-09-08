@@ -86,8 +86,24 @@ export interface PlanRecord {
   /** The plan artifact path (the slug) — uniquely identifies the plan. */
   key: string;
   title: string;
-  /** `pending` while the agent waits on a verdict; settles on the others. */
-  status: "pending" | "executed" | "refined";
+  /**
+   * `pending` while the agent waits on a verdict; settles on the others.
+   * `invalidated` is NOT a user verdict (issue #312 follow-up): the gate's
+   * validated source changed under review, so nothing was executed and no
+   * refinement was requested.
+   */
+  status: "pending" | "executed" | "refined" | "invalidated";
+}
+
+/**
+ * The local preparation readiness PlanReview observed for the CURRENT
+ * proposal (§6): the store's execution guard reads it, so execute requires
+ * more than a non-disabled button — a ready preparation whose identity is
+ * the gate's own sourceHash.
+ */
+export interface PlanReadiness {
+  status: "pending" | "ready" | "failed" | "unavailable";
+  identity?: string;
 }
 
 /**
@@ -167,6 +183,8 @@ export interface RpcTabState {
   planText: string | null;
   planHtml: string | null;
   planDeferred: boolean;
+  /** PlanReview's local preparation verdict for the current gate (§6 guard). */
+  planReadiness?: PlanReadiness | null;
   plans: PlanRecord[];
   advisorStats: AdvisorStatsView | null;
   mcpStatus: McpRuntimeStatus | null;
@@ -570,6 +588,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   ): Promise<void>;
   deferPlanReview(tabId: string): void;
   showPlanReview(tabId: string): void;
+  /** PlanReview publishes its local preparation readiness here (§6 guard). */
+  setPlanReadiness(
+    tabId: string,
+    readiness:
+      { status: "pending" | "ready" | "failed" | "unavailable"; identity?: string } | null,
+  ): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
   /**
    * One `/goal` or `/guided-goal` line as a command against the session's own

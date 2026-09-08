@@ -1,5 +1,6 @@
 /**
- * Mermaid diagram substitution for HTML plans (issue #285, ADR-0020).
+ * Mermaid diagram substitution for HTML plans (issue #285, ADR-0020,
+ * reworked for the source-range pipeline of the issue #312 follow-up).
  *
  * The planning agent authors diagram *source* in `<pre class="mermaid">…</pre>`
  * blocks; the trusted renderer process renders each block to SVG before the
@@ -7,43 +8,33 @@
  * coordinate, and the no-JavaScript rule for plan documents stays intact
  * because the host app — not the document — does the rendering.
  *
- * Kept separate from plan-document.ts so the transform stays unit-testable
- * with an injected stub renderer.
+ * There is no placeholder protocol any more: blocks carry original source
+ * ranges (see plan-source.ts), the rendered SVG lands as a splice the
+ * composer joins once, and a parse failure yields a located `MERMAID_SYNTAX`
+ * diagnostic instead of being swallowed into a callout that verification
+ * could never see. Callouts stay for DISPLAY (a historical card shows the
+ * escaped source); they no longer decide the outcome.
  */
+import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import { mixHex } from "./themes";
+import type { ParsedPlanSource, PlanDiagramBlock, PlanReplacement } from "./plan-source";
 
 /** Renders one diagram source to an SVG string. `id` is unique per block. */
 export type DiagramRenderer = (id: string, source: string, dark?: boolean) => Promise<string>;
 
-export interface MermaidBlock {
-  /** Unique inert placeholder substituted into the document string. */
-  placeholder: string;
-  /** HTML-entity-decoded mermaid source from the block's inner text. */
-  source: string;
-}
-
-// Mermaid source cannot legally contain a nested closing </pre>, so a regex
-// over the document string is safe here; the document is re-serialized
-// wholesale anyway. The class match is a token match so `class="mermaid wide"`
-// still counts.
-const MERMAID_BLOCK = /<pre\b[^>]*\bclass\s*=\s*(?:"[^"]*(?<![\w-])mermaid(?![\w-])[^"]*"|'[^']*(?<![\w-])mermaid(?![\w-])[^']*')[^>]*>([\s\S]*?)<\/pre\s*>/gi;
-
-const BLOCK_PLACEHOLDER = (n: number) => `<!--omp-ui-diagram-${n}-->`;
-
 /**
- * Finds every `<pre class="mermaid">…</pre>` block, replaces each in `html`
- * with a unique inert HTML-comment placeholder, and returns the
- * placeholder→source pairs. The block's inner text is HTML-entity-decoded
- * (the agent writes `&lt;` for a literal `<` in labels).
+ * A mermaid PARSE failure: the source is wrong, so the agent can fix it.
+ * Anything else that rejects the pipeline (chunk import, layout/render
+ * exception after a good parse) is an application failure by absence.
  */
-export function extractMermaidBlocks(html: string): { html: string; blocks: MermaidBlock[] } {
-  const blocks: MermaidBlock[] = [];
-  const out = html.replace(MERMAID_BLOCK, (_match, inner: string) => {
-    const placeholder = BLOCK_PLACEHOLDER(blocks.length);
-    blocks.push({ placeholder, source: decodeEntities(inner) });
-    return placeholder;
-  });
-  return { html: out, blocks };
+export class DiagramSyntaxError extends Error {
+  /** Diagram-local line when the engine reported one; never an HTML column. */
+  readonly diagramLine: number | null;
+  constructor(message: string, diagramLine: number | null = null) {
+    super(message);
+    this.name = "DiagramSyntaxError";
+    this.diagramLine = diagramLine;
+  }
 }
 
 /** The canvas a plan diagram lands on, derived from the active Theme. */
@@ -55,56 +46,108 @@ export interface PlanCanvas {
   ink: string;
 }
 
+export interface DiagramTransform {
+  /** Splices into the composed document, in block order. */
+  replacements: PlanReplacement[];
+  /** `MERMAID_SYNTAX` (source) / `RENDER_INVARIANT` (application) findings. */
+  diagnostics: PlanDiagnostic[];
+}
+
 /**
- * Replaces every mermaid block in `html` with rendered SVG wrapped in
- * `<div class="omp-ui-diagram">`, or — when a block fails to render — an error
- * callout carrying the escaped source. Documents without mermaid blocks are
- * returned byte-identically and the mermaid chunk never loads.
+ * Renders every classified diagram block of the parsed source and returns
+ * the splices plus diagnostics. Blocks render sequentially — mermaid's
+ * `render()` is not re-entrant-safe across concurrent calls sharing one
+ * mermaid instance (the serialized queue lives in `renderMermaid`).
+ *
+ * A syntax failure yields a `MERMAID_SYNTAX` error diagnostic (source repair)
+ * AND a display callout carrying the escaped source, so a historical card can
+ * still show the block while a fresh proposal fails preflight. An engine
+ * failure yields a `RENDER_INVARIANT` diagnostic with repair `application` —
+ * rewriting the diagram would not help.
  *
  * When a `canvas` is given, the block renders for that canvas: `dark` selects
  * the mermaid palette and the error callout, and on a dark canvas authored
  * `classDef`/`style` hexes are re-fitted by `fitDarkPaint` so pale fills stay
  * readable under the canvas ink.
- *
- * Blocks render sequentially: mermaid's `render()` is not re-entrant-safe
- * across concurrent calls sharing one mermaid instance.
  */
-export async function renderMermaidBlocks(
-  html: string,
+export async function planDiagramTransform(
+  parsed: ParsedPlanSource,
   render: DiagramRenderer = renderMermaid,
   canvas?: PlanCanvas,
-): Promise<string> {
+): Promise<DiagramTransform> {
   const dark = canvas?.dark ?? false;
   const fit = canvas?.dark ? canvas : null;
-  const { html: staged, blocks } = extractMermaidBlocks(html);
-  let out = staged;
-  for (const [i, block] of blocks.entries()) {
-    let replacement: string;
+  const replacements: PlanReplacement[] = [];
+  const diagnostics: PlanDiagnostic[] = [];
+  for (const block of parsed.diagramBlocks) {
     try {
       const svg = await render(
-        `omp-ui-diagram-${i}`,
-        fit ? fitDarkPaint(block.source, fit.surface, fit.ink) : block.source,
+        `omp-ui-diagram-${block.blockIndex}`,
+        fit ? fitDarkPaint(block.sourceText, fit.surface, fit.ink) : block.sourceText,
         dark,
       );
-      replacement = `<div class="omp-ui-diagram">${svg}</div>`;
-    } catch {
+      replacements.push({
+        startOffset: block.pre.range.startOffset,
+        endOffset: block.pre.range.endOffset,
+        // The SVG is GENERATED output placed as data — it never passes
+        // through replacement-string semantics.
+        text: `<div class="omp-ui-diagram">${svg}</div>`,
+      });
+    } catch (err) {
+      diagnostics.push(diagramDiagnostic(block, err));
       // The callout itself lands on the canvas, so its palette follows the
       // canvas darkness; its <pre> is repainted by the guardrail code plane.
-      replacement =
-        `<div class="omp-ui-diagram-error" style="${
-          dark
-            ? "border:1px solid #c9963f;background:#2a1e12;color:#f0c9a0"
-            : "border:1px solid #b45309;background:#fdf6ec;color:#7c2d12"
-        };padding:8px 10px;border-radius:6px">` +
-        `<strong>diagram failed to render</strong>` +
-        `<pre>${escapeHtml(block.source)}</pre>` +
-        `</div>`;
+      replacements.push({
+        startOffset: block.pre.range.startOffset,
+        endOffset: block.pre.range.endOffset,
+        text:
+          `<div class="omp-ui-diagram-error" style="${
+            dark
+              ? "border:1px solid #c9963f;background:#2a1e12;color:#f0c9a0"
+              : "border:1px solid #b45309;background:#fdf6ec;color:#7c2d12"
+          };padding:8px 10px;border-radius:6px">` +
+          `<strong>diagram failed to render</strong>` +
+          `<pre>${escapeHtml(block.sourceText)}</pre>` +
+          `</div>`,
+      });
     }
-    // The placeholder is a unique comment token by construction, so a plain
-    // string replace cannot collide with authored content.
-    out = out.replace(block.placeholder, replacement);
   }
-  return out;
+  return { replacements, diagnostics };
+}
+
+function diagramDiagnostic(block: PlanDiagramBlock, err: unknown): PlanDiagnostic {
+  const loc = block.pre.range;
+  const base = {
+    code: "MERMAID_SYNTAX" as const,
+    stage: "diagram" as const,
+    severity: "error" as const,
+    blockIndex: block.blockIndex,
+    excerpt: block.sourceText.slice(0, 600),
+    location: {
+      startOffset: loc.startOffset,
+      endOffset: loc.endOffset,
+      line: block.pre.node.sourceCodeLocation?.startLine ?? 1,
+      column: block.pre.node.sourceCodeLocation?.startCol ?? 1,
+    },
+  };
+  if (err instanceof DiagramSyntaxError) {
+    return {
+      ...base,
+      repair: "source",
+      message: "the mermaid source does not parse",
+      detail:
+        err.message.slice(0, 1000) +
+        (err.diagramLine !== null ? ` (diagram line ${err.diagramLine})` : ""),
+    };
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    ...base,
+    code: "RENDER_INVARIANT",
+    repair: "application",
+    message: "the diagram engine failed after a successful parse",
+    detail: message.slice(0, 1000),
+  };
 }
 
 /* Authored-paint fit (issue #384): plans are told to colour diagrams with
@@ -250,13 +293,26 @@ let renderChain: Promise<unknown> = Promise.resolve();
  * it out of the initial renderer chunk). `dark` selects the palette matched to
  * the canvas the diagram lands on — both the plan and transcript paths pass it
  * (issues #361, #384).
- * Render errors re-throw as-is; each caller owns its fallback. Every call
- * serializes on the module chain — never call `mermaid.render` directly.
+ *
+ * Parse and render are separate steps so the PLAN path can tell a source
+ * defect (rejects as {@link DiagramSyntaxError}) from an engine defect
+ * (rejects as anything else → an application failure the agent cannot fix).
+ * Every call serializes on the module chain — never call `mermaid.render`
+ * directly.
  */
 export const renderMermaid: DiagramRenderer = (id, source, dark = false) => {
-  const run = renderChain.then(async () => {
+  const run = renderChain.then(async (): Promise<string> => {
     await ensureMermaid(dark);
+    // Lazy on purpose: the chunk must stay out of the initial renderer (and
+    // verifier) bundle; static import cannot express that.
     const { default: mermaid } = await import("mermaid");
+    // Syntax validation first, on the same serialized path: a source that
+    // cannot parse must never be reported as an engine problem.
+    try {
+      await mermaid.parse(source);
+    } catch (err) {
+      throw syntaxErrorFrom(err);
+    }
     const { svg } = await mermaid.render(id, source);
     return svg;
   });
@@ -266,6 +322,20 @@ export const renderMermaid: DiagramRenderer = (id, source, dark = false) => {
   );
   return run;
 };
+
+/** mermaid parse rejections are plain objects ({str, hash}); normalize them. */
+function syntaxErrorFrom(err: unknown): DiagramSyntaxError {
+  let text: string;
+  if (err !== null && typeof err === "object" && "str" in err && typeof err.str === "string") {
+    text = err.str;
+  } else if (err instanceof Error) {
+    text = err.message;
+  } else {
+    text = String(err);
+  }
+  const line = /line\s+(\d+)/i.exec(text);
+  return new DiagramSyntaxError(text, line === null ? null : Number(line[1]));
+}
 
 export function decodeEntities(text: string): string {
   return text

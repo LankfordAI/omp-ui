@@ -89,3 +89,16 @@ substitution receives the canvas darkness, so the plan review follows light
 and dark themes live. Discarding agent-authored colours is unchanged; the
 prompt's "explicit light canvas" wording was replaced in the same change
 because it described a contract the renderer no longer asks for.
+
+**Amended 2026-09-08 (#312 follow-up): the review consequence changed.** The
+html artifact is still the one and only plan, but under `html` a proposal is
+no longer *presented* the moment the agent proposes: main validates the
+file's bytes first (plan preflight — CONTEXT.md and ADR-0022 as amended), so
+what "the gate resolves" now splits into two outcomes. A detectable source
+defect never reaches the review: it answers the agent's propose call with
+located diagnostics and the artifact stays unreviewed until repaired and
+resubmitted. A passed proposal carries a main-authored `sourceHash` through
+the gate: answering execute re-reads the confined artifact and a changed
+file settles the gate as `invalidated` instead of starting implementation.
+The reference that gets pinned and executed is still exactly this file —
+preflight changes who sees it first, not what the implementer runs.

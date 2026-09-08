@@ -114,7 +114,8 @@ export interface PlanItem {
   planAbsPath: string | null;
   /** Plan markdown snapshot read off disk; null until loaded or when unreadable. */
   text: string | null;
-  status: "pending" | "executed" | "refined";
+  /** `invalidated` = the validated source changed under review (§6), NOT a verdict. */
+  status: "pending" | "executed" | "refined" | "invalidated";
 }
 export interface CommandItem {
   kind: "command";

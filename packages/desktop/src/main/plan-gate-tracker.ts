@@ -65,6 +65,22 @@ export class PlanGateTracker implements FrameObserver {
     this.clear(tabId);
   }
 
+  /**
+   * The validated bytes changed under review (§6): the gate closes WITHOUT
+   * a user verdict — `invalidated` is neither execute nor refine, so no
+   * implementation row and no advisor fold can follow it.
+   */
+  invalidateGate(tabId: string): void {
+    const gate = this.gates.get(tabId);
+    if (gate === undefined || gate.pending === null) return;
+    this.gates.set(tabId, {
+      pending: null,
+      settle: { frameId: gate.pending.frameId, verdict: "invalidated" },
+    });
+    this.deps.attention?.planSettled(tabId);
+    void this.deps.broadcast();
+  }
+
   private clear(tabId: string): void {
     if (this.gates.delete(tabId)) void this.deps.broadcast();
   }
@@ -82,6 +98,9 @@ export class PlanGateTracker implements FrameObserver {
         title: review.title,
         planFilePath: review.planFilePath,
         planAbsPath: review.planAbsPath,
+        // An HTML gate that passed preflight carries main's hash (§5.3);
+        // the ephemeral record copies it from the delivered request.
+        ...(review.sourceHash !== undefined ? { sourceHash: review.sourceHash } : {}),
         frameId,
         proposedAt: new Date().toISOString(),
       },

@@ -68,12 +68,15 @@ import {
   type TranscriptWidth,
   type WorktreeReleaseOptions,
   type SessionSummary,
+  type PlanReviewVerdict,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
 import { SessionManager } from "./session-manager";
+import { PlanVerifier } from "./plan-verifier";
+import { readConfinedPlanFile } from "./plan-file";
 import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
@@ -87,6 +90,8 @@ export class MainBackend {
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   readonly sessions: SessionManager;
+  /** The one plan verification service (§4): owned here, injected downward. */
+  private readonly planVerifier: PlanVerifier;
   /** OS notifications for background sessions (issue #271). */
   private readonly notifier: DesktopNotifier;
   private readonly appUpdater: AppUpdater;
@@ -172,6 +177,7 @@ export class MainBackend {
       icon: () => (fs.existsSync(iconPath) ? iconPath : null),
       send: (channel, ...args) => this.send(channel, ...args),
     });
+    this.planVerifier = new PlanVerifier();
     this.sessions =
       opts.sessions ??
       new SessionManager({
@@ -186,6 +192,7 @@ export class MainBackend {
         broadcast: () => this.broadcast(),
         attention: this.notifier,
         spawnGate: this.spawnGate,
+        planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
@@ -495,6 +502,12 @@ export class MainBackend {
         [CH.generateTitle]: (projectCwd: string, prompt: string) =>
           this.generateTitle(projectCwd, prompt),
         [CH.readPlanFile]: (tabId: string, absPath: string) => this.readPlanFile(tabId, absPath),
+        [CH.answerPlanReview]: (
+          tabId: string,
+          frameId: string,
+          verdict: PlanReviewVerdict,
+          sourceHash: string | null,
+        ) => this.sessions.answerPlanReview(tabId, frameId, verdict, sourceHash),
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
         [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
           this.projectOpener.open(projectPath, target),
@@ -773,32 +786,39 @@ export class MainBackend {
   killAll(): void {
     this.notifier.dispose();
     this.providerOAuth.dispose();
+    this.planVerifier.dispose();
     this.sessions.killAll();
     void this.remote.stop();
   }
 
   /**
    * Reads a plan artifact for the review pane. The path arrives from the
-   * renderer, which got it from the agent's own plan slug, so it is confined to
-   * the session's own lineage dir before any read — a crafted `local://`
-   * name must not turn this channel into an arbitrary file reader.
+   * renderer, which got it from the agent's own plan slug, so it is confined
+   * to the session's own lineage dir before any read — a crafted `local://`
+   * name must not turn this channel into an arbitrary file reader. While an
+   * HTML gate is pending the VALIDATED snapshot answers instead of freshly
+   * changed bytes (§5.4), and validation and presentation share one reader
+   * (§5.2), so the two can never disagree about what was reviewed.
    */
   private async readPlanFile(tabId: string, absPath: string): Promise<string | null> {
+    const snapshot = this.sessions.planSnapshotFor(tabId, absPath);
+    if (snapshot !== null) return snapshot.text;
     const record = this.registry.sessions.find((s) => s.tabId === tabId);
     if (!record) return null;
     const root = path.resolve(this.sessionsRoot, record.lineageDir);
-    const resolved = path.resolve(absPath);
-    if (!isWithin(root, resolved)) {
-      console.warn("[plan] refusing to read outside the lineage dir:", resolved);
+    const read = await readConfinedPlanFile(root, absPath);
+    if (!read.ok) {
+      if (read.reason === "outside") {
+        console.warn("[plan] refusing to read outside the lineage dir:", absPath);
+      }
+      // The agent may not have written the file yet — absent is not an error
+      // for a plain read; the gate path maps it to PLAN_READ_FAILED instead.
       return null;
     }
-    try {
-      return await fs.promises.readFile(resolved, "utf8");
-    } catch {
-      // The agent may not have written the file yet — absent is not an error.
-      return null;
-    }
+    return read.text;
   }
+
+
 
   /** omp's own advisor defaults, so the composer can show what it inherits. */
   private advisorDefaults(projectCwd: string): AdvisorDefaults {

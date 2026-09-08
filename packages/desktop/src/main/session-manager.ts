@@ -19,6 +19,7 @@ import {
   readWorktreeDirty,
   renameWorktreeBranch,
   linkProjectOmpDir,
+  isHtmlPlanPath,
   isWithin,
   mcpRuntimeStatusMessage,
   normalizeControlFrame,
@@ -28,6 +29,9 @@ import {
   reclaimCheckouts as reclaimWorktreeCheckouts,
   settledWithin,
   syncWorktree,
+  type PlanAnswerResult,
+  type PlanRenderResult,
+  type PlanReviewVerdict,
   type ProviderKeys,
   type Registry,
   type WorktreeCheckoutDescriptor,
@@ -66,6 +70,8 @@ import {
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
+import { PlanPreflightController } from "./plan-preflight";
+import { readConfinedPlanFile } from "./plan-file";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
@@ -104,6 +110,13 @@ export interface SessionManagerDependencies {
   broadcast: () => Promise<void>;
   attention?: Attention;
   /**
+   * The main-owned plan verifier service (issue #312 follow-up). Absent (or
+   * in unit tests) answers every verification `unavailable` — a proposal is
+   * never presented on an inconclusive gate, and never blocked by a missing
+   * Electron runtime either: the seam keeps the gate semantics identical.
+   */
+  planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<PlanRenderResult>;
+  /**
    * Dev/test model pins this instance forces on every spawn it makes
    * (docs/development.md). Absent or blank means an ungated launch.
    */
@@ -121,6 +134,9 @@ export class SessionManager {
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
   private readonly viewTracker: ViewTracker;
   private readonly planGates: PlanGateTracker;
+  private readonly planPreflight: PlanPreflightController;
+  /** One in-flight execute re-check per tab (§6: atomic settle reservation). */
+  private readonly planAnswerReservations = new Set<string>();
   private readonly frameObservers: FrameObserver[] = [];
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
@@ -157,9 +173,38 @@ export class SessionManager {
     });
     this.planGates = new PlanGateTracker({
       registry: deps.registry,
-      broadcast: () => deps.broadcast(),
+      broadcast: () => this.deps.broadcast(),
       attention: deps.attention,
       suspendForVerdict: (tabId) => this.hibernation.suspendForVerdict(tabId),
+    });
+    this.planPreflight = new PlanPreflightController({
+      registry: deps.registry,
+      getSessionsRoot: deps.getSessionsRoot,
+      readPlanFile: (root, absPath) => readConfinedPlanFile(root, absPath),
+      verify:
+        deps.planVerify ??
+        (async () => ({
+          status: "unavailable" as const,
+          diagnostics: [
+            {
+              code: "VERIFIER_UNAVAILABLE" as const,
+              stage: "service" as const,
+              repair: "application" as const,
+              severity: "error" as const,
+              message: "no plan verifier is wired into this session manager",
+            },
+          ],
+        })),
+      getThemeId: () => deps.registry.getSetting("themeId") ?? "",
+      sendToLive: (entry, frame) => {
+        if (entry.kind === "rpc-ui") entry.rpc?.send(frame);
+      },
+      deliver: (tabId, frame, entry) => this.deliverFrame(tabId, frame, entry),
+      onHoldReleased: (tabId) => {
+        // §5.7: a hold that ends internally rebases the stall clock — the
+        // latch is cleared BEFORE this check, so the transition cannot be lost.
+        if (!this.awaitingHumanAnswer(tabId)) this.stallWatchdog.humanAnswered(tabId);
+      },
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -175,7 +220,7 @@ export class SessionManager {
       getLive: (tabId) => this.live.get(tabId),
     });
     this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
-    this.frameObservers = [this.hibernation, this.planGates, this.stallWatchdog, this.toolControl, this.goals];
+    this.frameObservers = [this.hibernation, this.planGates, this.planPreflight, this.stallWatchdog, this.toolControl, this.goals];
   }
 
   get liveCount(): number {
@@ -210,6 +255,7 @@ export class SessionManager {
     this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
     this.toolControl.disposeAll();
+    this.planPreflight.clearAll();
   }
 
   private killLive(entry: LiveEntry): void {
@@ -474,6 +520,7 @@ export class SessionManager {
       if (watcherStopped) {
         this.stallWatchdog.dispose(tabId);
         this.hibernation.dispose(tabId);
+        this.planPreflight.dispose(tabId);
         if (fresh) {
           if (this.deps.registry.sessions.some((session) => session.tabId === tabId)) {
             try {
@@ -619,8 +666,18 @@ export class SessionManager {
           entry.capabilities = snapshot;
           this.toolControl.observe(record.tabId, snapshot, entry);
         }
-        for (const obs of this.frameObservers) obs.onFrame(record.tabId, frame, entry);
-        this.deps.send(CH.onRpcFrame, record.tabId, frame);
+        // §5: claim an HTML plan select BEFORE observers and the client
+        // broadcast — no pendingPlan, plan card, dialog, notification, or
+        // awaiting-user badge may exist while validation runs. Identity is
+        // checked against THIS entry, never a successor's.
+        if (
+          entry.kind === "rpc-ui" &&
+          this.live.get(record.tabId) === entry &&
+          this.planPreflight.claimFrame(record.tabId, frame, entry)
+        ) {
+          return;
+        }
+        this.deliverFrame(record.tabId, frame, entry);
       },
       onExit: (code) => this.handleExit(record.tabId, entry, code ?? -1),
       onError: (msg) =>
@@ -631,6 +688,12 @@ export class SessionManager {
     this.watcherHub.start(record);
     await this.deps.broadcast();
     return { tabId: record.tabId };
+  }
+
+  /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */
+  private deliverFrame(tabId: string, frame: RpcFrame, entry: LiveEntry): void {
+    for (const obs of this.frameObservers) obs.onFrame(tabId, frame, entry);
+    this.deps.send(CH.onRpcFrame, tabId, frame);
   }
 
   async setSessionAdvisor(
@@ -981,6 +1044,7 @@ export class SessionManager {
 
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
+    if (this.planPreflight.isHeld(tabId)) return true;
     return this.hibernation.hasOpenRequests(tabId);
   }
 
@@ -1003,6 +1067,22 @@ export class SessionManager {
   }
 
   rpcSend(tabId: string, cmd: RpcFrame): void {
+    // §6: a response aimed at a frame main holds, or at a PENDING HTML gate,
+    // is consumed here — only the acknowledged answer path may settle those.
+    // Markdown gates and all other extension traffic pass through unchanged.
+    const control = normalizeControlFrame(cmd);
+    if (control !== null && control.kind === "ext_response" && typeof control.id === "string") {
+      if (this.planPreflight.holdsFrame(tabId, control.id)) return;
+      const gate = this.planGates.gate(tabId);
+      if (
+        gate?.pending !== null &&
+        gate !== undefined &&
+        gate.pending.frameId === control.id &&
+        isHtmlPlanPath(gate.pending.planFilePath)
+      ) {
+        return;
+      }
+    }
     const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
     for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
     if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId))
@@ -1018,6 +1098,90 @@ export class SessionManager {
       default:
         unreachableLiveEntry(entry);
     }
+  }
+
+  /**
+   * The acknowledged answer for a plan-review gate (§6). The only path that
+   * may settle an HTML gate: verifies the live entry, the gate identity, and
+   * — for `execute` — that the artifact still hashes to the validated
+   * snapshot. The settle reservation is atomic before the read, so two
+   * clients cannot both execute.
+   */
+  async answerPlanReview(
+    tabId: string,
+    frameId: string,
+    verdict: PlanReviewVerdict,
+    sourceHash: string | null,
+  ): Promise<PlanAnswerResult> {
+    const entry = this.live.get(tabId);
+    if (entry === undefined || entry.kind !== "rpc-ui") {
+      return { status: "rejected", reason: "unavailable" };
+    }
+    const pending = this.planGates.gate(tabId)?.pending ?? null;
+    if (pending === null || pending.frameId !== frameId) {
+      return { status: "rejected", reason: "stale" };
+    }
+    const html = isHtmlPlanPath(pending.planFilePath);
+    if (!html || verdict === "refine") {
+      // Markdown keeps un-gated semantics; refine needs the gate identity
+      // but NOT unchanged disk bytes.
+      this.settlePlanGateToChild(tabId, entry, frameId, verdict);
+      return { status: "accepted" };
+    }
+    if (pending.sourceHash === undefined || sourceHash !== pending.sourceHash) {
+      return { status: "rejected", reason: "stale" };
+    }
+    if (this.planAnswerReservations.has(tabId)) {
+      return { status: "rejected", reason: "stale" };
+    }
+    this.planAnswerReservations.add(tabId);
+    try {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      const absPath = pending.planAbsPath;
+      if (record === undefined || absPath === null) {
+        return { status: "rejected", reason: "unavailable" };
+      }
+      const root = path.resolve(this.deps.getSessionsRoot(), record.lineageDir);
+      const read = await readConfinedPlanFile(root, absPath);
+      if (!read.ok || read.sourceHash !== pending.sourceHash) {
+        // Changed bytes under review: no implementation starts; the agent
+        // hears SOURCE_CHANGED, the clients see an invalidated settlement.
+        this.planGates.invalidateGate(tabId);
+        this.planPreflight.sendSourceChanged(entry, frameId, pending.planFilePath);
+        this.planPreflight.clearSnapshot(tabId);
+        return { status: "rejected", reason: "source-changed" };
+      }
+      this.settlePlanGateToChild(tabId, entry, frameId, verdict);
+      return { status: "accepted" };
+    } finally {
+      this.planAnswerReservations.delete(tabId);
+    }
+  }
+
+  /** While an HTML gate is pending, plan reads answer from the snapshot (§5.4). */
+  planSnapshotFor(tabId: string, absPath: string): { text: string; sourceHash: string } | null {
+    return this.planPreflight.snapshotFor(tabId, absPath);
+  }
+
+  /**
+   * The generation-bound private settle path (§5.7): outgoing observer
+   * bookkeeping, snapshot clear, then send to exactly the verified entry —
+   * never through the generic `rpcSend`.
+   */
+  private settlePlanGateToChild(
+    tabId: string,
+    entry: LiveEntry,
+    frameId: string,
+    value: PlanReviewVerdict,
+  ): void {
+    const cmd: RpcFrame = { type: "extension_ui_response", id: frameId, value };
+    const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
+    for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
+    if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId)) {
+      this.stallWatchdog.humanAnswered(tabId);
+    }
+    this.planPreflight.clearSnapshot(tabId);
+    if (entry.kind === "rpc-ui") entry.rpc?.send(cmd);
   }
 
   killShell(tabId: string): void {
@@ -1105,6 +1269,7 @@ export class SessionManager {
     this.stallWatchdog.dispose(tabId);
     this.hibernation.dispose(tabId);
     this.toolControl.dispose(tabId);
+    this.planPreflight.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     try {

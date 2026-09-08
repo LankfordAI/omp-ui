@@ -459,17 +459,28 @@ export const en = {
   "plan.card.pending": "pending",
   "plan.card.executed": "executed",
   "plan.card.refined": "refined",
+  "plan.card.invalidated": "invalidated",
   "plan.card.show": "show plan",
   "plan.card.proposedPlan": "proposed plan",
-  // Plan verification failures (plan-document lib + PlanFallback)
-  "plan.fallback.verificationFailed":
-    "This plan could not be displayed as a document ({reason}). Showing the raw plan source instead — execute only if it reads right, otherwise refine and let the agent rewrite it.",
-  "plan.verify.diagramPlaceholder": "a diagram placeholder survived substitution",
-  "plan.verify.highlightPlaceholder": "a highlight placeholder survived substitution",
-  "plan.verify.guardrailMissing": "the readability guardrail stylesheet is missing",
-  "plan.verify.noVisibleContent": "the document body has no visible content",
-  "plan.verify.preparationFailed": "document preparation failed: {message}",
-  "plan.verify.renderedEmpty": "prepared document rendered empty",
+  // Plan verification diagnostics (issue #312 follow-up): stable machine
+  // codes here, words here — never prose as the discriminator.
+  "plan.fallback.couldNotDisplay": "This plan could not be displayed as a document.",
+  "plan.fallback.sourceNote":
+    "The artifact on disk is unchanged. Reviewing this source is a real review — execute only if it reads right.",
+  "plan.fallback.moreDiagnostics": "(+{count} more)",
+  "plan.diagnostic.htmlParseError": "malformed HTML",
+  "plan.diagnostic.codeMarkup": "markup inside a code or diagram block that should have been escaped",
+  "plan.diagnostic.externalResource": "an external resource the plan document cannot load",
+  "plan.diagnostic.mermaidSyntax": "a mermaid diagram that does not parse",
+  "plan.diagnostic.renderInvariant": "omp-ui could not prepare or verify the document (an application failure — not a fault in the plan)",
+  "plan.diagnostic.emptyDocument": "no visible content after preparation",
+  "plan.diagnostic.layoutEmpty": "the document laid out no visible content",
+  "plan.diagnostic.layoutOverflow": "content overflows the document horizontally",
+  "plan.diagnostic.planReadFailed": "the plan artifact could not be read",
+  "plan.diagnostic.sourceChanged": "the plan changed after validation",
+  "plan.diagnostic.verifierUnavailable": "verification could not conclude (an application failure — not a fault in the plan)",
+  "plan.diagnostic.verifierTimeout": "verification timed out (an application failure — not a fault in the plan)",
+  "plan.diagnostic.planResourceLimit": "the plan exceeded a verifier resource limit",
   // GeneralPage
   "settings.general.defaultSessionMode": "Default session mode",
   "settings.general.defaultSessionModeHint":
@@ -1254,6 +1265,7 @@ export const en = {
   "rail.plans.waiting": "waiting on you",
   "rail.plans.executed": "executed",
   "rail.plans.sentBack": "sent back",
+  "rail.plans.invalidated": "source changed",
   "rail.plans.emptyTitle": "No proposed plans",
   "rail.plans.emptyHint": "A plan-mode draft appears here once the agent writes it up.",
   "rail.plans.openReview": "open the plan review",

@@ -5,7 +5,7 @@ import { useTheme } from "./themes";
 /**
  * SVG for a settled mermaid source, or null (streaming, in flight, failed —
  * the caller keeps showing the code block). Transcript counterpart of
- * renderMermaidBlocks for HTML plans (issue #285, extended to the transcript by
+ * planDiagramTransform for HTML plans (issue #285, extended to the transcript by
  * issue #361): mermaid runs in the trusted renderer with securityLevel
  * "strict"; the returned SVG is sanitizer output, inserted like KaTeX markup
  * in Markdown.tsx.

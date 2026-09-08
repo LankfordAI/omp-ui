@@ -44,6 +44,7 @@ import type {
 } from "./types";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { RpcFrame } from "./rpc/codec";
+import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
   bool,
@@ -56,6 +57,7 @@ import {
   nullable,
   num,
   ompSettingValueCodec,
+  oneOf,
   planFormatCodec,
   projectOpenTargetCodec,
   remoteBindCodec,
@@ -456,6 +458,22 @@ export const BACKEND_CHANNELS = {
   readPlanFile: {
     channel: "plan:read",
     ...request<[tabId: string, absPath: string], string | null>([str(), str()]),
+  },
+  /**
+   * The acknowledged answer for a plan-review gate (issue #312 follow-up).
+   * Only this request may settle a tracked HTML gate: main verifies the live
+   * session, the gate identity, and — for `execute` — that the artifact still
+   * hashes to the preflight `sourceHash` before answering the agent's blocked
+   * select. Two clients can therefore never both execute, and a changed file
+   * cannot start an implementation. `sourceHash` is null for markdown gates,
+   * which keep their un-gated semantics.
+   */
+  answerPlanReview: {
+    channel: "plan:answer",
+    ...request<
+      [tabId: string, frameId: string, verdict: PlanReviewVerdict, sourceHash: string | null],
+      PlanAnswerResult
+    >([str(), str(), oneOf(PLAN_EXECUTE, PLAN_REFINE), nullable(str())]),
   },
   /**
    * Opens an absolute path with the system default handler (a browser for the

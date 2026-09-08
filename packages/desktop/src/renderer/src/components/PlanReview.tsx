@@ -13,7 +13,7 @@ import { shortLabel, splitRole } from "./AdvisorControl";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
-import { PlanFallback } from "./PlanFallback";
+import { PlanDiagnostics, PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import {
@@ -147,7 +147,21 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const planText = useStore((s) => s.rpc[tabId]?.planText);
   /** Present only when the session planned in html format and the file read. */
   const planHtml = useStore((s) => s.rpc[tabId]?.planHtml);
-  const prepared = usePreparedPlanDocument(planHtml ?? null);
+  // The hook is told WHICH source identity it prepares (§6): a previous
+  // plan's ready state can never enable a new proposal, and the readiness
+  // rides into the store's execution guard below.
+  const prepared = usePreparedPlanDocument(planHtml ?? null, review?.request.sourceHash);
+  const setPlanReadiness = useStore((s) => s.setPlanReadiness);
+  useEffect(() => {
+    if (planHtml === null) {
+      setPlanReadiness(tabId, null);
+      return;
+    }
+    setPlanReadiness(tabId, {
+      status: prepared.status,
+      ...(prepared.status !== "pending" ? { identity: prepared.identity } : {}),
+    });
+  }, [planHtml, prepared, tabId, setPlanReadiness]);
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
@@ -289,12 +303,21 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
       : sourceWorktree !== null
         ? sourceWorktree.branch
         : branch.summary;
+  // §6: for an HTML plan, execute waits for the local preparation too —
+  // pending, failed, unavailable, or a preparation made for a DIFFERENT
+  // source identity all keep execute disabled. Refine and defer stay live.
+  const htmlNotReady =
+    planHtml !== null &&
+    (prepared.status !== "ready" ||
+      (review?.request.sourceHash !== undefined &&
+        prepared.identity !== review.request.sourceHash));
   const executeDisabled =
-    context === "worktree"
+    htmlNotReady ||
+    (context === "worktree"
       ? worktreeSel === null ||
         worktreeSel.branch.trim() === "" ||
         (worktreeSel.baseBranch !== null && worktreeSel.baseBranch.trim() === "")
-      : branchApplies && (branch.checkingOut || branch.branchInvalid);
+      : branchApplies && (branch.checkingOut || branch.branchInvalid));
 
   const refine = () => {
     const notes = { text: changes, images: images.length ? images : undefined };
@@ -431,22 +454,42 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             {(!compact || compactStep === "review") && (
               <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
                 {planHtml ? (
-                  prepared.status === "failed" ? (
+                  prepared.status === "failed" ||
+                  (prepared.status === "unavailable" && prepared.doc === null) ? (
                     <PlanFallback
-                      reason={prepared.reason}
+                      diagnostics={
+                        prepared.status === "failed"
+                          ? prepared.diagnostics
+                          : prepared.status === "unavailable"
+                            ? prepared.diagnostics
+                            : []
+                      }
                       source={planText ?? planHtml}
                       className="min-h-0 flex-1"
                     />
                   ) : (
-                    // sandbox="" is the empty token list: no scripts, no same-origin
-                    // access, no forms, no popups, no navigation. srcDoc keeps the
-                    // read on the confined plan:read channel rather than a file:// URL.
-                    <iframe
-                      title={t("plan.review.proposedPlan")}
-                      sandbox=""
-                      srcDoc={prepared.status === "ready" ? prepared.doc : ""}
-                      className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
-                    />
+                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                      {prepared.status === "unavailable" && (
+                        // A remote-specific rendering failure is an APPLICATION
+                        // failure: named diagnostics, never a rewrite request.
+                        <PlanDiagnostics
+                          diagnostics={prepared.diagnostics}
+                          className="shrink-0 rounded-md border border-line bg-sunken px-3 py-2 text-xs"
+                        />
+                      )}
+                      <iframe
+                        title={t("plan.review.proposedPlan")}
+                        sandbox=""
+                        srcDoc={
+                          prepared.status === "ready"
+                            ? prepared.doc
+                            : prepared.status === "unavailable"
+                              ? (prepared.doc ?? "")
+                              : ""
+                        }
+                        className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
+                      />
+                    </div>
                   )
                 ) : planText ? (
                   <Markdown text={planText} />
