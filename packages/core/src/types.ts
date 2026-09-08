@@ -128,7 +128,7 @@ export interface MergeBackStatus {
   ahead: number;
   /** Commits on destination that branch lacks. */
   behind: number;
-  /** `git status --porcelain` non-empty in the worktree checkout; null when no path was given or it is unreadable. */
+  /** User-owned uncommitted or untracked changes in the worktree checkout (the generated project `.omp` link excluded, issue #417); null when no path was given or it is unreadable. */
   worktreeDirty: boolean | null;
   preview: MergePreview;
 }

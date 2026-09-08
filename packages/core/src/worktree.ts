@@ -462,18 +462,36 @@ export async function resolveMergeDestination(
   return resolveMergeDestinationForCurrent(projectCwd, base, await currentBranch(projectCwd));
 }
 
-/**
- * True when the checkout at `worktreePath` has uncommitted or untracked
- * changes (issue #388). Any failure — not a repo, missing path — resolves to
- * null, "unreadable", never an error. `.omp` is a symlink omp-ui creates; it
- * is gitignored in most repos but not all, and is deliberately not
- * special-cased: a repo that would show it as untracked shows it in
- * `git status` too.
- */
-export async function readWorktreeDirty(worktreePath: string): Promise<boolean | null> {
+/** True only for the `.omp` symlink shape {@link linkProjectOmpDir} owns. */
+async function isLinkedProjectOmpDir(
+  projectCwd: string,
+  worktreePath: string,
+): Promise<boolean> {
+  const candidate = path.join(worktreePath, ".omp");
   try {
-    const out = await git(worktreePath, ["status", "--porcelain", "--untracked-files=normal"]);
-    return out.trim() !== "";
+    if (!(await fs.promises.lstat(candidate)).isSymbolicLink()) return false;
+    return sameCheckoutPath(candidate, path.join(projectCwd, ".omp"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when the checkout at `worktreePath` has user-owned uncommitted or
+ * untracked changes (issues #388, #417). The exact untracked `.omp` symlink
+ * omp-ui creates is application state, so it does not make the checkout dirty;
+ * another `.omp`, or any status beside that link, still does. Any failure —
+ * not a repo, missing path — resolves to null, "unreadable", never an error.
+ */
+export async function readWorktreeDirty(
+  projectCwd: string,
+  worktreePath: string,
+): Promise<boolean | null> {
+  try {
+    const out = (await git(worktreePath, ["status", "--porcelain", "--untracked-files=normal"])).trim();
+    if (out === "") return false;
+    if (out !== "?? .omp") return true;
+    return !(await isLinkedProjectOmpDir(projectCwd, worktreePath));
   } catch {
     return null;
   }
@@ -584,7 +602,7 @@ export async function readMergeBackStatus(
       hasRef(projectCwd, `refs/heads/${destination}`),
       hasRef(projectCwd, "MERGE_HEAD"),
       readDestinationCheckout(projectCwd, destination),
-      worktreePath === null ? Promise.resolve(null) : readWorktreeDirty(worktreePath),
+      worktreePath === null ? Promise.resolve(null) : readWorktreeDirty(projectCwd, worktreePath),
     ]);
   if (!branchExists || !destinationExists) {
     return {
@@ -792,10 +810,11 @@ export async function mergeWorktreeBranch(
  * IN PLACE (MERGE_HEAD and the files) and reported — that is the point.
  */
 export async function syncWorktree(
+  projectCwd: string,
   worktreePath: string,
   source: string,
 ): Promise<WorktreeSyncResult> {
-  if ((await readWorktreeDirty(worktreePath)) !== false) {
+  if ((await readWorktreeDirty(projectCwd, worktreePath)) !== false) {
     throw new Error("commit or discard the worktree's changes before syncing");
   }
   // Worktrees share refs; the read answers in any checkout of the repo.

@@ -887,7 +887,7 @@ export class SessionManager {
       // Issue #388: a dirty checkout is never force-removed by a return.
       // Merge-only and keep-branch stay available — those paths do not
       // remove the checkout; the dialog's delete offers the loss explicitly.
-      if ((await readWorktreeDirty(wt.path)) === true) {
+      if ((await readWorktreeDirty(record.projectCwd, wt.path)) === true) {
         throw new Error(
           "the worktree has uncommitted changes — commit or discard them before returning",
         );
@@ -940,7 +940,7 @@ export class SessionManager {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       if (!record.worktree) throw new Error("session does not run in a worktree");
-      return syncWorktree(record.worktree.path, source);
+      return syncWorktree(record.projectCwd, record.worktree.path, source);
     });
   }
 

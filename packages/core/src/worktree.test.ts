@@ -421,10 +421,32 @@ describe("readWorktreeDirty", () => {
     const branch = mintWorktreeBranch();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
-    expect(await readWorktreeDirty(wt)).toBe(false);
+    expect(await readWorktreeDirty(dir, wt)).toBe(false);
     fs.writeFileSync(path.join(wt, "draft.txt"), "work in progress\n");
-    expect(await readWorktreeDirty(wt)).toBe(true);
-    expect(await readWorktreeDirty(path.join(dir, "nowhere"))).toBeNull();
+    expect(await readWorktreeDirty(dir, wt)).toBe(true);
+    expect(await readWorktreeDirty(dir, path.join(dir, "nowhere"))).toBeNull();
+  });
+
+  it("ignores the generated project .omp link but not a different symlink", async () => {
+    const dir = await tmpRepo();
+    await commitFile(dir, ".gitignore", ".omp/\n", "ignore project config");
+    fs.mkdirSync(path.join(dir, ".omp"));
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await linkProjectOmpDir(dir, wt);
+
+    expect(await readWorktreeDirty(dir, wt)).toBe(false);
+    expect((await readMergeBackStatus(dir, branch, "main", wt)).worktreeDirty).toBe(false);
+    fs.writeFileSync(path.join(wt, "draft.txt"), "work in progress\n");
+    expect(await readWorktreeDirty(dir, wt)).toBe(true);
+    fs.rmSync(path.join(wt, "draft.txt"));
+
+    fs.rmSync(path.join(wt, ".omp"));
+    const elsewhere = path.join(dir, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(wt, ".omp"), "junction");
+    expect(await readWorktreeDirty(dir, wt)).toBe(true);
   });
 });
 
@@ -898,10 +920,10 @@ describe("syncWorktree", () => {
     await addWorktree(dir, wt, branch, "main");
     await commitFile(dir, "new.txt", "n\n", "main moves on");
 
-    expect(await syncWorktree(wt, "main")).toEqual({ kind: "merged", source: "main", files: [] });
+    expect(await syncWorktree(dir, wt, "main")).toEqual({ kind: "merged", source: "main", files: [] });
     expect(fs.readFileSync(path.join(wt, "new.txt"), "utf8")).toBe("n\n");
     // Catching up twice is a no-op, not an empty merge.
-    expect(await syncWorktree(wt, "main")).toEqual({
+    expect(await syncWorktree(dir, wt, "main")).toEqual({
       kind: "up-to-date",
       source: "main",
       files: [],
@@ -917,7 +939,7 @@ describe("syncWorktree", () => {
     await commitFile(wt, "conflict.txt", "worktree side\n", "branch edit");
     await commitFile(dir, "conflict.txt", "main side\n", "main edit");
 
-    const result = await syncWorktree(wt, "main");
+    const result = await syncWorktree(dir, wt, "main");
     expect(result).toEqual({ kind: "conflicts", source: "main", files: ["conflict.txt"] });
     // The merge is in progress in the WORKTREE — that is the point (issue #387).
     await expect(git(wt, ["rev-parse", "--verify", "MERGE_HEAD"])).resolves.toBeTruthy();
@@ -932,7 +954,7 @@ describe("syncWorktree", () => {
     await commitFile(dir, "new.txt", "n\n", "main moves on");
     fs.writeFileSync(path.join(wt, "draft.txt"), "uncommitted\n");
 
-    await expect(syncWorktree(wt, "main")).rejects.toThrow(
+    await expect(syncWorktree(dir, wt, "main")).rejects.toThrow(
       /commit or discard the worktree's changes before syncing/,
     );
     expect((await git(wt, ["rev-parse", "HEAD"])).trim()).toBe(
@@ -946,7 +968,7 @@ describe("syncWorktree", () => {
     const branch = mintWorktreeBranch();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
-    await expect(syncWorktree(wt, "gone")).rejects.toThrow(/no longer exists/);
+    await expect(syncWorktree(dir, wt, "gone")).rejects.toThrow(/no longer exists/);
   });
 });
 

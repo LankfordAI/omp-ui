@@ -3167,6 +3167,38 @@ describe("release worktree (issue #334)", () => {
     expect(stdout).not.toContain("omp-ui/wt-release");
   });
 
+  it("returns when the generated .omp link is the only untracked entry (issue #417)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    fs.writeFileSync(path.join(project, ".gitignore"), ".omp/\n");
+    await execFileP("git", ["add", ".gitignore"], { cwd: project });
+    await execFileP("git", ["commit", "-q", "-m", "ignore project config"], { cwd: project });
+    fs.mkdirSync(path.join(project, ".omp"));
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-omp-link";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch, baseRef: null, baseBranch: null } },
+    });
+    expect(fs.lstatSync(path.join(worktreePath, ".omp")).isSymbolicLink()).toBe(true);
+
+    const result = await manager.releaseWorktree(tabId, {
+      keepBranch: false,
+      mergedInto: null,
+    });
+
+    expect(result.checkoutKept).toBeNull();
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    expect(fs.existsSync(worktreePath)).toBe(false);
+  });
+
   it("rebinds the session file's cwd so omp will resume it in the project", async () => {
     const { manager, registry } = setup();
     const { project, worktreePath, tabId } = await mergedWorktreeSession(

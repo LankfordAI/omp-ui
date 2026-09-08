@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.10.3](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.3). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+
+- Fixed the Finish worktree dialog disabling **return this session** — and return/sync refusing — when the only uncommitted entry in the worktree checkout was omp-ui's own generated `.omp` project-config link, in repos that ignore `.omp/` with a trailing slash (#417).
 
 ## Choose a download
 
