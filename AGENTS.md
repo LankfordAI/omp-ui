@@ -106,3 +106,8 @@ commit or push there only when asked.
   When behavior seems unchanged, first check which build the user is running
   (`git merge-base --is-ancestor <fix> HEAD` against the binary's bundle)
   before reopening the investigation.
+- In either checkout, when the user asks for a push, publish **everything unpushed**
+  on that branch — commits you did not author included — rather than only your own,
+  and without stopping to ask per commit; say in your report what the push carried.
+  A local session branch whose patch is already upstream (`git cherry -v`) is spent,
+  not unpushed work: report the ref, don't push a duplicate.
