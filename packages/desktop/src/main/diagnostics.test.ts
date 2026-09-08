@@ -81,13 +81,11 @@ async function unzipEntry(zipPath: string, wanted: string): Promise<string> {
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
   Promise.resolve(handlers.get(ch)!(null, ...args));
 
-function makeBackend(): MainBackend {
-  const be = new MainBackend(win as never, registryFile, {
+function makeBackend(): void {
+  new MainBackend(win as never, registryFile, {
     logDir: path.join(base, "logs"),
     breadcrumbs: createBreadcrumbRing(path.join(base, "logs")),
-  });
-  be.registerIpc();
-  return be;
+  }).registerIpc();
 }
 
 beforeEach(() => {
@@ -110,7 +108,7 @@ afterEach(() => {
 
 describe("diagnostics channels", () => {
   it("preview answers with sections without writing anything", async () => {
-    const be = makeBackend();
+    makeBackend();
     const preview = (await invoke(CH.previewDiagnosticsBundle)) as {
       sections: Array<{ id: string; included: boolean; files: unknown[] }>;
       totalBytes: number;
@@ -120,12 +118,10 @@ describe("diagnostics channels", () => {
     expect(preview.sections.find((s) => s.id === "settings")!.included).toBe(true);
     // Nothing was written: only the seeded logs dir exists under base.
     expect(fs.readdirSync(base).filter((n) => n.includes(".zip"))).toEqual([]);
-    void be;
   });
 
   it("export writes the requested zip with the expected entries", async () => {
-    const be = makeBackend();
-    void be;
+    makeBackend();
     const dest = path.join(base, "out", "bundle.zip");
     const result = (await invoke(CH.exportDiagnosticsBundle, {
       includeTranscripts: false,
@@ -136,8 +132,7 @@ describe("diagnostics channels", () => {
     expect(names).toContain("manifest.json");
     expect(names).toContain("settings.json");
     expect(names).toContain("logs/main.log");
-    expect(names).not.toContain("transcripts/x");
-    expect([...names].some((n) => n.startsWith("transcripts/"))).toBe(false);
+    expect(names.some((n) => n.startsWith("transcripts/"))).toBe(false);
     // The bundle never carries the token; settings.json reports presence instead.
     const settingsText = await unzipEntry(dest, "settings.json");
     expect(settingsText).not.toContain("tok-abc");
@@ -145,8 +140,7 @@ describe("diagnostics channels", () => {
   });
 
   it("export with null destination lands beside the registry", async () => {
-    const be = makeBackend();
-    void be;
+    makeBackend();
     const result = (await invoke(CH.exportDiagnosticsBundle, {
       includeTranscripts: false,
       destinationPath: null,
@@ -155,8 +149,7 @@ describe("diagnostics channels", () => {
   });
 
   it("rejects a concurrent second export", async () => {
-    const be = makeBackend();
-    void be;
+    makeBackend();
     const dest = path.join(base, "b.zip");
     const first = invoke(CH.exportDiagnosticsBundle, {
       includeTranscripts: false,
@@ -169,8 +162,7 @@ describe("diagnostics channels", () => {
   });
 
   it("choosePath returns the dialog's file path or null on cancel", async () => {
-    const be = makeBackend();
-    void be;
+    makeBackend();
     showSaveDialog.mockResolvedValue({ canceled: false, filePath: "/tmp/picked.zip" });
     expect(await invoke(CH.chooseDiagnosticsPath, "omp-ui-diagnostics.zip")).toBe("/tmp/picked.zip");
     const dialogOpts = showSaveDialog.mock.calls[0]![1] as { defaultPath: string };
@@ -180,8 +172,7 @@ describe("diagnostics channels", () => {
   });
 
   it("records breadcrumbs that reach the bundle's logs", async () => {
-    const be = makeBackend();
-    void be;
+    makeBackend();
     await invoke(CH.setRemoteEnabled, true);
     const dest = path.join(base, "crumb.zip");
     await invoke(CH.exportDiagnosticsBundle, {
@@ -190,9 +181,9 @@ describe("diagnostics channels", () => {
     });
     const lines = await unzipEntry(dest, "logs/breadcrumbs.log");
     expect(lines).toContain('"kind":"remote-enable"');
-    const ring = JSON.parse(
-      (await unzipEntry(dest, "breadcrumbs.json")).replace(/^/, ""),
-    ) as Array<{ kind: string }>;
+    const ring = JSON.parse(await unzipEntry(dest, "breadcrumbs.json")) as Array<{
+      kind: string;
+    }>;
     expect(ring.some((e) => e.kind === "remote-enable")).toBe(true);
   });
 });

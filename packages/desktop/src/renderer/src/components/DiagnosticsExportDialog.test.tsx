@@ -73,9 +73,8 @@ async function settle(): Promise<void> {
 }
 
 /** The primary (last) footer button. */
-function primary(): HTMLElement {
-  const button = [...document.querySelectorAll("footer button")].at(-1)!;
-  return button;
+function primary(): HTMLButtonElement {
+  return document.querySelector<HTMLButtonElement>("footer button:last-of-type")!;
 }
 
 async function click(button: HTMLElement): Promise<void> {
