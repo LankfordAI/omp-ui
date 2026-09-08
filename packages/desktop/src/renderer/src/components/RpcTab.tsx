@@ -229,8 +229,8 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
 
   // Tail clearance for the floating composer: the distance from the column's
   // bottom edge to the float's top edge, published as a CSS custom property
-  // that the transcript reads for its bottom spacer, its bottom fade, and its
-  // jump-to-latest pill. A custom property, never state — a draft grows the
+  // that the transcript reads for its bottom spacer and its jump-to-latest
+  // pill. A custom property, never state — a draft grows the
   // box on every keystroke, and re-rendering the tab for that would re-render
   // the whole transcript with it. Measuring both rects (not the float's own
   // height) keeps the lift off the bottom edge in the number, so the reserve
@@ -412,14 +412,6 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                   data-composer-float
                   className={cn(
                     floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
-                    // The stack floats on the tail fade's constant band, so the
-                    // glass planes inside it shift tone to match it (#398). Same
-                    // flag that publishes --transcript-bottom-inset above: no
-                    // reserve, no band, no shift. While the transcript is still a
-                    // TranscriptSkeleton no fade element is mounted to darken the
-                    // field, so the card reads a few levels dark for a boot frame
-                    // — accepted, not gated.
-                    floating && "tail-field",
                   )}
                 >
                   <ExtensionDialogHost tabId={tabId} />

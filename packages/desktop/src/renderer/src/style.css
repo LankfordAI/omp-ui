@@ -240,14 +240,6 @@
     --glass-alpha: 86%; /* plane fill opacity */
     --glass-filter: blur(14px) saturate(1.08); /* backdrop-filter of chrome planes */
     --glass-wash: 55%; /* strength of the backdrop light */
-    /* Reading-depth cue (issue #398). Deliberately mode-independent: it darkens
-       an opaque page, so it does not follow the glass steps above. --tail-fade
-       is the void alpha at a fade's dark end, --tail-ramp its height (the top
-       fade's h-14). --field-fade is the void a floating plane's field already
-       carries; only the .tail-field utility sets it, never a component. */
-    --tail-fade: 25%;
-    --tail-ramp: 3.5rem;
-    --field-fade: 0%;
   }
   :root[data-glass="off"] {
     --glass-alpha: 100%;
@@ -402,41 +394,10 @@
  * the transcript and must mute the text behind it without painting a lighter
  * rectangle on the page (ADR-0026). The page's ambient layer carries the
  * grain; this utility declares no background-image, so an `ambient` site
- * composites it identically to the reading plane beneath it. --field-fade is
- * the void the field beneath already carries (#398): 0% on the page,
- * --tail-fade inside `.tail-field`. Mixing that void into surface reproduces
- * compositing void/25 over surface to under one 8-bit level on every theme,
- * so the card matches the faded band it now floats in. */
+ * composites it identically to the reading plane beneath it. */
 @utility glass-surface {
-  background-color: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--color-void) var(--field-fade, 0%), var(--color-surface))
-      var(--glass-alpha),
-    transparent
-  );
+  background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha), transparent);
   backdrop-filter: var(--glass-filter);
-}
-
-/* The reading cue's tail form: a ramp over the box's top --tail-ramp that ends
- * in a constant band covering everything below it, so the whole floating stack
- * sits on one tone and there is no seam at its top edge (#398). Direction
- * matters: `to bottom` puts the ramp at the box's top and the band over the
- * reserve; `to top` would invert them and leave a hard edge in the content.
- * Geometry lives in the JSX; mixing with `transparent` is premultiplied, so
- * this tone is space-independent and equals Tailwind's `from-void/25`. */
-@utility tail-fade {
-  background-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    color-mix(in srgb, var(--color-void) var(--tail-fade), transparent) var(--tail-ramp),
-    color-mix(in srgb, var(--color-void) var(--tail-fade), transparent) 100%
-  );
-}
-
-/* Marks a stack that floats on that band: the glass planes inside it shift
- * tone by exactly the void above them, never alpha (ADR-0026). */
-@utility tail-field {
-  --field-fade: var(--tail-fade);
 }
 
 /* A gradient ring occupying only the border zone: transparent border +

@@ -44,10 +44,7 @@ soften a glyph.
 
 - **Three knobs, no more.** A new chrome plane reads the existing utilities
   (`glass-void`, `glass-sunken`, `glass-overlay`, `glass-surface`, `plane-lit`); a plane that
-  needs its own alpha is a plane that has not found its token. A plane may shift
-  *tone* — never alpha — to match the field it floats on, through `--field-fade`
-  on the floating stack (#398); the colour it shifts between is still a theme
-  token.
+  needs its own alpha is a plane that has not found its token.
 - **The wash is achromatic.** It mixes `overlay`/`raised` — plane tokens —
   with transparency; no accent hue is spent on decoration (ADR-0004).
 - **Opaque surfaces are named, not incidental**: `bg-surface` under the
@@ -60,3 +57,10 @@ soften a glyph.
 - **`@utility` still takes no pseudo-selector** (ADR-0004): the glass
   utilities are flat declarations; a malformed one silently resolves every
   class in the app to nothing.
+
+**Amended 2026-09-07 (#409):** the reading-depth fade is gone, so the
+`--field-fade` tone-shift clause above is withdrawn. A plane that floats over
+the reading plane separates by elevation — border plus `shadow-float` — not by
+shifting toward the field beneath it. The wash banded: its whole range was four
+8-bit levels over 56 CSS px, so it rendered as stripes, and the `ambient` grain
+sits under it and cannot dither its ramp.

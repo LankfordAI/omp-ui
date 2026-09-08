@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 * Release notes no longer re-list work that shipped in the previous release: the What's Changed search window uses each tagged commit's exact UTC instant instead of its UTC day, so a PR merged earlier the same day as a tag stays out of the next release's notes ([#408](https://github.com/LankfordAI/omp-ui/issues/408)).
+* The transcript's reading plane keeps one tone from the pane's top hairline to its bottom edge: the reading-depth fade under the floating composer and its mirror at the top are gone, so the floating composer card separates from the prose behind it by elevation — its border and drop shadow — instead of by a tonal band ([#409](https://github.com/LankfordAI/omp-ui/issues/409)).
 
 ## Choose a download
 

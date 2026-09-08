@@ -777,38 +777,13 @@ export function TranscriptView({
             publishes its measured height; every other host of this view — the
             subagent view — leaves the property unset, so the fallback keeps
             the old geometry exactly. Outside .transcript-column on purpose:
-            the reserve is chrome pixels, and `zoom` must not scale it. The
-            tail fade below derives its height from this same property, so the
-            two stay in lockstep. */}
+            the reserve is chrome pixels, and `zoom` must not scale it. */}
         <div
           ref={insetRef}
           aria-hidden
           className="h-[var(--transcript-bottom-inset,0px)]"
         />
       </div>
-
-      {/* Reading-depth cue: content falls away under the pane's top hairline.
-          Overlay, not background — the scroll container's own background would
-          scroll with the content. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-void/25 to-transparent"
-      />
-      {/* Its mirror at the tail: content falls away under the floating
-          composer's edge instead of ending on a hard line. Anchored to the
-          pane's bottom and --tail-ramp taller than the reserve, so the whole
-          stack — its cards, the bottom-3 lift, the side gutters — sits on one
-          constant tone and the seam at the stack's top edge is gone (#398).
-          With no reserve the box is exactly --tail-ramp tall and the two upper
-          stops collapse onto 100%: the subagent view, which never sets the
-          inset, keeps today's ramp and today's geometry. Pane bottom stands in
-          for the column bottom the inset is measured against: the column's one
-          other in-flow child, HeroFooter, renders only while `centered`, which
-          forces `floating` false. */}
-      <div
-        aria-hidden
-        className="tail-fade pointer-events-none absolute inset-x-0 bottom-0 h-[calc(var(--transcript-bottom-inset,0px)+var(--tail-ramp))]"
-      />
       {!following && items.length > 0 && (
         <button
           type="button"
