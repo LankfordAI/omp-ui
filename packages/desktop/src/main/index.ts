@@ -14,6 +14,7 @@ import {
 import { installApplicationMenu } from "./application-menu";
 import { startFdWatchdog } from "./fd-watchdog";
 import { appendMainLog } from "./main-log";
+import { createBreadcrumbRing } from "./breadcrumbs";
 import { gateSelector, parseSpawnGate } from "./spawn-gate";
 import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 
@@ -60,6 +61,29 @@ if (!app.requestSingleInstanceLock()) {
   // the closure is set once whenReady has a window (see whenReady below).
   let flushWindowState: (() => void) | null = null;
   let stopFdWatchdog: (() => void) | null = null;
+
+  // The userData path is pinned above, so the log dir and the breadcrumb sink
+  // can exist before whenReady — process-error hooks registered here still
+  // land on disk (issue #413). whenReady's telemetry below shares this logDir.
+  const logDir = join(app.getPath("userData"), "logs");
+  const breadcrumbs = createBreadcrumbRing(logDir);
+  breadcrumbs.record("launch", { detail: `v${app.getVersion()} packaged=${app.isPackaged}` });
+
+  // No plain uncaughtException handler: that would keep the process limping
+  // in undefined state. uncaughtExceptionMonitor records without changing
+  // Node's default behavior. A plain unhandledRejection listener REPLACES
+  // Node's printed warning (exit 1 → silent 0), so this handler re-emits it
+  // to main.log itself.
+  process.on("uncaughtExceptionMonitor", (error) => {
+    const text = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    breadcrumbs.record("main-exception", { detail: text });
+    appendMainLog(logDir, "main.log", `[error] uncaught exception: ${text}`);
+  });
+  process.on("unhandledRejection", (reason) => {
+    const text = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+    breadcrumbs.record("main-rejection", { detail: text });
+    appendMainLog(logDir, "main.log", `[error] unhandled rejection: ${text}`);
+  });
 
   /** Awaitable quit guard used by window and application quit paths. */
   const confirmLiveQuit = async (): Promise<boolean> => {
@@ -158,7 +182,7 @@ if (!app.requestSingleInstanceLock()) {
         sandbox: true,
       },
     });
-
+    breadcrumbs.record("window-created", { detail: `state=${savedWindowState ? "restored" : "fresh"}` });
     if (savedWindowState?.maximized) win.maximize();
 
     setupSpellcheck(win);
@@ -207,8 +231,6 @@ if (!app.requestSingleInstanceLock()) {
       openExternalSafe(details.url);
     });
 
-    const logDir = join(app.getPath("userData"), "logs");
-
     // Process-death telemetry + bounded renderer recovery (issues #183, #184):
     // a dead renderer must never leave a blank window for the user to kill.
     const rendererDeaths: ProcessDeath[] = [];
@@ -219,9 +241,13 @@ if (!app.requestSingleInstanceLock()) {
         "main.log",
         `[renderer] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`,
       );
+      breadcrumbs.record("renderer-gone", {
+        detail: `reason=${details.reason} exitCode=${details.exitCode}`,
+      });
       if (win.isDestroyed()) return;
       if (shouldReloadRenderer(details.reason, rendererDeaths, Date.now())) {
         appendMainLog(logDir, "main.log", "[renderer] reloading webContents after death");
+        breadcrumbs.record("renderer-reload");
         win.webContents.reload();
       } else {
         appendMainLog(
@@ -229,10 +255,12 @@ if (!app.requestSingleInstanceLock()) {
           "main.log",
           "[renderer] crash loop — leaving window dead; restart the app",
         );
+        breadcrumbs.record("renderer-crash-loop");
       }
     });
     win.webContents.on("unresponsive", () => {
       appendMainLog(logDir, "main.log", "[renderer] unresponsive");
+      breadcrumbs.record("renderer-unresponsive");
     });
     app.on("child-process-gone", (_event, details) => {
       // GPU/utility deaths blank or freeze the UI without killing the renderer.
@@ -241,6 +269,9 @@ if (!app.requestSingleInstanceLock()) {
         "main.log",
         `[process] child-process-gone type=${details.type} reason=${details.reason}`,
       );
+      breadcrumbs.record("child-process-gone", {
+        detail: `type=${details.type} reason=${details.reason}`,
+      });
     });
 
     const registryFile =
@@ -281,6 +312,8 @@ if (!app.requestSingleInstanceLock()) {
       // app.asar Electron's patched fs reads it normally.
       webRoot: join(__dirname, "../web"),
       spawnGate,
+      logDir,
+      breadcrumbs,
     });
     backend = be;
     stopFdWatchdog = startFdWatchdog({ logDir });
@@ -335,6 +368,7 @@ if (!app.requestSingleInstanceLock()) {
     // inside the debounce window is read fresh here (see whenReady).
     flushWindowState?.();
     appQuitting = true;
+    breadcrumbs.record("quit", { detail: `forced=${forceQuit}` });
     stopFdWatchdog?.();
     backend?.killAll();
     // Pasted-image scratch files are only ever needed by a live omp process.

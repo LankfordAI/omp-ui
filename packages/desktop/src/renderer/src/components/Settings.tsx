@@ -12,6 +12,7 @@ import { useT, type MessageKey } from "../lib/i18n";
 import { useStore, type SettingsPage } from "../store";
 import { Modal } from "./ui";
 import { AboutPage } from "./settings/AboutPage";
+import { AdvancedPage } from "./settings/AdvancedPage";
 import { AppearancePage } from "./settings/AppearancePage";
 import { GeneralFooter, GeneralPage } from "./settings/GeneralPage";
 import { MemoryFooter, MemoryPage } from "./settings/MemoryPage";
@@ -102,6 +103,11 @@ const PAGES: ReadonlyArray<{
       />
     ),
     footer: OmpFooter,
+  },
+  {
+    id: "advanced",
+    labelKey: "settings.nav.advanced",
+    render: () => <AdvancedPage />,
   },
   { id: "about", labelKey: "settings.nav.about", render: (ctx) => <AboutPage load={ctx.load} /> },
 ];

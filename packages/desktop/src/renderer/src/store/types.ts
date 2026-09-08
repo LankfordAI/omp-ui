@@ -291,6 +291,7 @@ export type SettingsPage =
   | "providers"
   | "memory"
   | "omp"
+  | "advanced"
   | "about";
 
 export type CompactSurface =
@@ -420,6 +421,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   reportError(error: unknown): void;
   dismissError(id: string): void;
   projectPickerOpen: boolean;
+  /** True while the diagnostic-bundle export dialog is open (issue #413). */
+  diagnosticsDialogOpen: boolean;
   worktreeDialogProject: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
@@ -440,6 +443,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   init(): Promise<void>;
   openProjectPicker(): void;
   closeProjectPicker(): void;
+  openDiagnosticsDialog(): void;
+  closeDiagnosticsDialog(): void;
   openCapabilitiesViewer(
     scopeCwd: string | null,
     tabId?: string,

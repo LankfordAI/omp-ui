@@ -59,6 +59,7 @@ import {
   type WorktreeSyncResult,
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
+import type { BreadcrumbSink } from "./breadcrumbs";
 import type { FrameObserver } from "./frame-observer";
 import {
   createPtyLiveEntry,
@@ -109,6 +110,8 @@ export interface SessionManagerDependencies {
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
   attention?: Attention;
+  /** Lifecycle breadcrumbs (issue #413); absent = no recording. */
+  breadcrumb?: BreadcrumbSink;
   /**
    * The main-owned plan verifier service (issue #312 follow-up). Absent (or
    * in unit tests) answers every verification `unavailable` — a proposal is
@@ -283,7 +286,10 @@ export class SessionManager {
       for (const obs of this.frameObservers) obs.onExit(tabId);
       this.deps.attention?.sessionExit(tabId);
     }
-    if (!entry.suppressExit) this.deps.send(CH.onPtyExit, tabId, exitCode);
+    if (!entry.suppressExit) {
+      this.deps.send(CH.onPtyExit, tabId, exitCode);
+      this.deps.breadcrumb?.record("session-exit", { tabId, detail: `code=${exitCode}` });
+    }
     void this.deps.broadcast();
   }
 
@@ -480,9 +486,15 @@ export class SessionManager {
         (fresh
           ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
           : record.agentMode === "plan");
-      return mode === "rpc-ui"
-        ? await this.spawnRpc(record, planMode, ompPath)
-        : await this.spawnPty(record, req, ompPath);
+      const result =
+        mode === "rpc-ui"
+          ? await this.spawnRpc(record, planMode, ompPath)
+          : await this.spawnPty(record, req, ompPath);
+      this.deps.breadcrumb?.record(
+        req.origin === "new" ? "session-spawn" : "session-resume",
+        { tabId: record.tabId, mode },
+      );
+      return result;
     } catch (cause) {
       const rollbackTabId = record?.tabId ?? freshTabId ?? (req.origin === "resume" ? req.resumeTabId : undefined);
       if (!rollbackTabId || projectCwd === undefined || (!record && !mintedWorktree)) throw cause;
@@ -1058,6 +1070,7 @@ export class SessionManager {
     entry.suppressExit = true;
     if (await this.reapWithEscalation(entry)) {
       this.deps.send(CH.onSessionHibernated, tabId);
+      this.deps.breadcrumb?.record("session-hibernate", { tabId });
       void this.deps.broadcast();
       return this.live.get(tabId) !== entry;
     }
@@ -1192,6 +1205,7 @@ export class SessionManager {
     this.killShell(tabId);
     const entry = this.live.get(tabId);
     if (!entry) return;
+    this.deps.breadcrumb?.record("session-terminate", { tabId });
     void this.escalateOnTerminate(tabId, entry);
   }
 
@@ -1338,6 +1352,7 @@ export class SessionManager {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record || record.mode === mode) return;
+      this.deps.breadcrumb?.record("session-mode", { tabId, mode });
       this.killShell(tabId);
       const entry = this.live.get(tabId);
       if (!entry) {

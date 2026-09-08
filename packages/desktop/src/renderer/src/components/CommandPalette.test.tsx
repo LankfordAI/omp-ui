@@ -93,6 +93,15 @@ describe("CommandPalette close controls", () => {
     expect(useStore.getState().projectPickerOpen).toBe(true);
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
+
+  it("opens the diagnostic bundle dialog (issue #413)", () => {
+    renderPalette(false);
+    typeQuery("diagnostic");
+    pressPalette("Enter");
+    expect(useStore.getState().diagnosticsDialogOpen).toBe(true);
+    useStore.setState({ diagnosticsDialogOpen: false });
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
 });
 
 const CWD_RECORD = {

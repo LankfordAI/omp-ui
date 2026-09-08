@@ -918,4 +918,52 @@ export interface MemoryOverview {
   error: string | null;
 }
 
+/** One file inside a diagnostics bundle section (issue #413). */
+export interface DiagnosticsSectionFile {
+  name: string;
+  sizeBytes: number;
+}
+
+/** One exportable section of the diagnostic bundle. */
+export interface DiagnosticsSection {
+  id:
+    | "manifest"
+    | "versions"
+    | "platform"
+    | "settings"
+    | "registry"
+    | "git"
+    | "lineages"
+    | "extensions"
+    | "logs"
+    | "breadcrumbs"
+    | "window-state"
+    | "transcripts";
+  /** Stable zip prefix this section writes under, e.g. "logs/". */
+  prefix: string;
+  included: boolean;
+  files: DiagnosticsSectionFile[];
+  totalBytes: number;
+}
+
+/** What an export would contain, computed without reading file bodies. */
+export interface DiagnosticsPreview {
+  sections: DiagnosticsSection[];
+  totalBytes: number;
+  warnings: string[];
+}
+
+/** Export request: transcript opt-in plus an optional absolute destination. */
+export interface DiagnosticsExportRequest {
+  includeTranscripts: boolean;
+  destinationPath: string | null;
+}
+
+/** The written bundle: path, size, and any degradation warnings. */
+export interface DiagnosticsExportResult {
+  path: string;
+  totalBytes: number;
+  warnings: string[];
+}
+
 export type { OmpBackend } from "./backend-channels";

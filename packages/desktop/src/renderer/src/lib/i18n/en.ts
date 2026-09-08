@@ -879,6 +879,8 @@ export const en = {
   "palette.action.checkOmpDesc": "look for a newer omp release",
   "palette.action.settings": "Settings…",
   "palette.action.settingsDesc": "appearance, updates, and omp configuration",
+  "palette.action.exportDiagnostics": "Export diagnostic bundle…",
+  "palette.action.exportDiagnosticsDesc": "package logs and breadcrumbs into a zip",
   "palette.footer.navigate": "navigate",
   "palette.footer.run": "run",
   "palette.footer.alsoMove": "also move",
@@ -1529,10 +1531,33 @@ export const en = {
   "settings.nav.providers": "Providers",
   "settings.nav.memory": "Memory",
   "settings.nav.omp": "omp",
+  "settings.nav.advanced": "Advanced",
   "settings.nav.about": "About",
   "settings.mode.native": "native",
   "settings.mode.terminal": "terminal",
   "settings.mode.plan": "plan",
   "settings.mode.build": "build",
   "settings.option.off": "off",
+  // Settings → Advanced (issue #413)
+  "settings.advanced.bundleTitle": "Diagnostic bundle",
+  "settings.advanced.bundleHint":
+    "Packages logs, lifecycle breadcrumbs, versions, and registry state into one zip for bug reports. Provider keys and remote credentials are never included; transcripts are excluded unless you tick the option.",
+  "settings.advanced.bundleAction": "Export diagnostic bundle…",
+  // Diagnostic bundle export dialog (issue #413)
+  "dialog.diagnostics.kicker": "Diagnostics",
+  "dialog.diagnostics.title": "Diagnostic bundle",
+  "dialog.diagnostics.loading": "Measuring what the bundle would contain…",
+  "dialog.diagnostics.sectionsHeading": "Sections",
+  "dialog.diagnostics.totalLabel": "Total: {size}",
+  "dialog.diagnostics.includeTranscripts": "Include transcripts",
+  "dialog.diagnostics.transcriptsWarning":
+    "Warning: the zip will contain the full conversation text of every tracked session lineage. Review it before sharing.",
+  "dialog.diagnostics.save": "Save bundle…",
+  "dialog.diagnostics.saveWeb": "Create bundle",
+  "dialog.diagnostics.busy": "Writing…",
+  "dialog.diagnostics.done": "Bundle written",
+  "dialog.diagnostics.retry": "Retry",
+  "dialog.diagnostics.cancel": "Cancel",
+  "app.crash.diagnostics":
+    "If this keeps happening, export a diagnostic bundle from Settings → Advanced or the command palette.",
 } as const;

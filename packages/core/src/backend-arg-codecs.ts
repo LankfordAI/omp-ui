@@ -5,6 +5,7 @@ import type {
   AgentMode,
   BranchListOptions,
   ConsoleProgram,
+  DiagnosticsExportRequest,
   GlassChrome,
   ImageAttachment,
   McpSetEnabledRequest,
@@ -179,6 +180,12 @@ export const mcpSetEnabledRequestCodec: ArgCodec<McpSetEnabledRequest> =
     name: str(),
     sourcePath: optional(str()),
     enabled: bool(),
+  });
+
+export const diagnosticsExportRequestCodec: ArgCodec<DiagnosticsExportRequest> =
+  objectOf<DiagnosticsExportRequest>({
+    includeTranscripts: bool(),
+    destinationPath: nullable(str()),
   });
 
 export const branchListOptionsCodec: ArgCodec<BranchListOptions> = objectOf<BranchListOptions>({
