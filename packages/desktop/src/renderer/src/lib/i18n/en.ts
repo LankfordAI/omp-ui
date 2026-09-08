@@ -465,6 +465,8 @@ export const en = {
   // Plan verification diagnostics (issue #312 follow-up): stable machine
   // codes here, words here — never prose as the discriminator.
   "plan.fallback.couldNotDisplay": "This plan could not be displayed as a document.",
+  "plan.verification.incomplete":
+    "This plan is displayed below, but omp-ui could not finish checking its layout.",
   "plan.fallback.sourceNote":
     "The artifact on disk is unchanged. Reviewing this source is a real review — execute only if it reads right.",
   "plan.fallback.moreDiagnostics": "(+{count} more)",

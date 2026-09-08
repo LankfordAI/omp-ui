@@ -706,8 +706,13 @@ function canMeasureLayout(): boolean {
  *  - the frame is offscreen but NOT visibility-hidden and NOT opacity-zero —
  *    both inherit into every child and would fail the visibility rule.
  *
- * Waits for load plus two animation frames in the child's own clock. A
- * timeout, crash, or layout-less environment is inconclusive, never passed.
+ * Waits for the intended document's load plus two animation frames on the
+ * PARENT page's clock. The hidden child frame's animation clock may never
+ * advance (background throttling of offscreen frames), which produced false
+ * VERIFIER_TIMEOUT banners over a correctly displayed document (issue #415);
+ * the settle delay is a scheduling aid, not part of the measured space, so
+ * it runs on the trusted top-level window. A timeout, crash, or layout-less
+ * environment is inconclusive, never passed.
  */
 export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
   if (!canMeasureLayout()) {
@@ -730,27 +735,33 @@ export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
     cleanup();
     resolve(result);
   };
+  // The timeout detail names the phase the probe never left, so a load that
+  // never fired is told apart from a measurement that never ran after load.
+  let phase: "waiting-for-load" | "waiting-for-parent-frames" = "waiting-for-load";
   const timer = setTimeout(
-    () => done({ status: "inconclusive", code: "VERIFIER_TIMEOUT", detail: `no measurement within ${PROBE_TIMEOUT_MS} ms` }),
+    () =>
+      done({
+        status: "inconclusive",
+        code: "VERIFIER_TIMEOUT",
+        detail:
+          phase === "waiting-for-load"
+            ? `no document load within ${PROBE_TIMEOUT_MS} ms`
+            : `no measurement after document load within ${PROBE_TIMEOUT_MS} ms`,
+      }),
     PROBE_TIMEOUT_MS,
   );
-  const violations: string[] = [];
-  frame.setAttribute("sandbox", "allow-same-origin");
-  frame.setAttribute("aria-hidden", "true");
-  frame.tabIndex = -1;
-  // Offscreen without hidden visibility: the document must lay out as the
-  // real review frame would, and an inherited `hidden` would make every
-  // valid child fail the new visibility check.
-  frame.style.cssText =
-    `position:absolute;left:-100000px;top:0;width:${width}px;height:600px;pointer-events:none;border:0`;
-  frame.addEventListener("load", () => {
-    const win = frame.contentWindow;
-    if (win === null) {
-      done({ status: "inconclusive", code: "VERIFIER_UNAVAILABLE", detail: "probe frame has no window" });
-      return;
-    }
-    // Load plus TWO child-clock animation frames (§4) before measuring.
-    void twoFrames(win).then(() => {
+  // The load listener and the post-close ready-state check are BOTH paths to
+  // measurement; this guard keeps a document that was already complete from
+  // being measured twice.
+  let measurementScheduled = false;
+  const scheduleMeasurement = (): void => {
+    if (settled || measurementScheduled) return;
+    measurementScheduled = true;
+    phase = "waiting-for-parent-frames";
+    // Two PARENT-page animation frames (§4): the trusted top-level clock is
+    // the renderer's own and always advances, unlike the hidden child's.
+    void twoFrames(window).then(() => {
+      if (settled) return;
       let probe: PlanDiagnostic[];
       try {
         probe = measureProbeFrame(frame, violations, width);
@@ -764,7 +775,16 @@ export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
       }
       done({ status: "measured", diagnostics: probe });
     });
-  });
+  };
+  const violations: string[] = [];
+  frame.setAttribute("sandbox", "allow-same-origin");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  // Offscreen without hidden visibility: the document must lay out as the
+  // real review frame would, and an inherited `hidden` would make every
+  // valid child fail the new visibility check.
+  frame.style.cssText =
+    `position:absolute;left:-100000px;top:0;width:${width}px;height:600px;pointer-events:none;border:0`;
   document.body.appendChild(frame);
   const childWin = frame.contentWindow;
   const childDoc = frame.contentDocument;
@@ -780,8 +800,14 @@ export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
     violations.push(event.blockedURI);
   });
   childDoc.open();
+  // The load listener binds AFTER open() so it observes the intended
+  // document's load, not the initial about:blank document's.
+  frame.addEventListener("load", () => scheduleMeasurement(), { once: true });
   childDoc.write(doc);
   childDoc.close();
+  // close() on an already-parsed document may complete synchronously; cover
+  // that race here instead of relying on the load event alone.
+  if (childDoc.readyState === "complete") scheduleMeasurement();
   return promise;
 };
 
@@ -908,7 +934,7 @@ function measureProbeFrame(
   return out;
 }
 
-/** Two animation frames in the child window's own clock. */
+/** Two animation frames on the given window's clock — the parent page's. */
 function twoFrames(win: Window): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve()));

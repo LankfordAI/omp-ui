@@ -187,6 +187,36 @@ describe("PlanCard html plan documents (issues #285, #312)", () => {
       planPrepared.state = null;
     }
   });
+  it("shows the prepared document under an incomplete-verification note when the probe cannot conclude", async () => {
+    // The historical card must agree with the review dock (issue #415): a
+    // timed-out local check over a prepared document says the CHECK did not
+    // finish, never that display failed.
+    const diagnostic: PlanDiagnostic = {
+      code: "VERIFIER_TIMEOUT",
+      stage: "layout",
+      repair: "application",
+      severity: "warning",
+      message: "verification timed out",
+      detail: "no measurement after document load within 4000 ms",
+    };
+    planPrepared.state = { status: "unavailable", doc: "<h1>Fix</h1>", diagnostics: [diagnostic] };
+    try {
+      render(htmlPlanItem("<h1>Fix</h1>"));
+
+      const disclosure = document.body.querySelector<HTMLButtonElement>("button")!;
+      await act(async () => disclosure.click());
+      await until(() => (planFrame()?.getAttribute("srcdoc") ?? "") !== "");
+
+      expect(planFrame()!.getAttribute("srcdoc")).toContain("<h1>Fix</h1>");
+      expect(document.body.textContent).toContain("could not finish checking its layout");
+      expect(document.body.textContent).not.toContain("could not be displayed as a document");
+      // Settled history: opening the card answers no gate and submits nothing.
+      expect(bridge.answerPlanReview).not.toHaveBeenCalled();
+      expect(bridge.rpcSend).not.toHaveBeenCalled();
+    } finally {
+      planPrepared.state = null;
+    }
+  });
 
   it("submits nothing while a historical plan is opened", async () => {
     render(htmlPlanItem("<h1>Fix</h1><p>settled work</p>"));

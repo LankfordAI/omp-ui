@@ -1287,6 +1287,40 @@ describe("PlanReview plan rendering (issue #109)", () => {
     expect(buttonByText("refine").disabled).toBe(false);
     expect(executeButton().disabled).toBe(true);
   });
+  it("shows the prepared document under an incomplete-verification note when the probe cannot conclude", async () => {
+    // The false-failure state from issue #415: a valid prepared document in
+    // the iframe while the local probe timed out. The note must say the
+    // CHECK did not finish — never that display failed.
+    const diagnostics: PlanDiagnostic[] = [
+      {
+        code: "VERIFIER_TIMEOUT",
+        stage: "layout",
+        repair: "application",
+        severity: "warning",
+        message: "verification timed out",
+        detail: "no measurement after document load within 4000 ms",
+      },
+    ];
+    planPrepared.state = { status: "unavailable", doc: "<h1>Fix</h1>", diagnostics };
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({ planText: "<h1>Fix</h1>", planHtml: "<h1>Fix</h1>" }, true),
+      },
+    });
+    render();
+    await act(async () => {});
+
+    const frame = planFrame();
+    expect(frame).not.toBeNull();
+    expect(frame!.getAttribute("srcdoc")).toContain("<h1>Fix</h1>");
+    expect(document.body.textContent).toContain("could not finish checking its layout");
+    expect(document.body.textContent).not.toContain("could not be displayed as a document");
+    // The escaped-source fallback is NOT this state: no raw source block.
+    expect(document.body.querySelector("pre[data-selectable]")).toBeNull();
+    // Execute still requires a ready preparation; refine stays live.
+    expect(executeButton().disabled).toBe(true);
+    expect(buttonByText("refine").disabled).toBe(false);
+  });
 });
 describe("PlanReview mermaid diagrams (issue #285)", () => {
   const planFrame = (): HTMLIFrameElement | null =>

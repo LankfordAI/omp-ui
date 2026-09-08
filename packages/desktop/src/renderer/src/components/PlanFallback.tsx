@@ -55,12 +55,20 @@ export function PlanFallback({
   );
 }
 
-/** The localized diagnostic list shared by the fallback and the review note. */
+/**
+ * The localized diagnostic list shared by the fallback and the review note.
+ * `mode` selects the heading: "display-failure" (the default, and the only
+ * honest reading when no document is on screen) or "verification-incomplete"
+ * for the warning-PLUS-document state — a prepared document shown under a
+ * probe that could not conclude must never claim display failed (issue #415).
+ */
 export function PlanDiagnostics({
   diagnostics,
+  mode = "display-failure",
   className,
 }: {
   diagnostics: PlanDiagnostic[];
+  mode?: "display-failure" | "verification-incomplete";
   className?: string;
 }) {
   const t = useT();
@@ -68,7 +76,9 @@ export function PlanDiagnostics({
   const shown = errors.length > 0 ? errors : diagnostics;
   return (
     <div className={cn("text-sm text-ink-dim", className)}>
-      <p>{t("plan.fallback.couldNotDisplay")}</p>
+      <p>
+        {t(mode === "verification-incomplete" ? "plan.verification.incomplete" : "plan.fallback.couldNotDisplay")}
+      </p>
       {shown.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
           {shown.slice(0, 8).map((d, i) => (

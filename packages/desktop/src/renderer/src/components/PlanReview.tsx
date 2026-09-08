@@ -469,11 +469,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     />
                   ) : (
                     <div className="flex min-h-0 flex-1 flex-col gap-2">
-                      {prepared.status === "unavailable" && (
-                        // A remote-specific rendering failure is an APPLICATION
-                        // failure: named diagnostics, never a rewrite request.
+                      {prepared.status === "unavailable" && prepared.doc !== null && (
+                        // The prepared document IS displayed below: the probe
+                        // could not conclude (an application failure), so the
+                        // heading says verification was incomplete — never
+                        // that display failed (issue #415).
                         <PlanDiagnostics
                           diagnostics={prepared.diagnostics}
+                          mode="verification-incomplete"
                           className="shrink-0 rounded-md border border-line bg-sunken px-3 py-2 text-xs"
                         />
                       )}

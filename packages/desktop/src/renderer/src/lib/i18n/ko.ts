@@ -429,6 +429,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.card.show": "플랜 보기",
   "plan.card.proposedPlan": "제안된 플랜",
   "plan.fallback.couldNotDisplay": "이 플랜을 문서로 표시할 수 없습니다.",
+  "plan.verification.incomplete":
+    "이 플랜은 아래에 표시되지만 omp-ui가 레이아웃 검사를 완료하지 못했습니다.",
   "plan.fallback.sourceNote":
     "디스크의 아티팩트는 변경되지 않았습니다. 이 source를 검토하는 것도 실제 검토입니다 — 내용이 올바르다면 실행하세요.",
   "plan.fallback.moreDiagnostics": "(외 {count}개)",

@@ -189,10 +189,10 @@ describe("preparePlanForReview status matrix", () => {
     expect(result.doc).toContain(MARKER);
   });
 
-  it("names a timed-out sample as VERIFIER_TIMEOUT", async () => {
+  it("names a timed-out sample as VERIFIER_TIMEOUT with the phase it never left", async () => {
     const result = await preparePlanForReview(
       NORMAL_PLAN,
-      inconclusiveBy("VERIFIER_TIMEOUT", "no measurement within 4000 ms"),
+      inconclusiveBy("VERIFIER_TIMEOUT", "no measurement after document load within 4000 ms"),
     );
 
     expect(result.status).toBe("unavailable");
@@ -201,7 +201,7 @@ describe("preparePlanForReview status matrix", () => {
     expect([diag?.stage, diag?.severity, diag?.detail]).toEqual([
       "layout",
       "warning",
-      "no measurement within 4000 ms",
+      "no measurement after document load within 4000 ms",
     ]);
   });
 
