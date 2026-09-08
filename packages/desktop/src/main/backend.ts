@@ -66,7 +66,6 @@ import {
   type DiagnosticsExportRequest,
   type DiagnosticsExportResult,
   type DiagnosticsOptions,
-  type RegistrySettings,
   type RemoteBind,
   type RpcFrame,
   type SessionMode,

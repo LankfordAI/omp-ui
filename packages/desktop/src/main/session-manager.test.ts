@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
 import { SessionManager, type SessionManagerDependencies } from "./session-manager";
 import type { Attention } from "./desktop-notifier";
+import type { BreadcrumbEntry } from "./breadcrumbs";
 import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
@@ -133,6 +134,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   registry: Core.Registry;
   broadcast: Mock;
   sent: { channel: string; args: unknown[] }[];
+  crumbs: BreadcrumbEntry[];
   sessionsRoot: string;
   restart(spawnGate?: SpawnGate): SessionManager;
 } {
@@ -180,6 +182,8 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   );
   const sent: { channel: string; args: unknown[] }[] = [];
   const broadcast = vi.fn(async () => {});
+  // Lifecycle breadcrumbs (issue #413): the same fields the ring would carry.
+  const crumbs: BreadcrumbEntry[] = [];
   const deps: SessionManagerDependencies = {
     registry,
     providerKeys,
@@ -191,6 +195,11 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
     send: (channel, ...args) => sent.push({ channel, args }),
     broadcast,
     attention: opts.attention,
+    breadcrumb: {
+      record: (kind, fields = {}) =>
+        crumbs.push({ at: new Date(0).toISOString(), seq: crumbs.length + 1, kind, ...fields }),
+      entries: () => crumbs.slice(),
+    },
   };
   // `restart` rebuilds the manager against the SAME registry: the gate
   // boundary test needs a gated run followed by an ungated one (issue #372).
@@ -199,6 +208,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
     registry,
     broadcast,
     sent,
+    crumbs,
     sessionsRoot,
     restart: (spawnGate?: SpawnGate): SessionManager =>
       spawnGate === undefined ? new SessionManager(deps) : new SessionManager({ ...deps, spawnGate }),
@@ -4180,6 +4190,7 @@ describe("hibernation (issue #246)", () => {
     registry: Core.Registry;
     rpc: (typeof rpcInstances)[number];
     sent: { channel: string; args: unknown[] }[];
+    crumbs: BreadcrumbEntry[];
     sessionsRoot: string;
   }> => {
     const harness = setup({ mode: "rpc-ui" });
@@ -4833,6 +4844,15 @@ describe("hibernation (issue #246)", () => {
     expect(fs.readFileSync(sentinel, "utf8")).toBe("source transcript\n");
   });
 
+  it("a successful handoff hibernation leaves one breadcrumb and no exit row (issue #413)", async () => {
+    const { manager, rpc, crumbs } = await readyHandoff();
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+    cleanProbe(rpc);
+    await expect(result).resolves.toBe(true);
+    expect(crumbs.map((entry) => entry.kind)).toEqual(["session-resume", "session-hibernate"]);
+  });
+
   it("bypasses viewed-tab and post-verdict settle guards only for a valid handoff (issue #283)", async () => {
     const { manager, rpc } = await readyHandoff();
     rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -5241,5 +5261,58 @@ describe("hibernation (issue #246)", () => {
     await expect(result).resolves.toBe(false);
     expect(rpc.kill).not.toHaveBeenCalled();
     expect(registry.sessions.find((s) => s.tabId === TAB)).toBeDefined();
+  });
+});
+
+describe("session lifecycle breadcrumbs (issue #413)", () => {
+  const kinds = (crumbs: BreadcrumbEntry[]): string[] => crumbs.map((entry) => entry.kind);
+
+  it("marks a resume as session-resume with its mode", async () => {
+    const { manager, crumbs } = setup();
+    await resume(manager);
+    expect(crumbs).toEqual([
+      { at: new Date(0).toISOString(), seq: 1, kind: "session-resume", tabId: TAB, mode: "pty" },
+    ]);
+  });
+
+  it("marks a fresh spawn as session-spawn", async () => {
+    const { manager, crumbs } = setup();
+    await manager.spawn({
+      origin: "new",
+      worktree: null,
+      projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    expect(kinds(crumbs)).toEqual(["session-spawn"]);
+  });
+
+  it("terminate records the kill and the child's exit code", async () => {
+    nextPtyDiesOn = "default";
+    const { manager, crumbs } = setup();
+    await resume(manager);
+    // The fake pty dies on the default kill signal, which handleExit sees
+    // synchronously inside terminate(); no flush needed.
+    manager.terminate(TAB);
+    expect(kinds(crumbs)).toEqual(["session-resume", "session-terminate", "session-exit"]);
+  });
+
+  it("delete suppresses the exit row but not the resume row", async () => {
+    nextPtyDiesOn = "default";
+    const { manager, crumbs } = setup();
+    await resume(manager);
+    await manager.deleteSession(TAB, false);
+    expect(kinds(crumbs)).toEqual(["session-resume"]);
+  });
+
+  it("a dormant mode switch records the target mode; a no-op records nothing", async () => {
+    const { manager, crumbs } = setup();
+    await manager.switchMode(TAB, "rpc-ui");
+    expect(kinds(crumbs)).toEqual(["session-mode"]);
+    expect(crumbs[0]).toMatchObject({ tabId: TAB, mode: "rpc-ui" });
+    await manager.switchMode(TAB, "rpc-ui");
+    expect(kinds(crumbs)).toEqual(["session-mode"]);
   });
 });
