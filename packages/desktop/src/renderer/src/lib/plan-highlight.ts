@@ -79,7 +79,7 @@ export async function planHighlightTransform(
   const pairs = new Map<string, TokenPair>();
   const replacements: PlanReplacement[] = [];
   for (const block of parsed.codeBlocks) {
-    let lines: ThemedToken[][] | null = null;
+    let lines: ThemedToken[][] | null;
     try {
       lines = await tokenize(block.sourceText, block.lang, theme);
     } catch {
