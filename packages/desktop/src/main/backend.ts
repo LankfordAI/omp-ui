@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import { app, ipcMain, shell, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, shell, type BrowserWindow } from "electron";
 import {
   CH,
   browseDirectories,
@@ -13,6 +14,7 @@ import {
   generateTitleWithOmp,
   getArchiveRoot,
   getScopedCapabilities,
+  getOmpAgentDir,
   getSessionsRoot,
   hydrateSessionFile,
   readOmpAdvisorDefaults,
@@ -21,6 +23,7 @@ import {
   readOmpCompactionMethods,
   readWebSearchProviders,
   readBranchDiff,
+  readInstalledOmpVersion,
   listBranches,
   mergeWorktreeBranch,
   readMemoryOverview,
@@ -28,6 +31,7 @@ import {
   resolveMergeDestination,
   pullBranch,
   reclaimCheckouts,
+  detectPackageFormat,
   isWithin,
   sweepOrphanWorktrees,
   listProjectFiles,
@@ -42,6 +46,8 @@ import {
   resolveOmpBinary,
   resolveSessionLocation,
   writeOmpSetting,
+  collectDiagnosticsBundle,
+  previewDiagnosticsBundle,
   type AgentMode,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
@@ -56,10 +62,11 @@ import {
   type LiveState,
   type OmpSettingValue,
   type OwnedSessionRecord,
-  type PlanFormat,
-  type ProjectGroup,
-  type ProjectOpenTarget,
   type ProviderKeysSnapshot,
+  type DiagnosticsExportRequest,
+  type DiagnosticsExportResult,
+  type DiagnosticsOptions,
+  type RegistrySettings,
   type RemoteBind,
   type RpcFrame,
   type SessionMode,
@@ -69,6 +76,9 @@ import {
   type WorktreeReleaseOptions,
   type SessionSummary,
   type PlanReviewVerdict,
+  type PlanFormat,
+  type ProjectGroup,
+  type ProjectOpenTarget,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
 import { OmpUpdater } from "./omp-update";
@@ -82,6 +92,8 @@ import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 import { openExternalSafe } from "./open-external";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
+import { windowStatePath } from "./window-state";
+import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -115,6 +127,16 @@ export class MainBackend {
   private readonly spawnGate: SpawnGate;
   /** Precomputed wire projection of `spawnGate`; identical on every broadcast. */
   private readonly spawnGateState: SpawnGateState;
+  /** Absolute registry.json path; the default bundle destination sits beside it. */
+  private readonly registryFile: string;
+  /** Main-process log directory; shared with index.ts when it passes one. */
+  private readonly logDir: string;
+  private readonly breadcrumbs: BreadcrumbSink;
+  /** One in-flight export at a time (issue #413). */
+  private exportInFlight = false;
+  /** Last delivered update statuses, for one-per-transition breadcrumbs. */
+  private lastAppUpdateStatus: string | null = null;
+  private lastOmpUpdateStatus: string | null = null;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -134,8 +156,15 @@ export class MainBackend {
       spawnGate?: SpawnGate;
       /** Process owner override for focused main-process tests. */
       sessions?: SessionManager;
+      /** Main-process log dir (index.ts already computes it); defaults beside the registry. */
+      logDir?: string;
+      /** Lifecycle breadcrumb sink; defaults to the silent NO_BREADCRUMBS. */
+      breadcrumbs?: BreadcrumbSink;
     } = {},
   ) {
+    this.registryFile = registryFile;
+    this.logDir = opts.logDir ?? path.join(path.dirname(registryFile), "logs");
+    this.breadcrumbs = opts.breadcrumbs ?? NO_BREADCRUMBS;
     this.registry = Registry.load(registryFile);
     // Applied in the constructor, not at boot: spawn() must never be reachable
     // with a keyless environment, and the login-shell capture (boot, async) only
@@ -191,6 +220,7 @@ export class MainBackend {
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
         attention: this.notifier,
+        breadcrumb: this.breadcrumbs,
         spawnGate: this.spawnGate,
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
       });
@@ -219,14 +249,27 @@ export class MainBackend {
       setDismissed: (v) => this.registry.setSetting("dismissedAppUpdateVersion", v),
       hasLiveSessions: () => this.sessions.liveCount > 0,
       setQuitAuthorized: opts.setAppUpdateQuitAuthorized ?? (() => {}),
-      send: (ch, s) => this.send(ch, s),
+      send: (ch, s) => {
+        // One breadcrumb per status transition, not per heartbeat (issue #413).
+        if (this.lastAppUpdateStatus !== s.status) {
+          this.lastAppUpdateStatus = s.status;
+          this.breadcrumbs.record("update-stage", { detail: `app:${s.status}` });
+        }
+        this.send(ch, s);
+      },
       channel: CH.onAppUpdateState,
     });
     this.ompUpdater = new OmpUpdater({
       getDismissed: () => this.registry.getSetting("dismissedOmpUpdateVersion"),
       setDismissed: (v) => this.registry.setSetting("dismissedOmpUpdateVersion", v),
       onApplied: () => this.refreshOmpPath(),
-      send: (ch, s) => this.send(ch, s),
+      send: (ch, s) => {
+        if (this.lastOmpUpdateStatus !== s.status) {
+          this.lastOmpUpdateStatus = s.status;
+          this.breadcrumbs.record("update-stage", { detail: `omp:${s.status}` });
+        }
+        this.send(ch, s);
+      },
       channel: CH.onOmpUpdateState,
     });
     // Mint at construction so the settings page always has a token to reveal, even before the
@@ -313,6 +356,54 @@ export class MainBackend {
     );
   }
 
+
+  /** Assembles the collector's view of this app from state the class already owns. */
+  private async diagnosticsOptions(
+    req: DiagnosticsExportRequest,
+  ): Promise<DiagnosticsOptions> {
+    const sessions = this.registry.sessions;
+    return {
+      ...req,
+      settings: this.registry.settingsSnapshot(),
+      projects: this.registry.projects,
+      sessions,
+      liveTabIds: sessions.filter((s) => this.sessions.isLive(s.tabId)).map((s) => s.tabId),
+      breadcrumbs: this.breadcrumbs.entries(),
+      facts: {
+        appVersion: app.getVersion(),
+        ompVersion: this.ompPath ? await readInstalledOmpVersion(this.ompPath) : null,
+        ompPath: this.ompPath,
+        electronVersion: process.versions.electron ?? null,
+        nodeVersion: process.version,
+        chromeVersion: process.versions.chrome ?? null,
+        packaged: app.isPackaged,
+        packageFormat: detectPackageFormat(),
+        platform: process.platform,
+        arch: process.arch,
+        osRelease: os.release(),
+        totalMemBytes: os.totalmem(),
+        freeMemBytes: os.freemem(),
+        cpuModels: os.cpus().map((cpu) => cpu.model),
+        sessionsRoot: this.sessionsRoot,
+        archiveRoot: this.archiveRoot,
+        agentDir: getOmpAgentDir(),
+        registryFile: this.registryFile,
+        logDir: this.logDir,
+        windowStateFile: windowStatePath(app.getPath("userData")),
+      },
+    };
+  }
+
+  /** One in-flight export at a time; the renderer's busy state has the same guard as a backstop. */
+  private async exportDiagnostics(req: DiagnosticsExportRequest): Promise<DiagnosticsExportResult> {
+    if (this.exportInFlight) throw new Error("diagnostic export already in progress");
+    this.exportInFlight = true;
+    try {
+      return await collectDiagnosticsBundle(await this.diagnosticsOptions(req));
+    } finally {
+      this.exportInFlight = false;
+    }
+  }
   /**
    * Every channel's implementation, transport-agnostic: Electron IPC binds these below and the
    * remote WebSocket server dispatches the same table (issue #37).
@@ -650,6 +741,7 @@ export class MainBackend {
         [CH.getRemoteState]: () => this.remote.state,
         [CH.setRemoteEnabled]: async (on: boolean) => {
           this.registry.setSetting("remoteEnabled", on);
+          this.breadcrumbs.record("remote-enable", { detail: on ? "on" : "off" });
           await this.remote.apply();
         },
         [CH.setRemoteBind]: async (bind: RemoteBind) => {
@@ -665,6 +757,8 @@ export class MainBackend {
         },
         [CH.regenerateRemoteToken]: async () => {
           this.registry.setSetting("remoteToken", mintRemoteToken());
+          // State only — the token itself never reaches the ring (issue #37).
+          this.breadcrumbs.record("remote-token-regenerate");
           await this.remote.restart();
         },
         [CH.setRemotePassword]: async (password: string) => {
@@ -678,6 +772,18 @@ export class MainBackend {
         [CH.clearRemotePassword]: async () => {
           this.registry.setSettings({ remotePasswordHash: "", remotePasswordSalt: "" });
           await this.remote.apply();
+        },
+        [CH.previewDiagnosticsBundle]: async () =>
+          previewDiagnosticsBundle(
+            await this.diagnosticsOptions({ includeTranscripts: false, destinationPath: null }),
+          ),
+        [CH.exportDiagnosticsBundle]: (req: DiagnosticsExportRequest) => this.exportDiagnostics(req),
+        [CH.chooseDiagnosticsPath]: async (basename: string) => {
+          const result = await dialog.showSaveDialog(this.win, {
+            defaultPath: path.basename(basename || "omp-ui-diagnostics.zip"),
+            filters: [{ name: "Zip archive", extensions: ["zip"] }],
+          });
+          return result.canceled || !result.filePath ? null : result.filePath;
         },
       },
       notify: {

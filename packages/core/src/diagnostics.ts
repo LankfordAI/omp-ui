@@ -482,6 +482,16 @@ export async function previewDiagnosticsBundle(
   const warnings: string[] = [];
   const planned = await buildSections(o, warnings);
   const sections = planned.map(toSection);
+  // The manifest row describes the OTHER sections; its own body never lists
+  // itself, so the byte count is computable without a fixed point.
+  const manifest = manifestBytes(o, (o.now ?? (() => new Date()))(), sections, warnings);
+  sections.unshift({
+    id: "manifest",
+    prefix: "",
+    included: true,
+    files: [{ name: "manifest.json", sizeBytes: manifest.length }],
+    totalBytes: manifest.length,
+  });
   return {
     sections,
     totalBytes: sections.reduce((sum, s) => sum + s.totalBytes, 0),
@@ -545,6 +555,7 @@ export async function collectDiagnosticsBundle(
 
   const manifest = manifestBytes(o, now, sections, warnings);
   entries.unshift({ name: "manifest.json", data: manifest });
+
   const zip = await buildZip(entries, now);
 
   const destDir = path.dirname(destination);

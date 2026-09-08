@@ -53,7 +53,7 @@ export * from "./types";
 export { parseSpawnRequest } from "./spawn-request";
 export * from "./backend-arg-codecs";
 export * from "./backend-channels";
-export { Registry, planHandoffDescendants } from "./registry";
+export { Registry, planHandoffDescendants, type RegistrySettings } from "./registry";
 export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { settledWithin } from "./promise-utils";

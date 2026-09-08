@@ -545,6 +545,15 @@ export class Registry {
   }
 
   /**
+   * A snapshot of every setting in one object — same validated values the
+   * renderer reads field-by-field via getSetting, for whole-state consumers
+   * (the diagnostics bundle). Not live; re-read per use.
+   */
+  settingsSnapshot(): RegistrySettings {
+    return buildSettings((key) => this.#data.settings[key]);
+  }
+
+  /**
    * Writes a persisted preference and saves. An Object.is-equal value is a
    * no-op: nothing is written.
    */

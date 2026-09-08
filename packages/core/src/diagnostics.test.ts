@@ -12,10 +12,13 @@ import {
   scrubSettings,
   type DiagnosticsFacts,
   type DiagnosticsOptions,
-  type DiagnosticsPreview,
 } from "./diagnostics";
 import type { RegistrySettings } from "./registry";
-import type { OwnedSessionRecord, ProjectRecord } from "./types";
+import type {
+  DiagnosticsPreview,
+  OwnedSessionRecord,
+  ProjectRecord,
+} from "./types";
 
 const inflateRawP = promisify(inflateRaw);
 
