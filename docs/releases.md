@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 * Diagnostic bundle export with crash breadcrumbs ([#413](https://github.com/LankfordAI/omp-ui/issues/413)): **Settings → Advanced** and the command palette build one zip with the main-process logs, a lifecycle breadcrumb trail that survives crashes, versions, platform facts, registry state with per-project git status, and session-lineage listings. Provider keys and remote credentials are never included, and transcripts are a warned, capped opt-in.
+* Fixed: a plan that rendered correctly could still carry a "could not be displayed" banner — the hidden layout verifier scheduled its settle frames on the offscreen child iframe's animation clock, which may never advance, so the 4 s deadline fired over a healthy document ([#415](https://github.com/LankfordAI/omp-ui/issues/415)). The probe now waits on two parent-page animation frames after the document loads, and an inconclusive verification reports as verification-incomplete instead of a display failure.
 
 ## Choose a download
 
