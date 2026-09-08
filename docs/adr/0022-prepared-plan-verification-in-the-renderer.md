@@ -74,3 +74,11 @@ prose for marker text. A Chromium preflight is a claim about the app-owned
 pipeline, not about every remote browser's precise pixels; "verification
 could not conclude" is reported as `unavailable`, which never presents and
 never passes.
+
+Live preflight measurements forced one guardrail correction: `body` keeps
+`width: auto`. The earlier `width: 100% !important` competed with the UA
+body margin, so every plan document laid out 16px wider than the viewport
+— an invisible horizontal scroll in every display surface and a permanent
+`LAYOUT_OVERFLOW` under an honest probe. Auto width contains the margin
+by definition, the canvas paint rides on `:root`, and an authored body
+margin stays authored layout rather than generated overflow.
