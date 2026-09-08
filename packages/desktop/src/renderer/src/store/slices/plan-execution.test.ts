@@ -1,5 +1,6 @@
 // Plan-execution slice tests (moved verbatim from store.test.ts for #295).
 import { describe, expect, it, vi } from "vitest";
+import type { PlanAnswerResult } from "@omp-ui/core/plan";
 import type {
   BackendState,
   PendingPlan,
@@ -8,7 +9,15 @@ import type {
 
 import { planProposalItem } from "../../lib/transcript";
 import { rpcTabState } from "../../test/fixtures";
+import type { RpcTabState } from "../types";
 import { h } from "../../test/store-harness";
+
+// The shared bridge mock predates the acknowledged plan-answer channel (issue
+// #312 follow-up); an HTML gate settles only through it.
+const answerPlanReview = vi.fn(async (): Promise<PlanAnswerResult> => ({ status: "accepted" }));
+Object.assign(h.mockBackend, { answerPlanReview });
+/** A gated HTML proposal carries the artifact's SHA-256 (64 lowercase hex). */
+const SOURCE_HASH = "1f3c".repeat(16);
 
 describe("proposed plans: defer keeps the gate unanswered, history tracks verdicts", () => {
   const planReviewFrame = (id: string, planFilePath = "local://p.md") => ({
@@ -69,6 +78,12 @@ describe("proposed plans: defer keeps the gate unanswered, history tracks verdic
     h.useStore.getState().executePlan(h.TAB, "existing");
     let rpc = h.useStore.getState().rpc[h.TAB]!;
     expect(rpc.plans[0]!.status).toBe("executed");
+    // Markdown keeps its un-gated semantics: the verdict rides the select
+    // reply directly and never touches the acknowledged-answer channel (§6).
+    expect(
+      h.sent.find((s) => s.cmd.type === "extension_ui_response")?.cmd,
+    ).toMatchObject({ id: "d3", value: "execute" });
+    expect(answerPlanReview).not.toHaveBeenCalled();
     // The planner comes back with a revised draft for the same plan file.
     h.useStore.getState().handleRpcFrame(h.TAB, planReviewFrame("d4"));
     rpc = h.useStore.getState().rpc[h.TAB]!;
@@ -170,6 +185,21 @@ describe("plan-review gate reconciliation (issue #215)", () => {
     expect(tab.planHtml).toBe("<h1>Plan</h1>");
   });
 
+  it("hydrates the record's sourceHash so a late joiner answers with it", async () => {
+    const { store, onStateChanged } = await initFreshStore();
+    store.setState({ rpc: { [h.TAB]: rpcTabState() } });
+
+    onStateChanged(gateState({ pendingPlan: { ...PENDING, sourceHash: SOURCE_HASH } }));
+    // The hash survives hydration: a client that never saw the proposal frame
+    // still answers `answerPlanReview` with the identity main validated.
+    expect(store.getState().rpc[h.TAB]!.planReview?.request).toEqual({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: "/l/auth-plan.html",
+      sourceHash: SOURCE_HASH,
+    });
+  });
+
   it("settles a verdict another client made, matching the proposal frame id", async () => {
     const { store, onStateChanged } = await initFreshStore();
     const planItem = planProposalItem("add auth", "local://auth-plan.html", "/l/auth-plan.html");
@@ -182,6 +212,26 @@ describe("plan-review gate reconciliation (issue #215)", () => {
       { key: "local://auth-plan.html", title: "add auth", status: "executed" },
     ]);
     expect(tab.items).toEqual([{ ...planItem, status: "executed" }]);
+  });
+
+  it("settles an invalidated gate with no dispatch and no fold", async () => {
+    const { store, onStateChanged } = await initFreshStore();
+    const planItem = planProposalItem("add auth", "local://auth-plan.html", "/l/auth-plan.html");
+    store.setState({ rpc: { [h.TAB]: reviewedTab({ items: [planItem] }) } });
+    h.sent.splice(0);
+
+    onStateChanged(gateState({ planSettle: { frameId: "p1", verdict: "invalidated" } }));
+    const tab = store.getState().rpc[h.TAB]!;
+    // The validated source changed under review: both representations say so,
+    // and no implementation prompt or advisor fold follows a verdict that
+    // never happened.
+    expect(tab.planReview).toBeNull();
+    expect(tab.plans).toEqual([
+      { key: "local://auth-plan.html", title: "add auth", status: "invalidated" },
+    ]);
+    expect(tab.items).toEqual([{ ...planItem, status: "invalidated" }]);
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
   });
 
   it("closes the pane when the settle is for a different gate", async () => {
@@ -307,5 +357,76 @@ describe("compacted execution context holds the prompt when compaction stalls (i
     expect(notices.some((n) => n.text.includes("compaction did not finish"))).toBe(
       false,
     );
+  });
+});
+
+describe("html gates: only main's accepted answer executes (issue #312 follow-up)", () => {
+  const htmlTab = (patch: Partial<RpcTabState> = {}) =>
+    rpcTabState({
+      planReview: {
+        request: {
+          title: "add auth",
+          planFilePath: "local://auth-plan.html",
+          planAbsPath: "/l/auth-plan.html",
+          sourceHash: SOURCE_HASH,
+        },
+        frame: { id: "g1" },
+      },
+      planText: "<h1>Plan</h1>",
+      planHtml: "<h1>Plan</h1>",
+      plans: [{ key: "local://auth-plan.html", title: "add auth", status: "pending" }],
+      planReadiness: { status: "ready", identity: SOURCE_HASH },
+      ...patch,
+    });
+
+  const implementationPrompts = () =>
+    h.sent.filter(
+      (s) =>
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+
+  it("a rejected execute dispatches nothing and settles nothing from this client", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: htmlTab() } });
+    answerPlanReview.mockResolvedValueOnce({
+      status: "rejected",
+      reason: "source-changed",
+    });
+
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    await h.flushMicrotasks();
+
+    expect(answerPlanReview).toHaveBeenCalledWith(
+      h.TAB,
+      "g1",
+      "execute",
+      SOURCE_HASH,
+    );
+    // The gate stays unanswered — a rejected client must not be the one to
+    // release the blocked agent, and nothing may reach the implementation.
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+    expect(implementationPrompts()).toHaveLength(0);
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.planReview).not.toBeNull();
+    expect(tab.plans[0]!.status).toBe("pending");
+  });
+
+  it.each([
+    ["no local preparation at all", null],
+    ["a preparation that failed", { status: "failed" as const }],
+    [
+      "a ready preparation of a different source",
+      { status: "ready" as const, identity: "0".repeat(64) },
+    ],
+  ])("executes nothing for %s, however executePlan is called", async (_label, readiness) => {
+    h.useStore.setState({ rpc: { [h.TAB]: htmlTab({ planReadiness: readiness }) } });
+
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    await h.flushMicrotasks();
+
+    expect(answerPlanReview).not.toHaveBeenCalled();
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+    expect(implementationPrompts()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
   });
 });

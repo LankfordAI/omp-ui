@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 import type { ThemedToken } from "shiki/core";
-import type { DiagramRenderer, PlanCanvas } from "../lib/plan-diagrams";
+import type { PlanDiagnostic } from "@omp-ui/core/plan";
+import type { PreparedPlanState } from "../lib/plan-document";
+import type { ParsedPlanSource } from "../lib/plan-source";
 import type { CodeTokenizer } from "../lib/plan-highlight";
 import type { Theme } from "../lib/themes";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
@@ -17,44 +19,43 @@ const clipboardImageMock = vi.hoisted(() => ({
 
 vi.mock("../lib/clipboard-image", () => clipboardImageMock);
 
-const planVerification = vi.hoisted(() => ({ failure: null as string | null }));
+/**
+ * Pinned settled state for the prepared-document hook: `null` runs the real
+ * pipeline (parse, transforms, structural verify, plus a layout probe jsdom
+ * resolves as inconclusive without ever creating a frame); an object pins
+ * exactly what the surface sees, which is how the readiness and fallback
+ * cases state theirs (issue #312 follow-up).
+ */
+const planPrepared = vi.hoisted(() => ({ state: null as PreparedPlanState | null }));
 
 vi.mock("../lib/plan-document", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-document")>();
   return {
     ...original,
-    // Partial mock: existing cases run the real pipeline (structural pass +
-    // inconclusive probe in jsdom); setting `failure` forces the verified
-    // failed state for the fallback cases (issue #312). The original hook is
-    // always called so the hook order stays stable.
-    usePreparedPlanDocument: (html: string | null) => {
-      const state = original.usePreparedPlanDocument(html);
-      return planVerification.failure !== null
-        ? { status: "failed" as const, reason: planVerification.failure }
-        : state;
+    // The original hook always runs first so hook order stays stable even on
+    // the render that switches to the pinned state.
+    usePreparedPlanDocument: (html: string | null, identity?: string) => {
+      const state = original.usePreparedPlanDocument(html, identity);
+      return planPrepared.state ?? state;
     },
   };
 });
 
 // Issue #329: both leaf renderers sit behind a real dynamic import (mermaid
 // ~440 ms, shiki ~110 ms in this environment), which raced this file's wait
-// budget under full-suite load. Stub both at their injection seams so the
-// pipeline is microtask-only; the substitution, guardrail, verification and
-// theme behaviour under test all stay real. Real-engine coverage lives in
-// lib/plan-diagrams.smoke.test.ts and lib/plan-highlight.smoke.test.ts.
+// budget under full-suite load. Stubbing the renderer and the tokenizer at the
+// seams the pipeline injects keeps the substitution, guardrail, verification
+// and theme behaviour under test real while making the pipeline
+// microtask-only. Real-engine coverage lives in lib/plan-diagrams.smoke.test.ts
+// and lib/plan-highlight.smoke.test.ts.
 vi.mock("../lib/plan-diagrams", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
   return {
     ...original,
-    // The now-real injected renderer is ignored in favour of the stub: the
-    // production call site passes renderMermaid itself (issue #384), so
-    // `render ?? stub` would no longer stub anything.
-    renderMermaidBlocks: (html: string, _render: DiagramRenderer, canvas?: PlanCanvas) =>
-      original.renderMermaidBlocks(
-        html,
-        async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`,
-        canvas,
-      ),
+    // The pipeline injects this renderer itself (issue #384), so the stub has
+    // to live on the export, not on an argument.
+    renderMermaid: async (id: string) =>
+      `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`,
   };
 });
 
@@ -68,8 +69,11 @@ vi.mock("../lib/plan-highlight", async (importOriginal) => {
       .map((line) => [{ content: line, offset: 0, color: "#0000ff" } as ThemedToken]);
   return {
     ...original,
-    highlightCodeBlocks: (html: string, theme: Theme, tokenize?: CodeTokenizer) =>
-      original.highlightCodeBlocks(html, theme, tokenize ?? tokenizeStub),
+    planHighlightTransform: (
+      parsed: ParsedPlanSource,
+      theme: Theme,
+      tokenize: CodeTokenizer = tokenizeStub,
+    ) => original.planHighlightTransform(parsed, theme, tokenize),
   };
 });
 
@@ -105,6 +109,9 @@ const backendMock = {
   setSessionModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   rpcSend: vi.fn(),
+  // An HTML gate settles only through main's accepted answer (#312 follow-up);
+  // markdown gates never reach it.
+  answerPlanReview: vi.fn(async () => ({ status: "accepted" as const })),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend (and lib/themes)
@@ -114,8 +121,16 @@ const { applyTheme, resolveTheme } = await import("../lib/themes");
 const { PlanReview } = await import("./PlanReview");
 
 const TAB = "tab-1";
+/** A gated HTML proposal carries the artifact's SHA-256 (64 lowercase hex). */
+const SOURCE_HASH = "1f3c".repeat(16);
 
-function tabState(patch: Parameters<typeof rpcTabState>[0] = {}) {
+/**
+ * The standard gate. `html` puts the proposal on an HTML artifact instead,
+ * which is what switches on the document review, the readiness guard, and the
+ * acknowledged answer (issue #312 follow-up).
+ */
+function tabState(patch: Parameters<typeof rpcTabState>[0] = {}, html = false) {
+  const ext = html ? "html" : "md";
   return rpcTabState({
     status: "ready",
     // Skip the auto-title path: the implementation prompt would otherwise
@@ -124,8 +139,9 @@ function tabState(patch: Parameters<typeof rpcTabState>[0] = {}) {
     planReview: {
       request: {
         title: "Fix the login race",
-        planFilePath: "local://fix-login-race-plan.md",
-        planAbsPath: "/x/fix-login-race-plan.md",
+        planFilePath: `local://fix-login-race-plan.${ext}`,
+        planAbsPath: `/x/fix-login-race-plan.${ext}`,
+        ...(html ? { sourceHash: SOURCE_HASH } : {}),
       },
       frame: { id: "p1" },
     },
@@ -346,6 +362,8 @@ afterEach(() => {
   document.body.replaceChildren();
   document.body.style.overflow = "";
   Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
+  // A pinned prepared state never outlives the case that pinned it.
+  planPrepared.state = null;
 });
 
 describe("PlanReview git branch section (issue #25)", () => {
@@ -1167,14 +1185,16 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
 describe("PlanReview plan rendering (issue #109)", () => {
   const planFrame = (): HTMLIFrameElement | null =>
     document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
-
   it("renders the html rendition in an empty-sandbox iframe, markdown suppressed", async () => {
     useStore.setState({
       rpc: {
-        [TAB]: tabState({
-          planText: "# Fix\n\nmarkdown-only-body",
-          planHtml: "<h1>Fix</h1><p>html-body</p>",
-        }),
+        [TAB]: tabState(
+          {
+            planText: "# Fix\n\nmarkdown-only-body",
+            planHtml: "<h1>Fix</h1><p>html-body</p>",
+          },
+          true,
+        ),
       },
     });
     render();
@@ -1188,9 +1208,13 @@ describe("PlanReview plan rendering (issue #109)", () => {
     await act(async () => {});
     expect(frame!.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
     expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
+    // The document also carries its own restrictive policy, so the sandbox is
+    // not the only thing keeping it inert.
+    expect(frame!.getAttribute("srcdoc")).toContain(
+      '<meta http-equiv="Content-Security-Policy"',
+    );
     expect(document.body.textContent).not.toContain("markdown-only-body");
-    // Only the plan area changes — every control still answers the gate.
-    expect(executeButton()).toBeDefined();
+    // Only the plan area changes — refine and defer still answer the gate.
     expect(buttonByText("refine")).toBeDefined();
     expect(buttonByText("not now")).toBeDefined();
     expect(document.body.textContent).toContain("implementation setup");
@@ -1217,33 +1241,51 @@ describe("PlanReview plan rendering (issue #109)", () => {
     expect(document.body.textContent).toContain("The plan file could not be read");
   });
 
-  it("shows the named failure and raw source instead of the iframe when verification fails (issue #312)", async () => {
-    planVerification.failure = "the document body has no visible content";
-    try {
-      useStore.setState({
-        rpc: {
-          [TAB]: tabState({
+  it("names the diagnostics and the raw source instead of the iframe when preparation fails", async () => {
+    const diagnostics: PlanDiagnostic[] = [
+      {
+        code: "LAYOUT_EMPTY",
+        stage: "layout",
+        repair: "source",
+        severity: "error",
+        message: "the document laid out no visible content",
+        detail: "0 painted elements at 800px",
+        location: { startOffset: 13, endOffset: 35, line: 2, column: 7 },
+      },
+    ];
+    planPrepared.state = { status: "failed", doc: null, diagnostics };
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState(
+          {
             planText: "<html><body></body></html>",
             planHtml: "<html><body></body></html>",
-          }),
-        },
-      });
-      render();
-      await act(async () => {});
+          },
+          true,
+        ),
+      },
+    });
+    render();
+    await act(async () => {});
 
-      expect(planFrame()).toBeNull();
-      expect(document.body.textContent).toContain("could not be displayed as a document");
-      expect(document.body.textContent).toContain("the document body has no visible content");
-      // The raw plan source is shown as escaped text.
-      expect(document.body.querySelector("pre[data-selectable]")!.textContent).toContain(
-        "<html><body></body></html>",
-      );
-      // The gate stays answerable: this is the point of the fallback.
-      expect(executeButton()).toBeDefined();
-      expect(buttonByText("refine")).toBeDefined();
-    } finally {
-      planVerification.failure = null;
-    }
+    expect(planFrame()).toBeNull();
+    expect(document.body.textContent).toContain("could not be displayed as a document");
+    // Named from the stable code through the localized catalog, with its
+    // source location and the engine's own detail.
+    expect(document.body.textContent).toContain("the document laid out no visible content");
+    expect(document.body.textContent).toContain("2:7");
+    expect(document.body.textContent).toContain("0 painted elements at 800px");
+    // The raw plan source is shown as escaped text, and the wording sends
+    // nobody off to have the agent rewrite anything.
+    expect(document.body.querySelector("pre[data-selectable]")!.textContent).toContain(
+      "<html><body></body></html>",
+    );
+    expect(document.body.textContent).not.toContain("rewrite");
+    // The fallback keeps the review real: refine and defer still answer the
+    // gate, while execute — which would act on a document that does not exist —
+    // stays disabled.
+    expect(buttonByText("refine").disabled).toBe(false);
+    expect(executeButton().disabled).toBe(true);
   });
 });
 describe("PlanReview mermaid diagrams (issue #285)", () => {
@@ -1322,7 +1364,17 @@ describe("PlanReview compact flow (issue #216)", () => {
 
   beforeEach(() => {
     setCompact(true);
-    useStore.setState({ rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1><p>long plan</p>" }) } });
+    // The compact surface reviews the HTML document, so the gate carries the
+    // identity main validated and the preparation the guard reads is ready.
+    planPrepared.state = {
+      status: "ready",
+      doc: "<h1>Fix</h1><p>long plan</p>",
+      diagnostics: [],
+      identity: SOURCE_HASH,
+    };
+    useStore.setState({
+      rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1><p>long plan</p>" }, true) },
+    });
   });
 
   it("starts with only the plan surface mounted", () => {
@@ -1345,9 +1397,16 @@ describe("PlanReview compact flow (issue #216)", () => {
     expect(verdictFrame()).toBeUndefined();
 
     await act(async () => buttonByText("send changes").click());
-    expect(verdictFrame()).toMatchObject({ id: "p1", value: "refine" });
+    // An HTML refine verdict travels through main's acknowledged answer —
+    // never as a direct reply to the blocked select.
+    expect(backendMock.answerPlanReview).toHaveBeenCalledWith(
+      TAB,
+      "p1",
+      "refine",
+      SOURCE_HASH,
+    );
+    expect(verdictFrame()).toBeUndefined();
     expect(promptFrame()?.message).toBe("Revise the plan to incorporate these requested changes:\n\nkeep the retry bounded");
-    expect(backendMock.rpcSend.mock.calls.filter((call) => (call[1] as Record<string, unknown>).type === "extension_ui_response")).toHaveLength(1);
   });
 
   it("opens setup without a verdict and executes with staged branch state", async () => {
@@ -1361,7 +1420,13 @@ describe("PlanReview compact flow (issue #216)", () => {
     await typeInto(newNameInput(), "feat/mobile-review");
     await act(async () => executeButton().click());
     expect(backendMock.checkoutBranch).toHaveBeenCalledWith("/p", "feat/mobile-review", { create: true });
-    expect(verdictFrame()).toMatchObject({ id: "p1", value: "execute" });
+    expect(backendMock.answerPlanReview).toHaveBeenCalledWith(
+      TAB,
+      "p1",
+      "execute",
+      SOURCE_HASH,
+    );
+    expect(verdictFrame()).toBeUndefined();
   });
 
   it.each(["close", "not now"])("defers from compact review via %s without a verdict", async (route) => {
@@ -1400,7 +1465,7 @@ describe("PlanReview compact flow (issue #216)", () => {
     expect(notesBox().value).toBe("unsent draft");
 
     await act(async () => {
-      useStore.setState({ rpc: { [TAB]: tabState({ planReview: { request: { title: "Revised", planFilePath: "local://revised.md", planAbsPath: "/x/revised.md" }, frame: { id: "p2" } }, planHtml: "<h1>Revised</h1>" }) } });
+      useStore.setState({ rpc: { [TAB]: tabState({ planReview: { request: { title: "Revised", planFilePath: "local://revised-plan.html", planAbsPath: "/x/revised-plan.html" }, frame: { id: "p2" } }, planHtml: "<h1>Revised</h1>" }, true) } });
     });
     expect(step().dataset.planReviewStep).toBe("review");
   });
@@ -1417,7 +1482,7 @@ describe("PlanReview compact flow (issue #216)", () => {
   it("keeps compact setup visible for busy-session confirmation", async () => {
     useStore.setState({
       tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" }), tabInfo({ tabId: "tab-2", projectCwd: "/p" })],
-      rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1>" }), "tab-2": tabState({ planReview: null, planText: null, status: "running" }) },
+      rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1>" }, true), "tab-2": tabState({ planReview: null, planText: null, status: "running" }) },
       state: stateWithSessions({ [TAB]: "Planning session", "tab-2": "Busy work" }),
     });
     render();
@@ -1428,6 +1493,7 @@ describe("PlanReview compact flow (issue #216)", () => {
     expect(step().dataset.planReviewStep).toBe("setup");
     expect(document.body.textContent).toContain("is mid-turn");
     expect(verdictFrame()).toBeUndefined();
+    expect(backendMock.answerPlanReview).not.toHaveBeenCalled();
   });
 
   it("keeps compact setup visible when checkout fails", async () => {
@@ -1440,8 +1506,80 @@ describe("PlanReview compact flow (issue #216)", () => {
     expect(step().dataset.planReviewStep).toBe("setup");
     expect(document.body.textContent).toContain("checkout rejected");
     expect(verdictFrame()).toBeUndefined();
+    expect(backendMock.answerPlanReview).not.toHaveBeenCalled();
   });
 
+});
+
+
+describe("PlanReview html readiness gate (issue #312 follow-up)", () => {
+  /** The same gate on the html artifact, reviewing a document surface. */
+  const htmlGate = (): void => {
+    useStore.setState({
+      rpc: { [TAB]: tabState({ planText: "<h1>Fix</h1>", planHtml: "<h1>Fix</h1>" }, true) },
+    });
+  };
+
+  const notReady: Array<{ label: string; state: PreparedPlanState }> = [
+    { label: "a preparation that failed", state: { status: "failed", doc: null, diagnostics: [] } },
+    {
+      label: "a preparation that could not conclude",
+      state: { status: "unavailable", doc: "<h1>Fix</h1>", diagnostics: [] },
+    },
+    {
+      label: "a ready preparation of another source identity",
+      state: {
+        status: "ready",
+        doc: "<h1>Fix</h1>",
+        diagnostics: [],
+        identity: "0".repeat(64),
+      },
+    },
+  ];
+
+  it.each(notReady)("keeps execute disabled for $label while refine stays live", async ({ state }) => {
+    planPrepared.state = state;
+    htmlGate();
+    render();
+    await act(async () => {});
+
+    expect(executeButton().disabled).toBe(true);
+    expect(buttonByText("refine").disabled).toBe(false);
+    // A click that cannot land must not answer the gate either way.
+    await act(async () => executeButton().click());
+    expect(backendMock.answerPlanReview).not.toHaveBeenCalled();
+    expect(verdictFrame()).toBeUndefined();
+  });
+
+  it("executes through main's acknowledged answer once the document is ready", async () => {
+    planPrepared.state = {
+      status: "ready",
+      doc: "<h1>Fix</h1>",
+      diagnostics: [],
+      identity: SOURCE_HASH,
+    };
+    htmlGate();
+    render();
+    await act(async () => {});
+
+    expect(executeButton().disabled).toBe(false);
+    await act(async () => executeButton().click());
+    // Settling takes the acknowledge round-trip, then the accepted answer's
+    // own microtasks; the pane closes only once main has accepted.
+    await act(async () => {});
+    await act(async () => {});
+    expect(useStore.getState().rpc[TAB]!.planReview).toBeNull();
+
+    expect(backendMock.answerPlanReview).toHaveBeenCalledWith(
+      TAB,
+      "p1",
+      "execute",
+      SOURCE_HASH,
+    );
+    // The select reply is main's to send once it has accepted; this client
+    // never answers the blocked frame itself.
+    expect(verdictFrame()).toBeUndefined();
+  });
 });
 
 describe("PlanReview hydrated gate (issue #215)", () => {

@@ -28,6 +28,13 @@ import {
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import { reduceAgentEvent } from "./reduce-agent-event";
+// The shared bridge mock predates the acknowledged plan-answer channel (issue
+// #312 follow-up): an HTML gate settles only through it, so install it here.
+// Markdown gates never reach it and keep their direct `rpcSend` semantics.
+const answerPlanReviewMock = vi.fn(async () => ({ status: "accepted" as const }));
+Object.assign(h.mockBackend, { answerPlanReview: answerPlanReviewMock });
+/** A gated HTML proposal carries the artifact's SHA-256 (64 lowercase hex). */
+const SOURCE_HASH = "1f3c".repeat(16);
 
 describe("reduceAgentEvent", () => {
   const runtime = (slashCommandItems = new Map<string, string>()) => ({
@@ -1187,12 +1194,26 @@ describe("handleRpcFrame routing", () => {
           title: "t",
           planFilePath: "local://p-plan.html",
           planAbsPath: "/lineage/local/p-plan.html",
+          // A gated HTML request always carries the validated artifact hash.
+          sourceHash: SOURCE_HASH,
         }),
     });
     // Let the plan file read resolve so executePlan captures the plan text.
     await h.flushMicrotasks();
+    // An HTML gate answers only through the acknowledged path, and only while
+    // the surface's preparation is ready for this source identity (§6).
+    h.useStore.getState().setPlanReadiness(h.TAB, {
+      status: "ready",
+      identity: SOURCE_HASH,
+    });
     h.useStore.getState().executePlan(h.TAB, "fresh");
     await h.flushMicrotasks();
+    expect(answerPlanReviewMock).toHaveBeenCalledWith(
+      h.TAB,
+      "p7h",
+      "execute",
+      SOURCE_HASH,
+    );
     // Boot the fresh tab to ready — resolves the spawn's readiness wait.
     h.useStore.setState({
       rpc: {

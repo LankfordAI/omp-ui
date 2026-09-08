@@ -24,8 +24,10 @@ export type ConfinedPlanRead =
 /**
  * Read one plan artifact confined to `root` (the session's lineage dir,
  * realpath'd), returning the exact bytes' UTF-8 text and their SHA-256 hash.
- * `absPath` is also realpath'd; a symlink that resolves OUTSIDE the root
- * fails closed, and a symlink inside the root is judged by its TARGET.
+ * `absPath` is also realpath'd; a path that cannot be resolved at all is
+ * simply unreadable (the child has not written it yet), a symlink that
+ * resolves OUTSIDE the root fails closed, and a symlink inside the root is
+ * judged by its TARGET.
  */
 export async function readConfinedPlanFile(
   root: string,
@@ -34,7 +36,8 @@ export async function readConfinedPlanFile(
   const rootReal = await realpathOrNull(root);
   if (rootReal === null) return { ok: false, reason: "unreadable" };
   const targetReal = await realpathOrNull(path.resolve(absPath));
-  if (targetReal === null || !isWithin(rootReal, targetReal)) {
+  if (targetReal === null) return { ok: false, reason: "unreadable" };
+  if (!isWithin(rootReal, targetReal)) {
     return { ok: false, reason: "outside" };
   }
   let stat: fs.Stats;

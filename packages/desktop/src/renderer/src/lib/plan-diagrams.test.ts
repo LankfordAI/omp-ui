@@ -2,160 +2,213 @@
 // jsdom for the module graph only: the canvas gate imports ./themes, whose
 // chain reads window at boot. No DOM behaviour is exercised here.
 import { describe, expect, it } from "vitest";
-import { extractMermaidBlocks, fitDarkPaint, renderMermaidBlocks, type DiagramRenderer } from "./plan-diagrams";
+import {
+  DiagramSyntaxError,
+  fitDarkPaint,
+  planDiagramTransform,
+  type DiagramRenderer,
+  type PlanCanvas,
+} from "./plan-diagrams";
+import { composePlanSource, parsePlanSource } from "./plan-source";
 import { mixHex, THEMES } from "./themes";
 
 const stubSvg = (id: string) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`;
 
-// Test seam: records the (id, source) pairs it is handed, throws for sources
-// listed in `failFor`, otherwise returns a fixed SVG carrying the id.
-function stubRenderer(failFor: string[] = []) {
-  const seen: string[] = [];
-  const render: DiagramRenderer = async (id, source) => {
-    seen.push(`${id}:${source}`);
-    if (failFor.includes(source)) throw new Error("Parse error on line 1");
+// Test seam: records the (id, source, dark) triples it is handed and throws the
+// given error for a listed source, so a parse failure and an engine failure are
+// distinguishable without the real mermaid (covered by the smoke test).
+function stubRenderer(failFor: Record<string, Error> = {}) {
+  const seen: unknown[][] = [];
+  const render: DiagramRenderer = async (id, source, dark) => {
+    seen.push([id, source, dark]);
+    const fail = failFor[source];
+    if (fail) throw fail;
     return stubSvg(id);
   };
   return { render, seen };
 }
 
-describe("extractMermaidBlocks", () => {
-  it("finds a block, substitutes a placeholder, and decodes entities in the source", () => {
-    const html = `<p>before</p><pre class="mermaid">flowchart TD; A["a &lt;b&gt; &amp; c"]--&gt;B</pre><p>after</p>`;
-    const { html: staged, blocks } = extractMermaidBlocks(html);
+/** Parse authored HTML, substitute its diagrams, compose the document. */
+async function transform(html: string, render: DiagramRenderer, canvas?: PlanCanvas) {
+  const parsed = parsePlanSource(html);
+  const out = await planDiagramTransform(parsed, render, canvas);
+  return { parsed, out, doc: composePlanSource(html, out.replacements) };
+}
 
-    expect(blocks).toEqual([
-      {
-        placeholder: "<!--omp-ui-diagram-0-->",
-        source: `flowchart TD; A["a <b> & c"]-->B`,
-      },
-    ]);
-    expect(staged).toBe(`<p>before</p><!--omp-ui-diagram-0--><p>after</p>`);
+describe("parsePlanSource diagram classification", () => {
+  it("reads a pre.mermaid body as diagram source, decoded once", () => {
+    const parsed = parsePlanSource(
+      '<p>before</p><pre class="mermaid">flowchart TD; A["a &lt;b&gt; &amp; c"]--&gt;B</pre><p>after</p>',
+    );
+    expect(parsed.diagramBlocks).toHaveLength(1);
+    expect(parsed.diagramBlocks[0]!.sourceText).toBe('flowchart TD; A["a <b> & c"]-->B');
+    expect(parsed.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   });
 
   it("matches mermaid as a class token, tolerating extra classes and casing", () => {
-    const html = `<PRE CLASS="wide mermaid">graph TD; A-->B</PRE><pre class="mermaid-x">graph TD; C-->D</pre>`;
-    const { html: staged, blocks } = extractMermaidBlocks(html);
-
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0]!.source).toBe("graph TD; A-->B");
-    expect(staged).toBe(`<!--omp-ui-diagram-0--><pre class="mermaid-x">graph TD; C-->D</pre>`);
+    const parsed = parsePlanSource(
+      '<PRE CLASS="wide mermaid">graph TD; A-->B</PRE><pre class="mermaid-x">graph TD; C-->D</pre>',
+    );
+    expect(parsed.diagramBlocks).toHaveLength(1);
+    expect(parsed.diagramBlocks[0]!.sourceText).toBe("graph TD; A-->B");
   });
 
-  it("leaves a document without mermaid blocks untouched", () => {
-    const html = `<pre class="not-mermaid">x</pre><pre>graph TD; A-->B</pre>`;
-    const { html: staged, blocks } = extractMermaidBlocks(html);
+  it("classifies a diagram before any language class", () => {
+    // The same pre carries both conventions; mermaid wins, and the block is
+    // not handed to the highlighter.
+    const parsed = parsePlanSource('<pre class="mermaid language-bash">flowchart TD; A-->B</pre>');
+    expect(parsed.diagramBlocks.map((b) => b.sourceText)).toEqual(["flowchart TD; A-->B"]);
+    expect(parsed.codeBlocks).toEqual([]);
+  });
 
-    expect(blocks).toEqual([]);
-    expect(staged).toBe(html);
+  it("leaves documents without a real mermaid pre block-free", () => {
+    const cases = [
+      '<pre class="not-mermaid">x</pre><pre>graph TD; A-->B</pre>',
+      // Markup inside the block is escaped source, not diagram nodes.
+      '<pre class="mermaid"><b>bold</b></pre>',
+      // Not a `pre`, so not a diagram.
+      '<div class="mermaid">graph TD; A-->B</div>',
+      // Inert content never defines a block.
+      '<template><pre class="mermaid">graph TD; A-->B</pre></template><p>text</p>',
+      // Foreign subtrees are scanned past.
+      '<svg><foreignObject><pre class="mermaid">graph TD; A-->B</pre></foreignObject></svg><p>text</p>',
+      // A comment is a comment.
+      '<!--<pre class="mermaid">graph TD; A-->B</pre>--><p>text</p>',
+    ];
+    for (const html of cases) {
+      const parsed = parsePlanSource(html);
+      expect(parsed.diagramBlocks, html).toEqual([]);
+      expect(parsed.codeBlocks, html).toEqual([]);
+    }
+  });
+
+  it("reports markup inside a mermaid block as a source finding", () => {
+    const parsed = parsePlanSource('<pre class="mermaid">graph<TD>x</TD></pre>');
+    expect(parsed.diagramBlocks).toEqual([]);
+    expect(
+      parsed.diagnostics
+        .filter((d) => d.severity === "error")
+        .map((d) => [d.code, d.repair, d.detail]),
+    ).toEqual([["CODE_MARKUP", "source", '<td> inside the block']]);
   });
 });
 
-describe("renderMermaidBlocks", () => {
-  it("substitutes rendered SVG wrapped in the diagram container", async () => {
+describe("planDiagramTransform", () => {
+  it("splices the rendered SVG over the pre and keeps every other byte", async () => {
     const { render, seen } = stubRenderer();
-    const html = `<p>before</p><pre class="mermaid">flowchart TD; A-->B</pre><p>after</p>`;
-    const out = await renderMermaidBlocks(html, render);
+    const html = '<p>before</p><pre class="mermaid">flowchart TD; A-->B</pre><p>tail $&</p>';
+    const { doc } = await transform(html, render);
 
-    expect(seen).toEqual(["omp-ui-diagram-0:flowchart TD; A-->B"]);
-    expect(out).toBe(
-      `<p>before</p><div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-0")}</div><p>after</p>`,
+    expect(seen).toEqual([["omp-ui-diagram-0", "flowchart TD; A-->B", false]]);
+    expect(doc).toBe(
+      `<p>before</p><div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-0")}</div><p>tail $&</p>`,
     );
   });
 
-  it("substitutes every block and hands each a unique id", async () => {
+  it("renders every block with an id unique to its index", async () => {
     const { render, seen } = stubRenderer();
-    const html = `<pre class="mermaid">graph TD; A-->B</pre><pre class="mermaid">graph TD; C-->D</pre>`;
-    const out = await renderMermaidBlocks(html, render);
+    const html = '<pre class="mermaid">graph TD; A-->B</pre><p>mid</p><pre class="mermaid">graph TD; C-->D</pre>';
+    const { doc } = await transform(html, render);
 
-    expect(seen).toEqual(["omp-ui-diagram-0:graph TD; A-->B", "omp-ui-diagram-1:graph TD; C-->D"]);
-    expect(out).toBe(
-      `<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-0")}</div>` +
+    expect(seen.map(([id]) => id)).toEqual(["omp-ui-diagram-0", "omp-ui-diagram-1"]);
+    expect(doc).toBe(
+      `<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-0")}</div><p>mid</p>` +
         `<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-1")}</div>`,
     );
   });
 
-  it("replaces a failing block with an error callout and keeps rendering the rest", async () => {
-    const { render, seen } = stubRenderer(["not a diagram <&>"]);
-    const html =
-      `<p>intro</p><pre class="mermaid">not a diagram &lt;&amp;&gt;</pre>` +
-      `<pre class="mermaid">graph TD; A-->B</pre><p>outro</p>`;
-    const out = await renderMermaidBlocks(html, render);
-
-    expect(seen).toEqual([
-      "omp-ui-diagram-0:not a diagram <&>",
-      "omp-ui-diagram-1:graph TD; A-->B",
-    ]);
-    expect(out).toContain('class="omp-ui-diagram-error"');
-    expect(out).toContain("diagram failed to render");
-    // Source in the callout is re-escaped for HTML, not double-decoded.
-    expect(out).toContain("<pre>not a diagram &lt;&amp;&gt;</pre>");
-    expect(out).toContain(`<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-1")}</div>`);
-    expect(out).toContain("<p>intro</p>");
-    expect(out).toContain("<p>outro</p>");
-    expect(out).not.toContain("omp-ui-diagram-0-->");
-    expect(out).not.toContain("omp-ui-diagram-1-->");
-  });
-
-  it("returns a block-free document byte-identically without calling the renderer", async () => {
+  it("returns a diagram-free document as no splices at all", async () => {
     const { render, seen } = stubRenderer();
-    const html = `<p>no diagrams here</p>`;
+    const { doc, out } = await transform("<p>no diagrams here</p>", render);
 
-    expect(await renderMermaidBlocks(html, render)).toBe(html);
     expect(seen).toEqual([]);
+    expect(out.replacements).toEqual([]);
+    expect(doc).toBe("<p>no diagrams here</p>");
   });
 
-  it("substitutes an SVG whose viewBox survives for the width carve-out", async () => {
-    const { render } = stubRenderer();
-    const out = await renderMermaidBlocks(`<pre class="mermaid">graph TD; A-->B</pre>`, render);
+  it("reports a parse failure as a source diagnostic beside its callout", async () => {
+    const broken = "not a diagram <&>";
+    const { render, seen } = stubRenderer({
+      [broken]: new DiagramSyntaxError("Parse error on line 2", 2),
+    });
+    const html = `<p>intro</p><pre class="mermaid">not a diagram &lt;&amp;&gt;</pre><pre class="mermaid">graph TD; A-->B</pre>`;
+    const { doc, out } = await transform(html, render);
 
-    expect(out).toContain('viewBox="0 0 10 10"');
-    expect(out).not.toContain("max-width");
+    expect(out.diagnostics).toHaveLength(1);
+    const [diagnostic] = out.diagnostics;
+    expect(diagnostic).toMatchObject({
+      code: "MERMAID_SYNTAX",
+      stage: "diagram",
+      repair: "source",
+      severity: "error",
+      blockIndex: 0,
+      excerpt: broken,
+      detail: "Parse error on line 2 (diagram line 2)",
+    });
+    // The location is the authored pre, in offsets and in line/column.
+    expect(diagnostic!.location!.startOffset).toBe(html.indexOf('<pre class="mermaid">'));
+    expect(diagnostic!.location!.endOffset).toBe(html.indexOf("</pre>") + "</pre>".length);
+    expect(diagnostic!.location!.line).toBe(1);
+
+    // The document still shows the block, escaped rather than re-parsed, and
+    // the sibling still rendered.
+    expect(seen).toHaveLength(2);
+    expect(doc).toContain(
+      `<strong>diagram failed to render</strong><pre>not a diagram &lt;&amp;&gt;</pre>`,
+    );
+    expect(doc).toContain(`<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-1")}</div>`);
+    expect(doc).toContain("<p>intro</p>");
   });
 
-  it("forwards canvas darkness to the renderer and fits authored paint on a dark canvas", async () => {
-    // Issue #384 flipped the old contract: the plan path hands the renderer
-    // the canvas the diagram lands on. Without a canvas spec the renderer
-    // sees the light default and untouched source; with a dark one, authored
-    // classDef hexes arrive already fitted to the canvas.
-    const args: unknown[][] = [];
-    const render: DiagramRenderer = (...a: unknown[]) => {
-      args.push(a);
-      return Promise.resolve(stubSvg(a[0] as string));
-    };
+  it("reports an engine failure as an application diagnostic", async () => {
+    const { render } = stubRenderer({ nope: new Error("engine exploded") });
+    const { doc, out } = await transform('<pre class="mermaid">nope</pre>', render);
 
-    const plain = await renderMermaidBlocks(`<pre class="mermaid">graph TD; A-->B</pre>`, render);
-    expect(args).toEqual([["omp-ui-diagram-0", "graph TD; A-->B", false]]);
-    expect(plain).toBe(`<div class="omp-ui-diagram">${stubSvg("omp-ui-diagram-0")}</div>`);
+    expect(out.diagnostics.map((d) => [d.code, d.repair, d.severity])).toEqual([
+      ["RENDER_INVARIANT", "application", "error"],
+    ]);
+    expect(out.diagnostics[0]!.detail).toBe("engine exploded");
+    // A failure the agent cannot fix still leaves the source readable.
+    expect(doc).toContain('<div class="omp-ui-diagram-error"');
+    expect(doc).toContain("<pre>nope</pre>");
+  });
 
-    args.length = 0;
+  it("paints the error callout for the canvas it lands on", async () => {
+    const { render } = stubRenderer({ nope: new DiagramSyntaxError("Parse error") });
+    const light = await transform('<pre class="mermaid">nope</pre>', render);
+    expect(light.doc).toContain("border:1px solid #b45309;background:#fdf6ec;color:#7c2d12");
+
+    const dark = await transform('<pre class="mermaid">nope</pre>', render, {
+      dark: true,
+      surface: "#14171b",
+      ink: "#e8ecf1",
+    });
+    expect(dark.doc).toContain("border:1px solid #c9963f;background:#2a1e12;color:#f0c9a0");
+    expect(dark.doc).not.toContain("#fdf6ec");
+  });
+
+  it("hands the renderer the canvas it lands on, fitting authored paint only when dark", async () => {
+    // Issue #384: the plan path forwards the canvas, so mermaid sees the
+    // darkness the diagram actually renders under and a pale authored fill
+    // arrives already re-fitted instead of as written.
+    const { render, seen } = stubRenderer();
     const source = "flowchart TD\nA-->B\nclassDef hot fill:#fef3c7";
-    await renderMermaidBlocks(`<pre class="mermaid">${source}</pre>`, render, {
-      dark: true,
-      surface: "#14171b",
-      ink: "#e8ecf1",
-    });
-    expect(args).toHaveLength(1);
-    expect(args[0]![0]).toBe("omp-ui-diagram-0");
-    expect(args[0]![2]).toBe(true);
-    // Graphite's canvas: the pale fill reaches mermaid darkened, not as
-    // authored — 0.35 toward #14171b clears the ink at AA.
-    expect(args[0]![1]).toBe("flowchart TD\nA-->B\nclassDef hot fill:#666457");
-  });
 
-  it("renders the error callout in the dark canvas palette", async () => {
-    const render: DiagramRenderer = async () => {
-      throw new Error("Parse error on line 1");
-    };
-    const out = await renderMermaidBlocks(`<pre class="mermaid">nope</pre>`, render, {
-      dark: true,
-      surface: "#14171b",
-      ink: "#e8ecf1",
-    });
+    await transform(`<pre class="mermaid">${source}</pre>`, render);
+    expect(seen).toEqual([["omp-ui-diagram-0", source, false]]);
 
-    expect(out).toContain("border:1px solid #c9963f;background:#2a1e12;color:#f0c9a0");
-    expect(out).not.toContain("#fdf6ec");
-    expect(out).toContain("<pre>nope</pre>");
+    seen.length = 0;
+    const dark = await planDiagramTransform(
+      parsePlanSource(`<pre class="mermaid">${source}</pre>`),
+      render,
+      { dark: true, surface: "#14171b", ink: "#e8ecf1" },
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe("omp-ui-diagram-0");
+    expect(seen[0]![2]).toBe(true);
+    // 0.35 toward the graphite canvas is the first rung clearing AA.
+    expect(seen[0]![1]).toBe("flowchart TD\nA-->B\nclassDef hot fill:#666457");
+    expect(dark.diagnostics).toEqual([]);
   });
 });
 

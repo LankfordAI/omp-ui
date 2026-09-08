@@ -2,51 +2,61 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import type { PlanItem } from "../lib/transcript";
-import type { DiagramRenderer, PlanCanvas } from "../lib/plan-diagrams";
+import type { PreparedPlanState } from "../lib/plan-document";
 import { PlanCard } from "./PlanCard";
 
-const planVerification = vi.hoisted(() => ({ failure: null as string | null }));
+/**
+ * Pinned settled state for the prepared-document hook: `null` runs the real
+ * pipeline (parse, transforms, structural verify, and a layout probe jsdom
+ * resolves as inconclusive without ever creating a frame); an object pins what
+ * the card sees, which is how the failed case names its diagnostics.
+ */
+const planPrepared = vi.hoisted(() => ({ state: null as PreparedPlanState | null }));
+
+/**
+ * The submission bridge. A transcript card is historical content: opening one
+ * must never answer a gate or start a validation request (issue #312
+ * follow-up), so the entry points a submission would use are spied here.
+ */
+const bridge = vi.hoisted(() => ({
+  rpcSend: vi.fn(),
+  answerPlanReview: vi.fn(async () => ({ status: "accepted" as const })),
+}));
 
 vi.mock("../lib/plan-document", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-document")>();
   return {
     ...original,
-    // Partial mock: existing cases run the real pipeline (structural pass +
-    // inconclusive probe in jsdom); setting `failure` forces the verified
-    // failed state for the fallback case (issue #312). The original hook is
-    // always called so the hook order stays stable.
-    usePreparedPlanDocument: (html: string | null) => {
-      const state = original.usePreparedPlanDocument(html);
-      return planVerification.failure !== null
-        ? { status: "failed" as const, reason: planVerification.failure }
-        : state;
+    // The original hook always runs first so hook order stays stable even on
+    // the render that switches to the pinned state.
+    usePreparedPlanDocument: (html: string | null, identity?: string) => {
+      const state = original.usePreparedPlanDocument(html, identity);
+      return planPrepared.state ?? state;
     },
   };
 });
 
 // Issue #329: the mermaid leaf renderer sits behind a real dynamic import
 // (~440 ms in this environment), which raced this file's wait budget under
-// full-suite load. Stub it at its injection seam so the pipeline is
-// microtask-only; the substitution, guardrail and verification behaviour under
-// test all stay real. Real-engine coverage lives in
+// full-suite load. Stubbing the renderer the pipeline injects keeps the
+// substitution, guardrail and verification behaviour under test real while
+// making the pipeline microtask-only. Real-engine coverage lives in
 // lib/plan-diagrams.smoke.test.ts.
 vi.mock("../lib/plan-diagrams", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
   return {
     ...original,
-    // Same seam as PlanReview.test.tsx: ignore the now-real injected renderer
-    // (the production call site passes it since issue #384) and stub here.
-    renderMermaidBlocks: (html: string, _render: DiagramRenderer, canvas?: PlanCanvas) =>
-      original.renderMermaidBlocks(
-        html,
-        async (id) => `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`,
-        canvas,
-      ),
+    renderMermaid: async (id: string) =>
+      `<svg data-diagram="${id}" viewBox="0 0 10 10"></svg>`,
   };
 });
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+// The bridge is present so a submission attempt from a historical card would
+// be recorded rather than silently reaching a real backend.
+Object.assign(window, { ompBackend: bridge });
 
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
@@ -92,7 +102,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("PlanCard mermaid diagrams (issue #285)", () => {
+describe("PlanCard html plan documents (issues #285, #312)", () => {
   const planFrame = (): HTMLIFrameElement | null =>
     document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
 
@@ -114,6 +124,9 @@ describe("PlanCard mermaid diagrams (issue #285)", () => {
     expect(srcdoc).not.toContain('<pre class="mermaid">');
     expect(srcdoc).toContain("<p>after</p>");
     expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
+    // The displayed document carries the restrictive plan CSP next to the
+    // guardrails: no scripts, no network, no forms, no navigation.
+    expect(srcdoc).toContain('<meta http-equiv="Content-Security-Policy"');
     // Containment carve-out rides along so the diagram scales with the column.
     expect(srcdoc).toContain(".omp-ui-diagram svg {");
     expect(srcdoc).toContain("max-width: 100% !important;");
@@ -139,8 +152,17 @@ describe("PlanCard mermaid diagrams (issue #285)", () => {
     expect(document.body.textContent).toContain("steps");
   });
 
-  it("shows the named failure and raw source instead of the iframe when verification fails (issue #312)", async () => {
-    planVerification.failure = "prepared document rendered empty";
+  it("names the diagnostics and the raw source instead of the iframe when preparation fails", async () => {
+    const diagnostic: PlanDiagnostic = {
+      code: "EMPTY_DOCUMENT",
+      stage: "prepare",
+      repair: "source",
+      severity: "error",
+      message: "the document body has no visible content",
+      detail: "0 painted elements at 800px",
+      location: { startOffset: 13, endOffset: 35, line: 2, column: 7 },
+    };
+    planPrepared.state = { status: "failed", doc: null, diagnostics: [diagnostic] };
     try {
       render(htmlPlanItem("<html><body></body></html>"));
 
@@ -150,12 +172,31 @@ describe("PlanCard mermaid diagrams (issue #285)", () => {
 
       expect(planFrame()).toBeNull();
       expect(document.body.textContent).toContain("could not be displayed as a document");
-      expect(document.body.textContent).toContain("prepared document rendered empty");
+      // The finding is named from its stable code through the localized
+      // catalog, with its source location and engine detail.
+      expect(document.body.textContent).toContain("no visible content after preparation");
+      expect(document.body.textContent).toContain("2:7");
+      expect(document.body.textContent).toContain("0 painted elements at 800px");
+      // Settled history gets no rewrite instruction: nothing here can send the
+      // agent back to repair a plan whose gate is already closed.
+      expect(document.body.textContent).not.toContain("rewrite");
       expect(document.body.querySelector("pre[data-selectable]")!.textContent).toContain(
         "<html><body></body></html>",
       );
     } finally {
-      planVerification.failure = null;
+      planPrepared.state = null;
     }
+  });
+
+  it("submits nothing while a historical plan is opened", async () => {
+    render(htmlPlanItem("<h1>Fix</h1><p>settled work</p>"));
+    const disclosure = document.body.querySelector<HTMLButtonElement>("button")!;
+    await act(async () => disclosure.click());
+    await until(() => (planFrame()?.getAttribute("srcdoc") ?? "") !== "");
+
+    // Opening a card renders content. It never answers a gate and never asks
+    // main to validate anything, so it cannot start a repair loop.
+    expect(bridge.answerPlanReview).not.toHaveBeenCalled();
+    expect(bridge.rpcSend).not.toHaveBeenCalled();
   });
 });

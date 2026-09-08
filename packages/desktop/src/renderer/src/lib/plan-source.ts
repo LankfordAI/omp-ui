@@ -345,6 +345,62 @@ export function parsePlanSource(html: string): ParsedPlanSource {
       ),
     );
   };
+  /** Raw content range of an element that has an explicit end tag. */
+  const contentRange = (el: DefaultElement): { start: number; end: number } | null => {
+    const loc = el.sourceCodeLocation;
+    if (!loc || !loc.startTag || loc.startTag.startOffset < 0) return null;
+    if (!loc.endTag || loc.endTag.startOffset < 0) return null;
+    const start = loc.startTag.endOffset;
+    return start <= loc.endTag.startOffset ? { start, end: loc.endTag.startOffset } : null;
+  };
+
+  const lineColAt = (offset: number): { line: number; column: number } => {
+    if (lineTable.length === 0) offsetAt(html, lineTable, 1, 1); // builds the table
+    let lo = 0;
+    let hi = lineTable.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineTable[mid]! <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return { line: lo + 1, column: offset - lineTable[lo]! + 1 };
+  };
+
+  /**
+   * Markup the parser dropped on the floor: a literal tag token inside the
+   * block's raw content range that left no tree node (`<TD>` inside a `pre`
+   * is an ignored token — the decoded text silently loses it). Surviving
+   * elements never reach here; elementDescendants reports those first. An
+   * escaped source contains no literal `<`; a `<` followed by a non-letter
+   * is ordinary text already flagged by the parser's own error stream.
+   */
+  const droppedTag = (el: DefaultElement): { start: number; end: number; tag: string } | null => {
+    const range = contentRange(el);
+    if (range === null) return null;
+    const m = /<(\/?)([a-zA-Z][^\s/>]*)/.exec(html.slice(range.start, range.end));
+    if (!m) return null;
+    const start = range.start + m.index;
+    return { start, end: start + m[0].length, tag: m[2]!.toLowerCase() };
+  };
+
+  const noteMarkupDropped = (
+    where: string,
+    hit: { start: number; end: number; tag: string },
+  ): void => {
+    const { line, column } = lineColAt(hit.start);
+    diagnostics.push(
+      located(
+        "CODE_MARKUP",
+        "source",
+        "source",
+        `block source contains element markup (${where}); escape literal < > & as HTML entities`,
+        { startOffset: hit.start, endOffset: hit.end },
+        line,
+        column,
+        `<${hit.tag}> inside the block`,
+      ),
+    );
+  };
 
   const classifyPre = (pre: DefaultElement): void => {
     const preEl = elementOf(pre);
@@ -358,6 +414,11 @@ export function parsePlanSource(html: string): ParsedPlanSource {
       const markup = elementDescendants(pre);
       if (markup.length > 0) {
         noteMarkupInSource('class="mermaid"', markup[0]!);
+        return;
+      }
+      const dropped = droppedTag(pre);
+      if (dropped !== null) {
+        noteMarkupDropped('class="mermaid"', dropped);
         return;
       }
       diagramBlocks.push({
@@ -384,6 +445,11 @@ export function parsePlanSource(html: string): ParsedPlanSource {
     const markup = elementDescendants(code);
     if (markup.length > 0) {
       noteMarkupInSource("code", markup[0]!);
+      return;
+    }
+    const dropped = droppedTag(code);
+    if (dropped !== null) {
+      noteMarkupDropped("code", dropped);
       return;
     }
     const sourceText = decodedText(code);

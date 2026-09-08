@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -127,7 +128,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult> } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -194,7 +195,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   // `restart` rebuilds the manager against the SAME registry: the gate
   // boundary test needs a gated run followed by an ungated one (issue #372).
   return {
-    manager: new SessionManager({ ...deps, spawnGate: opts.spawnGate }),
+    manager: new SessionManager({ ...deps, spawnGate: opts.spawnGate, planVerify: opts.planVerify }),
     registry,
     broadcast,
     sent,
@@ -1675,8 +1676,8 @@ describe("plan-review gate (issue #215)", () => {
     method: "select",
     title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
       title: "add auth",
-      planFilePath: "local://auth-plan.html",
-      planAbsPath: "/l/auth-plan.html",
+      planFilePath: "local://auth-plan.md",
+      planAbsPath: "/l/auth-plan.md",
     })}`,
   });
 
@@ -1698,8 +1699,8 @@ describe("plan-review gate (issue #215)", () => {
     expect(manager.planGate(TAB)).toEqual({
       pending: {
         title: "add auth",
-        planFilePath: "local://auth-plan.html",
-        planAbsPath: "/l/auth-plan.html",
+        planFilePath: "local://auth-plan.md",
+        planAbsPath: "/l/auth-plan.md",
         frameId: "p1",
         proposedAt: expect.any(String),
       },
@@ -1767,6 +1768,303 @@ describe("plan-review gate (issue #215)", () => {
     rpcInstances[0]!.exit(0);
 
     expect(manager.planGate(TAB)).toBeUndefined();
+  });
+});
+
+describe("html plan preflight (issue #312 follow-up)", () => {
+  const htmlText = "<!doctype html>\n<html><body><p>plan</p></body></html>";
+  const hashOf = (text: string): string =>
+    createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+  /** Writes the artifact into the harness's real lineage dir; returns its path. */
+  const planFile = (sessionsRoot: string, text = htmlText): string => {
+    const abs = path.join(sessionsRoot, LINEAGE, "auth-plan.html");
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text, "utf8");
+    return abs;
+  };
+
+  const planFrame = (id: string, absPath: string): Record<string, unknown> => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+      title: "add auth",
+      planFilePath: "local://auth-plan.html",
+      planAbsPath: absPath,
+    })}`,
+  });
+
+  const passedVerify = (): Mock =>
+    vi.fn(async () => ({ status: "passed" as const, diagnostics: [] }));
+
+  /** The machine reply the child received for a held proposal, parsed. */
+  const preflightReply = (id: string) => {
+    const call = rpcInstances[0]!.send.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find(
+        (f) =>
+          f.type === "extension_ui_response" &&
+          f.id === id &&
+          typeof f.value === "string" &&
+          f.value.startsWith(Core.PLAN_PREFLIGHT_RESULT_PREFIX),
+      );
+    expect(call, `no preflight reply was sent for ${id}`).toBeDefined();
+    return Core.parsePlanPreflightReply(call!.value as string)?.result;
+  };
+
+  it("holds an html proposal: no client sees it until verification concludes", async () => {
+    let resolveVerify!: (r: Core.PlanRenderResult) => void;
+    const planVerify = vi.fn<
+      (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>
+    >(() => new Promise<Core.PlanRenderResult>((res) => (resolveVerify = res)));
+    const { manager, broadcast, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resumeRpc(manager);
+    broadcast.mockClear();
+    const abs = planFile(sessionsRoot);
+
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+
+    // Claimed at the frame edge: the gate is not pending, nothing broadcast,
+    // and the verifier is reading the artifact main owns.
+    await vi.waitFor(() => expect(planVerify).toHaveBeenCalledTimes(1));
+    expect(planVerify.mock.calls[0]![0]).toBe(htmlText);
+    expect(manager.planGate(TAB)?.pending ?? null).toBeNull();
+    expect(broadcast).not.toHaveBeenCalled();
+
+    resolveVerify({ status: "passed", diagnostics: [] });
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    // Presented exactly once, enriched with main's own hash of the bytes.
+    expect(manager.planGate(TAB)!.pending!.sourceHash).toBe(hashOf(htmlText));
+  });
+
+  it("fails a source-defective proposal back to the child, never to a client", async () => {
+    const planVerify = vi.fn(async () => ({
+      status: "failed" as const,
+      diagnostics: [
+        {
+          code: "CODE_MARKUP" as const,
+          stage: "source" as const,
+          repair: "source" as const,
+          severity: "error" as const,
+          message: "a code block holds raw element markup",
+        },
+      ],
+    }));
+    const { manager, broadcast, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resumeRpc(manager);
+    broadcast.mockClear();
+
+    rpcInstances[0]!.frame(planFrame("p1", planFile(sessionsRoot)));
+
+    await vi.waitFor(() => expect(preflightReply("p1")?.status).toBe("failed"));
+    expect(preflightReply("p1")!.diagnostics[0]!.code).toBe("CODE_MARKUP");
+    expect(manager.planGate(TAB)?.pending ?? null).toBeNull();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it("treats an inconclusive verification as neither presentation nor failure", async () => {
+    const planVerify = vi.fn(async () => ({
+      status: "unavailable" as const,
+      diagnostics: [
+        {
+          code: "VERIFIER_TIMEOUT" as const,
+          stage: "service" as const,
+          repair: "application" as const,
+          severity: "error" as const,
+          message: "the verifier did not conclude within its deadline",
+        },
+      ],
+    }));
+    const { manager, broadcast, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resumeRpc(manager);
+    broadcast.mockClear();
+
+    rpcInstances[0]!.frame(planFrame("p1", planFile(sessionsRoot)));
+
+    await vi.waitFor(() => expect(preflightReply("p1")?.status).toBe("unavailable"));
+    expect(manager.planGate(TAB)?.pending ?? null).toBeNull();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the artifact cannot be read — the verifier never runs", async () => {
+    const planVerify = passedVerify();
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resumeRpc(manager);
+    const abs = path.join(sessionsRoot, LINEAGE, "auth-plan.html"); // never written
+
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+
+    await vi.waitFor(() => expect(preflightReply("p1")?.status).toBe("failed"));
+    const diagnostic = preflightReply("p1")!.diagnostics[0]!;
+    expect(diagnostic.code).toBe("PLAN_READ_FAILED");
+    expect(diagnostic.repair).toBe("source");
+    expect(planVerify).not.toHaveBeenCalled();
+  });
+
+  it("refuses a second concurrent proposal instead of replacing the held one", async () => {
+    let resolveVerify!: (r: Core.PlanRenderResult) => void;
+    const planVerify = vi.fn(
+      () => new Promise<Core.PlanRenderResult>((res) => (resolveVerify = res)),
+    );
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() => expect(planVerify).toHaveBeenCalledTimes(1));
+    rpcInstances[0]!.frame(planFrame("p2", abs));
+
+    await vi.waitFor(() => expect(preflightReply("p2")?.status).toBe("unavailable"));
+    expect(preflightReply("p2")!.diagnostics[0]!.code).toBe("VERIFIER_UNAVAILABLE");
+
+    // p1 still owns the hold and presents when it concludes; p2 is already answered.
+    resolveVerify({ status: "passed", diagnostics: [] });
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+  });
+
+  it("serves the pending gate's artifact from the validated snapshot", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    expect(manager.planSnapshotFor(TAB, abs)).toMatchObject({
+      text: htmlText,
+      sourceHash: hashOf(htmlText),
+    });
+
+    // Presentation reads what validation read, never freshly changed bytes.
+    fs.writeFileSync(abs, htmlText + "<!-- later -->", "utf8");
+    expect(manager.planSnapshotFor(TAB, abs)).toMatchObject({ text: htmlText });
+  });
+
+  it("acknowledges execute only for the exact validated bytes", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    rpcInstances[0]!.send.mockClear();
+
+    await expect(
+      manager.answerPlanReview(TAB, "p1", "execute", hashOf(htmlText) + "0"),
+    ).resolves.toEqual({ status: "rejected", reason: "stale" });
+    expect(rpcInstances[0]!.send).not.toHaveBeenCalled();
+
+    await expect(
+      manager.answerPlanReview(TAB, "p1", "execute", hashOf(htmlText)),
+    ).resolves.toEqual({ status: "accepted" });
+    expect(rpcInstances[0]!.send).toHaveBeenCalledWith({
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_EXECUTE,
+    });
+    expect(manager.planGate(TAB)).toEqual({
+      pending: null,
+      settle: { frameId: "p1", verdict: "executed" },
+    });
+  });
+
+  it("invalidates the gate when the artifact changed under review", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    const hash = hashOf(htmlText);
+    fs.writeFileSync(abs, htmlText + "<!-- edited after review -->", "utf8");
+
+    await expect(manager.answerPlanReview(TAB, "p1", "execute", hash)).resolves.toEqual({
+      status: "rejected",
+      reason: "source-changed",
+    });
+
+    // No implementation prompt starts; the child hears SOURCE_CHANGED; the
+    // clients see the gate invalidated, not answered.
+    expect(
+      rpcInstances[0]!.send.mock.calls.some(
+        (c) => (c[0] as Record<string, unknown>).value === Core.PLAN_EXECUTE,
+      ),
+    ).toBe(false);
+    expect(preflightReply("p1")!.diagnostics[0]!.code).toBe("SOURCE_CHANGED");
+    expect(manager.planGate(TAB)).toEqual({
+      pending: null,
+      settle: { frameId: "p1", verdict: "invalidated" },
+    });
+  });
+
+  it("lets refine answer without re-reading disk bytes", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    const hash = hashOf(htmlText);
+    fs.writeFileSync(abs, htmlText + "<!-- edited -->", "utf8");
+
+    await expect(manager.answerPlanReview(TAB, "p1", "refine", hash)).resolves.toEqual({
+      status: "accepted",
+    });
+    expect(
+      rpcInstances[0]!.send.mock.calls.some(
+        (c) =>
+          typeof (c[0] as Record<string, unknown>).value === "string" &&
+          ((c[0] as Record<string, unknown>).value as string).startsWith(
+            Core.PLAN_PREFLIGHT_RESULT_PREFIX,
+          ),
+      ),
+    ).toBe(false);
+    expect(manager.planGate(TAB)).toEqual({
+      pending: null,
+      settle: { frameId: "p1", verdict: "refined" },
+    });
+  });
+
+  it("never runs the verifier for a markdown proposal", async () => {
+    const planVerify = passedVerify();
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resumeRpc(manager);
+    fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
+    const abs = path.join(sessionsRoot, LINEAGE, "auth-plan.md");
+    fs.writeFileSync(abs, "# add auth\n", "utf8");
+
+    rpcInstances[0]!.frame({
+      type: "extension_ui_request",
+      id: "p1",
+      method: "select",
+      title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "add auth",
+        planFilePath: "local://auth-plan.md",
+        planAbsPath: abs,
+      })}`,
+    });
+
+    // Markdown keeps the direct path: pending synchronously, verifier untouched.
+    expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1");
+    expect(planVerify).not.toHaveBeenCalled();
+
+    await expect(
+      manager.answerPlanReview(TAB, "p1", "execute", null),
+    ).resolves.toEqual({ status: "accepted" });
+    expect(planVerify).not.toHaveBeenCalled();
   });
 });
 
@@ -1854,8 +2152,8 @@ describe("OS attention hooks (issue #271)", () => {
       method: "select",
       title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
         title: "add auth",
-        planFilePath: "local://auth-plan.html",
-        planAbsPath: "/l/auth-plan.html",
+        planFilePath: "local://auth-plan.md",
+        planAbsPath: "/l/auth-plan.md",
       })}`,
     });
     expect(att.planProposed).toHaveBeenCalledWith(TAB, "add auth");
@@ -3170,8 +3468,8 @@ describe("stream-stall watchdog (issue #248)", () => {
     method: "select",
     title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
       title: "add auth",
-      planFilePath: "local://auth-plan.html",
-      planAbsPath: "/l/auth-plan.html",
+      planFilePath: "local://auth-plan.md",
+      planAbsPath: "/l/auth-plan.md",
     })}`,
   });
 
@@ -3827,8 +4125,8 @@ describe("hibernation (issue #246)", () => {
     method: "select",
     title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
       title: "add auth",
-      planFilePath: "local://auth-plan.html",
-      planAbsPath: "/l/auth-plan.html",
+      planFilePath: "local://auth-plan.md",
+      planAbsPath: "/l/auth-plan.md",
     })}`,
   });
 

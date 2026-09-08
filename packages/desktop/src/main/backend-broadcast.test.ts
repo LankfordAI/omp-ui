@@ -312,8 +312,8 @@ describe("plan-review gate on the wire (issue #215)", () => {
     method: "select",
     title: `${PLAN_REVIEW_SENTINEL}${JSON.stringify({
       title: "add auth",
-      planFilePath: "local://auth-plan.html",
-      planAbsPath: "/l/auth-plan.html",
+      planFilePath: "local://auth-plan.md",
+      planAbsPath: "/l/auth-plan.md",
     })}`,
   });
 
@@ -403,8 +403,8 @@ describe("plan-review gate on the wire (issue #215)", () => {
     const broadcasted = lastBroadcast();
     expect(sessionsOf(broadcasted, "/p/a")[0]!.pendingPlan).toEqual({
       title: "add auth",
-      planFilePath: "local://auth-plan.html",
-      planAbsPath: "/l/auth-plan.html",
+      planFilePath: "local://auth-plan.md",
+      planAbsPath: "/l/auth-plan.md",
       frameId: "p1",
       proposedAt: expect.any(String),
     });
