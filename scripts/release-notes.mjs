@@ -194,6 +194,22 @@ export function attachPullRequests(entries, items) {
   }
 }
 
+// GitHub's merged: qualifier reads a bare date as a whole UTC day and the range is
+// inclusive, so a PR merged earlier the same day as the previous tag would be
+// re-listed (#408). Normalize both %cI committer dates to UTC instants — the
+// qualifier only accepts the Z form, not the local offset %cI emits.
+export function mergedWindow(prevCommitterIso, tagCommitterIso) {
+  const instant = (iso, what) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) throw new Error(`unparseable ${what} commit date: ${iso}`);
+    return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  };
+  return {
+    from: prevCommitterIso ? instant(prevCommitterIso, "previous tag") : null,
+    to: instant(tagCommitterIso, "tag"),
+  };
+}
+
 export function collectWorkItems({ commits, prItems, branchChildren, firstParent }) {
   const { entries, untracked } = groupCommits(commits, { branchChildren });
   attachPullRequests(entries, prItems);
@@ -396,10 +412,12 @@ export async function runCli(argv) {
       return { index, sha, author, subject, merge: parents.split(/\s+/).filter(Boolean).length > 1 };
     });
   const firstParent = new Set(git("rev-list", "--first-parent", range).split("\n"));
-  const fromDate = previousTag ? git("log", "-1", "--format=%cI", previousTag).slice(0, 10) : "2000-01-01";
-  const toDate = git("log", "-1", "--format=%cI", tag).slice(0, 10);
-
-  const prItems = ghSearch(`repo:${repo} is:pr is:merged base:main merged:${fromDate}..${toDate}`, 100).items ?? [];
+  const { from, to } = mergedWindow(
+    previousTag ? git("log", "-1", "--format=%cI", previousTag).trim() : null,
+    git("log", "-1", "--format=%cI", tag).trim(),
+  );
+  const mergedSince = from ?? "2000-01-01T00:00:00Z";
+  const prItems = ghSearch(`repo:${repo} is:pr is:merged base:main merged:${mergedSince}..${to}`, 100).items ?? [];
 
   const { entries, untracked } = collectWorkItems({
     commits,
@@ -446,7 +464,7 @@ export async function runCli(argv) {
   const authors = [...new Set(prItems.map((item) => item.user?.login).filter(Boolean))].sort().slice(0, 20);
   for (const login of authors) {
     try {
-      const prior = ghSearch(`repo:${repo} is:pr is:merged author:${login} merged:<${fromDate}`, 1).total_count;
+      const prior = ghSearch(`repo:${repo} is:pr is:merged author:${login} merged:<${mergedSince}`, 1).total_count;
       if (prior === 0) {
         newContributors.push({ login, url: prItems.find((item) => item.user?.login === login).html_url });
       }

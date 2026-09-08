@@ -10,6 +10,7 @@ import {
   finalizeNotes,
   groupCommits,
   liftHighlights,
+  mergedWindow,
   parseRefs,
   renderReleaseNotes,
 } from "./release-notes.mjs";
@@ -417,4 +418,20 @@ test("a vanished issue still shows its commit once under Other changes", () => {
     /^- stop the session HUD from thrashing \(\[deadbee\]\(https:\/\/github\.com\/octo\/widgets\/commit\/deadbeefcafe\)\)$/m,
   );
   assert.equal(body.split("stop the session HUD").length - 1, 1);
+});
+
+test("the merged window uses exact UTC instants, not UTC days", () => {
+  const win = mergedWindow("2026-09-07T02:35:04-04:00", "2026-09-07T18:31:35-04:00");
+  assert.equal(win.from, "2026-09-07T06:35:04Z");
+  assert.equal(win.to, "2026-09-07T22:31:35Z");
+});
+
+test("the first release has no lower bound instant", () => {
+  const win = mergedWindow(null, "2026-01-01T00:00:00+00:00");
+  assert.equal(win.from, null);
+  assert.equal(win.to, "2026-01-01T00:00:00Z");
+});
+
+test("an unparseable committer date fails the run, not the window", () => {
+  assert.throws(() => mergedWindow(null, "not-a-date"), /unparseable tag commit date/);
 });
