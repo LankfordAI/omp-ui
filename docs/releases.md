@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.10.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+* Release notes no longer re-list work that shipped in the previous release: the What's Changed search window uses each tagged commit's exact UTC instant instead of its UTC day, so a PR merged earlier the same day as a tag stays out of the next release's notes ([#408](https://github.com/LankfordAI/omp-ui/issues/408)).
 
 ## Choose a download
 
