@@ -92,6 +92,7 @@ export function CommandPalette() {
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
+  const openDiagnosticsDialog = useStore((s) => s.openDiagnosticsDialog);
   const t = useT();
   const localeId = currentLocaleId();
 
@@ -195,6 +196,13 @@ export function CommandPalette() {
       run: () => openSettings(),
     });
     out.push({
+      id: "app:export-diagnostics",
+      group: t("palette.group.app"),
+      name: t("palette.action.exportDiagnostics"),
+      desc: t("palette.action.exportDiagnosticsDesc"),
+      run: () => openDiagnosticsDialog(),
+    });
+    out.push({
       id: "omp:check-updates",
       group: t("palette.group.app"),
       name: t("palette.action.checkOmp"),
@@ -203,7 +211,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

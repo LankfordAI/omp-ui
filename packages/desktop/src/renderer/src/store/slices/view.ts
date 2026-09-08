@@ -31,6 +31,8 @@ export interface ViewSlice {
   focusedTabByProject: Record<string, string>;
   restoringTabs: boolean;
   projectPickerOpen: boolean;
+  /** The diagnostic-bundle export dialog (issue #413). */
+  diagnosticsDialogOpen: boolean;
   worktreeDialogProject: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
@@ -47,6 +49,8 @@ export interface ViewSlice {
   inspectorOpen: boolean;
   openProjectPicker(): void;
   closeProjectPicker(): void;
+  openDiagnosticsDialog(): void;
+  closeDiagnosticsDialog(): void;
   openWorktreeDialog(projectCwd: string): void;
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
@@ -277,6 +281,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   focusedTabByProject: {},
   restoringTabs: false,
   projectPickerOpen: false,
+  diagnosticsDialogOpen: false,
   worktreeDialogProject: null,
   finishWorktreeTab: null,
   capabilitiesViewer: null,
@@ -307,6 +312,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   closeProjectPicker() {
     set({ projectPickerOpen: false });
+  },
+  openDiagnosticsDialog() {
+    set({ diagnosticsDialogOpen: true });
+  },
+  closeDiagnosticsDialog() {
+    set({ diagnosticsDialogOpen: false });
   },
   openWorktreeDialog(projectCwd) {
     set({ worktreeDialogProject: projectCwd });

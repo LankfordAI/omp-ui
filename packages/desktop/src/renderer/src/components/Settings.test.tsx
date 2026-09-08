@@ -1041,6 +1041,26 @@ describe("Settings page footer dispatch (issue #300)", () => {
       else expect(footer?.textContent).toContain(marker);
     });
   }
+
+  it("advanced lists in the nav and offers the bundle export (issue #413)", async () => {
+    useStore.setState({
+      settingsPage: "advanced",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      diagnosticsDialogOpen: false,
+    });
+    await renderSettings();
+    const navText = document.querySelector("nav")?.textContent ?? "";
+    expect(navText).toContain("Advanced");
+    expect(document.body.textContent).toContain("Diagnostic bundle");
+    const action = [...document.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Export diagnostic bundle"),
+    )!;
+    click(action);
+    await act(async () => {});
+    expect(useStore.getState().diagnosticsDialogOpen).toBe(true);
+  });
 });
 
 describe("Settings Appearance page font family (issue #315)", () => {
