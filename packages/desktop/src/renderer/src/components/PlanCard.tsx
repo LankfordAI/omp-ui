@@ -49,8 +49,15 @@ export function PlanCard({ item }: { item: PlanItem }) {
                   />
                 ) : (
                   <div className="flex h-[28rem] min-h-0 flex-col gap-1.5">
-                    {prepared.status === "unavailable" && (
-                      <PlanDiagnostics diagnostics={prepared.diagnostics} className="shrink-0 rounded-md border border-line bg-sunken px-3 py-2 text-xs" />
+                    {prepared.status === "unavailable" && prepared.doc !== null && (
+                      // Same truthful summary as the review dock: the document
+                      // below is real; only the layout check did not finish
+                      // (issue #415).
+                      <PlanDiagnostics
+                        diagnostics={prepared.diagnostics}
+                        mode="verification-incomplete"
+                        className="shrink-0 rounded-md border border-line bg-sunken px-3 py-2 text-xs"
+                      />
                     )}
                     {/* Same empty sandbox as the review modal: no scripts, no
                         same-origin access, no navigation (ADR-0007). */}
