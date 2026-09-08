@@ -18,6 +18,11 @@ Instructions for coding agents working in this repository.
   feature requests against the upstream OMP repository. Where OMP's
   current state constrains this UI, work around it inside `omp-ui` where
   possible; if no workaround exists, surface the constraint to the user.
+- A plan or spec document ends at verification. It prescribes the change, not
+  the delivery route: no commit messages, branch names, pushes, merge targets,
+  or `Fixes #N` trailers — where the work goes is the user's call, made after
+  they read the plan. Git that is the subject of the change or evidence for a
+  diagnosis (`git log --grep`, `git blame`) does belong in a plan.
 
 ## Feature requests and bugs → GitHub issues
 
@@ -71,24 +76,31 @@ Body must cover (matching `.github/ISSUE_TEMPLATE/feature_request.yml`):
 - Search for duplicates first: `gh issue list --repo LankfordAI/omp-ui --search "<keywords>"`.
   If a duplicate exists, comment on it instead of opening a new issue.
 - One issue per distinct request or defect — never bundle several into one.
-- If you then implement the fix/feature, reference the issue in the commit or
-  PR (`Fixes #N` / `Closes #N`).
+- If you then implement the fix/feature, report which issue the work resolves,
+  so the commit or PR the user lands can carry `Fixes #N` / `Closes #N`.
 - Do not close an issue until the change is verified working.
 
 ## Landing changes
 
-Worktree agents never land a branch on `main`. The user's tooling does.
+Landing is the user's call, made after they review the work. The branch rules
+below apply in a **worktree session** (CONTEXT.md, ADR-0018): your working
+directory is a checkout minted under omp-ui's app-data `worktrees/` root, on a
+branch cut for the session. Otherwise you are in the project checkout the user
+is driving — leave the change in the working tree and report what changed;
+commit or push there only when asked.
 
-- Commit on the worktree's branch (`omp-ui/<sha>`) and push **that branch
-  only**: `git push origin <branch>`. Then stop and report "ready to merge".
+- Commit on the session branch and push **that branch only**:
+  `git push origin <branch>`. Then stop and report "ready to merge".
 - **NEVER** push a merge or a squashed commit onto `main`, including via
   plumbing (`git commit-tree -p <main> -p <branch>` + `git push … :main`).
-  That bypasses the merge gate, and the `Merge omp-ui/<sha>: <subject>`
+  That bypasses the merge gate, and the `Merge omp-ui/<branch>: <subject>`
   commits in `git log --merges` are the parent app's work, not a pattern for
-  agents to imitate.
+  agents to imitate — that prohibition holds in either checkout, worktree
+  session or not.
 - Pushing a branch is not landing it. A `Closes #N` trailer or PR link only
   closes the issue once the branch is merged into `main`, so leave the issue
-  open and say which branch is pending; the user closes after landing.
+  open. Say so in your completion report, with the branch name so the user
+  knows what to merge; the user closes the issue after landing.
 - Rebuilding a packaged app or replacing a running binary is likewise the
   user's call — a fix that is merged but not yet released is not a defect.
   When behavior seems unchanged, first check which build the user is running
