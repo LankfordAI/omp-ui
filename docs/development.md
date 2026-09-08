@@ -45,6 +45,7 @@ The root scripts delegate to the npm workspaces where appropriate.
 | Package the default target | `npm run package` | Runs the Linux packaging script. |
 | Preview release notes | `npm run notes` | Runs `scripts/release-notes.mjs` to render a release's notes body locally from git history and the GitHub API, for example `npm run notes -- --tag v0.9.12 --stdout`. Read-only; writes nothing to GitHub. |
 | Test all workspaces | `npm test` | Runs each workspace's `test` script. The desktop test script checks generated themes before Vitest. |
+| Test process-backed live proofs | `npm run test:live` | Runs the desktop `src/main/**/*-live.test.ts` integration proofs serially against the real omp binary. Skips cleanly when no omp binary is installed. CI runs this after `npm test`. |
 | Type-check all workspaces | `npm run typecheck` | Runs each workspace's `typecheck` script. |
 | Lint the repository | `npm run lint` | Runs ESLint from the root. |
 | Audit visible strings | `python3 scripts/scan-visible-strings.py` | Heuristic list of renderer chrome literals that may still need an i18n `t()` key (issue #363). Read-only; triage hits by hand — brand names, hotkeys, paths, commands, and data labels are intentionally outside localization. |
@@ -84,6 +85,19 @@ Vitest accepts a test path after `--`. The path is relative to the selected work
 npm test --workspace @omp-ui/core -- src/paths.test.ts
 npm test --workspace @omp-ui/desktop -- src/main/app-update.test.ts
 ```
+
+The desktop unit suite caps Vitest at 4 worker processes on local machines
+(CI keeps full parallelism), so a full local run stays interactive. For a
+tighter loop, run only affected tests from `packages/desktop`:
+
+```bash
+npx vitest run --changed
+```
+
+The desktop `test` script does not run the process-backed live proofs
+(`src/main/**/*-live.test.ts`, real omp spawns); run them on demand with
+`npm run test:live --workspace @omp-ui/desktop`. Renderer `.live.test.tsx`
+files spawn no subprocess and remain in the unit suite.
 
 ## Platform packages
 
@@ -191,6 +205,7 @@ npm install --package-lock-only
 git diff --exit-code package-lock.json
 npm run typecheck
 npm test
+npm run test:live
 npm run build
 ```
 

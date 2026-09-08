@@ -10,6 +10,7 @@
     "stamp": "npm version patch --no-git-tag-version --workspace @omp-ui/desktop",
     "notes": "node scripts/release-notes.mjs",
     "test": "npm run test --workspaces --if-present",
+    "test:live": "npm run test:live --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint ."
   },

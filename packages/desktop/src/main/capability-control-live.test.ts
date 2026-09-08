@@ -231,7 +231,7 @@ describe.skipIf(ompPath === null)("capability tool control on the real runtime",
     }
   });
 
-  it("publishes a mutable surface and round-trips enable/disable with correlation", async () => {
+  it("publishes a mutable surface and round-trips enable/disable with correlation", { timeout: 180_000 }, async () => {
     scope = spawnScope();
     const armed = await arm(scope);
     expect(armed.toolControl).toBe("available");
@@ -250,7 +250,7 @@ describe.skipIf(ompPath === null)("capability tool control on the real runtime",
     expect(userMessagesAfter(scope, 0)).toHaveLength(0);
   });
 
-  it("refuses unknown names and expired requests without touching the roster", async () => {
+  it("refuses unknown names and expired requests without touching the roster", { timeout: 180_000 }, async () => {
     scope = spawnScope();
     const armed = await arm(scope);
     const refused = await mutate(scope, armed, "no-such-tool", true);
@@ -264,7 +264,7 @@ describe.skipIf(ompPath === null)("capability tool control on the real runtime",
     expect(toolEnabled(expired, "proof-inactive")).toBe(false);
   });
 
-  it("locks write in Plan mode and preserves other selections across Plan/Build", async () => {
+  it("locks write in Plan mode and preserves other selections across Plan/Build", { timeout: 180_000 }, async () => {
     scope = spawnScope();
     const armed = await arm(scope);
     // OMP v18.1.10 keeps `write` in the enabled set no matter which apply
