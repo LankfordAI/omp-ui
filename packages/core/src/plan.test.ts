@@ -17,6 +17,7 @@ import {
   PLAN_PREFLIGHT_RESULT_PREFIX,
   PLAN_REVIEW_SENTINEL,
   type PlanDiagnostic,
+  type PlanPreflightResult,
 } from "./plan";
 
 describe("planMessage", () => {
@@ -186,21 +187,21 @@ describe("parsePlanPreflightResult", () => {
       parsePlanPreflightResult({
         status: "failed",
         sourceHash: null,
-        diagnostics: [diagnostic({ code: "LOOKS_BAD" })],
+        diagnostics: [diagnostic({ code: "LOOKS_BAD" as PlanDiagnostic["code"] })],
       }),
     ).toBeNull();
     expect(
       parsePlanPreflightResult({
         status: "failed",
         sourceHash: null,
-        diagnostics: [diagnostic({ stage: "vibes" })],
+        diagnostics: [diagnostic({ stage: "vibes" as PlanDiagnostic["stage"] })],
       }),
     ).toBeNull();
     expect(
       parsePlanPreflightResult({
         status: "failed",
         sourceHash: null,
-        diagnostics: [diagnostic({ repair: "hope" })],
+        diagnostics: [diagnostic({ repair: "hope" as PlanDiagnostic["repair"] })],
       }),
     ).toBeNull();
     // Oversized fields and impossible locations never survive a round trip.
@@ -326,7 +327,7 @@ describe("encodePlanPreflightReply", () => {
     });
 
   it("round-trips through the parser unchanged", () => {
-    const result = { status: "failed", sourceHash: null, diagnostics: [diagnostic()] } as const;
+    const result: PlanPreflightResult = { status: "failed", sourceHash: null, diagnostics: [diagnostic()] };
     const encoded = encodePlanPreflightReply("local://a-plan.html", result);
     expect(encoded.startsWith(PLAN_PREFLIGHT_RESULT_PREFIX)).toBe(true);
     expect(parsePlanPreflightReply(encoded)).toEqual({
@@ -402,7 +403,7 @@ describe("limitPlanPreflightResult", () => {
   });
 
   it("leaves an in-bounds result untouched", () => {
-    const result = { status: "failed", sourceHash: null, diagnostics: [diagnostic()] } as const;
+    const result: PlanPreflightResult = { status: "failed", sourceHash: null, diagnostics: [diagnostic()] };
     expect(limitPlanPreflightResult(result)).toEqual(result);
   });
 });

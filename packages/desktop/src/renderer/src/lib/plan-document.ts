@@ -89,14 +89,29 @@ html :where(*:not(svg, svg *)) {
   background-image: none !important;
 }
 
-:root,
-body {
+:root {
   color-scheme: ${scheme} !important;
   color: ${ink} !important;
   background-color: ${canvas} !important;
   background-image: none !important;
   width: 100% !important;
   max-width: 100% !important;
+  min-inline-size: 0 !important;
+  overflow-x: clip !important;
+}
+
+/* Body stays width:auto on purpose. Forcing 100% on top of the UA's 8px
+   margin made every document 16px wider than the viewport — an invisible
+   horizontal scroll in the review pane and a permanent LAYOUT_OVERFLOW in
+   the probe. auto fills the containing block MINUS margins, so containment
+   holds while an authored body margin stays authored layout, not overflow.
+   The root already paints the full-viewport background, so the margin
+   strips are the same canvas color. */
+body {
+  color-scheme: ${scheme} !important;
+  color: ${ink} !important;
+  background-color: ${canvas} !important;
+  background-image: none !important;
   min-inline-size: 0 !important;
   overflow-x: clip !important;
 }

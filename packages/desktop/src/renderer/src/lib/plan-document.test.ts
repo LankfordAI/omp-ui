@@ -309,19 +309,30 @@ describe("preparePlanDocument guardrails", () => {
     const { doc: prepared } = await preparePlanDocument(source, resolveTheme("graphite"));
     const graphite = guardrailCss(prepared);
     expect(prepared.indexOf("color:#fff")).toBeLessThan(prepared.indexOf(MARKER));
-    expect(graphite).toContain(`:root,
-body {
-  color-scheme: dark !important;
-  color: #e8ecf1 !important;
-  background-color: #14171b !important;
-  background-image: none !important;`);
+    // The theme canvas and ink must be declared with !important for BOTH
+    // root and body, so neither an authored `:root, body` reset nor inline
+    // hostiles can win (the two selectors may share a rule or split — the
+    // contract is the declarations, not the grouping).
+    const rulesFor = (css: string, selector: string): string => {
+      const at = new RegExp(`(^|\\n)${selector}\\s*(,[^\\n{]*)?\\{`, "m");
+      const hit = css.match(at);
+      if (!hit) return "";
+      const from = hit.index ?? 0;
+      return css.slice(from + hit[0].length, css.indexOf("}", from));
+    };
+    for (const sel of [":root", "body"]) {
+      const graphiteRule = rulesFor(graphite, sel);
+      expect(graphiteRule, sel).toContain("color-scheme: dark !important");
+      expect(graphiteRule, sel).toContain("color: #e8ecf1 !important");
+      expect(graphiteRule, sel).toContain("background-color: #14171b !important");
+    }
     const { doc: light } = await preparePlanDocument(source, resolveTheme("light"));
-    expect(guardrailCss(light)).toContain(`:root,
-body {
-  color-scheme: light !important;
-  color: #12161b !important;
-  background-color: #fafbfc !important;
-  background-image: none !important;`);
+    for (const sel of [":root", "body"]) {
+      const lightRule = rulesFor(guardrailCss(light), sel);
+      expect(lightRule, sel).toContain("color-scheme: light !important");
+      expect(lightRule, sel).toContain("color: #12161b !important");
+      expect(lightRule, sel).toContain("background-color: #fafbfc !important");
+    }
     expect(guardrailCss(light)).toContain(`html :where(*:not(svg, svg *)) {
   max-width: 100% !important;
   min-width: 0 !important;
