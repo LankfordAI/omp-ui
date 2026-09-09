@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.10.6](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.6). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- A session that is blocked waiting for a person now reads *answer needed* in every app that can see it, not just the one that watched the dialog open. The owning instance publishes its human-answer level — a pending plan gate or an unanswered blocking dialog — on the session summary, and a sidebar row that never mounted the tab takes the host's level over its own stream's edge; *error*, *stalled*, and terminal rows keep their precedence ([#436](https://github.com/LankfordAI/omp-ui/issues/436)).
 
 ## Choose a download
 

@@ -235,12 +235,18 @@ export function deriveSidebarSessionState(
   // must not read as idle (issue #434) — and a row with no stream at all is
   // the host's to report.
   const running = summary.turnRunning === true;
-  if (!rpc) return running ? "working" : "live";
+  // The host's human-answer level is a published level, not a stream edge
+  // (issue #436): a dialog this client never saw still waits for a person.
+  // It outranks this renderer's `running` edge exactly as the local queue
+  // does (a mid-turn tool approval reads awaiting-answer on the host
+  // itself); error and stalled keep their precedence above it (#248).
+  const awaiting = summary.awaitingHumanAnswer === true;
+  if (!rpc) return awaiting ? "awaiting-answer" : running ? "working" : "live";
   if (rpc.status === "error") return "error";
   // A watchdog-aborted turn outranks awaiting-answer: the user must prompt to
   // continue the session, which also clears the queue (issue #248).
   if (summary.streamStalled) return "stalled";
-  if (rpc.planReview !== null || rpc.extensionQueue.length > 0)
+  if (awaiting || rpc.planReview !== null || rpc.extensionQueue.length > 0)
     return "awaiting-answer";
   switch (rpc.status) {
     case "running":

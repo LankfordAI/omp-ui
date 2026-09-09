@@ -348,6 +348,15 @@ export interface SessionSummary extends OwnedSessionRecord {
    */
   turnRunning?: boolean;
   /**
+   * True while the owning instance is blocked on a human answer this client
+   * could give now — a pending plan gate or an unanswered blocking dialog
+   * (select / confirm / input / editor). Ephemeral runtime state like
+   * `turnRunning`, never persisted. Optional so an older remote instance still
+   * decodes (issue #436): absent reads as "not awaiting". A terminal session
+   * always reports false — a PTY raises no rpc dialogs.
+   */
+  awaitingHumanAnswer?: boolean;
+  /**
    * The live session's goal snapshot as its own bridge published it (issue #381).
    * Ephemeral runtime state like `pendingPlan`: never persisted, absent for a
    * session with no live goal bridge, and never a second copy of goal state —

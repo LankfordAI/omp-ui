@@ -19,7 +19,7 @@ omp-ui signs in once, keeps the credential the sign-in derives, and connects. A 
 
 ## What the sidebar shows
 
-Each joined instance is a collapsible group after the local projects, headed by its nickname, a status dot, and the connection URL. The group holds that instance's registered projects and their owned sessions, with activity read from the host's own turn state: a native row shows *working* while a turn runs on that host whether or not this app has the tab open, and a terminal row still reads *live* because a PTY carries no turn signal. A project may share its absolute path with a local project; the two are separate groups.
+Each joined instance is a collapsible group after the local projects, headed by its nickname, a status dot, and the connection URL. The group holds that instance's registered projects and their owned sessions, with activity read from the host's own turn and human-answer state: a native row shows *working* while a turn runs on that host and *answer needed* while a plan gate or a blocking dialog waits on a person, whether or not this app has the tab open, and a terminal row still reads *live* because a PTY carries no turn signal. A project may share its absolute path with a local project; the two are separate groups.
 
 Opening a remote session opens a tab in this window that renders the other app's own stream — terminal bytes for a terminal session, the native transcript for a native session. The tab's label, the title bar, and the Session HUD carry the nickname in front of the session title, and the HUD shows a quiet nickname chip whose hover reveals the URL.
 

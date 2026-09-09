@@ -194,6 +194,56 @@ describe("deriveSidebarSessionState", () => {
     ).toBe("awaiting-answer");
   });
 
+  // Issue #436: the host's human-answer level is published level state, not a
+  // stream edge — a remote row whose tab was never mounted still reads
+  // awaiting-answer, and the level outranks `running` exactly as the local
+  // answer queue does. error and stalled keep their precedence (#248).
+  it("lets the host's human-answer level outrank the stream edge (#436)", () => {
+    const awaiting = { ...summary(), awaitingHumanAnswer: true };
+    expect(h.deriveSidebarSessionState(awaiting, undefined, undefined)).toBe(
+      "awaiting-answer",
+    );
+    expect(
+      h.deriveSidebarSessionState(awaiting, rpcTabState({ status: "ready" }), undefined),
+    ).toBe("awaiting-answer");
+    expect(
+      h.deriveSidebarSessionState(
+        awaiting,
+        rpcTabState({ status: "running" }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+    expect(
+      h.deriveSidebarSessionState(
+        awaiting,
+        rpcTabState({ status: "error" }),
+        undefined,
+      ),
+    ).toBe("error");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...awaiting, streamStalled: true },
+        rpcTabState({ status: "ready" }),
+        undefined,
+      ),
+    ).toBe("stalled");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), mode: "pty", awaitingHumanAnswer: true },
+        undefined,
+        undefined,
+      ),
+    ).toBe("live");
+    // An old host publishes no level: unchanged #434 behaviour.
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true },
+        undefined,
+        undefined,
+      ),
+    ).toBe("working");
+  });
+
   it("tracks queued answers in FIFO order through a complete agent turn", () => {
     const current = () =>
       h.deriveSidebarSessionState(

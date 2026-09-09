@@ -1714,6 +1714,152 @@ describe("turn latch published state (issue #434)", () => {
   });
 });
 
+describe("human-answer published state (issue #436)", () => {
+  const dialogFrame = (id: string, method = "confirm"): Record<string, unknown> => ({
+    type: "extension_ui_request",
+    id,
+    method,
+    title: "Allow the tool?",
+  });
+  const answer = (id: string): Record<string, unknown> => ({
+    type: "extension_ui_response",
+    id,
+    value: true,
+  });
+
+  it("raises on a blocking dialog frame and drops on the answer, rebuilding once each", async () => {
+    const { manager, broadcast } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    const rpc = rpcInstances.at(-1)!;
+    broadcast.mockClear();
+
+    rpc.frame(dialogFrame("c1"));
+    // No gate involved: the openRequests component alone raises the level, so
+    // the manager's own throttled patch is the one rebuild (fresh manager:
+    // past the window, so it lands immediately).
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+
+    manager.rpcSend(TAB, answer("c1"));
+    expect(manager.pendingAnswer(TAB)).toBe(false);
+    // Within a second of the raise edge: the fall rides the trailing throttle.
+    await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(2), {
+      timeout: 3_000,
+    });
+  });
+
+  it("does not re-edge while a dialog is already open", async () => {
+    const { manager, broadcast } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    const rpc = rpcInstances.at(-1)!;
+    broadcast.mockClear();
+
+    rpc.frame(dialogFrame("q1", "select"));
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+
+    // A second dialog on an already-awaiting tab: true on true is no edge.
+    rpc.frame(dialogFrame("q2", "select"));
+    expect(broadcast).toHaveBeenCalledTimes(1);
+
+    // Answering only q2 leaves q1 pending: the level holds, no broadcast.
+    manager.rpcSend(TAB, answer("q2"));
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+
+    manager.rpcSend(TAB, answer("q1"));
+    expect(manager.pendingAnswer(TAB)).toBe(false);
+    await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(2), {
+      timeout: 3_000,
+    });
+  });
+
+  it("keeps one broadcast per plan proposal and per answer", async () => {
+    const { manager, broadcast } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    broadcast.mockClear();
+
+    // The markdown sentinel select raises the gate AND openRequests at once.
+    // The gate component changed, so publishAnswerEdge stands down: the
+    // PlanGateTracker's direct broadcast is the only rebuild.
+    rpcInstances.at(-1)!.frame({
+      type: "extension_ui_request",
+      id: "p1",
+      method: "select",
+      title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "add auth",
+        planFilePath: "local://auth-plan.md",
+        planAbsPath: "/l/auth-plan.md",
+      })}`,
+    });
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+
+    manager.rpcSend(TAB, {
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_EXECUTE,
+    });
+    // The settle drops both components together: the gate component changed,
+    // so again the tracker's direct broadcast alone rebuilds.
+    expect(manager.pendingAnswer(TAB)).toBe(false);
+    expect(broadcast).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the preflight hold unpublished and the gate published", async () => {
+    let resolveVerify!: (r: Core.PlanRenderResult) => void;
+    const planVerify = vi.fn<
+      (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>
+    >(() => new Promise<Core.PlanRenderResult>((res) => (resolveVerify = res)));
+    const { manager, broadcast, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
+    await resume(manager);
+    broadcast.mockClear();
+    const abs = path.join(sessionsRoot, LINEAGE, "auth-plan.html");
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, "<!doctype html>\n<html><body><p>plan</p></body></html>", "utf8");
+
+    rpcInstances.at(-1)!.frame({
+      type: "extension_ui_request",
+      id: "p1",
+      method: "select",
+      title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "add auth",
+        planFilePath: "local://auth-plan.html",
+        planAbsPath: abs,
+      })}`,
+    });
+    await vi.waitFor(() => expect(planVerify).toHaveBeenCalledTimes(1));
+    // Mid-validation: the hold guards the tab but publishes no human-answer
+    // state, and the claimed frame never reaches the fan-out — no rebuild.
+    expect(manager.pendingAnswer(TAB)).toBe(false);
+    expect(broadcast).not.toHaveBeenCalled();
+
+    resolveVerify({ status: "passed", diagnostics: [] });
+    await vi.waitFor(() => expect(manager.pendingAnswer(TAB)).toBe(true));
+    // Delivered through deliverFrame, the gate component raises with the
+    // frame: the tracker's direct broadcast is the only rebuild.
+    await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(1), {
+      timeout: 3_000,
+    });
+  });
+
+  it("clears the level when the process exits", async () => {
+    const { manager, broadcast } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    broadcast.mockClear();
+
+    rpcInstances.at(-1)!.frame(dialogFrame("c1"));
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+
+    rpcInstances.at(-1)!.exit(0);
+    // onExit clears the open requests through the observers; handleExit's own
+    // direct broadcast is the only rebuild — no extra edge patch.
+    expect(manager.pendingAnswer(TAB)).toBe(false);
+    expect(broadcast).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("plan-review gate (issue #215)", () => {
   const proposalFrame = (id: string) => ({
     type: "extension_ui_request",

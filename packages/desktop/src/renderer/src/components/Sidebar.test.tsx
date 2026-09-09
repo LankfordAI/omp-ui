@@ -2032,4 +2032,28 @@ describe("Sidebar remote instances (issue #416)", () => {
     expect(section.textContent).toContain("working");
     expect(section.querySelector('[title="Agent is working"]')).not.toBeNull();
   });
+
+  // Issue #436: same symptom for the answer latch — the client never mounted
+  // the tab, so no local dialog component exists; only the host's published
+  // awaiting level can mark the row answer-needed.
+  it("marks a remote native row answer-needed from the host's awaiting level alone", () => {
+    const awaiting = {
+      ...remoteGroup,
+      sessions: remoteGroup.sessions.map((s, i) =>
+        i === 0 ? { ...s, awaitingHumanAnswer: true } : s,
+      ),
+    };
+    useStore.setState({
+      state: backendState({
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-a", nickname: "box-a", projects: [awaiting] }),
+        ],
+      }),
+    });
+    renderSidebar();
+    const section = remoteSection();
+    expect(section.textContent).toContain("answer needed");
+    expect(section.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
+  });
 });
