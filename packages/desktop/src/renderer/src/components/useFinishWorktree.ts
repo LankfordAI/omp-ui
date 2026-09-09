@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { MergeBackResult, MergeBackStatus, SessionSummary } from "@omp-ui/core/types";
+import type {
+  MergeBackResult,
+  MergeBackStatus,
+  PushResult,
+  SessionSummary,
+} from "@omp-ui/core/types";
 import { releaseNoticeLevel, releaseNoticeText } from "../lib/format";
 import { t } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
@@ -13,12 +18,14 @@ import {
 import { PLACEHOLDER_BRANCH_RE } from "./WorktreeBranchFields";
 
 /**
- * The Finish worktree dialog's state machine (issues #385–#389): three
+ * The Finish worktree dialog's state machine (issues #385–#389, #414): three
  * independent decisions — where the work goes (destination: resolved base,
  * any local branch, or a new branch cut from a chosen start point), how it
  * lands (merge commit vs keep branch, with an optional rename), and whether
  * the session returns to the project checkout — run in that order against
- * main. Presentation-free, the way useMergeBack was: the dialog renders this.
+ * main. A merged merge-back ends on the done phase: the work is landed
+ * locally, and publishing or pushing it stays an explicit separate step.
+ * Presentation-free, the way useMergeBack was: the dialog renders this.
  */
 
 export type FinishOutcome = "merge" | "keep";
@@ -31,7 +38,35 @@ export type FinishPhase =
   | { s: "loading" }
   | { s: "working"; step: FinishStep }
   | { s: "conflict"; files: string[]; leftIn: "project" | null }
-  | { s: "error"; message: string };
+  | { s: "error"; message: string }
+  /**
+   * The run landed the work locally (issue #414): the merge merged, the
+   * notices fired, and the dialog stays open on the done row so publishing
+   * or pushing `destination` stays the user's explicit call.
+   * `destinationAhead` / `destinationUpstream` are the destination against its
+   * own upstream from a status re-read taken after the merge — the snapshot
+   * the dialog rendered while choosing the destination predates the landing.
+   * Stored refs only, never a fetch.
+   */
+  | {
+      s: "done";
+      destination: string;
+      commits: number;
+      destinationAhead: number | null;
+      destinationUpstream: string | null;
+    };
+
+/** The done row's push affordance (issue #414): one button, five states. */
+export type FinishPushState =
+  | { s: "idle" }
+  /** A push of the destination is in flight. */
+  | { s: "busy" }
+  /** A session is mid-turn on the shared branch; the click awaits confirmation. */
+  | { s: "confirm" }
+  /** The push answered — `kind` names what the remote did with it. */
+  | { s: "settled"; result: PushResult }
+  /** The request itself failed (transport); git state never lands here. */
+  | { s: "failed"; message: string };
 
 export interface FinishController {
   /** The worktree session; undefined once the record vanished — the dialog closes itself then. */
@@ -51,6 +86,14 @@ export interface FinishController {
   /** Status for the effective destination (newBranch.from while newBranch is set). */
   status: MergeBackStatus | null;
   phase: FinishPhase;
+  /** The done row's push affordance (issue #414); idle outside the done phase. */
+  pushState: FinishPushState;
+  /** The repo's push remote from the branch listing; null disables publishing. */
+  defaultRemote: string | null;
+  /** The repo's default branch — a pull request's base. */
+  defaultBranch: string | null;
+  /** The remote has no web face: `openPullRequest` said so instead of opening. */
+  prUnavailable: boolean;
   /** A session mid-turn in the project checkout (this tab excluded); null when none. */
   busyTitle: string | null;
   ownRunning: boolean;
@@ -63,6 +106,14 @@ export interface FinishController {
   setReturnSession(value: boolean): void;
   sync(): Promise<void>;
   run(): Promise<void>;
+  /** Pushes (or publishes) the done phase's destination; honouring the busy confirm. */
+  pushDone(): Promise<void>;
+  /** Arms the busy confirm without pushing. */
+  askPushConfirm(): void;
+  /** Drops the busy confirm; nothing is pushed by dropping it. */
+  dismissPushConfirm(): void;
+  /** Opens the host's new-pull-request page for the pushed destination. */
+  openPullRequest(): Promise<void>;
   /** null disables the primary button. */
   primaryLabel: string | null;
 }
@@ -70,7 +121,8 @@ export interface FinishController {
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const commitsText = (count: number): string =>
+/** The plural helper every landed-commit line shares. */
+export const commitsText = (count: number): string =>
   t(count === 1 ? "branch.merge.oneCommit" : "branch.merge.manyCommits", { count });
 
 export function useFinishWorktree(tabId: string): FinishController {
@@ -79,10 +131,16 @@ export function useFinishWorktree(tabId: string): FinishController {
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const projectCwd = record?.projectCwd;
   const branchKey = projectCwd === undefined ? undefined : projectKey(instanceId, projectCwd);
-  const branchNames = useStore((s) => {
+  const branchInfo = useStore((s) => {
     const info = branchKey === undefined ? undefined : s.branches[branchKey];
-    return info === undefined ? null : info.branches;
+    return info ?? null;
   });
+  const branchNames = branchInfo?.branches ?? null;
+  // The repo's push remote and default branch (issue #414): what publishing
+  // the landed destination would push to, and what a pull request compares it
+  // against. Both come from the listing the dialog already refreshed.
+  const defaultRemote = branchInfo?.defaultRemote ?? null;
+  const defaultBranch = branchInfo?.defaultBranch ?? null;
   const busyTitle = useStore((s) =>
     projectCwd === undefined ? null : runningSessionTitleOnCheckout(s, projectCwd, tabId),
   );
@@ -102,6 +160,8 @@ export function useFinishWorktree(tabId: string): FinishController {
   const suggestBranchName = useStore((s) => s.suggestBranchName);
   const appendNotice = useStore((s) => s.appendNotice);
   const closeFinishWorktree = useStore((s) => s.closeFinishWorktree);
+  const pushGitBranch = useStore((s) => s.pushGitBranch);
+  const getPullRequestUrl = useStore((s) => s.getPullRequestUrl);
 
   const [suggestedDestination, setSuggestedDestination] = useState<string | null>(null);
   const [destination, setDestinationState] = useState<string | null>(null);
@@ -112,6 +172,8 @@ export function useFinishWorktree(tabId: string): FinishController {
   const [returnSession, setReturnSession] = useState(true);
   const [status, setStatus] = useState<MergeBackStatus | null>(null);
   const [phase, setPhase] = useState<FinishPhase>({ s: "loading" });
+  const [pushState, setPushState] = useState<FinishPushState>({ s: "idle" });
+  const [prUnavailable, setPrUnavailable] = useState(false);
 
   // Stale-reply guards: one counter for the destination resolution chain,
   // one for the status reads, so a slow reply can never overwrite a newer one.
@@ -248,8 +310,12 @@ export function useFinishWorktree(tabId: string): FinishController {
       branch = renameTo;
     }
 
-    // 3. The merge proper, unless the work is already in (or kept).
+    // 3. The merge proper, unless the work is already in (or kept). The
+    // result survives the run: the done phase says what landed (issue #414).
     let mergedCommits: number | null = null;
+    let mergeResult: MergeBackResult | null = null;
+    /** Status re-read after the merge landed; its push facts postdate it. */
+    let landed: MergeBackStatus | null = null;
     if (outcome === "merge" && !status.alreadyMerged) {
       setPhase({ s: "working", step: "merging" });
       let result: MergeBackResult;
@@ -278,7 +344,22 @@ export function useFinishWorktree(tabId: string): FinishController {
         fetchStatus();
         return;
       }
+      mergeResult = result;
       mergedCommits = result.kind === "merged" ? result.commits : null;
+      if (result.kind === "merged") {
+        // The dialog's last status was read while the destination still lacked
+        // these commits, so its destinationAhead describes the BEFORE state —
+        // usually 0, which would leave the done row with nothing to offer.
+        // Re-read now, while the worktree path still exists: local refs only,
+        // this read never fetches (issue #414).
+        landed = await readMergeBackStatus(
+          cwd,
+          branch,
+          target,
+          record.worktree?.path ?? null,
+          instanceId,
+        ).catch(() => null);
+      }
       if (!returnSession && result.kind === "merged") {
         // Staying in the worktree: the release notice that would carry this
         // never comes, so name the landing here.
@@ -317,6 +398,22 @@ export function useFinishWorktree(tabId: string): FinishController {
         releaseNoticeLevel(release),
       );
     }
+    // 5. Landed, but not shared (issue #414): a merge that moved commits
+    // stops on the done row, where publishing or pushing `destination` is one
+    // deliberate click rather than a side effect of finishing. Every other
+    // outcome — keep, rename-only, already-merged — closes as it always did.
+    if (mergeResult !== null && mergeResult.kind === "merged") {
+      setPushState({ s: "idle" });
+      setPrUnavailable(false);
+      setPhase({
+        s: "done",
+        destination: target,
+        commits: mergeResult.commits,
+        destinationAhead: (landed ?? status).destinationAhead,
+        destinationUpstream: (landed ?? status).destinationUpstream,
+      });
+      return;
+    }
     closeFinishWorktree();
   };
 
@@ -345,6 +442,68 @@ export function useFinishWorktree(tabId: string): FinishController {
     }
     fetchStatus();
     setPhase({ s: "idle" });
+  };
+
+  // The done row's push (issue #414). The branch is shared state, so a
+  // session mid-turn on this checkout — another tab in the project, or this
+  // one still streaming — earns the same confirm the branch chip's push row
+  // earns; the second call from inside that confirm pushes. `pushGitBranch`
+  // refuses while a pull runs on the same repo, and the slice refreshes the
+  // listing after a push that moved a ref.
+  const pushDone = async (): Promise<void> => {
+    if (phase.s !== "done" || projectCwd === undefined) return;
+    if (pushState.s === "busy") return;
+    if (pushState.s !== "confirm" && (busyTitle !== null || ownRunning)) {
+      setPushState({ s: "confirm" });
+      return;
+    }
+    setPushState({ s: "busy" });
+    try {
+      const result = await pushGitBranch(projectCwd, phase.destination, instanceId);
+      setPushState({ s: "settled", result });
+    } catch (error) {
+      // Only a transport failure throws here; git's refusals arrive as kinds.
+      setPushState({ s: "failed", message: errorMessage(error) });
+    }
+  };
+
+  const askPushConfirm = (): void => {
+    if (phase.s !== "done" || pushState.s === "busy") return;
+    setPushState({ s: "confirm" });
+  };
+
+  const dismissPushConfirm = (): void => {
+    if (pushState.s !== "confirm") return;
+    setPushState({ s: "idle" });
+  };
+
+  // The pull-request page is built by main from the remote's web face; a null
+  // answer is an in-place line, never a half-built URL (issue #414). The one
+  // way this fails outright — a transport error — reads the same, because the
+  // user's next move is identical either way.
+  const openPullRequest = async (): Promise<void> => {
+    if (phase.s !== "done" || projectCwd === undefined) return;
+    // A detached HEAD has no default branch to compare against; that is the
+    // same dead end as a remote with no web face, and it says so the same way.
+    if (defaultBranch === null) {
+      setPrUnavailable(true);
+      return;
+    }
+    try {
+      const url = await getPullRequestUrl(
+        projectCwd,
+        defaultBranch,
+        phase.destination,
+        instanceId,
+      );
+      if (url === null) {
+        setPrUnavailable(true);
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      setPrUnavailable(true);
+    }
   };
 
   // The merge radio's blockers are destination-checkout-specific: a scratch
@@ -385,6 +544,10 @@ export function useFinishWorktree(tabId: string): FinishController {
     returnSession,
     status,
     phase,
+    pushState,
+    defaultRemote,
+    defaultBranch,
+    prUnavailable,
     busyTitle,
     ownRunning,
     sharers,
@@ -400,6 +563,10 @@ export function useFinishWorktree(tabId: string): FinishController {
     setReturnSession,
     sync,
     run,
+    pushDone,
+    askPushConfirm,
+    dismissPushConfirm,
+    openPullRequest,
     primaryLabel,
   };
 }

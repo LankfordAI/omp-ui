@@ -21,6 +21,7 @@ const branchFixture: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  defaultRemote: "origin",
 };
 
 const backendMock = {

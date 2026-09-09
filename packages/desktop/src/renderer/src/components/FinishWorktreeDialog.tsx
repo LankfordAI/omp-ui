@@ -1,12 +1,12 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
-import { useFinishWorktree, type FinishStep } from "./useFinishWorktree";
+import { commitsText, useFinishWorktree, type FinishStep } from "./useFinishWorktree";
 import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
 
 /**
- * The Finish worktree dialog (issues #385–#389): one surface, three
+ * The Finish worktree dialog (issues #385–#389, #414): one surface, three
  * independent decisions — where the work goes (destination: resolved base,
  * any local branch, or a new branch cut from a chosen start point), how it
  * lands (merge commit vs keep the branch, optionally renamed), and whether
@@ -14,8 +14,9 @@ import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
  * git merge-tree before anything moves; a predicted conflict offers the
  * sync path so conflicts are resolved in the worktree by the session that
  * owns the change. A dirty checkout cannot be returned — the checkbox says
- * so, and main enforces it. Supersedes the merge rows the two chips used to
- * carry inline.
+ * so, and main enforces it. A merged finish ends on the done row instead of
+ * closing: the work is landed, and sharing it with the remote stays an
+ * explicit step. Supersedes the merge rows the two chips used to carry inline.
  */
 
 const stepLabel: Record<FinishStep, MessageKey> = {
@@ -42,17 +43,29 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const consoleIsOpen = useStore((s) => s.consoleOpen[tabId] === true);
   const ids = useId();
 
-  // The record vanished (deleted, released elsewhere) or lost its worktree:
-  // the dialog has nothing left to finish.
+  // The record vanished (deleted, released elsewhere): the dialog has nothing
+  // left to finish. A merged finish releases the session *itself*, and main
+  // nulls the record's worktree partway through that call — while the run is
+  // in flight or its done row is up, the null is the finish doing its job, not
+  // a reason to close: the row still owes the user the choice of sharing what
+  // landed (issue #414). Anywhere else, a worktree-less record means the
+  // session left the worktree behind someone else's hand.
+  const done = c.phase.s === "done";
+  const holdsTheFinish = c.phase.s === "working" || done;
   useEffect(() => {
-    if (c.record === undefined || c.record.worktree === null) closeFinishWorktree();
-  }, [c.record, closeFinishWorktree]);
+    if (c.record === undefined) closeFinishWorktree();
+    else if (c.record.worktree === null && !holdsTheFinish) closeFinishWorktree();
+  }, [c.record, holdsTheFinish, closeFinishWorktree]);
 
   const record = c.record;
   const worktree = record?.worktree ?? null;
-  if (record === undefined || worktree === null) return null;
-
-  const branch = worktree.branch;
+  // The branch this dialog names outlives its own release: after a merged
+  // finish main has nulled the record's worktree, and the title and the quiet
+  // facts still have to say which branch was folded in (issue #414).
+  const lastBranchRef = useRef(worktree?.branch ?? "");
+  if (worktree !== null) lastBranchRef.current = worktree.branch;
+  if (record === undefined) return null;
+  const branch = lastBranchRef.current;
   const status = c.status;
   const dirty = status?.worktreeDirty === true;
   const targetName =
@@ -108,7 +121,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               size="xs"
               variant="ghost"
               className="mt-1"
-              disabled={working || c.ownRunning || dirty}
+              disabled={working || done || c.ownRunning || dirty}
               title={
                 c.ownRunning
                   ? t("finish.dialog.syncBlockedRunning")
@@ -143,6 +156,43 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
       : t("finish.hint.keepStay");
   };
 
+  /**
+   * The done row's share decision, resolved once so the idle button and the
+   * busy confirm cannot disagree (issue #414). What the remote lacks comes off
+   * the destination's own upstream: push the count it trails, publish when it
+   * has no upstream at all, and offer nothing once it has it all. The mid-turn
+   * rule is the branch chip's — an armed confirm pushes on the next click, an
+   * unarmed one on a busy checkout only arms.
+   */
+  const resolveShare = (): { label: string; onClick: () => void } | null => {
+    if (c.phase.s !== "done") return null;
+    const confirming = c.pushState.s === "confirm";
+    if (!confirming && c.pushState.s !== "idle") return null;
+    let label: string;
+    if (confirming) label = t("composer.branch.pushAnyway");
+    else {
+      const { destination, destinationAhead, destinationUpstream } = c.phase;
+      if (destinationAhead !== null && destinationAhead > 0)
+        // The status read reports a count and its ref together; a count with
+        // no ref is not a state main returns, and the branch name is the
+        // honest fallback for a line that cannot be drawn.
+        label = t("finish.done.pushTo", {
+          destination,
+          commits: commitsText(destinationAhead),
+          upstream: destinationUpstream ?? destination,
+        });
+      else if (destinationAhead === null && c.defaultRemote !== null)
+        label = t("finish.done.publishTo", { destination, remote: c.defaultRemote });
+      else return null;
+    }
+    const midTurn = c.busyTitle !== null || c.ownRunning;
+    return {
+      label,
+      onClick: confirming || !midTurn ? () => void c.pushDone() : c.askPushConfirm,
+    };
+  };
+  const donePush = resolveShare();
+
   return (
     <ConfirmDialog
       kicker={t("finish.dialog.kicker")}
@@ -151,19 +201,28 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
       onClose={closeFinishWorktree}
       width="w-[30rem]"
       actions={
-        <>
-          <Button variant="ghost" onClick={closeFinishWorktree}>
-            {t("common.dialog.cancel")}
+        done ? (
+          // The finish already happened; the only thing left to decide is
+          // whether the landed branch goes to the remote, and that row is in
+          // the body, not the footer (issue #414).
+          <Button variant="solid" onClick={closeFinishWorktree}>
+            {t("finish.primary.done")}
           </Button>
-          <Button
-            variant="solid"
-            tone={c.returnSession ? "rose" : "neutral"}
-            disabled={c.primaryLabel === null || working || c.phase.s === "loading"}
-            onClick={() => void c.run()}
-          >
-            {label}
-          </Button>
-        </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={closeFinishWorktree}>
+              {t("common.dialog.cancel")}
+            </Button>
+            <Button
+              variant="solid"
+              tone={c.returnSession ? "rose" : "neutral"}
+              disabled={c.primaryLabel === null || working || c.phase.s === "loading"}
+              onClick={() => void c.run()}
+            >
+              {label}
+            </Button>
+          </>
+        )
       }
     >
       <div className="space-y-4">
@@ -211,6 +270,10 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           <select
             id={`${ids}-dest`}
             className={fieldClass}
+            // Inert once the run finished (issue #414): picking another
+            // destination would re-key the status read and discard the done
+            // phase — the session that owed it has already been returned.
+            disabled={done}
             value={c.newBranch !== null ? NEW_BRANCH_SENTINEL : (c.destination ?? "")}
             onChange={(event) => {
               if (event.target.value === NEW_BRANCH_SENTINEL) c.chooseNewBranch();
@@ -373,6 +436,116 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           <p role="alert" className="text-xs leading-relaxed text-rose">
             {c.phase.message}
           </p>
+        )}
+
+        {/* 6. The done phase (issue #414): the work is landed locally, and
+            sharing it with the remote is a separate, explicit decision —
+            push, publish, open a pull request, or close and leave it local. */}
+        {c.phase.s === "done" && (
+          <div className="space-y-1.5 rounded-md border border-line bg-raised px-3 py-2.5">
+            <p className="text-xs leading-snug text-ink">
+              {t("finish.done.landed", {
+                commits: commitsText(c.phase.commits),
+                destination: c.phase.destination,
+              })}
+            </p>
+            {c.pushState.s === "idle" && donePush !== null && (
+              <Button size="xs" onClick={donePush.onClick}>
+                {donePush.label}
+              </Button>
+            )}
+            {c.pushState.s === "busy" && (
+              <Button size="xs" disabled>
+                {t("finish.done.pushing")}
+              </Button>
+            )}
+            {c.pushState.s === "confirm" && (
+              <>
+                {/* The chip's own busy row, in spirit: the mid-turn session is
+                    either another tab on this checkout or this one itself. */}
+                <p className={copperClass}>
+                  {t("composer.branch.confirmPush", { title: c.busyTitle ?? record.title })}
+                </p>
+                <div className="flex gap-1.5">
+                  {donePush !== null && (
+                    <Button size="xs" tone="copper" onClick={donePush.onClick}>
+                      {donePush.label}
+                    </Button>
+                  )}
+                  <Button size="xs" variant="ghost" onClick={c.dismissPushConfirm}>
+                    {t("composer.branch.cancel")}
+                  </Button>
+                </div>
+              </>
+            )}
+            {c.pushState.s === "settled" && (
+              <>
+                {c.pushState.result.kind === "pushed" && (
+                  <p className={quietClass}>
+                    {t("finish.done.pushed", {
+                      commits: commitsText(c.pushState.result.commits),
+                      upstream: c.pushState.result.upstreamRef,
+                    })}
+                  </p>
+                )}
+                {c.pushState.result.kind === "published" && (
+                  <p className={quietClass}>
+                    {t("finish.done.published", {
+                      destination: c.phase.destination,
+                      remote: c.pushState.result.remote,
+                    })}
+                  </p>
+                )}
+                {c.pushState.result.kind === "up-to-date" && (
+                  <p className={quietClass}>
+                    {t("composer.branch.upToDate", { upstream: c.pushState.result.upstreamRef })}
+                  </p>
+                )}
+                {/* Git refused a non-fast-forward, so the remote moved: naming
+                    the ref it refused against is the whole instruction — pull
+                    there, then push again (issue #414). */}
+                {c.pushState.result.kind === "rejected" && (
+                  <>
+                    <p className={copperClass}>
+                      {t("finish.done.rejected", {
+                        upstream:
+                          c.pushState.result.remote === null
+                            ? c.phase.destinationUpstream ?? c.phase.destination
+                            : `${c.pushState.result.remote}/${c.phase.destination}`,
+                      })}
+                    </p>
+                    <p className={`${quietClass} break-words`}>{c.pushState.result.detail}</p>
+                  </>
+                )}
+                {c.pushState.result.kind === "failed" && (
+                  <p role="alert" className="text-xs leading-relaxed text-rose">
+                    {c.pushState.result.detail}
+                  </p>
+                )}
+                {/* A pull request only compares anything when the landed
+                    destination is not the branch the repo compares on. */}
+                {c.pushState.result.kind !== "rejected" &&
+                  c.pushState.result.kind !== "failed" &&
+                  c.phase.destination !== c.defaultBranch && (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => void c.openPullRequest()}
+                    >
+                      {t("finish.done.openPr")}
+                    </Button>
+                  )}
+              </>
+            )}
+            {c.pushState.s === "failed" && (
+              <p role="alert" className="text-xs leading-relaxed text-rose">
+                {c.pushState.message}
+              </p>
+            )}
+            {c.prUnavailable && (
+              <p className={quietClass}>{t("composer.branch.prUnavailable")}</p>
+            )}
+          </div>
         )}
       </div>
     </ConfirmDialog>

@@ -261,6 +261,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.branch.confirmSwitch": "세션 “{title}”이 턴을 처리 중입니다. 작업 중인 tree가 변경됩니다",
   "composer.branch.pulling": "Pull 중…",
   "composer.branch.pullAnyway": "그래도 pull",
+  "composer.branch.push": "{upstream}에 push {commits}",
+  "composer.branch.pushing": "Push 중…",
+  "composer.branch.pushAnyway": "그래도 push",
+  "composer.branch.confirmPush": "세션 “{title}”이 턴을 처리 중입니다 — 지금 상태 그대로 브랜치가 공유됩니다",
+  "composer.branch.publish": "{remote}에 publish {branch}",
+  "composer.branch.pullRequest": "pull request…",
+  "composer.branch.prUnavailable": "이 remote에서는 pull-request URL을 만들 수 없습니다",
   "composer.branch.switchAnyway": "그래도 전환",
   "composer.branch.cancel": "취소",
   "composer.branch.namePlaceholder": "new-branch-name",
@@ -1257,6 +1264,18 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "finish.primary.returnKeep": "돌아가기, 브랜치 유지",
   "finish.primary.rename": "이름 변경",
   "finish.primary.nothing": "할 작업 없음",
+  "finish.primary.done": "완료",
+
+  // FinishWorktreeDialog.tsx — 완료 단계(issue #414): 병합은 locally 완료된다.
+  // 원격에 공유하는 일은 별도로 명시적인 조작으로 남긴다.
+  "finish.done.landed": "{destination}에 {commits} 병합",
+  "finish.done.pushTo": "{destination} — {commits}을(를) {upstream}에 push",
+  "finish.done.publishTo": "{destination}을(를) {remote}에 publish",
+  "finish.done.pushing": "push 중…",
+  "finish.done.pushed": "{commits}을(를) {upstream}에 push",
+  "finish.done.published": "{destination}을(를) {remote}에 publish",
+  "finish.done.rejected": "{upstream}에 이 브랜치가 갖지 않은 commit이 있습니다 — 먼저 pull한 뒤 push하세요",
+  "finish.done.openPr": "pull request 열기",
 
   // useFinishWorktree.ts — 마무리 실행의 트랜스크립트 공지
   "notice.merge.conflictProject": "{destination} 병합이 프로젝트 체크아웃에서 {count}개 파일 충돌로 중단되었습니다 — 그곳에서 해결하거나 동기화 후 다시 마무리하세요",

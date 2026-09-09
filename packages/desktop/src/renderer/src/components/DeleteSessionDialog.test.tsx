@@ -173,6 +173,9 @@ const mergeableStatus: MergeBackStatus = {
   ahead: 3,
   behind: 0,
   worktreeDirty: false,
+  // The destination tracks origin/main and sits one commit beyond it (#414).
+  destinationUpstream: "origin/main",
+  destinationAhead: 1,
   preview: { kind: "clean" },
 };
 
@@ -192,6 +195,7 @@ const branchListing: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  defaultRemote: "origin",
 };
 
 const worktreeConfirmation: DeleteConfirmation = {

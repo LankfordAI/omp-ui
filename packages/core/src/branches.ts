@@ -1,9 +1,10 @@
 import * as path from "node:path";
 import { git, type GitOptions } from "./git";
-import type { BranchList, BranchListOptions } from "./types";
+import type { BranchList, BranchListOptions, PushResult } from "./types";
 
 const FETCH_TIMEOUT_MS = 5_000;
 const PULL_TIMEOUT_MS = 30_000;
+const PUSH_TIMEOUT_MS = 60_000;
 const FETCH_FRESH_MS = 15_000;
 const FAILURE_COOLDOWN_MS = 30_000;
 const MAX_FAILURE_COOLDOWN_MS = 15 * 60_000;
@@ -27,6 +28,7 @@ export interface ParsedBranchStatus {
 export interface BranchService {
   listBranches(projectCwd: string, options?: BranchListOptions): Promise<BranchList>;
   pullBranch(projectCwd: string): Promise<void>;
+  pushBranch(projectCwd: string, branch: string, remote?: string | null): Promise<PushResult>;
 }
 
 interface ConfiguredUpstream {
@@ -96,6 +98,7 @@ function emptyBranchList(): BranchList {
     behind: 0,
     upstreamFetchedAt: null,
     upstreamRefreshError: null,
+    defaultRemote: null,
   };
 }
 
@@ -117,8 +120,70 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isNamedRemote(remote: string | null): remote is string {
+/** A remote name that can address a real remote: not null, not empty, not the `.` local-upstream marker. */
+export function isNamedRemote(remote: string | null): remote is string {
   return remote !== null && remote !== "" && remote !== ".";
+}
+/**
+ * The remote a push targets when the branch carries no usable configured
+ * upstream: `origin` when it exists, else the repo's single remote, else
+ * null. Two local reads; no network (issue #414).
+ */
+export async function resolveDefaultRemote(
+  root: string,
+  runGit: GitRunner = git,
+): Promise<string | null> {
+  try {
+    await runGit(root, ["remote", "get-url", "origin"]);
+    return "origin";
+  } catch {
+    // No origin: the sole-remote rule below is the answer.
+  }
+  let names: string[];
+  try {
+    names = await listRemoteNames(root, runGit);
+  } catch {
+    return null;
+  }
+  return names.length === 1 ? names[0]! : null;
+}
+
+/** Every configured remote name, in git's order. */
+export async function listRemoteNames(root: string, runGit: GitRunner = git): Promise<string[]> {
+  const out = await runGit(root, ["remote"]);
+  return out
+    .split("\n")
+    .map((name) => name.trim())
+    .filter((name) => name !== "");
+}
+
+/** One git config value; null when unset. Absence is an answer, not a failure. */
+async function readConfigValue(
+  root: string,
+  key: string,
+  runGit: GitRunner,
+): Promise<string | null> {
+  try {
+    const value = (await runGit(root, ["config", "--get", key], { allowExit: [1] })).trim();
+    return value === "" ? null : value;
+  } catch {
+    return null;
+  }
+}
+
+/** Git's own words for "the remote has moved"; anything else is a transport/auth failure. */
+const NON_FAST_FORWARD_RE = /(?:rejected|non-fast-forward|fetch first|stale info)/i;
+
+/**
+ * Git's refusal of a non-fast-forward is actionable — pull, then push again —
+ * so it becomes `rejected`; auth, transport, and TLS failures become `failed`.
+ * Both carry stderr verbatim (the runner rethrows it as the Error message).
+ */
+function classifyPushFailure(error: unknown, remote: string | null): PushResult {
+  const detail = errorMessage(error);
+  return NON_FAST_FORWARD_RE.test(detail)
+    ? { kind: "rejected", remote, detail }
+    : { kind: "failed", detail };
 }
 
 /** Creates an isolated, injectable branch service; production delegates live below. */
@@ -199,9 +264,9 @@ export function createBranchService(
     return null;
   };
 
-  const verifyUpstream = async (root: string): Promise<boolean> => {
+  const verifyUpstream = async (root: string, source = "@{upstream}"): Promise<boolean> => {
     try {
-      await runGit(root, ["rev-parse", "--verify", "--quiet", "@{upstream}"]);
+      await runGit(root, ["rev-parse", "--verify", "--quiet", source]);
       return true;
     } catch {
       return false;
@@ -292,6 +357,7 @@ export function createBranchService(
     }
 
     const upstreamAvailable = configured !== null && (await verifyUpstream(root));
+    const defaultRemote = await resolveDefaultRemote(root, runGit);
     const identity =
       configured === null || current === null ? null : `${root}\0${current}\0${configured.ref}`;
     let ahead = upstreamAvailable ? status.ahead : 0;
@@ -322,6 +388,7 @@ export function createBranchService(
       behind,
       upstreamFetchedAt: entry?.fetchedAt ?? null,
       upstreamRefreshError: entry?.refreshError ?? null,
+      defaultRemote,
     };
   };
 
@@ -374,7 +441,130 @@ export function createBranchService(
     }
   };
 
-  return { listBranches: listBranchesImpl, pullBranch: pullBranchImpl };
+  /** Commits in `to` that `from` lacks; null when either side is unreadable. */
+  const countBetween = async (root: string, from: string, to: string): Promise<number | null> => {
+    try {
+      const count = Number((await runGit(root, ["rev-list", "--count", `${from}..${to}`])).trim());
+      return Number.isSafeInteger(count) ? count : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * A push advanced the remote-tracking ref, so the fetch cache's freshness
+   * window restarts here and its counts follow a local status read: the next
+   * listing shows the true zero-ahead state without reaching the network.
+   * Same block pullBranch applies after its own success.
+   */
+  const invalidateAfterPush = async (
+    root: string,
+    remote: string,
+    branch: string,
+    upstreamRef: string,
+  ): Promise<void> => {
+    const entry = cacheEntry(await fetchCacheKey(root, remote));
+    entry.generation += 1;
+    entry.fetchedAt = now();
+    entry.refreshError = null;
+    entry.failures = 0;
+    entry.retryAt = 0;
+    // The status read only decorates the cache; a failure leaves the counts
+    // untouched rather than costing the push its result.
+    const status = await readStatus(root).catch(() => null);
+    if (status !== null && status.head === branch) {
+      entry.counts = { identity: `${root}\0${branch}\0${upstreamRef}`, ahead: 0, behind: status.behind };
+    }
+    touch(entry);
+    evictOldestIdleEntries();
+  };
+
+  const pushBranchImpl = async (
+    projectCwd: string,
+    branch: string,
+    remoteArgument?: string | null,
+  ): Promise<PushResult> => {
+    let root: string;
+    try {
+      root = await resolveRepoRoot(projectCwd);
+    } catch {
+      return { kind: "failed", detail: "Cannot push: project is not inside a Git repository." };
+    }
+
+    try {
+      await runGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
+    } catch {
+      return { kind: "failed", detail: `Cannot push: branch ${branch} does not exist.` };
+    }
+
+    const configuredRemote = await readConfigValue(root, `branch.${branch}.remote`, runGit);
+    const configuredMerge = await readConfigValue(root, `branch.${branch}.merge`, runGit);
+    const mergeRef =
+      configuredMerge !== null && configuredMerge.startsWith("refs/heads/")
+        ? configuredMerge.slice("refs/heads/".length)
+        : configuredMerge;
+    const remotes = await listRemoteNames(root, runGit).catch((): string[] => []);
+
+    // Remote chain (issue #414): the branch's configured remote when it is a
+    // real named remote, else the caller's, else origin/sole remote.
+    const configuredUsable =
+      configuredRemote !== null &&
+      isNamedRemote(configuredRemote) &&
+      remotes.includes(configuredRemote);
+    let remote: string | null = configuredUsable ? configuredRemote : null;
+    if (remote === null && isNamedRemote(remoteArgument ?? null)) remote = remoteArgument ?? null;
+    if (remote === null) remote = await resolveDefaultRemote(root, runGit);
+    if (remote === null) return { kind: "failed", detail: "Cannot push: no remote configured." };
+
+    const upstreamRef =
+      configuredUsable && mergeRef !== null && (await verifyUpstream(root, `${branch}@{upstream}`))
+        ? `${remote}/${mergeRef}`
+        : null;
+
+    if (upstreamRef !== null && mergeRef !== null) {
+      const ahead = await countBetween(root, upstreamRef, branch);
+      // Nothing to send: git would answer "Everything up-to-date" for free,
+      // so the network is not touched at all.
+      if (ahead === 0) return { kind: "up-to-date", remote, upstreamRef };
+      try {
+        await runGit(
+          root,
+          ["push", remote, `${branch}:${mergeRef}`],
+          networkOptions(PUSH_TIMEOUT_MS),
+        );
+      } catch (error) {
+        return classifyPushFailure(error, remote);
+      }
+      await invalidateAfterPush(root, remote, branch, upstreamRef);
+      return { kind: "pushed", remote, upstreamRef, commits: ahead ?? 0 };
+    }
+
+    // First push: create the branch on the remote and bind the upstream.
+    const trackingRef = `${remote}/${branch}`;
+    let commits = await countBetween(root, trackingRef, branch);
+    if (commits === null) {
+      // No local tracking ref for it yet: the whole branch is what ships.
+      try {
+        const total = Number((await runGit(root, ["rev-list", "--count", branch])).trim());
+        commits = Number.isSafeInteger(total) ? total : 0;
+      } catch {
+        commits = 0;
+      }
+    }
+    try {
+      await runGit(root, ["push", "-u", remote, branch], networkOptions(PUSH_TIMEOUT_MS));
+    } catch (error) {
+      return classifyPushFailure(error, remote);
+    }
+    await invalidateAfterPush(root, remote, branch, trackingRef);
+    return { kind: "published", remote, upstreamRef: trackingRef, commits };
+  };
+
+  return {
+    listBranches: listBranchesImpl,
+    pullBranch: pullBranchImpl,
+    pushBranch: pushBranchImpl,
+  };
 }
 
 const productionBranchService = createBranchService();
@@ -390,6 +580,20 @@ export function listBranches(
 /** Fast-forwards the current branch from its configured, resolvable upstream. */
 export function pullBranch(projectCwd: string): Promise<void> {
   return productionBranchService.pullBranch(projectCwd);
+}
+
+/**
+ * Pushes `branch` to its upstream, or publishes it to `remote` — or to the
+ * repo's default remote when none is given (issue #414). Resolves a
+ * structured PushResult: git refusing a non-fast-forward is an answer, not a
+ * rejection. No force flag exists here; a `rejected` result means pull first.
+ */
+export function pushBranch(
+  projectCwd: string,
+  branch: string,
+  remote?: string | null,
+): Promise<PushResult> {
+  return productionBranchService.pushBranch(projectCwd, branch, remote);
 }
 
 /**

@@ -18,6 +18,7 @@ const branches: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  defaultRemote: "origin",
 };
 
 const OFF_REPO: BranchList = {
@@ -26,6 +27,8 @@ const OFF_REPO: BranchList = {
   current: null,
   branches: [],
   defaultBranch: null,
+  // Load-bearing: overrides the spread's "origin" — a missing repo has no remote.
+  defaultRemote: null,
 };
 
 const backendMock = {

@@ -17,8 +17,9 @@ import {
  * The composer's git-branch indicator and switcher (issues #35, #168): a
  * neutral chip showing the project's current branch and how far it trails its
  * configured upstream, opening a filter-as-you-type menu of local branches with
- * a fast-forward pull and a "new branch…" action. Hidden entirely on non-git
- * projects. The composer additionally offers its pending-workspace selection
+ * a fast-forward pull, a push or first-publish of the checked-out branch, and a
+ * pull-request link (issue #414), plus a "new branch…" action. Hidden entirely
+ * on non-git projects. The composer additionally offers its pending-workspace
  * here (issue #227): while the session is unprompted and has no worktree of
  * its own, the menu gains a "worktree…" row whose sub-mode hosts the shared
  * branch/base fields, and the trigger reads the minted branch with a
@@ -40,8 +41,11 @@ import {
  */
 const NETWORK_REFRESH_DEBOUNCE_MS = 250;
 
-/** The working-tree change awaiting the busy-session confirm. */
-type Pending = { kind: "checkout"; branch: string } | { kind: "pull" };
+/** The checkout, pull, or push awaiting the busy-session confirm. */
+type Pending =
+  | { kind: "checkout"; branch: string }
+  | { kind: "pull" }
+  | { kind: "push"; branch: string };
 
 
 export function BranchChip({
@@ -100,9 +104,14 @@ export function BranchChip({
   const pulling = useStore(
     (s) => key !== undefined && s.branchActivity[key]?.pulling === true,
   );
+  const pushing = useStore(
+    (s) => key !== undefined && s.branchActivity[key]?.pushing === true,
+  );
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
   const pullGitBranch = useStore((s) => s.pullGitBranch);
+  const pushGitBranch = useStore((s) => s.pushGitBranch);
+  const getPullRequestUrl = useStore((s) => s.getPullRequestUrl);
   // A session mid-turn on this checkout: a plain checkout or a fast-forward
   // would move the working tree out from under it, so both earn a confirm.
   const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
@@ -115,7 +124,9 @@ export function BranchChip({
   const [error, setError] = useState<string | null>(null);
   /** True while the create-now conversion is in flight (button label). */
   const [cutting, setCutting] = useState(false);
-  /** The checkout or pull awaiting the busy-session confirm. */
+  /** True while the publish row's first push is in flight (issue #414). */
+  const [publishing, setPublishing] = useState(false);
+  /** The checkout, pull, or push awaiting the busy-session confirm. */
   const [confirm, setConfirm] = useState<Pending | null>(null);
 
   /** Wraps the trigger *and* the popover, so one containment test covers both. */
@@ -208,7 +219,8 @@ export function BranchChip({
 
   if (projectCwd === undefined || info === undefined || info.repoRoot === null) return null;
 
-  const { current, upstreamRef, hasUpstream, ahead, behind } = info;
+  const { current, upstreamRef, hasUpstream, ahead, behind, defaultBranch, defaultRemote } =
+    info;
   // hasUpstream is the resolution test, not the configuration test: a branch
   // whose remote ref was deleted keeps its configured upstreamRef and loses
   // hasUpstream, and that pair is exactly the "unavailable" state below.
@@ -252,7 +264,37 @@ export function BranchChip({
   // before `pulling` clears, and a row that vanished mid-operation would read
   // as a silent failure.
   const showPull = pulling || (resolvable && behind > 0);
-  const pullEnabled = resolvable && behind > 0 && ahead === 0 && !refreshing && !pulling;
+  // A pull never starts while a push moves the same refs (issue #416's
+  // cross-gate, mirrored here in the UI as well as the store).
+  const pullEnabled =
+    resolvable && behind > 0 && ahead === 0 && !refreshing && !pulling && !pushing;
+
+  // The push row follows the pull row's show-through-the-operation rule: the
+  // post-push refresh zeroes `ahead` before `pushing` clears, and a row that
+  // vanished mid-operation would read as a silent failure. A diverged branch
+  // and an unresolvable upstream earn no row and no button — git would refuse
+  // the push, or the ref it names is gone — and the copper note is the answer.
+  const showPush = pushing || (resolvable && ahead > 0 && behind === 0);
+  const pushEnabled =
+    resolvable && ahead > 0 && behind === 0 && !refreshing && !pulling && !pushing;
+  // Publishing is a branch's first push (`push -u`), so it needs no upstream
+  // of its own — only a remote to publish into. It routes through the same
+  // attemptPush, and the local latch plays the role `pushing` cannot: after
+  // the bind-upstream refresh the row's own condition is already false.
+  const showPublish =
+    publishing || (current !== null && upstreamRef === null && defaultRemote !== null);
+  const publishEnabled =
+    current !== null &&
+    upstreamRef === null &&
+    defaultRemote !== null &&
+    !refreshing &&
+    !pulling &&
+    !pushing;
+  // A pull request proposes merging this branch's published commits into the
+  // default branch, so both branches must exist, differ, and the head's ref
+  // must be on the remote. The row is stateless: the URL is built on click.
+  const showPullRequest =
+    current !== null && defaultBranch !== null && current !== defaultBranch && hasUpstream;
   // The worktree section of the merged chip (issue #227). The branch menu
   // itself is git-level and never disabled; only the worktree rows honour
   // the composer's session readiness.
@@ -345,6 +387,66 @@ export function BranchChip({
     closeMenu();
   };
 
+  /**
+   * Pushes — or publishes, the same `git push` with no upstream yet (issue
+   * #414) — the branch the row names. Like the pull it mirrors, sharing a
+   * branch out from a mid-turn session confirms first: the snapshot goes as
+   * it stands, work-in-progress and all.
+   */
+  const attemptPush = async (branch: string): Promise<void> => {
+    // Either row can reach this: the push row needs an upstream and commits
+    // ahead; the publish row needs the branch to have no upstream at all.
+    if (!pushEnabled && !publishEnabled) return;
+    if (busyTitle !== null && confirm?.kind !== "push") {
+      setConfirm({ kind: "push", branch });
+      return;
+    }
+    setError(null);
+    try {
+      const result = await pushGitBranch(projectCwd, branch, instanceId);
+      // Git state resolves as an answer, never as an exception: a rejection
+      // or a failure explains itself inline, the popover stays for a retry.
+      if (result.kind === "rejected" || result.kind === "failed") {
+        setError(result.detail);
+        setConfirm(null);
+        return;
+      }
+      closeMenu();
+    } catch (err) {
+      // Only a transport failure throws.
+      setError(err instanceof Error ? err.message : String(err));
+      setConfirm(null);
+    }
+  };
+
+  const attemptPublish = async (): Promise<void> => {
+    if (!publishEnabled || publishing || current === null) return;
+    setPublishing(true);
+    await attemptPush(current);
+    setPublishing(false);
+  };
+
+  /**
+   * The pull-request row's click. The URL crosses to the browser through
+   * window.open — main routes it via openExternalSafe; the renderer never
+   * reaches shell.openExternal itself. A null URL means the remote has no
+   * web face to compare on, which is a dead end explained, not a silence.
+   */
+  const openPullRequest = async (): Promise<void> => {
+    if (current === null || defaultBranch === null) return;
+    setError(null);
+    try {
+      const url = await getPullRequestUrl(projectCwd, defaultBranch, current, instanceId);
+      if (url === null) {
+        setError(t("composer.branch.prUnavailable"));
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      setError(t("composer.branch.prUnavailable"));
+    }
+  };
+
   const filtered = info.branches.filter((branch) =>
     branch.toLowerCase().includes(filter.toLowerCase()),
   );
@@ -407,7 +509,7 @@ export function BranchChip({
 
       {menuOpen && (
         <div
-          aria-busy={refreshing || pulling}
+          aria-busy={refreshing || pulling || pushing}
           className={cn(
             "animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
             mode === "worktree" ? "w-72" : "w-60",
@@ -418,7 +520,9 @@ export function BranchChip({
               <div className="px-1.5 py-1 text-[11px] leading-snug text-copper">
                 {confirm.kind === "pull"
                   ? t("composer.branch.confirmPull", { title: busyTitle! })
-                  : t("composer.branch.confirmSwitch", { title: busyTitle! })}
+                  : confirm.kind === "push"
+                    ? t("composer.branch.confirmPush", { title: busyTitle! })
+                    : t("composer.branch.confirmSwitch", { title: busyTitle! })}
               </div>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 {confirm.kind === "pull" ? (
@@ -429,6 +533,15 @@ export function BranchChip({
                     onClick={() => void attemptPull()}
                   >
                     {pulling ? t("composer.branch.pulling") : t("composer.branch.pullAnyway")}
+                  </Button>
+                ) : confirm.kind === "push" ? (
+                  <Button
+                    size="xs"
+                    tone="copper"
+                    disabled={!pushEnabled && !publishEnabled}
+                    onClick={() => void attemptPush(confirm.branch)}
+                  >
+                    {pushing ? t("composer.branch.pushing") : t("composer.branch.pushAnyway")}
                   </Button>
                 ) : (
                   <Button
@@ -570,6 +683,43 @@ export function BranchChip({
                   className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {pulling ? t("composer.branch.pulling") : t("composer.branch.pull", { commits: commits(behind) })}
+                </button>
+              )}
+              {/* The `upstreamRef !== null` and `current`/`defaultRemote`
+                  conjuncts restate what showPush/showPublish's own branches
+                  prove (or the in-flight label, which names neither); they
+                  exist so TypeScript can see what the user can already. */}
+              {showPush && upstreamRef !== null && (
+                <button
+                  type="button"
+                  disabled={!pushEnabled}
+                  onClick={() => {
+                    if (current !== null) void attemptPush(current);
+                  }}
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                >
+                  {pushing
+                    ? t("composer.branch.pushing")
+                    : t("composer.branch.push", { commits: commits(ahead), upstream: upstreamRef })}
+                </button>
+              )}
+              {showPublish && current !== null && defaultRemote !== null && (
+                <button
+                  type="button"
+                  disabled={!publishEnabled}
+                  onClick={() => void attemptPublish()}
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                >
+                  {t("composer.branch.publish", { branch: current, remote: defaultRemote })}
+                </button>
+              )}
+              {showPullRequest && (
+                <button
+                  type="button"
+                  onClick={() => void openPullRequest()}
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                >
+                  {t("composer.branch.pullRequest")}
                 </button>
               )}
               {note !== null && (

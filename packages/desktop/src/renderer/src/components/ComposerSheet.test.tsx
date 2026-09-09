@@ -20,6 +20,8 @@ const OFF_REPO: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  // OFF_REPO: not a git repo, so there is no remote at all.
+  defaultRemote: null,
 };
 
 const backendMock = {

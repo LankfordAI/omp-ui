@@ -18,6 +18,7 @@ const fixture: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  defaultRemote: "origin",
 };
 
 // Only the channels the dialog's store path touches: the base list it
@@ -271,7 +272,8 @@ describe("NewWorktreeSessionDialog", () => {
   });
 
   it("disables Create with a hint when the project isn't a git repo", async () => {
-    const notGit: BranchList = { ...fixture, repoRoot: null, current: null, branches: [] };
+    // Load-bearing: the spread's "origin" must go null — no repo, no remote.
+    const notGit: BranchList = { ...fixture, repoRoot: null, current: null, branches: [], defaultRemote: null };
     backendMock.listBranches.mockResolvedValue(notGit);
     seed({ "/p": notGit });
     render();

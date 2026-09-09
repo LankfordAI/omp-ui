@@ -40,6 +40,8 @@ const backendMock = {
     behind: 0,
     upstreamFetchedAt: null,
     upstreamRefreshError: null,
+    // Not a git repo at all: no remote to push to.
+    defaultRemote: null,
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
@@ -89,6 +91,8 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
         behind: 0,
         upstreamFetchedAt: null,
         upstreamRefreshError: null,
+        // Not a git repo at all: no remote to push to.
+        defaultRemote: null,
       },
     },
     rpc: { [TAB]: rpcTabState({
@@ -1235,7 +1239,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
   const gitBranches = {
     repoRoot: "/p", current: "main", branches: ["main", "feature/x"], defaultBranch: "main",
     upstreamRef: null, upstreamRemote: null, hasUpstream: false, ahead: 0, behind: 0,
-    upstreamFetchedAt: null, upstreamRefreshError: null,
+    upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: "origin",
   };
 
   // The worktree section lives in the non-compact action row, but the global

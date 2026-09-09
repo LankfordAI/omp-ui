@@ -30,6 +30,7 @@ import type {
   WorktreeReleaseResult,
   WebSearchProviderSnapshot,
   WorktreeSyncResult,
+  PushResult,
 } from "@omp-ui/core/types";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
@@ -392,6 +393,8 @@ export interface UpdatesSlice {
 export interface BranchActivity {
   refreshing: boolean;
   pulling: boolean;
+  /** A push of some branch of this repo is in flight (issue #414). */
+  pushing: boolean;
 }
 
 /**
@@ -679,6 +682,22 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     instanceId?: string | null,
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
+  /**
+   * Pushes or publishes one named branch (issue #414). Resolves the structured
+   * PushResult — git state is an answer; only a transport failure throws.
+   */
+  pushGitBranch(
+    projectCwd: string,
+    branch: string,
+    instanceId?: string | null,
+  ): Promise<PushResult>;
+  /** The host's new-PR URL for base...head; null when the remote has no web face. */
+  getPullRequestUrl(
+    projectCwd: string,
+    base: string,
+    head: string,
+    instanceId?: string | null,
+  ): Promise<string | null>;
   resolveMergeDestination(
     projectCwd: string,
     base: string | null,

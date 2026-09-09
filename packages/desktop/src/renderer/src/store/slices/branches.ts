@@ -10,6 +10,7 @@ import type {
   MergeBackResult,
   MergeBackStatus,
   MergeDestination,
+  PushResult,
 } from "@omp-ui/core/types";
 import { backendFor } from "../../backend";
 import { projectKey } from "../../lib/project-key";
@@ -32,6 +33,23 @@ export interface BranchesSlice {
     instanceId?: string | null,
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
+  /**
+   * Pushes (or publishes, issue #414) one named branch — the finish dialog
+   * pushes a branch its checkout may not hold. Resolves the structured
+   * PushResult; only a transport failure throws.
+   */
+  pushGitBranch(
+    projectCwd: string,
+    branch: string,
+    instanceId?: string | null,
+  ): Promise<PushResult>;
+  /** The host's new-PR URL for base...head; null when the remote has no web face. */
+  getPullRequestUrl(
+    projectCwd: string,
+    base: string,
+    head: string,
+    instanceId?: string | null,
+  ): Promise<string | null>;
   resolveMergeDestination(
     projectCwd: string,
     base: string | null,
@@ -73,6 +91,13 @@ interface BranchRefreshRuntime {
 
 const branchRefreshes = new Map<string, BranchRefreshRuntime>();
 
+/**
+ * Pushes in flight, keyed by `projectKey(instanceId, projectCwd)\0branch`.
+ * Pull's coalescing precedent extended with the branch, since two branches
+ * can legitimately push side by side (issue #414).
+ */
+const branchPushes = new Map<string, Promise<PushResult>>();
+
 export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice {
   const patchBranchActivity = (
     key: string,
@@ -86,6 +111,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
           [key]: {
             refreshing: patch.refreshing ?? current?.refreshing ?? false,
             pulling: patch.pulling ?? current?.pulling ?? false,
+            pushing: patch.pushing ?? current?.pushing ?? false,
           },
         },
       };
@@ -153,7 +179,9 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     instanceId: string | null = null,
   ): Promise<string | null> => {
     const key = projectKey(instanceId, projectCwd);
-    if (get().branchActivity[key]?.pulling === true) return null;
+    // Pull and push move the same refs, so neither starts while the other runs.
+    const activity = get().branchActivity[key];
+    if (activity?.pulling === true || activity?.pushing === true) return null;
 
     patchBranchActivity(key, { pulling: true });
     let pulled = false;
@@ -175,6 +203,51 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
       }
       patchBranchActivity(key, { pulling: false });
     }
+  };
+
+  const pushGitBranch = async (
+    projectCwd: string,
+    branch: string,
+    instanceId: string | null = null,
+  ): Promise<PushResult> => {
+    const key = projectKey(instanceId, projectCwd);
+    const inFlightKey = `${key}\0${branch}`;
+    const active = branchPushes.get(inFlightKey);
+    if (active !== undefined) return active;
+    // Same refs, same rule as pull: a push never starts against a running pull.
+    if (get().branchActivity[key]?.pulling === true) {
+      return Promise.resolve({
+        kind: "failed",
+        detail: "Cannot push: a pull is already running on this repository.",
+      });
+    }
+
+    patchBranchActivity(key, { pushing: true });
+    const promise = (async (): Promise<PushResult> => {
+      try {
+        const result = await backendFor(instanceId).pushBranch(projectCwd, branch);
+        if (result.kind === "pushed" || result.kind === "published") {
+          // The push advanced the remote-tracking ref, so this refresh reads the
+          // true zero-ahead state off local refs — no network, as after a pull.
+          await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
+        }
+        return result;
+      } finally {
+        branchPushes.delete(inFlightKey);
+        patchBranchActivity(key, { pushing: false });
+      }
+    })();
+    branchPushes.set(inFlightKey, promise);
+    return promise;
+  };
+
+  const getPullRequestUrl = async (
+    projectCwd: string,
+    base: string,
+    head: string,
+    instanceId: string | null = null,
+  ): Promise<string | null> => {
+    return backendFor(instanceId).pullRequestUrl(projectCwd, base, head);
   };
 
   const resolveMergeDestination = async (
@@ -247,6 +320,8 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     refreshBranches,
     checkoutGitBranch,
     pullGitBranch,
+    pushGitBranch,
+    getPullRequestUrl,
     resolveMergeDestination,
     readMergeBackStatus,
     createBranch,

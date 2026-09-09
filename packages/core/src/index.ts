@@ -5,15 +5,20 @@ export {
   checkoutBranch,
   createBranch,
   createBranchService,
+  isNamedRemote,
   listBranches,
+  listRemoteNames,
   parseBranchStatus,
   pullBranch,
+  pushBranch,
   readDefaultBranch,
+  resolveDefaultRemote,
   type BranchClock,
   type BranchService,
   type GitRunner,
   type ParsedBranchStatus,
 } from "./branches";
+export { parseRemoteWebUrl, pullRequestUrl } from "./pr-url";
 export {
   addWorktree,
   addWorktreeForBranch,
