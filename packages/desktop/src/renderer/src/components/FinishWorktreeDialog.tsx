@@ -142,6 +142,18 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               {t("finish.dialog.busyProject", { title: c.busyTitle, destination: targetName })}
             </p>
           )}
+        {/* The switch variant of the busy row (#431): a new-branch or
+            checked-out-nowhere destination moves the project checkout, which is
+            what a mid-turn session there cannot tolerate. The mode conditions of
+            the two rows are disjoint, so they can never stack. */}
+        {c.checkoutTarget !== null && c.busyTitle !== null && (
+          <p className={copperClass}>
+            {t("finish.dialog.busySwitchProject", {
+              title: c.busyTitle,
+              destination: c.checkoutTarget,
+            })}
+          </p>
+        )}
       </>
     );
   };
@@ -149,7 +161,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const returnHint = (): string => {
     if (c.outcome === "merge")
       return c.returnSession
-        ? t("finish.hint.mergeReturn", { branch, destination: targetName })
+        ? c.checkoutTarget !== null
+          ? t("finish.hint.mergeReturnSwitch", { branch, destination: targetName })
+          : t("finish.hint.mergeReturn", { branch, destination: targetName })
         : t("finish.hint.mergeStay");
     return c.returnSession
       ? t("finish.hint.keepReturn", { branch })

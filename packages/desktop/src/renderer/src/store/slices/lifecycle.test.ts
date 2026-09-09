@@ -1,6 +1,12 @@
 // Lifecycle slice tests (moved verbatim from store.test.ts for #295).
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState, LiveState, RemoteState, WorktreeSyncResult } from "@omp-ui/core/types";
+import type {
+  BackendState,
+  LiveState,
+  RemoteState,
+  WorktreeReleaseResult,
+  WorktreeSyncResult,
+} from "@omp-ui/core/types";
 import {
   backendState as makeBackendState,
   remoteInstance,
@@ -834,6 +840,7 @@ describe("releaseWorktreeSession (issue #334)", () => {
     projectCwd: "/p",
     checkoutKept: null,
     branchOutcome: "removed",
+    checkoutSwitch: { kind: "none" },
   } as const;
 
   /** A live rpc-ui worktree session and one sibling tab, as the chips see it. */
@@ -867,6 +874,58 @@ describe("releaseWorktreeSession (issue #334)", () => {
     expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB, "tab-2"]);
     expect(st.rpc[h.TAB]).toBeDefined();
     expect(st.activeTabId).toBe(h.TAB);
+  });
+
+  it("refreshes the cached listing when the return switched the checkout (#431)", async () => {
+    h.mockBackend.releaseWorktree.mockResolvedValueOnce({
+      ...release,
+      checkoutSwitch: { kind: "switched", branch: "release/next" },
+    });
+    seed();
+
+    await h.useStore.getState().releaseWorktreeSession(h.TAB, {
+      keepBranch: false,
+      mergedInto: "release/next",
+      checkoutOnReturn: "release/next",
+    });
+
+    // The project checkout's branch moved, so the listing the branch chip
+    // renders is stale: the same local-refs refresh a branch switch does.
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: false });
+  });
+
+  it("leaves the listing alone when the return moved no branch", async () => {
+    h.mockBackend.releaseWorktree.mockResolvedValueOnce(release);
+    seed();
+
+    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB, {
+      keepBranch: false,
+      mergedInto: "main",
+    });
+
+    expect(result!.checkoutSwitch).toEqual({ kind: "none" });
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("normalizes a checkoutSwitch an older remote instance never sent (#416)", async () => {
+    // An older server answers with the result shape it knows, so the key is
+    // simply absent. The notice path reads it plainly — the seam fills it in.
+    h.mockBackend.releaseWorktree.mockResolvedValueOnce({
+      worktreePath: "/wt/deadbeef",
+      branch: "omp-ui/deadbeef",
+      projectCwd: "/p",
+      checkoutKept: null,
+      branchOutcome: "removed",
+    } as unknown as WorktreeReleaseResult);
+    seed();
+
+    const result = await h.useStore.getState().releaseWorktreeSession(h.TAB, {
+      keepBranch: false,
+      mergedInto: "main",
+    });
+
+    expect(result!.checkoutSwitch).toEqual({ kind: "none" });
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
   });
 
   it("reports and resolves to null when main rejects, leaving the tab intact", async () => {

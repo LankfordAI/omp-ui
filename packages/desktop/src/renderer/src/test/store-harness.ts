@@ -216,6 +216,7 @@ const mockBackend = {
       projectCwd: "/p",
       checkoutKept: null,
       branchOutcome: "removed",
+      checkoutSwitch: { kind: "none" },
     }),
   ),
   // The finish dialog's two extra worktree ops: syncing reads as a clean

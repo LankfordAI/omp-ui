@@ -13,8 +13,7 @@ import type {
   WorktreeReleaseResult,
   WorktreeSyncResult,
 } from "@omp-ui/core/types";
-import { backendState, rpcTabState } from "../test/fixtures";
-
+import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TAB = "tab-1";
@@ -71,6 +70,7 @@ const releaseResult: WorktreeReleaseResult = {
   projectCwd: "/p",
   checkoutKept: null,
   branchOutcome: "removed",
+  checkoutSwitch: { kind: "none" },
 };
 
 const backendMock = {
@@ -338,6 +338,7 @@ describe("FinishWorktreeDialog", () => {
     expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
       keepBranch: false,
       mergedInto: "release/next",
+      checkoutOnReturn: "release/next",
     });
     // A merge that moved commits no longer closes the dialog: the work is
     // landed locally, and sharing it is the done row's call (issue #414).
@@ -426,6 +427,7 @@ describe("FinishWorktreeDialog", () => {
     expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
       keepBranch: true,
       mergedInto: null,
+      checkoutOnReturn: null,
     });
     // Keeping merges nothing, so there is nothing to share: the finish closes
     // exactly as it did before the done phase (issue #414).
@@ -591,6 +593,7 @@ describe("FinishWorktreeDialog", () => {
       expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
         keepBranch: false,
         mergedInto: "main",
+        checkoutOnReturn: null,
       });
       expect(useStore.getState().finishWorktreeTab).toBeNull();
     });
@@ -821,6 +824,172 @@ describe("FinishWorktreeDialog", () => {
         await flushMicrotasks();
       });
       expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+    });
+  });
+
+  describe("the return lands on the destination (issue #431)", () => {
+    const notices = (): Array<{ text: string; level?: string }> => {
+      const items = useStore.getState().rpc[TAB]?.items ?? [];
+      return items.filter((item) => item.kind === "notice");
+    };
+
+    /** The finish run for the destination the caller chooses, to "project"
+     *  (the checkout holds it) or "none" (a scratch merge moved it nowhere). */
+    const finishInto = async (destination: string): Promise<void> => {
+      await openDialog();
+      await selectInto(destinationSelect(), destination);
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+    };
+
+    it("asks for no switch when the project checkout holds the destination", async () => {
+      await finishInto("feature/x");
+
+      // The merge ran in the project checkout, so HEAD is already there: the
+      // default path must stay a path with no `git checkout` in it.
+      expect(backendMock.releaseWorktree).toHaveBeenLastCalledWith(TAB, {
+        keepBranch: false,
+        mergedInto: "feature/x",
+        checkoutOnReturn: null,
+      });
+    });
+
+    it("asks for the switch when that same destination is held nowhere", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({ destination: "feature/x", destinationCheckout: "none" }),
+      );
+      await finishInto("feature/x");
+
+      // A scratch merge leaves the project checkout on the branch it started
+      // on, which is exactly the reported defect: the return has to move it.
+      expect(backendMock.releaseWorktree).toHaveBeenLastCalledWith(TAB, {
+        keepBranch: false,
+        mergedInto: "feature/x",
+        checkoutOnReturn: "feature/x",
+      });
+    });
+
+    it("names the branch the session returned on", async () => {
+      backendMock.releaseWorktree.mockResolvedValueOnce({
+        ...releaseResult,
+        checkoutSwitch: { kind: "switched", branch: "release/next" },
+      });
+      await openDialog();
+      // A notice only lands on a tab with transcript state (openDialog seeds
+      // rpc empty), so attach it before the run.
+      useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+      await selectInto(destinationSelect(), "__new__");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      await typeInto(newBranchNameInput(), "release/next");
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(notices()[0]!.text).toContain(
+        "merged omp-ui/deadbeef (2 commits) into release/next — this session now runs in /p on release/next",
+      );
+    });
+
+    it("says the switch was refused when git would not move the checkout", async () => {
+      backendMock.releaseWorktree.mockResolvedValueOnce({
+        ...releaseResult,
+        checkoutSwitch: {
+          kind: "failed",
+          branch: "release/next",
+          error: "error: Your local changes to the following files would be overwritten by checkout",
+        },
+      });
+      await openDialog();
+      useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+      await selectInto(destinationSelect(), "__new__");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      await typeInto(newBranchNameInput(), "release/next");
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      const refusal = notices()[0]!;
+      expect(refusal.text).toContain(
+        "The switch to release/next was refused: error: Your local changes",
+      );
+      // The release completed; only the landing failed, so it is not info.
+      expect(refusal.level).toBe("warn");
+    });
+
+    it("warns before the click and withholds the switch for a mid-turn sibling", async () => {
+      await openDialog();
+      const withBusy = stateWith(summary);
+      withBusy.projects[0]!.sessions.push({
+        ...summary,
+        tabId: "tab-other",
+        title: "Busy",
+        worktree: null,
+      });
+      useStore.setState({
+        state: withBusy,
+        tabs: [tabInfo({ tabId: "tab-other", projectCwd: "/p", hidden: false })],
+        rpc: { [TAB]: rpcTabState(), "tab-other": rpcTabState({ status: "running" }) },
+      });
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      await selectInto(destinationSelect(), "__new__");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      await typeInto(newBranchNameInput(), "release/next");
+
+      expect(document.body.textContent).toContain(
+        "session “Busy” is mid-turn in the project — returning would move its checkout to release/next, so the checkout is left alone",
+      );
+
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // The finish still runs; only the switch is withheld — and it says so.
+      expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
+        keepBranch: false,
+        mergedInto: "release/next",
+        checkoutOnReturn: null,
+      });
+      const skipped = notices().find((item) => item.text.includes("was left on its own branch"));
+      expect(skipped).toBeDefined();
+      expect(skipped!.text).toContain(
+        "the project checkout was left on its own branch — session “Busy” is mid-turn there; the work is in release/next",
+      );
+      expect(skipped!.level).toBe("warn");
+    });
+
+    it("never switches onto the session's own branch when keeping it", async () => {
+      await openDialog();
+      await clickInput(outcomeRadios()[1]!); // keep the branch
+      // The hint stays the plain keep-and-return promise: nothing lands anywhere.
+      expect(document.body.textContent).toContain(
+        "the checkout is removed; the branch omp-ui/deadbeef stays",
+      );
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(backendMock.releaseWorktree).toHaveBeenLastCalledWith(TAB, {
+        keepBranch: true,
+        mergedInto: null,
+        checkoutOnReturn: null,
+      });
     });
   });
 });

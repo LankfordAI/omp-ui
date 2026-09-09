@@ -655,7 +655,9 @@ export const BACKEND_CHANNELS = {
    * Rejects when the tab is unknown, is not a worktree session, or the
    * checkout is dirty (issue #388). `keepBranch` skips branch deletion;
    * `mergedInto` is the destination the caller just merged into — verified
-   * by ancestry before any deletion (issues #386, #385).
+   * by ancestry before any deletion (issues #386, #385). `checkoutOnReturn`
+   * is the branch the project checkout is switched onto after the reclaim
+   * (issue #431); null leaves it on whatever branch it already holds.
    */
   releaseWorktree: {
     channel: "session:release-worktree",

@@ -452,10 +452,11 @@ one surface that offers the loss explicitly. Returning **releases the
 worktree**: the record, its transcript, its tab and its lineage survive back
 at the project checkout; the checkout is removed, and the branch is deleted
 only once omp-ui has verified it fully merged into a candidate destination
-— a kept branch is not deleted, an unmerged one is kept. Deleting the
-session removes the checkout; an unmerged branch and its commits survive in
-the repo, while a branch already in its destination is deleted too. Resume,
-restart and mode switches keep the worktree — it lives on the session
+— a kept branch is not deleted, an unmerged one is kept; returning switches
+the project checkout onto a destination it does not already hold (issue #431).
+Deleting the session removes the checkout; an unmerged branch and its commits
+survive in the repo, while a branch already in its destination is deleted too.
+Resume, restart and mode switches keep the worktree — it lives on the session
 record. A
 record's checkout may be shared — forking a worktree session, and a plan
 handoff from a worktree planning session (issue #316), give the new record

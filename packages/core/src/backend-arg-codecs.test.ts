@@ -170,9 +170,32 @@ describe("domain argument codecs", () => {
   it("decodes worktree release options exactly", () => {
     const opts = { keepBranch: true, mergedInto: "release/x" };
     expect(decode(worktreeReleaseOptionsCodec, opts)).toBe(opts);
+    // An absent `checkoutOnReturn` is an older remote instance (issue #416),
+    // which predates #431 and sends the two fields it knows: it must decode.
     expect(
       decode(worktreeReleaseOptionsCodec, { keepBranch: false, mergedInto: null }),
     ).toEqual({ keepBranch: false, mergedInto: null });
+    expect(
+      decode(worktreeReleaseOptionsCodec, {
+        keepBranch: false,
+        mergedInto: null,
+        checkoutOnReturn: null,
+      }),
+    ).toEqual({ keepBranch: false, mergedInto: null, checkoutOnReturn: null });
+    expect(
+      decode(worktreeReleaseOptionsCodec, {
+        keepBranch: true,
+        mergedInto: "release/x",
+        checkoutOnReturn: "release/x",
+      }),
+    ).toEqual({ keepBranch: true, mergedInto: "release/x", checkoutOnReturn: "release/x" });
+    expect(() =>
+      decode(worktreeReleaseOptionsCodec, {
+        keepBranch: false,
+        mergedInto: null,
+        checkoutOnReturn: 7,
+      }),
+    ).toThrow("argument 0.checkoutOnReturn");
     expect(() => decode(worktreeReleaseOptionsCodec, { keepBranch: true })).toThrow(
       "argument 0.mergedInto",
     );

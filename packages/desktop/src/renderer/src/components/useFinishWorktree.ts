@@ -96,6 +96,11 @@ export interface FinishController {
   prUnavailable: boolean;
   /** A session mid-turn in the project checkout (this tab excluded); null when none. */
   busyTitle: string | null;
+  /** The branch a return would move the project checkout onto (#431); null when
+   *  the destination is where the checkout already stands. */
+  checkoutTarget: string | null;
+  /** True when a mid-turn session in the project checkout suppresses that switch. */
+  checkoutBlockedByBusy: boolean;
   ownRunning: boolean;
   sharers: number;
   setDestination(name: string): void;
@@ -255,6 +260,27 @@ export function useFinishWorktree(tabId: string): FinishController {
   const effectiveDestination = newBranch !== null ? newBranch.from : destination;
   const statusKey = newBranch === null ? `at:${destination ?? ""}` : `new:${newBranch.from}`;
 
+  // The branch the return would move the project checkout onto (#431). A new
+  // destination branch is held nowhere by construction — git branch created it
+  // without a checkout — and an existing destination checked out nowhere is the
+  // same case: the merge ran in a scratch worktree, so the project checkout is
+  // not on it. A destination the project checkout holds needs nothing; one held
+  // by another worktree never reaches this point. Note the status cannot answer
+  // this in new-branch mode: its destinationCheckout describes the start point,
+  // not the branch the dialog just created.
+  const switchCandidate = newBranch !== null ? newBranch.name.trim() : destination;
+  const checkoutTarget =
+    returnSession &&
+    outcome === "merge" &&
+    switchCandidate !== null &&
+    switchCandidate !== "" &&
+    switchCandidate !== worktreeBranch &&
+    (newBranch !== null || status?.destinationCheckout === "none")
+      ? switchCandidate
+      : null;
+  // The project busy guard: switching moves a mid-turn session's files.
+  const checkoutBlockedByBusy = checkoutTarget !== null && busyTitle !== null;
+
   const fetchStatus = (): void => {
     if (projectCwd === undefined || worktreeBranch === null || effectiveDestination === null)
       return;
@@ -405,9 +431,11 @@ export function useFinishWorktree(tabId: string): FinishController {
     // prep and reports its own failures (null).
     if (returnSession) {
       setPhase({ s: "working", step: "returning" });
+      const switchTo = checkoutBlockedByBusy ? null : checkoutTarget;
       const release = await releaseWorktreeSession(tabId, {
         keepBranch: outcome === "keep",
         mergedInto: outcome === "merge" ? target : null,
+        checkoutOnReturn: switchTo,
       });
       if (release === null) {
         setPhase({ s: "idle" });
@@ -416,13 +444,17 @@ export function useFinishWorktree(tabId: string): FinishController {
       }
       appendNotice(
         tabId,
-        releaseNoticeText(
-          release,
-          outcome === "merge" ? mergedCommits : null,
-          outcome === "keep",
-        ),
+        releaseNoticeText(release, outcome === "merge" ? mergedCommits : null, outcome === "keep"),
         releaseNoticeLevel(release),
       );
+      // Withheld on purpose, so say so: the finish is not silently half-done.
+      if (checkoutTarget !== null && switchTo === null) {
+        appendNotice(
+          tabId,
+          t("notice.finish.switchSkippedBusy", { title: busyTitle ?? "", destination: checkoutTarget }),
+          "warn",
+        );
+      }
     }
     // 5. Landed, but not shared (issue #414): a merge that moved commits
     // stops on the done row, where publishing or pushing `destination` is one
@@ -575,6 +607,8 @@ export function useFinishWorktree(tabId: string): FinishController {
     defaultBranch,
     prUnavailable,
     busyTitle,
+    checkoutTarget,
+    checkoutBlockedByBusy,
     ownRunning,
     sharers,
     setDestination,

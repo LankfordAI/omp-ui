@@ -984,7 +984,27 @@ export function createLifecycleSlice(
     const rec = findRecord(get().state, tabId);
     try {
       if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
-      return await backend.releaseWorktree(tabId, opts);
+      const answered = await backend.releaseWorktree(tabId, opts);
+      // checkoutSwitch is required of a local main process; an older remote
+      // instance answers without it, so it is normalized at the seam exactly
+      // as spawn-request.ts:113 normalizes a missing mint.baseBranch (#416).
+      const release = {
+        ...answered,
+        checkoutSwitch: answered.checkoutSwitch ?? { kind: "none" as const },
+      };
+      // The release moved the project checkout's branch (#431), so the cached
+      // listing is stale: same local-refs refresh a branch switch does.
+      if (release.checkoutSwitch.kind === "switched") {
+        const owner = findOwner(get().state, tabId);
+        if (owner) {
+          await get().refreshBranches(
+            owner.record.projectCwd,
+            { fetchUpstream: false },
+            owner.instanceId,
+          );
+        }
+      }
+      return release;
     } catch (err) {
       get().reportError(err);
       return null;

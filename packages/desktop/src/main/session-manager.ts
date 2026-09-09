@@ -11,6 +11,7 @@ import {
   capabilityToolMutationMessage,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
+  checkoutBranch,
   deleteSessionFiles,
   forkSessionFile,
   goalArmMessage,
@@ -896,6 +897,14 @@ export class SessionManager {
         checkoutKept: "failed",
         branchOutcome: "not-attempted",
       };
+      // The return lands the project checkout on the branch that now holds the
+      // work (#431). Since #385 the destination is chosen, not the checkout's
+      // own branch, so a finish that merged into a branch checked out nowhere
+      // — a new branch included — used to hand the session back on a branch
+      // without that work. Reclaim first: git refuses to delete the branch HEAD
+      // is on, and a refused switch must never undo a finished release.
+      const switchTarget = opts.checkoutOnReturn ?? null;
+      let checkoutSwitch: WorktreeReleaseResult["checkoutSwitch"] = { kind: "none" };
       const demote = async (): Promise<void> => {
         this.killShell(tabId);
         this.deps.registry.updateSession(tabId, { worktree: null });
@@ -903,6 +912,20 @@ export class SessionManager {
           keepBranch: opts.keepBranch,
           mergedInto: opts.mergedInto,
         });
+        // The session's own branch is the one just deleted or kept by the
+        // reclaim; switching onto it would be nonsense either way (#431).
+        if (switchTarget !== null && switchTarget !== wt.branch) {
+          try {
+            await checkoutBranch(record.projectCwd, switchTarget);
+            checkoutSwitch = { kind: "switched", branch: switchTarget };
+          } catch (error) {
+            checkoutSwitch = {
+              kind: "failed",
+              branch: switchTarget,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }
       };
       const entry = this.live.get(tabId);
       if (!entry) {
@@ -925,6 +948,7 @@ export class SessionManager {
         branch: wt.branch,
         projectCwd: record.projectCwd,
         ...cleanup,
+        checkoutSwitch,
       };
     });
   }

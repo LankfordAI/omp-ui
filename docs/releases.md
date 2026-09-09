@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Worktree branches keep their minted `omp-ui/<base>/<hash>` name: auto-naming no longer rewrites a session's branch at the plan review gate or from its first prompt, and happens only in the finish dialog, whose *new branch…* destination field arrives prefilled with a generated name (issue #428). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Returning a finished worktree session lands the project checkout on the destination the work merged into — a *new branch…* cut in the dialog included — instead of handing the session back on whatever branch the checkout already held (issue #431).
 
 ## Choose a download
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -3147,6 +3147,7 @@ describe("release worktree (issue #334)", () => {
       projectCwd: project,
       checkoutKept: null,
       branchOutcome: "removed",
+      checkoutSwitch: { kind: "none" },
     });
     // The child was reaped before the checkout was pulled out from under it…
     expect(predecessor.signals).toEqual(["default"]);
@@ -3405,6 +3406,112 @@ describe("release worktree (issue #334)", () => {
       cwd: project,
     });
     expect(kept).toContain("release/x");
+  });
+
+  it("lands the project checkout on the branch the work landed in before respawning (issue #431)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-switch";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+    // The finish merged into release/x — a branch the checkout holds nowhere,
+    // so before #431 the return handed the session back on main, where the work
+    // it just reported does not exist.
+    await execFileP("git", ["branch", "release/x", branch], { cwd: project });
+    // The switch must precede the respawn: omp starts inside the project
+    // checkout, so a switch afterwards would leave a transcript open on a HEAD
+    // that contradicts the notice the chips render. Record HEAD at spawn time.
+    const realSpawn = spawnOmpMock.getMockImplementation()!;
+    const headAtSpawn: string[] = [];
+    spawnOmpMock.mockImplementationOnce((opts) => {
+      headAtSpawn.push(
+        execFileSync("git", ["branch", "--show-current"], { cwd: project, encoding: "utf8" }).trim(),
+      );
+      return realSpawn(opts);
+    });
+
+    const result = await manager.releaseWorktree(tabId, {
+      keepBranch: false,
+      mergedInto: "release/x",
+      checkoutOnReturn: "release/x",
+    });
+
+    const { stdout } = await execFileP("git", ["branch", "--show-current"], { cwd: project });
+    expect(stdout.trim()).toBe("release/x");
+    expect(result.checkoutSwitch).toEqual({ kind: "switched", branch: "release/x" });
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    // The respawn is at the project, and it spawned with the switch already done.
+    expect(spawnCalls[spawnCalls.length - 1]!.cwd).toBe(project);
+    expect(headAtSpawn).toEqual(["release/x"]);
+  });
+
+  it("a switch git refuses never undoes the release (issue #431)", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-release-switch-refused";
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({ origin: "new", projectCwd: project,
+    mode: "pty",
+    advisor: false,
+    cols: 80,
+    rows: 24, worktree: { mint: { branch, baseRef: null, baseBranch: null } },  });
+    // The destination rewrites .seed, so the checkout would have to touch it…
+    fs.writeFileSync(path.join(worktreePath, ".seed"), "from the worktree\n");
+    await execFileP("git", ["add", ".seed"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "seed work"], { cwd: worktreePath });
+    await execFileP("git", ["branch", "release/x", branch], { cwd: project });
+    // …but the checkout holds an uncommitted .seed of its own, and git will not
+    // silently drop it. The release still finishes; only the switch fails.
+    fs.writeFileSync(path.join(project, ".seed"), "local edit\n");
+
+    const result = await manager.releaseWorktree(tabId, {
+      keepBranch: false,
+      mergedInto: "release/x",
+      checkoutOnReturn: "release/x",
+    });
+
+    expect(manager.isLive(tabId)).toBe(true);
+    expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+    const { stdout } = await execFileP("git", ["branch", "--show-current"], { cwd: project });
+    expect(stdout.trim()).toBe("main");
+    expect(result.checkoutSwitch).toEqual({
+      kind: "failed",
+      branch: "release/x",
+      // The conflicted path proves it is git's own stderr, not a paraphrase,
+      // and stays locale-independent (same stance as branches.test.ts).
+      error: expect.stringContaining(".seed"),
+    });
+  });
+
+  it("checkoutOnReturn naming the session's own branch switches nothing (issue #431)", async () => {
+    const { manager, registry } = setup();
+    const branch = "omp-ui/wt-release-self-pick";
+    const { project, tabId } = await mergedWorktreeSession(manager, registry, branch);
+
+    const result = await manager.releaseWorktree(tabId, {
+      keepBranch: false,
+      mergedInto: null,
+      checkoutOnReturn: branch,
+    });
+
+    // The reclaim just deleted that ref; switching onto it would either fail or
+    // resurrect a branch the release just retired. The checkout stays put.
+    expect(result.checkoutSwitch).toEqual({ kind: "none" });
+    const { stdout } = await execFileP("git", ["branch", "--show-current"], { cwd: project });
+    expect(stdout.trim()).toBe("main");
+    const { stdout: refs } = await execFileP("git", ["branch", "--list", branch], { cwd: project });
+    expect(refs).not.toContain(branch);
   });
 
   it("starts a worktree session on an existing branch, recording the default branch as base (issue #390)", async () => {

@@ -170,11 +170,12 @@ the user made (superseded by the finish dialog addendum).
   `relaunch` with `--resume`. Spawn cwd is `record.worktree?.path ??
   record.projectCwd`, so nulling the field is the whole move. This supersedes
   "Merge-back is terminal: merge & close".
-- **The session lands on the base branch for free.** A merge-back already
-  requires the destination to be the project checkout's current branch, so
-  after the merge the project checkout is sitting on the branch the worktree
-  was cut from. No `git checkout` is performed (superseded by the finish
-  dialog addendum).
+- **The session lands on the base branch for free.** Held under issue #334:
+  merge-back then required the destination to be the project checkout's
+  current branch, so the checkout was already on the branch the worktree was
+  cut from and no `git checkout` was performed. Issue #385 made the
+  destination a choice, which removes the premise; the rule now is "The
+  return lands on the destination" (finish dialog addendum).
 - **The order is forced by git and by the resume guard**: reap the child (and
   its console shell) → null the record → `git worktree remove --force` →
   `git branch -d` → respawn at `projectCwd`. `git branch -d` refuses a branch
@@ -269,6 +270,15 @@ the user made (superseded by the finish dialog addendum).
   picking elsewhere is the user's call. The scratch directory lives under
   the worktrees root, so a crash leaves at most a leftover that
   `sweepOrphanWorktrees` deletes at next boot.
+- **The return lands on the destination.** A destination the project checkout
+  does not hold is checked out there once the reclaim is done, and the resumed
+  session starts on it — true for any destination checked out nowhere, a new
+  branch included, whose `git branch` created the ref without checking
+  anything out (issue #431). The switch is never fatal: a git refusal is
+  reported and the release still completes. A mid-turn session in the
+  project checkout suppresses it — the switch would move that session's
+  files under it — and the keep outcome never switches, because keeping
+  merges into no destination at all.
 - **Conflicts are previewed, then resolved in the sandbox.** Before any
   merge runs, `git merge-tree --write-tree` answers whether it would conflict
   and in which files; an older git or a failed probe reads "unknown" and the

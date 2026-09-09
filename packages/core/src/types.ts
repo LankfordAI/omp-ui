@@ -193,6 +193,11 @@ export interface WorktreeReleaseOptions {
   keepBranch: boolean;
   /** The destination the caller just merged into; an extra ancestry candidate. */
   mergedInto: string | null;
+  /** The branch the project checkout is switched onto as the last step of the
+   *  return, once the reclaim is done (#431). Absent or null leaves the project
+   *  checkout on whatever branch it already holds. Optional: an older remote
+   *  instance sends the two fields it knows (issue #416). */
+  checkoutOnReturn?: string | null;
 }
 
 /**
@@ -211,6 +216,14 @@ export interface WorktreeReleaseResult {
   checkoutKept: "shared" | "non-canonical" | "failed" | null;
   /** What happened to the branch; "not-attempted" when the checkout stayed. */
   branchOutcome: WorktreeBranchRemoval["kind"] | "not-attempted";
+  /** What the return did with the project checkout's branch (#431): "switched"
+   *  when it moved onto the named branch, "failed" when git refused and the
+   *  release still completed, "none" when no switch was asked for or the
+   *  requested branch was the session's own. */
+  checkoutSwitch:
+    | { kind: "none" }
+    | { kind: "switched"; branch: string }
+    | { kind: "failed"; branch: string; error: string };
 }
 
 /** Saved provenance for a fresh implementation session created from an accepted plan. */

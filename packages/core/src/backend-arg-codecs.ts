@@ -227,6 +227,7 @@ export const worktreeReleaseOptionsCodec: ArgCodec<WorktreeReleaseOptions> =
   objectOf<WorktreeReleaseOptions>({
     keepBranch: bool(),
     mergedInto: nullable(str()),
+    checkoutOnReturn: optional(nullable(str())),
   });
 
 export const rpcFrameCodec: ArgCodec<RpcFrame> = record();
