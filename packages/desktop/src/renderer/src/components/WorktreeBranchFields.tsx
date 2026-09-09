@@ -42,8 +42,9 @@ export const NEW_BRANCH_SENTINEL = "__new__";
 export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/(?:[^/]+\/)*[0-9a-f]{8}$/;
 
 /** The one composition rule — the renderer twin of core's
- * `composeWorktreeBranch`. */
-function composeWorktreeBranch(segment: string | null, hash: string): string {
+ * `composeWorktreeBranch`. The tail is the mint's hash, or a plan-derived
+ * name once the plan has named the branch (issue #422). */
+export function composeWorktreeBranch(segment: string | null, hash: string): string {
   return segment === null ? `omp-ui/${hash}` : `omp-ui/${segment}/${hash}`;
 }
 
@@ -193,6 +194,16 @@ export function WorktreeBranchFields({
       </option>
     ))
   );
+
+  // A prefill must land selected: the reveal autofocus puts the caret at the
+  // end, and typing would otherwise append to the suggestion. Only the reveal
+  // transition runs this (dep on the boolean), so it never disturbs a selection
+  // mid-typing; surfaces that reveal an empty field select nothing.
+  useEffect(() => {
+    if (!creatingBase) return;
+    const el = document.activeElement as HTMLInputElement | null;
+    if (el?.id === `${idPrefix}-new-base` && el.value !== "") el.select();
+  }, [creatingBase, idPrefix]);
 
   return (
     <>

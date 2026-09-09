@@ -48,6 +48,10 @@ export interface ExecutionBranch {
   branches: string[];
   /** The footer's "· <branch>" fragment; null off-repo. */
   summary: string | null;
+  /** The model's branch-name suggestion for this proposal; null until it
+   * resolves and whenever the model declined or was unavailable. Surfaces
+   * that render their own name fields consume it instead of re-calling. */
+  suggestion: string | null;
   /**
    * The checkout dance. Resolves true when the caller may fire executePlan;
    * false when the gate stays blocked (confirm pending, invalid name, or a
@@ -93,6 +97,7 @@ export function useExecutionBranch({
   const [branchError, setBranchError] = useState<string | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
 
   if (proposalKey !== seededFor) {
     setSeededFor(proposalKey);
@@ -103,6 +108,7 @@ export function useExecutionBranch({
     setBranchError(null);
     setConfirmBusy(false);
     setCheckingOut(false);
+    setSuggestion(null);
   }
 
   const isRepo =
@@ -133,6 +139,7 @@ export function useExecutionBranch({
     let live = true;
     void suggestBranchName(projectCwd, planContext, instanceId).then((suggested) => {
       if (!live || suggested === null) return;
+      setSuggestion(suggested);
       setNewName((cur) => (cur === fallback ? suggested : cur));
     });
     return () => {
@@ -218,6 +225,7 @@ export function useExecutionBranch({
     targetBranch,
     branches: branchInfo?.branches ?? [],
     summary,
+    suggestion,
     resolve,
   };
 }

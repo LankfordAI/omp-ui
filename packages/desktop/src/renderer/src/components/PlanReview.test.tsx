@@ -868,6 +868,203 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     // No planning worktree: the project-checkout branch dance still applies.
     expect(document.body.textContent).toContain("Git branch");
   });
+
+  // The plan names the destination (issue #422): the mint's hash segment in
+  // cut-from mode, the new base's name in create-base mode — never typed text.
+  const branchInput = (): HTMLInputElement =>
+    document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
+  const baseSelect = (): HTMLSelectElement =>
+    document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
+  const newBaseInput = (): HTMLInputElement =>
+    document.body.querySelector<HTMLInputElement>("#plan-worktree-new-base")!;
+
+  /** Base → *new branch…*, the select's reveal transition. */
+  async function revealNewBase(): Promise<void> {
+    act(() => {
+      baseSelect().value = "__new__";
+      baseSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {});
+  }
+
+  /** A suggestion whose answer the case delivers by hand, so it controls
+   * whether the model lands before or after the user's own edit. */
+  function deferredSuggestion(): { resolveSuggest: (value: string | null) => void } {
+    let resolveSuggest!: (value: string | null) => void;
+    backendMock.suggestBranchName.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        resolveSuggest = resolve;
+      }),
+    );
+    return { resolveSuggest };
+  }
+
+  it("replaces an untouched mint's hash with the plan's name (issue #422)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue("fix/login-race");
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+
+    // The mint prefix keeps naming the base; only the hash segment goes.
+    expect(branchInput().value).toBe("omp-ui/main/fix/login-race");
+    expect(backendMock.suggestBranchName).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the mint when the row is picked before the model answers (issue #422)", async () => {
+    const { resolveSuggest } = deferredSuggestion();
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+    const minted = branchInput().value;
+    expect(minted).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+
+    await act(async () => {
+      resolveSuggest("fix/login-race");
+    });
+
+    expect(branchInput().value).toBe("omp-ui/main/fix/login-race");
+  });
+
+  it("prefills the new base with the plan slug and follows the model after it (issue #422)", async () => {
+    const { resolveSuggest } = deferredSuggestion();
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+
+    // The reveal never waits on the model: the plan's slug is already there.
+    await revealNewBase();
+    expect(newBaseInput().value).toBe("fix-login-race");
+    // Selected, so typing replaces the prefill instead of appending to it.
+    expect(newBaseInput().selectionStart).toBe(0);
+    expect(newBaseInput().selectionEnd).toBe(newBaseInput().value.length);
+    expect(branchInput().value).toMatch(/^omp-ui\/fix-login-race\/[0-9a-f]{8}$/);
+
+    await act(async () => {
+      resolveSuggest("feat/x");
+    });
+
+    expect(newBaseInput().value).toBe("feat/x");
+    // The branch keeps following its base, hash tail intact.
+    expect(branchInput().value).toMatch(/^omp-ui\/feat\/x\/[0-9a-f]{8}$/);
+  });
+
+  it("prefills a resolved suggestion on reveal and keeps the branch truthful (issue #422)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue("feat/x");
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+    expect(branchInput().value).toBe("omp-ui/main/feat/x");
+
+    await revealNewBase();
+
+    expect(newBaseInput().value).toBe("feat/x");
+    // §3.2: a suggestion-named branch states what it is cut from — the base
+    // now IS the suggestion, so both segments carry it. Freely editable.
+    expect(branchInput().value).toBe("omp-ui/feat/x/feat/x");
+  });
+
+  it("never overwrites a typed branch or base name with the suggestion (issue #422)", async () => {
+    const { resolveSuggest } = deferredSuggestion();
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await revealNewBase();
+    await typeInto(branchInput(), "omp-ui/mine");
+    await typeInto(newBaseInput(), "tech-123");
+
+    await act(async () => {
+      resolveSuggest("feat/x");
+    });
+
+    expect(branchInput().value).toBe("omp-ui/mine");
+    expect(newBaseInput().value).toBe("tech-123");
+  });
+
+  it("keeps a cleared base name cleared instead of refilling the suggestion (issue #422)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue("feat/x");
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+    await revealNewBase();
+    expect(newBaseInput().value).toBe("feat/x");
+
+    await typeInto(newBaseInput(), "");
+
+    // The reveal transition was null → ""; this is "" → "", so it stays put
+    // and the empty-name gate blocks execute.
+    expect(newBaseInput().value).toBe("");
+    expect(buttonByText("execute in worktree session").disabled).toBe(true);
+  });
+
+  it("leaves the planning checkout's branch alone when the suggestion lands (issue #316, #422)", async () => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      backendMock.suggestBranchName.mockResolvedValue("fix/login-race");
+      seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
+      render();
+      await act(async () => contextRow("worktree session").click());
+      await act(async () => {});
+
+      expect(branchInput().value).toBe("omp-ui/planning1");
+
+      await act(async () => {
+        buttonByText("execute in worktree session").click();
+        await Promise.resolve();
+      });
+      const options = executePlanSpy.mock.calls[0]![2] as {
+        worktree: { branch: string; baseBranch: string | null };
+      };
+      expect(options.worktree.branch).toBe("omp-ui/planning1");
+      expect(options.worktree.baseBranch).toBeNull();
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("degrades to the mint and the plan slug when the model declines (issue #422)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue(null);
+    render();
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+
+    expect(branchInput().value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    await revealNewBase();
+    expect(newBaseInput().value).toBe("fix-login-race");
+  });
+
+  it("dispatches the suggestion-named branch with no base to create (issue #422)", async () => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      backendMock.suggestBranchName.mockResolvedValue("fix/login-race");
+      render();
+      await act(async () => contextRow("worktree session").click());
+      await act(async () => {});
+
+      await act(async () => {
+        buttonByText("execute in worktree session").click();
+        await Promise.resolve();
+      });
+
+      const options = executePlanSpy.mock.calls[0]![2] as {
+        worktree: { branch: string; baseRef: string | null; baseBranch: string | null };
+        destination: { kind: "worktree"; branch: string };
+      };
+      expect(options.worktree).toEqual({
+        branch: "omp-ui/main/fix/login-race",
+        baseRef: "main",
+        baseBranch: null,
+      });
+      expect(options.destination).toEqual({
+        kind: "worktree",
+        branch: "omp-ui/main/fix/login-race",
+      });
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
 });
 
 describe("PlanReview dock height (issue #277)", () => {
