@@ -132,7 +132,13 @@ type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "tool";
 
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
-  private readonly turns = new TurnTracker();
+  private readonly turns = new TurnTracker(() =>
+    // A turn boundary is a real sidebar transition, not frame noise: rebuild
+    // through the hub's existing throttle so a fan-out burst collapses to
+    // one (issue #434). The field initializer only reads this.watcherHub at
+    // call time, and the constructor builds it before any frame arrives.
+    this.watcherHub.broadcastPatch(false),
+  );
   private readonly shellHost: ShellHost;
   private readonly watcherHub: WatcherHub;
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
@@ -1076,6 +1082,11 @@ export class SessionManager {
 
   isStreamStalled(tabId: string): boolean {
     return this.stallWatchdog.isStreamStalled(tabId);
+  }
+
+  /** True while the live process sits between agent_start and agent_end. */
+  isTurnRunning(tabId: string): boolean {
+    return this.turns.isRunning(tabId);
   }
 
   private awaitingHumanAnswer(tabId: string): boolean {

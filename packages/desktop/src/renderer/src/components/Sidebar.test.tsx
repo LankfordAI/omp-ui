@@ -2008,4 +2008,28 @@ describe("Sidebar remote instances (issue #416)", () => {
     expect(section.textContent).toContain("No projects registered on box-a");
     expect(section.querySelectorAll('button[aria-label="Register project on box-a"]').length).toBe(1);
   });
+
+  // Issue #434: this is the reported symptom stated as an assertion — the
+  // client never mounted the tab, so no rpc[tabId] edge exists; only the
+  // host's published turn level can mark the row working.
+  it("marks a remote native row working from the host's turn level alone", () => {
+    const running = {
+      ...remoteGroup,
+      sessions: remoteGroup.sessions.map((s, i) =>
+        i === 0 ? { ...s, turnRunning: true } : s,
+      ),
+    };
+    useStore.setState({
+      state: backendState({
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-a", nickname: "box-a", projects: [running] }),
+        ],
+      }),
+    });
+    renderSidebar();
+    const section = remoteSection();
+    expect(section.textContent).toContain("working");
+    expect(section.querySelector('[title="Agent is working"]')).not.toBeNull();
+  });
 });

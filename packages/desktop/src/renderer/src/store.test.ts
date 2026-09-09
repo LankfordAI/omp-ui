@@ -150,6 +150,50 @@ describe("deriveSidebarSessionState", () => {
     ).toBe("ready");
   });
 
+  // Issue #434: the owning instance's turn latch is level state and outranks
+  // this renderer's edge-derived status — a row that joined the stream
+  // mid-turn, or never mounted it, must not read as idle.
+  it("lets the host's turn level outrank the renderer's stream edge", () => {
+    const gate = {
+      title: "p",
+      planFilePath: "local://p.md",
+      planAbsPath: null,
+      frameId: "f",
+      proposedAt: "2026-09-09T00:00:00.000Z",
+    };
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true },
+        undefined,
+        undefined,
+      ),
+    ).toBe("working");
+    expect(
+      h.deriveSidebarSessionState(summary(), undefined, undefined),
+    ).toBe("live");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true },
+        rpcTabState({ status: "ready" }),
+        undefined,
+      ),
+    ).toBe("working");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), mode: "pty", turnRunning: true },
+        undefined,
+        undefined,
+      ),
+    ).toBe("live");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), pendingPlan: gate, turnRunning: true },
+        rpcTabState({ status: "ready" }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+  });
+
   it("tracks queued answers in FIFO order through a complete agent turn", () => {
     const current = () =>
       h.deriveSidebarSessionState(

@@ -339,6 +339,15 @@ export interface SessionSummary extends OwnedSessionRecord {
   /** Main-process watchdog aborted a silently wedged turn (issue #248); sidebar badge. */
   streamStalled: boolean;
   /**
+   * True while this live session is inside a turn, as the owning instance's
+   * frame observer latched it (agent_start … agent_end). Ephemeral runtime
+   * state like `streamStalled`, never persisted. Optional so an older remote
+   * instance still decodes (issue #434): absent reads as "not known to be
+   * running". A terminal session never reports it — omp-ui has no turn
+   * signal in a PTY.
+   */
+  turnRunning?: boolean;
+  /**
    * The live session's goal snapshot as its own bridge published it (issue #381).
    * Ephemeral runtime state like `pendingPlan`: never persisted, absent for a
    * session with no live goal bridge, and never a second copy of goal state —
