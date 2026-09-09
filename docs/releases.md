@@ -8,6 +8,7 @@ Add one bullet per shipped change here before cutting the next tag; they become 
 
 - Fixed the Finish worktree dialog disabling **return this session** — and return/sync refusing — when the only uncommitted entry in the worktree checkout was omp-ui's own generated `.omp` project-config link, in repos that ignore `.omp/` with a trailing slash (#417).
 - Added **remote instances**: join other omp-ui apps that have Remote access enabled from Settings → Remote instances, with an optional nickname that defaults to the host. Each joined instance's projects and sessions appear in a sidebar group under its nickname; new, terminal, and resumed sessions run on that host, tabs carry the nickname, and a lost connection reconnects with backoff while the group stays visible. Credentials are stored encrypted by the OS credential store; see [Remote instances](remote-instances.md) and ADR-0028 (#416).
+- Added plan-derived naming to the plan review's **worktree session** destination: the model's branch-name suggestion for the plan, already used by the Git-branch fieldset, now replaces an untouched mint's hash so the branch reads `omp-ui/<base>/<plan name>`, and the *new branch…* base field arrives prefilled with the plan's slug at reveal and then with the model's name — a typed name, and the planning session's own worktree branch, are never rewritten (#422).
 
 ## Choose a download
 
