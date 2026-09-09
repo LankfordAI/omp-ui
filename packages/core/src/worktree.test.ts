@@ -514,7 +514,7 @@ describe("readWorktreeDirty", () => {
     expect(await readWorktreeDirty(dir, path.join(dir, "nowhere"))).toBeNull();
   });
 
-  it("ignores the generated project .omp link but not a different symlink", async () => {
+  it("ignores the generated project .omp link", async () => {
     const dir = await tmpRepo();
     await commitFile(dir, ".gitignore", ".omp/\n", "ignore project config");
     fs.mkdirSync(path.join(dir, ".omp"));
@@ -527,14 +527,60 @@ describe("readWorktreeDirty", () => {
     expect((await readMergeBackStatus(dir, branch, "main", wt)).worktreeDirty).toBe(false);
     fs.writeFileSync(path.join(wt, "draft.txt"), "work in progress\n");
     expect(await readWorktreeDirty(dir, wt)).toBe(true);
-    fs.rmSync(path.join(wt, "draft.txt"));
+  });
 
-    fs.rmSync(path.join(wt, ".omp"));
+  it("counts a different .omp link as the user's own work", async () => {
+    // Nothing ignores `.omp` here, so git reports the link itself: the lone
+    // symlink entry `?? .omp` on POSIX, and the Windows junction's directory
+    // form `?? .omp/` (issue #423). Both are excused only while they resolve to
+    // the project's own `.omp`.
+    const dir = await tmpRepo();
+    fs.mkdirSync(path.join(dir, ".omp"));
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await linkProjectOmpDir(dir, wt);
+    expect(await readWorktreeDirty(dir, wt)).toBe(false);
+
     const elsewhere = path.join(dir, "elsewhere");
     fs.mkdirSync(elsewhere);
+    fs.writeFileSync(path.join(elsewhere, "notes.md"), "mine\n");
+    fs.rmSync(path.join(wt, ".omp"));
     fs.symlinkSync(elsewhere, path.join(wt, ".omp"), "junction");
     expect(await readWorktreeDirty(dir, wt)).toBe(true);
   });
+
+  it("counts the checkout's own .omp directory as dirty work", async () => {
+    // The directory form must not excuse a real `.omp` the checkout owns —
+    // resolution, not the entry text, decides (issue #423).
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    fs.mkdirSync(path.join(wt, ".omp"));
+    fs.writeFileSync(path.join(wt, ".omp", "notes.md"), "mine\n");
+    expect(await readWorktreeDirty(dir, wt)).toBe(true);
+  });
+
+  it.runIf(process.platform === "win32")(
+    "reads a junction behind a .omp/ ignore as clean, for git hides it there",
+    async () => {
+      // A junction is a directory to git, so the `.omp/` rule matches it and
+      // status reports nothing at all — the probe has no entry to excuse, and
+      // the different-link case above is why that case ignores nothing.
+      const dir = await tmpRepo();
+      await commitFile(dir, ".gitignore", ".omp/\n", "ignore project config");
+      fs.mkdirSync(path.join(dir, ".omp"));
+      const branch = mintWorktreeBranch();
+      const wt = path.join(dir, "wt", "checkout");
+      await addWorktree(dir, wt, branch, "main");
+      const elsewhere = path.join(dir, "elsewhere");
+      fs.mkdirSync(elsewhere);
+      fs.writeFileSync(path.join(elsewhere, "notes.md"), "mine\n");
+      fs.symlinkSync(elsewhere, path.join(wt, ".omp"), "junction");
+      expect(await readWorktreeDirty(dir, wt)).toBe(false);
+    },
+  );
 });
 
 describe("readDestinationCheckout", () => {

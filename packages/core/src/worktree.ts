@@ -462,26 +462,17 @@ export async function resolveMergeDestination(
   return resolveMergeDestinationForCurrent(projectCwd, base, await currentBranch(projectCwd));
 }
 
-/** True only for the `.omp` symlink shape {@link linkProjectOmpDir} owns. */
-async function isLinkedProjectOmpDir(
-  projectCwd: string,
-  worktreePath: string,
-): Promise<boolean> {
-  const candidate = path.join(worktreePath, ".omp");
-  try {
-    if (!(await fs.promises.lstat(candidate)).isSymbolicLink()) return false;
-    return sameCheckoutPath(candidate, path.join(projectCwd, ".omp"));
-  } catch {
-    return false;
-  }
-}
-
 /**
  * True when the checkout at `worktreePath` has user-owned uncommitted or
- * untracked changes (issues #388, #417). The exact untracked `.omp` symlink
- * omp-ui creates is application state, so it does not make the checkout dirty;
- * another `.omp`, or any status beside that link, still does. Any failure —
- * not a repo, missing path — resolves to null, "unreadable", never an error.
+ * untracked changes (issues #388, #417). The `.omp` omp-ui generates into the
+ * checkout is application state, so it alone does not make the checkout dirty;
+ * another `.omp`, or any status beside that link, still does. POSIX shows the
+ * generated link as a lone symlink entry and Windows as an untracked directory,
+ * so the entry is excused by resolution rather than by the link bit — Windows
+ * makes the link a junction, whose `lstat` reports a plain directory
+ * (issue #423). A checkout that owns a real `.omp` resolves to itself, so the
+ * user's own project config stays dirty work. Any failure — not a repo, missing
+ * path — resolves to null, "unreadable", never an error.
  */
 export async function readWorktreeDirty(
   projectCwd: string,
@@ -490,8 +481,8 @@ export async function readWorktreeDirty(
   try {
     const out = (await git(worktreePath, ["status", "--porcelain", "--untracked-files=normal"])).trim();
     if (out === "") return false;
-    if (out !== "?? .omp") return true;
-    return !(await isLinkedProjectOmpDir(projectCwd, worktreePath));
+    if (out !== "?? .omp" && out !== "?? .omp/") return true;
+    return !sameCheckoutPath(path.join(worktreePath, ".omp"), path.join(projectCwd, ".omp"));
   } catch {
     return null;
   }
