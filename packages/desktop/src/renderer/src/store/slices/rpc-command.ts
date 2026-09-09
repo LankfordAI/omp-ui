@@ -23,7 +23,6 @@ import {
   isUntitled,
 } from "../../lib/session-title";
 import { historyToItems, noticeItem } from "../../lib/transcript";
-import { PLACEHOLDER_BRANCH_RE } from "../../components/WorktreeBranchFields";
 import {
   RPC_COMMAND_TIMEOUT_MS,
   RpcCommandAbandonedError,
@@ -730,45 +729,6 @@ export function createRpcCommandSlice(
     // (phase 2). `renameSession` guards on hasRenamed so the concurrent
     // agent_end path stays a harmless no-op (or a retry of phase 1).
     get().renameSession(tabId);
-    nameWorktreeBranch(tabId, prompt);
-  };
-
-  /**
-   * Name a placeholder worktree branch from the first substantive prompt
-   * (issue #389): the same small model that titles the session names the
-   * branch, and main renames the ref in the checkout plus the record. Only
-   * minted names — `omp-ui/[<base>/]<8 hex>` under `PLACEHOLDER_BRANCH_RE` —
-   * are candidates; a user branch is never touched. The minted prefix is
-   * kept (issue #405), so a branch named from a ticket base renames to
-   * `omp-ui/TECH-123/<suggestion>`, not a bare suggestion. Failures are
-   * silent by design: the placeholder stands, and the finish dialog still
-   * offers a rename.
-   */
-  const nameWorktreeBranch = (tabId: string, prompt: string): void => {
-    const owner = findOwner(get().state, tabId);
-    const record = owner?.record;
-    const wt = record?.worktree;
-    if (!owner || !record || !wt || !PLACEHOLDER_BRANCH_RE.test(wt.branch)) return;
-    const { projectCwd, sessionId } = record;
-    const placeholder = wt.branch;
-    void (async () => {
-      const name = await backendFor(owner.instanceId)
-        .suggestBranchName(projectCwd, prompt)
-        .catch(() => null);
-      if (name === null) return;
-      const now = findRecord(get().state, tabId);
-      // Deleted, released, renamed by the user, or a /new since: leave it.
-      if (!now || now.worktree?.branch !== placeholder || now.sessionId !== sessionId) return;
-      // The prefix is everything up to the mint: `omp-ui` or `omp-ui/<base>`.
-      // A suggestion that already carries it is used verbatim; on a rename
-      // collision the catch below keeps the placeholder (issue #389 stance).
-      const prefix = placeholder.slice(0, placeholder.lastIndexOf("/"));
-      await backend
-        .renameWorktreeBranch(tabId, name.startsWith(`${prefix}/`) ? name : `${prefix}/${name}`)
-        .catch((err: unknown) =>
-          console.warn("[worktree-name] rename failed, keeping placeholder:", err),
-        );
-    })();
   };
 
   const renameSession = (tabId: string): void => {

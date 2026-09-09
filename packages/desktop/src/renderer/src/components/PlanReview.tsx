@@ -19,9 +19,7 @@ import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Swi
 import { TONE_CHIP } from "./ui/tone";
 import {
   baseBranchSegment,
-  composeWorktreeBranch,
   mintBranchName,
-  PLACEHOLDER_BRANCH_RE,
   remintForBase,
   WorktreeBranchFields,
 } from "./WorktreeBranchFields";
@@ -145,23 +143,6 @@ function ExecutePlanButton({
   );
 }
 
-/**
- * The one base-follow rule (issue #405, extended by issue #422): an untouched
- * mint follows the base with its hash; an untouched suggestion-named branch
- * follows with its name; anything a human typed is never touched.
- */
-function followBase(
-  prev: { branch: string; suggested: string | null; namedBranch: string | null },
-  baseBranch: string | null,
-  baseRef: string | null,
-): string {
-  const segment = baseBranchSegment(baseBranch, baseRef);
-  if (prev.namedBranch !== null && prev.suggested !== null && prev.branch === prev.namedBranch) {
-    return composeWorktreeBranch(segment, prev.suggested);
-  }
-  return remintForBase(prev.branch, segment);
-}
-
 export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: boolean }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
   const planText = useStore((s) => s.rpc[tabId]?.planText);
@@ -200,17 +181,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
    */
   const [worktreeSel, setWorktreeSel] = useState<{
     branch: string;
-    /** True once the user edited this field; mechanical recomposition — the
-     * base-following (#405) and the plan's naming (#422) — never sets it. */
-    branchTouched: boolean;
     baseRef: string | null;
     baseBranch: string | null;
     baseTouched: boolean;
     /** The applied suggestion; null until the one-time apply runs. */
     suggested: string | null;
-    /** The branch string the suggestion named (cut-from mode); equality
-     * means "still mine" — base changes recompose it, typing opts out. */
-    namedBranch: string | null;
   } | null>(null);
   /** Change notes for the planner; text + optional images ride a steer prompt. */
   const [changes, setChanges] = useState("");
@@ -257,8 +232,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   /**
    * The planning session's own dedicated checkout (issue #316): when set, a
    * fresh dispatch is pinned to it, and a worktree dispatch that keeps the
-   * planning branch reuses it instead of minting a second checkout. Hoisted
-   * above the render's early return because the naming effect reads it.
+   * planning branch reuses it instead of minting a second checkout.
    */
   const sourceWorktree = sessionRecord?.worktree ?? null;
 
@@ -310,33 +284,28 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     onClose: () => setLevelMenu(null),
   });
 
-  // The plan names the worktree destination once per selection (issue #422):
-  // the new base's prefill while in create-base mode, else the mint's hash
-  // segment (#389's rule, moved forward to review time). Typed text and the
-  // #316 planning branch are never touched; the `suggested` latch makes the
+  // The plan names the new base once per selection (issue #422), never the
+  // session's own branch (issue #428): in create-base mode the suggestion
+  // lands in the base field, and the mint follows it with its hash intact
+  // (#405). Typed text is never touched; the `suggested` latch makes the
   // apply run once, so a later clear-to-empty never refills — and the
-  // selection in the deps only carries the naming to a row picked after the
+  // selection in the deps only carries the name to a row picked after the
   // model had already answered.
   useEffect(() => {
     if (suggestion === null) return;
     setWorktreeSel((prev) => {
       if (prev === null || prev.suggested !== null) return prev;
-      if (sourceWorktree !== null && prev.branch.trim() === sourceWorktree.branch.trim()) {
-        return { ...prev, suggested: suggestion };
-      }
-      if (prev.baseBranch !== null) {
-        const baseBranch =
-          prev.baseBranch === "" || prev.baseBranch === baseFallback ? suggestion : prev.baseBranch;
-        const named = { ...prev, baseBranch, suggested: suggestion };
-        return { ...named, branch: followBase(named, baseBranch, prev.baseRef) };
-      }
-      if (!prev.branchTouched && PLACEHOLDER_BRANCH_RE.test(prev.branch)) {
-        const namedBranch = `${prev.branch.slice(0, prev.branch.lastIndexOf("/") + 1)}${suggestion}`;
-        return { ...prev, suggested: suggestion, namedBranch, branch: namedBranch };
-      }
-      return { ...prev, suggested: suggestion };
+      if (prev.baseBranch === null) return { ...prev, suggested: suggestion };
+      const baseBranch =
+        prev.baseBranch === "" || prev.baseBranch === baseFallback ? suggestion : prev.baseBranch;
+      return {
+        ...prev,
+        baseBranch,
+        suggested: suggestion,
+        branch: remintForBase(prev.branch, baseBranchSegment(baseBranch, prev.baseRef)),
+      };
     });
-  }, [suggestion, sourceWorktree, baseFallback, worktreeSel]);
+  }, [suggestion, baseFallback, worktreeSel]);
 
   if (!review || deferred) return null;
   const { request } = review;
@@ -668,12 +637,10 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                           const mint = sourceWorktree?.branch ?? mintBranchName();
                           setWorktreeSel({
                             branch: mint,
-                            branchTouched: false,
                             baseRef: null,
                             baseBranch: null,
                             baseTouched: false,
                             suggested: null,
-                            namedBranch: null,
                           });
                         }
                         setContext(option.id);
@@ -938,7 +905,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     projectCwd={projectCwd}
                     branch={worktreeSel.branch}
                     onBranchChange={(b) =>
-                      setWorktreeSel((prev) => (prev === null ? prev : { ...prev, branch: b, branchTouched: true }))
+                      setWorktreeSel((prev) => (prev === null ? prev : { ...prev, branch: b }))
                     }
                     baseRef={worktreeSel.baseRef}
                     onBaseRefChange={(baseRef) =>
@@ -956,7 +923,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                                 sourceWorktree !== null &&
                                 prev.branch.trim() === sourceWorktree.branch.trim()
                                   ? prev.branch
-                                  : followBase(prev, prev.baseBranch, baseRef),
+                                  : remintForBase(prev.branch, baseBranchSegment(prev.baseBranch, baseRef)),
                             },
                       )
                     }
@@ -978,7 +945,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                         return {
                           ...prev,
                           baseBranch: next,
-                          branch: followBase(prev, next, prev.baseRef),
+                          branch: remintForBase(prev.branch, baseBranchSegment(next, prev.baseRef)),
                         };
                       })
                     }

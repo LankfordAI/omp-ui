@@ -312,15 +312,14 @@ the user made (superseded by the finish dialog addendum).
   branch name, so a renamed branch stays in the slot its path was minted
   into, while a corrupt or foreign path still refuses reclaim and is left
   for manual removal.
-- **Auto-naming retires the prior-art read for renamed branches.** When a
-  worktree session's first prompt fires and its branch still matches the
-  `omp-ui/<8 hex>` placeholder, a name is suggested from the prompt and
-  renamed in place — provided the record still shows that placeholder and
-  the same session id (issue #389). This supersedes "a minted branch reads
-  as app scratch work" for the branches it renames; the placeholder that
-  survives is what still reads that way, and a user-typed name is never
-  touched. The finish dialog offers the same suggestion as the rename
-  field's pre-fill, again only for placeholders.
+- **Auto-naming names created branches, never the session's own.** A
+  minted worktree branch is the session's durable name (issue #428 retires
+  the first-prompt rename this bullet formerly described, together with the
+  plan-gate substitution of issue #422). Generation lives in the finish
+  dialog, where it pre-fills the rename field — placeholders only, until
+  the user types — and the *new branch…* destination's name field. "A
+  minted branch reads as app scratch work" therefore stands for every
+  untouched mint, and a user-typed name is never touched.
 - **An existing-branch checkout records the repo's default branch as its
   base** (issue #390): the session cut nothing, so the branch's own history
   is not this session's work, and the default branch is the honest
@@ -331,3 +330,16 @@ the user made (superseded by the finish dialog addendum).
   recorded base answers where the work was cut from, not where the user
   wants it to land; the resolution survives as the dialog's default, not its
   only option (issue #385).
+
+## Branch naming addendum (issue #428)
+
+- **The mint is the session branch's durable name.** A worktree session's
+  branch reads `omp-ui/[<base>/]<8 hex>` at the review gate, at spawn, and
+  after its first prompt, unless a human typed something; both automatic
+  writers — the plan-gate hash substitution (issue #422) and the
+  first-prompt rename (issue #389) — are retired. Model-derived names
+  belong to branch *creation*: the finish dialog's rename field and its
+  *new branch…* destination name field, each pre-filled from the session,
+  each yielding to typed text. `PLACEHOLDER_BRANCH_RE` keeps keying the
+  pre-fills and the base-following rule (issue #405), so untouched mints
+  still state their cut point and stay unique per spawn.
