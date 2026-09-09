@@ -19,6 +19,7 @@ import { MemoryFooter, MemoryPage } from "./settings/MemoryPage";
 import { OmpFooter, OmpPage } from "./settings/OmpPage";
 import { ProvidersFooter, ProvidersPage } from "./settings/ProvidersPage";
 import { RemoteFooter, RemotePage } from "./settings/RemotePage";
+import { RemoteInstancesFooter, RemoteInstancesPage } from "./settings/RemoteInstancesPage";
 import { UpdatesFooter, UpdatesPage } from "./settings/UpdatesPage";
 import type { FooterContext, Load } from "./settings/types";
 
@@ -58,6 +59,12 @@ const PAGES: ReadonlyArray<{
   { id: "appearance", labelKey: "settings.nav.appearance", render: () => <AppearancePage /> },
   { id: "updates", labelKey: "settings.nav.updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
   { id: "remote", labelKey: "settings.nav.remote", render: () => <RemotePage />, footer: RemoteFooter },
+  {
+    id: "remote-instances",
+    labelKey: "settings.nav.remoteInstances",
+    render: () => <RemoteInstancesPage />,
+    footer: RemoteInstancesFooter,
+  },
   {
     id: "providers",
     labelKey: "settings.nav.providers",

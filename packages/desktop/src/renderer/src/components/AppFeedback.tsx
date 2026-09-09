@@ -61,6 +61,14 @@ function lifecycleCopy(
         // The full path is in the body; no separate title line.
         target: null,
       };
+    case "remove-remote-instance":
+      return {
+        tone: "rose",
+        title: t("remoteinstances.action.remove"),
+        body: t("remoteinstances.confirm.remove", { nickname: confirmation.nickname }),
+        action: t("remoteinstances.action.remove"),
+        target: null,
+      };
   }
 }
 

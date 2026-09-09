@@ -3,7 +3,8 @@ import { parseModelRole } from "@omp-ui/core/model-role";
 import type { ProjectRecord } from "@omp-ui/core/types";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
-import { useStore } from "../store";
+import { projectKey } from "../lib/project-key";
+import { findInstance, useStore } from "../store";
 import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./CapabilitiesViewer";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Label, Modal } from "./ui";
@@ -140,7 +141,14 @@ function PinField({
  * merged Project settings dialog (issue #281). Catalog behavior unchanged:
  * fed from a live session's availableModels, typed input is the fallback.
  */
-export function ProjectModelPins({ project }: { project: ProjectRecord }) {
+export function ProjectModelPins({
+  project,
+  instanceId = null,
+}: {
+  project: ProjectRecord;
+  /** The remote instance owning the project (issue #416); null for this host. */
+  instanceId?: string | null;
+}) {
   const t = useT();
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
@@ -153,8 +161,8 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
 
   // omp's config supplies the advisor fallback and the effective on/off state.
   useEffect(() => {
-    void loadAdvisorDefaults(projectPath);
-  }, [projectPath, loadAdvisorDefaults]);
+    void loadAdvisorDefaults(projectPath, instanceId);
+  }, [projectPath, instanceId, loadAdvisorDefaults]);
 
   // Transient UI dies with the dialog (or the project — a removed project
   // unmounts it via App's lookup).
@@ -172,7 +180,8 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
   // A live session's catalog is all the model list that exists; the first
   // non-empty one wins.
   const models = useMemo(() => {
-    const group = state?.projects.find((g) => g.project.path === projectPath) ?? null;
+    const groups = instanceId === null ? state?.projects : findInstance(state, instanceId)?.projects;
+    const group = groups?.find((g) => g.project.path === projectPath) ?? null;
     if (group === null) return EMPTY;
     for (const session of group.sessions) {
       if (session.live !== "live") continue;
@@ -180,11 +189,11 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
       if (list !== undefined && list.length > 0) return list;
     }
     return EMPTY;
-  }, [state, rpc, projectPath]);
+  }, [state, rpc, projectPath, instanceId]);
 
   const mainPin = project.defaultModel ?? null;
   const advisorPin = project.defaultAdvisorModel ?? null;
-  const defaults = advisorDefaults[projectPath];
+  const defaults = advisorDefaults[projectKey(instanceId, projectPath)];
   const configuredAdvisor = defaults?.model ?? null;
   // The advisor on/off chain, untouched by the pin (issue #174): last-used →
   // app default → omp config.
@@ -215,8 +224,8 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
       }
     }
     const selector = trimmed === "" ? null : trimmed;
-    if (editing === "main") void setProjectDefaultModel(projectPath, selector);
-    else void setProjectDefaultAdvisorModel(projectPath, selector);
+    if (editing === "main") void setProjectDefaultModel(projectPath, selector, instanceId);
+    else void setProjectDefaultAdvisorModel(projectPath, selector, instanceId);
     setEditing(null);
   };
 
@@ -337,10 +346,13 @@ export function ProjectModelPins({ project }: { project: ProjectRecord }) {
  */
 export function ProjectSettings({
   project,
+  instanceId = null,
   onClose,
 }: {
   /** `null` renders nothing — removal auto-close is enforced by App's lookup. */
   project: ProjectRecord | null;
+  /** The remote instance owning the project (issue #416); null for this host. */
+  instanceId?: string | null;
   onClose: () => void;
 }) {
   const t = useT();
@@ -368,7 +380,7 @@ export function ProjectSettings({
             </h3>
             {/* A project dialog pins no session, so the project root is the
                 scope — no checkout to resolve through. */}
-            <McpServersPanel scopeCwd={project.path} />
+            <McpServersPanel scopeCwd={project.path} instanceId={instanceId} />
             <p className="px-4 pt-2 text-[11px] text-ink-faint">
               {t("project.settings.mcpHint")}
             </p>
@@ -378,7 +390,7 @@ export function ProjectSettings({
             <h3 id="project-settings-skills" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
               {t("project.settings.skills")}
             </h3>
-            <SkillsScopePanel scopeCwd={project.path} />
+            <SkillsScopePanel scopeCwd={project.path} instanceId={instanceId} />
             <p className="px-4 pt-2 text-[11px] text-ink-faint">
               {t("project.settings.skillsHint")}
             </p>
@@ -388,7 +400,7 @@ export function ProjectSettings({
             <h3 id="project-settings-tools" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
               {t("project.settings.tools")}
             </h3>
-            <ToolsScopePanel scopeCwd={project.path} />
+            <ToolsScopePanel scopeCwd={project.path} instanceId={instanceId} />
             <p className="px-4 pt-2 text-[11px] text-ink-faint">
               {t("project.settings.toolsHint")}
             </p>
@@ -398,7 +410,7 @@ export function ProjectSettings({
             <h3 id="project-settings-models" className="mb-4 font-display text-sm font-semibold text-ink">
               {t("project.settings.defaultModels")}
             </h3>
-            <ProjectModelPins project={project} />
+            <ProjectModelPins project={project} instanceId={instanceId} />
           </section>
         </div>
       </section>

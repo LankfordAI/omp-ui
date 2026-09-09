@@ -320,6 +320,7 @@ if (!app.requestSingleInstanceLock()) {
     be.registerIpc();
     void be.hydrateAll();
     void be.startRemote();
+    be.startRemoteInstances();
     // A .desktop/AppImage/dock launch inherits the session-manager environment,
     // never ~/.zshrc — so keys the user exported from their shell are invisible
     // and omp's model catalog collapses to the providers needing no auth. Void-

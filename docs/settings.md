@@ -1,6 +1,6 @@
 # Settings
 
-Use Settings to change omp-ui preferences, update behavior, remote access, provider credentials, and the configuration that omp reads. Open it from the sidebar gear, the command palette, or `mod+,`.
+Use Settings to change omp-ui preferences, update behavior, remote access, remote instances, provider credentials, and the configuration that omp reads. Open it from the sidebar gear, the command palette, or `mod+,`.
 
 The pages below follow the order in the app. Pay attention to the timing notes. Some controls update the current app immediately, while session defaults wait for a new session or the next omp process spawn.
 
@@ -63,6 +63,37 @@ Remote access is off by default. A connected client has the same authority as th
 - While the server is listening, the page shows copyable connection URLs and a pairing QR code. Without a password, the primary URL and QR include the token. With a password, they use the bare sign-in URL, and a separate token link remains available as a fallback. Local-network binding also lists other reachable IPv4 addresses below the primary URL.
 
 A remote-setting change does not restart omp-ui or any omp session process. When remote access is running, changing the bind address, port, password, or token restarts only the embedded server. Enabling remote access starts the server, and disabling it stops the server. Running sessions continue. Localhost provides the full browser app. A local-network URL works as a responsive web app, but browsers require a secure origin for installation and offline support. Plain `http://<lan-ip>` does not qualify. Put the server behind your own HTTPS endpoint if you need those browser features.
+
+## Remote instances
+
+Remote instances joins other omp-ui apps that have remote access enabled, so their projects and sessions appear in this app's sidebar under a nickname. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works.
+
+The **Join** form takes:
+
+- **Connection URL** — the other app's `http://` or `https://` address, with a port when it has one. A pasted token link (`…/?t=TOKEN`) is accepted as-is; omp-ui takes the token from it and hides the secret field.
+- **Nickname** (optional) — the label every surface uses for that instance. Empty defaults to the URL's host, for example `192.168.1.20:7432`. Trimmed, 1 to 32 characters, unique among joined instances without regard to case.
+- **Password** or **Access token** — the other app's remote-access credential, chosen with the **Sign in with** toggle. Not shown when the URL carried a token.
+
+A rejected password, an unreachable address, a duplicate nickname, or an unparsable URL shows inline on the form and stores nothing.
+
+Each joined instance is a panel showing its nickname, URL, status, the remote's omp-ui version, and the last error, with three actions:
+
+- **Reconnect** drops any current connection and retries immediately, from any status.
+- **Edit** changes the nickname, the URL, or the credential inline. A nickname change applies without reconnecting; a URL or credential change signs in again and reconnects.
+- **Remove** asks for confirmation, then forgets the connection and its credential and drops the group and its tabs from this app. The remote's sessions keep running.
+
+Statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `connecting` | omp-ui is dialing or signing in. |
+| `joined` | Connected; the instance's projects are live in the sidebar. |
+| `unreachable` | The connection failed or dropped. Projects stay listed but dimmed, tabs stay open with input disabled, and omp-ui retries with a growing delay from 1 to 30 seconds. |
+| `sign-in required` | The remote rejected the stored credential (its password changed or its token was regenerated), or the credential could not be decrypted. omp-ui stops retrying until you **Edit** the instance and sign in again. |
+| `this app` | The URL is this app's own remote-access address. No group is added and nothing is retried. |
+| `incompatible version` | The remote omp-ui is older than this app and cannot be joined. |
+
+omp-ui stores the credential that the sign-in derived — a password-derived credential or the access token — never the password. It is encrypted through the operating system credential store and written to `remote-instances.json` beside `registry.json`, readable only by your user; it never reaches a renderer, and the diagnostic bundle never reads it. Without a secure credential store, omp-ui refuses to join rather than store the credential insecurely.
 
 ## Providers
 
@@ -130,5 +161,6 @@ A dash means the value is not available, for example when omp is not installed.
 - [Getting started](getting-started.md)
 - [User guide](user-guide.md)
 - [Remote access](remote-access.md)
+- [Remote instances](remote-instances.md)
 - [Updates and releases](releases.md)
 - [Troubleshooting](troubleshooting.md)

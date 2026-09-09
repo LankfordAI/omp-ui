@@ -19,7 +19,7 @@ The page also lists other reachable IPv4 addresses when local-network binding is
 
 ## Understand what is hosted
 
-The desktop app owns the only live `MainBackend`, session registry, and running omp processes. Its local renderer and every connected browser are additional views of that same backend. A command from any view reaches the same handler, and backend events fan out to all connected views. Remote access does not copy a session or start another omp process.
+The desktop app owns the only live `MainBackend`, session registry, and running omp processes. Its local renderer and every connected browser are additional views of that same backend. A command from any view reaches the same handler, and backend events fan out to all connected views. Remote access does not copy a session or start another omp process. The same listener is what another omp-ui app joins when it adds this one as a [remote instance](remote-instances.md).
 
 The HTTP and WebSocket server is embedded in the Electron main process. It starts at desktop launch when remote access was left enabled and stops when the desktop app quits. Closing a browser only removes that view. When the server is running, changing the bind address, port, password, or token restarts it without stopping live sessions. Disabling remote access stops the server, and enabling it starts the server.
 
@@ -74,6 +74,7 @@ The embedded server can still start when `index.html` is absent. The password si
 ## Related guides
 
 - [Settings](settings.md) covers the rest of the Settings surface.
+- [Remote instances](remote-instances.md) joins another omp-ui app's projects and sessions into this app's sidebar over the same listener and credentials.
 - [User guide](user-guide.md) explains the session controls shared by desktop and browser views.
 - [Troubleshooting](troubleshooting.md) covers remote connection and authentication failures.
 - [Development](development.md) lists the repository build and validation workflows.

@@ -172,6 +172,19 @@ export {
   type ShellCaptureFn,
 } from "./provider-keys";
 export {
+  assertNicknameUnique,
+  defaultNickname,
+  normalizeInstanceUrl,
+  REMOTE_INSTANCE_NICKNAME_MAX,
+  REMOTE_PROXY_CHANNELS,
+  REMOTE_TAB_EVENTS,
+  TAB_ROUTED_NOTIFIES,
+  TAB_ROUTED_REQUESTS,
+  validateNickname,
+  type RemoteInstanceRecord,
+} from "./remote-instances";
+export { RemoteInstanceStore, REMOTE_INSTANCE_STORE_UNAVAILABLE } from "./remote-instance-store";
+export {
   PROVIDER_ENV_NAMES,
   PROVIDER_KEY_SPECS,
   OAUTH_PROVIDER_SPECS,

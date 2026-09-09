@@ -10,7 +10,7 @@ import {
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { GOAL_COMMAND } from "@omp-ui/core/goal";
-import { backend } from "../backend";
+import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
@@ -24,7 +24,7 @@ import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { AdvisorControl } from "./AdvisorControl";
@@ -122,6 +122,13 @@ export function Composer({
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
+  // The owning remote instance (issue #416): project-scoped reads go to that
+  // host, and while it is not joined the composer is as inert as a dead tab —
+  // nothing typed here could reach the agent.
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const instanceDown = useStore(
+    (s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined",
+  );
   // A session running in a worktree cannot be pointed at a second one: the
   // branch chip's worktree section is never offered to it. Finishing the
   // worktree moves it back to the project checkout instead (issue #334).
@@ -206,7 +213,7 @@ export function Composer({
 
   const running = status === "running";
   const relaunching = status === "starting";
-  const unavailable = dead || relaunching;
+  const unavailable = dead || relaunching || instanceDown;
   const queueChip = queueChipView(running, queued);
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
@@ -285,7 +292,7 @@ export function Composer({
   useEffect(() => {
     if (!mentionOpen || cwd === undefined) return;
     let alive = true;
-    void backend
+    void backendFor(instanceId)
       .listProjectFiles(cwd)
       .then((result) => {
         if (alive) setFiles({ list: result.files, truncated: result.truncated });
@@ -294,7 +301,7 @@ export function Composer({
     return () => {
       alive = false;
     };
-  }, [mentionOpen, cwd]);
+  }, [mentionOpen, cwd, instanceId]);
 
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
@@ -507,7 +514,7 @@ export function Composer({
       const busyRoute = route === "steer" || route === "follow_up";
       if (busyRoute && cwd !== undefined && message.includes("@")) {
         try {
-          const resolved = await backend.resolveFileMentions(cwd, message);
+          const resolved = await backendFor(instanceId).resolveFileMentions(cwd, message);
           message += resolved.contextText;
           payload = [...payload, ...resolved.images];
         } catch {
@@ -529,6 +536,7 @@ export function Composer({
       compact,
       tabId,
       cwd,
+      instanceId,
       runSlashCommand,
       abortAndPrompt,
       sendPrompt,
@@ -862,6 +870,7 @@ export function Composer({
 
             <BranchChip
               projectCwd={cwd}
+              instanceId={instanceId}
               workspace={offerWorkspace ? workspace : undefined}
               onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
               workspaceDisabled={unavailable || converting}

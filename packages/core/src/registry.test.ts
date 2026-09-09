@@ -88,6 +88,7 @@ describe("SETTINGS", () => {
       "remoteToken",
       "remotePasswordHash",
       "remotePasswordSalt",
+      "instanceId",
     ]);
   });
 
@@ -255,6 +256,7 @@ describe("Registry.load", () => {
           remoteToken: 123,
           remotePasswordHash: 123,
           remotePasswordSalt: 456,
+          instanceId: 7,
         },
         projects: [],
         sessions: [],
@@ -283,6 +285,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("remoteToken")).toBe("");
     expect(reg.getSetting("remotePasswordHash")).toBe("");
     expect(reg.getSetting("remotePasswordSalt")).toBe("");
+    expect(reg.getSetting("instanceId")).toBe("");
   });
 
   it("accepts only bounded integer remote ports", () => {
@@ -566,6 +569,7 @@ describe("Registry persistence", () => {
       ["remoteToken", (registry) => registry.setSetting("remoteToken", "")],
       ["remotePasswordHash", (registry) => registry.setSetting("remotePasswordHash", "")],
       ["remotePasswordSalt", (registry) => registry.setSetting("remotePasswordSalt", "")],
+      ["instanceId", (registry) => registry.setSetting("instanceId", "")],
       ["dismissedAppUpdateVersion", (registry) => registry.setSetting("dismissedAppUpdateVersion", null)],
       ["dismissedOmpUpdateVersion", (registry) => registry.setSetting("dismissedOmpUpdateVersion", null)],
     ];

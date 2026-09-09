@@ -21,6 +21,8 @@ import type {
   ProviderOAuthState,
   ProviderOAuthStatus,
   RemoteBind,
+  RemoteInstanceInput,
+  RemoteInstancePatch,
   RemoteState,
   SessionMode,
   TranscriptWidth,
@@ -60,6 +62,8 @@ export interface TabInfo {
   projectCwd: string;
   /** Hidden tabs stay mounted (display:none) — the xterm instance survives. */
   hidden: boolean;
+  /** The joined remote instance that owns the session; null for a local one (issue #416). */
+  instanceId: string | null;
 }
 
 /** Renderer-local presentation and recovery context for an RPC failure. */
@@ -257,7 +261,8 @@ export interface DeleteConfirmation {
 /**
  * One destructive/disruptive session decision awaiting a DOM confirmation
  * (issue #373). Data-only: no promise resolver or callback lives in state —
- * the dialog calls back into the store actions by id.
+ * the dialog calls back into the store actions by id. `id` is the
+ * confirmation's own identity, so a subject's id travels under its own name.
  */
 export type LifecycleConfirmationChoice =
   | { kind: "terminate"; tabId: string; title: string }
@@ -268,7 +273,8 @@ export type LifecycleConfirmationChoice =
       fromMode: SessionMode;
       mode: SessionMode;
     }
-  | { kind: "remove-project"; projectPath: string };
+  | { kind: "remove-project"; projectPath: string; instanceId: string | null }
+  | { kind: "remove-remote-instance"; instanceId: string; nickname: string };
 
 export type LifecycleConfirmation = {
   /** Identity across renders: stale button/Escape invocations must not act. */
@@ -288,6 +294,7 @@ export type SettingsPage =
   | "appearance"
   | "updates"
   | "remote"
+  | "remote-instances"
   | "providers"
   | "memory"
   | "omp"
@@ -343,6 +350,11 @@ export interface SettingsSlice {
   regenerateRemoteToken(): Promise<void>;
   setRemotePassword(password: string): Promise<void>;
   clearRemotePassword(): Promise<void>;
+  /** Joins a remote instance (issue #416); rejects so the form shows the message inline. */
+  addRemoteInstance(input: RemoteInstanceInput): Promise<void>;
+  updateRemoteInstance(id: string, patch: RemoteInstancePatch): Promise<void>;
+  removeRemoteInstance(id: string): Promise<void>;
+  reconnectRemoteInstance(id: string): Promise<void>;
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
   ensureCompactionSettings(projectCwd: string): Promise<void>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
@@ -421,9 +433,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   reportError(error: unknown): void;
   dismissError(id: string): void;
   projectPickerOpen: boolean;
+  /** The instance a picked directory registers on; null = local (issue #416). */
+  projectPickerInstanceId: string | null;
   /** True while the diagnostic-bundle export dialog is open (issue #413). */
   diagnosticsDialogOpen: boolean;
   worktreeDialogProject: string | null;
+  worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
   /** The capabilities viewer's resolved working tree (a worktree session's
@@ -433,15 +448,21 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     scopeCwd: string | null;
     tabId?: string;
     section: CapabilitySectionId;
+    instanceId: string | null;
   } | null;
-	projectSettings: { projectCwd: string } | null;
+	projectSettings: { projectCwd: string; instanceId: string | null } | null;
+  /**
+   * Bumped per PTY tab when its remote instance rejoins (issue #416): the
+   * terminal re-sends its size so the remote PTY repaints at the right shape.
+   */
+  ptyRedrawRevision: Record<string, number>;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
   init(): Promise<void>;
-  openProjectPicker(): void;
+  openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
@@ -449,9 +470,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     scopeCwd: string | null,
     tabId?: string,
     section?: CapabilitySectionId,
+    instanceId?: string | null,
   ): void;
   closeCapabilitiesViewer(): void;
-	openProjectSettings(projectCwd: string): void;
+	openProjectSettings(projectCwd: string, instanceId?: string | null): void;
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
@@ -460,14 +482,32 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
   restartSession(tabId: string): Promise<boolean>;
-  addProject(path: string): Promise<void>;
-  removeProject(path: string): Promise<void>;
-  moveProject(projectPath: string, beforePath: string | null): Promise<void>;
+  addProject(path: string, instanceId?: string | null): Promise<void>;
+  removeProject(path: string, instanceId?: string | null): Promise<void>;
+  /** Stages the confirmation that forgets a joined remote instance (issue #416). */
+  confirmRemoveRemoteInstance(instanceId: string, nickname: string): void;
+  moveProject(
+    projectPath: string,
+    beforePath: string | null,
+    instanceId?: string | null,
+  ): Promise<void>;
   moveSession(tabId: string, beforeTabId: string | null): Promise<void>;
-  setProjectDefaultModel(projectPath: string, model: string | null): Promise<void>;
-  setProjectDefaultAdvisorModel(projectPath: string, model: string | null): Promise<void>;
+  setProjectDefaultModel(
+    projectPath: string,
+    model: string | null,
+    instanceId?: string | null,
+  ): Promise<void>;
+  setProjectDefaultAdvisorModel(
+    projectPath: string,
+    model: string | null,
+    instanceId?: string | null,
+  ): Promise<void>;
   toggleFavorite(key: string): Promise<void>;
-  newSession(projectCwd: string, modeOverride?: SessionMode): Promise<void>;
+  newSession(
+    projectCwd: string,
+    modeOverride?: SessionMode,
+    instanceId?: string | null,
+  ): Promise<void>;
   /**
    * Creates a worktree session; throws on failure (the dialog renders the
    * message inline) — unlike newSession, which reports to the error notices.
@@ -479,6 +519,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     spec:
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
+    instanceId?: string | null,
   ): Promise<void>;
   /**
    * Converts an unprompted session to a worktree session (issue #225);
@@ -489,7 +530,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     tabId: string,
     opts: { branch: string; baseRef: string | null; baseBranch: string | null },
   ): Promise<void>;
-  openWorktreeDialog(projectCwd: string): void;
+  openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
@@ -559,7 +600,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     message: string,
     images?: ImageAttachment[],
   ): Promise<void>;
-  loadAdvisorDefaults(projectCwd: string): Promise<void>;
+  loadAdvisorDefaults(projectCwd: string, instanceId?: string | null): Promise<void>;
   setSessionAdvisor(
     tabId: string,
     advisor: boolean,
@@ -622,30 +663,51 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   sendTuiHandoff(tabId: string): void;
   /** Drops the staged handoff, returning the drawer to a plain login shell. */
   dismissTuiHandoff(tabId: string): void;
-  refreshBranches(projectCwd: string, opts?: BranchListOptions): Promise<void>;
+  /**
+   * Branch state is keyed by projectKey(instanceId, projectCwd) (issue #416):
+   * the same path on two instances is two repositories.
+   */
+  refreshBranches(
+    projectCwd: string,
+    opts?: BranchListOptions,
+    instanceId?: string | null,
+  ): Promise<void>;
   checkoutGitBranch(
     projectCwd: string,
     name: string,
     opts?: { create?: boolean },
+    instanceId?: string | null,
   ): Promise<string | null>;
-  pullGitBranch(projectCwd: string): Promise<string | null>;
-  resolveMergeDestination(projectCwd: string, base: string | null): Promise<MergeDestination>;
+  pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
+  resolveMergeDestination(
+    projectCwd: string,
+    base: string | null,
+    instanceId?: string | null,
+  ): Promise<MergeDestination>;
   readMergeBackStatus(
     projectCwd: string,
     branch: string,
     destination: string,
     worktreePath: string | null,
+    instanceId?: string | null,
   ): Promise<MergeBackStatus>;
-  createBranch(projectCwd: string, name: string, startPoint: string): Promise<void>;
+  createBranch(
+    projectCwd: string,
+    name: string,
+    startPoint: string,
+    instanceId?: string | null,
+  ): Promise<void>;
   mergeWorktreeBranch(
     projectCwd: string,
     branch: string,
     destination: string,
+    instanceId?: string | null,
   ): Promise<MergeBackResult>;
   /** Appends a transcript notice (issue #272); no-ops for tabs without rpc state. */
   appendNotice(tabId: string, text: string, level?: "info" | "warn" | "error"): void;
   suggestBranchName(
     projectCwd: string,
     planContext: string,
+    instanceId?: string | null,
   ): Promise<string | null>;
 }

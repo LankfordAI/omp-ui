@@ -1,6 +1,7 @@
 import type {
   BackendState,
   OwnedSessionRecord,
+  RemoteInstanceSummary,
   SessionSummary,
 } from "@omp-ui/core/types";
 import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
@@ -20,6 +21,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
 } from "../../lib/panel-layout";
 import { randomId } from "../../lib/random-id";
+import { projectKey } from "../../lib/project-key";
 import type { CompactSurface, ErrorNotice, UiStore } from "../types";
 
 export type { CompactSurface } from "../types";
@@ -31,27 +33,31 @@ export interface ViewSlice {
   focusedTabByProject: Record<string, string>;
   restoringTabs: boolean;
   projectPickerOpen: boolean;
+  projectPickerInstanceId: string | null;
   /** The diagnostic-bundle export dialog (issue #413). */
   diagnosticsDialogOpen: boolean;
   worktreeDialogProject: string | null;
+  worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
   capabilitiesViewer: {
     scopeCwd: string | null;
     tabId?: string;
     section: CapabilitySectionId;
+    instanceId: string | null;
   } | null;
-	projectSettings: { projectCwd: string } | null;
+	projectSettings: { projectCwd: string; instanceId: string | null } | null;
+  ptyRedrawRevision: Record<string, number>;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
-  openProjectPicker(): void;
+  openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
-  openWorktreeDialog(projectCwd: string): void;
+  openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
@@ -59,9 +65,10 @@ export interface ViewSlice {
     scopeCwd: string | null,
     tabId?: string,
     section?: CapabilitySectionId,
+    instanceId?: string | null,
   ): void;
   closeCapabilitiesViewer(): void;
-	openProjectSettings(projectCwd: string): void;
+	openProjectSettings(projectCwd: string, instanceId?: string | null): void;
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
@@ -79,18 +86,22 @@ export interface ViewSlice {
   dismissError(id: string): void;
 }
 
-/** Keeps global and per-project focus in lockstep for every tab activation. */
+/**
+ * Keeps global and per-project focus in lockstep for every tab activation.
+ * `key` is the tab's projectKey(instanceId, projectCwd); undefined when the
+ * tab is unknown, in which case only the global focus moves.
+ */
 export function focusOn(
   state: Pick<UiStore, "activeTabId" | "focusedTabByProject">,
   tabId: string,
-  projectCwd: string | undefined,
+  key: string | undefined,
 ): Pick<UiStore, "activeTabId" | "focusedTabByProject"> {
   return {
     activeTabId: tabId,
     focusedTabByProject:
-      projectCwd === undefined
+      key === undefined
         ? state.focusedTabByProject
-        : { ...state.focusedTabByProject, [projectCwd]: tabId },
+        : { ...state.focusedTabByProject, [key]: tabId },
   };
 }
 
@@ -102,25 +113,39 @@ export function forgetFocus(
 ): Record<string, string> {
   const entry = Object.entries(focusedTabByProject).find(([, focused]) => focused === tabId);
   if (entry === undefined) return focusedTabByProject;
-  const [projectCwd] = entry;
-  const remaining = tabs.filter((tab) => !tab.hidden && tab.projectCwd === projectCwd);
+  const [key] = entry;
+  const remaining = tabs.filter(
+    (tab) => !tab.hidden && projectKey(tab.instanceId, tab.projectCwd) === key,
+  );
   const next = { ...focusedTabByProject };
-  if (remaining.length > 0) next[projectCwd] = remaining[remaining.length - 1]!.tabId;
-  else delete next[projectCwd];
+  if (remaining.length > 0) next[key] = remaining[remaining.length - 1]!.tabId;
+  else delete next[key];
   return next;
 }
 
-/** Removes focus entries whose project or tab no longer exists in backend state. */
+/**
+ * Removes focus entries whose project or tab no longer exists in backend
+ * state. Remote projects count under their composite key, so a vanished
+ * instance drops every entry it owned (issue #416).
+ */
 export function pruneFocus(
   focusedTabByProject: Record<string, string>,
   state: BackendState,
 ): Record<string, string> {
-  const projects = new Set(state.projects.map((group) => group.project.path));
-  const tabIds = new Set(state.projects.flatMap((group) => group.sessions.map((session) => session.tabId)));
+  const projects = new Set<string>();
+  const tabIds = new Set<string>();
+  const collect = (instanceId: string | null, groups: BackendState["projects"]): void => {
+    for (const group of groups) {
+      projects.add(projectKey(instanceId, group.project.path));
+      for (const session of group.sessions) tabIds.add(session.tabId);
+    }
+  };
+  collect(null, state.projects);
+  for (const instance of state.remoteInstances) collect(instance.id, instance.projects);
   const next: Record<string, string> = {};
   let changed = false;
-  for (const [projectCwd, tabId] of Object.entries(focusedTabByProject)) {
-    if (projects.has(projectCwd) && tabIds.has(tabId)) next[projectCwd] = tabId;
+  for (const [key, tabId] of Object.entries(focusedTabByProject)) {
+    if (projects.has(key) && tabIds.has(tabId)) next[key] = tabId;
     else changed = true;
   }
   return changed ? next : focusedTabByProject;
@@ -144,14 +169,16 @@ export async function restoreSavedTabs(
   const focusedTabByProject: Record<string, string> = {};
   const lastRestoredByProject = new Map<string, string>();
   for (const tabId of restored) {
-    const record = findRecord(get().state, tabId);
-    if (record) lastRestoredByProject.set(record.projectCwd, tabId);
+    const owner = findOwner(get().state, tabId);
+    if (owner) {
+      lastRestoredByProject.set(projectKey(owner.instanceId, owner.record.projectCwd), tabId);
+    }
   }
-  for (const [projectCwd, tabId] of Object.entries(saved.focusedTabByProject)) {
-    if (restoredSet.has(tabId)) focusedTabByProject[projectCwd] = tabId;
+  for (const [key, tabId] of Object.entries(saved.focusedTabByProject)) {
+    if (restoredSet.has(tabId)) focusedTabByProject[key] = tabId;
   }
-  for (const [projectCwd, tabId] of lastRestoredByProject) {
-    if (!(projectCwd in focusedTabByProject)) focusedTabByProject[projectCwd] = tabId;
+  for (const [key, tabId] of lastRestoredByProject) {
+    if (!(key in focusedTabByProject)) focusedTabByProject[key] = tabId;
   }
 
   const activeTabId =
@@ -281,11 +308,14 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   focusedTabByProject: {},
   restoringTabs: false,
   projectPickerOpen: false,
+  projectPickerInstanceId: null,
   diagnosticsDialogOpen: false,
   worktreeDialogProject: null,
+  worktreeDialogInstanceId: null,
   finishWorktreeTab: null,
   capabilitiesViewer: null,
 	projectSettings: null,
+  ptyRedrawRevision: {},
   compactSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
@@ -307,11 +337,11 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
     set((s) => ({ errorNotices: s.errorNotices.filter((n) => n.id !== id) }));
   },
 
-  openProjectPicker() {
-    set({ projectPickerOpen: true });
+  openProjectPicker(instanceId = null) {
+    set({ projectPickerOpen: true, projectPickerInstanceId: instanceId });
   },
   closeProjectPicker() {
-    set({ projectPickerOpen: false });
+    set({ projectPickerOpen: false, projectPickerInstanceId: null });
   },
   openDiagnosticsDialog() {
     set({ diagnosticsDialogOpen: true });
@@ -319,11 +349,11 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   closeDiagnosticsDialog() {
     set({ diagnosticsDialogOpen: false });
   },
-  openWorktreeDialog(projectCwd) {
-    set({ worktreeDialogProject: projectCwd });
+  openWorktreeDialog(projectCwd, instanceId = null) {
+    set({ worktreeDialogProject: projectCwd, worktreeDialogInstanceId: instanceId });
   },
   closeWorktreeDialog() {
-    set({ worktreeDialogProject: null });
+    set({ worktreeDialogProject: null, worktreeDialogInstanceId: null });
   },
   openFinishWorktree(tabId) {
     set({ finishWorktreeTab: tabId });
@@ -331,17 +361,19 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   closeFinishWorktree() {
     set({ finishWorktreeTab: null });
   },
-  openCapabilitiesViewer(scopeCwd, tabId, section = "mcp") {
+  openCapabilitiesViewer(scopeCwd, tabId, section = "mcp", instanceId = null) {
     set({
       capabilitiesViewer:
-        tabId === undefined ? { scopeCwd, section } : { scopeCwd, tabId, section },
+        tabId === undefined
+          ? { scopeCwd, section, instanceId }
+          : { scopeCwd, tabId, section, instanceId },
     });
   },
   closeCapabilitiesViewer() {
     set({ capabilitiesViewer: null });
   },
-	openProjectSettings(projectCwd) {
-		set({ projectSettings: { projectCwd } });
+	openProjectSettings(projectCwd, instanceId = null) {
+		set({ projectSettings: { projectCwd, instanceId } });
 	},
 	closeProjectSettings() {
 		set({ projectSettings: null });
@@ -366,15 +398,54 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
 });
 
+/** The session record for a tab: local projects first, then every joined instance's. */
 export function findRecord(
   state: BackendState | null,
   tabId: string,
 ): SessionSummary | undefined {
-  for (const project of state?.projects ?? []) {
+  if (state === null) return undefined;
+  for (const project of state.projects) {
     const record = project.sessions.find((session) => session.tabId === tabId);
     if (record) return record;
   }
+  for (const instance of state.remoteInstances) {
+    for (const project of instance.projects) {
+      const record = project.sessions.find((session) => session.tabId === tabId);
+      if (record) return record;
+    }
+  }
   return undefined;
+}
+
+/**
+ * The session record for a tab together with the instance that owns it
+ * (null = local). Search order is local, then remote instances in state
+ * order; a tabId duplicated across instances resolves to the first.
+ */
+export function findOwner(
+  state: BackendState | null,
+  tabId: string,
+): { instanceId: string | null; record: SessionSummary } | undefined {
+  if (state === null) return undefined;
+  for (const project of state.projects) {
+    const record = project.sessions.find((session) => session.tabId === tabId);
+    if (record) return { instanceId: null, record };
+  }
+  for (const instance of state.remoteInstances) {
+    for (const project of instance.projects) {
+      const record = project.sessions.find((session) => session.tabId === tabId);
+      if (record) return { instanceId: instance.id, record };
+    }
+  }
+  return undefined;
+}
+
+export function findInstance(
+  state: BackendState | null,
+  id: string | null,
+): RemoteInstanceSummary | undefined {
+  if (id === null) return undefined;
+  return state?.remoteInstances.find((instance) => instance.id === id);
 }
 
 /** The session's effective working tree: its worktree checkout, else the project root. */

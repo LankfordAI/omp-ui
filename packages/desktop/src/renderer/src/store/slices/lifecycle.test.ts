@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BackendState, LiveState, RemoteState, WorktreeSyncResult } from "@omp-ui/core/types";
 import {
   backendState as makeBackendState,
+  remoteInstance,
   rpcTabState,
   tabInfo,
 } from "../../test/fixtures";
@@ -375,6 +376,138 @@ describe("removeProject confirmation (issue #373)", () => {
     await h.useStore.getState().confirmLifecycleAction(id);
     expect(h.mockBackend.removeProject).not.toHaveBeenCalled();
     expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+});
+
+describe("remote instance project and session actions (issue #416)", () => {
+  const INSTANCE = "inst-a";
+  const REMOTE_TAB = "remote-1";
+  /** One remote instance whose only project is /p with one dormant session. */
+  const remoteState = (status: "joined" | "unreachable" = "joined"): BackendState => {
+    const local = h.stateWithRecord("sess-1", "dormant");
+    const group = local.projects[0]!;
+    return makeBackendState({
+      remoteInstances: [
+        remoteInstance({
+          id: INSTANCE,
+          nickname: "box-a",
+          status,
+          projects: [
+            { ...group, sessions: [{ ...group.sessions[0]!, tabId: REMOTE_TAB }] },
+          ],
+        }),
+      ],
+    });
+  };
+
+  it("routes project mutations to the owning instance through the proxy channels", async () => {
+    h.useStore.setState({ state: remoteState() });
+    await h.useStore.getState().addProject("/q", INSTANCE);
+    await h.useStore.getState().moveProject("/p", null, INSTANCE);
+    await h.useStore.getState().setProjectDefaultModel("/p", "m", INSTANCE);
+    expect(h.mockBackend.addProject).not.toHaveBeenCalled();
+    expect(h.mockBackend.moveProject).not.toHaveBeenCalled();
+    expect(h.mockBackend.setProjectDefaultModel).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest.mock.calls).toEqual([
+      [INSTANCE, "project:add", ["/q"]],
+      [INSTANCE, "project:move", ["/p", null]],
+      [INSTANCE, "project:setDefaultModel", ["/p", "m"]],
+    ]);
+  });
+
+  it("confirms removing a remote project against that instance's registry, not the local one", async () => {
+    h.useStore.setState({ state: remoteState() });
+    // /p is registered on the remote only: the local removal has nothing to confirm.
+    await h.useStore.getState().removeProject("/p");
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+
+    await h.useStore.getState().removeProject("/p", INSTANCE);
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    expect(confirmation).toMatchObject({
+      kind: "remove-project",
+      projectPath: "/p",
+      instanceId: INSTANCE,
+    });
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(h.mockBackend.removeProject).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:remove",
+      ["/p"],
+    );
+  });
+
+  it("removes a remote instance only on acceptance and only while it still exists", async () => {
+    h.useStore.setState({ state: remoteState() });
+    h.useStore.getState().confirmRemoveRemoteInstance(INSTANCE, "box-a");
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    expect(confirmation).toMatchObject({
+      kind: "remove-remote-instance",
+      instanceId: INSTANCE,
+      nickname: "box-a",
+    });
+    expect(h.mockBackend.removeRemoteInstance).not.toHaveBeenCalled();
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(h.mockBackend.removeRemoteInstance).toHaveBeenCalledWith(INSTANCE);
+
+    // Already gone (removed from another window): stages nothing.
+    h.useStore.setState({ state: makeBackendState() });
+    h.useStore.getState().confirmRemoveRemoteInstance(INSTANCE, "box-a");
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("opens a remote session as a tab owned by its instance, focused under the composite key", async () => {
+    h.useStore.setState({ state: remoteState() });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: REMOTE_TAB });
+    await h.useStore.getState().openSession(REMOTE_TAB);
+    // The resume is tab-scoped: the local backend routes it by resumeTabId.
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: REMOTE_TAB,
+      cols: 80,
+      rows: 24,
+    });
+    const st = h.useStore.getState();
+    expect(st.tabs).toEqual([
+      tabInfo({ tabId: REMOTE_TAB, mode: "rpc-ui", projectCwd: "/p", instanceId: INSTANCE }),
+    ]);
+    expect(st.focusedTabByProject).toEqual({ [`${INSTANCE}::/p`]: REMOTE_TAB });
+  });
+
+  it("refuses to resume a session whose instance is not joined and says which one", async () => {
+    h.useStore.setState({ state: remoteState("unreachable") });
+    await h.useStore.getState().openSession(REMOTE_TAB);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().tabs).toEqual([]);
+    expect(h.errorMessages()).toEqual([expect.stringContaining("box-a")]);
+  });
+
+  it("spawns a new remote session with that project's own advisor memory", async () => {
+    const state = remoteState();
+    state.remoteInstances[0]!.projects[0]!.project.lastAdvisor = true;
+    state.remoteInstances[0]!.projects[0]!.project.lastAdvisorModel = "remote/advisor";
+    h.useStore.setState({ state });
+    h.mockBackend.remoteInstanceRequest.mockImplementation(async (_id, channel) =>
+      channel === "session:spawn" ? { tabId: "fresh" } : { enabled: false, model: null },
+    );
+    await h.useStore.getState().newSession("/p", "rpc-ui", INSTANCE);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "advisor:defaults",
+      ["/p"],
+    );
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "session:spawn",
+      [expect.objectContaining({ projectCwd: "/p", advisor: true, advisorModel: "remote/advisor" })],
+    );
+    expect(h.useStore.getState().tabs).toEqual([
+      tabInfo({ tabId: "fresh", mode: "rpc-ui", projectCwd: "/p", instanceId: INSTANCE }),
+    ]);
+    expect(h.useStore.getState().advisorDefaults).toEqual({
+      [`${INSTANCE}::/p`]: { enabled: false, model: null },
+    });
   });
 });
 

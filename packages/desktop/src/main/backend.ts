@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -43,6 +44,7 @@ import {
   ProviderOAuth,
   ProviderKeys,
   Registry,
+  RemoteInstanceStore,
   resolveOmpBinary,
   resolveSessionLocation,
   writeOmpSetting,
@@ -67,6 +69,8 @@ import {
   type DiagnosticsExportResult,
   type DiagnosticsOptions,
   type RemoteBind,
+  type RemoteInstanceInput,
+  type RemoteInstancePatch,
   type RpcFrame,
   type SessionMode,
   type SpawnGateState,
@@ -83,6 +87,8 @@ import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@om
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
+import { RemoteInstanceManager } from "./remote-instance-manager";
+import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { PlanVerifier } from "./plan-verifier";
 import { readConfinedPlanFile } from "./plan-file";
@@ -108,6 +114,8 @@ export class MainBackend {
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
+  /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
+  private readonly remoteInstances: RemoteInstanceManager;
   private readonly projectOpener = new ProjectOpener();
   /**
    * Provider credentials for every omp launch. Constructed before any spawn
@@ -131,6 +139,8 @@ export class MainBackend {
   /** Main-process log directory; shared with index.ts when it passes one. */
   private readonly logDir: string;
   private readonly breadcrumbs: BreadcrumbSink;
+  /** This build's version as reported to joiners and the app updater alike. */
+  private readonly appVersion: string;
   /** One in-flight export at a time (issue #413). */
   private exportInFlight = false;
   /** Last delivered update statuses, for one-per-transition breadcrumbs. */
@@ -149,6 +159,8 @@ export class MainBackend {
       webRoot?: string;
       /** Where provider credentials are stored; defaults beside the registry. */
       providerKeysFile?: string;
+      /** Where joined-instance credentials are stored; defaults beside the registry. */
+      remoteInstancesFile?: string;
       /** Where worktree checkouts live; defaults beside the registry. */
       worktreesRoot?: string;
       /** Dev/test model pins forced on every spawn this instance makes. */
@@ -164,6 +176,7 @@ export class MainBackend {
     this.registryFile = registryFile;
     this.logDir = opts.logDir ?? path.join(path.dirname(registryFile), "logs");
     this.breadcrumbs = opts.breadcrumbs ?? NO_BREADCRUMBS;
+    this.appVersion = opts.appVersion ?? app.getVersion();
     this.registry = Registry.load(registryFile);
     // Applied in the constructor, not at boot: spawn() must never be reachable
     // with a keyless environment, and the login-shell capture (boot, async) only
@@ -241,7 +254,7 @@ export class MainBackend {
     this.appUpdater = new AppUpdater({
       win,
       enabled: opts.appUpdateEnabled ?? app.isPackaged,
-      currentVersion: opts.appVersion ?? app.getVersion(),
+      currentVersion: this.appVersion,
       env: opts.appUpdateEnv,
       downloadsDir: app.getPath("downloads"),
       getDismissed: () => this.registry.getSetting("dismissedAppUpdateVersion"),
@@ -287,6 +300,18 @@ export class MainBackend {
       }),
       setToken: (token) => this.registry.setSetting("remoteToken", token),
       send: (state) => this.send(CH.onRemoteState, state),
+    });
+    // A stable identity so a joiner can recognise this app as itself (issue #416).
+    if (this.registry.getSetting("instanceId") === "") this.registry.setSetting("instanceId", randomUUID());
+    this.remoteInstances = new RemoteInstanceManager({
+      store: new RemoteInstanceStore(
+        opts.remoteInstancesFile ?? path.join(path.dirname(registryFile), "remote-instances.json"),
+        electronKeyCipher(),
+      ),
+      localInstanceId: () => this.registry.getSetting("instanceId"),
+      localVersion: this.appVersion,
+      send: (ch, args) => this.send(ch, ...args),
+      broadcast: () => this.broadcast(),
     });
     // Startup hygiene (issue #262): a crash between `git worktree add` and
     // the registry write, or a lost registry, strands checkouts under the
@@ -408,7 +433,7 @@ export class MainBackend {
    * remote WebSocket server dispatches the same table (issue #37).
    */
   handlers(): ChannelTable {
-    return {
+    const table = {
       request: {
         [CH.getState]: () => this.buildState(),
         [CH.addProject]: async (raw: string) => {
@@ -772,6 +797,18 @@ export class MainBackend {
           this.registry.setSettings({ remotePasswordHash: "", remotePasswordSalt: "" });
           await this.remote.apply();
         },
+        // Remote instances (issue #416): identity for joiners; the manager owns the rest.
+        [CH.getInstanceIdentity]: () => ({
+          instanceId: this.registry.getSetting("instanceId"),
+          version: this.appVersion,
+        }),
+        [CH.addRemoteInstance]: (input: RemoteInstanceInput) => this.remoteInstances.add(input),
+        [CH.updateRemoteInstance]: (id: string, patch: RemoteInstancePatch) =>
+          this.remoteInstances.update(id, patch),
+        [CH.removeRemoteInstance]: (id: string) => this.remoteInstances.remove(id),
+        [CH.reconnectRemoteInstance]: (id: string) => this.remoteInstances.reconnect(id),
+        [CH.remoteInstanceRequest]: (instanceId: string, channel: string, args: unknown[]) =>
+          this.remoteInstances.request(instanceId, channel, args),
         [CH.previewDiagnosticsBundle]: async () =>
           previewDiagnosticsBundle(
             await this.diagnosticsOptions({ includeTranscripts: false, destinationPath: null }),
@@ -798,8 +835,12 @@ export class MainBackend {
           this.sessions.setViewedTab(clientId, tabId),
         [CH.reportStallCap]: (tabId: string, paused: boolean) =>
           this.notifier.stallCap(tabId, paused),
+        [CH.remoteInstanceNotify]: (instanceId: string, channel: string, args: unknown[]) =>
+          this.remoteInstances.notify(instanceId, channel, args),
       },
     } satisfies ChannelTable;
+    // Tab-scoped channels reach the instance that owns the tab; a local tab stays local.
+    return routeByTab(table, (id) => this.remoteInstances.ownerOf(id), this.remoteInstances);
   }
 
   registerIpc(): void {
@@ -888,11 +929,17 @@ export class MainBackend {
     return this.remote.apply();
   }
 
+  /** Dials every joined remote instance. Called once at launch, after startRemote(). */
+  startRemoteInstances(): void {
+    this.remoteInstances.start();
+  }
+
   killAll(): void {
     this.notifier.dispose();
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
     this.sessions.killAll();
+    this.remoteInstances.stop();
     void this.remote.stop();
   }
 
@@ -1031,6 +1078,7 @@ export class MainBackend {
       // Instance metadata, not registry state: identical on every read and
       // broadcast, for the desktop window and remote clients alike.
       spawnGate: this.spawnGateState,
+      remoteInstances: this.remoteInstances.summaries(),
     };
   }
 

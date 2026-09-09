@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ProjectGroup, ProjectOpenAvailability, SessionSummary } from "@omp-ui/core/types";
+import type { ProjectGroup, ProjectOpenAvailability, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
+import { defaultNickname } from "@omp-ui/core/remote-instances";
 import { backend } from "../backend";
+import { projectKey } from "../lib/project-key";
+import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../lib/remote-instance-status";
 import { useDismissal } from "../lib/use-dismissal";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
@@ -18,7 +21,7 @@ import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconPlus, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -112,10 +115,12 @@ interface FilteredGroup {
 type OpenTerminalMenu = (
   projectCwd: string,
   event: ReactMouseEvent<HTMLElement>,
+  instanceId: string | null,
 ) => void;
 
 interface TerminalMenuRequest {
   projectCwd: string;
+  instanceId: string | null;
   x: number;
   y: number;
   trigger: HTMLElement;
@@ -147,6 +152,12 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
 
 interface ProjectSectionProps {
   group: ProjectGroup;
+  /** The joined remote instance this project lives on; null for this app's own registry (issue #416). */
+  instanceId: string | null;
+  /** Whether host-local opens (VS Code / Files / Terminal) make sense: only for this app's own projects. */
+  hostLocalActions: boolean;
+  /** The owning instance is not joined: the group dims and every action is inert. */
+  disabled?: boolean;
   /** The project name matched the filter, so no tree is trimmed (issue #238). */
   projectHit: boolean;
   query: string;
@@ -166,6 +177,9 @@ interface ProjectSectionProps {
 
 function ProjectSection({
   group,
+  instanceId,
+  hostLocalActions,
+  disabled = false,
   projectHit,
   query,
   openTerminalMenu,
@@ -181,7 +195,7 @@ function ProjectSection({
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const moveSession = useStore((st) => st.moveSession);
-  const focusedTabId = useStore((st) => st.focusedTabByProject[group.project.path]);
+  const focusedTabId = useStore((st) => st.focusedTabByProject[projectKey(instanceId, group.project.path)]);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
@@ -213,7 +227,7 @@ function ProjectSection({
   // Issues #115/#120 machinery applied to session rows (#274). Trees reorder
   // as units: grips render on depth-0 rows only, and drops resolve against
   // tree roots.
-  const canReorderSessions = !compact && query.trim() === "" && group.sessions.length > 1;
+  const canReorderSessions = !compact && !disabled && query.trim() === "" && group.sessions.length > 1;
 
   // Roots in visible order — the units a session reorder moves between.
   const roots = useMemo(() => entries.filter((e) => e.depth === 0), [entries]);
@@ -238,6 +252,7 @@ function ProjectSection({
     <section
       className={cn(
         "pb-1",
+        disabled && "opacity-60",
         reorder.dragging && "opacity-60",
         // The insertion line uses neutral emphasis — ADR-0004 reserves the
         // signal accent for liveness/success.
@@ -344,6 +359,7 @@ function ProjectSection({
             // (issue #205); every action moves into the bottom sheet.
             <IconButton
               label={t("sidebar.project.actions", { name: project.name })}
+              disabled={disabled}
               onClick={() => onOpenActions?.()}
               className="shrink-0 self-center"
             >
@@ -354,26 +370,29 @@ function ProjectSection({
             // and the ProjectOpenControl error line can grow; the revealed cap is
             // the row itself, so nothing ever clips.
             <div className="proj-reveal proj-reveal-l compact-lifecycle-visible flex shrink-0 items-center gap-1 overflow-hidden opacity-0 max-w-0 transition-all duration-200 group-hover/proj:ml-1.5 group-hover/proj:max-w-full group-hover/proj:opacity-100 focus-within:ml-1.5 focus-within:max-w-full focus-within:opacity-100">
-              <ProjectOpenControl
-                project={project}
-                availability={openAvailability}
-                refreshAvailability={refreshAvailability}
-              />
-              <IconButton label={t("sidebar.project.settings", { name: project.name })} onClick={() => openProjectSettings(project.path)}>
+              {hostLocalActions && (
+                <ProjectOpenControl
+                  project={project}
+                  availability={openAvailability}
+                  refreshAvailability={refreshAvailability}
+                />
+              )}
+              <IconButton label={t("sidebar.project.settings", { name: project.name })} disabled={disabled} onClick={() => openProjectSettings(project.path, instanceId)}>
                 <IconTune />
               </IconButton>
-              <span onContextMenu={(event) => openTerminalMenu(project.path, event)}>
-                <IconButton label={t("sidebar.project.newSession")} onClick={() => { void newSession(project.path); onActivate(); }}>
+              <span onContextMenu={(event) => { if (!disabled) openTerminalMenu(project.path, event, instanceId); }}>
+                <IconButton label={t("sidebar.project.newSession")} disabled={disabled} onClick={() => { void newSession(project.path, undefined, instanceId); onActivate(); }}>
                   <IconPlus />
                 </IconButton>
               </span>
               <IconButton
                 label={t("sidebar.project.newSessionOptions", { name: project.name })}
-                onClick={(event) => openTerminalMenu(project.path, event)}
+                disabled={disabled}
+                onClick={(event) => openTerminalMenu(project.path, event, instanceId)}
               >
                 <Chevron open className="size-2.5" />
               </IconButton>
-              <IconButton label={t("sidebar.project.remove")} tone="rose" onClick={() => void removeProject(project.path)}>
+              <IconButton label={t("sidebar.project.remove")} tone="rose" disabled={disabled} onClick={() => void removeProject(project.path, instanceId)}>
                 <IconClose className="size-3.5" />
               </IconButton>
             </div>
@@ -475,32 +494,196 @@ function ProjectSection({
   );
 }
 
+/* ------------------------------------------------------- remote instance */
+
+/**
+ * One joined omp-ui app's registry as a sidebar group (issue #416): a header
+ * naming the instance and its connection status, then that host's projects as
+ * ordinary ProjectSections addressed to it. Every action inside runs on that
+ * host; host-local opens are never offered. While the instance is not joined
+ * the last-known projects stay visible but dimmed and inert — the sessions are
+ * still running over there, this app just cannot reach them right now.
+ */
+function RemoteInstanceSection({
+  instance,
+  query,
+  compact,
+  openTerminalMenu,
+  onActivate,
+  onOpenActions,
+  refreshAvailability,
+  onAnnounce,
+}: {
+  instance: RemoteInstanceSummary;
+  query: string;
+  compact: boolean;
+  openTerminalMenu: OpenTerminalMenu;
+  onActivate: () => void;
+  onOpenActions: (path: string) => void;
+  refreshAvailability: () => Promise<void>;
+  onAnnounce: (text: string) => void;
+}) {
+  const t = useT();
+  const openProjectPicker = useStore((st) => st.openProjectPicker);
+  const openSettings = useStore((st) => st.openSettings);
+  const reconnectRemoteInstance = useStore((st) => st.reconnectRemoteInstance);
+  const moveProject = useStore((st) => st.moveProject);
+  const [open, setOpen] = useState(true);
+  const joined = instance.status === "joined";
+
+  const filtered = useMemo(() => applyFilter(instance.projects, query), [instance.projects, query]);
+  const filteredPaths = useMemo(() => filtered.map((f) => f.group.project.path), [filtered]);
+  const canReorder = joined && !compact && query.trim() === "" && instance.projects.length > 1;
+  const reorder = useListReorder({
+    rows: filtered,
+    rootOf: (f) => f.group.project.path,
+    keys: filteredPaths,
+    nameOf: (path) => filtered.find((f) => f.group.project.path === path)?.group.project.name,
+    move: (path, before) => moveProject(path, before, instance.id),
+    enabled: canReorder,
+    announce: onAnnounce,
+  });
+
+  // A filter that matches nothing on this host hides the whole group: the
+  // local list's own "no matches" state already says the query missed.
+  if (query.trim() !== "" && filtered.length === 0) return null;
+
+  return (
+    <section data-remote-instance={instance.id} className="border-t border-line pb-1">
+      <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
+        <div className="group/inst flex items-start gap-1.5">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={t("remoteinstances.action.toggle", { nickname: instance.nickname })}
+            onClick={() => setOpen(!open)}
+            title={instance.url}
+            className="mt-px flex min-w-0 flex-1 items-start gap-1.5 text-left"
+          >
+            <span className="mt-1 shrink-0">
+              <Chevron open={open} className="text-ink-dim" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <Dot
+                  tone={remoteInstanceStatusTone(instance.status)}
+                  pulse={instance.status === "connecting"}
+                  title={t(remoteInstanceStatusKey(instance.status))}
+                />
+                <MiddleTruncate
+                  text={instance.nickname}
+                  className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
+                />
+              </span>
+              {(!joined || defaultNickname(instance.url) !== instance.nickname) && (
+                <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-faint">
+                  {joined
+                    ? instance.url
+                    : `${t(remoteInstanceStatusKey(instance.status))}${instance.error !== null ? ` — ${instance.error}` : ""}`}
+                </span>
+              )}
+            </span>
+          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {joined && (
+              <IconButton
+                label={t("remoteinstances.action.registerProject", { nickname: instance.nickname })}
+                onClick={() => { openProjectPicker(instance.id); onActivate(); }}
+              >
+                <IconPlus />
+              </IconButton>
+            )}
+            {!joined && instance.status !== "connecting" && (
+              <IconButton
+                label={t("remoteinstances.action.reconnect")}
+                onClick={() => void reconnectRemoteInstance(instance.id)}
+              >
+                <IconRefresh />
+              </IconButton>
+            )}
+            <IconButton
+              label={t("remoteinstances.action.settings")}
+              onClick={() => { openSettings("remote-instances"); onActivate(); }}
+            >
+              <IconTune />
+            </IconButton>
+          </div>
+        </div>
+      </div>
+      {open && instance.projects.length === 0 && joined && (
+        <Empty
+          title={t("remoteinstances.empty.projects", { nickname: instance.nickname })}
+          action={
+            <Button variant="ghost" onClick={() => { openProjectPicker(instance.id); onActivate(); }}>
+              {t("remoteinstances.action.registerProject", { nickname: instance.nickname })}
+            </Button>
+          }
+        />
+      )}
+      {open &&
+        filtered.map((f, index) => {
+          const path = f.group.project.path;
+          return (
+            <ProjectSection
+              key={path}
+              group={f.group}
+              instanceId={instance.id}
+              hostLocalActions={false}
+              disabled={!joined}
+              projectHit={f.projectHit}
+              query={query}
+              openTerminalMenu={openTerminalMenu}
+              compact={compact}
+              openAvailability={null}
+              refreshAvailability={refreshAvailability}
+              onActivate={onActivate}
+              onOpenActions={() => onOpenActions(path)}
+              reorder={reorder.bindRow(path, index)}
+              onAnnounce={onAnnounce}
+            />
+          );
+        })}
+    </section>
+  );
+}
+
 /* -------------------------------------------------------------- rail (thin) */
 
+interface RailEntry {
+  group: ProjectGroup;
+  instanceId: string | null;
+  /** The owning instance's nickname; null for this app's own projects. */
+  nickname: string | null;
+  disabled: boolean;
+}
+
 function CollapsedRail({
-  groups,
+  entries,
   openTerminalMenu,
 }: {
-  groups: ProjectGroup[];
+  entries: RailEntry[];
   openTerminalMenu: OpenTerminalMenu;
 }) {
   const t = useT();
   const newSession = useStore((st) => st.newSession);
   return (
     <div className="flex flex-col items-center gap-2 py-3">
-      {groups.map((g) => {
+      {entries.map(({ group: g, instanceId, nickname, disabled }) => {
         const live = liveCount(g.sessions);
+        const name = nickname === null ? g.project.name : `${nickname} · ${g.project.name}`;
         return (
           <button
-            key={g.project.path}
+            key={projectKey(instanceId, g.project.path)}
             type="button"
-            title={t("sidebar.project.railSummary", { name: g.project.name, sessions: g.sessions.length, live })}
-            onClick={() => void newSession(g.project.path)}
-            onContextMenu={(event) => openTerminalMenu(g.project.path, event)}
+            disabled={disabled}
+            title={t("sidebar.project.railSummary", { name, sessions: g.sessions.length, live })}
+            onClick={() => void newSession(g.project.path, undefined, instanceId)}
+            onContextMenu={(event) => { if (!disabled) openTerminalMenu(g.project.path, event, instanceId); }}
             className={cn(
               "animate-slide-in relative grid size-9 place-items-center rounded-md border",
               "border-line bg-raised font-display text-[11px] font-semibold text-ink-mid",
               "transition-colors duration-150 hover:border-line-strong hover:text-ink",
+              disabled && "opacity-60",
             )}
           >
             {initials(g.project.name)}
@@ -542,7 +725,8 @@ export function Sidebar() {
   const [resizing, setResizing] = useState(false);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
-  // The project whose compact actions sheet is open (issue #205), by path.
+  // The project whose compact actions sheet is open (issue #205), by
+  // projectKey so a same-path project on a remote instance is distinct (#416).
   // Sidebar-local UI state, like `terminalMenu` — never in the store.
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [openAvailability, setOpenAvailability] = useState<ProjectOpenAvailability | null>(null);
@@ -575,7 +759,7 @@ export function Sidebar() {
   /** Live-region text: the *result* of a reorder, never the request. */
   const [reorderNote, setReorderNote] = useState("");
 
-  const openTerminalMenu: OpenTerminalMenu = (projectCwd, event) => {
+  const openTerminalMenu: OpenTerminalMenu = (projectCwd, event, instanceId) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     const trigger =
@@ -587,6 +771,7 @@ export function Sidebar() {
     const rect = trigger.getBoundingClientRect();
     setTerminalMenu({
       projectCwd,
+      instanceId,
       x: keyboardPosition ? rect.left : event.clientX,
       y: keyboardPosition ? rect.bottom : event.clientY,
       trigger,
@@ -610,6 +795,7 @@ export function Sidebar() {
   });
 
   const groups = state?.projects ?? null;
+  const remoteInstances = state?.remoteInstances ?? null;
   const filtered = useMemo(() => applyFilter(groups ?? [], query), [groups, query]);
   // Paths in render order, used to resolve where a drop lands. Everything
   // recomputes from the live list, so a stale pointer resolves against the
@@ -635,15 +821,32 @@ export function Sidebar() {
   });
 
   // Derived from the live broadcast so a removed project can never leave a
-  // stale sheet: a lookup miss renders a closed Sheet (issue #205).
-  const actionsProject =
-    (compact && actionsFor !== null
-      ? groups?.find((g) => g.project.path === actionsFor)?.project
-      : undefined) ?? null;
+  // stale sheet: a lookup miss renders a closed Sheet (issue #205). The key
+  // resolves across the local list and every remote instance's list (#416).
+  const actions = useMemo(() => {
+    if (!compact || actionsFor === null) return null;
+    const local = groups?.find((g) => projectKey(null, g.project.path) === actionsFor);
+    if (local !== undefined) return { project: local.project, instanceId: null };
+    for (const instance of remoteInstances ?? []) {
+      const hit = instance.projects.find((g) => projectKey(instance.id, g.project.path) === actionsFor);
+      if (hit !== undefined) return { project: hit.project, instanceId: instance.id };
+    }
+    return null;
+  }, [compact, actionsFor, groups, remoteInstances]);
 
+  // Counts and the rail cover every project this app can see, local or joined.
+  const railEntries = useMemo<RailEntry[]>(() => {
+    const out: RailEntry[] = (groups ?? []).map((group) => ({ group, instanceId: null, nickname: null, disabled: false }));
+    for (const instance of remoteInstances ?? []) {
+      for (const group of instance.projects) {
+        out.push({ group, instanceId: instance.id, nickname: instance.nickname, disabled: instance.status !== "joined" });
+      }
+    }
+    return out;
+  }, [groups, remoteInstances]);
   const matchCount = filtered.reduce((n, f) => n + f.sessions.length, 0);
-  const totalSessions = (groups ?? []).reduce((n, g) => n + g.sessions.length, 0);
-  const totalLive = (groups ?? []).reduce((n, g) => n + liveCount(g.sessions), 0);
+  const totalSessions = railEntries.reduce((n, e) => n + e.group.sessions.length, 0);
+  const totalLive = railEntries.reduce((n, e) => n + liveCount(e.group.sessions), 0);
   const filtering = query.trim().length > 0;
   const displayedCollapsed = compact ? false : collapsed;
   const resolvedWidths = resolveDesktopPanelWidths({
@@ -670,7 +873,7 @@ export function Sidebar() {
 
       {displayedCollapsed ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {groups && <CollapsedRail groups={groups} openTerminalMenu={openTerminalMenu} />}
+          {groups && <CollapsedRail entries={railEntries} openTerminalMenu={openTerminalMenu} />}
         </div>
       ) : (
         <>
@@ -743,6 +946,8 @@ export function Sidebar() {
                 <ProjectSection
                   key={path}
                   group={f.group}
+                  instanceId={null}
+                  hostLocalActions
                   projectHit={f.projectHit}
                   query={query}
                   openTerminalMenu={openTerminalMenu}
@@ -750,12 +955,30 @@ export function Sidebar() {
                   openAvailability={openAvailability}
                   refreshAvailability={refreshAvailability}
                   onActivate={closeCompactSurface}
-                  onOpenActions={() => setActionsFor(path)}
+                  onOpenActions={() => setActionsFor(projectKey(null, path))}
                   reorder={reorder.bindRow(path, index)}
                   onAnnounce={setReorderNote}
                 />
               );
             })}
+            {/* Joined remote instances (issue #416), after this app's own
+                projects. `self` is this app seen through its own URL — no
+                group, nothing to show twice. */}
+            {(remoteInstances ?? [])
+              .filter((instance) => instance.status !== "self")
+              .map((instance) => (
+                <RemoteInstanceSection
+                  key={instance.id}
+                  instance={instance}
+                  query={query}
+                  compact={compact}
+                  openTerminalMenu={openTerminalMenu}
+                  onActivate={closeCompactSurface}
+                  onOpenActions={(path) => setActionsFor(projectKey(instance.id, path))}
+                  refreshAvailability={refreshAvailability}
+                  onAnnounce={setReorderNote}
+                />
+              ))}
           </div>
         </>
       )}
@@ -780,9 +1003,9 @@ export function Sidebar() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  const projectCwd = terminalMenu.projectCwd;
+                  const { projectCwd, instanceId } = terminalMenu;
                   setTerminalMenu(null);
-                  void newSession(projectCwd, "pty");
+                  void newSession(projectCwd, "pty", instanceId);
                 }}
                 className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
@@ -792,9 +1015,9 @@ export function Sidebar() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  const projectCwd = terminalMenu.projectCwd;
+                  const { projectCwd, instanceId } = terminalMenu;
                   setTerminalMenu(null);
-                  openWorktreeDialog(projectCwd);
+                  openWorktreeDialog(projectCwd, instanceId);
                 }}
                 className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
@@ -808,7 +1031,8 @@ export function Sidebar() {
           cleanup releases the scroll lock and restores focus (issue #205). */}
       {compact && (
         <ProjectActionsSheet
-          project={actionsProject}
+          project={actions?.project ?? null}
+          instanceId={actions?.instanceId ?? null}
           onClose={() => setActionsFor(null)}
           onActivate={closeCompactSurface}
         />

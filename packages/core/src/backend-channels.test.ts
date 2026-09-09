@@ -51,6 +51,7 @@ const spawnRequest: SpawnRequest = {
 
 const VALID_ARGS = {
   addProject: ["/project"],
+  addRemoteInstance: [{ url: "http://127.0.0.1:4678", nickname: "", secret: { kind: "token", value: "tok" } }],
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   browseDirectories: ["/project"],
   cancelProviderOAuth: [],
@@ -80,6 +81,7 @@ const VALID_ARGS = {
   getOmpUpdateState: [],
   getProjectOpenAvailability: [],
   getProviderOAuthState: [],
+  getInstanceIdentity: [],
   getRemoteState: [],
   getScopedCapabilities: [null],
   getSessionCapabilities: ["tab-1"],
@@ -106,12 +108,16 @@ const VALID_ARGS = {
   readProviderOAuth: [],
   readWebSearchProviders: [],
   regenerateRemoteToken: [],
+  reconnectRemoteInstance: ["inst-1"],
   releaseWorktree: ["tab-1", { keepBranch: false, mergedInto: null }],
   resolveMergeDestination: ["/project", "main"],
   createBranch: ["/project", "release/x", "main"],
   syncWorktree: ["tab-1", "main"],
   renameWorktreeBranch: ["tab-1", "feat/renamed"],
   removeProject: ["/project"],
+  removeRemoteInstance: ["inst-1"],
+  remoteInstanceNotify: ["inst-1", "pty:write", ["tab-1", "x"]],
+  remoteInstanceRequest: ["inst-1", "state:get", []],
   reportStallCap: ["tab-1", true],
   resolveFileMentions: ["/project", "@file"],
   restartForAppUpdate: [false],
@@ -164,6 +170,7 @@ const VALID_ARGS = {
   tabViewed: ["client-1", null],
   terminateSession: ["tab-1"],
   toggleFavorite: ["model"],
+  updateRemoteInstance: ["inst-1", { nickname: "box" }],
   writeOmpSetting: ["theme", { custom: true }],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useT } from "../lib/i18n";
+import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
 
 /**
@@ -101,6 +102,7 @@ export function remintForBase(branch: string, segment: string | null): string {
  */
 export function WorktreeBranchFields({
   projectCwd,
+  instanceId = null,
   branch,
   onBranchChange,
   baseRef,
@@ -113,6 +115,8 @@ export function WorktreeBranchFields({
   onBaseBranchChange,
 }: {
   projectCwd: string;
+  /** The remote instance owning the checkout (issue #416); null for this host. */
+  instanceId?: string | null;
   branch: string;
   onBranchChange: (value: string) => void;
   /** null = cut from the checkout's HEAD (the "current HEAD" option). */
@@ -150,14 +154,14 @@ export function WorktreeBranchFields({
     onBaseTouchedChange?.(true);
   };
 
-  const info = useStore((s) => s.branches[projectCwd]);
+  const info = useStore((s) => s.branches[projectKey(instanceId, projectCwd)]);
   const refreshBranches = useStore((s) => s.refreshBranches);
 
   // Populate the base list once on mount; the store dedupes concurrent
   // refreshes, so a warm project is cheap.
   useEffect(() => {
-    void refreshBranches(projectCwd);
-  }, [projectCwd, refreshBranches]);
+    void refreshBranches(projectCwd, undefined, instanceId);
+  }, [projectCwd, instanceId, refreshBranches]);
 
   useEffect(() => {
     if (touched) return;

@@ -199,7 +199,7 @@ describe("ProjectPicker", () => {
     await act(async () => accept!.click());
     expect(backendMock.addProject).toHaveBeenCalledWith(HOME);
     expect(useStore.getState().projectPickerOpen).toBe(false);
-    expect(newSession).toHaveBeenCalledWith(HOME);
+    expect(newSession).toHaveBeenCalledWith(HOME, undefined, null);
   });
 
   it("narrows through a new browse call on every keystroke", async () => {

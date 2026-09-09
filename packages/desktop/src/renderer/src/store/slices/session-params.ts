@@ -9,8 +9,9 @@ import {
   goalMessage,
   type GoalCommandRequest,
 } from "@omp-ui/core/goal";
-import { backend } from "../../backend";
+import { backend, backendFor } from "../../backend";
 import { t } from "../../lib/i18n";
+import { projectKey } from "../../lib/project-key";
 import { arrField, boolField, field, strField } from "../../lib/fields";
 import {
   parseModelInfo,
@@ -147,11 +148,10 @@ const localCommands: readonly LocalCommand[] = [
     // record is loaded yet.
     match: /^\/mcp(?:\s+list)?$/,
     run(tabId, get) {
-      const scopeCwd =
-        sessionCwd(findRecord(get().state, tabId)) ??
-        get().tabs.find((tab) => tab.tabId === tabId)?.projectCwd;
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      const scopeCwd = sessionCwd(findRecord(get().state, tabId)) ?? tab?.projectCwd;
       if (scopeCwd === undefined) return false;
-      get().openCapabilitiesViewer(scopeCwd, tabId, "mcp");
+      get().openCapabilitiesViewer(scopeCwd, tabId, "mcp", tab?.instanceId ?? null);
     },
   },
 ];
@@ -260,12 +260,16 @@ export function createSessionParamsSlice(
     );
   };
 
-  const loadAdvisorDefaults = async (projectCwd: string): Promise<void> => {
-    if (get().advisorDefaults[projectCwd]) return;
+  const loadAdvisorDefaults = async (
+    projectCwd: string,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    const key = projectKey(instanceId, projectCwd);
+    if (get().advisorDefaults[key]) return;
     try {
-      const defaults = await backend.getAdvisorDefaults(projectCwd);
+      const defaults = await backendFor(instanceId).getAdvisorDefaults(projectCwd);
       set((s) => ({
-        advisorDefaults: { ...s.advisorDefaults, [projectCwd]: defaults },
+        advisorDefaults: { ...s.advisorDefaults, [key]: defaults },
       }));
     } catch {
       // A missing or unreadable omp config is not an error worth a dialog —

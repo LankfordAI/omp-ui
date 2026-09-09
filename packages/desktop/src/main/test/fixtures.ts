@@ -38,6 +38,7 @@ interface RegistrySettings {
   remoteToken: string;
   remotePasswordHash: string;
   remotePasswordSalt: string;
+  instanceId: string;
 }
 
 interface RegistrySeed {
@@ -107,6 +108,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     remoteToken: "",
     remotePasswordHash: "",
     remotePasswordSalt: "",
+    instanceId: "",
     ...patch.settings,
   };
   settings.modelFavorites = [...settings.modelFavorites];

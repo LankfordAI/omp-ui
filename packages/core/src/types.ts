@@ -370,6 +370,8 @@ export interface BackendState {
   dismissedOmpUpdateVersion: string | null;
   /** This instance's dev/test spawn selectors; not persisted, not a pin. */
   spawnGate: SpawnGateState;
+  /** Joined remote instances and their registries (issue #416); never persisted here, never carries a credential. */
+  remoteInstances: RemoteInstanceSummary[];
 }
 
 /**
@@ -822,6 +824,53 @@ export interface RemoteState {
   /** True when out/web is absent, so the server answers 503 with a build hint. */
   webBundleMissing: boolean;
   error: string | null;
+}
+
+/** Where a joined remote instance's connection stands (issue #416). */
+export type RemoteInstanceStatus =
+  | "connecting"
+  | "joined"
+  | "unreachable"
+  | "needs-sign-in"
+  | "self"
+  | "incompatible";
+
+/**
+ * One joined omp-ui instance as the renderer sees it. Carries the remote's own
+ * `projects` verbatim (its owned sessions, live and hibernated); never its
+ * credential, never its `remoteInstances`.
+ */
+export interface RemoteInstanceSummary {
+  id: string;
+  nickname: string;
+  /** Normalized origin, e.g. `http://box-a.tailnet:4677`. */
+  url: string;
+  status: RemoteInstanceStatus;
+  /** Last connection or handshake failure; null while healthy. */
+  error: string | null;
+  /** The remote's omp-ui version from `instance:identity`; null until joined. */
+  version: string | null;
+  projects: ProjectGroup[];
+}
+
+/** Answer to `instance:identity`; lets a joiner detect itself and version skew. */
+export interface InstanceIdentity {
+  instanceId: string;
+  version: string;
+}
+
+/** What the user types to join or edit an instance. The secret never comes back. */
+export interface RemoteInstanceInput {
+  url: string;
+  /** "" → default nickname (URL host). */
+  nickname: string;
+  secret: { kind: "password"; value: string } | { kind: "token"; value: string };
+}
+
+export interface RemoteInstancePatch {
+  nickname?: string;
+  url?: string;
+  secret?: RemoteInstanceInput["secret"];
 }
 
 /**

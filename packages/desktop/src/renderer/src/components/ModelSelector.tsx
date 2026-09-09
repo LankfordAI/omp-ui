@@ -4,7 +4,7 @@ import { filterModelsForTab } from "../lib/model-filter";
 import { t, useT } from "../lib/i18n";
 import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { findInstance, findOwner, useStore } from "../store";
 import { CAPSULE_SEGMENT, Chevron, Chip, Dot, IconButton, Label, Modal, StarIcon } from "./ui";
 import { ModelRail } from "./ModelRail";
 import { usePaletteNav } from "./palette";
@@ -51,13 +51,16 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   // The project pin for the composer footer (issue #257): undefined when the
   // tab has no registered project (no footer), null when the project simply
   // has no pin yet ("not set").
+  // A remote session's pin lives in its instance's registry (issue #416).
   const projectPin = useStore((s) => {
-    const rec = findRecord(s.state, tabId);
-    if (rec === undefined) return undefined;
-    const group = s.state?.projects.find((g) => g.project.path === rec.projectCwd);
+    const owner = findOwner(s.state, tabId);
+    if (owner === undefined) return undefined;
+    const groups = owner.instanceId === null ? s.state?.projects : findInstance(s.state, owner.instanceId)?.projects;
+    const group = groups?.find((g) => g.project.path === owner.record.projectCwd);
     return group === undefined ? null : (group.project.defaultModel ?? null);
   });
-  const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd ?? null);
+  const projectCwd = useStore((s) => findOwner(s.state, tabId)?.record.projectCwd ?? null);
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const [open, setOpen] = useState(false);
   // Keep one user-selected main model for the duration of a turn. Internal
   // staged-model changes still use the store method directly.
@@ -116,7 +119,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
           onPinChange={
             projectCwd === null
               ? undefined
-              : (selector) => void setProjectDefaultModel(projectCwd, selector)
+              : (selector) => void setProjectDefaultModel(projectCwd, selector, instanceId)
           }
         />
       )}

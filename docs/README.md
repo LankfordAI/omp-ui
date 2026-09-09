@@ -6,7 +6,7 @@ This documentation covers installing, using, configuring, troubleshooting, devel
 
 - **First-time user.** Start with [Getting started](getting-started.md), then use the [User guide](user-guide.md) to learn the daily session workflow. Open [Settings](settings.md) when you need to change defaults or credentials.
 - **Daily user.** Keep the [User guide](user-guide.md) as the main operating reference. Use [Settings](settings.md) for app preferences and [Troubleshooting](troubleshooting.md) when expected behavior breaks.
-- **Remote user.** Follow [Remote access](remote-access.md) to expose and secure the browser client, then read the [User guide](user-guide.md) for the session controls shared with the desktop app. Use [Troubleshooting](troubleshooting.md) for connection problems.
+- **Remote user.** Follow [Remote access](remote-access.md) to expose and secure the browser client, then read the [User guide](user-guide.md) for the session controls shared with the desktop app. Use [Troubleshooting](troubleshooting.md) for connection problems. To drive another omp-ui app's sessions from this one's sidebar, follow [Remote instances](remote-instances.md).
 - **Contributor.** Read [Development](development.md) for the local workflow, [Architecture](architecture.md) for package boundaries and runtime flow, and the [contributor vocabulary](../CONTEXT.md) before naming concepts in code, issues, or commits. Consult the [architecture decision records](adr/) for the reasons behind established constraints.
 - **Release maintainer.** Start with [Releases](releases.md), then use [Development](development.md) for build commands and the [release-related decision records](adr/) for platform policy and packaging constraints.
 
@@ -16,6 +16,7 @@ This documentation covers installing, using, configuring, troubleshooting, devel
 - [User guide](user-guide.md) explains projects, owned sessions, tabs, session controls, plan review, worktree sessions, and the inspector rail.
 - [Settings](settings.md) covers app preferences, provider credentials, the managed omp binary, memory, themes, and session defaults.
 - [Remote access](remote-access.md) configures the browser client, authentication, network binding, and HTTPS expectations.
+- [Remote instances](remote-instances.md) joins other omp-ui apps as remote instances: their projects and sessions in this sidebar, what crosses and what stays host-local, reconnection, and credential storage.
 - [Troubleshooting](troubleshooting.md) provides symptom-based checks for installation, startup, sessions, providers, updates, and remote access.
 - [Architecture](architecture.md) describes the core, desktop, server, and renderer boundaries and their data flow.
 - [Development](development.md) covers prerequisites, local commands, repository conventions, and validation workflows.

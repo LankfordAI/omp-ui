@@ -1022,6 +1022,7 @@ describe("Settings page footer dispatch (issue #300)", () => {
     { page: "appearance", marker: null },
     { page: "updates", marker: "Downloads always need a click." },
     { page: "remote", marker: "Changing anything here restarts only the server" },
+    { page: "remote-instances", marker: "A joined instance grants this app full control" },
     { page: "providers", marker: "omp reads credentials from the environment" },
     { page: "memory", marker: "Memory configuration applies to sessions started after the change" },
     { page: "omp", marker: "omp binds model roles and the advisor at process start" },

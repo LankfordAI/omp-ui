@@ -7,7 +7,7 @@ import type {
   SessionCapabilitiesResult,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
-import { backend } from "../../backend";
+import { backend, backendFor } from "../../backend";
 import { formatDuration } from "../../lib/duration";
 import { arrField } from "../../lib/fields";
 import { randomId } from "../../lib/random-id";
@@ -36,7 +36,7 @@ import {
   type StoreMachinery,
   type Watchers,
 } from "./shared";
-import { findRecord } from "./view";
+import { findOwner, findRecord } from "./view";
 import type {
   CapabilitiesToolPending,
   RpcTabState,
@@ -745,13 +745,16 @@ export function createRpcCommandSlice(
    * offers a rename.
    */
   const nameWorktreeBranch = (tabId: string, prompt: string): void => {
-    const record = findRecord(get().state, tabId);
+    const owner = findOwner(get().state, tabId);
+    const record = owner?.record;
     const wt = record?.worktree;
-    if (!record || !wt || !PLACEHOLDER_BRANCH_RE.test(wt.branch)) return;
+    if (!owner || !record || !wt || !PLACEHOLDER_BRANCH_RE.test(wt.branch)) return;
     const { projectCwd, sessionId } = record;
     const placeholder = wt.branch;
     void (async () => {
-      const name = await backend.suggestBranchName(projectCwd, prompt).catch(() => null);
+      const name = await backendFor(owner.instanceId)
+        .suggestBranchName(projectCwd, prompt)
+        .catch(() => null);
       if (name === null) return;
       const now = findRecord(get().state, tabId);
       // Deleted, released, renamed by the user, or a /new since: leave it.
@@ -774,9 +777,9 @@ export function createRpcCommandSlice(
     const prompt = tab.initialPrompt;
     // Latch before the first await so a second agent_end can't double-rename.
     m.patchRpc(tabId, { hasRenamed: true });
-    const record = findRecord(get().state, tabId);
-    const projectCwd = record?.projectCwd;
-    const sessionId = record?.sessionId ?? null;
+    const owner = findOwner(get().state, tabId);
+    const projectCwd = owner?.record.projectCwd;
+    const sessionId = owner?.record.sessionId ?? null;
     const derived = generateTitleFromPrompt(prompt);
     // Phase 1: the derived name goes out immediately, so the session is
     // named before any model round trip — no cold spawn, no provider wait.
@@ -804,7 +807,7 @@ export function createRpcCommandSlice(
     // unnamed for its whole duration.
     if (!projectCwd) return;
     void (async () => {
-      const modelTitle = await backend
+      const modelTitle = await backendFor(owner?.instanceId ?? null)
         .generateTitle(projectCwd, prompt)
         .catch((err: unknown) => {
           console.warn("[session-rename] model titling failed:", err);

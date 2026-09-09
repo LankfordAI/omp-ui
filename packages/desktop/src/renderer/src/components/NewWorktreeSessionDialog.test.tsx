@@ -62,7 +62,7 @@ function render(): void {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root!.render(<NewWorktreeSessionDialog projectCwd="/p" />));
+  act(() => root!.render(<NewWorktreeSessionDialog projectCwd="/p" instanceId={null} />));
 }
 
 const branchInput = (): HTMLInputElement => {

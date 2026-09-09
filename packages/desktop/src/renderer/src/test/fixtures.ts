@@ -1,4 +1,4 @@
-import type { BackendState } from "@omp-ui/core/types";
+import type { BackendState, RemoteInstanceSummary } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import type { RpcTabState, TabInfo } from "../store";
 
@@ -27,6 +27,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
     spawnGate: { model: null, advisorModel: null },
+    remoteInstances: [],
     ...patch,
   };
 }
@@ -37,6 +38,22 @@ export function tabInfo(patch: Partial<TabInfo> = {}): TabInfo {
     mode: "rpc-ui",
     projectCwd: "/project",
     hidden: false,
+    instanceId: null,
+    ...patch,
+  };
+}
+
+export function remoteInstance(
+  patch: Partial<RemoteInstanceSummary> = {},
+): RemoteInstanceSummary {
+  return {
+    id: "inst-1",
+    nickname: "box-a",
+    url: "http://box-a:4677",
+    status: "joined",
+    error: null,
+    version: "1.0.0",
+    projects: [],
     ...patch,
   };
 }

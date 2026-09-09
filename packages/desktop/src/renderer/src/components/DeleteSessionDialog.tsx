@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { MergeBackStatus } from "@omp-ui/core/types";
 import type { DeleteConfirmation } from "../store";
-import { findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
+import { findOwner, findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
+import { projectKey } from "../lib/project-key";
 import { Button, ConfirmDialog } from "./ui";
 import { shortBase } from "../lib/format";
 import { useT } from "../lib/i18n";
@@ -30,20 +31,19 @@ export function DeleteSessionDialog({
   const resolveMergeDestination = useStore((s) => s.resolveMergeDestination);
   const readMergeBackStatus = useStore((s) => s.readMergeBackStatus);
   const mergeWorktreeBranch = useStore((s) => s.mergeWorktreeBranch);
-  const defaultBranch = useStore(
-    (s) =>
-      findRecord(s.state, confirmation.tabId) === undefined
-        ? null
-        : (s.branches[findRecord(s.state, confirmation.tabId)!.projectCwd]?.defaultBranch ?? null),
+  // The session's owning instance (issue #416): its branches and merges live there.
+  const instanceId = useStore((s) => findOwner(s.state, confirmation.tabId)?.instanceId ?? null);
+  const projectCwd = useStore((s) => findRecord(s.state, confirmation.tabId)?.projectCwd);
+  const defaultBranch = useStore((s) =>
+    projectCwd === undefined
+      ? null
+      : (s.branches[projectKey(instanceId, projectCwd)]?.defaultBranch ?? null),
   );
 
   const branch = confirmation.worktreeBranch;
   const base = confirmation.worktreeBase;
   const worktreePath = confirmation.worktreePath;
   const n = confirmation.cascade.length;
-  const projectCwd = useStore(
-    (s) => findRecord(s.state, confirmation.tabId)?.projectCwd,
-  );
   // A session mid-turn in the project checkout: merging moves the destination
   // branch out from under it. The deleted session's own tab is excluded.
   const busyTitle = useStore((s) =>
@@ -59,7 +59,7 @@ export function DeleteSessionDialog({
     void (async () => {
       const destination =
         base !== null
-          ? ((await resolveMergeDestination(projectCwd, base).catch(() => null))?.destination ??
+          ? ((await resolveMergeDestination(projectCwd, base, instanceId).catch(() => null))?.destination ??
             // Unresolvable base: still read it by name so the row explains
             // itself via destinationExists false ("the base no longer resolves").
             base)
@@ -72,6 +72,7 @@ export function DeleteSessionDialog({
           branch,
           destination,
           worktreePath,
+          instanceId,
         );
         if (!cancelled) setMergeStatus(status);
       } catch {
@@ -82,7 +83,7 @@ export function DeleteSessionDialog({
     return () => {
       cancelled = true;
     };
-  }, [branch, base, worktreePath, projectCwd, defaultBranch, resolveMergeDestination, readMergeBackStatus]);
+  }, [branch, base, worktreePath, projectCwd, instanceId, defaultBranch, resolveMergeDestination, readMergeBackStatus]);
 
   const mergeRow = branch !== null && projectCwd !== undefined;
   const destination =
@@ -126,7 +127,7 @@ export function DeleteSessionDialog({
       setMerging(true);
       setMergeError(null);
       try {
-        const result = await mergeWorktreeBranch(projectCwd, branch, mergeStatus.destination);
+        const result = await mergeWorktreeBranch(projectCwd, branch, mergeStatus.destination, instanceId);
         if (result.kind === "conflicts") {
           setMergeError(
             result.conflictsLeftIn === "project"

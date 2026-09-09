@@ -9,7 +9,7 @@ import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
 import { useT } from "../lib/i18n";
 import type { ContextUsage } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -623,6 +623,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const stats = useStore((s) => s.rpc[tabId]?.stats);
   const extensionStatus = useStore((s) => s.rpc[tabId]?.extensionStatus);
   const title = useStore((s) => findRecord(s.state, tabId)?.title);
+  // The owning remote instance (issue #416): the nickname chip, and the target
+  // of every project-scoped action this HUD fires (new session, capabilities).
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const instance = useStore((s) => (instanceId === null ? undefined : findInstance(s.state, instanceId)));
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const exportHtml = useStore((s) => s.exportHtml);
@@ -720,6 +724,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
   );
+  // Which host this session lives on (issue #416): quiet mono chip, the URL in
+  // the tooltip. Local sessions carry no chip — most sessions are local, and a
+  // "this app" chip on every one would say nothing.
+  const instanceChip = instance !== undefined && (
+    <Chip mono title={instance.url} className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
+      {instance.nickname}
+    </Chip>
+  );
 
 
   const refresh = () => {
@@ -734,6 +746,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           <LivenessBadge compacting={session?.isCompacting === true} stallMs={streamStallMs} face={face} label={label} short />
+          {instanceChip}
           {agentModeChip}
           {goalChip}
           <span className="min-w-0 flex-1" />
@@ -762,9 +775,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
-                <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp")} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
+                <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
-                <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
+                <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
                 <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               </div>
@@ -792,9 +805,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
         title={t("hud.status.rpcStatus", { status: label })}
       />
 
+      {instanceChip}
       {agentModeChip}
       {goalChip}
-      {worktree && projectCwd !== undefined && (
+      {/* Host-local opens live in the chip's popover, so a remote session gets
+          no chip (issue #416); the worktree itself still shows in the sheet. */}
+      {worktree && projectCwd !== undefined && instanceId === null && (
         <WorktreeChip
           worktree={worktree}
           tabId={tabId}
@@ -870,7 +886,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <span className="relative shrink-0">
           <IconButton
             label={mcpFailureCount > 0 ? t("hud.actions.capabilitiesFailed", { count: mcpFailureCount }) : t("hud.actions.capabilities")}
-            onClick={() => openCapabilitiesViewer(null, undefined, "mcp")}
+            onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)}
           >
             <IconMcp />
           </IconButton>
@@ -889,7 +905,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           label={t("hud.actions.newTitle")}
           disabled={projectCwd === undefined}
           onClick={() => {
-            if (projectCwd !== undefined) void newSession(projectCwd);
+            if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId);
           }}
         >
           <IconNew />

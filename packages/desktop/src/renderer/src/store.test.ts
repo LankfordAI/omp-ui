@@ -4,10 +4,12 @@ import type {
   LiveState,
   OmpSettingsSnapshot,
   RemoteState,
+  SessionSummary,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import {
   backendState as makeBackendState,
+  remoteInstance,
   rpcTabState,
   tabInfo,
 } from "./test/fixtures";
@@ -526,5 +528,128 @@ describe("notification click focus (issue #271)", () => {
       cols: 80,
       rows: 24,
     });
+  });
+});
+
+describe("remote instance tabs (issue #416)", () => {
+  const INSTANCE = "inst-a";
+  const RPC = "remote-rpc";
+  const PTY = "remote-pty";
+  const record = (tabId: string, mode: "rpc-ui" | "pty"): SessionSummary => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--p--${tabId}`,
+    projectCwd: "/p",
+    launchedAt: "t",
+    mode,
+    worktree: null,
+    planImplementationSource: null,
+    agentMode: "build",
+    compactionMethod: null,
+    model: null,
+    thinkingLevel: null,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: null,
+    cachedModified: null,
+    title: "New session",
+    status: null,
+    live: "live",
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+  });
+  const withInstance = (
+    status: "joined" | "unreachable",
+    sessions: SessionSummary[],
+  ): BackendState =>
+    makeBackendState({
+      remoteInstances: [
+        remoteInstance({
+          id: INSTANCE,
+          status,
+          projects: [
+            {
+              project: {
+                path: "/p",
+                name: "p",
+                addedAt: "t",
+                lastModel: null,
+                lastThinkingLevel: null,
+                lastAdvisor: null,
+                lastAdvisorModel: null,
+                defaultModel: null,
+                defaultAdvisorModel: null,
+              },
+              sessions,
+            },
+          ],
+        }),
+      ],
+    });
+
+  // A fresh module per test: init() latches per evaluation, and the earlier
+  // suites already own the shared module's onStateChanged capture.
+  async function seeded(initial: BackendState) {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    h.backendState = initial;
+    fresh.setState({
+      state: initial,
+      tabs: [
+        tabInfo({ tabId: RPC, mode: "rpc-ui", projectCwd: "/p", instanceId: INSTANCE }),
+        tabInfo({ tabId: PTY, mode: "pty", projectCwd: "/p", instanceId: INSTANCE }),
+      ],
+      rpc: { [RPC]: rpcTabState({ status: "ready" }) },
+      activeTabId: RPC,
+      focusedTabByProject: { [`${INSTANCE}::/p`]: RPC },
+    });
+    const bootRpcTab = vi.fn(async () => {});
+    fresh.setState({ bootRpcTab });
+    await fresh.getState().init();
+    const onState = h.mockBackend.onStateChanged.mock.calls[0]![0] as (s: BackendState) => void;
+    return { fresh, onState, bootRpcTab };
+  }
+
+  it("a rejoin re-boots rpc tabs, redraws pty tabs, and drops a tab the instance no longer lists", async () => {
+    const both = [record(RPC, "rpc-ui"), record(PTY, "pty")];
+    const { fresh, onState, bootRpcTab } = await seeded(withInstance("unreachable", both));
+    // While unreachable nothing moves: the tabs stay mounted as they were.
+    onState(withInstance("unreachable", both));
+    expect(bootRpcTab).not.toHaveBeenCalled();
+    expect(fresh.getState().ptyRedrawRevision[PTY]).toBeUndefined();
+
+    // Rejoined, and the remote deleted the pty session while it was away.
+    onState(withInstance("joined", [record(RPC, "rpc-ui")]));
+    expect(bootRpcTab).toHaveBeenCalledWith(RPC);
+    expect(fresh.getState().tabs.map((t) => t.tabId)).toEqual([RPC]);
+    expect(fresh.getState().ptyRedrawRevision[PTY]).toBeUndefined();
+
+    // A second rejoin with both sessions present bumps the pty tab.
+    fresh.setState({
+      tabs: [
+        ...fresh.getState().tabs,
+        tabInfo({ tabId: PTY, mode: "pty", projectCwd: "/p", instanceId: INSTANCE }),
+      ],
+    });
+    onState(withInstance("unreachable", both));
+    onState(withInstance("joined", both));
+    expect(fresh.getState().ptyRedrawRevision[PTY]).toBe(1);
+    expect(bootRpcTab).toHaveBeenCalledTimes(2);
+    // Steady state: another joined broadcast is not a rejoin.
+    onState(withInstance("joined", both));
+    expect(fresh.getState().ptyRedrawRevision[PTY]).toBe(1);
+    expect(bootRpcTab).toHaveBeenCalledTimes(2);
+  });
+
+  it("removing the instance drops every tab it owned, including focus and rpc state", async () => {
+    const both = [record(RPC, "rpc-ui"), record(PTY, "pty")];
+    const { fresh, onState } = await seeded(withInstance("joined", both));
+    onState(makeBackendState());
+    const st = fresh.getState();
+    expect(st.tabs).toEqual([]);
+    expect(st.activeTabId).toBeNull();
+    expect(st.rpc[RPC]).toBeUndefined();
+    expect(st.focusedTabByProject).toEqual({});
   });
 });

@@ -2,8 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OmpUpdateState, SessionSummary } from "@omp-ui/core/types";
-import { backendState } from "../test/fixtures";
+import type { OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
+import { backendState, remoteInstance } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.setPointerCapture = vi.fn();
@@ -345,11 +345,11 @@ describe("Sidebar session creation", () => {
     expect(document.body.querySelector('[title="switch to native mode"]')).toBeNull();
 
     act(() => button("new session").click());
-    expect(newSession).toHaveBeenLastCalledWith(projectPath);
+    expect(newSession).toHaveBeenLastCalledWith(projectPath, undefined, null);
 
     act(() => useStore.getState().toggleSidebarCollapsed());
     act(() => collapsedProjectButton().click());
-    expect(newSession).toHaveBeenNthCalledWith(2, projectPath);
+    expect(newSession).toHaveBeenNthCalledWith(2, projectPath, undefined, null);
   });
 
   it("opens and selects the terminal action from the expanded project trigger", () => {
@@ -364,7 +364,7 @@ describe("Sidebar session creation", () => {
 
     act(() => item.click());
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
+    expect(newSession).toHaveBeenCalledWith(projectPath, "pty", null);
   });
 
   it("opens and selects the same terminal action from the collapsed project trigger", () => {
@@ -379,7 +379,7 @@ describe("Sidebar session creation", () => {
     expect(document.activeElement).toBe(item);
 
     act(() => item.click());
-    expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
+    expect(newSession).toHaveBeenCalledWith(projectPath, "pty", null);
   });
 
   it("restores trigger focus on Escape and dismisses outside without spawning", () => {
@@ -455,7 +455,7 @@ describe("Sidebar session creation", () => {
     expect(sheet!.textContent).toContain(projectPath);
     const terminal = [...sheet!.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === "New terminal session")!;
     act(() => terminal.click());
-    expect(newSession).toHaveBeenCalledWith(projectPath, "pty");
+    expect(newSession).toHaveBeenCalledWith(projectPath, "pty", null);
     expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
     expect(useStore.getState().compactSurface).toBeNull();
   });
@@ -645,7 +645,7 @@ describe("Sidebar project open control (issue #169)", () => {
     act(() => button("project settings for Project One").click());
     // The dialog mounts in App, not in this tree — the store flag is the
     // contract the header commits to.
-    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath });
+    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath, instanceId: null });
   });
 
   it("replaces the compact actions sheet with project settings", () => {
@@ -670,7 +670,7 @@ describe("Sidebar project open control (issue #169)", () => {
     act(() => settings.click());
 
     expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
-    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath });
+    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath, instanceId: null });
   });
   it("layers the actions sheet over the sessions sheet and isolates Escape (issue #205)", () => {
     Object.defineProperty(window, "matchMedia", {
@@ -959,7 +959,7 @@ describe("Compact project actions sheet (issue #205)", () => {
     act(() => button("actions for Project One").click());
     await act(async () => sheetRow("Project settings…").click());
     expect(actionsSheet()).toBeNull();
-    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath });
+    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath, instanceId: null });
   });
 });
 
@@ -1925,5 +1925,86 @@ describe("Sidebar plan handoffs (issue #238)", () => {
         candidate.textContent?.startsWith("show ") && candidate.textContent !== "show less",
     );
     expect(showMore).toBeUndefined();
+  });
+});
+
+describe("Sidebar remote instances (issue #416)", () => {
+  const remotePath = "/projects/remote";
+  const remoteGroup = {
+    project: { ...state.projects[0]!.project, path: remotePath, name: "Remote Project" },
+    sessions: state.projects[0]!.sessions.map((s) => ({
+      ...s,
+      tabId: `remote-${s.tabId}`,
+      projectCwd: remotePath,
+      title: `Remote ${s.title}`,
+    })),
+  };
+  const withInstance = (patch: Partial<RemoteInstanceSummary>) =>
+    backendState({
+      projects: state.projects,
+      remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", projects: [remoteGroup], ...patch })],
+    });
+
+  function remoteSection(): HTMLElement {
+    const section = document.body.querySelector<HTMLElement>('[data-remote-instance="inst-a"]');
+    if (section === null) throw new Error("remote instance section not found");
+    return section;
+  }
+
+  it("renders a joined instance's group with nickname, status, and routed actions", () => {
+    useStore.setState({ state: withInstance({}) });
+    renderSidebar();
+    const section = remoteSection();
+    expect(section.textContent).toContain("box-a");
+    expect(section.textContent).toContain("Remote Project");
+    expect(section.querySelector('[title="joined"]')).not.toBeNull();
+    // Register project is offered only while joined; Reconnect is not.
+    expect(section.querySelector('button[aria-label="Register project on box-a"]')).not.toBeNull();
+    expect(section.querySelector('button[aria-label="Reconnect"]')).toBeNull();
+
+    act(() => section.querySelector<HTMLButtonElement>('button[aria-label="Register project on box-a"]')!.click());
+    expect(useStore.getState().projectPickerOpen).toBe(true);
+    expect(useStore.getState().projectPickerInstanceId).toBe("inst-a");
+
+    // New session on the remote group targets that instance.
+    act(() => section.querySelector<HTMLButtonElement>('button[aria-label="new session"]')!.click());
+    expect(newSession).toHaveBeenLastCalledWith(remotePath, undefined, "inst-a");
+
+    // Both groups count toward the footer.
+    expect(document.body.querySelector("footer")?.textContent).toContain("4 sessions");
+  });
+
+  it("dims an unreachable instance, disables its project actions, and offers Reconnect", () => {
+    useStore.setState({ state: withInstance({ status: "unreachable", error: "connection lost" }) });
+    renderSidebar();
+    const section = remoteSection();
+    expect(section.textContent).toContain("unreachable");
+    expect(section.textContent).toContain("connection lost");
+    expect(section.querySelector("section")?.className).toContain("opacity-60");
+    expect(section.querySelector('button[aria-label="Register project on box-a"]')).toBeNull();
+    expect(section.querySelector('button[aria-label="Reconnect"]')).not.toBeNull();
+    const spawn = section.querySelector<HTMLButtonElement>('button[aria-label="new session"]')!;
+    expect(spawn.disabled).toBe(true);
+    expect(section.querySelector<HTMLButtonElement>('button[aria-label="remove project"]')!.disabled).toBe(true);
+    act(() => spawn.click());
+    expect(newSession).not.toHaveBeenCalled();
+  });
+
+  it("offers host-local open targets on local groups only", async () => {
+    const request = deferred<{ vsCode: boolean; terminal: boolean }>();
+    backendMock.getProjectOpenAvailability.mockReturnValue(request.promise);
+    useStore.setState({ state: withInstance({}) });
+    renderSidebar();
+    await resolveAvailability(request, true);
+    expect(document.body.querySelector('button[aria-label="Choose how to open Project One"]')).not.toBeNull();
+    expect(remoteSection().querySelector('button[aria-label="Choose how to open Remote Project"]')).toBeNull();
+  });
+
+  it("shows an empty state with a Register action for a joined instance without projects", () => {
+    useStore.setState({ state: withInstance({ projects: [] }) });
+    renderSidebar();
+    const section = remoteSection();
+    expect(section.textContent).toContain("No projects registered on box-a");
+    expect(section.querySelectorAll('button[aria-label="Register project on box-a"]').length).toBe(1);
   });
 });
