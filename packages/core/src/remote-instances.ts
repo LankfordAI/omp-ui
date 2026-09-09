@@ -124,6 +124,7 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "session:spawn",
   "advisor:defaults",
   "title:generate",
+  "title:retitle",
   "branch:nameSuggest",
   "branch:diff",
   "branch:list",

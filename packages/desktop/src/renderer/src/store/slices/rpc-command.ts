@@ -740,7 +740,13 @@ export function createRpcCommandSlice(
     const owner = findOwner(get().state, tabId);
     const projectCwd = owner?.record.projectCwd;
     const sessionId = owner?.record.sessionId ?? null;
-    const derived = generateTitleFromPrompt(prompt);
+    // A plan-seeded implementation session's first prompt is a constant seed
+    // plus the plan body; its title must come from the plan, which the record
+    // already names (the sidebar's Implements note reads the same field).
+    const planTitle =
+      findRecord(get().state, tabId)?.planImplementationSource?.planTitle?.trim() || null;
+    const titleSource = planTitle ?? prompt;
+    const derived = planTitle ?? generateTitleFromPrompt(prompt);
     // Phase 1: the derived name goes out immediately, so the session is
     // named before any model round trip — no cold spawn, no provider wait.
     void (async () => {
@@ -768,7 +774,7 @@ export function createRpcCommandSlice(
     if (!projectCwd) return;
     void (async () => {
       const modelTitle = await backendFor(owner?.instanceId ?? null)
-        .generateTitle(projectCwd, prompt)
+        .generateTitle(projectCwd, titleSource, planTitle)
         .catch((err: unknown) => {
           console.warn("[session-rename] model titling failed:", err);
           return null;

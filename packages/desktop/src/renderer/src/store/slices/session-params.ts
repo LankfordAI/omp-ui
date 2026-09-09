@@ -40,7 +40,8 @@ import {
   type Watchers,
 } from "./shared";
 import { rpcCommandMachinery } from "./rpc-command";
-import { findRecord, sessionCwd } from "./view";
+import { buildTitleTranscript } from "../../lib/session-transcript";
+import { findOwner, findRecord, sessionCwd } from "./view";
 import type { UiStore } from "../types";
 
 export type SessionParamsSlice = Pick<
@@ -65,6 +66,7 @@ export type SessionParamsSlice = Pick<
   | "exportHtml"
   | "branchSession"
   | "renameSessionTo"
+  | "regenerateSessionTitle"
   | "setPlanMode"
   | "runSlashCommand"
   | "runGoalCommand"
@@ -91,6 +93,10 @@ interface LocalCommand {
   /** `line` is the trimmed slash line, so a family can read its own arguments. */
   run(tabId: string, get: GetState, line: string): LocalCommandResult;
 }
+
+/** Monotonic per-tab re-titling request ids (the `rpcBooting` pattern): a
+ *  settle only lands while its id is still the tab's newest (issue #433). */
+const retitleCounters = new Map<string, number>();
 
 /** Renderer-owned commands, in the order they take precedence over omp. */
 const localCommands: readonly LocalCommand[] = [
@@ -494,6 +500,51 @@ export function createSessionParamsSlice(
     m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
   };
 
+  const regenerateSessionTitle = async (tabId: string): Promise<void> => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    const owner = findOwner(get().state, tabId);
+    const rec = owner?.record;
+    if (rec === undefined || rec.live !== "live" || get().exited[tabId] !== undefined) {
+      // No process to take `set_session_name`, and omp-ui does not write
+      // session files — resume first, then re-title (CONTEXT.md, Session).
+      get().reportError(t("session.error.retitleNotLive"));
+      return;
+    }
+    const digest = buildTitleTranscript(tab.items);
+    if (digest.userTurns < 1 || digest.assistantTurns < 1) {
+      get().reportError(t("session.error.retitleNoTranscript"));
+      return;
+    }
+    const previousTitle = rec.title ?? "";
+    const requestId = (retitleCounters.get(tabId) ?? 0) + 1;
+    retitleCounters.set(tabId, requestId);
+    // Nulling initialPrompt in the same patch makes an in-flight phase-2
+    // auto-title abort on its own `initialPrompt !== prompt` check instead
+    // of racing this send.
+    m.patchRpc(tabId, { titleRegeneration: { requestId, previousTitle }, initialPrompt: null });
+    const name = await backendFor(owner!.instanceId)
+      .retitleSession(rec.projectCwd, previousTitle, digest.text)
+      .catch(() => null);
+    const current = get().rpc[tabId];
+    // Tab gone, or a second click took over: the newest request owns the row.
+    if (!current || current.titleRegeneration?.requestId !== requestId) return;
+    m.patchRpc(tabId, { titleRegeneration: null });
+    // A manual rename mid-flight wins: the row keeps what the user typed.
+    if ((findRecord(get().state, tabId)?.title ?? "") !== previousTitle) return;
+    // Declined, failed, or unchanged — the current title stands, silently.
+    if (name === null || name === "" || name === previousTitle) return;
+    const resp = await m.runCommand(
+      tabId,
+      { type: "set_session_name", name },
+      { quiet: true },
+    );
+    if (resp === null) return;
+    // The model answered for the user's click: latch like a rename, and
+    // record the sent name so no auto-title path claims this row is unnamed.
+    m.patchRpc(tabId, { hasRenamed: true, autoTitleSent: name });
+  };
+
   const setPlanMode = async (tabId: string, enabled: boolean): Promise<void> => {
     if (get().rpc[tabId]?.status === "starting") return;
     // The extension owns the state; the UI never assumes the toggle took —
@@ -745,6 +796,7 @@ export function createSessionParamsSlice(
     exportHtml,
     branchSession,
     renameSessionTo,
+    regenerateSessionTitle,
     setPlanMode,
     runSlashCommand,
     runGoalCommand,

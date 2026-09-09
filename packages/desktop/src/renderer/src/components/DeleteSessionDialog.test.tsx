@@ -51,6 +51,7 @@ const backendMock = {
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
   generateTitle: vi.fn(),
+  retitleSession: vi.fn(),
   readPlanFile: vi.fn(),
   getBranchDiff: vi.fn(),
   getMergeBackStatus: vi.fn(),

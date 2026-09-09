@@ -132,6 +132,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.error.advisorBusy": "진행 중인 세션 명령이 완료되지 않아 어드바이저를 다시 시작하지 못했습니다. 세션은 계속 실행 중입니다.",
   "session.error.advisorEnable": "어드바이저를 켜지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
   "session.error.advisorDisable": "어드바이저를 끄지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
+  "session.error.retitleNotLive": "이 세션은 실행 중이 아니라 제목을 다시 생성할 수 없습니다. 세션을 먼저 다시 시작한 뒤 제목을 다시 생성하세요.",
+  "session.error.retitleNoTranscript": "이 세션에는 제목을 다시 생성할 대화가 아직 없습니다. 프롬프트를 보내고 어시스턴트가 답한 뒤 다시 시도하세요.",
 
   // AdvisorControl.tsx, PlanReview.tsx — 개발/테스트 어드바이저 재정의 (이슈 #372)
   "advisor.override.badge": "개발/테스트",
@@ -785,6 +787,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "palette.action.terminateDesc": "{title} — 세션은 재개 가능",
   "palette.action.switchMode": "{mode} 모드로 전환",
   "palette.action.switchModeDesc": "{title} — 프로세스 재시작",
+  "palette.action.retitle": "세션 제목 다시 생성",
+  "palette.action.retitleDesc": "{title} — 대화록 기준 재작성",
   "palette.action.capabilities": "기능 보기",
   "palette.action.capabilitiesDesc": "전역 MCP 서버, 스킬, 도구 설정",
   "palette.action.capabilitiesSession": "이 세션의 기능",
@@ -1081,6 +1085,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.retry.autoRetryTitle": "일시적인 프로바이더 오류를 자동으로 재시도",
   "hud.session.nameLabel": "세션 이름",
   "hud.session.renameTitle": "{title} — 클릭하여 이름 변경",
+  "hud.session.retitle": "제목 다시 생성",
+  "hud.session.retitleTitle": "{title} — 이 세션의 대화록으로 제목 다시 생성",
   "hud.session.untitled": "제목 없음",
   "hud.stall.explanation":
     "열려 있는 어시스턴트 응답에 표시된 시간 동안 렌더러가 텍스트, 사고 또는 도구 호출 인수의 모델 스트림 프레임을 받지 못했습니다. 로컬 도구 실행은 포함되지 않습니다. 세션이 계속될 수도 있으며, 계속되지 않으면 omp의 유휴 감시기가 재시도 알림을 게시합니다.",
