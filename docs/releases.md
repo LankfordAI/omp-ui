@@ -4,10 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- A live session that is running on its own host now reads *working* in every app that can see it, not just the one that watched the turn start. The owning instance publishes its `agent_start … agent_end` latch on the session summary, and a sidebar row that missed the start edge — a remote session never opened, or a tab mounted mid-turn — takes the host's level over its own stream's edge ([#434](https://github.com/LankfordAI/omp-ui/issues/434)). A terminal session still reads *live*: a PTY carries no turn signal.
-- Auto-title now fits omp-ui's session shapes: its small-model prompt strips incidental details and forbidden artifact vocabulary, the one-shot payload stays within the operating system's argument limit, and a plan-seeded implementation session titles from the plan instead of its seed boilerplate ([#432](https://github.com/LankfordAI/omp-ui/issues/432)).
-- A live session can now be re-titled from its transcript. The Session HUD and command palette ask the small model for a bounded digest-based title without waking dormant work; declined, stale, unchanged, and failed answers leave the current title alone ([#433](https://github.com/LankfordAI/omp-ui/issues/433)).
-- Fixed a GNOME Shell/Mutter crash that could take down omp-ui while Electron mapped a zero-area startup frame. The desktop window now stays hidden until its renderer is ready, restores maximized state at that reveal boundary, and still surfaces renderer-load failures instead of leaving an invisible process ([#437](https://github.com/LankfordAI/omp-ui/issues/437)).
+Nothing since [v0.10.6](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.6). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
