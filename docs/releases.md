@@ -4,11 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
-
-- Worktree branches keep their minted `omp-ui/<base>/<hash>` name: auto-naming no longer rewrites a session's branch at the plan review gate or from its first prompt, and happens only in the finish dialog, whose *new branch…* destination field arrives prefilled with a generated name (issue #428).
-- Returning a finished worktree session lands the project checkout on the destination the work merged into — a *new branch…* cut in the dialog included — instead of handing the session back on whatever branch the checkout already held (issue #431).
-- Fixed a release lane dying outright on one slow Electron-header fetch: the native rebuild in the macOS and Windows jobs now pulls headers from the artifacts CDN `www.electronjs.org` redirects to, retries three times when the log shows a network failure, and labels what is left as a header-download problem (rerunnable) rather than a compile defect (#426, #429).
+Nothing since [v0.10.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.5). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
