@@ -345,6 +345,69 @@ describe("FinishWorktreeDialog", () => {
     expect(document.body.textContent).toContain("merged 2 commits into release/next");
   });
 
+  it("prefills the destination new branch's name from the model (issue #428)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue("feat/x");
+    await openDialog();
+
+    // The dialog asks the model once on open, so the reveal never waits on it.
+    expect(backendMock.suggestBranchName).toHaveBeenCalledWith("/p", "Finish me");
+    await selectInto(destinationSelect(), "__new__");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(newBranchNameInput().value).toBe("feat/x");
+
+    act(() => primaryButton().click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    // The prefilled name is the field's real value: run cuts it and merges in.
+    expect(backendMock.createBranch).toHaveBeenCalledWith("/p", "feat/x", "main");
+    expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledWith("/p", BRANCH, "feat/x");
+  });
+
+  it("lands a late suggestion in an untouched revealed destination name (issue #428)", async () => {
+    let resolveSuggest!: (value: string | null) => void;
+    backendMock.suggestBranchName.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        resolveSuggest = resolve;
+      }),
+    );
+    await openDialog();
+    await selectInto(destinationSelect(), "__new__");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(newBranchNameInput().value).toBe("");
+
+    await act(async () => {
+      resolveSuggest("feat/x");
+      await flushMicrotasks();
+    });
+    expect(newBranchNameInput().value).toBe("feat/x");
+  });
+
+  it("never displaces a typed destination name with a late suggestion (issue #428)", async () => {
+    let resolveSuggest!: (value: string | null) => void;
+    backendMock.suggestBranchName.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        resolveSuggest = resolve;
+      }),
+    );
+    await openDialog();
+    await selectInto(destinationSelect(), "__new__");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await typeInto(newBranchNameInput(), "release/next");
+
+    await act(async () => {
+      resolveSuggest("feat/x");
+      await flushMicrotasks();
+    });
+    expect(newBranchNameInput().value).toBe("release/next");
+  });
+
   it("renames the branch before releasing when keeping under a new name", async () => {
     await openDialog();
 

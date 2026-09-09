@@ -166,9 +166,13 @@ export function useFinishWorktree(tabId: string): FinishController {
   const [suggestedDestination, setSuggestedDestination] = useState<string | null>(null);
   const [destination, setDestinationState] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState<{ name: string; from: string } | null>(null);
+  /** True once the user edited the destination name; prefill never sets it. */
+  const [newBranchNameTyped, setNewBranchNameTyped] = useState(false);
   const [outcome, setOutcome] = useState<FinishOutcome>("merge");
   const [rename, setRename] = useState(record?.worktree?.branch ?? "");
   const [renameTyped, setRenameTyped] = useState(false);
+  /** The model's branch-name suggestion for this session; null until it answers. */
+  const [nameSuggestion, setNameSuggestion] = useState<string | null>(null);
   const [returnSession, setReturnSession] = useState(true);
   const [status, setStatus] = useState<MergeBackStatus | null>(null);
   const [phase, setPhase] = useState<FinishPhase>({ s: "loading" });
@@ -206,18 +210,40 @@ export function useFinishWorktree(tabId: string): FinishController {
     // on object identity would re-resolve on every broadcast.
   }, [projectCwd, worktreeBranch]);
 
-  // Pre-fill the rename field from the model for placeholder branches, until
-  // the user types (issue #389 mirrors this on the first prompt; the dialog
-  // covers sessions that were named before that hook existed).
+  // One model call per dialog open (issue #428 moves generation here, off the
+  // session branch): the answer seeds the destination new branch's name and,
+  // below, the keep-branch rename field. `live` keeps a resolved answer from
+  // landing after the dialog unmounted.
   useEffect(() => {
     if (projectCwd === undefined || worktreeBranch === null) return;
-    if (!PLACEHOLDER_BRANCH_RE.test(worktreeBranch)) return;
+    let live = true;
     void (async () => {
       const name = await suggestBranchName(projectCwd, record?.title ?? "", instanceId);
-      if (name === null || renameTyped) return;
-      setRename(name);
+      // An empty string would never pass the prefill gates below — treat it
+      // as no suggestion so the late-arrival effect cannot spin.
+      if (live) setNameSuggestion(name === null || name === "" ? null : name);
     })();
+    return () => {
+      live = false;
+    };
   }, [projectCwd, worktreeBranch]);
+
+  // Pre-fill the rename field from the model for placeholder branches, until
+  // the user types — the current gate verbatim, now a live condition rather
+  // than an early return in the async call (issue #389's dialog half).
+  useEffect(() => {
+    if (nameSuggestion === null || renameTyped) return;
+    if (worktreeBranch === null || !PLACEHOLDER_BRANCH_RE.test(worktreeBranch)) return;
+    setRename(nameSuggestion);
+  }, [nameSuggestion, renameTyped, worktreeBranch]);
+
+  // A suggestion that resolves after "new branch…" was revealed lands in the
+  // destination name field while it is still untouched (issue #428).
+  useEffect(() => {
+    if (newBranch === null || newBranchNameTyped || newBranch.name !== "") return;
+    if (nameSuggestion === null) return;
+    setNewBranch((prev) => (prev === null ? prev : { ...prev, name: nameSuggestion }));
+  }, [newBranch, newBranchNameTyped, nameSuggestion]);
 
   // The effective destination: the merge target is the new branch itself,
   // but its feasibility reads against the start point — merging into a fresh
@@ -269,7 +295,7 @@ export function useFinishWorktree(tabId: string): FinishController {
 
   const chooseNewBranch = (): void => {
     setNewBranch({
-      name: "",
+      name: nameSuggestion ?? "",
       from: suggestedDestination ?? branchNames?.find((name) => name !== worktreeBranch) ?? "",
     });
     setPhase({ s: "loading" });
@@ -553,8 +579,12 @@ export function useFinishWorktree(tabId: string): FinishController {
     sharers,
     setDestination,
     chooseNewBranch,
-    setNewBranch: (patch) =>
-      setNewBranch((prev) => (prev === null ? prev : { ...prev, ...patch })),
+    setNewBranch: (patch) => {
+      // A patch carrying `name` is the input typing (the `from` select writes
+      // no name key); latch so no prefill ever displaces it (issue #428).
+      if (patch.name !== undefined) setNewBranchNameTyped(true);
+      setNewBranch((prev) => (prev === null ? prev : { ...prev, ...patch }));
+    },
     setOutcome,
     setRename: (name) => {
       setRenameTyped(true);
