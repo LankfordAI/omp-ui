@@ -7,7 +7,6 @@ import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TAB_ID = "tab-worktree";
-const PROJECT_CWD = "/project";
 
 const branchFixture: BranchList = {
   repoRoot: "/project",
@@ -60,7 +59,11 @@ function seedStore(): void {
   });
 }
 
-function render(patch: Partial<SessionWorktree> = {}): void {
+function render(
+  patch: Partial<SessionWorktree> = {},
+  hostLocalActions = true,
+  tabId = TAB_ID,
+): void {
   if (root !== null) {
     act(() => root!.unmount());
     document.body.replaceChildren();
@@ -72,8 +75,8 @@ function render(patch: Partial<SessionWorktree> = {}): void {
     root!.render(
       <WorktreeChip
         worktree={{ ...worktree, ...patch }}
-        tabId={TAB_ID}
-        projectCwd={PROJECT_CWD}
+        tabId={tabId}
+        hostLocalActions={hostLocalActions}
       />,
     ),
   );
@@ -296,5 +299,34 @@ describe("WorktreeChip (issue #260)", () => {
     expect(useStore.getState().finishWorktreeTab).toBe(TAB_ID);
     expect(menu()).toBeNull();
     expect(backendMock.getMergeBackStatus).not.toHaveBeenCalled();
+  });
+
+  it("keeps remote-safe facts and finish while suppressing host-local opens (#435)", async () => {
+    const remoteTabId = "tab-remote-worktree";
+    render({}, false, remoteTabId);
+
+    expect(trigger().textContent).toContain("⎇ omp/feature");
+    expect(trigger().title).toBe(worktree.path);
+    await openPopover();
+
+    const popover = menu()!;
+    expect(popover.textContent).toContain("omp/feature");
+    expect(popover.textContent).toContain(worktree.path);
+    expect(popover.textContent).toContain("cut from main");
+    expect(
+      [...popover.querySelectorAll<HTMLButtonElement>("button")].filter((el) => el.textContent === "copy"),
+    ).toHaveLength(2);
+    expect(menuItem("finish worktree…")).toBeDefined();
+    expect(menuItem("Open in VS Code")).toBeUndefined();
+    expect(menuItem("Open in Files")).toBeUndefined();
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(backendMock.openProject).not.toHaveBeenCalled();
+
+    await act(async () => menuItem("finish worktree…")!.click());
+
+    expect(useStore.getState().finishWorktreeTab).toBe(remoteTabId);
+    expect(menu()).toBeNull();
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(backendMock.openProject).not.toHaveBeenCalled();
   });
 });

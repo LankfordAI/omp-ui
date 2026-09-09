@@ -842,13 +842,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {instanceChip}
       {agentModeChip}
       {goalChip}
-      {/* Host-local opens live in the chip's popover, so a remote session gets
-          no chip (issue #416); the worktree itself still shows in the sheet. */}
-      {worktree && projectCwd !== undefined && instanceId === null && (
+      {/* Remote sessions retain the informational and finish-capable chip;
+          only host-local open rows are suppressed (issue #435). */}
+      {worktree && (
         <WorktreeChip
           worktree={worktree}
           tabId={tabId}
-          projectCwd={projectCwd}
+          hostLocalActions={instanceId === null}
           className="[app-region:no-drag]"
         />
       )}
