@@ -10,9 +10,11 @@ const rpcSend = vi.fn();
 Object.assign(window, { ompBackend: { rpcSend } });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
-const { ExtensionDialogHost, INITIAL_EXTENSION_DIALOG_STATE, reduceExtensionDialog } = await import("./ExtensionDialogHost");
+const { ExtensionDialogHost, INITIAL_EXTENSION_DIALOG_STATE, reduceExtensionDialog, answerPendingQuestion, freeTextTarget } = await import("./ExtensionDialogHost");
 
 const TAB = "tab-question";
+const OTHER = "Other (type your own)";
+const DONE = "✔ Done selecting";
 let root: Root | null = null;
 
 function runtime(queue: unknown[]): RpcTabState {
@@ -27,6 +29,26 @@ function renderRequest(...queue: unknown[]): void {
   useStore.setState({ rpc: { [TAB]: runtime(queue) } });
   const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   act(() => root!.render(<ExtensionDialogHost tabId={TAB} />));
+}
+
+/** Desktop geometry (matchMedia override like Composer.test.tsx) with the
+ *  floating composer present — the surfaces issue #421 changes. */
+function renderDesktopHost(queue: unknown[], composerVisible = true): void {
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
+  useStore.setState({ rpc: { [TAB]: runtime(queue) } });
+  const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  act(() => root!.render(<ExtensionDialogHost tabId={TAB} composerVisible={composerVisible} />));
+}
+
+function advance(frame: unknown): void {
+  act(() => useStore.setState({ rpc: { [TAB]: runtime([frame]) } }));
+}
+
+/** The composer's Enter, from outside React. */
+function ask(text: string): string {
+  let outcome = "";
+  act(() => { outcome = answerPendingQuestion(TAB, text); });
+  return outcome;
 }
 
 function lastFrame(): Record<string, unknown> {
@@ -306,5 +328,85 @@ describe("question series rail", () => {
     expect(railButtons()).toHaveLength(0);
     expect(document.body.querySelector('[title="Question 3 of 12"]')).not.toBeNull();
     expect(document.body.textContent).toContain("Question 3 of 12");
+  });
+});
+
+describe("freeTextTarget", () => {
+  it("classifies every frame shape", () => {
+    expect(freeTextTarget(undefined)).toBe("none");
+    expect(freeTextTarget({ method: "confirm", title: "Run it?" })).toBe("none");
+    expect(freeTextTarget({ method: "select", title: "Pick", options: ["Alpha", "Beta"] })).toBe("none");
+    expect(freeTextTarget({ method: "select", title: "Pick", options: ["Alpha", OTHER] })).toBe("answer");
+    expect(freeTextTarget({ method: "select", title: "(1 selected) Which?", options: ["Alpha", OTHER] })).toBe("sentinel");
+    expect(freeTextTarget({ method: "select", title: "Which?", options: ["Alpha", DONE, OTHER] })).toBe("sentinel");
+    expect(freeTextTarget({ method: "editor", title: "Enter your response:" })).toBe("answer");
+    expect(freeTextTarget({ method: "input", title: "Value" })).toBe("answer");
+  });
+});
+
+describe("composer answer path (issue #421)", () => {
+  const dot = (label: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.getAttribute("aria-label") === label,
+    );
+
+  it("answers a single select with the draft verbatim and records the series entry", () => {
+    renderDesktopHost([{ id: "q1", method: "select", title: "Format? (1/2)", options: ["Alpha", "Beta", OTHER] }]);
+    expect(ask("forty-two")).toBe("answered");
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "q1", value: "forty-two" });
+    advance({ id: "q2", method: "select", title: "Deliverable? (2/2)", options: ["X", "Y"] });
+    act(() => dot("question 1 of 2, answered")!.click());
+    // Review lists the options with none matched and shows the text below.
+    expect(document.body.textContent).toContain("forty-two");
+  });
+
+  it("reconstructs the picked set through the one-step answer, then takes the sentinel on the loop frame", () => {
+    renderDesktopHost([{ id: "m1", method: "select", title: "Tools?", options: ["Alpha", "Beta", OTHER] }]);
+    // A multi question's first frame is indistinguishable from a single one:
+    // the text lands verbatim and records pending for the reconstruction.
+    expect(ask("Alpha")).toBe("answered");
+    expect(lastFrame()).toMatchObject({ id: "m1", value: "Alpha" });
+    advance({ id: "m2", method: "select", title: "(1 selected) Tools?", options: ["Alpha", "Beta", DONE, OTHER] });
+    const alpha = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.includes("Alpha"),
+    )!;
+    expect(alpha.querySelector(".text-signal")).not.toBeNull();
+    expect(ask("plus custom stuff")).toBe("kept-draft");
+    expect(lastFrame()).toMatchObject({ id: "m2", value: OTHER });
+    advance({ id: "ed", method: "editor", title: "Enter your response:" });
+    expect(ask("plus custom stuff")).toBe("answered");
+    expect(lastFrame()).toMatchObject({ id: "ed", value: "plus custom stuff" });
+  });
+
+  it("renders hint and cancel instead of a field where the composer owns it", () => {
+    renderDesktopHost([{ id: "ed", method: "editor", title: "Enter your response:\n- [ ] flagged", message: "Answer" }]);
+    expect(document.body.querySelector("textarea")).toBeNull();
+    expect(document.body.textContent).toContain("Type your answer in the box below");
+    // The multi-line editor title survives the swap of answer surfaces.
+    expect(document.body.textContent).toContain("- [ ] flagged");
+    const cancel = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "cancel",
+    )!;
+    act(() => cancel.click());
+    expect(lastFrame()).toMatchObject({ id: "ed", cancelled: true });
+  });
+
+  it("keeps the panel field when no composer answers", () => {
+    renderDesktopHost([{ id: "ed", method: "editor", title: "Enter your response:" }], false);
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(ask("typed through the card")).toBe("answered");
+    expect(lastFrame()).toMatchObject({ id: "ed", value: "typed through the card" });
+  });
+
+  it("leaves the caret in the composer for answer-capable select frames", () => {
+    const box = document.createElement("textarea"); document.body.append(box); box.focus();
+    renderDesktopHost([{ id: "q", method: "select", title: "Pick", options: ["Alpha", OTHER] }]);
+    expect(document.activeElement).toBe(box);
+  });
+
+  it("still focuses the card when the composer cannot answer", () => {
+    const box = document.createElement("textarea"); document.body.append(box); box.focus();
+    renderDesktopHost([{ id: "q", method: "select", title: "Pick", options: ["Alpha", "Beta"] }]);
+    expect((document.activeElement as HTMLElement).textContent).toContain("Alpha");
   });
 });

@@ -58,6 +58,7 @@ export const en = {
   "dialog.extension.cancel": "cancel",
   "dialog.extension.confirm": "confirm",
   "dialog.extension.submit": "submit",
+  "dialog.extension.answerInComposer": "Type your answer in the box below — Enter sends it.",
   "dialog.extension.doneTitle": "finish selecting and send the answer",
   "dialog.extension.done": "done selecting",
   "dialog.extension.seriesProgress": "question series progress",
@@ -205,6 +206,7 @@ export const en = {
   "composer.placeholder.restarting": "restarting advisor…",
   "composer.placeholder.running": "steer the agent…",
   "composer.placeholder.idle": "message the agent…   /  commands · @  files",
+  "composer.placeholder.answer": "answer the question…   or choose an option above",
   // Attachment strip
   "composer.attachment.alt": "attachment {n}",
   "composer.attachment.remove": "remove attachment {n}",

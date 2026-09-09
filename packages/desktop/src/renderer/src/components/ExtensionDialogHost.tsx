@@ -35,6 +35,11 @@ import { Button, Chip, Dot, Meter } from "./ui";
  * tracks the series for a progress rail with read-only review of answered
  * pages. Review can never re-answer: the protocol has no revise message,
  * each answer is final the moment it is sent.
+ *
+ * While the head frame accepts free text, the desktop composer doubles as
+ * this card's "Other" field (issue #421): Enter there answers the frame
+ * through `answerPendingQuestion` below, and the panel drops its own
+ * textarea/input wherever a visible composer can hold that field.
  */
 
 /** True when the key event belongs to a text field, not to this panel. */
@@ -45,6 +50,46 @@ function fromTextField(e: KeyboardEvent): boolean {
     t instanceof HTMLTextAreaElement ||
     (t instanceof HTMLElement && t.isContentEditable)
   );
+}
+
+/**
+ * Whether the composer's draft can answer a frame as free text.
+ * "answer": the text answers this frame outright — editor/input frames
+ * take it verbatim, and a select answer is never validated against the
+ * options (ask.ts:689), so text on a single-select frame is the answer.
+ * "sentinel": a multi-select *loop* frame — raw text there would toggle
+ * into the selected set (ask.ts:625-629), so the text must arrive through
+ * the Other sentinel and the editor frame that follows. "none": not
+ * answerable from the composer at all.
+ */
+export type FreeTextTarget = "answer" | "sentinel" | "none";
+
+export function freeTextTarget(frame: unknown): FreeTextTarget {
+  const method = strField(frame, "method") ?? "";
+  if (method === "editor" || method === "input") return "answer";
+  if (method !== "select") return "none";
+  const options = readOptions(field(frame, "options"));
+  if (!options.some((o) => o.label === OTHER_OPTION)) return "none";
+  const plan = planSelect(strField(frame, "title") ?? "", options);
+  return plan.doneValue !== null ? "sentinel" : "answer";
+}
+
+/**
+ * "answered": the frame is gone, the composer may clear its draft.
+ * "kept-draft": the sentinel went out; the draft belongs to the editor
+ * frame that follows. "not-answerable": fall through to the prompt path.
+ */
+type AnswerOutcome = "answered" | "kept-draft" | "not-answerable";
+
+// Registered by the live host per tab (see the effect in the component),
+// so the composer reaches the question through one function and the
+// series rail, picked-set reconstruction, and answered chips cannot drift.
+const answerHandlers = new Map<string, (text: string) => AnswerOutcome>();
+
+/** Route the composer's Enter into the tab's pending question, if any. */
+export function answerPendingQuestion(tabId: string, text: string): AnswerOutcome {
+  const handler = answerHandlers.get(tabId);
+  return handler ? handler(text) : "not-answerable";
 }
 
 export interface ExtensionDialogState {
@@ -135,7 +180,14 @@ export function reduceExtensionDialog(
   };
 }
 
-export function ExtensionDialogHost({ tabId }: { tabId: string }) {
+export function ExtensionDialogHost({
+  tabId,
+  composerVisible = true,
+}: {
+  tabId: string;
+  /** False where no visible composer can answer: the sheet, the subagent view, a hidden floating composer. */
+  composerVisible?: boolean;
+}) {
   const t = useT();
   const queue = useStore((s) => s.rpc[tabId]?.extensionQueue) ?? [];
   const answerExtension = useStore((s) => s.answerExtension);
@@ -151,6 +203,9 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   const hadRequest = useRef(false);
   const keydown = useRef<(event: KeyboardEvent) => void>(() => {});
   const compact = useCompactShell();
+  // Where the composer is mounted and visible it owns the free-text field;
+  // everywhere else the panel keeps its own (issue #421).
+  const panelField = compact || !composerVisible;
 
   const method = strField(current, "method") ?? "";
   const rawTitle = strField(current, "title") ?? t("dialog.extension.fallbackTitle");
@@ -178,8 +233,11 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   }, [current]);
 
   useEffect(() => {
-    if (current && method === "select") firstChoice.current?.focus({ preventScroll: true });
-  }, [current, method]);
+    // Answer-capable desktop frames leave the caret in the composer, which
+    // can answer them; the card takes focus only where it owns the keyboard.
+    if (current && method === "select" && (compact || freeTextTarget(current) === "none"))
+      firstChoice.current?.focus({ preventScroll: true });
+  }, [current, method, compact]);
 
   keydown.current = (e) => {
     if (!current || fromTextField(e)) return;
@@ -237,6 +295,18 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // The composer's Enter consults this registry at call time. No dependency
+  // list: the handler is re-registered every render so its closure sees the
+  // current frame, plan, and series state (same ref-lifetime as the keydown
+  // subscription above); the cleanup drops any stale handler once the head
+  // frame is gone or the host unmounts.
+  useEffect(() => {
+    if (current !== undefined) answerHandlers.set(tabId, answerWithText);
+    return () => {
+      answerHandlers.delete(tabId);
+    };
+  });
 
   if (!current) return null;
 
@@ -297,7 +367,7 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
   }
 
   /** Records an editor submit as the live page's free-text answer. */
-  function recordEditorAnswer(): void {
+  function recordEditorAnswerWith(value: string): void {
     if (method !== "editor" || series === null) return;
     dispatch({
       type: "record",
@@ -305,10 +375,36 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
         page: series.current,
         title: series.currentTitle,
         options: [],
-        answer: [inputValue],
+        answer: [value],
         multi: false,
       },
     });
+  }
+
+  /**
+   * The composer's answer path (issue #421). Editor/input frames and single
+   * selects take the text outright — a select answer is never validated
+   * against the options (ask.ts:689) — so one Enter answers through `pick()`
+   * and its series bookkeeping. A loop frame gets the Other sentinel
+   * instead (raw text there would toggle into the selected set,
+   * ask.ts:625-629) and keeps its two-step dance: the composer draft
+   * survives until the editor frame lands.
+   */
+  function answerWithText(text: string): AnswerOutcome {
+    if (current === undefined || text.trim() === "") return "not-answerable";
+    const target = freeTextTarget(current);
+    if (target === "none") return "not-answerable";
+    if (method === "editor" || method === "input") {
+      recordEditorAnswerWith(text);
+      answerExtension(tabId, current, { value: text });
+      return "answered";
+    }
+    if (target === "sentinel") {
+      pick(OTHER_OPTION);
+      return "kept-draft";
+    }
+    pick(text);
+    return "answered";
   }
 
   return (
@@ -517,64 +613,80 @@ export function ExtensionDialogHost({ tabId }: { tabId: string }) {
             )}
 
             {(method === "input" || method === "editor") && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  recordEditorAnswer();
-                  answerExtension(tabId, current, { value: inputValue });
-                }}
-              >
+              <>
                 {/* omp's editor titles carry the full prompt (ask's checkbox state
                     and "Enter your response:") — the header shows line one, the
-                    rest lands here. */}
+                    rest lands here, in either answer surface. */}
                 {method === "editor" && rawTitle.includes("\n") && (
                   <p className="mb-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-ink-faint">
                     {rawTitle.split("\n").slice(1).join("\n").trim()}
                   </p>
                 )}
-                {method === "editor" ? (
-                  <textarea
-                    autoFocus
-                    rows={3}
-                    value={inputValue}
-                    aria-label={message || title}
-                    onChange={(e) => dispatch({ type: "input", value: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        cancel();
-                      } else if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        recordEditorAnswer();
-                        answerExtension(tabId, current, { value: inputValue });
-                      }
+                {/* Where the composer is visible it holds the field and answers
+                    this frame on Enter (issue #421); the card keeps only its
+                    cancel affordance — the draft stays put through the swap. */}
+                {panelField ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      recordEditorAnswerWith(inputValue);
+                      answerExtension(tabId, current, { value: inputValue });
                     }}
-                    className="mb-3 w-full resize-y rounded-md border border-line bg-void px-2 py-1.5 text-sm text-ink outline-none focus:border-signal-dim"
-                  />
+                  >
+                    {method === "editor" ? (
+                      <textarea
+                        autoFocus
+                        rows={3}
+                        value={inputValue}
+                        aria-label={message || title}
+                        onChange={(e) => dispatch({ type: "input", value: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancel();
+                          } else if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            recordEditorAnswerWith(inputValue);
+                            answerExtension(tabId, current, { value: inputValue });
+                          }
+                        }}
+                        className="mb-3 w-full resize-y rounded-md border border-line bg-void px-2 py-1.5 text-sm text-ink outline-none focus:border-signal-dim"
+                      />
+                    ) : (
+                      <input
+                        autoFocus
+                        value={inputValue}
+                        aria-label={message || title}
+                        onChange={(e) => dispatch({ type: "input", value: e.target.value })}
+                        onKeyDown={(e) => {
+                          // The window listener skips text fields, so Escape-to-dismiss
+                          // is restored here for the panel's own input.
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancel();
+                          }
+                        }}
+                        className="mb-3 w-full rounded-md border border-line bg-void px-2 py-1.5 text-sm text-ink outline-none focus:border-signal-dim"
+                      />
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <Button onClick={cancel}>{t("dialog.extension.cancel")}</Button>
+                      <Button type="submit" variant="solid" tone="signal">
+                        {t("dialog.extension.submit")}
+                      </Button>
+                    </div>
+                  </form>
                 ) : (
-                  <input
-                    autoFocus
-                    value={inputValue}
-                    aria-label={message || title}
-                    onChange={(e) => dispatch({ type: "input", value: e.target.value })}
-                    onKeyDown={(e) => {
-                      // The window listener skips text fields, so Escape-to-dismiss
-                      // is restored here for the panel's own input.
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        cancel();
-                      }
-                    }}
-                    className="mb-3 w-full rounded-md border border-line bg-void px-2 py-1.5 text-sm text-ink outline-none focus:border-signal-dim"
-                  />
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-[10px] text-ink-faint">
+                      {t("dialog.extension.answerInComposer")}
+                    </span>
+                    <Button variant="ghost" size="xs" onClick={cancel}>
+                      {t("dialog.extension.cancel")}
+                    </Button>
+                  </div>
                 )}
-                <div className="flex justify-end gap-2">
-                  <Button onClick={cancel}>{t("dialog.extension.cancel")}</Button>
-                  <Button type="submit" variant="solid" tone="signal">
-                    {t("dialog.extension.submit")}
-                  </Button>
-                </div>
-              </form>
+              </>
             )}
           </>
         )}

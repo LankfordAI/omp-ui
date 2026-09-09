@@ -46,6 +46,7 @@ const backendMock = {
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   convertToWorktree: vi.fn(async () => {}),
+  rpcSend: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -1378,4 +1379,119 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     expect(backendMock.convertToWorktree).not.toHaveBeenCalled();
   });
 
+});
+
+describe("Composer answers pending questions (desktop, issue #421)", () => {
+  const OTHER = "Other (type your own)";
+  function desktop(): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  }
+  function seedQueue(frames: unknown[]): void {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: frames } },
+    }));
+  }
+  const answerFrames = () =>
+    backendMock.rpcSend.mock.calls
+      .map((call) => call[1] as Record<string, unknown>)
+      .filter((frame) => frame.type === "extension_ui_response");
+
+  it("answers a single select from the composer instead of prompting", () => {
+    desktop();
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("forty-two");
+    press(box, "Enter");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "q", value: "forty-two" }]);
+    expect(box.value).toBe("");
+  });
+
+  it("does not push an answer into the recall history", () => {
+    desktop();
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("forty-two");
+    press(box, "Enter");
+    press(box, "ArrowUp");
+    expect(box.value).toBe("");
+  });
+
+  it("answers an editor frame in one Enter", () => {
+    desktop();
+    seedQueue([{ id: "ed", method: "editor", title: "Enter your response:" }]);
+    renderRpcTab();
+    const box = typeDraft("custom answer");
+    press(box, "Enter");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "ed", value: "custom answer" }]);
+    expect(box.value).toBe("");
+  });
+
+  it("keeps the draft on a loop frame until the editor frame answers it", () => {
+    desktop();
+    seedQueue([{ id: "m", method: "select", title: "(1 selected) Which?", options: ["Alpha", "✔ Done selecting", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("a plus b");
+    press(box, "Enter");
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "m", value: OTHER }]);
+    expect(box.value).toBe("a plus b");
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "ed", method: "editor", title: "Enter your response:" }] } },
+    })));
+    press(box, "Enter");
+    expect(answerFrames()[1]).toMatchObject({ id: "ed", value: "a plus b" });
+    expect(box.value).toBe("");
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("keeps the prompt path while a confirm frame is pending", () => {
+    desktop();
+    seedQueue([{ id: "c", method: "confirm", title: "Run it?" }]);
+    renderRpcTab();
+    const box = typeDraft("hello");
+    press(box, "Enter");
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", []);
+    expect(answerFrames()).toHaveLength(0);
+  });
+
+  it("routes slash commands and interrupt around the question", () => {
+    desktop();
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("/compact");
+    press(box, "Enter");
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact");
+    expect(answerFrames()).toHaveLength(0);
+    typeDraft("abort this");
+    act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", []);
+    expect(answerFrames()).toHaveLength(0);
+  });
+
+  it("shows the answer placeholder only in question mode", () => {
+    desktop();
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    expect(document.body.querySelector("textarea")!.placeholder).toContain("answer the question");
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "c", method: "confirm", title: "Run it?" }] } },
+    })));
+    expect(document.body.querySelector("textarea")!.placeholder).toContain("message the agent");
+  });
+
+  it("keeps steering from the composer in the compact shell", () => {
+    // No desktop() override: the compact guard must leave the sheet flow and
+    // the prompt route untouched while a question is pending (issue #421).
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("compact steer");
+    press(box, "Enter");
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", []);
+    expect(answerFrames()).toHaveLength(0);
+  });
 });
