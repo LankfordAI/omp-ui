@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoalSnapshot, NativeGoal } from "@omp-ui/core/goal";
 import { emptySessionRuntime } from "../lib/rpc-types";
-import { backendState, rpcTabState } from "../test/fixtures";
+import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -156,6 +156,50 @@ describe("wide Session HUD", () => {
     expect(trigger.disabled).toBe(false);
     act(() => trigger.click());
     expect(newSession).toHaveBeenCalledWith("/p", undefined, null);
+  });
+
+  it("shows a remote worktree chip with only remote-safe actions (#435)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const group = state.projects[0]!;
+    const remoteSession = {
+      ...group.sessions[0]!,
+      projectCwd: "/remote/project",
+      title: "Remote worktree session",
+      cachedTitle: "Remote worktree session",
+      worktree: { path: "/remote/worktrees/feature", branch: "omp/remote-feature", base: "main" },
+    };
+    useStore.setState({
+      state: backendState({
+        projects: [],
+        remoteInstances: [remoteInstance({
+          id: "inst-remote",
+          nickname: "build-box",
+          projects: [{
+            ...group,
+            project: { ...group.project, path: "/remote/project", name: "Remote project" },
+            sessions: [remoteSession],
+          }],
+        })],
+      }),
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+
+    const text = host.textContent!;
+    expect(text).toContain("build-box");
+    expect(text).toContain("⎇ omp/remote-feature");
+    expect(text).toContain("Remote worktree session");
+    expect(text.indexOf("build-box")).toBeLessThan(text.indexOf("⎇ omp/remote-feature"));
+    expect(text.indexOf("⎇ omp/remote-feature")).toBeLessThan(text.indexOf("Remote worktree session"));
+
+    const worktreeTrigger = host.querySelector<HTMLButtonElement>('button[title="/remote/worktrees/feature"]')!;
+    act(() => worktreeTrigger.click());
+    expect(document.body.textContent).toContain("finish worktree…");
+    expect(document.body.textContent).not.toContain("Open in VS Code");
+    expect(document.body.textContent).not.toContain("Open in Files");
   });
 
   it("co-locates the main spend with the main meter, before the advisor cluster (#107)", () => {

@@ -15,8 +15,8 @@ import { useStore } from "../store";
  * but clicking it opens copy rows for the branch and the checkout path, a
  * quiet "cut from <base>" line, one row that opens the Finish worktree
  * dialog (issues #385–#389 — the merge-and-return decisions moved there,
- * out of this popover), and open targets (VS Code when available, Files
- * always) that hand the checkout path to the existing openProject channel.
+ * out of this popover), plus host-local open targets when enabled (VS Code
+ * when available, Files always) that hand the checkout path to openProject.
  * Neutral chrome throughout — the signal accent stays reserved for liveness
  * (ADR-0004). No status fetch on open: feasibility is the dialog's business.
  * Positioning and dismissal follow the sidebar's terminal-menu convention;
@@ -28,12 +28,12 @@ const rowText =
 export function WorktreeChip({
   worktree,
   tabId,
+  hostLocalActions,
   className,
 }: {
   worktree: SessionWorktree;
   tabId: string;
-  /** Kept for the HUD call site; the finish dialog reads it from the record. */
-  projectCwd: string;
+  hostLocalActions: boolean;
   className?: string;
 }) {
   const t = useT();
@@ -69,7 +69,7 @@ export function WorktreeChip({
     const rect = triggerRef.current?.getBoundingClientRect();
     setPos(rect ? { x: rect.left, y: rect.bottom + 4 } : null);
     setOpen(true);
-    if (vsCodeAvailable === null) {
+    if (hostLocalActions && vsCodeAvailable === null) {
       backend
         .getProjectOpenAvailability()
         .then((a) => setVsCodeAvailable(a.vsCode))
@@ -151,14 +151,18 @@ export function WorktreeChip({
               >
                 {t("worktree.actions.finish")}
               </button>
-              {vsCodeAvailable === true && (
-                <button type="button" role="menuitem" className={rowText} onClick={() => openIn("vscode")}>
-                  {t("worktree.actions.openVsCode")}
-                </button>
+              {hostLocalActions && (
+                <>
+                  {vsCodeAvailable === true && (
+                    <button type="button" role="menuitem" className={rowText} onClick={() => openIn("vscode")}>
+                      {t("worktree.actions.openVsCode")}
+                    </button>
+                  )}
+                  <button type="button" role="menuitem" className={rowText} onClick={() => openIn("files")}>
+                    {t("worktree.actions.openFiles")}
+                  </button>
+                </>
               )}
-              <button type="button" role="menuitem" className={rowText} onClick={() => openIn("files")}>
-                {t("worktree.actions.openFiles")}
-              </button>
               {displayedError !== null && (
                 <p role="alert" className="px-2.5 py-1.5 text-[10px] leading-relaxed text-rose">
                   {displayedError}
