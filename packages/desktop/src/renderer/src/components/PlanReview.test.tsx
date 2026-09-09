@@ -873,8 +873,8 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(document.body.textContent).toContain("Git branch");
   });
 
-  // The plan names the destination (issue #422): the mint's hash segment in
-  // cut-from mode, the new base's name in create-base mode — never typed text.
+  // The mint is the session branch's durable name (issue #428): the plan's
+  // name lands in the new base's field only — never typed text.
   const branchInput = (): HTMLInputElement =>
     document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!;
   const baseSelect = (): HTMLSelectElement =>
@@ -903,18 +903,19 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     return { resolveSuggest };
   }
 
-  it("replaces an untouched mint's hash with the plan's name (issue #422)", async () => {
+  it("keeps the mint hash while the plan names the base (issue #428)", async () => {
     backendMock.suggestBranchName.mockResolvedValue("fix/login-race");
     render();
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
 
-    // The mint prefix keeps naming the base; only the hash segment goes.
-    expect(branchInput().value).toBe("omp-ui/main/fix/login-race");
+    // The plan's name goes to the base fields and the finish dialog, never
+    // into this field's hash tail.
+    expect(branchInput().value).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
     expect(backendMock.suggestBranchName).toHaveBeenCalledTimes(1);
   });
 
-  it("names the mint when the row is picked before the model answers (issue #422)", async () => {
+  it("keeps the mint when the row is picked before the model answers (issue #428)", async () => {
     const { resolveSuggest } = deferredSuggestion();
     render();
     await act(async () => contextRow("worktree session").click());
@@ -926,7 +927,10 @@ describe("PlanReview worktree execution context (issue #313)", () => {
       resolveSuggest("fix/login-race");
     });
 
-    expect(branchInput().value).toBe("omp-ui/main/fix/login-race");
+    // The late answer lands in the base fields only; the mint stands as the
+    // session branch, byte-identical.
+    expect(branchInput().value).toBe(minted);
+    expect(branchInput().value).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
   });
 
   it("prefills the new base with the plan slug and follows the model after it (issue #422)", async () => {
@@ -952,19 +956,20 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(branchInput().value).toMatch(/^omp-ui\/feat\/x\/[0-9a-f]{8}$/);
   });
 
-  it("prefills a resolved suggestion on reveal and keeps the branch truthful (issue #422)", async () => {
+  it("prefills a resolved suggestion on reveal and keeps the mint hash (issue #428)", async () => {
     backendMock.suggestBranchName.mockResolvedValue("feat/x");
     render();
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
-    expect(branchInput().value).toBe("omp-ui/main/feat/x");
+    // The untouched session branch is the mint, not the plan's name.
+    expect(branchInput().value).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
 
     await revealNewBase();
 
     expect(newBaseInput().value).toBe("feat/x");
-    // §3.2: a suggestion-named branch states what it is cut from — the base
-    // now IS the suggestion, so both segments carry it. Freely editable.
-    expect(branchInput().value).toBe("omp-ui/feat/x/feat/x");
+    // The mint follows its new base: the middle segment changes, the hash
+    // tail stays (issue #405) — never `omp-ui/<base>/<base>`.
+    expect(branchInput().value).toMatch(/^omp-ui\/feat\/x\/[0-9a-f]{8}$/);
   });
 
   it("never overwrites a typed branch or base name with the suggestion (issue #422)", async () => {
@@ -1037,7 +1042,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(newBaseInput().value).toBe("fix-login-race");
   });
 
-  it("dispatches the suggestion-named branch with no base to create (issue #422)", async () => {
+  it("dispatches the mint with no base to create (issue #428)", async () => {
     const realExecutePlan = useStore.getState().executePlan;
     const executePlanSpy = vi.fn();
     useStore.setState({ executePlan: executePlanSpy });
@@ -1056,15 +1061,10 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         worktree: { branch: string; baseRef: string | null; baseBranch: string | null };
         destination: { kind: "worktree"; branch: string };
       };
-      expect(options.worktree).toEqual({
-        branch: "omp-ui/main/fix/login-race",
-        baseRef: "main",
-        baseBranch: null,
-      });
-      expect(options.destination).toEqual({
-        kind: "worktree",
-        branch: "omp-ui/main/fix/login-race",
-      });
+      const mint = options.worktree.branch;
+      expect(mint).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+      expect(options.worktree).toEqual({ branch: mint, baseRef: "main", baseBranch: null });
+      expect(options.destination).toEqual({ kind: "worktree", branch: mint });
     } finally {
       useStore.setState({ executePlan: realExecutePlan });
     }
