@@ -284,14 +284,24 @@ export async function linkProjectOmpDir(
 }
 
 /**
- * Removes the checkout at `worktreePath`. `--force` accepts dirty checkouts;
- * when git fails (e.g. the directory was already deleted) the leftover is
- * removed from disk and stale metadata pruned — pruning fails silently, as
- * an unreachable repo has nothing left to prune. The branch survives. The
- * fallback removes whatever `worktreePath` names: callers must pass only a
- * path verified to be inside the worktrees root (isWithin).
+ * Removes the checkout at `worktreePath`. omp-ui's own generated project `.omp`
+ * link is unlinked first, so no recursive delete descends through it (issue
+ * #325) — and on Windows git's delete could not remove the junction anyway:
+ * Git for Windows reads a junction's directory attribute, walks into the
+ * project's real `.omp`, and leaves the checkout standing (issue #424). A
+ * checkout that owns a real `.omp` keeps it: it is the repo's own content, for
+ * git to remove as such. `--force` accepts dirty checkouts; when git fails
+ * (e.g. the directory was already deleted) the leftover is removed from disk
+ * and stale metadata pruned — pruning fails silently, as an unreachable repo
+ * has nothing left to prune. The branch survives. The fallback removes whatever
+ * `worktreePath` names: callers must pass only a path verified to be inside the
+ * worktrees root (isWithin).
  */
 export async function removeWorktree(projectCwd: string, worktreePath: string): Promise<void> {
+  const link = path.join(worktreePath, ".omp");
+  if (sameCheckoutPath(link, path.join(projectCwd, ".omp"))) {
+    await fs.promises.rm(link, { force: true }).catch(() => {});
+  }
   try {
     await git(projectCwd, ["worktree", "remove", "--force", worktreePath], {
       timeoutMs: REMOVE_TIMEOUT_MS,
@@ -467,10 +477,10 @@ export async function resolveMergeDestination(
  * untracked changes (issues #388, #417). The `.omp` omp-ui generates into the
  * checkout is application state, so it alone does not make the checkout dirty;
  * another `.omp`, or any status beside that link, still does. POSIX shows the
- * generated link as a lone symlink entry and Windows as an untracked directory,
- * so the entry is excused by resolution rather than by the link bit — Windows
- * makes the link a junction, whose `lstat` reports a plain directory
- * (issue #423). A checkout that owns a real `.omp` resolves to itself, so the
+ * generated link as a lone symlink entry, `?? .omp`; Git for Windows reads the
+ * junction's directory attribute and shows it as an untracked directory,
+ * `?? .omp/`, so both forms are excused by resolution rather than by the entry
+ * text (issue #423). A checkout that owns a real `.omp` resolves to itself, so the
  * user's own project config stays dirty work. Any failure — not a repo, missing
  * path — resolves to null, "unreadable", never an error.
  */

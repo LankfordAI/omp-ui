@@ -1248,9 +1248,26 @@ describe("removeWorktree", () => {
     fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
     await linkProjectOmpDir(dir, wtPath);
     // Break the checkout's git metadata so `git worktree remove` fails and the
-    // recursive-rm fallback runs with the symlink still in place — the branch
-    // that would delete the user's project config if it ever traversed.
-    fs.rmSync(path.join(wtPath, ".git"), { force: true });
+    // recursive-rm fallback runs (issue #291's cleanup path). Either delete can
+    // now reach the tree only after the generated link is gone, so the project's
+    // own `.omp` is unreachable from the checkout on every platform (#325, #424).
+
+    await removeWorktree(dir, wtPath);
+
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(fs.readFileSync(path.join(dir, ".omp", "mcp.json"), "utf8")).toBe("{}\n");
+  });
+
+  it("unlinks the generated .omp link before git removes the checkout (issue #424)", async () => {
+    // The git path, not the fallback: Git for Windows reads the junction's
+    // directory attribute, so handing it the linked tree walks into the
+    // project's real `.omp` and leaves the checkout standing.
+    const dir = await tmpRepo();
+    const wtPath = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wtPath, mintWorktreeBranch(), "main");
+    fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
+    await linkProjectOmpDir(dir, wtPath);
 
     await removeWorktree(dir, wtPath);
 
