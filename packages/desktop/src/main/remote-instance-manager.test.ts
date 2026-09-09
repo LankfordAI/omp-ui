@@ -459,9 +459,13 @@ describe("proxy and routing", () => {
     expect(h.sent.map((s) => s.channel)).toEqual([CH.onPtyData]);
 
     const before = h.broadcasts;
-    host.emit(CH.onStateChanged, [{ projects: projectGroups(["/remote/a", "/remote/b"]) }]);
+    const groups = projectGroups(["/remote/a", "/remote/b"]);
+    // #436: the host's published human-answer level must survive the fold verbatim.
+    groups[0]!.sessions[0] = { ...groups[0]!.sessions[0]!, awaitingHumanAnswer: true };
+    host.emit(CH.onStateChanged, [{ projects: groups }]);
     const [summary] = await h.until((s) => s[0]!.projects.length === 2);
     expect(summary!.projects.map((g) => g.project.path)).toEqual(["/remote/a", "/remote/b"]);
+    expect(summary!.projects[0]!.sessions[0]!.awaitingHumanAnswer).toBe(true);
     expect(h.manager.ownerOf("t-remote-1")).toBe(summary!.id);
     expect(h.broadcasts).toBeGreaterThan(before);
     expect(h.sent.map((s) => s.channel)).toEqual([CH.onPtyData]);

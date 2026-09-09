@@ -711,7 +711,10 @@ export class SessionManager {
 
   /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */
   private deliverFrame(tabId: string, frame: RpcFrame, entry: LiveEntry): void {
+    const before = this.pendingAnswer(tabId);
+    const gateBefore = this.planGates.pending(tabId);
     for (const obs of this.frameObservers) obs.onFrame(tabId, frame, entry);
+    this.publishAnswerEdge(tabId, before, gateBefore);
     this.deps.send(CH.onRpcFrame, tabId, frame);
   }
 
@@ -1089,10 +1092,35 @@ export class SessionManager {
     return this.turns.isRunning(tabId);
   }
 
+  /**
+   * The human-answer level published on the session summary: true while the
+   * tab holds an answer the client could give now — a pending plan gate or an
+   * unanswered blocking dialog. This is the guard union MINUS the plan
+   * preflight hold: an in-validation proposal may not surface an awaiting
+   * badge (§5, plan-preflight.ts), while the guards keep the full union
+   * (issue #436).
+   */
+  pendingAnswer(tabId: string): boolean {
+    return this.planGates.pending(tabId) || this.hibernation.hasOpenRequests(tabId);
+  }
+
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
     if (this.planPreflight.isHeld(tabId)) return true;
     return this.hibernation.hasOpenRequests(tabId);
+  }
+
+  /**
+   * Publish a pendingAnswer transition through the watcher hub's existing
+   * throttle (#434's path). A gate-component transition is skipped: the
+   * PlanGateTracker's own direct broadcast already rebuilds the full summary,
+   * which carries this field too — one transition, one rebuild.
+   */
+  private publishAnswerEdge(tabId: string, before: boolean, gateBefore: boolean): void {
+    const now = this.pendingAnswer(tabId);
+    if (now === before) return;
+    if (this.planGates.pending(tabId) !== gateBefore) return;
+    this.watcherHub.broadcastPatch(false);
   }
 
   hibernatePlanSource(sourceTabId: string, implementationTabId: string): Promise<boolean> {
@@ -1132,9 +1160,12 @@ export class SessionManager {
       }
     }
     const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
+    const before = this.pendingAnswer(tabId);
+    const gateBefore = this.planGates.pending(tabId);
     for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
     if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId))
       this.stallWatchdog.humanAnswered(tabId);
+    this.publishAnswerEdge(tabId, before, gateBefore);
     const entry = this.live.get(tabId);
     if (!entry) return;
     switch (entry.kind) {
@@ -1224,10 +1255,13 @@ export class SessionManager {
   ): void {
     const cmd: RpcFrame = { type: "extension_ui_response", id: frameId, value };
     const wasAwaitingHuman = this.awaitingHumanAnswer(tabId);
+    const before = this.pendingAnswer(tabId);
+    const gateBefore = this.planGates.pending(tabId);
     for (const obs of this.frameObservers) obs.onSend?.(tabId, cmd);
     if (wasAwaitingHuman && !this.awaitingHumanAnswer(tabId)) {
       this.stallWatchdog.humanAnswered(tabId);
     }
+    this.publishAnswerEdge(tabId, before, gateBefore);
     this.planPreflight.clearSnapshot(tabId);
     if (entry.kind === "rpc-ui") entry.rpc?.send(cmd);
   }
