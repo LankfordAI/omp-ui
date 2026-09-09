@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useT } from "../lib/i18n";
+import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
 import {
@@ -24,7 +25,14 @@ import {
  * the cut point. The composer's branch-chip section keeps minting; converting
  * an existing session never picks branches.
  */
-export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string }) {
+export function NewWorktreeSessionDialog({
+  projectCwd,
+  instanceId,
+}: {
+  projectCwd: string;
+  /** The remote instance owning the project (issue #416); null for this host. */
+  instanceId: string | null;
+}) {
   const [branch, setBranch] = useState(() => mintBranchName());
   const t = useT();
   // null = cut from the checkout's HEAD (the "current HEAD" option).
@@ -47,7 +55,7 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const info = useStore((s) => s.branches[projectCwd]);
+  const info = useStore((s) => s.branches[projectKey(instanceId, projectCwd)]);
   const newWorktreeSession = useStore((s) => s.newWorktreeSession);
   const closeWorktreeDialog = useStore((s) => s.closeWorktreeDialog);
   const refreshBranches = useStore((s) => s.refreshBranches);
@@ -63,8 +71,8 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
   // The existing list is opened rarely; refresh it when the segment is
   // picked so a branch created outside omp-ui shows up (local refs only).
   useEffect(() => {
-    if (source === "existing") void refreshBranches(projectCwd, { fetchUpstream: false });
-  }, [source, projectCwd, refreshBranches]);
+    if (source === "existing") void refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
+  }, [source, projectCwd, instanceId, refreshBranches]);
 
   useEffect(() => {
     if (existingBranch === "" && otherBranches.length > 0) setExistingBranch(otherBranches[0]);
@@ -85,6 +93,7 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
         source === "new"
           ? { mint: { branch, baseRef, baseBranch } }
           : { checkout: { branch: existingBranch } },
+        instanceId,
       );
       closeWorktreeDialog();
     } catch (err) {
@@ -137,6 +146,7 @@ export function NewWorktreeSessionDialog({ projectCwd }: { projectCwd: string })
           {source === "new" ? (
             <WorktreeBranchFields
               projectCwd={projectCwd}
+              instanceId={instanceId}
               branch={branch}
               onBranchChange={setBranch}
               baseRef={baseRef}

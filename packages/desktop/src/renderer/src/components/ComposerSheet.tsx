@@ -1,7 +1,7 @@
 import type { PromptRoute } from "../lib/rpc-types";
 import { useT } from "../lib/i18n";
 import { queueChipView } from "../lib/queue-chip";
-import { useStore } from "../store";
+import { findOwner, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
@@ -43,6 +43,7 @@ export function ComposerSheet({
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const running = status === "running";
   const queueChip = queueChipView(running, queued);
 
@@ -67,7 +68,7 @@ export function ComposerSheet({
             <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
             <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
-              <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
+              <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
             </div>
           </div>
         </section>

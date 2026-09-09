@@ -177,7 +177,7 @@ describe("CommandPalette capabilities actions (issue #383)", () => {
     // No live session exists, so the pinned variant cannot be offered.
     expect(document.body.textContent).not.toContain("Capabilities for this session");
     runVisible("View capabilities");
-    expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp" });
+    expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp", instanceId: null });
   });
 
   it("offers the pinned session action for a native tab, global untouched", () => {
@@ -189,6 +189,7 @@ describe("CommandPalette capabilities actions (issue #383)", () => {
       scopeCwd: "/p",
       tabId: "tab-1",
       section: "mcp",
+      instanceId: null,
     });
   });
 

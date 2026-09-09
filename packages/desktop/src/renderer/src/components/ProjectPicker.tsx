@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
-import { backend, displayMessage } from "../backend";
+import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
-import { useStore } from "../store";
+import { findInstance, useStore } from "../store";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 import { Button, Chip, Modal } from "./ui";
 
@@ -30,6 +30,12 @@ export function ProjectPicker() {
   const closeProjectPicker = useStore((s) => s.closeProjectPicker);
   const addProject = useStore((s) => s.addProject);
   const newSession = useStore((s) => s.newSession);
+  // Registering on a joined remote instance (issue #416): the listing comes
+  // from that host's filesystem and the registration lands in its registry.
+  const instanceId = useStore((s) => s.projectPickerInstanceId);
+  const nickname = useStore((s) =>
+    s.projectPickerInstanceId === null ? null : (findInstance(s.state, s.projectPickerInstanceId)?.nickname ?? null),
+  );
   const compact = useCompactShell();
 
   const [query, setQuery] = useState("~/");
@@ -50,13 +56,13 @@ export function ProjectPicker() {
   useEffect(() => {
     const g = ++gen.current;
     setSubmitError(null);
-    void backend.browseDirectories(query).then((r) => {
+    void backendFor(instanceId).browseDirectories(query).then((r) => {
       if (g !== gen.current) return;
       setEntries(r.entries);
       setParentPath(r.parentPath);
       setBrowseError(r.error);
     });
-  }, [query]);
+  }, [query, instanceId]);
 
   const trimmed = query.trim();
   const trailingSep = /[/\\]$/.test(trimmed) || trimmed === "~";
@@ -84,8 +90,8 @@ export function ProjectPicker() {
     // Store closes the picker on success; compact registration continues into
     // a live session because a newly tracked project otherwise leaves a phone
     // at an empty shell. Desktop keeps registration and creation separate.
-    void addProject(path)
-      .then(() => (compact ? newSession(path) : undefined))
+    void addProject(path, instanceId)
+      .then(() => (compact ? newSession(path, undefined, instanceId) : undefined))
       .catch((err: unknown) => {
         setSubmitError(displayMessage(err));
       });
@@ -110,6 +116,11 @@ export function ProjectPicker() {
 
   return (
     <Modal onClose={closeProjectPicker} width="w-[34rem]">
+      {nickname !== null && (
+        <p className="border-b border-line px-3.5 py-2 text-[11px] text-ink-dim">
+          {t("remoteinstances.picker.title", { nickname })}
+        </p>
+      )}
       <PaletteSearchHeader>
         <svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-ink-dim">
           <path

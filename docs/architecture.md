@@ -22,20 +22,22 @@ flowchart LR
   server --> main
 
   main --> sessions[SessionManager]
+  main --> rim[RemoteInstanceManager<br/>WebSocket client per joined instance]
+  rim -. tab-routed calls, merged state .-> other[Another omp-ui app<br/>its @omp-ui/server]
   sessions --> core[@omp-ui/core]
   core --> pty[node-pty<br/>omp TUI]
   core --> rpc[stdio pipes<br/>omp --mode=rpc-ui]
 ```
 
-The browser path does not create a second application backend. `@omp-ui/server` accepts a `RemoteHost`, dispatches requests and notifications to `MainBackend.handlers()`, and mirrors backend events from `MainBackend.addSink()`. Session ownership, the registry, child processes, and updates remain in the Electron main process.
+The browser path does not create a second application backend. `@omp-ui/server` accepts a `RemoteHost`, dispatches requests and notifications to `MainBackend.handlers()`, and mirrors backend events from `MainBackend.addSink()`. Session ownership, the registry, child processes, and updates remain in the Electron main process. The same main process is also the only client of any [remote instance](remote-instances.md) this app has joined: `RemoteInstanceManager` dials the other app's `@omp-ui/server`, and its projects and sessions arrive in the renderer as ordinary backend state.
 
 ## Package responsibilities
 
 | Package | Owns | Does not own |
 |---|---|---|
 | [`@omp-ui/core`](../packages/core/src/index.ts) | Transport-independent Node logic: shared types and channel declarations, registry persistence, OMP path and session-file resolution, archive handling, worktrees, provider and settings logic, memory access, PTY spawning and batching, and the rpc-ui client and frame codec. | Electron windows, IPC, WebSockets, renderer state, or application update orchestration. |
-| [`@omp-ui/desktop`](../packages/desktop/src/) | The Electron lifecycle, secure window and preload setup, `MainBackend`, the sole `SessionManager`, renderer and web builds, OS credential encryption, window and shell integration, remote-server lifecycle, and app and OMP update state. | A second transport-specific business interface. Both IPC and WebSocket use the core channel table. |
-| [`@omp-ui/server`](../packages/server/src/index.ts) | Static delivery of the browser bundle, token or password authentication, WebSocket request routing, event fan-out, and binary framing for PTY and shell bytes. | Electron, the registry, sessions, OMP processes, or a standalone backend. It requires a `RemoteHost` supplied by desktop main. |
+| [`@omp-ui/desktop`](../packages/desktop/src/) | The Electron lifecycle, secure window and preload setup, `MainBackend`, the sole `SessionManager`, renderer and web builds, OS credential encryption, window and shell integration, remote-server lifecycle, the `RemoteInstanceManager` that joins other omp-ui apps, and app and OMP update state. | A second transport-specific business interface. Both IPC and WebSocket use the core channel table. |
+| [`@omp-ui/server`](../packages/server/src/index.ts) | Static delivery of the browser bundle, token or password authentication, WebSocket request routing, event fan-out, binary framing for PTY and shell bytes, and the matching `connectInstanceClient` that desktop main uses to join another app's server. | Electron, the registry, sessions, OMP processes, or a standalone backend. It requires a `RemoteHost` supplied by desktop main. |
 
 `@omp-ui/core` is transport-agnostic, not browser-safe as a whole. It uses Node APIs and `node-pty`. The renderer imports only dependency-free subpaths such as `@omp-ui/core/types`, `@omp-ui/core/plan`, and `@omp-ui/core/advisor-stats`.
 
@@ -249,6 +251,18 @@ omp updates and omp-ui application updates are separate state machines. For the 
 
 Desktop main owns whether remote access is enabled, its bind address and port, its token, its password hash, and server restart policy. `@omp-ui/server` owns HTTP delivery and authentication, the `/ws` upgrade, JSON request routing, and event fan-out. It accepts either the minted token or a password-derived session credential. It has no access to registry or session implementation beyond the `RemoteHost` interface. The browser reconnect path reloads and rehydrates instead of inventing a partial frame replay. See [Remote access](remote-access.md) for trust and network constraints.
 
+#### Remote instances
+
+A [remote instance](remote-instances.md) is another omp-ui app this one has joined as a client ([ADR-0028](adr/0028-remote-instances-joined-by-main-process-proxy.md)). Desktop main owns the join end to end: `RemoteInstanceManager` holds one `ws` client per joined instance, signs in once with the password or takes the token from a pasted token link, and persists only the derived credential — encrypted by the OS `KeyCipher` in `remote-instances.json` beside `registry.json`, handled like `provider-keys.json` (`0600`, never read by the diagnostic bundle, refused when no credential store exists). The renderer never sees a credential or a socket; it keeps its single `OmpBackend`.
+
+The join is a handshake, not a bare connection. After the socket opens, main asks `instance:identity`; a rejection naming an unknown channel marks the remote *incompatible*, and an `instanceId` equal to this app's own persistent registry `instanceId` marks it *self*. Otherwise main reads the remote's `state:get`, adopts only its `projects`, and publishes them as `BackendState.remoteInstances[i].projects`. Local `projects` stays local-only, and the proxy never reads a remote's own `remoteInstances`, so joins are one level deep and an A↔B mutual join cannot recurse.
+
+Routing is by tab id. Every request or notification in `TAB_ROUTED_REQUESTS` / `TAB_ROUTED_NOTIFIES` (from `core/remote-instances.ts`) carries the owning `tabId` first; `routeByTab` wraps `MainBackend.handlers()` so a tab owned by a joined instance is forwarded to it and every other tab runs locally, with `session:spawn` routed by `resumeTabId` only for a resume. Project-scoped calls reach a remote through `remote-instance:request` and `remote-instance:notify`, which forward only channels in `REMOTE_PROXY_CHANNELS` — registry and session lifecycle, branches, worktrees, MCP and capability catalogs, project files. Host-local opens, settings, updates, providers, remote access, diagnostics, and the remote's own remote-instance channels are refused. The renderer builds one thin `OmpBackend` per instance over those two channels for project-scoped actions and keys its project maps by `projectKey(instanceId, path)`.
+
+Events are filtered the same way. Channels in `REMOTE_TAB_EVENTS` (`pty:data`, `pty:exit`, `rpc:frame`, `shell:data`, `shell:exit`, `session:hibernated`) are mirrored into local sinks unchanged, so remote terminal bytes stay binary across both hops; a remote `state:changed` replaces that instance's `projects` and triggers a local broadcast; every other remote event — update state, remote-access state, the remote's own notifications — is dropped. The viewed-tab hibernation exemption follows the viewer: `tab:viewed` runs locally and is then forwarded to the owning instance, with a `null` sent to the instance the client just left, and `stall:cap` follows its tab.
+
+A dropped socket after a successful join marks the instance *unreachable*, keeps its projects and tab ids, and schedules a reconnect with capped backoff (1 s doubling to 30 s). A `401` marks it *sign-in required* and stops retrying. On rejoin the renderer re-boots each open rpc-ui tab, re-sends `pty:resize` for each terminal tab, and drops tabs whose sessions vanished. `killAll()` stops every remote client before the local server, so quitting disconnects cleanly and leaves the remote's sessions running.
+
 ### Memory
 
 OMP exposes no memory command over rpc-ui. Core therefore reads mnemopi SQLite banks directly with `node:sqlite`, one read-only connection per request, and writes none. There is a single memory channel, `memory:overview`. The renderer sends `projectCwd`, never a database path; main resolves and confines both banks itself. Reads coexist with OMP's WAL writer. omp-ui discovers existing project banks and does not derive or create their hashed names. The settings surface reports configured banks but does not claim to show the exact memories OMP injected into a running session. See [ADR-0017](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md).
@@ -293,3 +307,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Goal mode, driven by the same generated-extension discipline](adr/0024-goal-mode-in-native-sessions.md) | Run the `/goal` family in native sessions against OMP's own goal runtime, published as a monotonic snapshot instead of forwarded prose. |
 | [Glass chrome via backdrop-filter](adr/0026-glass-chrome-via-backdrop-filter.md) | Make chrome planes translucent over an achromatic backdrop wash with backdrop-filter, keeping the reading plane and terminals opaque. |
 | [The web-search provider list is discovered from omp](adr/0027-web-search-provider-list-discovered-from-omp.md) | Probe the installed binary's `omp search --provider` flag validation for its provider ids instead of transcribing a catalog, and degrade to configured ids only when discovery fails. |
+| [Remote instances are joined by the main process, not the renderer](adr/0028-remote-instances-joined-by-main-process-proxy.md) | Let desktop main dial each joined omp-ui app, hold its credential, merge its projects into backend state, and route tab-scoped traffic by tab id, so the renderer keeps one backend and every client sees the same joined instances. |

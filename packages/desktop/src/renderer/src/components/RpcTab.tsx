@@ -10,6 +10,7 @@ import { ExtensionDialogHost } from "./ExtensionDialogHost";
 import { FindBar } from "./FindBar";
 import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
+import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
 import { TranscriptView, TuiHandoffButton } from "./TranscriptView";
@@ -328,6 +329,8 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           </div>
         </div>
       )}
+
+      <RemoteInstanceBanner tabId={tabId} />
 
       {failure && exitCode === undefined && (
         <div className="px-3 pt-2">

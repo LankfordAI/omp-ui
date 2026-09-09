@@ -3,7 +3,8 @@ import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { planSeedText } from "../lib/plan-seed";
-import { runningSessionTitleOnCheckout, useStore } from "../store";
+import { projectKey } from "../lib/project-key";
+import { findOwner, runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button } from "./ui";
 
 /**
@@ -71,7 +72,10 @@ export function useExecutionBranch({
   planTitle: string | null;
 }): ExecutionBranch {
   const t = useT();
-  const branchInfo = useStore((s) => (projectCwd ? s.branches[projectCwd] : undefined));
+  // The gate-blocked tab's owning instance (issue #416): its branch list and
+  // checkout run on that host.
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const branchInfo = useStore((s) => (projectCwd ? s.branches[projectKey(instanceId, projectCwd)] : undefined));
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
   const suggestBranchName = useStore((s) => s.suggestBranchName);
@@ -106,8 +110,8 @@ export function useExecutionBranch({
 
   // Branch list on open — another client may have switched branches.
   useEffect(() => {
-    if (projectCwd !== undefined && branchInfo === undefined) void refreshBranches(projectCwd);
-  }, [projectCwd, branchInfo, refreshBranches]);
+    if (projectCwd !== undefined && branchInfo === undefined) void refreshBranches(projectCwd, undefined, instanceId);
+  }, [projectCwd, instanceId, branchInfo, refreshBranches]);
 
   // Mechanical prefill as soon as the review exists.
   useEffect(() => {
@@ -127,14 +131,14 @@ export function useExecutionBranch({
     const fallback = branchNameFromPlanPath(planFilePath);
     const planContext = `${planTitle ?? planFilePath}\n\n${(planSeedText(planText) ?? "").slice(0, 2000)}`;
     let live = true;
-    void suggestBranchName(projectCwd, planContext).then((suggested) => {
+    void suggestBranchName(projectCwd, planContext, instanceId).then((suggested) => {
       if (!live || suggested === null) return;
       setNewName((cur) => (cur === fallback ? suggested : cur));
     });
     return () => {
       live = false;
     };
-  }, [isRepo, projectCwd, planFilePath, planText, planTitle, proposalKey, suggestBranchName]);
+  }, [isRepo, projectCwd, instanceId, planFilePath, planText, planTitle, proposalKey, suggestBranchName]);
 
   const selectChoice = useCallback((choice: BranchChoice) => {
     setBranchChoice(choice);
@@ -181,6 +185,7 @@ export function useExecutionBranch({
       projectCwd,
       name,
       branchChoice === "new" ? { create: true } : undefined,
+      instanceId,
     );
     setCheckingOut(false);
     // A refused checkout leaves the gate blocked — the agent must not execute
@@ -191,7 +196,7 @@ export function useExecutionBranch({
       return false;
     }
     return true;
-  }, [isRepo, branchChoice, newName, existingName, branchInfo, busyTitle, confirmBusy, checkoutGitBranch, projectCwd]);
+  }, [isRepo, branchChoice, newName, existingName, branchInfo, busyTitle, confirmBusy, checkoutGitBranch, projectCwd, instanceId]);
 
   return {
     isRepo,

@@ -22,7 +22,7 @@ import type {
   RenderItem,
   UserItem,
 } from "../lib/transcript";
-import { useStore } from "../store";
+import { findOwner, useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
 import { PlanCard } from "./PlanCard";
@@ -208,14 +208,17 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
 
 const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info: "neutral" };
 
-function NoticeLine({ item }: { item: NoticeItem }) {
+function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   const t = useT();
   const reportError = useStore((s) => s.reportError);
+  // A path on a remote instance's disk (issue #416) cannot be opened here:
+  // `file:open` is host-local, so the notice reads as plain text there.
+  const remote = useStore((s) => tabId !== undefined && findOwner(s.state, tabId)?.instanceId != null);
   const tone = NOTICE_TONE[item.level ?? "info"] ?? "neutral";
   // A notice carrying a path (the exported transcript HTML, issue #84) is a
   // link: the text opens the file with the system handler, the folder glyph
   // reveals it in the file manager.
-  const path = item.path;
+  const path = remote ? undefined : item.path;
   return (
     <div className="animate-rise flex justify-center">
       <div
@@ -503,7 +506,7 @@ const TranscriptRow = memo(function TranscriptRow({
         </div>
       );
     case "notice":
-      return <NoticeLine item={item} />;
+      return <NoticeLine item={item} tabId={tabId} />;
     case "irc":
       return <IrcLine item={item} />;
     case "marker":

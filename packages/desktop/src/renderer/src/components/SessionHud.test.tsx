@@ -155,7 +155,7 @@ describe("wide Session HUD", () => {
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="new session in current project"]')!;
     expect(trigger.disabled).toBe(false);
     act(() => trigger.click());
-    expect(newSession).toHaveBeenCalledWith("/p");
+    expect(newSession).toHaveBeenCalledWith("/p", undefined, null);
   });
 
   it("co-locates the main spend with the main meter, before the advisor cluster (#107)", () => {
@@ -348,7 +348,7 @@ describe("wide Session HUD", () => {
 
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Capabilities"]')!.click());
     // Not (scopeCwd, tabId): the catalog modal is scope-global from any context.
-    expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp" });
+    expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp", instanceId: null });
   });
 
   it("renders the button even when the record has no working tree", () => {
@@ -482,7 +482,7 @@ describe("compact Session HUD", () => {
     expect(exportHtml).toHaveBeenCalledWith(TAB);
     expect(branchSession).toHaveBeenCalledWith(TAB);
     // #82: "new" runs the same spawn as /new and mod+shift+n, not an in-tab reset.
-    expect(newSession).toHaveBeenCalledWith("/p");
+    expect(newSession).toHaveBeenCalledWith("/p", undefined, null);
   });
 
   it("shows session-tree advisor tokens and cost in the actions sheet", () => {

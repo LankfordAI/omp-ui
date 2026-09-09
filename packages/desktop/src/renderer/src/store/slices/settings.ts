@@ -330,6 +330,36 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    // Rejections carry the join's own message (wrong password, unreachable,
+    // duplicate nickname): the form renders it inline beside the fields.
+    addRemoteInstance(input) {
+      return backend.addRemoteInstance(input);
+    },
+
+    async updateRemoteInstance(id, patch) {
+      try {
+        await backend.updateRemoteInstance(id, patch);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async removeRemoteInstance(id) {
+      try {
+        await backend.removeRemoteInstance(id);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async reconnectRemoteInstance(id) {
+      try {
+        await backend.reconnectRemoteInstance(id);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     readOmpSettings(projectCwd) {
       return backend.readOmpSettings(projectCwd);
     },

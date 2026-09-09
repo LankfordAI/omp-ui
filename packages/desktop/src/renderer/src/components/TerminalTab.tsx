@@ -13,9 +13,10 @@ import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/c
 import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
-import { registerTermWriter, useStore } from "../store";
+import { findInstance, findOwner, registerTermWriter, useStore } from "../store";
 import { useT } from "../lib/i18n";
 import { FindBar } from "./FindBar";
+import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { Button, IconButton, IconClose } from "./ui";
 
 /**
@@ -55,6 +56,19 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   const resumeDead = useStore((s) => s.resumeDead);
   const searchOpen = useStore((s) => s.searchOpen[tabId] === true);
   const closeSearch = useStore((s) => s.closeSearch);
+  // A session on a remote instance that is not joined (issue #416): keystrokes
+  // would only be dropped by the proxy, so they stop here; the terminal keeps
+  // its scrollback. Read through a ref inside the xterm data handler so the
+  // mount effect never rebuilds the terminal over a status change.
+  const instanceDown = useStore((s) => {
+    const owner = findOwner(s.state, tabId);
+    return owner?.instanceId != null && findInstance(s.state, owner.instanceId)?.status !== "joined";
+  });
+  const instanceDownRef = useRef(instanceDown);
+  instanceDownRef.current = instanceDown;
+  // Bumped by the store when the owning instance rejoins: the remote PTY was
+  // spawned anew at 80×24 and needs this tab's real size again.
+  const redrawRevision = useStore((s) => s.ptyRedrawRevision[tabId] ?? 0);
   /**
    * An image Attachment cannot ride the PTY as bytes, so main writes it to a scratch
    * file and delivers the *path* as a bracketed paste — omp's TUI editor
@@ -165,7 +179,9 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     fit.fit();
     backend.ptyResize(tabId, term.cols, term.rows);
 
-    const dataSub = term.onData((d) => backend.ptyWrite(tabId, d));
+    const dataSub = term.onData((d) => {
+      if (!instanceDownRef.current) backend.ptyWrite(tabId, d);
+    });
     const unregister = registerTermWriter(tabId, (data) => term.write(data));
     const observer = new ResizeObserver(() => {
       if (host.clientWidth === 0 || host.clientHeight === 0) return;
@@ -301,8 +317,21 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     t.term.focus();
   }, [active, tabId]);
 
+  // Rejoin (issue #416): push the current fit so the re-spawned remote PTY
+  // redraws at this tab's size instead of the spawn default.
+  useEffect(() => {
+    if (redrawRevision === 0) return;
+    const t = termRef.current;
+    if (!t) return;
+    t.fit.fit();
+    backend.ptyResize(tabId, t.term.cols, t.term.rows);
+  }, [redrawRevision, tabId]);
+
   return (
     <div className="terminal-tab ambient relative h-full w-full bg-surface p-2">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 [&>*]:pointer-events-auto">
+        <RemoteInstanceBanner tabId={tabId} />
+      </div>
       <div ref={hostRef} className="h-full w-full" />
       <span
         className="absolute right-3 top-3 z-10"

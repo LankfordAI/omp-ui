@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
+import { projectKey } from "../lib/project-key";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
@@ -45,6 +46,7 @@ type Pending = { kind: "checkout"; branch: string } | { kind: "pull" };
 
 export function BranchChip({
   projectCwd,
+  instanceId = null,
   workspace,
   onWorkspaceChange,
   workspaceDisabled = false,
@@ -52,6 +54,8 @@ export function BranchChip({
   finishTabId,
 }: {
   projectCwd?: string;
+  /** The remote instance owning the checkout (issue #416); null for this host. */
+  instanceId?: string | null;
   /**
    * The composer's pending-workspace selection (issue #227), offered only
    * while the session is unprompted and has no worktree of its own. Absent
@@ -88,12 +92,13 @@ export function BranchChip({
   /** The drift count as prose: "3 commits" / "1 commit". */
   const commits = (count: number): string =>
     `${count} ${count === 1 ? t("composer.branch.commit") : t("composer.branch.commits")}`;
-  const info = useStore((s) => (projectCwd === undefined ? undefined : s.branches[projectCwd]));
+  const key = projectCwd === undefined ? undefined : projectKey(instanceId, projectCwd);
+  const info = useStore((s) => (key === undefined ? undefined : s.branches[key]));
   const refreshing = useStore(
-    (s) => projectCwd !== undefined && s.branchActivity[projectCwd]?.refreshing === true,
+    (s) => key !== undefined && s.branchActivity[key]?.refreshing === true,
   );
   const pulling = useStore(
-    (s) => projectCwd !== undefined && s.branchActivity[projectCwd]?.pulling === true,
+    (s) => key !== undefined && s.branchActivity[key]?.pulling === true,
   );
   const refreshBranches = useStore((s) => s.refreshBranches);
   const checkoutGitBranch = useStore((s) => s.checkoutGitBranch);
@@ -152,9 +157,9 @@ export function BranchChip({
   // network. Upstream freshness arrives on open, focus, or visibility instead.
   useEffect(() => {
     if (projectCwd !== undefined && info === undefined) {
-      void refreshBranches(projectCwd, { fetchUpstream: false });
+      void refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
     }
-  }, [projectCwd, info, refreshBranches]);
+  }, [projectCwd, instanceId, info, refreshBranches]);
 
   // The composer drops the section the moment the session is prompted or
   // converted: a stale worktree sub-mode must not outlive the prop.
@@ -298,7 +303,7 @@ export function BranchChip({
     setMenuOpen(true);
     // Fresh list *and* fresh upstream on every open — another tab (or the user
     // in a terminal) may have switched branches, and the remote may have moved.
-    void refreshBranches(projectCwd, { fetchUpstream: true });
+    void refreshBranches(projectCwd, { fetchUpstream: true }, instanceId);
   };
 
   const attempt = async (branch: string, create: boolean): Promise<void> => {
@@ -315,7 +320,7 @@ export function BranchChip({
       return;
     }
     setError(null);
-    const err = await checkoutGitBranch(projectCwd, branch, create ? { create: true } : undefined);
+    const err = await checkoutGitBranch(projectCwd, branch, create ? { create: true } : undefined, instanceId);
     if (err !== null) {
       setError(err);
       setConfirm(null);
@@ -331,7 +336,7 @@ export function BranchChip({
       return;
     }
     setError(null);
-    const err = await pullGitBranch(projectCwd);
+    const err = await pullGitBranch(projectCwd, instanceId);
     if (err !== null) {
       setError(err);
       setConfirm(null);
@@ -482,6 +487,7 @@ export function BranchChip({
             <>
               <WorktreeBranchFields
                 projectCwd={projectCwd}
+                instanceId={instanceId}
                 branch={workspace.branch}
                 onBranchChange={(branch) =>
                   onWorkspaceChange?.((prev) =>

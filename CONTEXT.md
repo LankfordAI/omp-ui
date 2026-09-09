@@ -43,7 +43,10 @@ _Avoid_: suspended session, parked session, sleeping session
 **Tab**:
 The renderer's view onto a live session's PTY — one xterm.js instance per
 live session. Tabs hide rather than close; focus/dedupe keys on the tab,
-which exists from spawn — before the session has an id or file.
+which exists from spawn — before the session has an id or file. A tab may
+belong to a remote instance: it renders that host's stream, its
+`instanceId` names the owner, and its label carries the nickname in front of
+the title.
 _Avoid_: window, pane
 
 **Project**:
@@ -565,16 +568,30 @@ card on top.
 _Avoid_: toast, notification, popup, updater dialog
 
 **Settings surface**:
-The modal with eight pages — General, Appearance, Updates, Remote access,
-Providers, Memory, omp, About — reached from the sidebar gear, the command
-palette, or `mod+,`. Deliberately not a tab: preferences are not sessions, so
-they stay out of the tab/lineage model entirely. omp-ui's own preferences
-persist in the registry; the omp and Memory pages are views onto omp's own
-config, written through `omp config set` to the global layer only, with each
-value's layer shown. Memory configures omp's memory keys and summarizes the
-resolved bank locations for a focused project; it does not claim to show what
-was injected into a session.
+The modal with nine pages — General, Appearance, Updates, Remote access,
+Remote instances, Providers, Memory, omp, About — reached from the sidebar
+gear, the command palette, or `mod+,`. Deliberately not a tab: preferences
+are not sessions, so they stay out of the tab/lineage model entirely.
+omp-ui's own preferences persist in the registry; the omp and Memory pages
+are views onto omp's own config, written through `omp config set` to the
+global layer only, with each value's layer shown. Memory configures omp's
+memory keys and summarizes the resolved bank locations for a focused
+project; it does not claim to show what was injected into a session.
 _Avoid_: preferences dialog, options window, config panel
+
+**Remote instance**:
+Another omp-ui app whose embedded server this app has joined as a client,
+saved with a nickname, its connection URL, and a credential. Its projects
+and owned sessions appear in the sidebar under the nickname; opening one
+renders that host's own stream, and every action on it runs on that host's
+registry and processes — nothing is copied and no second omp process starts.
+The relation is directed: joining B from A gives B no view of A, and a join
+never follows the remote's own joins. Quitting this app disconnects remote
+instances; their sessions keep running, exactly as closing a browser view
+does. The nickname is optional (defaults to the URL's host), unique among
+joined instances, and is how every surface labels the host.
+_Avoid_: remote server (the embedded listener this app hosts), remote host
+(the `RemoteHost` seam), peer, connection
 
 **Provider key**:
 One API credential omp-ui supplies to every omp it launches, named by the

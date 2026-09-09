@@ -174,7 +174,7 @@ beforeEach(() => {
   backendMock.setScopedCapability.mockResolvedValue(emptyCatalog());
   useStore.setState({
     capabilitiesViewer: null,
-    projectSettings: { projectCwd: PROJECT },
+    projectSettings: { projectCwd: PROJECT, instanceId: null },
     state: backendState({
       defaultAdvisor: false,
       projects: [{ project, sessions: [] }],

@@ -24,11 +24,14 @@ const ACTION_ROW_CLASS =
 
 export function ProjectActionsSheet({
   project,
+  instanceId,
   onClose,
   onActivate,
 }: {
   /** `null` renders a closed Sheet. */
   project: Pick<ProjectRecord, "name" | "path"> | null;
+  /** The remote instance owning the project (issue #416); null for this app's own registry. */
+  instanceId: string | null;
   onClose: () => void;
   onActivate: () => void;
 }) {
@@ -50,7 +53,7 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
-                void newSession(project.path);
+                void newSession(project.path, undefined, instanceId);
                 onClose();
                 onActivate();
               }}
@@ -61,7 +64,7 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
-                void newSession(project.path, "pty");
+                void newSession(project.path, "pty", instanceId);
                 onClose();
                 onActivate();
               }}
@@ -72,7 +75,7 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
-                openWorktreeDialog(project.path);
+                openWorktreeDialog(project.path, instanceId);
                 onClose();
               }}
             >
@@ -82,7 +85,7 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
-                openProjectSettings(project.path);
+                openProjectSettings(project.path, instanceId);
                 onClose();
               }}
             >
@@ -94,7 +97,7 @@ export function ProjectActionsSheet({
               // The store owns the confirm step; on confirm the stateChanged
               // broadcast drops the project, the sidebar's lookup returns
               // null, and this sheet closes itself. On cancel it stays open.
-              onClick={() => void removeProject(project.path)}
+              onClick={() => void removeProject(project.path, instanceId)}
             >
               {t("project.actions.remove")}
             </button>

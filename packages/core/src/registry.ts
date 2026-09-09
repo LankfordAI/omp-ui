@@ -66,6 +66,8 @@ export interface RegistrySettings {
   remotePasswordHash: string;
   /** Hex salt used for remotePasswordHash; "" = password auth off. */
   remotePasswordSalt: string;
+  /** This app's stable identity for remote-instance joins (issue #416); "" until first minted. */
+  instanceId: string;
 }
 
 interface RegistryData {
@@ -222,6 +224,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is string => typeof value === "string",
   ),
   remotePasswordSalt: validatedSetting(
+    () => "",
+    (value): value is string => typeof value === "string",
+  ),
+  instanceId: validatedSetting(
     () => "",
     (value): value is string => typeof value === "string",
   ),

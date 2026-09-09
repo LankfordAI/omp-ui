@@ -30,6 +30,7 @@ import { createMachinery, shellWriters, termWriters } from "./store/slices/share
 import { createUpdatesSlice } from "./store/slices/updates";
 import {
   createViewSlice,
+  findInstance,
   findRecord,
   installDesktopViewPersistence,
   installViewedTabReporter,
@@ -56,6 +57,8 @@ export type {
   UiStore,
 } from "./store/types";
 export {
+  findInstance,
+  findOwner,
   findRecord,
   runningSessionTitleOnCheckout,
   sessionCwd,
@@ -175,6 +178,62 @@ export const useStore = create<UiStore>()((set, get, api) => {
     if (l.id !== currentLocaleId()) applyLocale(l);
   };
 
+  /**
+   * Reconciles open remote tabs with the instances that own them (issue
+   * #416). Runs before `state` is replaced so the previous statuses are
+   * still readable. A joined instance is authoritative for its own sessions:
+   * a tab it no longer lists is dropped; the instance itself gone drops every
+   * tab it owned. A rejoin bumps each PTY tab's redraw revision so the
+   * terminal re-sends its size, and returns the rpc tabs to re-boot — the
+   * remote process kept running, but this renderer's frames stopped — for
+   * the caller to start once the new state is committed.
+   */
+  const reconcileRemoteTabs = (next: BackendState): string[] => {
+    const s = get();
+    const remoteTabs = s.tabs.filter((tab) => tab.instanceId !== null);
+    if (remoteTabs.length === 0) return [];
+    const rejoined = new Set<string>();
+    for (const inst of next.remoteInstances) {
+      if (inst.status !== "joined") continue;
+      if (findInstance(s.state, inst.id)?.status !== "joined") rejoined.add(inst.id);
+    }
+    const dropped: string[] = [];
+    const redraw: string[] = [];
+    const reboot: string[] = [];
+    const dormant: string[] = [];
+    for (const tab of remoteTabs) {
+      const inst = findInstance(next, tab.instanceId);
+      if (inst === undefined) {
+        dropped.push(tab.tabId);
+        continue;
+      }
+      if (inst.status !== "joined") continue;
+      const record = inst.projects
+        .flatMap((g) => g.sessions)
+        .find((r) => r.tabId === tab.tabId);
+      if (record === undefined) {
+        dropped.push(tab.tabId);
+        continue;
+      }
+      if (!rejoined.has(inst.id)) continue;
+      // The remote may have hibernated the session while we were away: there
+      // is no process to re-boot into, so the tab takes the hibernated face.
+      if (record.live !== "live") dormant.push(tab.tabId);
+      else if (tab.mode === "pty") redraw.push(tab.tabId);
+      else reboot.push(tab.tabId);
+    }
+    for (const tabId of dropped) lifecycle.dropTab(tabId);
+    for (const tabId of dormant) lifecycle.teardownProcess(tabId, 0, true);
+    if (redraw.length > 0) {
+      set((cur) => {
+        const ptyRedrawRevision = { ...cur.ptyRedrawRevision };
+        for (const tabId of redraw) ptyRedrawRevision[tabId] = (ptyRedrawRevision[tabId] ?? 0) + 1;
+        return { ptyRedrawRevision };
+      });
+    }
+    return reboot;
+  };
+
   return {
     ...createViewSlice(set, get, api),
     ...createSettingsSlice(set, get, api),
@@ -201,6 +260,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (initialized) return;
       initialized = true;
       backend.onStateChanged((state) => {
+        const reboot = reconcileRemoteTabs(state);
         set((s) => ({
           state,
           // Record mode is authoritative — tabs follow it (e.g. after switchMode).
@@ -210,6 +270,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
           }),
           focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
         }));
+        for (const tabId of reboot) void get().bootRpcTab(tabId);
         syncTheme(state);
         syncFontFamily(state);
         syncTranscriptWidth(state);

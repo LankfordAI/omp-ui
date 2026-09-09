@@ -13,6 +13,8 @@ import type {
   PlanFormat,
   ProjectOpenTarget,
   RemoteBind,
+  RemoteInstanceInput,
+  RemoteInstancePatch,
   SessionMode,
   SpawnRequest,
   ScopedCapabilityMutation,
@@ -57,6 +59,11 @@ function codec<T>(expected: string, accepts: (value: unknown) => boolean): ArgCo
 
 export function str(): ArgCodec<string> {
   return codec("a string", (value) => typeof value === "string");
+}
+
+/** Accepts anything: the remote decodes proxied args with its own codecs. */
+export function any(): ArgCodec<unknown> {
+  return codec("any value", () => true);
 }
 
 export function num(): ArgCodec<number> {
@@ -167,6 +174,24 @@ export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
 );
 export const consoleProgramCodec: ArgCodec<ConsoleProgram> = oneOf("shell", "omp-tui");
 export const remoteBindCodec: ArgCodec<RemoteBind> = oneOf("localhost", "lan");
+
+export const remoteInstanceSecretCodec: ArgCodec<RemoteInstanceInput["secret"]> = {
+  expected: "a { kind: password | token, value } secret",
+  decode(value, path) {
+    return objectOf({ kind: oneOf("password", "token"), value: str() }).decode(value, path) as
+      RemoteInstanceInput["secret"];
+  },
+};
+export const remoteInstanceInputCodec: ArgCodec<RemoteInstanceInput> = objectOf<RemoteInstanceInput>({
+  url: str(),
+  nickname: str(),
+  secret: remoteInstanceSecretCodec,
+});
+export const remoteInstancePatchCodec: ArgCodec<RemoteInstancePatch> = objectOf<RemoteInstancePatch>({
+  nickname: optional(str()),
+  url: optional(str()),
+  secret: optional(remoteInstanceSecretCodec),
+});
 
 export const imageAttachmentCodec: ArgCodec<ImageAttachment> = objectOf<ImageAttachment>({
   type: lit("image"),

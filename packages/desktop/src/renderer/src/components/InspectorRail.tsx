@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { backend } from "../backend";
+import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
@@ -9,9 +9,10 @@ import {
   resolveDesktopPanelWidths,
 } from "../lib/panel-layout";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
+import { projectKey } from "../lib/project-key";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
-import { findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
+import { findOwner, findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
@@ -517,12 +518,15 @@ function PlansPane({ tabId }: { tabId: string }) {
 function DiffsPane({ tabId }: { tabId: string }) {
   const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
+  // The session's owning instance (issue #416): the diff is read from that host.
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const cwd = sessionCwd(record);
   const base = record?.worktree?.base ?? null;
+  const key = cwd === undefined ? undefined : projectKey(instanceId, cwd);
   // A checkout through the composer chip (issue #35) updates this slice; the
   // pane re-reads so it never shows the previous branch's diff.
-  const currentBranch = useStore((s) => (cwd ? s.branches[cwd]?.current : undefined));
-  const branchDiffRevision = useStore((s) => (cwd ? (s.branchDiffRevision[cwd] ?? 0) : 0));
+  const currentBranch = useStore((s) => (key ? s.branches[key]?.current : undefined));
+  const branchDiffRevision = useStore((s) => (key ? (s.branchDiffRevision[key] ?? 0) : 0));
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
   const requestIdRef = useRef(0);
 
@@ -534,7 +538,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
     }
     if (requestId === requestIdRef.current) setLoad({ status: "loading" });
     try {
-      const branch = await backend.getBranchDiff(cwd, base);
+      const branch = await backendFor(instanceId).getBranchDiff(cwd, base);
       if (requestId !== requestIdRef.current) return;
       setLoad({
         status: "loaded",
@@ -547,7 +551,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
       if (requestId !== requestIdRef.current) return;
       setLoad({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
-  }, [cwd, base]);
+  }, [cwd, base, instanceId]);
 
   useEffect(() => {
     void refresh();

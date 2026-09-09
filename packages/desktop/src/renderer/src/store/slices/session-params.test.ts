@@ -492,6 +492,7 @@ describe("prompting, slash commands, and session ops", () => {
       scopeCwd: "/p",
       tabId: h.TAB,
       section: "mcp",
+      instanceId: null,
     });
     h.useStore.getState().closeCapabilitiesViewer();
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
@@ -500,6 +501,7 @@ describe("prompting, slash commands, and session ops", () => {
       scopeCwd: "/p",
       tabId: h.TAB,
       section: "mcp",
+      instanceId: null,
     });
     h.useStore.getState().closeCapabilitiesViewer();
   });
@@ -523,6 +525,7 @@ describe("prompting, slash commands, and session ops", () => {
       scopeCwd: "/wt",
       tabId: h.TAB,
       section: "mcp",
+      instanceId: null,
     });
     h.useStore.getState().closeCapabilitiesViewer();
     await h.useStore.getState().runSlashCommand(h.TAB, "/mcp list");
@@ -531,6 +534,7 @@ describe("prompting, slash commands, and session ops", () => {
       scopeCwd: "/wt",
       tabId: h.TAB,
       section: "mcp",
+      instanceId: null,
     });
     h.useStore.getState().closeCapabilitiesViewer();
   });
@@ -547,6 +551,7 @@ describe("prompting, slash commands, and session ops", () => {
       scopeCwd: "/p",
       tabId: h.TAB,
       section: "mcp",
+      instanceId: null,
     });
     h.useStore.getState().closeCapabilitiesViewer();
   });

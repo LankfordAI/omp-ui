@@ -270,6 +270,17 @@ const mockBackend = {
   submitProviderOAuthInput: vi.fn(async () => {}),
   cancelProviderOAuth: vi.fn(async () => {}),
   signOutProviderOAuth: vi.fn(async (): Promise<never[]> => []),
+  // Remote instances (issue #416): the proxy answers nothing until a case
+  // arms it, and the four management calls simply resolve.
+  addRemoteInstance: vi.fn(async () => {}),
+  updateRemoteInstance: vi.fn(async () => {}),
+  removeRemoteInstance: vi.fn(async () => {}),
+  reconnectRemoteInstance: vi.fn(async () => {}),
+  remoteInstanceRequest: vi.fn(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async (instanceId: string, channel: string, args: unknown[]): Promise<unknown> => undefined,
+  ),
+  remoteInstanceNotify: vi.fn(),
 };
 
 // The renderer no longer uses native dialogs (issue #373): a surviving
@@ -447,7 +458,9 @@ beforeEach(() => {
     focusedTabByProject: {},
     restoringTabs: false,
     exited: {},
+    hibernated: {},
     rpc: {},
+    ptyRedrawRevision: {},
     compactionSettings: {},
     deleteConfirmation: null,
     lifecycleConfirmation: null,

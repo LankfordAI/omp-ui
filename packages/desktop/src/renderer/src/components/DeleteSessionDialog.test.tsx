@@ -364,7 +364,7 @@ describe("DeleteSessionDialog", () => {
       confirmDeleteSession: vi.fn(async () => {}),
       cancelDeleteSession: vi.fn(),
       branches: {},
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -415,7 +415,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession: vi.fn(async () => {}),
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -454,8 +454,8 @@ describe("DeleteSessionDialog", () => {
       confirmDeleteSession: vi.fn(async () => {}),
       cancelDeleteSession: vi.fn(),
       tabs: [
-        { tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false },
-        { tabId: "tab-2", mode: "rpc-ui", projectCwd: "/repo", hidden: false },
+        { tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null },
+        { tabId: "tab-2", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null },
       ],
       rpc: { "tab-2": { status: "running" } as unknown as RpcTabState },
       state,
@@ -481,7 +481,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -510,7 +510,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession: vi.fn(async () => {}),
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -546,7 +546,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -587,7 +587,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -625,7 +625,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -651,7 +651,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession: vi.fn(async () => {}),
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -690,7 +690,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -716,7 +716,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });
@@ -733,8 +733,8 @@ describe("DeleteSessionDialog", () => {
     act(() => {
       useStore.setState({
         tabs: [
-          { tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false },
-          { tabId: "tab-2", mode: "rpc-ui", projectCwd: "/repo", hidden: false },
+          { tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null },
+          { tabId: "tab-2", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null },
         ],
         rpc: { "tab-2": { status: "running" } as unknown as RpcTabState },
         state,
@@ -758,7 +758,7 @@ describe("DeleteSessionDialog", () => {
     useStore.setState({
       confirmDeleteSession,
       cancelDeleteSession: vi.fn(),
-      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false }],
+      tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/repo", hidden: false, instanceId: null }],
       rpc: {},
       state: stateWith(summary({ worktree: { ...worktreeSession } }), false),
     });

@@ -474,6 +474,13 @@ export {
 } from "./token";
 export { decodeBinaryEvent, encodeBinaryEvent } from "./protocol";
 export type { ClientFrame, ServerFrame } from "./protocol";
+export {
+  connectInstanceClient,
+  InstanceConnectError,
+  signInForCredential,
+  type InstanceClient,
+  type InstanceConnectFailure,
+} from "./client";
 
 /**
  * Resolves once every client socket has left OPEN/CLOSING, or after `ms` — whichever first. A

@@ -3,7 +3,8 @@ import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { projectKey } from "../lib/project-key";
+import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { Capsule, CAPSULE_SEGMENT, Dot, Label } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { ModelPalette } from "./ModelSelector";
@@ -59,7 +60,10 @@ export function splitRole(selector: string): { model: string; level?: string } {
 
 export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: string; disabled?: boolean; layout?: "inline" | "sheet" }) {
   const t = useT();
+  // The session's owning instance (issue #416): its project pins and advisor
+  // defaults live on that host, keyed by projectKey in the store.
   const record = useStore((s) => findRecord(s.state, tabId));
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const setSessionAdvisor = useStore((s) => s.setSessionAdvisor);
   const setAdvisorModel = useStore((s) => s.setAdvisorModel);
@@ -73,18 +77,19 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
   // registered project, null when the project simply has no pin yet.
   const projectAdvisorPin = useStore((s) => {
     if (projectCwd === undefined) return undefined;
-    const group = s.state?.projects.find((g) => g.project.path === projectCwd);
+    const groups = instanceId === null ? s.state?.projects : findInstance(s.state, instanceId)?.projects;
+    const group = groups?.find((g) => g.project.path === projectCwd);
     return group === undefined ? null : (group.project.defaultAdvisorModel ?? null);
   });
-  const defaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectCwd] : undefined));
+  const defaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectKey(instanceId, projectCwd)] : undefined));
   const [picking, setPicking] = useState(false);
   const [levelMenu, setLevelMenu] = useState(false);
   const levelAnchor = useRef<HTMLSpanElement | null>(null);
 
   // omp's config is the source of the default, and it is read in main.
   useEffect(() => {
-    if (projectCwd !== undefined) void loadAdvisorDefaults(projectCwd);
-  }, [projectCwd, loadAdvisorDefaults]);
+    if (projectCwd !== undefined) void loadAdvisorDefaults(projectCwd, instanceId);
+  }, [projectCwd, instanceId, loadAdvisorDefaults]);
 
   // A disabled session can't be reconfigured, and menus left open behind a
   // process handoff would target a successor with stale choices.
@@ -340,7 +345,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
           onPinChange={
             projectCwd === undefined
               ? undefined
-              : (selector) => void setProjectDefaultAdvisorModel(projectCwd, selector)
+              : (selector) => void setProjectDefaultAdvisorModel(projectCwd, selector, instanceId)
           }
         />
       )}

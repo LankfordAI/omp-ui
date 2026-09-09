@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { MergeBackResult, MergeBackStatus, SessionSummary } from "@omp-ui/core/types";
 import { releaseNoticeLevel, releaseNoticeText } from "../lib/format";
 import { t } from "../lib/i18n";
+import { projectKey } from "../lib/project-key";
 import {
+  findOwner,
   findRecord,
   runningSessionTitleOnCheckout,
   useStore,
@@ -73,9 +75,12 @@ const commitsText = (count: number): string =>
 
 export function useFinishWorktree(tabId: string): FinishController {
   const record = useStore((s) => findRecord(s.state, tabId));
+  // The session's owning instance (issue #416): every git step runs there.
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const projectCwd = record?.projectCwd;
+  const branchKey = projectCwd === undefined ? undefined : projectKey(instanceId, projectCwd);
   const branchNames = useStore((s) => {
-    const info = projectCwd === undefined ? undefined : s.branches[projectCwd];
+    const info = branchKey === undefined ? undefined : s.branches[branchKey];
     return info === undefined ? null : info.branches;
   });
   const busyTitle = useStore((s) =>
@@ -121,16 +126,16 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (projectCwd === undefined || worktreeBranch === null) return;
     const seq = ++resolveSeq.current;
     void (async () => {
-      await refreshBranches(projectCwd, { fetchUpstream: false }).catch(() => {});
+      await refreshBranches(projectCwd, { fetchUpstream: false }, instanceId).catch(() => {});
       if (seq !== resolveSeq.current) return;
-      const resolved = await resolveMergeDestination(projectCwd, record?.worktree?.base ?? null);
+      const resolved = await resolveMergeDestination(projectCwd, record?.worktree?.base ?? null, instanceId);
       if (seq !== resolveSeq.current) return;
       setSuggestedDestination(resolved.destination);
-      const names = useStore.getState().branches[projectCwd]?.branches ?? [];
+      const names = useStore.getState().branches[projectKey(instanceId, projectCwd)]?.branches ?? [];
       if (seq !== resolveSeq.current) return;
       const fallback =
         resolved.destination ??
-        useStore.getState().branches[projectCwd]?.defaultBranch ??
+        useStore.getState().branches[projectKey(instanceId, projectCwd)]?.defaultBranch ??
         names.find((name) => name !== worktreeBranch) ??
         null;
       setDestinationState((prev) => prev ?? fallback);
@@ -146,7 +151,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (projectCwd === undefined || worktreeBranch === null) return;
     if (!PLACEHOLDER_BRANCH_RE.test(worktreeBranch)) return;
     void (async () => {
-      const name = await suggestBranchName(projectCwd, record?.title ?? "");
+      const name = await suggestBranchName(projectCwd, record?.title ?? "", instanceId);
       if (name === null || renameTyped) return;
       setRename(name);
     })();
@@ -171,6 +176,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       worktreeBranch,
       effectiveDestination,
       record?.worktree?.path ?? null,
+      instanceId,
     )
       .then((next) => {
         if (seq !== statusSeq.current) return;
@@ -221,7 +227,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       if (name === "") return;
       setPhase({ s: "working", step: "creating" });
       try {
-        await createBranch(cwd, name, newBranch.from);
+        await createBranch(cwd, name, newBranch.from, instanceId);
       } catch (error) {
         setPhase({ s: "error", message: errorMessage(error) });
         return;
@@ -248,7 +254,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       setPhase({ s: "working", step: "merging" });
       let result: MergeBackResult;
       try {
-        result = await mergeWorktreeBranch(cwd, branch, target);
+        result = await mergeWorktreeBranch(cwd, branch, target, instanceId);
       } catch (error) {
         setPhase({ s: "error", message: errorMessage(error) });
         return;

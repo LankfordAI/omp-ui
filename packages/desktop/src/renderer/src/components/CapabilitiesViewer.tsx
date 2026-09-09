@@ -12,7 +12,7 @@ import type {
   CapabilitySkill,
   CapabilityTool,
 } from "@omp-ui/core/capabilities";
-import { backend, displayMessage } from "../backend";
+import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyBest } from "../lib/fuzzy";
 import { useT, type MessageKey } from "../lib/i18n";
@@ -294,6 +294,7 @@ function RuntimeRow({
  */
 export function McpServersPanel({
   scopeCwd,
+  instanceId = null,
   tabId,
   onAuthenticated,
   query,
@@ -303,6 +304,8 @@ export function McpServersPanel({
   onCounts,
 }: {
   scopeCwd: string | null;
+  /** The remote instance whose config is read and written (issue #416); null for this host. */
+  instanceId?: string | null;
   tabId?: string;
   onAuthenticated?: () => void;
   /** The viewer's shared search box; omitted = no filtering. */
@@ -342,7 +345,7 @@ export function McpServersPanel({
   useEffect(() => {
     const g = ++gen.current;
     setLoad({ status: "loading" });
-    backend.getMcpServers(scopeCwd).then(
+    backendFor(instanceId).getMcpServers(scopeCwd).then(
       (result) => {
         if (g === gen.current) setLoad({ status: "loaded", result });
       },
@@ -350,12 +353,12 @@ export function McpServersPanel({
         if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
       },
     );
-  }, [scopeCwd, reloadKey, refreshKey]);
+  }, [scopeCwd, instanceId, reloadKey, refreshKey]);
 
   const toggle = (entry: McpServerEntry, next: boolean): void => {
     setPendingName(entry.name);
     setToggleError(null);
-    backend
+    backendFor(instanceId)
       .setMcpServerEnabled({
         projectCwd: scopeCwd,
         name: entry.name,
@@ -577,7 +580,7 @@ type CatalogLoad =
   | { status: "loaded"; result: ScopedCapabilitiesResult }
   | { status: "error"; message: string };
 
-function useCatalogLoad(scopeCwd: string | null, refreshKey: number | undefined): [
+function useCatalogLoad(scopeCwd: string | null, instanceId: string | null, refreshKey: number | undefined): [
   CatalogLoad,
   (next: CatalogLoad) => void,
   () => void,
@@ -588,7 +591,7 @@ function useCatalogLoad(scopeCwd: string | null, refreshKey: number | undefined)
   useEffect(() => {
     const g = ++gen.current;
     setLoad({ status: "loading" });
-    backend.getScopedCapabilities(scopeCwd).then(
+    backendFor(instanceId).getScopedCapabilities(scopeCwd).then(
       (result) => {
         if (g === gen.current) setLoad({ status: "loaded", result });
       },
@@ -596,7 +599,7 @@ function useCatalogLoad(scopeCwd: string | null, refreshKey: number | undefined)
         if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
       },
     );
-  }, [scopeCwd, refreshKey, retryKey]);
+  }, [scopeCwd, instanceId, refreshKey, retryKey]);
   return [load, setLoad, () => setRetryKey((k) => k + 1)];
 }
 
@@ -623,11 +626,14 @@ function CatalogLoading() {
 /** The scope's skills as config truth: files and settings, not a roster. */
 export function SkillsScopePanel({
   scopeCwd,
+  instanceId = null,
   query,
   refreshKey,
   onCounts,
 }: {
   scopeCwd: string | null;
+  /** The remote instance whose config is read and written (issue #416); null for this host. */
+  instanceId?: string | null;
   /** The viewer's shared search box; omitted = no filtering. */
   query?: string;
   /** Bumped by the viewer's Refresh; reruns the read like a remount. */
@@ -636,7 +642,7 @@ export function SkillsScopePanel({
   onCounts?: (visible: number, total: number | null) => void;
 }) {
   const t = useT();
-  const [load, setLoad, retry] = useCatalogLoad(scopeCwd, refreshKey);
+  const [load, setLoad, retry] = useCatalogLoad(scopeCwd, instanceId, refreshKey);
   const [pendingRow, setPendingRow] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<"all" | "listed" | "hidden" | "ignored">("all");
@@ -676,7 +682,7 @@ export function SkillsScopePanel({
   const mutate = (rowKey: string, mutation: CatalogMutation): void => {
     setPendingRow(rowKey);
     setToggleError(null);
-    backend
+    backendFor(instanceId)
       .setScopedCapability({ scopeCwd, ...mutation })
       .then(
         (result) => setLoad({ status: "loaded", result }),
@@ -872,17 +878,20 @@ function SkillCatalogRow({
 /** The scope's tool-enable settings as config truth, one row per omp tool gate. */
 export function ToolsScopePanel({
   scopeCwd,
+  instanceId = null,
   query,
   refreshKey,
   onCounts,
 }: {
   scopeCwd: string | null;
+  /** The remote instance whose config is read and written (issue #416); null for this host. */
+  instanceId?: string | null;
   query?: string;
   refreshKey?: number;
   onCounts?: (visible: number, total: number | null) => void;
 }) {
   const t = useT();
-  const [load, setLoad, retry] = useCatalogLoad(scopeCwd, refreshKey);
+  const [load, setLoad, retry] = useCatalogLoad(scopeCwd, instanceId, refreshKey);
   const [pendingTool, setPendingTool] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
 
@@ -911,7 +920,7 @@ export function ToolsScopePanel({
   const toggle = (tool: string, next: boolean): void => {
     setPendingTool(tool);
     setToggleError(null);
-    backend
+    backendFor(instanceId)
       .setScopedCapability({ scopeCwd, kind: "tool", tool, enabled: next })
       .then(
         (result) => setLoad({ status: "loaded", result }),
@@ -1173,10 +1182,13 @@ export function CapabilitiesViewer({
   scopeCwd,
   tabId,
   section = "mcp",
+  instanceId = null,
 }: {
   scopeCwd: string | null;
   tabId?: string;
   section?: CapabilitySectionId;
+  /** The remote instance the scope lives on (issue #416); null for this host. */
+  instanceId?: string | null;
 }) {
   const closeCapabilitiesViewer = useStore((s) => s.closeCapabilitiesViewer);
   const refreshCapabilities = useStore((s) => s.refreshCapabilities);
@@ -1635,6 +1647,7 @@ export function CapabilitiesViewer({
         {active === "mcp" && (
           <McpServersPanel
             scopeCwd={scopeCwd}
+            instanceId={instanceId}
             tabId={drifted ? undefined : tabId}
             onAuthenticated={closeCapabilitiesViewer}
             query={query}
@@ -1647,6 +1660,7 @@ export function CapabilitiesViewer({
         {active === "skills" && tabId === undefined && (
           <SkillsScopePanel
             scopeCwd={scopeCwd}
+            instanceId={instanceId}
             query={query}
             refreshKey={refreshKey}
             onCounts={reportSkillCatalogCounts}
@@ -1703,6 +1717,7 @@ export function CapabilitiesViewer({
         {active === "tools" && tabId === undefined && (
           <ToolsScopePanel
             scopeCwd={scopeCwd}
+            instanceId={instanceId}
             query={query}
             refreshKey={refreshKey}
             onCounts={reportToolCatalogCounts}

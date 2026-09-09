@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 - Fixed the Finish worktree dialog disabling **return this session** — and return/sync refusing — when the only uncommitted entry in the worktree checkout was omp-ui's own generated `.omp` project-config link, in repos that ignore `.omp/` with a trailing slash (#417).
+- Added **remote instances**: join other omp-ui apps that have Remote access enabled from Settings → Remote instances, with an optional nickname that defaults to the host. Each joined instance's projects and sessions appear in a sidebar group under its nickname; new, terminal, and resumed sessions run on that host, tabs carry the nickname, and a lost connection reconnects with backoff while the group stays visible. Credentials are stored encrypted by the OS credential store; see [Remote instances](remote-instances.md) and ADR-0028 (#416).
 
 ## Choose a download
 

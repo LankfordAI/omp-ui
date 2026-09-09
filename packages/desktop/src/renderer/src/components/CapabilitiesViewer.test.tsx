@@ -319,7 +319,7 @@ function reloadButton(): HTMLButtonElement | null {
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
-  useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" }, state: null, rpc: {} });
+  useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null }, state: null, rpc: {} });
 });
 
 afterEach(() => {
@@ -415,7 +415,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
   });
 
   it("renders global scope for null scopeCwd", async () => {
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "mcp" }, state: null });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "mcp", instanceId: null }, state: null });
     backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow, userNativeRow], errors: [] } satisfies McpServersResult);
     await renderManager();
     expect(backendMock.getMcpServers).toHaveBeenCalledWith(null);
@@ -448,7 +448,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     const runSlashCommand = vi.fn<(tabId: string, line: string) => Promise<void>>(async () => {});
     const restartSession = vi.fn<(tabId: string) => Promise<boolean>>(async () => true);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: liveState,
       runSlashCommand,
       restartSession,
@@ -474,7 +474,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
   it("types /mcp reload into a live terminal session's TUI", async () => {
     const runSlashCommand = vi.fn<(tabId: string, line: string) => Promise<void>>(async () => {});
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ mode: "pty" }),
       runSlashCommand,
     });
@@ -495,7 +495,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     // A native reload would queue behind the turn; a pty tab only receives the
     // typed line, so its control stays live.
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: liveState,
       rpc: { [TAB]: rpcTabState({ status: "running" }) },
     });
@@ -508,7 +508,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     document.body.innerHTML = "";
 
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ mode: "pty" }),
       rpc: { [TAB]: rpcTabState({ status: "running" }) },
     });
@@ -518,7 +518,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
 
   it("offers no reload unless the pinned tab is live", async () => {
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ live: "dormant" }),
     });
     await renderManager();
@@ -528,7 +528,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     document.body.innerHTML = "";
 
     // Same opener, no loaded state → passive footer only.
-    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" }, state: null });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null }, state: null });
     await renderManager();
     expect(reloadButton()).toBeNull();
   });
@@ -539,7 +539,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       errors: [],
     } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: CHECKOUT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: CHECKOUT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ worktree: { path: CHECKOUT, branch: BRANCH, base: "main" } }),
     });
     await renderManager();
@@ -558,7 +558,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       errors: [],
     } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ worktree: null }),
     });
     await renderManager();
@@ -598,7 +598,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     document.body.innerHTML = "";
 
     // Global scope: the same rows toggle through omp's user-level algorithm.
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "mcp" }, state: null });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "mcp", instanceId: null }, state: null });
     await renderManager();
     for (const label of ["enable denied-one", "enable off-one"]) {
       expect(switchFor(label).disabled).toBe(false);
@@ -721,7 +721,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       servers: [writableRow, toolRow],
       errors: [],
     } satisfies McpServersResult);
-    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" }, state: liveState });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null }, state: liveState });
     await renderManager();
 
     const buttons = authenticateButtons();
@@ -741,7 +741,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       errors: [],
     } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -775,7 +775,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
   it("shows no live failure state in the global manager", async () => {
     backendMock.getMcpServers.mockResolvedValue({ servers: [toolRow], errors: [] } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: null, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: null, section: "mcp", instanceId: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -798,7 +798,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       errors: [],
     } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: liveState,
       startTuiHandoff,
     });
@@ -818,7 +818,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       servers: [writableRow, userNativeRow],
       errors: [],
     } satisfies McpServersResult);
-    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" }, state: liveState });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null }, state: liveState });
     await renderManager();
     expect(authenticateButtons()).toHaveLength(0);
   });
@@ -828,7 +828,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
       servers: [toolRow],
       errors: [],
     } satisfies McpServersResult);
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "mcp" }, state: liveState });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "mcp", instanceId: null }, state: liveState });
     await renderManager();
     expect(authenticateButtons()).toHaveLength(0);
   });
@@ -841,7 +841,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     // Live, but terminal-mode: the tab is already an omp TUI, so there is no
     // ConsoleDrawer to host the handoff and the button would be a dead control.
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ mode: "pty" }),
     });
     await renderManager();
@@ -855,7 +855,7 @@ describe("CapabilitiesViewer — MCP tab", () => {
     } satisfies McpServersResult);
     // Native, so the mode gate passes; the dormant session is what must refuse.
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ live: "dormant" }),
     });
     await renderManager();
@@ -925,7 +925,7 @@ async function typeSearch(value: string): Promise<void> {
 describe("CapabilitiesViewer — live sections", () => {
   it("shows the reason an unavailable section is blank, never a zero count", async () => {
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "skills" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "skills", instanceId: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -945,7 +945,7 @@ describe("CapabilitiesViewer — live sections", () => {
 
   it("never labels an eval-bridge-only tool as disabled", async () => {
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -972,7 +972,7 @@ describe("CapabilitiesViewer — live sections", () => {
 
   it("searches tool source paths and distinguishes no-match from no-entries", async () => {
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -1004,7 +1004,7 @@ describe("CapabilitiesViewer — live sections", () => {
     const linearEntry: McpServerEntry = { ...writableRow, name: "linear", transport: "http" };
     backendMock.getMcpServers.mockResolvedValue({ servers: [linearEntry], errors: [] } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
       state: liveState,
       rpc: {
         [TAB]: rpcTabState({
@@ -1053,7 +1053,7 @@ describe("CapabilitiesViewer — live sections", () => {
   it("keeps the captured scopeCwd when focus moves to another tab", async () => {
     backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: CHECKOUT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: CHECKOUT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ worktree: { path: CHECKOUT, branch: BRANCH, base: "main" } }),
       activeTabId: "tab-2",
       tabs: [tabInfo({ tabId: "tab-2", projectCwd: "/elsewhere" })],
@@ -1068,7 +1068,7 @@ describe("CapabilitiesViewer — live sections", () => {
   it("detaches live facts and session commands when the pinned session moved", async () => {
     backendMock.getMcpServers.mockResolvedValue({ servers: [writableRow], errors: [] } satisfies McpServersResult);
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: CHECKOUT, tabId: TAB, section: "mcp" },
+      capabilitiesViewer: { scopeCwd: CHECKOUT, tabId: TAB, section: "mcp", instanceId: null },
       state: pinnedState({ worktree: { path: "/wt/elsewhere", branch: "omp/elsewhere", base: "main" } }),
       rpc: {
         [TAB]: rpcTabState({
@@ -1097,7 +1097,7 @@ describe("CapabilitiesViewer — live sections", () => {
 
   it("explains a terminal tab and a dormant session distinctly", async () => {
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
       state: liveState,
       rpc: { [TAB]: rpcTabState({ capabilitiesLoad: "terminal" }) },
     });
@@ -1108,7 +1108,7 @@ describe("CapabilitiesViewer — live sections", () => {
     document.body.innerHTML = "";
 
     useStore.setState({
-      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
       state: liveState,
       rpc: { [TAB]: rpcTabState({ capabilitiesLoad: "not-live" }) },
     });
@@ -1128,7 +1128,7 @@ function toolsTab(
   snapshotPatch: Partial<CapabilitySnapshot> = {},
 ): void {
   useStore.setState({
-    capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools" },
+    capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
     state: liveState,
     rpc: {
       [TAB]: rpcTabState({
@@ -1420,7 +1420,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
           }),
       ]),
     });
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     expect(backendMock.getScopedCapabilities).toHaveBeenCalledWith(null);
@@ -1450,7 +1450,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
       },
     });
     backendMock.setScopedCapability.mockResolvedValue(disabledResult);
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "tools" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "tools", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     await act(async () => {
@@ -1475,7 +1475,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
       ...emptyCatalog(),
       skills: skillsWith([catalogSkill({ name: "noisy", ignored: true })]),
     });
-    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, section: "skills" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: PROJECT, section: "skills", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     await act(async () => {
@@ -1495,7 +1495,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
       ...emptyCatalog(),
       skills: skillsWith([catalogSkill({ name: "gated", gateEnabled: false })]),
     });
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     const gateSwitch = switchFor("Enable the root behind gated");
@@ -1518,7 +1518,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
         masterEnabled: false,
       }),
     });
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     expect(document.body.textContent).toContain("skills.enabled is off");
@@ -1536,7 +1536,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
       },
     });
     backendMock.setScopedCapability.mockRejectedValue(new Error("Invalid value: nope"));
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "tools" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "tools", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     await act(async () => {
@@ -1553,7 +1553,7 @@ describe("CapabilitiesViewer — scope catalogs, unpinned (issue #383)", () => {
       skills: { status: "error", message: "omp binary not found" },
       tools: { status: "error", message: "omp binary not found" },
     });
-    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills" }, state: null, rpc: {} });
+    useStore.setState({ capabilitiesViewer: { scopeCwd: null, section: "skills", instanceId: null }, state: null, rpc: {} });
     await renderManager();
 
     expect(document.body.textContent).toContain("Could not read the configuration at this scope");

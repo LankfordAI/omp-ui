@@ -48,7 +48,7 @@ let createWorktreeHandler: (() => Promise<boolean>) | null = null;
 function seedBusy(): void {
   useStore.setState({
     branches: { "/p": fixture },
-    tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/p", hidden: false }],
+    tabs: [{ tabId: "tab-1", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
     rpc: { "tab-1": { status: "running" } as unknown as RpcTabState },
     state: makeBackendState({
       projects: [

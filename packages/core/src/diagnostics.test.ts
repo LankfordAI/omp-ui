@@ -295,7 +295,9 @@ describe("collectDiagnosticsBundle", () => {
     const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
     expect(manifest.includeTranscripts).toBe(false);
     expect(manifest.appVersion).toBe("0.10.2");
-    expect((manifest.redaction as unknown[]).length).toBeGreaterThan(0);
+    expect(manifest.redaction).toContain(
+      "remote-instances.json (joined-instance credentials) is never read",
+    );
     expect(result.totalBytes).toBe(fs.statSync(result.path).size);
   });
 

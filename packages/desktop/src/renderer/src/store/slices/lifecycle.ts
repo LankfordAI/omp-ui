@@ -13,7 +13,7 @@ import type {
   WorktreeReleaseResult,
   WorktreeSyncResult,
 } from "@omp-ui/core/types";
-import { backend } from "../../backend";
+import { backend, backendFor } from "../../backend";
 import {
   withConcerns,
   withExecutionDestination,
@@ -24,6 +24,7 @@ import { planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningTools } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
+import { projectKey } from "../../lib/project-key";
 import {
   dropExited,
   dropHibernated,
@@ -35,7 +36,7 @@ import {
   type Watchers,
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
-import { findRecord, focusOn, forgetFocus } from "./view";
+import { findInstance, findOwner, findRecord, focusOn, forgetFocus } from "./view";
 import type {
   LifecycleConfirmation,
   LifecycleConfirmationChoice,
@@ -55,6 +56,7 @@ export type LifecycleSlice = Pick<
   | "restartSession"
   | "addProject"
   | "removeProject"
+  | "confirmRemoveRemoteInstance"
   | "moveProject"
   | "moveSession"
   | "setProjectDefaultModel"
@@ -91,12 +93,19 @@ export type LifecycleSlice = Pick<
       advisor?: boolean;
       advisorModel?: string | null;
     },
+    instanceId?: string | null,
   ): Promise<{
     mode: SessionMode;
     advisor: boolean;
     advisorModel: string | null;
   }>;
   teardownProcess(tabId: string, code: number, hibernated?: boolean): void;
+  /**
+   * Forgets a tab the renderer can no longer address (issue #416): its
+   * TabInfo, rpc slot, exit/hibernation marks, remembered focus, and runtime.
+   * The record is untouched — the owning instance keeps or already lost it.
+   */
+  dropTab(tabId: string): void;
   eraseSession(tabId: string, cascade?: readonly string[]): Promise<boolean>;
   spawnFreshImplementation(
     tabId: string,
@@ -210,6 +219,46 @@ export function createLifecycleSlice(
     });
   };
 
+  /**
+   * Forgets tabs in one commit: TabInfo, rpc slot, exit and hibernation
+   * marks, staged TUI handoff, remembered focus, and the renderer runtime.
+   * Active focus moves to the last visible survivor.
+   */
+  const dropTabs = (gone: readonly string[], reason: string): void => {
+    for (const id of gone) {
+      disposeTabRuntime(id, reason, deps, m);
+      handedOffPlanSources.delete(id);
+    }
+    set((s) => {
+      const rpc = { ...s.rpc };
+      const tabs = s.tabs.filter((t) => !gone.includes(t.tabId));
+      const activeTabId =
+        s.activeTabId !== null && gone.includes(s.activeTabId)
+          ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
+          : s.activeTabId;
+      for (const id of gone) delete rpc[id];
+      return {
+        rpc,
+        tabs,
+        activeTabId,
+        focusedTabByProject: gone.reduce(
+          (focus, id) => forgetFocus(focus, id, tabs),
+          s.focusedTabByProject,
+        ),
+        exited: gone.reduce((ex, id) => dropExited(ex, id), s.exited),
+        hibernated: gone.reduce((hb, id) => dropHibernated(hb, id), s.hibernated),
+        tuiHandoff: gone.reduce(
+          (th, id) => dropTuiHandoff(th, id),
+          s.tuiHandoff,
+        ),
+      };
+    });
+  };
+
+  const dropTab = (tabId: string): void => {
+    dropTabs([tabId], "the session is no longer reachable");
+  };
+
   const eraseSession = async (
     tabId: string,
     cascade: readonly string[] = [],
@@ -232,35 +281,8 @@ export function createLifecycleSlice(
         }),
       );
     }
-    const gone = result.deleted;
-    if (gone.length === 0) return false;
-    for (const id of gone) {
-      disposeTabRuntime(id, "the session was deleted", deps, m);
-      handedOffPlanSources.delete(id);
-    }
-    set((s) => {
-      const rpc = { ...s.rpc };
-      const tabs = s.tabs.filter((t) => !gone.includes(t.tabId));
-      const activeTabId =
-        s.activeTabId !== null && gone.includes(s.activeTabId)
-          ? (tabs.filter((t) => !t.hidden).at(-1)?.tabId ?? null)
-          : s.activeTabId;
-      for (const id of gone) delete rpc[id];
-      return {
-        rpc,
-        tabs,
-        activeTabId,
-        focusedTabByProject: gone.reduce(
-          (focus, id) => forgetFocus(focus, id, tabs),
-          s.focusedTabByProject,
-        ),
-        exited: gone.reduce((ex, id) => dropExited(ex, id), s.exited),
-        tuiHandoff: gone.reduce(
-          (th, id) => dropTuiHandoff(th, id),
-          s.tuiHandoff,
-        ),
-      };
-    });
+    if (result.deleted.length === 0) return false;
+    dropTabs(result.deleted, "the session was deleted");
     return true;
   };
 
@@ -275,8 +297,9 @@ export function createLifecycleSlice(
     concerns: string | null = null,
     options?: PlanExecutionOptions,
   ): Promise<void> => {
-    const rec = findRecord(get().state, srcTabId);
-    if (!rec) return;
+    const owner = findOwner(get().state, srcTabId);
+    if (!owner) return;
+    const { instanceId, record: rec } = owner;
     const projectCwd = rec.projectCwd;
     // A "worktree" context dispatch carries its dedicated-checkout spec in
     // the options bag; every other context spawns in the project checkout
@@ -302,6 +325,7 @@ export function createLifecycleSlice(
             advisorModel: options.advisorModel ?? null,
           }
         : { mode: "rpc-ui" },
+      instanceId,
     );
     const mode = "rpc-ui";
     const worktree: SpawnWorktree =
@@ -312,7 +336,7 @@ export function createLifecycleSlice(
           : null;
     let freshId: string;
     try {
-      ({ tabId: freshId } = await backend.spawnSession({
+      ({ tabId: freshId } = await backendFor(instanceId).spawnSession({
         origin: "new",
         projectCwd,
         mode,
@@ -331,9 +355,9 @@ export function createLifecycleSlice(
     set((s) => ({
       tabs: [
         ...s.tabs,
-        { tabId: freshId, mode, projectCwd, hidden: false },
+        { tabId: freshId, mode, projectCwd, hidden: false, instanceId },
       ],
-      ...focusOn(s, freshId, projectCwd),
+      ...focusOn(s, freshId, projectKey(instanceId, projectCwd)),
       exited: dropExited(s.exited, freshId),
     }));
     await m.pollUntil(freshId, (t) => t?.status === "ready");
@@ -401,7 +425,11 @@ export function createLifecycleSlice(
     }
   };
 
-  /** Resolves the single precedence chain used by every fresh spawn. */
+  /**
+   * Resolves the single precedence chain used by every fresh spawn. The
+   * project record read is the target instance's own (issue #416): a remote
+   * project's last-used tuple lives in that instance's registry.
+   */
   const resolveSpawnParams = async (
     projectCwd: string,
     overrides?: {
@@ -409,6 +437,7 @@ export function createLifecycleSlice(
       advisor?: boolean;
       advisorModel?: string | null;
     },
+    instanceId: string | null = null,
   ): Promise<{
     mode: SessionMode;
     advisor: boolean;
@@ -418,9 +447,9 @@ export function createLifecycleSlice(
     // Carry the project's complete last-used advisor tuple into the new
     // session. Before any explicit choice, the app's own default decides;
     // omp's configured default only seeds while the app is not booted.
-    await get().loadAdvisorDefaults(projectCwd);
-    const defaults = get().advisorDefaults[projectCwd];
-    const project = get().state?.projects.find(
+    await get().loadAdvisorDefaults(projectCwd, instanceId);
+    const defaults = get().advisorDefaults[projectKey(instanceId, projectCwd)];
+    const project = projectGroups(instanceId)?.find(
       (g) => g.project.path === projectCwd,
     )?.project;
     const advisor =
@@ -454,34 +483,53 @@ export function createLifecycleSlice(
     }
   };
 
-  const addProject = async (path: string): Promise<void> => {
-    await backend.addProject(path);
-    set({ projectPickerOpen: false });
+  /** The registry that owns a project path: local, or a joined instance's. */
+  const projectGroups = (instanceId: string | null) =>
+    instanceId === null
+      ? get().state?.projects
+      : findInstance(get().state, instanceId)?.projects;
+
+  const addProject = async (
+    path: string,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    await backendFor(instanceId).addProject(path);
+    set({ projectPickerOpen: false, projectPickerInstanceId: null });
   };
 
   const setProjectDefaultModel = async (
     projectPath: string,
     model: string | null,
+    instanceId: string | null = null,
   ): Promise<void> => {
-    await backend.setProjectDefaultModel(projectPath, model);
+    await backendFor(instanceId).setProjectDefaultModel(projectPath, model);
   };
 
   const setProjectDefaultAdvisorModel = async (
     projectPath: string,
     model: string | null,
+    instanceId: string | null = null,
   ): Promise<void> => {
-    await backend.setProjectDefaultAdvisorModel(projectPath, model);
+    await backendFor(instanceId).setProjectDefaultAdvisorModel(projectPath, model);
   };
 
-  const removeProject = async (path: string): Promise<void> => {
+  const removeProject = async (
+    path: string,
+    instanceId: string | null = null,
+  ): Promise<void> => {
     // Only a registered project has anything to confirm; removal itself
     // stays the backend's, and the authoritative stateChanged broadcast
     // drops the project from every renderer — no optimistic pruning here.
-    const registered = get().state?.projects.some(
+    const registered = projectGroups(instanceId)?.some(
       (group) => group.project.path === path,
     );
     if (!registered) return;
-    stageLifecycleConfirmation({ kind: "remove-project", projectPath: path });
+    stageLifecycleConfirmation({ kind: "remove-project", projectPath: path, instanceId });
+  };
+
+  const confirmRemoveRemoteInstance = (instanceId: string, nickname: string): void => {
+    if (findInstance(get().state, instanceId) === undefined) return;
+    stageLifecycleConfirmation({ kind: "remove-remote-instance", instanceId, nickname });
   };
 
   // No optimistic update: the `stateChanged` broadcast replaces `state`
@@ -489,9 +537,10 @@ export function createLifecycleSlice(
   const moveProject = async (
     projectPath: string,
     beforePath: string | null,
+    instanceId: string | null = null,
   ): Promise<void> => {
     try {
-      await backend.moveProject(projectPath, beforePath);
+      await backendFor(instanceId).moveProject(projectPath, beforePath);
     } catch (err) {
       get().reportError(err);
     }
@@ -517,10 +566,12 @@ export function createLifecycleSlice(
   const newSession = async (
     projectCwd: string,
     modeOverride?: SessionMode,
+    instanceId: string | null = null,
   ): Promise<void> => {
     const { mode, advisor, advisorModel } = await resolveSpawnParams(
       projectCwd,
       { mode: modeOverride },
+      instanceId,
     );
     try {
       const request: SpawnRequest =
@@ -545,10 +596,10 @@ export function createLifecycleSlice(
               rows: 24,
               worktree: null,
             };
-      const { tabId } = await backend.spawnSession(request);
+      const { tabId } = await backendFor(instanceId).spawnSession(request);
       set((s) => ({
-        tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
-        ...focusOn(s, tabId, projectCwd),
+        tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
+        ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
         exited: dropExited(s.exited, tabId),
       }));
     } catch (err) {
@@ -561,9 +612,10 @@ export function createLifecycleSlice(
     spec:
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
+    instanceId: string | null = null,
   ): Promise<void> => {
     const { mode, advisor, advisorModel } =
-      await resolveSpawnParams(projectCwd);
+      await resolveSpawnParams(projectCwd, undefined, instanceId);
     const request: SpawnRequest =
       mode === "pty"
         ? {
@@ -586,16 +638,16 @@ export function createLifecycleSlice(
             rows: 24,
             worktree: spec,
           };
-    const { tabId } = await backend.spawnSession(request);
+    const { tabId } = await backendFor(instanceId).spawnSession(request);
     // Issue #405: the create operation may have just minted a base branch.
     // Surface it in the lists without a network round trip (mirrors the
     // branches slice's createBranch).
     if ("mint" in spec && spec.mint.baseBranch !== null) {
-      void get().refreshBranches(projectCwd, { fetchUpstream: false });
+      void get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
     }
     set((s) => ({
-      tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false }],
-      ...focusOn(s, tabId, projectCwd),
+      tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
+      ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
       exited: dropExited(s.exited, tabId),
     }));
   };
@@ -610,15 +662,25 @@ export function createLifecycleSlice(
     tabId: string,
     opts: { branch: string; baseRef: string | null; baseBranch: string | null },
   ): Promise<void> => {
-    const projectCwd = findRecord(get().state, tabId)?.projectCwd;
+    const owner = findOwner(get().state, tabId);
     await backend.convertToWorktree(tabId, opts.branch, opts.baseRef, opts.baseBranch);
     // Issue #405: a new base branch created by the convert shows up in the
     // lists locally, same as the spawn path above.
-    if (opts.baseBranch !== null && projectCwd !== undefined) {
-      void get().refreshBranches(projectCwd, { fetchUpstream: false });
+    if (opts.baseBranch !== null && owner !== undefined) {
+      void get().refreshBranches(
+        owner.record.projectCwd,
+        { fetchUpstream: false },
+        owner.instanceId,
+      );
     }
   };
 
+  /**
+   * Resurfaces or resumes a session's tab. A tab-scoped resume rides the
+   * local backend: main routes it to the owning instance by resumeTabId. An
+   * instance that is not joined cannot resume anything, so the attempt is
+   * refused up front instead of surfacing the proxy's rejection (issue #416).
+   */
   const openSession = async (tabId: string): Promise<void> => {
     const existing = get().tabs.find((t) => t.tabId === tabId);
     if (existing) {
@@ -628,16 +690,20 @@ export function createLifecycleSlice(
         tabs: s.tabs.map((t) =>
           t.tabId === tabId ? { ...t, hidden: false } : t,
         ),
-        ...focusOn(
-          s,
-          tabId,
-          s.tabs.find((t) => t.tabId === tabId)?.projectCwd,
-        ),
+        ...focusOn(s, tabId, projectKey(existing.instanceId, existing.projectCwd)),
       }));
       return;
     }
-    const rec = findRecord(get().state, tabId);
-    if (!rec) return;
+    const owner = findOwner(get().state, tabId);
+    if (!owner) return;
+    const { instanceId, record: rec } = owner;
+    const instance = findInstance(get().state, instanceId);
+    if (instance !== undefined && instance.status !== "joined") {
+      get().reportError(
+        new Error(t("remoteinstances.error.notJoined", { nickname: instance.nickname })),
+      );
+      return;
+    }
     try {
       await backend.spawnSession({
         origin: "resume",
@@ -653,9 +719,10 @@ export function createLifecycleSlice(
             mode: rec.mode,
             projectCwd: rec.projectCwd,
             hidden: false,
+            instanceId,
           },
         ],
-        ...focusOn(s, tabId, rec.projectCwd),
+        ...focusOn(s, tabId, projectKey(instanceId, rec.projectCwd)),
         exited: dropExited(s.exited, tabId),
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
@@ -665,12 +732,15 @@ export function createLifecycleSlice(
   };
 
   const focusTab = (tabId: string): void => {
-    set((s) => ({
-      tabs: s.tabs.map((t) =>
-        t.tabId === tabId ? { ...t, hidden: false } : t,
-      ),
-      ...focusOn(s, tabId, s.tabs.find((t) => t.tabId === tabId)?.projectCwd),
-    }));
+    set((s) => {
+      const tab = s.tabs.find((t) => t.tabId === tabId);
+      return {
+        tabs: s.tabs.map((t) =>
+          t.tabId === tabId ? { ...t, hidden: false } : t,
+        ),
+        ...focusOn(s, tabId, tab && projectKey(tab.instanceId, tab.projectCwd)),
+      };
+    });
   };
 
   const hideTab = (tabId: string): void => {
@@ -735,11 +805,18 @@ export function createLifecycleSlice(
       await performSwitchMode(confirmation.tabId, confirmation.mode);
       return;
     }
-    const registered = get().state?.projects.some(
+    if (confirmation.kind === "remove-remote-instance") {
+      // Already forgotten meanwhile (another renderer, or the instance's
+      // own removal): nothing to send.
+      if (findInstance(get().state, confirmation.instanceId) === undefined) return;
+      await backend.removeRemoteInstance(confirmation.instanceId);
+      return;
+    }
+    const registered = projectGroups(confirmation.instanceId)?.some(
       (group) => group.project.path === confirmation.projectPath,
     );
     if (!registered) return;
-    await backend.removeProject(confirmation.projectPath);
+    await backendFor(confirmation.instanceId).removeProject(confirmation.projectPath);
   };
 
   const confirmLifecycleAction = async (id: string): Promise<void> => {
@@ -821,8 +898,9 @@ export function createLifecycleSlice(
   };
 
   const resumeDead = async (tabId: string): Promise<void> => {
-    const rec = findRecord(get().state, tabId);
-    if (!rec) return;
+    const owner = findOwner(get().state, tabId);
+    if (!owner) return;
+    const { instanceId, record: rec } = owner;
     try {
       if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
       await backend.spawnSession({
@@ -835,7 +913,7 @@ export function createLifecycleSlice(
         tabs: s.tabs.map((t) =>
           t.tabId === tabId ? { ...t, hidden: false } : t,
         ),
-        ...focusOn(s, tabId, rec.projectCwd),
+        ...focusOn(s, tabId, projectKey(instanceId, rec.projectCwd)),
         exited: dropExited(s.exited, tabId),
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
@@ -1017,11 +1095,13 @@ export function createLifecycleSlice(
     prepareRpcRelaunch,
     resolveSpawnParams,
     teardownProcess,
+    dropTab,
     eraseSession,
     spawnFreshImplementation,
     restartSession,
     addProject,
     removeProject,
+    confirmRemoveRemoteInstance,
     moveProject,
     moveSession,
     setProjectDefaultModel,

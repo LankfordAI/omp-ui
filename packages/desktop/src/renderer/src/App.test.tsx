@@ -43,8 +43,8 @@ function seed(): void {
     init: vi.fn(async () => {}),
     state: null,
     tabs: [
-      { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false },
-      { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: false },
+      { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+      { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: false, instanceId: null },
     ],
     activeTabId: "rpc",
     focusedTabByProject: {},

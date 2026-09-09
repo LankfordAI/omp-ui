@@ -1,5 +1,9 @@
 // Git branch domain (decomposed for #295): per-project branch listings and
 // activity, git checkout/pull, worktree merge-back, and branch naming.
+//
+// Every map is keyed by projectKey(instanceId, projectCwd) (issue #416): the
+// same absolute path registered locally and on a joined remote instance is
+// two different repositories, and each call reaches its owner's backend.
 import type {
   BranchList,
   BranchListOptions,
@@ -7,7 +11,8 @@ import type {
   MergeBackStatus,
   MergeDestination,
 } from "@omp-ui/core/types";
-import { backend } from "../../backend";
+import { backendFor } from "../../backend";
+import { projectKey } from "../../lib/project-key";
 import type { GetState, SetState } from "./shared";
 import type { BranchActivity } from "../types";
 
@@ -15,27 +20,47 @@ export interface BranchesSlice {
   branches: Record<string, BranchList>;
   branchActivity: Record<string, BranchActivity>;
   branchDiffRevision: Record<string, number>;
-  refreshBranches(projectCwd: string, opts?: BranchListOptions): Promise<void>;
+  refreshBranches(
+    projectCwd: string,
+    opts?: BranchListOptions,
+    instanceId?: string | null,
+  ): Promise<void>;
   checkoutGitBranch(
     projectCwd: string,
     name: string,
     opts?: { create?: boolean },
+    instanceId?: string | null,
   ): Promise<string | null>;
-  pullGitBranch(projectCwd: string): Promise<string | null>;
-  resolveMergeDestination(projectCwd: string, base: string | null): Promise<MergeDestination>;
+  pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
+  resolveMergeDestination(
+    projectCwd: string,
+    base: string | null,
+    instanceId?: string | null,
+  ): Promise<MergeDestination>;
   readMergeBackStatus(
     projectCwd: string,
     branch: string,
     destination: string,
     worktreePath: string | null,
+    instanceId?: string | null,
   ): Promise<MergeBackStatus>;
-  createBranch(projectCwd: string, name: string, startPoint: string): Promise<void>;
+  createBranch(
+    projectCwd: string,
+    name: string,
+    startPoint: string,
+    instanceId?: string | null,
+  ): Promise<void>;
   mergeWorktreeBranch(
     projectCwd: string,
     branch: string,
     destination: string,
+    instanceId?: string | null,
   ): Promise<MergeBackResult>;
-  suggestBranchName(projectCwd: string, planContext: string): Promise<string | null>;
+  suggestBranchName(
+    projectCwd: string,
+    planContext: string,
+    instanceId?: string | null,
+  ): Promise<string | null>;
 }
 
 interface BranchRefreshRuntime {
@@ -50,15 +75,15 @@ const branchRefreshes = new Map<string, BranchRefreshRuntime>();
 
 export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice {
   const patchBranchActivity = (
-    projectCwd: string,
+    key: string,
     patch: Partial<BranchActivity>,
   ): void => {
     set((s) => {
-      const current = s.branchActivity[projectCwd];
+      const current = s.branchActivity[key];
       return {
         branchActivity: {
           ...s.branchActivity,
-          [projectCwd]: {
+          [key]: {
             refreshing: patch.refreshing ?? current?.refreshing ?? false,
             pulling: patch.pulling ?? current?.pulling ?? false,
           },
@@ -67,24 +92,29 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     });
   };
 
-  const refreshBranches = async (projectCwd: string, opts?: BranchListOptions): Promise<void> => {
+  const refreshBranches = async (
+    projectCwd: string,
+    opts?: BranchListOptions,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    const key = projectKey(instanceId, projectCwd);
     const fetchUpstream = opts?.fetchUpstream === true;
-    const active = branchRefreshes.get(projectCwd);
+    const active = branchRefreshes.get(key);
     if (active !== undefined) {
       if (fetchUpstream && !active.state.fetchUpstream)
         active.state.pendingNetwork = true;
       return active.promise;
     }
 
-    patchBranchActivity(projectCwd, { refreshing: true });
+    patchBranchActivity(key, { refreshing: true });
     const state = { fetchUpstream, pendingNetwork: false };
     let nextOptions = opts;
     const promise = Promise.resolve().then(async () => {
       try {
         while (true) {
           try {
-            const list = await backend.listBranches(projectCwd, nextOptions);
-            set((s) => ({ branches: { ...s.branches, [projectCwd]: list } }));
+            const list = await backendFor(instanceId).listBranches(projectCwd, nextOptions);
+            set((s) => ({ branches: { ...s.branches, [key]: list } }));
           } catch {
             // Keep the last known snapshot when listing fails.
           }
@@ -95,11 +125,11 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
           nextOptions = { fetchUpstream: true };
         }
       } finally {
-        branchRefreshes.delete(projectCwd);
-        patchBranchActivity(projectCwd, { refreshing: false });
+        branchRefreshes.delete(key);
+        patchBranchActivity(key, { refreshing: false });
       }
     });
-    branchRefreshes.set(projectCwd, { state, promise });
+    branchRefreshes.set(key, { state, promise });
     return promise;
   };
 
@@ -107,25 +137,30 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     projectCwd: string,
     name: string,
     opts?: { create?: boolean },
+    instanceId: string | null = null,
   ): Promise<string | null> => {
     try {
-      await backend.checkoutBranch(projectCwd, name, opts);
+      await backendFor(instanceId).checkoutBranch(projectCwd, name, opts);
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
     }
-    await get().refreshBranches(projectCwd, { fetchUpstream: false });
+    await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
     return null;
   };
 
-  const pullGitBranch = async (projectCwd: string): Promise<string | null> => {
-    if (get().branchActivity[projectCwd]?.pulling === true) return null;
+  const pullGitBranch = async (
+    projectCwd: string,
+    instanceId: string | null = null,
+  ): Promise<string | null> => {
+    const key = projectKey(instanceId, projectCwd);
+    if (get().branchActivity[key]?.pulling === true) return null;
 
-    patchBranchActivity(projectCwd, { pulling: true });
+    patchBranchActivity(key, { pulling: true });
     let pulled = false;
     try {
-      await backend.pullBranch(projectCwd);
+      await backendFor(instanceId).pullBranch(projectCwd);
       pulled = true;
-      await get().refreshBranches(projectCwd, { fetchUpstream: false });
+      await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
@@ -134,19 +169,20 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
         set((s) => ({
           branchDiffRevision: {
             ...s.branchDiffRevision,
-            [projectCwd]: (s.branchDiffRevision[projectCwd] ?? 0) + 1,
+            [key]: (s.branchDiffRevision[key] ?? 0) + 1,
           },
         }));
       }
-      patchBranchActivity(projectCwd, { pulling: false });
+      patchBranchActivity(key, { pulling: false });
     }
   };
 
   const resolveMergeDestination = async (
     projectCwd: string,
     base: string | null,
+    instanceId: string | null = null,
   ): Promise<MergeDestination> => {
-    return backend.resolveMergeDestination(projectCwd, base);
+    return backendFor(instanceId).resolveMergeDestination(projectCwd, base);
   };
 
   const readMergeBackStatus = async (
@@ -154,8 +190,14 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     branch: string,
     destination: string,
     worktreePath: string | null,
+    instanceId: string | null = null,
   ): Promise<MergeBackStatus> => {
-    return backend.getMergeBackStatus(projectCwd, branch, destination, worktreePath);
+    return backendFor(instanceId).getMergeBackStatus(
+      projectCwd,
+      branch,
+      destination,
+      worktreePath,
+    );
   };
 
   // Throws — git's stderr is the validation, same stance as checkoutBranch;
@@ -164,19 +206,25 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     projectCwd: string,
     name: string,
     startPoint: string,
+    instanceId: string | null = null,
   ): Promise<void> => {
-    await backend.createBranch(projectCwd, name, startPoint);
-    await get().refreshBranches(projectCwd, { fetchUpstream: false });
+    await backendFor(instanceId).createBranch(projectCwd, name, startPoint);
+    await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
   };
 
   const mergeWorktreeBranch = async (
     projectCwd: string,
     branch: string,
     destination: string,
+    instanceId: string | null = null,
   ): Promise<MergeBackResult> => {
-    const result = await backend.mergeWorktreeBranch(projectCwd, branch, destination);
+    const result = await backendFor(instanceId).mergeWorktreeBranch(
+      projectCwd,
+      branch,
+      destination,
+    );
     if (result.kind === "merged") {
-      await get().refreshBranches(projectCwd, { fetchUpstream: false });
+      await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
     }
     return result;
   };
@@ -184,9 +232,10 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
   const suggestBranchName = async (
     projectCwd: string,
     planContext: string,
+    instanceId: string | null = null,
   ): Promise<string | null> => {
     // Best-effort like titling: never throw into the review modal.
-    return backend
+    return backendFor(instanceId)
       .suggestBranchName(projectCwd, planContext)
       .catch(() => null);
   };

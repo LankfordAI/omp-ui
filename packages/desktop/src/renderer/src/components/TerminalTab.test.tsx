@@ -28,9 +28,12 @@ const mocks = vi.hoisted(() => {
     resumeDead,
     // Mutable stub state: tests flip `searchOpen` and re-render.
     store: {
+      state: null,
       exited: {} as Record<string, number>,
       searchOpen: {} as Record<string, boolean>,
+      ptyRedrawRevision: {} as Record<string, number>,
       closeSearch: vi.fn(),
+      openSettings: vi.fn(),
       resumeDead,
     },
   };
@@ -109,11 +112,17 @@ const themeMock = vi.hoisted(() => ({
 vi.mock("../lib/themes", () => ({ useTheme: () => themeMock }));
 vi.mock("../store", () => ({
   registerTermWriter: mocks.registerTermWriter,
+  // A local tab: no owner and no instance (issue #416).
+  findOwner: () => undefined,
+  findInstance: () => undefined,
   useStore: (
     selector: (state: {
+      state: null;
       exited: Record<string, number>;
       searchOpen: Record<string, boolean>;
+      ptyRedrawRevision: Record<string, number>;
       closeSearch: (tabId: string) => void;
+      openSettings: () => void;
       resumeDead: () => void;
     }) => unknown,
   ) => selector(mocks.store),

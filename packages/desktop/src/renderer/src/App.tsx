@@ -23,7 +23,8 @@ import { useT, type MessageKey } from "./lib/i18n";
 import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
-import { findRecord, useStore } from "./store";
+import { tabTitle } from "./lib/tab-title";
+import { findInstance, findOwner, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
 const HINTS: [combo: string, what: MessageKey][] = [
@@ -130,9 +131,7 @@ function TitleBar() {
   const t = useT();
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
-  const title = useStore((s) =>
-    s.activeTabId ? (findRecord(s.state, s.activeTabId)?.title ?? null) : null,
-  );
+  const title = useStore((s) => (s.activeTabId ? (tabTitle(s.state, s.activeTabId) ?? null) : null));
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
@@ -140,6 +139,7 @@ function TitleBar() {
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
   // Same rule as the mod+shift+n hotkey below: the active tab's project only —
   // with nowhere to spawn, the button disables rather than choose implicitly.
+  // A remote tab spawns on its own instance (issue #416).
   const newSessionProject = activeTab?.projectCwd;
 
   return (
@@ -158,12 +158,12 @@ function TitleBar() {
           label={t("app.titlebar.newSession")}
           disabled={newSessionProject === undefined}
           onClick={() => {
-            if (newSessionProject !== undefined) void newSession(newSessionProject);
+            if (activeTab !== undefined) void newSession(activeTab.projectCwd, undefined, activeTab.instanceId);
           }}
         >
           <IconPlus />
         </IconButton>
-        <IconButton label={t("app.titlebar.addProject")} onClick={openProjectPicker}>
+        <IconButton label={t("app.titlebar.addProject")} onClick={() => openProjectPicker()}>
           <IconFolderPlus />
         </IconButton>
         <IconButton
@@ -262,37 +262,44 @@ export default function App() {
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
   const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
-	const projectSettings = useStore((s) => s.projectSettings);
-	const closeProjectSettings = useStore((s) => s.closeProjectSettings);
-	const state = useStore((s) => s.state);
+  const projectSettings = useStore((s) => s.projectSettings);
+  const closeProjectSettings = useStore((s) => s.closeProjectSettings);
+  const state = useStore((s) => s.state);
   const worktreeDialogProject = useStore((s) => s.worktreeDialogProject);
+  const worktreeDialogInstanceId = useStore((s) => s.worktreeDialogInstanceId);
   const newSession = useStore((s) => s.newSession);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const setPlanMode = useStore((s) => s.setPlanMode);
-  const activeRecord = useStore((s) => (s.activeTabId ? findRecord(s.state, s.activeTabId) : undefined));
+  const activeTitle = useStore((s) => (s.activeTabId ? tabTitle(s.state, s.activeTabId) : undefined));
   const activeRuntime = useStore((s) => (s.activeTabId ? s.rpc[s.activeTabId] : undefined));
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const compact = useCompactShell();
   useAppViewport();
-	const projectSettingsProject =
-		projectSettings === null
-			? null
-			: state?.projects.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
+  // The dialog reads its project from the owning registry — this app's own,
+  // or a joined remote instance's (issue #416) — so a removed project (or a
+  // vanished instance) auto-closes it.
+  const projectSettingsProject =
+    projectSettings === null
+      ? null
+      : (projectSettings.instanceId === null
+          ? state?.projects
+          : findInstance(state, projectSettings.instanceId)?.projects
+        )?.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
 
   // The viewer is pinned to the record it captured: a focus change never
   // retargets it, but deleting the pinned session closes it (the same
   // lookup-enforced auto-close as the project dialog above).
-	const capabilitiesModal =
-		capabilitiesViewer === null ||
-		(capabilitiesViewer.tabId !== undefined &&
-			state !== null &&
-			findRecord(state, capabilitiesViewer.tabId) === undefined)
-			? null
-			: capabilitiesViewer;
+  const capabilitiesModal =
+    capabilitiesViewer === null ||
+    (capabilitiesViewer.tabId !== undefined &&
+      state !== null &&
+      findOwner(state, capabilitiesViewer.tabId) === undefined)
+      ? null
+      : capabilitiesViewer;
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
@@ -301,8 +308,8 @@ export default function App() {
   useHotkeys({
     "mod+shift+n": (e) => {
       e.preventDefault();
-      const projectCwd = tabs.find((t) => t.tabId === activeTabId)?.projectCwd;
-      if (projectCwd !== undefined) void newSession(projectCwd);
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (tab !== undefined) void newSession(tab.projectCwd, undefined, tab.instanceId);
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
     // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI
@@ -387,7 +394,7 @@ export default function App() {
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
-  const activeTitle = activeRecord?.title ?? t("app.compact.projectsAndSessions");
+  const compactTitle = activeTitle ?? t("app.compact.projectsAndSessions");
   const badges = activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime) : null;
   const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
 
@@ -413,7 +420,7 @@ export default function App() {
             <span className="sr-only">{t("app.compact.projectsAndSessions")}</span>
           </Button>
           <span className="min-w-0 flex-1 text-center">
-            <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{activeTitle}</button>
+            <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
           </span>
           {activeTab?.mode === "rpc-ui" ? (
             <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
@@ -479,12 +486,19 @@ export default function App() {
           scopeCwd={capabilitiesModal.scopeCwd}
           tabId={capabilitiesModal.tabId}
           section={capabilitiesModal.section}
+          instanceId={capabilitiesModal.instanceId}
         />
       )}
-			{projectSettingsProject !== null && (
-				<ProjectSettings project={projectSettingsProject} onClose={closeProjectSettings} />
-			)}
-      {worktreeDialogProject !== null && <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} />}
+      {projectSettingsProject !== null && projectSettings !== null && (
+        <ProjectSettings
+          project={projectSettingsProject}
+          instanceId={projectSettings.instanceId}
+          onClose={closeProjectSettings}
+        />
+      )}
+      {worktreeDialogProject !== null && (
+        <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} instanceId={worktreeDialogInstanceId} />
+      )}
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
       )}

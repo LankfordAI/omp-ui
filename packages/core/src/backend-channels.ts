@@ -17,6 +17,7 @@ import type {
   GlassChrome,
   ImageAttachment,
   McpServersResult,
+  InstanceIdentity,
   McpSetEnabledRequest,
   MemoryOverview,
   MergeBackResult,
@@ -33,6 +34,8 @@ import type {
   ProviderOAuthState,
   ProviderOAuthStatus,
   RemoteBind,
+  RemoteInstanceInput,
+  RemoteInstancePatch,
   RemoteState,
   ResolvedMentionContext,
   ScopedCapabilitiesResult,
@@ -50,6 +53,8 @@ import type { RpcFrame } from "./rpc/codec";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
+  any,
+  arrayOf,
   diagnosticsExportRequestCodec,
   bool,
   branchListOptionsCodec,
@@ -65,6 +70,8 @@ import {
   planFormatCodec,
   projectOpenTargetCodec,
   remoteBindCodec,
+  remoteInstanceInputCodec,
+  remoteInstancePatchCodec,
   rpcFrameCodec,
   scopedCapabilityMutationCodec,
   sessionModeCodec,
@@ -853,6 +860,39 @@ export const BACKEND_CHANNELS = {
   /** Clears the password; remote access falls back to token-only. Restarts the server. */
   clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>([]) },
   onRemoteState: { channel: "remote:state", ...event<[state: RemoteState]>() },
+  /** This app's stable identity; a joiner uses it to detect itself and version skew (issue #416). */
+  getInstanceIdentity: { channel: "instance:identity", ...request<[], InstanceIdentity>([]) },
+  /** Signs in (password) or adopts a token, stores the derived credential, connects. Rejects with a user-facing message. */
+  addRemoteInstance: {
+    channel: "remote-instance:add",
+    ...request<[input: RemoteInstanceInput], void>([remoteInstanceInputCodec]),
+  },
+  /** Edits nickname/url/secret; a url or secret change reconnects. */
+  updateRemoteInstance: {
+    channel: "remote-instance:update",
+    ...request<[id: string, patch: RemoteInstancePatch], void>([str(), remoteInstancePatchCodec]),
+  },
+  /** Disconnects and forgets the record and credential. Open tabs of that instance are removed by the renderer on the next state. */
+  removeRemoteInstance: { channel: "remote-instance:remove", ...request<[id: string], void>([str()]) },
+  /** Resets backoff and dials now; also the retry from needs-sign-in after a secret change. */
+  reconnectRemoteInstance: {
+    channel: "remote-instance:reconnect",
+    ...request<[id: string], void>([str()]),
+  },
+  /** Forwards one allowlisted request to the named instance; rejects `unknown instance`, `not joined`, or `channel not proxied`. */
+  remoteInstanceRequest: {
+    channel: "remote-instance:request",
+    ...request<[instanceId: string, channel: string, args: unknown[]], unknown>([
+      str(),
+      str(),
+      arrayOf(any()),
+    ]),
+  },
+  /** Forwards one allowlisted notification; silently dropped when the instance is not joined. */
+  remoteInstanceNotify: {
+    channel: "remote-instance:notify",
+    ...notify<[instanceId: string, channel: string, args: unknown[]]>([str(), str(), arrayOf(any())]),
+  },
   /**
    * Manifest for the export dialog: sections, file names, sizes — no contents
    * read beyond stat/git (issue #413).
