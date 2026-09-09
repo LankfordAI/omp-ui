@@ -53,7 +53,8 @@ jobs:
             npm version "$version" --no-git-tag-version --workspace @omp-ui/desktop
           fi
       - name: Rebuild node-pty
-        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch="${{ matrix.arch }}"
+        shell: bash
+        run: bash packages/desktop/scripts/rebuild-native.sh --arch="${{ matrix.arch }}"
       - name: Package signed macOS build (with retries, notarization deferred)
         shell: bash
         run: |

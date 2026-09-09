@@ -173,7 +173,8 @@ jobs:
             throw "Required Spectre-mitigated MSVC libraries are unavailable"
           }
       - name: Rebuild node-pty for Electron x64
-        run: npm run rebuild:native --workspace @omp-ui/desktop -- --arch=x64
+        shell: bash
+        run: bash packages/desktop/scripts/rebuild-native.sh --arch=x64
       - name: Build unsigned Windows preview
         run: npm run package:win --workspace @omp-ui/desktop -- --publish never
         env:

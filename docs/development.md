@@ -70,6 +70,12 @@ npm run themes:generate --workspace @omp-ui/desktop
 npm run themes:check --workspace @omp-ui/desktop
 ```
 
+The release lanes call `packages/desktop/scripts/rebuild-native.sh` instead: the
+same rebuild with three attempts on Electron-header fetch failures, a dist-url
+default of Electron's headers CDN (`artifacts.electronjs.org/headers/dist`,
+overridable via `ELECTRON_REBUILD_DIST_URL`), and error lines that label the
+failure a headers download or a compile defect (issue #426).
+
 Run a single workspace's tests or type check with the same form:
 
 ```bash
