@@ -468,8 +468,16 @@ worktree, merge & close, merge & return as the sole exit
 The single dialog that settles a worktree session's destination, outcome
 and session — where the work goes, whether it lands as a merge commit or a
 kept branch, and whether the session returns to the project checkout or
-stays in its worktree.
+stays in its worktree. Finish settles local state only — publishing or pushing
+the destination is a separate explicit step.
 _Avoid_: closing the worktree, merge & close
+
+**Publish**:
+The first push of a local branch — `git push -u` creates the branch on the
+remote and binds its upstream. The chip says *publish* for that first push and
+*push* for every later one; both are explicit user actions, never part of
+merge-back (issue #414).
+_Avoid_: release (worktrees are released, branches published), upload, share
 
 **MCP manager**:
 The capabilities viewer's MCP tab listing every MCP server omp resolves

@@ -91,6 +91,7 @@ const branches: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  defaultRemote: "origin",
 };
 
 const backendMock = {
@@ -382,6 +383,8 @@ describe("PlanReview git branch section (issue #25)", () => {
           behind: 0,
           upstreamFetchedAt: null,
           upstreamRefreshError: null,
+          // Off-git: not a repo, so no push-target remote.
+          defaultRemote: null,
         },
       },
     });
@@ -634,6 +637,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
           behind: 0,
           upstreamFetchedAt: null,
           upstreamRefreshError: null,
+          defaultRemote: null,
         },
       },
     });

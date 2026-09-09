@@ -31,6 +31,7 @@ import type {
   ProjectOpenAvailability,
   ProjectOpenTarget,
   ProviderKeysSnapshot,
+  PushResult,
   ProviderOAuthState,
   ProviderOAuthStatus,
   RemoteBind,
@@ -529,6 +530,29 @@ export const BACKEND_CHANNELS = {
   pullBranch: {
     channel: "branch:pull",
     ...request<[projectCwd: string], void>([str()]),
+  },
+  /**
+   * Pushes `branch` to its upstream, or publishes it to `remote` — or to the
+   * repo's default remote when none is given. Resolves a structured
+   * PushResult; never rejects on git state (issue #414). No force flag: a
+   * `rejected` result means pull first.
+   */
+  pushBranch: {
+    channel: "branch:push",
+    ...request<[projectCwd: string, branch: string, remote?: string | null], PushResult>([
+      str(),
+      str(),
+      trailingOptional(nullable(str())),
+    ]),
+  },
+  /** The host's new-PR URL for base...head, or null when the remote is unparseable. */
+  pullRequestUrl: {
+    channel: "branch:prUrl",
+    ...request<[projectCwd: string, base: string, head: string], string | null>([
+      str(),
+      str(),
+      str(),
+    ]),
   },
   /**
    * Default merge destination resolved from a recorded base (issue #385):

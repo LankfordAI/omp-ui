@@ -286,6 +286,13 @@ export const en = {
   "composer.branch.confirmSwitch": "session “{title}” is mid-turn — the tree will change under it",
   "composer.branch.pulling": "Pulling…",
   "composer.branch.pullAnyway": "pull anyway",
+  "composer.branch.push": "push {commits} to {upstream}",
+  "composer.branch.pushing": "Pushing…",
+  "composer.branch.pushAnyway": "push anyway",
+  "composer.branch.confirmPush": "session “{title}” is mid-turn — the branch is shared as it stands",
+  "composer.branch.publish": "publish {branch} to {remote}",
+  "composer.branch.pullRequest": "pull request…",
+  "composer.branch.prUnavailable": "cannot build a pull-request URL for this remote",
   "composer.branch.switchAnyway": "switch anyway",
   "composer.branch.cancel": "cancel",
   "composer.branch.namePlaceholder": "new-branch-name",
@@ -1381,6 +1388,18 @@ export const en = {
   "finish.primary.returnKeep": "return, keep branch",
   "finish.primary.rename": "rename",
   "finish.primary.nothing": "nothing to do",
+  "finish.primary.done": "done",
+
+  // FinishWorktreeDialog.tsx — the done phase (issue #414): a merged merge-back
+  // lands locally; sharing it stays an explicit separate step.
+  "finish.done.landed": "merged {commits} into {destination}",
+  "finish.done.pushTo": "push {destination} — {commits} to {upstream}",
+  "finish.done.publishTo": "publish {destination} to {remote}",
+  "finish.done.pushing": "pushing…",
+  "finish.done.pushed": "pushed {commits} to {upstream}",
+  "finish.done.published": "published {destination} to {remote}",
+  "finish.done.rejected": "{upstream} has commits this branch lacks — pull first, then push",
+  "finish.done.openPr": "open pull request",
 
   // useFinishWorktree.ts — transcript notices for the finish run.
   "notice.merge.conflictProject": "the merge of {destination} stopped on {count} file(s) in the project checkout — resolve them there, or sync and finish again",

@@ -615,6 +615,7 @@ export async function readMergeBackStatus(
       ahead: 0,
       behind: 0,
       worktreeDirty,
+      ...NO_PUSH_FACTS,
       preview: { kind: "unknown" },
     };
   }
@@ -637,6 +638,10 @@ export async function readMergeBackStatus(
       behind = 0;
     }
   }
+  // The destination's own push facts ride the same snapshot (issue #414): the
+  // finish dialog's done row needs "destination ahead of origin/main", which
+  // the `ahead` above (branch vs destination) reads 0 for once the merge lands.
+  const destinationFacts = await readDestinationPushFacts(projectCwd, destination);
   const preview: MergePreview = alreadyMerged
     ? { kind: "clean" }
     : await previewMerge(projectCwd, destination, branch);
@@ -650,8 +655,39 @@ export async function readMergeBackStatus(
     ahead,
     behind,
     worktreeDirty,
+    ...destinationFacts,
     preview,
   };
+}
+
+/** A destination with no readable upstream: no push affordance to offer. */
+const NO_PUSH_FACTS = { destinationUpstream: null, destinationAhead: null } as const;
+
+/**
+ * Destination vs its own upstream, from stored refs only — never a fetch
+ * (issue #414). A stale count is harmless: the push itself answers `rejected`.
+ * Any miss or failure resolves null/null, so the status call stays
+ * never-throwing on git state.
+ */
+async function readDestinationPushFacts(
+  projectCwd: string,
+  destination: string,
+): Promise<{ destinationUpstream: string | null; destinationAhead: number | null }> {
+  try {
+    await git(projectCwd, ["rev-parse", "--verify", "--quiet", `${destination}@{upstream}`]);
+    const upstream = (
+      await git(projectCwd, ["rev-parse", "--abbrev-ref", `${destination}@{upstream}`])
+    ).trim();
+    if (upstream === "" || upstream === destination) return NO_PUSH_FACTS;
+    const ahead = Number(
+      (await git(projectCwd, ["rev-list", "--count", `${upstream}..${destination}`])).trim(),
+    );
+    return Number.isSafeInteger(ahead)
+      ? { destinationUpstream: upstream, destinationAhead: ahead }
+      : NO_PUSH_FACTS;
+  } catch {
+    return NO_PUSH_FACTS;
+  }
 }
 
 /**

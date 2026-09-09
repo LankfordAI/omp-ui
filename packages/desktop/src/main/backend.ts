@@ -31,6 +31,8 @@ import {
   readMergeBackStatus,
   resolveMergeDestination,
   pullBranch,
+  pushBranch,
+  pullRequestUrl,
   reclaimCheckouts,
   detectPackageFormat,
   isWithin,
@@ -645,6 +647,15 @@ export class MainBackend {
         [CH.checkoutBranch]: (projectCwd: string, name: string, opts?: { create?: boolean }) =>
           checkoutBranch(projectCwd, name, opts),
         [CH.pullBranch]: (projectCwd: string) => pullBranch(projectCwd),
+        // Push answers git state through a structured PushResult rather than a
+        // rejection (issue #414); like pull it touches no BackendState field,
+        // so this handler never broadcasts.
+        [CH.pushBranch]: (projectCwd: string, branch: string, remote?: string | null) =>
+          pushBranch(projectCwd, branch, remote),
+        // Builds a URL only. Main never opens it: the renderer hands the result
+        // to window.open, where setWindowOpenHandler's web-scheme guard decides.
+        [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) =>
+          pullRequestUrl(projectCwd, base, head),
         [CH.createBranch]: (projectCwd: string, name: string, startPoint: string) =>
           createBranch(projectCwd, name, startPoint),
         [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) =>

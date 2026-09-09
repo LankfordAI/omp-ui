@@ -129,6 +129,10 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "branch:list",
   "branch:checkout",
   "branch:pull",
+  // A remote-instance session pushes and links its own host's branches (#414,
+  // routed by instanceId the same way pull already is, issue #416).
+  "branch:push",
+  "branch:prUrl",
   "branch:mergeDestination",
   "branch:mergeStatus",
   "branch:mergeBack",

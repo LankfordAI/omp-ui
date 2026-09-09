@@ -11,6 +11,7 @@ import type {
   DeleteSessionResult,
   LiveState,
   MergeBackStatus,
+  PushResult,
   MergeDestination,
   OmpSettingsSnapshot,
   OmpUpdateState,
@@ -105,6 +106,9 @@ const defaultMergeBackStatus: MergeBackStatus = {
   ahead: 1,
   behind: 0,
   worktreeDirty: false,
+  // The done row's push facts (issue #414): main one commit ahead of origin/main.
+  destinationUpstream: "origin/main",
+  destinationAhead: 1,
   preview: { kind: "clean" },
 };
 
@@ -169,6 +173,12 @@ const mockBackend = {
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   pullBranch: vi.fn(),
+  // Push resolves a structured PushResult, so a bare vi.fn() would answer
+  // undefined; the neutral default is a no-op up-to-date (issue #414).
+  pushBranch: vi.fn(
+    async (): Promise<PushResult> => ({ kind: "up-to-date", remote: "origin", upstreamRef: "origin/main" }),
+  ),
+  pullRequestUrl: vi.fn(async (): Promise<string | null> => null),
   resolveMergeDestination: vi.fn(
     async (): Promise<MergeDestination> => defaultMergeDestination,
   ),

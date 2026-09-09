@@ -130,8 +130,30 @@ export interface MergeBackStatus {
   behind: number;
   /** User-owned uncommitted or untracked changes in the worktree checkout (the generated project `.omp` link excluded, issue #417); null when no path was given or it is unreadable. */
   worktreeDirty: boolean | null;
+  /** Destination vs its own upstream, from stored refs — the finish dialog's done-row push count.
+   *  Null upstream when the destination has no configured/unresolvable upstream; null ahead
+   *  when the count could not be read. Never a fetch (issue #414). */
+  destinationUpstream: string | null;
+  destinationAhead: number | null;
   preview: MergePreview;
 }
+
+/**
+ * Outcome of pushing a branch to a remote (issue #414). Every git-state outcome
+ * resolves with a kind; the channel never rejects on git state, so both the
+ * branch chip and the finish dialog branch on `kind`.
+ */
+export type PushResult =
+  /** Fast-forward pushed onto an existing upstream ref. */
+  | { kind: "pushed"; remote: string; upstreamRef: string; commits: number }
+  /** First push: created the branch on the remote and bound the upstream (`-u`). */
+  | { kind: "published"; remote: string; upstreamRef: string; commits: number }
+  /** The local branch holds nothing the upstream ref lacks; no network call was made. */
+  | { kind: "up-to-date"; remote: string; upstreamRef: string }
+  /** Git refused a non-fast-forward; `detail` carries git's stderr. */
+  | { kind: "rejected"; remote: string | null; detail: string }
+  /** Not a repo / branch gone / no remote / auth or transport failure. */
+  | { kind: "failed"; detail: string };
 
 /** Outcome of a merge-back (issue #272). */
 export interface MergeBackResult {
@@ -442,6 +464,11 @@ export interface BranchList {
   upstreamFetchedAt: number | null;
   /** Most recent network refresh error, retained until a refresh succeeds. */
   upstreamRefreshError: string | null;
+  /**
+   * The remote the push flow targets when a branch has no configured upstream:
+   * `origin` when it exists, else the repo's single remote, else null (issue #414).
+   */
+  defaultRemote: string | null;
 }
 
 export type SpawnWorktree =

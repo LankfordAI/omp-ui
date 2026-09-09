@@ -101,6 +101,8 @@ const VALID_ARGS = {
   ptyResize: ["tab-1", 120, 40],
   ptyWrite: ["tab-1", "input"],
   pullBranch: ["/project"],
+  pullRequestUrl: ["/project", "main", "feature/x"],
+  pushBranch: ["/project", "feature/x", "origin"],
   previewDiagnosticsBundle: [],
   readOmpSettings: [null],
   readPlanFile: ["tab-1", "/tmp/plan.html"],
@@ -335,6 +337,36 @@ describe("transport dispatch", () => {
     await dispatchRequest(table, CH.getBranchDiff, ["/project", null]);
     expect(lengths).toEqual([1, 2]);
     expect(values).toEqual([undefined, undefined]);
+  });
+
+  it("gives branch:push an omitted-or-null remote and no force position", async () => {
+    const lengths: number[] = [];
+    const remotes: unknown[] = [];
+    const table = {
+      request: {
+        [CH.pushBranch]: function (_project: string, _branch: string, remote?: string | null) {
+          lengths.push(arguments.length);
+          remotes.push(remote);
+        },
+      },
+      notify: {},
+    } as unknown as ChannelTable;
+
+    await dispatchRequest(table, CH.pushBranch, ["/project", "feature/x"]);
+    await dispatchRequest(table, CH.pushBranch, ["/project", "feature/x", null]);
+    expect(lengths).toEqual([2, 3]);
+    expect(remotes).toEqual([undefined, undefined]);
+
+    await expect(dispatchRequest(table, CH.pushBranch, ["/project", 42])).rejects.toThrow(
+      "argument 1 must be a string",
+    );
+    await expect(
+      dispatchRequest(table, CH.pushBranch, ["/project", "feature/x", { force: true }]),
+    ).rejects.toThrow("argument 2 must be a string");
+    await expect(
+      dispatchRequest(table, CH.pushBranch, ["/project", "feature/x", "origin", true]),
+    ).rejects.toThrow("expected at most 3");
+    expect(lengths).toEqual([2, 3]);
   });
 
   it("rejects undeclared and inherited request channels and ignores notify equivalents", async () => {

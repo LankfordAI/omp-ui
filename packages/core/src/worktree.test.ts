@@ -68,6 +68,20 @@ async function commitFile(
   await git(dir, ["commit", "-q", "-m", message]);
 }
 
+/**
+ * A bare remote added as `origin` with `branch` pushed and tracked (issue #414):
+ * the destination needs an upstream of its own for its push facts to read.
+ */
+async function trackOrigin(dir: string, branch = "main"): Promise<string> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-remote-"));
+  cleanups.push(root);
+  const bare = path.join(root, "origin.git");
+  await git(root, ["init", "-q", "--bare", "origin.git"]);
+  await git(dir, ["remote", "add", "origin", bare]);
+  await git(dir, ["push", "-q", "-u", "origin", `${branch}:refs/heads/${branch}`]);
+  return bare;
+}
+
 describe("mintWorktreeBranch", () => {
   it("mints an omp-ui-prefixed 8-hex name, distinct per call", () => {
     const a = mintWorktreeBranch();
@@ -264,6 +278,8 @@ describe("readMergeBackStatus", () => {
       ahead: 2,
       behind: 0,
       worktreeDirty: false,
+      destinationUpstream: null,
+      destinationAhead: null,
       preview: { kind: "clean" },
     });
   });
@@ -381,6 +397,8 @@ describe("readMergeBackStatus", () => {
       ahead: 0,
       behind: 0,
       worktreeDirty: false,
+      destinationUpstream: null,
+      destinationAhead: null,
       preview: { kind: "unknown" },
     });
   });
@@ -410,8 +428,77 @@ describe("readMergeBackStatus", () => {
       ahead: 0,
       behind: 0,
       worktreeDirty: null,
+      destinationUpstream: null,
+      destinationAhead: null,
       preview: { kind: "unknown" },
     });
+  });
+
+  it("reads destination push facts from the destination's own upstream", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "branch.txt", "b\n", "branch work");
+    await trackOrigin(dir);
+
+    const tracked = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(tracked.destinationUpstream).toBe("origin/main");
+    // 0, not null: main sits exactly on origin/main even while the branch is ahead.
+    expect(tracked.destinationAhead).toBe(0);
+    expect(tracked.ahead).toBe(1);
+
+    await commitFile(dir, "main.txt", "m\n", "main work");
+    const ahead = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(ahead.destinationUpstream).toBe("origin/main");
+    expect(ahead.destinationAhead).toBe(1);
+    expect(ahead.behind).toBe(1);
+  });
+
+  it("answers null destination push facts without an upstream, and never throws", async () => {
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+
+    // No remote configured at all.
+    const noRemote = await readMergeBackStatus(dir, branch, "main", wt);
+    expect([noRemote.destinationUpstream, noRemote.destinationAhead]).toEqual([null, null]);
+
+    // Upstream configured but its tracking ref deleted: unverifiable (issue #399).
+    await trackOrigin(dir);
+    await git(dir, ["update-ref", "-d", "refs/remotes/origin/main"]);
+    const unresolvable = await readMergeBackStatus(dir, branch, "main", wt);
+    expect([unresolvable.destinationUpstream, unresolvable.destinationAhead]).toEqual([null, null]);
+  });
+
+  it("keeps destination work visible after the branch itself is merged", async () => {
+    // `ahead` compares branch to destination, so it reads 0 once the merge
+    // lands; destinationAhead is what still tells the finish dialog that
+    // destination carries unpushed commits (issue #414).
+    const dir = await tmpRepo();
+    const branch = mintWorktreeBranch();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "branch.txt", "b\n", "branch work");
+    await trackOrigin(dir);
+    await commitFile(dir, "main.txt", "m\n", "main work");
+
+    const before = await readMergeBackStatus(dir, branch, "main", wt);
+    expect([before.ahead, before.destinationAhead]).toEqual([1, 1]);
+
+    const merged = await mergeWorktreeBranch(dir, branch, "main", {
+      scratchRoot: path.join(dir, "scratch"),
+    });
+    expect(merged.kind).toBe("merged");
+
+    const after = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(after.alreadyMerged).toBe(true);
+    expect(after.ahead).toBe(0);
+    // origin/main still lacks all three: main's own commit, the branch's, and
+    // the merge commit that joined them.
+    expect([after.destinationUpstream, after.destinationAhead]).toEqual(["origin/main", 3]);
   });
 });
 

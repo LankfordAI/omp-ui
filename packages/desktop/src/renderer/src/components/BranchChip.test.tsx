@@ -2,7 +2,7 @@
 import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchList } from "@omp-ui/core/types";
+import type { BranchList, PushResult } from "@omp-ui/core/types";
 import { backendState as makeBackendState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
@@ -21,12 +21,26 @@ const fixture: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  // The chip's publish row reads this (issue #414): the repo's push target.
+  defaultRemote: "origin",
 };
 
 const backendMock = {
   listBranches: vi.fn(async () => fixture),
   checkoutBranch: vi.fn(async () => {}),
   pullBranch: vi.fn(async () => {}),
+  // Push answers git state through a structured result, never a rejection.
+  pushBranch: vi.fn(
+    async (): Promise<PushResult> => ({
+      kind: "pushed",
+      remote: "origin",
+      upstreamRef: "origin/main",
+      commits: 2,
+    }),
+  ),
+  pullRequestUrl: vi.fn(
+    async (): Promise<string | null> => "https://github.com/o/r/compare/main...feature/x",
+  ),
   deleteSessionPreview: vi.fn<(tabId: string) => Promise<{ descendants: Array<{ tabId: string; title: string; running: boolean }> }>>(
     async () => ({ descendants: [] }),
   ),
@@ -207,6 +221,16 @@ beforeEach(() => {
   workspaceOffered = true;
   backendMock.listBranches.mockResolvedValue(fixture);
   backendMock.pullBranch.mockResolvedValue(undefined);
+  backendMock.pushBranch.mockReset();
+  backendMock.pushBranch.mockResolvedValue({
+    kind: "pushed",
+    remote: "origin",
+    upstreamRef: "origin/main",
+    commits: 2,
+  });
+  backendMock.pullRequestUrl.mockReset();
+  backendMock.pullRequestUrl.mockResolvedValue("https://github.com/o/r/compare/main...feature/x");
+  vi.spyOn(window, "open").mockImplementation(() => null);
   backendMock.deleteSessionPreview.mockReset();
   backendMock.deleteSessionPreview.mockResolvedValue({ descendants: [] });
   backendMock.deleteSession.mockReset();
@@ -249,6 +273,8 @@ describe("BranchChip", () => {
           current: null,
           branches: [],
           defaultBranch: null,
+          // Off-git: no repo, so no push target either.
+          defaultRemote: null,
           upstreamRef: null,
           upstreamRemote: null,
           hasUpstream: false,
@@ -877,5 +903,138 @@ describe("BranchChip finish worktree row (issues #385–#389)", () => {
 
     expect(useStore.getState().finishWorktreeTab).toBe("tab-0");
     expect(menu()).toBeNull();
+  });
+});
+
+describe("BranchChip push, publish, and pull request rows (issue #414)", () => {
+  const pushRow = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.textContent?.toLowerCase().startsWith("push "),
+    );
+  const publishRow = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.textContent?.toLowerCase().startsWith("publish "),
+    );
+  const prRow = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent === "pull request…",
+    );
+  const aheadUpstream = {
+    upstreamRef: "origin/main",
+    upstreamRemote: "origin",
+    hasUpstream: true,
+    ahead: 2,
+    behind: 0,
+    defaultRemote: "origin",
+  };
+
+  it("offers the push row only for an ahead-only branch, on its own upstream", async () => {
+    seedBranch(aheadUpstream);
+    render();
+    await act(async () => chip().click());
+
+    expect(pushRow()?.textContent).toBe("push 2 commits to origin/main");
+    expect(pushRow()?.disabled).toBe(false);
+    expect(publishRow()).toBeUndefined();
+
+    // Diverged: git would refuse the push, so the copper note is the answer.
+    act(() => useStore.setState({ branches: { "/p": branchInfo({ ...aheadUpstream, behind: 3 }) } }));
+    expect(pushRow()).toBeUndefined();
+
+    // Configured-but-missing upstream: the ref the row would name is gone.
+    act(() =>
+      useStore.setState({
+        branches: { "/p": branchInfo({ ...aheadUpstream, hasUpstream: false, behind: 0 }) },
+      }),
+    );
+    expect(pushRow()).toBeUndefined();
+  });
+
+  it("pushes the checked-out branch through the store, not the checkout it sits on", async () => {
+    seedBranch(aheadUpstream);
+    render();
+    await act(async () => chip().click());
+    await act(async () => pushRow()!.click());
+
+    expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+    expect(menu()).toBeNull();
+  });
+
+  it("holds a refused push open with git's words instead of closing", async () => {
+    seedBranch(aheadUpstream);
+    backendMock.pushBranch.mockResolvedValueOnce({
+      kind: "rejected",
+      remote: "origin",
+      detail: "! [rejected] main -> origin/main (non-fast-forward)",
+    });
+    render();
+    await act(async () => chip().click());
+    await act(async () => pushRow()!.click());
+
+    expect(document.body.textContent).toContain("(non-fast-forward)");
+    expect(menu()).not.toBeNull();
+  });
+
+  it("publishes an upstream-less branch into the default remote only when there is one", async () => {
+    seedBranch({ current: "main", upstreamRef: null, hasUpstream: false, defaultRemote: "origin" });
+    render();
+    await act(async () => chip().click());
+
+    expect(publishRow()?.textContent).toBe("publish main to origin");
+    await act(async () => publishRow()!.click());
+    expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+
+    // A repo with no remote at all has nothing to publish into.
+    act(() =>
+      useStore.setState({
+        branches: {
+          "/p": branchInfo({ current: "main", upstreamRef: null, hasUpstream: false, defaultRemote: null }),
+        },
+      }),
+    );
+    expect(publishRow()).toBeUndefined();
+  });
+
+  it("confirms before sharing a branch a session is mid-turn on", async () => {
+    seedBranch(aheadUpstream);
+    seedBusy();
+    render();
+    await act(async () => chip().click());
+    await act(async () => pushRow()!.click());
+
+    expect(document.body.textContent).toContain("the branch is shared as it stands");
+    expect(backendMock.pushBranch).not.toHaveBeenCalled();
+
+    await act(async () => buttonByText("push anyway").click());
+    expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+  });
+
+  it("links the branch to the default branch, and hides the link when they are one", async () => {
+    seedBranch({ ...aheadUpstream, current: "feature/x", defaultBranch: "main" });
+    render();
+    await act(async () => chip().click());
+
+    await act(async () => prRow()!.click());
+    expect(backendMock.pullRequestUrl).toHaveBeenCalledWith("/p", "main", "feature/x");
+    expect(window.open).toHaveBeenCalledWith(
+      "https://github.com/o/r/compare/main...feature/x",
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    // The head *is* the default branch: a compare against itself is not a PR.
+    act(() => useStore.setState({ branches: { "/p": branchInfo(aheadUpstream) } }));
+    expect(prRow()).toBeUndefined();
+  });
+
+  it("explains a remote with no web face instead of opening a half-built URL", async () => {
+    seedBranch({ ...aheadUpstream, current: "feature/x", defaultBranch: "main" });
+    backendMock.pullRequestUrl.mockResolvedValueOnce(null);
+    render();
+    await act(async () => chip().click());
+    await act(async () => prRow()!.click());
+
+    expect(document.body.textContent).toContain("cannot build a pull-request URL for this remote");
+    expect(window.open).not.toHaveBeenCalled();
   });
 });

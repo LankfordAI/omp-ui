@@ -8,6 +8,7 @@ import type {
   MergeBackResult,
   MergeBackStatus,
   MergeDestination,
+  PushResult,
   SessionSummary,
   WorktreeReleaseResult,
   WorktreeSyncResult,
@@ -31,9 +32,15 @@ const listing: BranchList = {
   behind: 0,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
+  // The repo has an origin: the done row's publish target and PR host.
+  defaultRemote: "origin",
 };
 
-/** The clean default snapshot: main in the project checkout, 2 commits to land. */
+/**
+ * The clean default snapshot: main in the project checkout, 2 commits to land,
+ * and a destination 2 ahead of its own upstream — the finished state the done
+ * row offers to push (issue #414).
+ */
 const statusFixture = (overrides: Partial<MergeBackStatus> = {}): MergeBackStatus => ({
   destination: "main",
   destinationExists: true,
@@ -44,6 +51,8 @@ const statusFixture = (overrides: Partial<MergeBackStatus> = {}): MergeBackStatu
   ahead: 2,
   behind: 1,
   worktreeDirty: false,
+  destinationUpstream: "origin/main",
+  destinationAhead: 2,
   preview: { kind: "clean" },
   ...overrides,
 });
@@ -81,6 +90,13 @@ const backendMock = {
   })),
   renameWorktreeBranch: vi.fn(async () => {}),
   suggestBranchName: vi.fn(async (): Promise<string | null> => null),
+  pushBranch: vi.fn(async (): Promise<PushResult> => ({
+    kind: "pushed",
+    remote: "origin",
+    upstreamRef: "origin/main",
+    commits: 2,
+  })),
+  pullRequestUrl: vi.fn(async (): Promise<string | null> => "https://example.run/pr/new"),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
@@ -150,7 +166,7 @@ function seed(): void {
   useStore.setState({
     state: stateWith(summary),
     branches: { "/p": listing },
-    branchActivity: {},
+    branchActivity: { "/p": { refreshing: false, pulling: false, pushing: false } },
     tabs: [],
     activeTabId: null,
     focusedTabByProject: {},
@@ -250,7 +266,15 @@ beforeEach(() => {
   backendMock.syncWorktree.mockResolvedValue({ kind: "merged", source: "main", files: [] });
   backendMock.renameWorktreeBranch.mockResolvedValue(undefined);
   backendMock.suggestBranchName.mockResolvedValue(null);
+  backendMock.pushBranch.mockResolvedValue({
+    kind: "pushed",
+    remote: "origin",
+    upstreamRef: "origin/main",
+    commits: 2,
+  });
+  backendMock.pullRequestUrl.mockResolvedValue("https://example.run/pr/new");
 });
+
 
 afterEach(() => {
   if (root !== null) {
@@ -290,7 +314,7 @@ describe("FinishWorktreeDialog", () => {
     );
   });
 
-  it("merges into a chosen new branch and reports it as the release destination", async () => {
+  it("merges into a chosen new branch, releases it, and stops on the done row", async () => {
     await openDialog();
 
     // Regression (found over CDP): entering "new branch…" whose default
@@ -315,7 +339,10 @@ describe("FinishWorktreeDialog", () => {
       keepBranch: false,
       mergedInto: "release/next",
     });
-    expect(useStore.getState().finishWorktreeTab).toBeNull();
+    // A merge that moved commits no longer closes the dialog: the work is
+    // landed locally, and sharing it is the done row's call (issue #414).
+    expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+    expect(document.body.textContent).toContain("merged 2 commits into release/next");
   });
 
   it("renames the branch before releasing when keeping under a new name", async () => {
@@ -337,6 +364,10 @@ describe("FinishWorktreeDialog", () => {
       keepBranch: true,
       mergedInto: null,
     });
+    // Keeping merges nothing, so there is nothing to share: the finish closes
+    // exactly as it did before the done phase (issue #414).
+    expect(useStore.getState().finishWorktreeTab).toBeNull();
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
     expect(backendMock.renameWorktreeBranch.mock.invocationCallOrder[0]!).toBeLessThan(
       backendMock.releaseWorktree.mock.invocationCallOrder[0]!,
     );
@@ -447,6 +478,286 @@ describe("FinishWorktreeDialog", () => {
         expect(primary.disabled).toBe(false);
         expect(primary.textContent).toBe(expected);
       }
+    });
+  });
+
+  // The done phase (issue #414): a merged finish stops with the work landed
+  // locally, and sharing it stays one explicit row.
+  describe("done phase", () => {
+    /** Finish with the dialog's own defaults: merge & return into `main`. */
+    const finishMerged = async (): Promise<void> => {
+      await openDialog();
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+    };
+
+    /** The done phase's footer holds one button: the dialog's own dismissal. */
+    const doneButton = (): HTMLButtonElement => {
+      const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")];
+      expect(buttons.length).toBe(1);
+      return buttons[0]!;
+    };
+
+    const pushRow = (): HTMLButtonElement | undefined =>
+      buttonByText("push main — 2 commits to origin/main");
+
+    it("lands without closing, and offers the destination's push", async () => {
+      await finishMerged();
+
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(pushRow()).toBeDefined();
+      // The row is inert: the finish already ran, so the footer offers only
+      // dismissal, never a second merge.
+      expect(doneButton().textContent).toBe("done");
+    });
+
+    it("closes an already-merged return with no done row to push from", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ alreadyMerged: true }));
+      await openDialog();
+
+      act(() => primaryButton().click()); // return
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // No merge ran, so nothing landed and nothing is owed to a remote.
+      expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+      expect(backendMock.releaseWorktree).toHaveBeenCalledWith(TAB, {
+        keepBranch: false,
+        mergedInto: "main",
+      });
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+    });
+
+    it("counts the push row from the state the merge left, not the state it started from", async () => {
+      // The status the dialog rendered while choosing the destination said
+      // main held nothing beyond origin/main. The merge then landed two
+      // commits on it, so the done row must read the AFTER state (issue #414).
+      backendMock.getMergeBackStatus
+        .mockResolvedValueOnce(statusFixture({ destinationAhead: 0 }))
+        .mockResolvedValueOnce(statusFixture({ destinationAhead: 2 }));
+      await openDialog();
+
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(buttonByText("push main — 2 commits to origin/main")).toBeDefined();
+    });
+
+    it("survives its own release: main nulls the worktree mid-finish", async () => {
+      // session-manager's demote() writes `worktree: null` to the registry and
+      // broadcasts before releaseWorktree resolves, so the record the dialog
+      // renders from loses its worktree while the done phase is being entered.
+      // The row must outlive that, or a merged finish closes on the user.
+      backendMock.releaseWorktree.mockImplementationOnce(async () => {
+        useStore.setState({ state: stateWith({ ...summary, worktree: null }) });
+        return releaseResult;
+      });
+      await openDialog();
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(document.body.textContent).toContain("Finish omp-ui/deadbeef?");
+      expect(buttonByText("push main — 2 commits to origin/main")).toBeDefined();
+    });
+
+    it("pushes the landed destination and settles with the upstream it reached", async () => {
+      await finishMerged();
+
+      act(() => pushRow()!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+      expect(document.body.textContent).toContain("pushed 2 commits to origin/main");
+      // The destination is the repo's own default branch: a pull request would
+      // compare main against itself.
+      expect(buttonByText("open pull request")).toBeUndefined();
+    });
+
+    it("opens the host's pull request for a pushed destination that is not the default branch", async () => {
+      const opened = vi.spyOn(window, "open").mockReturnValue(null);
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({ destination: "feature/x", destinationUpstream: "origin/feature/x" }),
+      );
+      await openDialog();
+      await selectInto(destinationSelect(), "feature/x");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      act(() => primaryButton().click()); // merge & return into feature/x
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(document.body.textContent).toContain("merged 2 commits into feature/x");
+
+      // The settled line names the ref core actually pushed to, so the mock
+      // has to answer as the real channel would for this destination.
+      backendMock.pushBranch.mockResolvedValueOnce({
+        kind: "pushed",
+        remote: "origin",
+        upstreamRef: "origin/feature/x",
+        commits: 2,
+      });
+      act(() => buttonByText("push feature/x — 2 commits to origin/feature/x")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "feature/x");
+      expect(document.body.textContent).toContain("pushed 2 commits to origin/feature/x");
+
+      act(() => buttonByText("open pull request")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.pullRequestUrl).toHaveBeenCalledWith("/p", "main", "feature/x");
+      expect(opened).toHaveBeenCalledWith(
+        "https://example.run/pr/new",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      opened.mockRestore();
+    });
+
+    it("says so in place when the remote has no pull-request page", async () => {
+      const opened = vi.spyOn(window, "open").mockReturnValue(null);
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({ destination: "feature/x", destinationUpstream: "origin/feature/x" }),
+      );
+      backendMock.pullRequestUrl.mockResolvedValue(null);
+      await openDialog();
+      await selectInto(destinationSelect(), "feature/x");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      act(() => buttonByText("push feature/x — 2 commits to origin/feature/x")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      act(() => buttonByText("open pull request")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(document.body.textContent).toContain(
+        "cannot build a pull-request URL for this remote",
+      );
+      expect(opened).not.toHaveBeenCalled();
+      opened.mockRestore();
+    });
+
+    it("publishes a destination whose branch has no upstream", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({ destinationUpstream: null, destinationAhead: null }),
+      );
+      backendMock.pushBranch.mockResolvedValue({
+        kind: "published",
+        remote: "origin",
+        upstreamRef: "origin/main",
+        commits: 2,
+      });
+      await finishMerged();
+
+      const publish = buttonByText("publish main to origin");
+      expect(publish).toBeDefined();
+      act(() => publish!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // Publishing is the same `git push`, first-time and with `-u`.
+      expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+      expect(document.body.textContent).toContain("published main to origin");
+    });
+
+    it("offers nothing to share once the remote already has the destination", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ destinationAhead: 0 }));
+      await finishMerged();
+
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(pushRow()).toBeUndefined();
+      expect(buttonByText("publish main to origin")).toBeUndefined();
+    });
+
+    it("names the ref a refusal came against, with git's answer, and pushes nothing else", async () => {
+      backendMock.pushBranch.mockResolvedValue({
+        kind: "rejected",
+        remote: "origin",
+        detail: "! [rejected] main -> main (fetch first)",
+      });
+      await finishMerged();
+
+      act(() => pushRow()!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(backendMock.pushBranch).toHaveBeenCalledTimes(1);
+      expect(document.body.textContent).toContain(
+        "origin/main has commits this branch lacks — pull first, then push",
+      );
+      expect(document.body.textContent).toContain("! [rejected] main -> main (fetch first)");
+      expect(buttonByText("open pull request")).toBeUndefined();
+    });
+
+    it("pushes nothing when the done row is dismissed", async () => {
+      await finishMerged();
+      expect(pushRow()).toBeDefined();
+
+      act(() => doneButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+      expect(backendMock.pushBranch).not.toHaveBeenCalled();
+    });
+
+    it("confirms before sharing a branch a mid-turn session holds, then honours the answer", async () => {
+      await openDialog();
+      useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      act(() => pushRow()!.click());
+      expect(document.body.textContent).toContain(
+        "session “Finish me” is mid-turn — the branch is shared as it stands",
+      );
+      expect(backendMock.pushBranch).not.toHaveBeenCalled();
+
+      // Cancel leaves the branch unshared and the row back where it was.
+      act(() => buttonByText("cancel")!.click());
+      expect(backendMock.pushBranch).not.toHaveBeenCalled();
+      expect(pushRow()).toBeDefined();
+
+      // The confirm is a gate, not a dead end: the same row pushes on the
+      // second answer.
+      act(() => pushRow()!.click());
+      act(() => buttonByText("push anyway")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
     });
   });
 });

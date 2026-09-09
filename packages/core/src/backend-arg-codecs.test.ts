@@ -88,6 +88,14 @@ describe("nullable and optional argument codecs", () => {
     expect(decode(trailingOptional(str()), null)).toBeUndefined();
     expect(decode(trailingOptional(str()), "value")).toBe("value");
   });
+
+  it("collapses a wire-null remote to omitted like a missing one", () => {
+    const remote = trailingOptional(nullable(str()));
+    expect(decode(remote, "origin")).toBe("origin");
+    expect(decode(remote, undefined)).toBeUndefined();
+    expect(decode(remote, null)).toBeUndefined();
+    expect(() => decode(remote, { force: true })).toThrow("argument 0 must be a string");
+  });
 });
 
 describe("object codecs", () => {
