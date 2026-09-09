@@ -1108,6 +1108,7 @@ export class MainBackend {
           ? "archived"
           : "missing";
     const streamStalled = this.sessions.isStreamStalled(record.tabId);
+    const turnRunning = this.sessions.isTurnRunning(record.tabId);
     let title = record.cachedTitle;
     let status: SessionSummary["status"] = null;
     if (loc.where === "active") {
@@ -1141,6 +1142,7 @@ export class MainBackend {
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
       streamStalled,
+      turnRunning,
       ...(goal === undefined ? {} : { goal }),
     };
   }

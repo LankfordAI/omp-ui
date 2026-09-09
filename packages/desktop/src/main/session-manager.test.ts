@@ -1679,6 +1679,41 @@ describe("lineage watcher broadcast throttle (issue #187)", () => {
   }, 20_000);
 });
 
+describe("turn latch published state (issue #434)", () => {
+  it("rebuilds the sidebar once per real turn edge, never for repeated frames", async () => {
+    // Fake clock only, like the #187 throttle suite: the assertions are on
+    // real broadcast counts, not sleeps.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { manager, broadcast } = setup({ mode: "rpc-ui" });
+      await resume(manager);
+      const rpc = rpcInstances.at(-1)!;
+      broadcast.mockClear();
+
+      rpc.frame({ type: "agent_start" });
+      // The observer sees the frame before any renderer does (deliverFrame
+      // order), so the latch is already set for the rebuild it schedules.
+      expect(manager.isTurnRunning(TAB)).toBe(true);
+      // Past the throttle window since any churn: the edge rebuilds at once.
+      expect(broadcast).toHaveBeenCalledTimes(1);
+
+      // OMP 18 can repeat agent_start inside one turn; the deduped edge must
+      // not become a broadcast storm.
+      rpc.frame({ type: "agent_start" });
+      expect(broadcast).toHaveBeenCalledTimes(1);
+
+      rpc.frame({ type: "agent_end" });
+      expect(manager.isTurnRunning(TAB)).toBe(false);
+      // Same instant on the fake clock: the end rides the trailing throttle.
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(broadcast).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("plan-review gate (issue #215)", () => {
   const proposalFrame = (id: string) => ({
     type: "extension_ui_request",

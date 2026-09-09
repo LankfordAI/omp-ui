@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.10.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.10.5). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- A live session that is running on its own host now reads *working* in every app that can see it, not just the one that watched the turn start. The owning instance publishes its `agent_start … agent_end` latch on the session summary, and a sidebar row that missed the start edge — a remote session never opened, or a tab mounted mid-turn — takes the host's level over its own stream's edge ([#434](https://github.com/LankfordAI/omp-ui/issues/434)). A terminal session still reads *live*: a PTY carries no turn signal.
 
 ## Choose a download
 

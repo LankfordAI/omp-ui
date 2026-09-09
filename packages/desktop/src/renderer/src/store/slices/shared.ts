@@ -228,7 +228,14 @@ export function deriveSidebarSessionState(
   // A pending gate is main-process state (issue #215) — the record alone
   // marks the session awaiting-answer, even before its tab is booted.
   if (summary.pendingPlan !== null) return "awaiting-answer";
-  if (summary.mode === "pty" || !rpc) return "live";
+  if (summary.mode === "pty") return "live";
+  // Whether work is in flight is a level, and its owner is the instance that
+  // holds the process: the tab's own status is the edge this renderer happened
+  // to see. A row that joined the stream mid-turn, or whose stream is gone,
+  // must not read as idle (issue #434) — and a row with no stream at all is
+  // the host's to report.
+  const running = summary.turnRunning === true;
+  if (!rpc) return running ? "working" : "live";
   if (rpc.status === "error") return "error";
   // A watchdog-aborted turn outranks awaiting-answer: the user must prompt to
   // continue the session, which also clears the queue (issue #248).
@@ -238,10 +245,9 @@ export function deriveSidebarSessionState(
   switch (rpc.status) {
     case "running":
       return "working";
-    case "ready":
-      return "ready";
     case "starting":
-      return "starting";
+    case "ready":
+      return running ? "working" : rpc.status;
     default:
       return "live";
   }
