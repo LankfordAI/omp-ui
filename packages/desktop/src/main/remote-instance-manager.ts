@@ -24,8 +24,9 @@ import {
 } from "@omp-ui/server";
 
 // Main-process client side of remote instances (issue #416): one ws client per joined
-// omp-ui, the credential held here and never handed to a renderer, the remote's `projects`
-// merged into local state as `remoteInstances[i].projects`, and tab-scoped traffic routed by
+// omp-ui, the credential held here and never handed to a renderer, the remote's own
+// `projects` and favorite model list (issue #440) projected into local state as
+// `remoteInstances[i].projects` / `.modelFavorites`, and tab-scoped traffic routed by
 // tabId → instance (remote-route.ts). Mirrors RemoteServerManager's shape: packages/server
 // owns the transport, this class owns the per-instance state machine the renderer renders.
 
@@ -63,6 +64,8 @@ interface Entry {
   client: InstanceClient | null;
   /** The remote's own registry groups, kept dimmed across a loss so tabs stay mounted. */
   projects: ProjectGroup[];
+  /** The remote's own favorite model list (issue #440), kept across a loss like projects. */
+  modelFavorites: string[];
   tabIds: Set<string>;
   /** Consecutive failed connects since the last join; drives the backoff. */
   attempt: number;
@@ -108,6 +111,7 @@ export class RemoteInstanceManager {
         error: e.error,
         version: e.version,
         projects: e.projects,
+        modelFavorites: e.modelFavorites,
       });
     }
     return out;
@@ -255,6 +259,7 @@ export class RemoteInstanceManager {
       version: null,
       client: null,
       projects: [],
+      modelFavorites: [],
       tabIds: new Set(),
       attempt: 0,
       timer: null,
@@ -397,25 +402,43 @@ export class RemoteInstanceManager {
       this.#lost(entry, err instanceof Error ? err.message : String(err));
       return;
     }
-    if (entry.client !== client) return;
-    // Only the remote's own registry: its `remoteInstances` never fold in, so a mutual join
-    // (A↔B) is two directed edges and never a loop.
+    // Owner-state projection (issue #440): only the remote's own registry projects
+    // and favorite model list fold in — its `remoteInstances` and every other
+    // app-scoped field (settings, providers) never do, so a mutual join (A↔B)
+    // is two directed edges and never a loop.
     this.#adopt(entry, state.projects);
+    entry.modelFavorites = this.#favorites(state.modelFavorites);
     entry.attempt = 0;
     this.#set(entry, { status: "joined", error: null, version: identity.version });
   }
 
   #onEvent(entry: Entry, channel: string, args: unknown[]): void {
     if (channel === "state:changed") {
-      const projects = (args[0] as Partial<BackendState> | undefined)?.projects;
-      if (!Array.isArray(projects)) return;
-      this.#adopt(entry, projects);
-      this.#set(entry, {});
+      // Each field of the remote's owner state lands independently (issue #440):
+      // a valid projects array rebuilds tab ownership, a valid favorites array
+      // only swaps the list. A missing or malformed later field never erases
+      // the last good value; an event carrying neither is ignored.
+      const partial = args[0] as Partial<BackendState> | undefined;
+      const projects = partial?.projects;
+      const favorites = partial?.modelFavorites;
+      const hasProjects = Array.isArray(projects);
+      const hasFavorites = Array.isArray(favorites);
+      if (hasProjects) this.#adopt(entry, projects as ProjectGroup[]);
+      if (hasFavorites) entry.modelFavorites = this.#favorites(favorites);
+      if (hasProjects || hasFavorites) this.#set(entry, {});
       return;
     }
     if (REMOTE_TAB_EVENTS.has(channel)) this.deps.send(channel, args);
     // App-scoped events (updates, remote-access state, provider flows) describe the remote
     // app, not ours, and are dropped.
+  }
+
+  /**
+   * Sanitizes the remote's favorite model list (issue #440): only string
+   * entries survive, and anything that is not an array at all yields [].
+   */
+  #favorites(raw: unknown): string[] {
+    return Array.isArray(raw) ? raw.filter((key): key is string => typeof key === "string") : [];
   }
 
   #adopt(entry: Entry, projects: ProjectGroup[]): void {

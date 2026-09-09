@@ -71,9 +71,13 @@ interface FakeHost extends RemoteHost {
   nextNotify(ch: string): Promise<unknown[]>;
   emit(channel: string, args: unknown[]): void;
   projects: ProjectGroup[];
+  /** What `state:get` answers as `modelFavorites`; raw values exercise malformed input (#440). */
+  favorites: unknown;
 }
 
-function fakeHost(opts: { identity?: boolean; instanceId?: string } = {}): FakeHost {
+function fakeHost(
+  opts: { identity?: boolean; instanceId?: string; favorites?: unknown } = {},
+): FakeHost {
   const requests: FakeHost["requests"] = [];
   const notified: FakeHost["notified"] = [];
   const notifyWaiters: Array<{ ch: string; resolve: (args: unknown[]) => void }> = [];
@@ -82,6 +86,7 @@ function fakeHost(opts: { identity?: boolean; instanceId?: string } = {}): FakeH
     requests,
     notified,
     projects: projectGroups(["/remote/a"]),
+    favorites: opts.favorites ?? [],
     handlers: () => table,
     addSink(sink) {
       sinks.add(sink);
@@ -109,7 +114,10 @@ function fakeHost(opts: { identity?: boolean; instanceId?: string } = {}): FakeH
               return { instanceId: opts.instanceId ?? REMOTE_INSTANCE_ID, version: REMOTE_VERSION };
             },
           }),
-      [CH.getState]: () => ({ projects: host.projects }),
+      [CH.getState]: () => ({ projects: host.projects, modelFavorites: host.favorites }),
+      [CH.toggleFavorite]: (key: string) => {
+        requests.push({ ch: CH.toggleFavorite, args: [key] });
+      },
       [CH.terminateSession]: (tabId: string) => {
         requests.push({ ch: CH.terminateSession, args: [tabId] });
       },
@@ -485,6 +493,81 @@ describe("proxy and routing", () => {
     h.manager.forwardViewed("c1", null);
     await h.manager.request(h.manager.summaries()[0]!.id, CH.getState, []);
     expect(host.notified.filter((n) => n.ch === CH.tabViewed)).toHaveLength(2);
+  });
+});
+
+// Issue #440: a palette owned by a remote instance must follow that instance's
+// favorites, so the manager mirrors them into the summary and the proxy
+// allowlist admits favorites:toggle — and still nothing else app-scoped.
+describe("remote model favorites", () => {
+  it("hydrates only string favorites at join", async () => {
+    const host = fakeHost({ favorites: ["anthropic/claude-opus-5", 42, "openai/gpt-4o"] });
+    const server = await serve(host);
+    const h = harness();
+
+    const instance = await join(h, server.port);
+    expect(instance.modelFavorites).toEqual(["anthropic/claude-opus-5", "openai/gpt-4o"]);
+    expect(instance.projects.map((g) => g.project.path)).toEqual(["/remote/a"]);
+  });
+
+  it("joins with [] when the remote's first favorites payload is malformed", async () => {
+    const host = fakeHost({ favorites: 42 });
+    const server = await serve(host);
+    const h = harness();
+
+    const instance = await join(h, server.port);
+    expect(instance.modelFavorites).toEqual([]);
+    expect(instance.projects.map((g) => g.project.path)).toEqual(["/remote/a"]);
+  });
+
+  it("folds a favorites-only state:changed without replacing projects, and vice versa", async () => {
+    const host = fakeHost({ favorites: ["openai/gpt-4o"] });
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    host.emit(CH.onStateChanged, [{ modelFavorites: ["anthropic/claude-opus-5"] }]);
+    // Same socket, in order: a round trip proves the change was folded before the reply.
+    await h.manager.request(instance.id, CH.getState, []);
+    const favoritesOnly = h.manager.summaries()[0]!;
+    expect(favoritesOnly.modelFavorites).toEqual(["anthropic/claude-opus-5"]);
+    expect(favoritesOnly.projects.map((g) => g.project.path)).toEqual(["/remote/a"]);
+    expect(h.manager.ownerOf("t-remote")).toBe(instance.id);
+
+    host.emit(CH.onStateChanged, [{ projects: projectGroups(["/remote/a", "/remote/b"]) }]);
+    const [projectsOnly] = await h.until((s) => s[0]!.projects.length === 2);
+    expect(projectsOnly!.modelFavorites).toEqual(["anthropic/claude-opus-5"]);
+    expect(projectsOnly!.projects.map((g) => g.project.path)).toEqual(["/remote/a", "/remote/b"]);
+  });
+
+  it("keeps the last good favorites when a later payload's favorites are malformed", async () => {
+    const host = fakeHost({ favorites: ["openai/gpt-4o"] });
+    const server = await serve(host);
+    const h = harness();
+    await join(h, server.port);
+
+    host.emit(CH.onStateChanged, [
+      { projects: projectGroups(["/remote/a", "/remote/b"]), modelFavorites: 42 },
+    ]);
+    const [summary] = await h.until((s) => s[0]!.projects.length === 2);
+    expect(summary!.modelFavorites).toEqual(["openai/gpt-4o"]);
+    expect(summary!.projects.map((g) => g.project.path)).toEqual(["/remote/a", "/remote/b"]);
+  });
+
+  it("forwards favorites:toggle to the owning instance and still refuses settings:setTheme", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    await h.manager.request(instance.id, CH.toggleFavorite, ["anthropic/claude-opus-5"]);
+    expect(host.requests.filter((r) => r.ch === CH.toggleFavorite)).toEqual([
+      { ch: CH.toggleFavorite, args: ["anthropic/claude-opus-5"] },
+    ]);
+
+    await expect(h.manager.request(instance.id, CH.setThemeId, ["nord"])).rejects.toThrow(
+      `channel ${CH.setThemeId} is not proxied`,
+    );
   });
 });
 

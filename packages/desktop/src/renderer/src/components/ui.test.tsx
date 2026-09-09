@@ -366,6 +366,7 @@ describe("ModelPalette favorite", () => {
     await render(
       <ModelPalette
         variant="main"
+        instanceId={null}
         models={[model]}
         current={model}
         onPick={pick}
@@ -386,7 +387,7 @@ describe("ModelPalette favorite", () => {
         new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }),
       ),
     );
-    expect(toggleFavorite).toHaveBeenCalledWith(modelKey);
+    expect(toggleFavorite).toHaveBeenCalledWith(modelKey, null);
     expect(pick).not.toHaveBeenCalled();
   });
 });

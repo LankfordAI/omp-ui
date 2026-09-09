@@ -515,6 +515,31 @@ describe("remote instance project and session actions (issue #416)", () => {
       [`${INSTANCE}::/p`]: { enabled: false, model: null },
     });
   });
+  it("routes favorite toggles to the owning instance through the proxy channel", async () => {
+    h.useStore.setState({ state: remoteState() });
+    await h.useStore.getState().toggleFavorite("anthropic/claude", INSTANCE);
+    expect(h.mockBackend.toggleFavorite).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest.mock.calls).toEqual([
+      [INSTANCE, "favorites:toggle", ["anthropic/claude"]],
+    ]);
+  });
+
+  it("reports a rejected remote favorite toggle without falling back to the local backend", async () => {
+    h.useStore.setState({ state: remoteState() });
+    h.mockBackend.remoteInstanceRequest.mockRejectedValueOnce(
+      new Error("favorites channel down"),
+    );
+    await h.useStore.getState().toggleFavorite("openai/gpt", INSTANCE);
+    // The remote call was attempted and the rejection surfaced as a notice...
+    expect(h.mockBackend.remoteInstanceRequest.mock.calls).toEqual([
+      [INSTANCE, "favorites:toggle", ["openai/gpt"]],
+    ]);
+    expect(h.errorMessages()).toEqual([
+      expect.stringContaining("favorites channel down"),
+    ]);
+    // ...but the local registry was never mutated as a fallback.
+    expect(h.mockBackend.toggleFavorite).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleteSession", () => {

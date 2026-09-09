@@ -54,6 +54,7 @@ export function remoteInstance(
     error: null,
     version: "1.0.0",
     projects: [],
+    modelFavorites: [],
     ...patch,
   };
 }

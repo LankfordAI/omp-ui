@@ -296,6 +296,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "composer.model.none": "모델 없음",
   "composer.model.noModelsTitle": "사용 가능한 모델 없음 — 프로바이더 키를 추가하세요",
+  "composer.model.noModelsRemote":
+    "{nickname}에서 사용 가능한 모델이 없습니다. 해당 호스트에서 프로바이더 자격 증명을 구성한 다음 세션을 다시 시작하세요.",
   "composer.model.pick": "모델 선택",
   "composer.model.afterTurn": "현재 턴이 끝나면 모델을 변경할 수 있습니다",
   "composer.model.free": "무료",
@@ -323,6 +325,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.model.kbdClose": "esc 닫기",
   "composer.model.kbdTabs": "ctrl+[ ] 탭",
   "composer.model.providerKeys": "프로바이더 키",
+  "composer.model.remoteKeysNote": "프로바이더 키는 {nickname}에서 관리됩니다",
   "composer.model.pricesNote": "가격 단위: USD/Mtok",
   "composer.model.projectDefault": "프로젝트 기본값:",
   "composer.model.notSet": "설정 안 됨",

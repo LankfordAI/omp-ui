@@ -332,6 +332,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
       {picking && !gated && (
         <ModelPalette
           variant="advisor"
+          instanceId={instanceId}
           models={models}
           current={effective}
           inherited={inherited}

@@ -9,7 +9,7 @@ import type { PreparedPlanState } from "../lib/plan-document";
 import type { ParsedPlanSource } from "../lib/plan-source";
 import type { CodeTokenizer } from "../lib/plan-highlight";
 import type { Theme } from "../lib/themes";
-import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
+import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -105,6 +105,14 @@ const backendMock = {
   // The review panel loads advisor defaults on mount; the store's staged
   // model/advisor paths call the setters below.
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  remoteInstanceRequest: vi.fn(
+    async (instanceId: string, channel: string, args: unknown[]): Promise<unknown> => {
+      void instanceId;
+      void channel;
+      void args;
+      return undefined;
+    },
+  ),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(async () => {}),
@@ -1380,6 +1388,104 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
 
     await act(async () => buttonContainingText("use omp's configured advisor", palette).click());
     expect(buttonByText("Default Advisor")).toBeDefined();
+  });
+
+  it("uses the remote review's advisor defaults and favorites when paths collide (issue #440)", async () => {
+    const INSTANCE = "inst-remote";
+    const LOCAL_MAIN = { id: "local-main", name: "Local Main Favorite", provider: "p" };
+    const LOCAL_ADVISOR = {
+      id: "local-advisor",
+      name: "Local Advisor Favorite",
+      provider: "p",
+    };
+    const REMOTE_MAIN = { id: "remote-main", name: "Remote Main Favorite", provider: "p" };
+    const REMOTE_ADVISOR = {
+      id: "remote-advisor",
+      name: "Remote Advisor Favorite",
+      provider: "p",
+    };
+    const localDefaults = { enabled: true, model: "p/local-default" };
+    const remoteDefaults = { enabled: true, model: "p/remote-default" };
+    const local = stateWithSessions({ "local-tab": "Local planning session" });
+    const remoteProject = {
+      ...local.projects[0]!,
+      sessions: [
+        {
+          ...sessionRecord(TAB, "Remote planning session"),
+          worktree: null,
+          model: "p/remote-main",
+          advisor: true,
+          advisorModel: "p/remote-advisor",
+        },
+      ],
+    };
+    backendMock.remoteInstanceRequest.mockImplementation(async (_instanceId, channel) => {
+      if (channel === "advisor:defaults") return remoteDefaults;
+      if (channel === "branch:list") return branches;
+      return null;
+    });
+    useStore.setState({
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p", instanceId: INSTANCE })],
+      branches: { "/p": branches, [`${INSTANCE}::/p`]: branches },
+      state: {
+        ...local,
+        modelFavorites: ["p/local-main", "p/local-advisor"],
+        remoteInstances: [
+          remoteInstance({
+            id: INSTANCE,
+            projects: [remoteProject],
+            modelFavorites: ["p/remote-main", "p/remote-advisor"],
+          }),
+        ],
+      },
+      advisorDefaults: { "/p": localDefaults },
+      rpc: {
+        [TAB]: tabState({
+          model: REMOTE_MAIN,
+          availableModels: [LOCAL_MAIN, LOCAL_ADVISOR, REMOTE_MAIN, REMOTE_ADVISOR],
+        }),
+      },
+    });
+
+    render();
+    await act(async () => {});
+
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "advisor:defaults",
+      ["/p"],
+    );
+    expect(useStore.getState().advisorDefaults).toMatchObject({
+      "/p": localDefaults,
+      [`${INSTANCE}::/p`]: remoteDefaults,
+    });
+
+    await act(async () => buttonByText("Remote Main Favorite").click());
+    const mainOverlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const mainPalette = mainOverlays[mainOverlays.length - 1]!;
+    expect(
+      mainPalette
+        .querySelector<HTMLButtonElement>('button[title="Favorites"]')!
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(mainPalette.textContent).toContain("Remote Main Favorite");
+    expect(mainPalette.textContent).toContain("Remote Advisor Favorite");
+    expect(mainPalette.textContent).not.toContain("Local Main Favorite");
+    expect(mainPalette.textContent).not.toContain("Local Advisor Favorite");
+
+    await act(async () => buttonContainingText("Remote Main Favorite", mainPalette).click());
+    await act(async () => buttonByText("Remote Advisor Favorite").click());
+    const advisorOverlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const advisorPalette = advisorOverlays[advisorOverlays.length - 1]!;
+    expect(
+      advisorPalette
+        .querySelector<HTMLButtonElement>('button[title="Favorites"]')!
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(advisorPalette.textContent).toContain("Remote Main Favorite");
+    expect(advisorPalette.textContent).toContain("Remote Advisor Favorite");
+    expect(advisorPalette.textContent).not.toContain("Local Main Favorite");
+    expect(advisorPalette.textContent).not.toContain("Local Advisor Favorite");
   });
 });
 

@@ -324,6 +324,8 @@ export const en = {
   // Model selector and palette
   "composer.model.none": "no models",
   "composer.model.noModelsTitle": "no models available — add a provider key",
+  "composer.model.noModelsRemote":
+    "No models are available on {nickname}. Configure provider credentials there, then restart the session.",
   "composer.model.pick": "pick a model",
   "composer.model.afterTurn": "model changes are available after the current turn finishes",
   "composer.model.free": "free",
@@ -351,6 +353,7 @@ export const en = {
   "composer.model.kbdClose": "esc close",
   "composer.model.kbdTabs": "ctrl+[ ] tabs",
   "composer.model.providerKeys": "provider keys",
+  "composer.model.remoteKeysNote": "provider keys are managed on {nickname}",
   "composer.model.pricesNote": "prices are USD per Mtok",
   "composer.model.projectDefault": "project default:",
   "composer.model.notSet": "not set",
