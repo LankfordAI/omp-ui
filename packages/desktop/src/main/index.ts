@@ -51,6 +51,7 @@ if (!app.requestSingleInstanceLock()) {
   let forceQuit = false;
   let appQuitting = false;
   let quitDialogOpen = false;
+  let nativeWindowReady = false;
   // Latched by AppUpdater.restart() and revoked on install failure. Electron's
   // native quitAndInstall (Squirrel.Mac / NSIS) closes all windows BEFORE any
   // before-quit fires; the darwin hide-on-close and both live-session quit
@@ -126,6 +127,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("second-instance", () => {
     const win = BrowserWindow.getAllWindows()[0];
+    if (!nativeWindowReady) return;
     if (!win) return;
     if (win.isMinimized()) win.restore();
     win.focus();
@@ -133,6 +135,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("activate", () => {
     const win = BrowserWindow.getAllWindows()[0];
+    if (!nativeWindowReady) return;
     if (!win) return;
     if (win.isMinimized()) win.restore();
     win.show();
@@ -160,6 +163,10 @@ if (!app.requestSingleInstanceLock()) {
       ...(savedWindowState === null
         ? { width: 1600, height: 1000 }
         : savedWindowState.bounds),
+      // Keep Chromium's startup geometry hidden from Mutter until the renderer
+      // is ready; mapping a transient zero-area frame can crash GNOME Shell
+      // (https://gitlab.gnome.org/GNOME/mutter/-/work_items/4343).
+      show: false,
       title: "omp-ui",
       backgroundColor: "#0a0b0d",
       // The wordmark tile (build/icon.png). Only shipped in dev checkouts —
@@ -183,7 +190,16 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     breadcrumbs.record("window-created", { detail: `state=${savedWindowState ? "restored" : "fresh"}` });
-    if (savedWindowState?.maximized) win.maximize();
+
+    let revealed = false;
+    const revealWindow = (): void => {
+      if (revealed || win.isDestroyed()) return;
+      revealed = true;
+      nativeWindowReady = true;
+      if (savedWindowState?.maximized) win.maximize();
+      win.show();
+    };
+    win.once("ready-to-show", revealWindow);
 
     setupSpellcheck(win);
 
@@ -342,11 +358,13 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
 
-    if (process.env.ELECTRON_RENDERER_URL) {
-      void win.loadURL(process.env.ELECTRON_RENDERER_URL);
-    } else {
-      void win.loadFile(join(__dirname, "../renderer/index.html"));
-    }
+    const rendererLoad = process.env.ELECTRON_RENDERER_URL
+      ? win.loadURL(process.env.ELECTRON_RENDERER_URL)
+      : win.loadFile(join(__dirname, "../renderer/index.html"));
+    void rendererLoad.catch((error: unknown) => {
+      revealWindow();
+      throw error;
+    });
 
     // omp install/update check (issue #19): silent on offline/no-update,
     // void-fired so first paint never waits on the registry.
