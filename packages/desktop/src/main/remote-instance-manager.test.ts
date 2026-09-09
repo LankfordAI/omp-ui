@@ -273,7 +273,11 @@ describe("joining", () => {
     expect(h.manager.ownerOf("t-remote")).toBe(summary!.id);
     expect(h.manager.ownerOf("t-local")).toBeNull();
 
-    expect(fs.statSync(h.file).mode & 0o777).toBe(0o600);
+    // The store asks for 0600; NTFS has no POSIX mode bits, where stat reports
+    // 0o666 for every file, so the mode proves nothing on Windows (issue #425).
+    if (process.platform !== "win32") {
+      expect(fs.statSync(h.file).mode & 0o777).toBe(0o600);
+    }
     const raw = fs.readFileSync(h.file, "utf8");
     expect(raw).not.toContain(TOKEN);
     const parsed = JSON.parse(raw) as { instances: Array<{ credential: string; url: string }> };
