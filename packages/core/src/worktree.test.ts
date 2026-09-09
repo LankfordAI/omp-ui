@@ -7,19 +7,15 @@ import {
   addWorktree,
   addWorktreeForBranch,
   addWorktreeFromNewBase,
-  baseBranchSegment,
-  composeWorktreeBranch,
   isWithin,
   linkProjectOmpDir,
   mergeWorktreeBranch,
-  mintWorktreeBranch,
+  mintBranchHash,
   mintWorktreePath,
-  PLACEHOLDER_BRANCH_RE,
   previewMerge,
   readDestinationCheckout,
   readMergeBackStatus,
   readWorktreeDirty,
-  remintForBase,
   removeWorktree,
   removeWorktreeBranch,
   renameWorktreeBranch,
@@ -27,6 +23,7 @@ import {
   sweepOrphanWorktrees,
   syncWorktree,
 } from "./worktree";
+import { composeWorktreeBranch } from "./worktree-branch";
 import { reclaimCheckouts } from "./worktree-lifecycle";
 
 const cleanups: string[] = [];
@@ -82,68 +79,9 @@ async function trackOrigin(dir: string, branch = "main"): Promise<string> {
   return bare;
 }
 
-describe("mintWorktreeBranch", () => {
-  it("mints an omp-ui-prefixed 8-hex name, distinct per call", () => {
-    const a = mintWorktreeBranch();
-    const b = mintWorktreeBranch();
-    expect(a).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
-    expect(b).toMatch(/^omp-ui\/[0-9a-f]{8}$/);
-    expect(a).not.toBe(b);
-  });
-});
-
-describe("mintWorktreeBranch with a base segment (issue #405)", () => {
-  it("names the cut point between the prefix and the hash", () => {
-    expect(mintWorktreeBranch("TECH-123")).toMatch(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/);
-    expect(mintWorktreeBranch("main")).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
-  });
-
-  it("keeps the hash across a recomposition and follows the base", () => {
-    const first = mintWorktreeBranch("TECH-123");
-    const hash = first.slice(first.lastIndexOf("/") + 1);
-    const next = remintForBase(first, "release/2.0");
-    expect(next).toBe(`omp-ui/release/2.0/${hash}`);
-  });
-});
-
-describe("branch naming composition (issue #405)", () => {
-  it("composes with and without a segment", () => {
-    expect(composeWorktreeBranch("TECH-123", "f918c1d1")).toBe("omp-ui/TECH-123/f918c1d1");
-    expect(composeWorktreeBranch(null, "f918c1d1")).toBe("omp-ui/f918c1d1");
-  });
-
-  it("prefers the new base name and falls back to the cut-from ref", () => {
-    expect(baseBranchSegment("TECH-123", "main")).toBe("TECH-123");
-    expect(baseBranchSegment("", "main")).toBe("main");
-    expect(baseBranchSegment("   ", "main")).toBe("main");
-    expect(baseBranchSegment(null, null)).toBeNull();
-    expect(baseBranchSegment(null, "  ")).toBeNull();
-  });
-
-  it("sanitises unsafe runs but preserves case and slashes", () => {
-    expect(baseBranchSegment("release/2.0", null)).toBe("release/2.0");
-    expect(baseBranchSegment("feat: two spaces~~", null)).toBe("feat-two-spaces");
-    expect(baseBranchSegment("a".repeat(50), null)).toBe("a".repeat(32));
-  });
-
-  it("recognises mints with and without base segments, and nothing else", () => {
-    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/f918c1d1")).toBe(true);
-    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/TECH-123/f918c1d1")).toBe(true);
-    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/release/2.0/f918c1d1")).toBe(true);
-    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/TECH-123/deadBEEF")).toBe(false);
-    expect(PLACEHOLDER_BRANCH_RE.test("omp-ui/fix-login-bug")).toBe(false);
-    expect(PLACEHOLDER_BRANCH_RE.test("feature/TECH-123")).toBe(false);
-  });
-
-  it("remint follows the base while the name is a mint, never a hand-typed one", () => {
-    expect(remintForBase("omp-ui/f918c1d1", "TECH-123")).toBe("omp-ui/TECH-123/f918c1d1");
-    expect(remintForBase("omp-ui/old/f918c1d1", null)).toBe("omp-ui/f918c1d1");
-    expect(remintForBase("omp-ui/TECH-123/f918c1d1", "TECH-123")).toBe("omp-ui/TECH-123/f918c1d1");
-    // A hand-typed name survives base edits untouched, mint-shaped or not.
-    expect(remintForBase("feature/mine", "TECH-123")).toBe("feature/mine");
-    expect(remintForBase("omp-ui/deadBEEF", "TECH-123")).toBe("omp-ui/deadBEEF");
-  });
-});
+/** A minted branch for the fixture repo; the git tests only need a valid, unique name. */
+const mint = (segment: string | null = null): string =>
+  composeWorktreeBranch("proj", segment, mintBranchHash());
 
 describe("isWithin", () => {
   const root = "/state/worktrees";
@@ -212,7 +150,7 @@ describe("addWorktree", () => {
     await git(dir, ["commit", "-q", "-m", "marker"]);
     const baseSha = (await git(dir, ["rev-parse", "HEAD~1"])).trim();
 
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wtPath = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wtPath, branch, baseSha);
     expect((await git(wtPath, ["rev-parse", "--abbrev-ref", "HEAD"])).trim()).toBe(branch);
@@ -223,13 +161,13 @@ describe("addWorktree", () => {
 
   it("resolves to the baseRef verbatim when one is given", async () => {
     const dir = await tmpRepo();
-    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mintWorktreeBranch(), "main");
+    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mint(), "main");
     expect(base).toBe("main");
   });
 
   it("resolves to the project's branch name when baseRef is null", async () => {
     const dir = await tmpRepo();
-    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mintWorktreeBranch(), null);
+    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mint(), null);
     expect(base).toBe("main");
   });
 
@@ -237,13 +175,13 @@ describe("addWorktree", () => {
     const dir = await tmpRepo();
     const head = (await git(dir, ["rev-parse", "HEAD"])).trim();
     await git(dir, ["checkout", "--detach"]);
-    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mintWorktreeBranch(), null);
+    const base = await addWorktree(dir, path.join(dir, "wt", "checkout"), mint(), null);
     expect(base).toBe(head);
   });
 
   it("rejects with git's own message when the branch already exists", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     await addWorktree(dir, path.join(dir, "wt", "one"), branch, "main");
     await expect(
       addWorktree(dir, path.join(dir, "wt", "two"), branch, "main"),
@@ -254,7 +192,7 @@ describe("addWorktree", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-test-"));
     cleanups.push(dir);
     await expect(
-      addWorktree(dir, path.join(dir, "wt", "checkout"), mintWorktreeBranch(), null),
+      addWorktree(dir, path.join(dir, "wt", "checkout"), mint(), null),
     ).rejects.toThrow(/not a git repository/);
   });
 });
@@ -262,7 +200,7 @@ describe("addWorktree", () => {
 describe("readMergeBackStatus", () => {
   it("reports a mergeable branch against its destination in the project checkout", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -286,7 +224,7 @@ describe("readMergeBackStatus", () => {
 
   it("reports a destination checked out in another worktree as other", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -299,7 +237,7 @@ describe("readMergeBackStatus", () => {
 
   it("reports a destination checked out nowhere as none", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -309,7 +247,7 @@ describe("readMergeBackStatus", () => {
 
   it("counts behind as the commits on destination that branch lacks", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "branch.txt", "b\n", "branch work");
@@ -322,7 +260,7 @@ describe("readMergeBackStatus", () => {
 
   it("reads the worktree checkout's dirtiness, and null without a path", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     expect((await readMergeBackStatus(dir, branch, "main", wt)).worktreeDirty).toBe(false);
@@ -334,7 +272,7 @@ describe("readMergeBackStatus", () => {
   it("previews conflicts when both sides edit the same line", async () => {
     const dir = await tmpRepo();
     await commitFile(dir, "conflict.txt", "line\n", "seed");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "conflict.txt", "worktree side\n", "branch edit");
@@ -345,7 +283,7 @@ describe("readMergeBackStatus", () => {
 
   it("previews clean when the sides touch different files", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "branch.txt", "b\n", "branch edit");
@@ -357,7 +295,7 @@ describe("readMergeBackStatus", () => {
 
   it("reports an already-merged branch ahead 0 with a clean preview", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -371,7 +309,7 @@ describe("readMergeBackStatus", () => {
   it("reports mergeInProgress when the project checkout is mid-merge", async () => {
     const dir = await tmpRepo();
     await commitFile(dir, "conflict.txt", "line\n", "seed");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "conflict.txt", "B\n", "B");
@@ -383,7 +321,7 @@ describe("readMergeBackStatus", () => {
 
   it("answers a missing destination ref with destinationExists false and unknown preview", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     const status = await readMergeBackStatus(dir, branch, "ghost", wt);
@@ -405,7 +343,7 @@ describe("readMergeBackStatus", () => {
 
   it("answers a missing branch ref with branchExists false", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     await addWorktree(dir, path.join(dir, "wt", "checkout"), branch, "main");
     await git(dir, ["update-ref", "-d", `refs/heads/${branch}`]);
     const status = await readMergeBackStatus(dir, branch, "main", null);
@@ -417,7 +355,7 @@ describe("readMergeBackStatus", () => {
   it("answers all-false for a directory that is not a git repo", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-test-"));
     cleanups.push(dir);
-    const status = await readMergeBackStatus(dir, mintWorktreeBranch(), "main", null);
+    const status = await readMergeBackStatus(dir, mint(), "main", null);
     expect(status).toEqual({
       destination: "main",
       destinationExists: false,
@@ -436,7 +374,7 @@ describe("readMergeBackStatus", () => {
 
   it("reads destination push facts from the destination's own upstream", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "branch.txt", "b\n", "branch work");
@@ -457,7 +395,7 @@ describe("readMergeBackStatus", () => {
 
   it("answers null destination push facts without an upstream, and never throws", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -478,7 +416,7 @@ describe("readMergeBackStatus", () => {
     // lands; destinationAhead is what still tells the finish dialog that
     // destination carries unpushed commits (issue #414).
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "branch.txt", "b\n", "branch work");
@@ -505,7 +443,7 @@ describe("readMergeBackStatus", () => {
 describe("readWorktreeDirty", () => {
   it("reads untracked files, clean trees, and unreadable paths", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     expect(await readWorktreeDirty(dir, wt)).toBe(false);
@@ -518,7 +456,7 @@ describe("readWorktreeDirty", () => {
     const dir = await tmpRepo();
     await commitFile(dir, ".gitignore", ".omp/\n", "ignore project config");
     fs.mkdirSync(path.join(dir, ".omp"));
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await linkProjectOmpDir(dir, wt);
@@ -536,7 +474,7 @@ describe("readWorktreeDirty", () => {
     // the project's own `.omp`.
     const dir = await tmpRepo();
     fs.mkdirSync(path.join(dir, ".omp"));
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await linkProjectOmpDir(dir, wt);
@@ -554,7 +492,7 @@ describe("readWorktreeDirty", () => {
     // The directory form must not excuse a real `.omp` the checkout owns —
     // resolution, not the entry text, decides (issue #423).
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     fs.mkdirSync(path.join(wt, ".omp"));
@@ -571,7 +509,7 @@ describe("readWorktreeDirty", () => {
       const dir = await tmpRepo();
       await commitFile(dir, ".gitignore", ".omp/\n", "ignore project config");
       fs.mkdirSync(path.join(dir, ".omp"));
-      const branch = mintWorktreeBranch();
+      const branch = mint();
       const wt = path.join(dir, "wt", "checkout");
       await addWorktree(dir, wt, branch, "main");
       const elsewhere = path.join(dir, "elsewhere");
@@ -602,7 +540,7 @@ describe("readDestinationCheckout", () => {
 describe("mergeWorktreeBranch", () => {
   it("writes a merge commit even when the destination is an ancestor", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -631,7 +569,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("borrows the subject of a single folded commit", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "only.txt", "only\n", "fix: only change\n\nCloses #12\n");
@@ -654,7 +592,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("excludes merge commits on the branch from the message", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -674,7 +612,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("creates a two-parent merge commit when the histories have diverged", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -698,7 +636,7 @@ describe("mergeWorktreeBranch", () => {
   it("leaves a conflicted merge in the project with the file list", async () => {
     const dir = await tmpRepo();
     await commitFile(dir, "conflict.txt", "line\n", "seed");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "conflict.txt", "B1\n", "B1");
@@ -725,7 +663,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("reports already-merged without touching the destination", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -746,7 +684,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("rejects when the branch no longer exists", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     await addWorktree(dir, path.join(dir, "wt", "checkout"), branch, "main");
     await git(dir, ["update-ref", "-d", `refs/heads/${branch}`]);
     await expect(
@@ -757,7 +695,7 @@ describe("mergeWorktreeBranch", () => {
   it("merges in a scratch worktree when the destination is checked out nowhere", async () => {
     const dir = await tmpRepo();
     const scratchRoot = path.join(dir, "scratch");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -789,7 +727,7 @@ describe("mergeWorktreeBranch", () => {
     const dir = await tmpRepo();
     const scratchRoot = path.join(dir, "scratch");
     await commitFile(dir, "conflict.txt", "line\n", "seed");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "conflict.txt", "worktree side\n", "branch edit");
@@ -817,7 +755,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("rejects when the destination is checked out in another worktree", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -829,7 +767,7 @@ describe("mergeWorktreeBranch", () => {
 
   it("rejects with git's message when a dirty file would be overwritten", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "dirty.txt", "committed in branch\n", "dirty");
@@ -857,7 +795,7 @@ describe("resolveMergeDestination", () => {
   it("resolves a SHA base to the local branch still at that tip", async () => {
     const dir = await tmpRepo();
     const sha = (await git(dir, ["rev-parse", "HEAD"])).trim();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     // A branch-side commit, so main is the unique branch still at the SHA.
@@ -871,7 +809,7 @@ describe("resolveMergeDestination", () => {
   it("resolves a moved-on SHA base to the project's current branch that contains it", async () => {
     const dir = await tmpRepo();
     const cut = (await git(dir, ["rev-parse", "HEAD"])).trim();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -886,7 +824,7 @@ describe("resolveMergeDestination", () => {
   it("resolves to no-branch-match when a detached project matches no branch", async () => {
     const dir = await tmpRepo();
     const cut = (await git(dir, ["rev-parse", "HEAD"])).trim();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -1031,7 +969,7 @@ describe("previewMerge", () => {
   it("names the conflicted file without touching either tree", async () => {
     const dir = await tmpRepo();
     await commitFile(dir, "conflict.txt", "line\n", "seed");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "conflict.txt", "side A\n", "A");
@@ -1048,7 +986,7 @@ describe("previewMerge", () => {
 describe("syncWorktree", () => {
   it("merges the destination's new commits into the worktree", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(dir, "new.txt", "n\n", "main moves on");
@@ -1066,7 +1004,7 @@ describe("syncWorktree", () => {
   it("leaves conflicts in the worktree, mid-merge, and reports them", async () => {
     const dir = await tmpRepo();
     await commitFile(dir, "conflict.txt", "line\n", "seed");
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "conflict.txt", "worktree side\n", "branch edit");
@@ -1081,7 +1019,7 @@ describe("syncWorktree", () => {
 
   it("refuses a dirty checkout before touching git", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(dir, "new.txt", "n\n", "main moves on");
@@ -1098,7 +1036,7 @@ describe("syncWorktree", () => {
 
   it("rejects when the source branch no longer exists", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await expect(syncWorktree(dir, wt, "gone")).rejects.toThrow(/no longer exists/);
@@ -1108,7 +1046,7 @@ describe("syncWorktree", () => {
 describe("renameWorktreeBranch", () => {
   it("follows the checkout's HEAD and retires the old name", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -1124,7 +1062,7 @@ describe("renameWorktreeBranch", () => {
 
   it("rejects with git's message on a name collision", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await expect(renameWorktreeBranch(wt, branch, "main")).rejects.toThrow(/already exists/);
@@ -1134,7 +1072,7 @@ describe("renameWorktreeBranch", () => {
 describe("removeWorktreeBranch", () => {
   it("removes a branch verified merged into a named candidate", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -1148,7 +1086,7 @@ describe("removeWorktreeBranch", () => {
 
   it("removes a branch merged into a candidate that is not HEAD (-D after verified ancestry)", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -1164,7 +1102,7 @@ describe("removeWorktreeBranch", () => {
 
   it("keeps a branch merged into none of the candidates", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -1176,7 +1114,7 @@ describe("removeWorktreeBranch", () => {
 
   it("keeps the branch when no candidate exists as a local branch", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await commitFile(wt, "one.txt", "one\n", "one");
@@ -1188,7 +1126,7 @@ describe("removeWorktreeBranch", () => {
 
   it("reports already-gone when the branch ref no longer exists", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     await addWorktree(dir, path.join(dir, "wt", "checkout"), branch, "main");
     await git(dir, ["update-ref", "-d", `refs/heads/${branch}`]);
     expect(await removeWorktreeBranch(dir, branch, ["main"])).toEqual({ kind: "already-gone" });
@@ -1196,7 +1134,7 @@ describe("removeWorktreeBranch", () => {
 
   it("reports kept-refused with git's detail when git itself refuses", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     // Merged into main, but the checkout still lives: -D refuses a branch
@@ -1214,7 +1152,7 @@ describe("removeWorktreeBranch", () => {
 describe("removeWorktree", () => {
   it("removes a dirty checkout, keeping the branch", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wtPath = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wtPath, branch, "main");
     fs.writeFileSync(path.join(wtPath, "untracked.txt"), "dirty\n");
@@ -1225,7 +1163,7 @@ describe("removeWorktree", () => {
 
   it("falls back to fs removal and prune when the checkout dir is already gone", async () => {
     const dir = await tmpRepo();
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const wtPath = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wtPath, branch, "main");
     fs.rmSync(wtPath, { recursive: true, force: true });
@@ -1243,7 +1181,7 @@ describe("removeWorktree", () => {
   it("unlinks a linked project .omp instead of deleting through it (issue #325)", async () => {
     const dir = await tmpRepo();
     const wtPath = path.join(dir, "wt", "checkout");
-    await addWorktree(dir, wtPath, mintWorktreeBranch(), "main");
+    await addWorktree(dir, wtPath, mint(), "main");
     fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
     fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
     await linkProjectOmpDir(dir, wtPath);
@@ -1264,7 +1202,7 @@ describe("removeWorktree", () => {
     // project's real `.omp` and leaves the checkout standing.
     const dir = await tmpRepo();
     const wtPath = path.join(dir, "wt", "checkout");
-    await addWorktree(dir, wtPath, mintWorktreeBranch(), "main");
+    await addWorktree(dir, wtPath, mint(), "main");
     fs.mkdirSync(path.join(dir, ".omp"), { recursive: true });
     fs.writeFileSync(path.join(dir, ".omp", "mcp.json"), "{}\n");
     await linkProjectOmpDir(dir, wtPath);
@@ -1281,7 +1219,7 @@ describe("reclaimCheckouts", () => {
     const project = await tmpRepo();
     const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
     cleanups.push(worktreesRoot);
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const worktreePath = mintWorktreePath(worktreesRoot, project, branch);
     const base = await addWorktree(project, worktreePath, branch, null);
     const checkout = { projectCwd: project, worktree: { path: worktreePath, branch, base } };
@@ -1312,7 +1250,7 @@ describe("reclaimCheckouts", () => {
     const project = await tmpRepo();
     const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
     cleanups.push(worktreesRoot);
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const worktreePath = path.join(worktreesRoot, "not-the-minted-path");
     await addWorktree(project, worktreePath, branch, null);
 
@@ -1328,7 +1266,7 @@ describe("reclaimCheckouts", () => {
     const project = await tmpRepo();
     const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
     cleanups.push(worktreesRoot);
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const worktreePath = mintWorktreePath(worktreesRoot, project, branch);
     const base = await addWorktree(project, worktreePath, branch, null);
     // Issues #386/#389: auto-naming renames the branch; the path stays put.
@@ -1349,7 +1287,7 @@ describe("reclaimCheckouts", () => {
     const project = await tmpRepo();
     const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
     cleanups.push(worktreesRoot);
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const worktreePath = mintWorktreePath(worktreesRoot, project, branch);
     const base = await addWorktree(project, worktreePath, branch, null);
     await commitFile(worktreePath, "one.txt", "one\n", "one");
@@ -1369,7 +1307,7 @@ describe("reclaimCheckouts", () => {
     const project = await tmpRepo();
     const worktreesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-lifecycle-"));
     cleanups.push(worktreesRoot);
-    const branch = mintWorktreeBranch();
+    const branch = mint();
     const worktreePath = mintWorktreePath(worktreesRoot, project, branch);
     const base = await addWorktree(project, worktreePath, branch, null);
     await commitFile(worktreePath, "one.txt", "one\n", "one");

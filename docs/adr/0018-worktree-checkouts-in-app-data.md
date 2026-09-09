@@ -353,3 +353,30 @@ the user made (superseded by the finish dialog addendum).
   each yielding to typed text. `PLACEHOLDER_BRANCH_RE` keeps keying the
   pre-fills and the base-following rule (issue #405), so untouched mints
   still state their cut point and stay unique per spawn.
+
+## Branch prefix addendum (issues #438, #439)
+
+- **The first segment is the project's own slug.** A worktree session's
+  branch reads `<project>/[<base>/]<8 hex>`, where `<project>` is
+  `slugifyProjectName` of the `projectCwd` basename — the same rule the
+  checkout slot directory uses, so the branch and its checkout have one name
+  source. `omp-ui/main/887d10bc` in the omp-ui checkout,
+  `feathernote/main/887d10bc` in a project called FeatherNote. This
+  supersedes the literal `omp-ui/<8 hex>` in the prior-art paragraph above
+  and the literal `omp-ui/[<base>/]<8 hex>` in the #428 addendum; the "app
+  scratch work" property is now carried by the *shape* — a project prefix
+  plus a hex tail — rather than by a constant prefix.
+- **Recognition is per-project.** `isMintedWorktreeBranch(branch, prefix)`
+  replaces `PLACEHOLDER_BRANCH_RE`, so a branch minted under a different
+  project's prefix is never auto-followed when the base changes and never
+  pre-fills the finish dialog's rename field. Existing records are not
+  migrated: an `omp-ui/deadbeef` branch keeps its name, and in any project
+  other than omp-ui it simply stops being a recognised mint.
+- **The middle segment falls back to the checkout's active branch.**
+  `baseBranchSegment` takes the branch listing's `current` after the new
+  base branch and the picked base ref, which is exactly what `addWorktree`
+  already records as the base when no ref is picked — the name and the
+  recorded base always agree. Only a detached HEAD or a repository with no
+  branches yields the two-segment shape. An unresolved branch listing is
+  rendered as a disabled *reading branches…* select rather than as the
+  HEAD-only collapse that lost the segment (issue #439).

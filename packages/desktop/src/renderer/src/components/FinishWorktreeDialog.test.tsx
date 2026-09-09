@@ -17,7 +17,7 @@ import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TAB = "tab-1";
-const BRANCH = "omp-ui/deadbeef";
+const BRANCH = "p/deadbeef";
 
 const listing: BranchList = {
   repoRoot: "/p",
@@ -162,9 +162,13 @@ function Harness() {
   return openTab === null ? null : <FinishWorktreeDialog key={openTab} tabId={openTab} />;
 }
 
-function seed(): void {
+function seed(branch: string = BRANCH): void {
   useStore.setState({
-    state: stateWith(summary),
+    state: stateWith(
+      branch === BRANCH
+        ? summary
+        : { ...summary, worktree: { path: "/wt/x", branch, base: "main" } },
+    ),
     branches: { "/p": listing },
     branchActivity: { "/p": { refreshing: false, pulling: false, pushing: false } },
     tabs: [],
@@ -184,8 +188,8 @@ function render(): void {
 }
 
 /** Render, mount, and drain the open-time chain (list → resolve → status). */
-async function openDialog(): Promise<void> {
-  seed();
+async function openDialog(branch: string = BRANCH): Promise<void> {
+  seed(branch);
   render();
   await act(async () => {
     await flushMicrotasks();
@@ -438,6 +442,23 @@ describe("FinishWorktreeDialog", () => {
     );
   });
 
+  it("pre-fills the rename field from the model for this project's mint (issue #438)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue("feat/x");
+    // BRANCH is `p/deadbeef`: a mint under the fixture project's own prefix.
+    await openDialog();
+
+    await clickInput(outcomeRadios()[1]!); // keep the branch
+    expect(renameInput().value).toBe("feat/x");
+  });
+
+  it("leaves a hand-typed branch name alone when the suggestion lands (issue #438)", async () => {
+    backendMock.suggestBranchName.mockResolvedValue("feat/x");
+    await openDialog("feature/mine");
+
+    await clickInput(outcomeRadios()[1]!); // keep the branch
+    expect(renameInput().value).toBe("feature/mine");
+  });
+
   it("disables returning and offers a plain merge while the checkout is dirty", async () => {
     backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ worktreeDirty: true }));
     await openDialog();
@@ -633,7 +654,7 @@ describe("FinishWorktreeDialog", () => {
 
       expect(useStore.getState().finishWorktreeTab).toBe(TAB);
       expect(document.body.textContent).toContain("merged 2 commits into main");
-      expect(document.body.textContent).toContain("Finish omp-ui/deadbeef?");
+      expect(document.body.textContent).toContain("Finish p/deadbeef?");
       expect(buttonByText("push main — 2 commits to origin/main")).toBeDefined();
     });
 
@@ -894,7 +915,7 @@ describe("FinishWorktreeDialog", () => {
       });
 
       expect(notices()[0]!.text).toContain(
-        "merged omp-ui/deadbeef (2 commits) into release/next — this session now runs in /p on release/next",
+        "merged p/deadbeef (2 commits) into release/next — this session now runs in /p on release/next",
       );
     });
 
@@ -978,7 +999,7 @@ describe("FinishWorktreeDialog", () => {
       await clickInput(outcomeRadios()[1]!); // keep the branch
       // The hint stays the plain keep-and-return promise: nothing lands anywhere.
       expect(document.body.textContent).toContain(
-        "the checkout is removed; the branch omp-ui/deadbeef stays",
+        "the checkout is removed; the branch p/deadbeef stays",
       );
       act(() => primaryButton().click());
       await act(async () => {

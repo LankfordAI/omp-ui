@@ -1284,7 +1284,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await act(async () => buttonByText("send").click());
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
-    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^omp-ui\/main\/[0-9a-f]{8}$/), "main", null);
+    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", []);
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
@@ -1312,7 +1312,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(
       TAB,
-      expect.stringMatching(/^omp-ui\/main\/[0-9a-f]{8}$/),
+      expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/),
       "main",
       null,
     );
@@ -1365,7 +1365,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(
       TAB,
-      expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
+      expect.stringMatching(/^p\/TECH-123\/[0-9a-f]{8}$/),
       "main",
       "TECH-123",
     );

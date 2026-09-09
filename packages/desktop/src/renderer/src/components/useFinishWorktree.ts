@@ -15,7 +15,7 @@ import {
   useStore,
   worktreeSharers,
 } from "../store";
-import { PLACEHOLDER_BRANCH_RE } from "./WorktreeBranchFields";
+import { isMintedWorktreeBranch, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 
 /**
  * The Finish worktree dialog's state machine (issues #385–#389, #414): three
@@ -238,9 +238,10 @@ export function useFinishWorktree(tabId: string): FinishController {
   // than an early return in the async call (issue #389's dialog half).
   useEffect(() => {
     if (nameSuggestion === null || renameTyped) return;
-    if (worktreeBranch === null || !PLACEHOLDER_BRANCH_RE.test(worktreeBranch)) return;
+    if (worktreeBranch === null || projectCwd === undefined) return;
+    if (!isMintedWorktreeBranch(worktreeBranch, worktreeBranchPrefix(projectCwd))) return;
     setRename(nameSuggestion);
-  }, [nameSuggestion, renameTyped, worktreeBranch]);
+  }, [nameSuggestion, renameTyped, worktreeBranch, projectCwd]);
 
   // A suggestion that resolves after "new branch…" was revealed lands in the
   // destination name field while it is still untouched (issue #428).

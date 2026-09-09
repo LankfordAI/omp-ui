@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { slugifyProjectName } from "./worktree-branch";
 
 // Ported from @oh-my-pi/pi-utils src/dirs.ts (v17.1.8): profile validation.
 const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -71,19 +72,12 @@ export function getArchiveRoot(sessionsRoot: string): string {
 const LINEAGE_DIR_RE = /^omp-ui--[^/\\]+-[0-9a-f-]{36}$/;
 
 /**
- * Stable per-project directory slug: the basename lowercased, runs of
- * non-alphanumerics collapsed to dashes, capped at 32 chars, "project" when
- * the basename has no usable characters. Shared by lineage dir names and
- * worktree paths — one slug convention for both.
+ * Stable per-project directory slug: the basename run through the shared
+ * project-name slug rule. Shared by lineage dir names, worktree paths, and
+ * the worktree branch prefix — one slug convention for all three.
  */
 export function projectSlug(projectCwd: string): string {
-  const slug = path
-    .basename(projectCwd)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32);
-  return slug || "project";
+  return slugifyProjectName(path.basename(projectCwd));
 }
 
 export function mintLineageDirName(projectCwd: string): string {

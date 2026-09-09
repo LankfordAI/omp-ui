@@ -3,12 +3,8 @@ import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
-import {
-  baseBranchSegment,
-  mintBranchName,
-  remintForBase,
-  WorktreeBranchFields,
-} from "./WorktreeBranchFields";
+import { worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
+import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
  * Asks for the branch and base of a worktree session (issue #224): the branch
@@ -33,23 +29,14 @@ export function NewWorktreeSessionDialog({
   /** The remote instance owning the project (issue #416); null for this host. */
   instanceId: string | null;
 }) {
-  const [branch, setBranch] = useState(() => mintBranchName());
+  const [branch, setBranch] = useState(() => mintBranchName(worktreeBranchPrefix(projectCwd)));
   const t = useT();
   // null = cut from the checkout's HEAD (the "current HEAD" option).
   const [baseRef, setBaseRef] = useState<string | null>(null);
   // Issue #405: null = cut from baseRef; ""/name = create that base branch
-  // from baseRef first. The setters recompose the minted branch so the name
-  // always states its cut point; the functional setBranch keeps a same-event
-  // sibling update from clobbering it.
+  // from baseRef first. WorktreeBranchFields owns recomposing the minted
+  // branch when the base changes (issue #438), so these are plain setters.
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
-  const applyBaseBranch = (value: string | null): void => {
-    setBaseBranch(value);
-    setBranch((prev) => remintForBase(prev, baseBranchSegment(value, baseRef)));
-  };
-  const applyBaseRef = (value: string | null): void => {
-    setBaseRef(value);
-    setBranch((prev) => remintForBase(prev, baseBranchSegment(baseBranch, value)));
-  };
   const [source, setSource] = useState<"new" | "existing">("new");
   const [existingBranch, setExistingBranch] = useState("");
   const [pending, setPending] = useState(false);
@@ -150,9 +137,9 @@ export function NewWorktreeSessionDialog({
               branch={branch}
               onBranchChange={setBranch}
               baseRef={baseRef}
-              onBaseRefChange={applyBaseRef}
+              onBaseRefChange={setBaseRef}
               baseBranch={baseBranch}
-              onBaseBranchChange={applyBaseBranch}
+              onBaseBranchChange={setBaseBranch}
               idPrefix="worktree"
             />
           ) : (

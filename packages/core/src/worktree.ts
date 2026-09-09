@@ -26,65 +26,9 @@ const MERGE_TIMEOUT_MS = 60_000;
  * callers can surface the failure verbatim.
  */
 
-const WORKTREE_BRANCH_PREFIX = "omp-ui";
-
 /** 8 random hex chars — the only part of a worktree branch no human chose. */
 export function mintBranchHash(): string {
   return randomBytes(4).toString("hex");
-}
-
-/**
- * A minted name no human chose (issue #389): `omp-ui/`, an optional run of
- * base segments (issue #405), then the 8-hex mint. Only these are auto-named
- * from the first prompt, and only these are recomposed when the base changes;
- * a user-typed name is never touched.
- */
-export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/(?:[^/]+\/)*[0-9a-f]{8}$/;
-
-/**
- * Mints a worktree branch name (issues #224, #405): `omp-ui/`, the base
- * segment when a named branch is the cut point, then the 8-hex mint. With no
- * base this keeps the pre-#405 `omp-ui/<hash>` shape (detached HEAD, or a
- * repo with no branches).
- */
-export function mintWorktreeBranch(segment: string | null = null): string {
-  return composeWorktreeBranch(segment, mintBranchHash());
-}
-
-/**
- * Sanitised `<base>` segment of a minted branch (issue #405): null when
- * nothing is cut from a named branch. Case is preserved — a ticket key is
- * the segment users actually read (`sanitizeBranchName` is for model
- * output and lowercases; this is not it).
- */
-export function baseBranchSegment(
-  baseBranch: string | null,
-  baseRef: string | null,
-): string | null {
-  const raw = (baseBranch ?? "").trim() !== "" ? baseBranch!.trim() : (baseRef ?? "").trim();
-  if (raw === "") return null;
-  const segments = raw
-    .split("/")
-    .map((s) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32))
-    .filter((s) => s !== "");
-  return segments.length === 0 ? null : segments.join("/").slice(0, 64);
-}
-
-/** The one composition rule: `omp-ui/[<segment>/]<hash>`. */
-export function composeWorktreeBranch(segment: string | null, hash: string): string {
-  return segment === null
-    ? `${WORKTREE_BRANCH_PREFIX}/${hash}`
-    : `${WORKTREE_BRANCH_PREFIX}/${segment}/${hash}`;
-}
-
-/**
- * Follows the base while the name is still a mint (issue #405): a hand-typed
- * branch is never touched, and the hash survives so the checkout slot's slug
- * stays recognisable across base edits.
- */
-export function remintForBase(branch: string, segment: string | null): string {
-  if (!PLACEHOLDER_BRANCH_RE.test(branch)) return branch;
-  return composeWorktreeBranch(segment, branch.slice(branch.lastIndexOf("/") + 1));
 }
 
 /** hex sha256 of `value`; the digest source for slot and slug suffixes. */

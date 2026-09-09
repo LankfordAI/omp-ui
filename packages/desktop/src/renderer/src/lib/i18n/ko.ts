@@ -1003,6 +1003,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "worktree.field.branch": "브랜치",
   "worktree.field.base": "Base",
   "worktree.field.currentHead": "현재 HEAD",
+  "worktree.field.baseLoading": "브랜치 읽는 중…",
   "worktree.field.newBaseOption": "새 브랜치…",
   "worktree.field.newBaseName": "새 베이스 브랜치",
   "worktree.field.newBaseFrom": "분리 기준",

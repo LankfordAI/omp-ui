@@ -22,7 +22,8 @@
     "./stream-activity": "./src/stream-activity.ts",
     "./extension-dialog": "./src/extension-dialog.ts",
     "./rpc/control-frames": "./src/rpc/control-frames.ts",
-    "./remote-instances": "./src/remote-instances.ts"
+    "./remote-instances": "./src/remote-instances.ts",
+    "./worktree-branch": "./src/worktree-branch.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

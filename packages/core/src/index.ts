@@ -23,20 +23,15 @@ export {
   addWorktree,
   addWorktreeForBranch,
   addWorktreeFromNewBase,
-  baseBranchSegment,
-  composeWorktreeBranch,
   isWithin,
   linkProjectOmpDir,
   mergeWorktreeBranch,
   mintBranchHash,
-  mintWorktreeBranch,
   mintWorktreePath,
-  PLACEHOLDER_BRANCH_RE,
   previewMerge,
   readDestinationCheckout,
   readMergeBackStatus,
   readWorktreeDirty,
-  remintForBase,
   removeWorktree,
   removeWorktreeBranch,
   renameWorktreeBranch,
@@ -45,6 +40,14 @@ export {
   syncWorktree,
   worktreeProjectDir,
 } from "./worktree";
+export {
+  baseBranchSegment,
+  composeWorktreeBranch,
+  isMintedWorktreeBranch,
+  remintWorktreeBranch,
+  slugifyProjectName,
+  worktreeBranchPrefix,
+} from "./worktree-branch";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
 export * from "./fetch";

@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
+import {
+  baseBranchSegment,
+  composeWorktreeBranch,
+  remintWorktreeBranch,
+  worktreeBranchPrefix,
+} from "@omp-ui/core/worktree-branch";
 
 /**
  * Where an unprompted session's first prompt will run (issues #225, #227):
@@ -33,60 +39,19 @@ export type WorkspaceSelection =
 export const NEW_BRANCH_SENTINEL = "__new__";
 
 /**
- * A minted name no human chose: the renderer-side twin of core's
- * `PLACEHOLDER_BRANCH_RE` (the renderer cannot import core runtime). The
- * auto-naming, the finish dialog's suggestion pre-fill, and the
- * base-following recomposition key on it — a user-typed branch name is
- * never touched (issues #389, #405).
+ * Branch mint for a worktree session (issues #224, #225, #405, #438): the
+ * project's prefix, an optional base segment, and 8 hex from a secure
+ * random. The base segment is optional here because the fields recompose it
+ * as soon as they mount — a caller that mints before the branch listing is
+ * known still ends up with the right name.
  */
-export const PLACEHOLDER_BRANCH_RE = /^omp-ui\/(?:[^/]+\/)*[0-9a-f]{8}$/;
-
-/** The one composition rule — the renderer twin of core's
- * `composeWorktreeBranch`. The tail is the mint's hash — a session's
- * minted branch keeps it for the whole life of the session (issue #428). */
-export function composeWorktreeBranch(segment: string | null, hash: string): string {
-  return segment === null ? `omp-ui/${hash}` : `omp-ui/${segment}/${hash}`;
-}
-
-/**
- * Branch mint for a worktree session (issues #224, #225, #405): the
- * renderer-side twin of core's `mintWorktreeBranch`, `omp-ui/` plus an
- * optional base segment plus 8 hex from a secure random.
- */
-export function mintBranchName(segment: string | null = null): string {
+export function mintBranchName(prefix: string, segment: string | null = null): string {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
   return composeWorktreeBranch(
+    prefix,
     segment,
     Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""),
   );
-}
-
-/**
- * The sanitised `<base>` segment — the renderer-side twin of core's
- * `baseBranchSegment`. Keep the two in lockstep.
- */
-export function baseBranchSegment(
-  baseBranch: string | null,
-  baseRef: string | null,
-): string | null {
-  const raw = (baseBranch ?? "").trim() !== "" ? baseBranch!.trim() : (baseRef ?? "").trim();
-  if (raw === "") return null;
-  const segments = raw
-    .split("/")
-    .map((s) => s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32))
-    .filter((s) => s !== "");
-  return segments.length === 0 ? null : segments.join("/").slice(0, 64);
-}
-
-/**
- * Follows the base while the name is still a mint — the renderer-side twin
- * of core's `remintForBase` (issue #405). Every surface applies it in its
- * base setters so the chip, the hint, the tooltip, and the sent payload can
- * never disagree about the branch name.
- */
-export function remintForBase(branch: string, segment: string | null): string {
-  if (!PLACEHOLDER_BRANCH_RE.test(branch)) return branch;
-  return composeWorktreeBranch(segment, branch.slice(branch.lastIndexOf("/") + 1));
 }
 
 /**
@@ -177,15 +142,40 @@ export function WorktreeBranchFields({
     if (next !== baseRef) onBaseRefChange(next);
   }, [info, baseRef, onBaseRefChange, touched]);
 
-  // No local branches, or a detached HEAD: nothing to cut from but the
-  // checkout's HEAD itself.
+  const prefix = worktreeBranchPrefix(projectCwd);
+  const segment = baseBranchSegment(baseBranch ?? null, baseRef, info?.current ?? null);
+
+  // The one place a minted branch follows its base (issue #438). Every
+  // surface used to recompose inside its own base setters, so the chip, the
+  // hint, the tooltip, and the sent payload each had their own copy of the
+  // rule; they now pass plain setters and read the recomposed value back. A
+  // hand-typed name and a mint under another project's prefix are both left
+  // alone by remintWorktreeBranch. showBase === false means the branch is a
+  // fixed execution target (plan review reusing the planning checkout, issue
+  // #316) — never recompose it. onBranchChange is intentionally out of the
+  // deps: every caller passes an inline arrow, and the value guard already
+  // makes a re-run a no-op.
+  useEffect(() => {
+    if (showBase === false) return;
+    const next = remintWorktreeBranch(branch, prefix, segment);
+    if (next !== branch) onBranchChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branch, prefix, segment, showBase]);
+
   const branchNames = info?.branches ?? [];
-  const headOnly = branchNames.length === 0 || info?.current === null;
+  // undefined = the listing has not landed yet. It must not render as the
+  // HEAD-only collapse: that is what made "current HEAD" look like the only
+  // base a project had (issue #439).
+  const loading = info === undefined;
+  // No local branches, or a detached HEAD: nothing to cut from but HEAD itself.
+  const headOnly = !loading && (branchNames.length === 0 || info.current === null);
   const creatingBase = (baseBranch ?? null) !== null;
   // The sentinel lives only in the top select's value space; `__new__` is a
   // legal refname, so the option rows never carry it.
   const baseOptions = branchNames.filter((name) => name !== NEW_BRANCH_SENTINEL);
-  const optionRows = headOnly ? (
+  const optionRows = loading ? (
+    <option value="">{t("worktree.field.baseLoading")}</option>
+  ) : headOnly ? (
     <option value="">{t("worktree.field.currentHead")}</option>
   ) : (
     baseOptions.map((name) => (
@@ -225,6 +215,7 @@ export function WorktreeBranchFields({
           </label>
           <select
             id={`${idPrefix}-base`}
+            disabled={loading}
             value={creatingBase ? NEW_BRANCH_SENTINEL : (baseRef ?? "")}
             onChange={(event) => {
               const value = event.target.value;
@@ -267,6 +258,7 @@ export function WorktreeBranchFields({
                 </label>
                 <select
                   id={`${idPrefix}-new-base-from`}
+                  disabled={loading}
                   value={baseRef ?? ""}
                   onChange={(event) => {
                     markTouched();

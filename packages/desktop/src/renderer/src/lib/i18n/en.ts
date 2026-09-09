@@ -1124,6 +1124,7 @@ export const en = {
   "worktree.field.branch": "Branch",
   "worktree.field.base": "Base",
   "worktree.field.currentHead": "current HEAD",
+  "worktree.field.baseLoading": "reading branches…",
   "worktree.field.newBaseOption": "new branch…",
   "worktree.field.newBaseName": "new base branch",
   "worktree.field.newBaseFrom": "cut from",

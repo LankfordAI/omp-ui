@@ -124,7 +124,7 @@ describe("NewWorktreeSessionDialog", () => {
     });
 
     const input = branchInput();
-    expect(input.value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    expect(input.value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
     expect(baseSelect().value).toBe("main");
 
     await typeInto(input, "feature/mine");
@@ -214,7 +214,7 @@ describe("NewWorktreeSessionDialog", () => {
       expect.objectContaining({
         worktree: {
           mint: {
-            branch: expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
+            branch: expect.stringMatching(/^p\/TECH-123\/[0-9a-f]{8}$/),
             baseRef: "main",
             baseBranch: "TECH-123",
           },

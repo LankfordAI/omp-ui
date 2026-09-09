@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - A session that is blocked waiting for a person now reads *answer needed* in every app that can see it, not just the one that watched the dialog open. The owning instance publishes its human-answer level — a pending plan gate or an unanswered blocking dialog — on the session summary, and a sidebar row that never mounted the tab takes the host's level over its own stream's edge; *error*, *stalled*, and terminal rows keep their precedence ([#436](https://github.com/LankfordAI/omp-ui/issues/436)).
+- Worktree session branches are named after the project: `<project>/<base branch>/<hash>` — `omp-ui/main/887d10bc` in the omp-ui checkout, `feathernote/main/887d10bc` in a project called FeatherNote — instead of a constant `omp-ui/` prefix, and the Base field now defaults to the checkout's active branch instead of collapsing to *current HEAD* while the branch listing loads (issues #438, #439).
 
 ## Choose a download
 

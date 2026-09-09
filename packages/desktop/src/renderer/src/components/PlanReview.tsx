@@ -18,12 +18,8 @@ import { ModelPalette } from "./ModelSelector";
 import { PlanDiagnostics, PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
-import {
-  baseBranchSegment,
-  mintBranchName,
-  remintForBase,
-  WorktreeBranchFields,
-} from "./WorktreeBranchFields";
+import { worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
+import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`
@@ -303,12 +299,8 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
       if (prev.baseBranch === null) return { ...prev, suggested: suggestion };
       const baseBranch =
         prev.baseBranch === "" || prev.baseBranch === baseFallback ? suggestion : prev.baseBranch;
-      return {
-        ...prev,
-        baseBranch,
-        suggested: suggestion,
-        branch: remintForBase(prev.branch, baseBranchSegment(baseBranch, prev.baseRef)),
-      };
+      // WorktreeBranchFields follows the base and recomposes the mint.
+      return { ...prev, baseBranch, suggested: suggestion };
     });
   }, [suggestion, baseFallback, worktreeSel]);
 
@@ -639,7 +631,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                         // edits (issue #225 semantics, as in the composer's
                         // branch chip).
                         if (option.id === "worktree" && worktreeSel === null) {
-                          const mint = sourceWorktree?.branch ?? mintBranchName();
+                          const mint =
+                            sourceWorktree?.branch ??
+                            mintBranchName(worktreeBranchPrefix(projectCwd ?? ""));
                           setWorktreeSel({
                             branch: mint,
                             baseRef: null,
@@ -914,23 +908,10 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     }
                     baseRef={worktreeSel.baseRef}
                     onBaseRefChange={(baseRef) =>
-                      // Recompose the minted branch to name its cut point
-                      // (#405) — except while the selection still IS the
-                      // planning checkout, where the #316 reuse contract
-                      // keys on exact branch equality.
-                      setWorktreeSel((prev) =>
-                        prev === null
-                          ? prev
-                          : {
-                              ...prev,
-                              baseRef,
-                              branch:
-                                sourceWorktree !== null &&
-                                prev.branch.trim() === sourceWorktree.branch.trim()
-                                  ? prev.branch
-                                  : remintForBase(prev.branch, baseBranchSegment(prev.baseBranch, baseRef)),
-                            },
-                      )
+                      // WorktreeBranchFields owns recomposing the minted
+                      // branch (issue #438); the #316 reuse case never
+                      // recomposes because it renders showBase={false}.
+                      setWorktreeSel((prev) => (prev === null ? prev : { ...prev, baseRef }))
                     }
                     baseBranch={worktreeSel.baseBranch}
                     onBaseBranchChange={(value) =>
@@ -941,17 +922,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                         // it to be (issue #422).
                         const next =
                           value === "" && prev.baseBranch === null ? suggestion ?? baseFallback : value;
-                        if (
-                          sourceWorktree !== null &&
-                          prev.branch.trim() === sourceWorktree.branch.trim()
-                        ) {
-                          return { ...prev, baseBranch: next };
-                        }
-                        return {
-                          ...prev,
-                          baseBranch: next,
-                          branch: remintForBase(prev.branch, baseBranchSegment(next, prev.baseRef)),
-                        };
+                        return { ...prev, baseBranch: next };
                       })
                     }
                     baseTouched={worktreeSel.baseTouched}

@@ -5,10 +5,9 @@ import { projectKey } from "../lib/project-key";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
+import { baseBranchSegment, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 import {
-  baseBranchSegment,
   mintBranchName,
-  remintForBase,
   WorktreeBranchFields,
   type WorkspaceSelection,
 } from "./WorktreeBranchFields";
@@ -312,7 +311,13 @@ export function BranchChip({
       setMode("worktree");
       return;
     }
-    onWorkspaceChange?.({ mode: "worktree", branch: mintBranchName(), baseRef: null, baseBranch: null, baseTouched: false });
+    onWorkspaceChange?.({
+      mode: "worktree",
+      branch: mintBranchName(worktreeBranchPrefix(projectCwd)),
+      baseRef: null,
+      baseBranch: null,
+      baseTouched: false,
+    });
     setMode("worktree");
   };
 
@@ -463,8 +468,7 @@ export function BranchChip({
             ? t("composer.branch.worktreeTitle", {
                 branch: workspace.branch,
                 base:
-                  baseBranchSegment(workspace.baseBranch, workspace.baseRef) ??
-                  workspace.baseRef ??
+                  baseBranchSegment(workspace.baseBranch, workspace.baseRef, current) ??
                   t("composer.branch.currentHead"),
               })
             : behindReading === null
@@ -610,28 +614,16 @@ export function BranchChip({
                 baseRef={workspace.baseRef}
                 onBaseRefChange={(baseRef) =>
                   // The functional form merges against the latest selection;
-                  // one event can emit a ref change and a branch change, and
-                  // each base setter recomposes the minted branch (#405).
+                  // one event can emit a ref change and a branch change.
+                  // WorktreeBranchFields owns the recomposition (issue #438).
                   onWorkspaceChange?.((prev) =>
-                    prev.mode === "worktree"
-                      ? {
-                          ...prev,
-                          baseRef,
-                          branch: remintForBase(prev.branch, baseBranchSegment(prev.baseBranch, baseRef)),
-                        }
-                      : prev,
+                    prev.mode === "worktree" ? { ...prev, baseRef } : prev,
                   )
                 }
                 baseBranch={workspace.baseBranch}
                 onBaseBranchChange={(baseBranch) =>
                   onWorkspaceChange?.((prev) =>
-                    prev.mode === "worktree"
-                      ? {
-                          ...prev,
-                          baseBranch,
-                          branch: remintForBase(prev.branch, baseBranchSegment(baseBranch, prev.baseRef)),
-                        }
-                      : prev,
+                    prev.mode === "worktree" ? { ...prev, baseBranch } : prev,
                   )
                 }
                 baseTouched={workspace.baseTouched}

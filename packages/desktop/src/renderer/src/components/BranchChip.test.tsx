@@ -607,7 +607,7 @@ describe("BranchChip worktree section (issue #227)", () => {
 
     const input = document.body.querySelector<HTMLInputElement>("#composer-worktree-branch");
     expect(input).not.toBeNull();
-    expect(input!.value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    expect(input!.value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
     await flushMicrotasks();
     expect(
       document.body.querySelector<HTMLSelectElement>("#composer-worktree-base")!.value,
@@ -837,13 +837,13 @@ describe("BranchChip worktree section (issue #227)", () => {
   it("typing the new base recomposes the mint and keeps the hash", async () => {
     await openWorktreeFields();
     const before = branchInput().value;
-    expect(before).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+    expect(before).toMatch(/^p\/main\/[0-9a-f]{8}$/);
 
     await selectInto(baseSelect(), "__new__");
     await typeInto(document.body.querySelector<HTMLInputElement>("#composer-worktree-new-base")!, "TECH-123");
 
     const after = branchInput().value;
-    expect(after).toMatch(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/);
+    expect(after).toMatch(/^p\/TECH-123\/[0-9a-f]{8}$/);
     expect(after.slice(after.lastIndexOf("/") + 1)).toBe(before.slice(before.lastIndexOf("/") + 1));
   });
 
@@ -853,7 +853,7 @@ describe("BranchChip worktree section (issue #227)", () => {
 
     await selectInto(baseSelect(), "feature/x");
 
-    expect(branchInput().value).toBe(`omp-ui/feature/x/${hash}`);
+    expect(branchInput().value).toBe(`p/feature/x/${hash}`);
     expect(changes.at(-1)).toMatchObject({ baseBranch: null, baseRef: "feature/x" });
   });
 

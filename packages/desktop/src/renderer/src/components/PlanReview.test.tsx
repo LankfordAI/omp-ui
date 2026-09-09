@@ -613,7 +613,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(input).not.toBeNull();
     // Minted once on first pick; once the base resolves the mint names its
     // cut point (issue #405): omp-ui/<base>/<hex> (ADR-0018 app scratch work).
-    expect(input.value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    expect(input.value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
     const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
     expect(base).not.toBeNull();
     // Base defaults to the checkout's current branch once the fields mount.
@@ -732,7 +732,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         destination: { kind: "worktree"; branch: string };
       };
       expect(options.worktree).toEqual({
-        branch: expect.stringMatching(/^omp-ui\/TECH-123\/[0-9a-f]{8}$/),
+        branch: expect.stringMatching(/^p\/TECH-123\/[0-9a-f]{8}$/),
         baseRef: "main",
         baseBranch: "TECH-123",
       });
@@ -774,7 +774,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     await act(async () => contextRow("worktree session").click());
     const second = document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value;
-    expect(second).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    expect(second).toMatch(/^p\/main\/[0-9a-f]{8}$/);
     expect(second).not.toBe(first);
   });
 
@@ -919,7 +919,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     // The plan's name goes to the base fields and the finish dialog, never
     // into this field's hash tail.
-    expect(branchInput().value).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
     expect(backendMock.suggestBranchName).toHaveBeenCalledTimes(1);
   });
 
@@ -929,7 +929,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
     const minted = branchInput().value;
-    expect(minted).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    expect(minted).toMatch(/^p\/main\/[0-9a-f]{8}$/);
 
     await act(async () => {
       resolveSuggest("fix/login-race");
@@ -938,7 +938,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     // The late answer lands in the base fields only; the mint stands as the
     // session branch, byte-identical.
     expect(branchInput().value).toBe(minted);
-    expect(branchInput().value).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
   });
 
   it("prefills the new base with the plan slug and follows the model after it (issue #422)", async () => {
@@ -953,7 +953,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     // Selected, so typing replaces the prefill instead of appending to it.
     expect(newBaseInput().selectionStart).toBe(0);
     expect(newBaseInput().selectionEnd).toBe(newBaseInput().value.length);
-    expect(branchInput().value).toMatch(/^omp-ui\/fix-login-race\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/fix-login-race\/[0-9a-f]{8}$/);
 
     await act(async () => {
       resolveSuggest("feat/x");
@@ -961,7 +961,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
 
     expect(newBaseInput().value).toBe("feat/x");
     // The branch keeps following its base, hash tail intact.
-    expect(branchInput().value).toMatch(/^omp-ui\/feat\/x\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/feat\/x\/[0-9a-f]{8}$/);
   });
 
   it("prefills a resolved suggestion on reveal and keeps the mint hash (issue #428)", async () => {
@@ -970,14 +970,14 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
     // The untouched session branch is the mint, not the plan's name.
-    expect(branchInput().value).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
 
     await revealNewBase();
 
     expect(newBaseInput().value).toBe("feat/x");
     // The mint follows its new base: the middle segment changes, the hash
     // tail stays (issue #405) — never `omp-ui/<base>/<base>`.
-    expect(branchInput().value).toMatch(/^omp-ui\/feat\/x\/[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/feat\/x\/[0-9a-f]{8}$/);
   });
 
   it("never overwrites a typed branch or base name with the suggestion (issue #422)", async () => {
@@ -1045,7 +1045,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     await act(async () => contextRow("worktree session").click());
     await act(async () => {});
 
-    expect(branchInput().value).toMatch(/^omp-ui\/(?:main\/)?[0-9a-f]{8}$/);
+    expect(branchInput().value).toMatch(/^p\/main\/[0-9a-f]{8}$/);
     await revealNewBase();
     expect(newBaseInput().value).toBe("fix-login-race");
   });
@@ -1070,7 +1070,7 @@ describe("PlanReview worktree execution context (issue #313)", () => {
         destination: { kind: "worktree"; branch: string };
       };
       const mint = options.worktree.branch;
-      expect(mint).toMatch(/^omp-ui\/main\/[0-9a-f]{8}$/);
+      expect(mint).toMatch(/^p\/main\/[0-9a-f]{8}$/);
       expect(options.worktree).toEqual({ branch: mint, baseRef: "main", baseBranch: null });
       expect(options.destination).toEqual({ kind: "worktree", branch: mint });
     } finally {
