@@ -789,3 +789,66 @@ describe("SessionHud goal chip (issue #381)", () => {
     }
   });
 });
+
+describe("retitle affordance (issue #433)", () => {
+  const seedExchange = (): void => {
+    useStore.setState({
+      rpc: {
+        ...useStore.getState().rpc,
+        [TAB]: {
+          ...useStore.getState().rpc[TAB],
+          items: [
+            { kind: "user", id: "u1", text: "the login button is broken" },
+            { kind: "assistant", id: "a1", text: "the sheet collapses", thinking: "", streaming: false },
+          ],
+        },
+      },
+    });
+  };
+  const renderWide = (): HTMLElement => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  it("reveals a retitle button that reaches the action with the tab id", () => {
+    const regenerateSessionTitle = vi.fn(async (): Promise<void> => {});
+    useStore.setState({ regenerateSessionTitle });
+    seedExchange();
+    const host = renderWide();
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!;
+    // Hidden until hover — and until keyboard focus, like the row controls.
+    expect(button.className).toContain("opacity-0");
+    expect(button.className).toContain("focus-visible:opacity-100");
+    expect(button.title).toContain("regenerate the title");
+    expect(button.disabled).toBe(false);
+    act(() => button.click());
+    expect(regenerateSessionTitle).toHaveBeenCalledWith(TAB);
+  });
+
+  it("is disabled while a re-titling is in flight", () => {
+    seedExchange();
+    useStore.setState({
+      rpc: {
+        ...useStore.getState().rpc,
+        [TAB]: {
+          ...useStore.getState().rpc[TAB],
+          titleRegeneration: { requestId: 1, previousTitle: "Mobile session" },
+        },
+      },
+    });
+    const host = renderWide();
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(true);
+  });
+
+  it("is disabled while the transcript has no exchange to read", () => {
+    const host = renderWide();
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(true);
+  });
+});

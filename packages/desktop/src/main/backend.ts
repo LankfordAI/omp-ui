@@ -39,6 +39,7 @@ import {
   sweepOrphanWorktrees,
   listProjectFiles,
   resolveFileMentions,
+  retitleSessionWithOmp,
   resolveMcpServers,
   resolveProjectPath,
   setMcpServerEnabled,
@@ -616,8 +617,13 @@ export class MainBackend {
         ) => this.sessions.setSessionAdvisor(tabId, advisor, advisorModel),
         [CH.getAdvisorDefaults]: (projectCwd: string): AdvisorDefaults =>
           this.advisorDefaults(projectCwd),
-        [CH.generateTitle]: (projectCwd: string, prompt: string) =>
-          this.generateTitle(projectCwd, prompt),
+        [CH.generateTitle]: (projectCwd: string, prompt: string, titleHint?: string | null) =>
+          this.generateTitle(projectCwd, prompt, titleHint ?? null),
+        [CH.retitleSession]: (
+          projectCwd: string,
+          previousTitle: string,
+          transcript: string,
+        ) => this.retitleSession(projectCwd, previousTitle, transcript),
         [CH.readPlanFile]: (tabId: string, absPath: string) => this.readPlanFile(tabId, absPath),
         [CH.answerPlanReview]: (
           tabId: string,
@@ -998,7 +1004,11 @@ export class MainBackend {
    * timeout, or a greeting the model declines to title. The renderer falls
    * back to its derived title, so this must never throw across IPC.
    */
-  private async generateTitle(projectCwd: string, prompt: string): Promise<string | null> {
+  private async generateTitle(
+    projectCwd: string,
+    prompt: string,
+    titleHint: string | null = null,
+  ): Promise<string | null> {
     if (!this.ompPath) return null;
     // The config's own role chain, so the title comes from whichever small
     // model the user already configured for omp's own titling.
@@ -1008,10 +1018,39 @@ export class MainBackend {
         ompPath: this.ompPath,
         projectCwd,
         model: role === null ? null : formatModelRole(role),
-        prompt,
+        // A hint is the record's authoritative title source (plan-seeded
+        // implementation sessions): it replaces the prompt as the payload.
+        prompt: titleHint ?? prompt,
       });
     } catch (err) {
       console.warn("[title] model titling failed:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Re-titles a live session from a transcript digest. Null on every failure
+   * path — the row keeps its current title, so this must never throw across
+   * IPC. Same best-effort contract and model-role chain as titling.
+   */
+  private async retitleSession(
+    projectCwd: string,
+    previousTitle: string,
+    transcript: string,
+  ): Promise<string | null> {
+    if (!this.ompPath) return null;
+    const role = readOmpModelRole(projectCwd, TITLE_MODEL_ROLES);
+    try {
+      return await retitleSessionWithOmp({
+        ompPath: this.ompPath,
+        projectCwd,
+        model: role === null ? null : formatModelRole(role),
+        prompt: "",
+        previousTitle,
+        transcript,
+      });
+    } catch (err) {
+      console.warn("[title] session re-titling failed:", err);
       return null;
     }
   }

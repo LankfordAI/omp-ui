@@ -220,9 +220,11 @@ export {
   generateTitleWithOmp,
   parseBranchNameOutput,
   parseTitleOutput,
+  retitleSessionWithOmp,
   sanitizeBranchName,
   sanitizeModelTitle,
   TITLE_MODEL_ROLES,
+  type RetitleRequest,
   type TitleRequest,
 } from "./title-model";
 export {

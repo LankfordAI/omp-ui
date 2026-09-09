@@ -204,15 +204,25 @@ _Avoid_: upload, file, media
 The name a new session gets from its first substantive prompt, in two phases.
 Phase one, at prompt time: a mechanically derived title from the prompt is
 pushed immediately with `set_session_name`, so the session is named before any
-model round trip. Phase two, in the background: omp-ui asks omp's own small
-model — a stateless `omp -p` run on the `tiny`/`commit`/`smol` role its config
-binds — and, when it answers with a different title, upgrades the name with a
-second `set_session_name`; a user-sourced rename overwrites a user title (only
-omp's own "auto" titling is latched out once a "user" one exists), which is
-what makes the upgrade possible. A greeting is not substantive: titling
-defers rather than latch. When the model declines or is unreachable, the
-derived name simply stands.
+model round trip. For a session seeded from an approved plan, the plan titles
+it — both the derived name and the model's payload come from the record's
+`planTitle`, never from the seed text that carried the plan. Phase two, in the
+background: omp-ui asks omp's own small model — a stateless `omp -p` run on the
+`tiny`/`commit`/`smol` role its config binds, over a bounded payload, since
+the one-shot rides a single OS argument — and, when it answers with a
+different title, upgrades the name with a second `set_session_name`; a
+user-sourced rename overwrites a user title (only omp's own "auto" titling is
+latched out once a "user" one exists), which is what makes the upgrade
+possible. A greeting is not substantive: titling defers rather than latch.
+When the model declines or is unreachable, the derived name simply stands.
 _Avoid_: session name generation, summary, label
+
+**Re-titling**:
+A user-requested second look at a session's title, from a digest of its
+transcript plus the title on the row. It replaces Auto-title's answer, never
+the user's own rename; it needs a live session, and a declined answer leaves
+the row untouched.
+_Avoid_: thread renaming, title regeneration, re-summary
 
 **Build mode**:
 A session state with full working-tree write access and state-changing commands

@@ -1057,7 +1057,7 @@ describe("auto-title end-to-end", () => {
     for (const { tabId, cmd } of wave2) h.respond(tabId, cmd, {});
     await h.flushMicrotasks();
 
-    expect(h.mockBackend.generateTitle).toHaveBeenCalledWith("/p", prompt);
+    expect(h.mockBackend.generateTitle).toHaveBeenCalledWith("/p", prompt, null);
     expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
       "Add sessions list pagination",
     );
@@ -1256,6 +1256,55 @@ describe("auto-title end-to-end", () => {
       "Refactor the auth module",
     );
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+  });
+
+  it("titles a plan-seeded implementation session from the plan, not the seed", async () => {
+    // The first prompt is the constant seed sentence plus the whole plan body;
+    // the record already names what the session is: the plan title.
+    const seeded = structuredClone(h.stateWithRecord("sess-1"));
+    seeded.projects[0]!.sessions[0]!.planImplementationSource = {
+      sourceTabId: "plan-tab",
+      planTitle: "Ship dark mode",
+      planFilePath: "local://plan.html",
+    };
+    h.backendState = seeded;
+    h.useStore.setState({ state: seeded });
+    const model = h.deferred<string | null>();
+    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
+    const seed =
+      "ultrathink. A plan was approved for this project. Implement it now.\n\n" +
+      "# Plan\n" +
+      "x".repeat(9_000) +
+      "\n\nProceed with the implementation.";
+    h.useStore.getState().setInitialPrompt(h.TAB, seed);
+    await h.flushMicrotasks();
+
+    const wave1 = h.sent.splice(0);
+    const first = wave1.find((s) => s.cmd.type === "set_session_name")!;
+    expect(first.cmd.name).toBe("Ship dark mode");
+    // The model is asked about the plan title — never the seed lead.
+    expect(h.mockBackend.generateTitle).toHaveBeenCalledWith(
+      "/p",
+      "Ship dark mode",
+      "Ship dark mode",
+    );
+
+    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+    model.resolve("Ship dark mode everywhere");
+    await h.flushMicrotasks();
+    const wave2 = h.sent.splice(0);
+    const renames = [...wave1, ...wave2].filter(
+      (s) => s.cmd.type === "set_session_name",
+    );
+    expect(renames).toHaveLength(2);
+    expect(renames[1]!.cmd.name).toBe("Ship dark mode everywhere");
+    for (const { tabId, cmd } of wave2) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
+      "Ship dark mode everywhere",
+    );
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
   });
 });
 describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)", () => {

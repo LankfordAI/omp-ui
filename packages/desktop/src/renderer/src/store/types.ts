@@ -183,6 +183,12 @@ export interface RpcTabState {
    */
   autoTitleSent: string | null;
   hasRenamed: boolean;
+  /**
+   * A re-titling this tab has in flight, recorded against the title it read;
+   * null when idle (issue #433). A settle whose `requestId` is no longer the
+   * tab's lost: a second click wins over the first.
+   */
+  titleRegeneration?: { readonly requestId: number; readonly previousTitle: string } | null;
   plan: PlanStatus | null;
   planReview: { request: PlanReviewRequest; frame: unknown } | null;
   planText: string | null;
@@ -623,6 +629,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   exportHtml(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;
+  /** Re-title a live session from its transcript digest (issue #433). A user action, never automatic. */
+  regenerateSessionTitle(tabId: string): Promise<void>;
   setPlanMode(tabId: string, enabled: boolean): Promise<void>;
   executePlan(
     tabId: string,

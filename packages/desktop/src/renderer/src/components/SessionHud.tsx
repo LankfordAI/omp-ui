@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
@@ -11,6 +11,7 @@ import { useT } from "../lib/i18n";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
+import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { WorktreeChip } from "./WorktreeChip";
@@ -142,6 +143,15 @@ function IconKebab() {
       <circle cx="8" cy="3.2" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="8" cy="12.8" r="1.2" fill="currentColor" stroke="none" />
+    </Svg>
+  );
+}
+
+function IconRetitle() {
+  return (
+    <Svg>
+      <path d="M2.5 5h8M2.5 8.5h5" {...ICON_STROKE} />
+      <path d="M11.2 7.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" {...ICON_STROKE} />
     </Svg>
   );
 }
@@ -289,18 +299,42 @@ function LivenessBadge({
 function TitleField({ tabId, title }: { tabId: string; title: string }) {
   const t = useT();
   const renameSessionTo = useStore((s) => s.renameSessionTo);
+  const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
+  const regenerating = useStore((s) => s.rpc[tabId]?.titleRegeneration != null);
+  const items = useStore((s) => s.rpc[tabId]?.items);
+  // Re-titling needs at least one exchange (issue #433): with no assistant
+  // answer yet, the transcript digest has nothing the model could learn from.
+  const thin = useMemo(() => {
+    const digest = buildTitleTranscript(items ?? []);
+    return digest.userTurns < 1 || digest.assistantTurns < 1;
+  }, [items]);
   const [draft, setDraft] = useState<string | null>(null);
 
   if (draft === null) {
     return (
-      <button
-        type="button"
-        title={t("hud.session.renameTitle", { title })}
-        onClick={() => setDraft(title)}
-        className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-[13px] text-ink transition-colors hover:bg-hover [app-region:no-drag]"
-      >
-        {title}
-      </button>
+      <span className="group/title flex min-w-0 items-center gap-0.5 [app-region:no-drag]">
+        <button
+          type="button"
+          title={t("hud.session.renameTitle", { title })}
+          onClick={() => setDraft(title)}
+          className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-[13px] text-ink transition-colors hover:bg-hover [app-region:no-drag]"
+        >
+          {title}
+        </button>
+        {/* The retitle affordance (issue #433): revealed on hover/focus like
+            the sidebar row's controls, no-drag for the same reason as the
+            title button itself (#108). One edit covers both HUD faces. */}
+        <button
+          type="button"
+          aria-label={t("hud.session.retitle")}
+          title={t("hud.session.retitleTitle", { title })}
+          disabled={regenerating || thin}
+          onClick={() => void regenerateSessionTitle(tabId)}
+          className="grid size-5 shrink-0 place-items-center rounded text-ink-dim opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-ink group-hover/title:opacity-100 focus-visible:opacity-100 focus-visible:outline-none [app-region:no-drag]"
+        >
+          <IconRetitle />
+        </button>
+      </span>
     );
   }
 

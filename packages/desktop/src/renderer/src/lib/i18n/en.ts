@@ -146,6 +146,10 @@ export const en = {
     "Could not enable the advisor: {reason}\n\nThe agent has stopped — resume the session to continue.",
   "session.error.advisorDisable":
     "Could not disable the advisor: {reason}\n\nThe agent has stopped — resume the session to continue.",
+  "session.error.retitleNotLive":
+    "This session is not running, so its title cannot be regenerated. Resume the session first, then re-title it.",
+  "session.error.retitleNoTranscript":
+    "This session has no exchange to re-title from yet. Send a prompt, let the assistant answer, then try again.",
 
   // AdvisorControl.tsx, PlanReview.tsx — dev/test advisor override (issue #372)
   "advisor.override.badge": "dev/test",
@@ -879,6 +883,8 @@ export const en = {
   "palette.action.terminateDesc": "{title} — the session stays resumable",
   "palette.action.switchMode": "Switch to {mode} mode",
   "palette.action.switchModeDesc": "{title} — restarts the process",
+  "palette.action.retitle": "Regenerate session title",
+  "palette.action.retitleDesc": "{title} — re-titled from the transcript",
   "palette.action.capabilities": "View capabilities",
   "palette.action.capabilitiesDesc": "global MCP servers, skills, and tools settings",
   "palette.action.capabilitiesSession": "Capabilities for this session",
@@ -1204,6 +1210,8 @@ export const en = {
   "hud.retry.autoRetryTitle": "retry transient provider errors automatically",
   "hud.session.nameLabel": "session name",
   "hud.session.renameTitle": "{title} — click to rename",
+  "hud.session.retitle": "retitle",
+  "hud.session.retitleTitle": "{title} — regenerate the title from this session's transcript",
   "hud.session.untitled": "untitled",
   "hud.stall.explanation":
     "The renderer has received no model-stream frames — text, thinking, or tool-call arguments — for the shown time while the assistant response is open. Local tool execution does not count. The session may still recover; if it does not, omp's idle watchdog posts a retry notice.",

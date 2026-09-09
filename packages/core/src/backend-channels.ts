@@ -446,12 +446,24 @@ export const BACKEND_CHANNELS = {
   },
   /**
    * Titles a first user prompt with omp's own small model (the `tiny`/`commit`/
-   * `smol` role chain). Resolves to null whenever the model declines or the run
-   * fails — the caller keeps its derived title in that case.
+   * `smol` role chain). A `titleHint` replaces the prompt as the payload when
+   * set: the record already names what a plan-seeded implementation session
+   * should be titled from, and the seed plus plan body must not become the
+   * title. Resolves to null whenever the model declines or the run fails —
+   * the caller keeps its derived title in that case.
    */
   generateTitle: {
     channel: "title:generate",
-    ...request<[projectCwd: string, prompt: string], string | null>([str(), str()]),
+    ...request<[projectCwd: string, prompt: string, titleHint?: string | null], string | null>(
+      [str(), str(), trailingOptional(nullable(str()))],
+    ),
+  },
+  /** Re-titles a live session from a transcript digest; null = declined or failed. */
+  retitleSession: {
+    channel: "title:retitle",
+    ...request<[projectCwd: string, previousTitle: string, transcript: string], string | null>(
+      [str(), str(), str()],
+    ),
   },
   /**
    * Suggests a git branch name for a plan with omp's own small model (the

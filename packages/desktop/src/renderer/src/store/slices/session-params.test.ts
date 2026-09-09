@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
+import type { RenderItem } from "../../lib/transcript";
 import { h } from "../../test/store-harness";
 describe("prompting, slash commands, and session ops", () => {
   beforeEach(() => {
@@ -1724,3 +1725,112 @@ describe("project default models (issue #257)", () => {
   });
 });
 
+
+describe("re-titling (issue #433)", () => {
+  const exchange = (): RenderItem[] => [
+    { kind: "user", id: "u1", text: "the login button is broken on mobile" },
+    {
+      kind: "assistant",
+      id: "a1",
+      text: "the target collapses under the sheet",
+      thinking: "",
+      streaming: false,
+    },
+  ];
+
+  beforeEach(() => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ items: exchange() }) },
+    });
+    h.sent.length = 0;
+  });
+
+  const ackAll = async (): Promise<void> => {
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await h.flushMicrotasks();
+  };
+
+  it("sends exactly one set_session_name and latches the rename", async () => {
+    h.mockBackend.retitleSession.mockResolvedValueOnce("Fix mobile login button target");
+    const run = h.useStore.getState().regenerateSessionTitle(h.TAB);
+    await h.flushMicrotasks();
+    expect(h.mockBackend.retitleSession).toHaveBeenCalledWith(
+      "/p",
+      "New session",
+      "USER: the login button is broken on mobile\n\nASSISTANT: the target collapses under the sheet",
+    );
+    const renames = h.sent.filter((s) => s.cmd.type === "set_session_name");
+    expect(renames).toHaveLength(1);
+    expect(renames[0]!.cmd.name).toBe("Fix mobile login button target");
+    await ackAll();
+    await run;
+    const rpc = h.useStore.getState().rpc[h.TAB]!;
+    expect(rpc.hasRenamed).toBe(true);
+    expect(rpc.autoTitleSent).toBe("Fix mobile login button target");
+    expect(rpc.titleRegeneration).toBeNull();
+  });
+
+  it("sends nothing when the model declines or answers the same title", async () => {
+    for (const answer of [null, "New session"]) {
+      h.mockBackend.retitleSession.mockResolvedValueOnce(answer);
+      await h.useStore.getState().regenerateSessionTitle(h.TAB);
+      expect(h.sent.filter((s) => s.cmd.type === "set_session_name")).toHaveLength(0);
+      expect(h.useStore.getState().rpc[h.TAB]!.titleRegeneration).toBeNull();
+      expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+    }
+  });
+
+  it("lets a second click supersede the first", async () => {
+    const first = h.deferred<string | null>();
+    const second = h.deferred<string | null>();
+    h.mockBackend.retitleSession
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const a = h.useStore.getState().regenerateSessionTitle(h.TAB);
+    const b = h.useStore.getState().regenerateSessionTitle(h.TAB);
+    expect(h.mockBackend.retitleSession).toHaveBeenCalledTimes(2);
+    first.resolve("Stale answer");
+    await a;
+    expect(h.sent.filter((s) => s.cmd.type === "set_session_name")).toHaveLength(0);
+    second.resolve("Better answer");
+    await h.flushMicrotasks();
+    const renames = h.sent.filter((s) => s.cmd.type === "set_session_name");
+    expect(renames).toHaveLength(1);
+    expect(renames[0]!.cmd.name).toBe("Better answer");
+    await ackAll();
+    await b;
+  });
+
+  it("notices a dormant session instead of writing through no process", async () => {
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.useStore.setState({ state: h.backendState });
+    await h.useStore.getState().regenerateSessionTitle(h.TAB);
+    expect(h.mockBackend.retitleSession).not.toHaveBeenCalled();
+    expect(h.sent).toHaveLength(0);
+    expect(h.errorMessages().at(-1)).toContain("not running");
+  });
+
+  it("notices a transcript with nothing to learn yet", async () => {
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ items: [exchange()[0]!] }) },
+    });
+    await h.useStore.getState().regenerateSessionTitle(h.TAB);
+    expect(h.mockBackend.retitleSession).not.toHaveBeenCalled();
+    expect(h.errorMessages().at(-1)).toContain("no exchange");
+  });
+
+  it("loses to a manual rename made mid-flight", async () => {
+    const model = h.deferred<string | null>();
+    h.mockBackend.retitleSession.mockReturnValueOnce(model.promise);
+    const run = h.useStore.getState().regenerateSessionTitle(h.TAB);
+    const renamed = structuredClone(h.backendState);
+    renamed.projects[0]!.sessions[0]!.title = "Typed by hand";
+    h.useStore.setState({ state: renamed });
+    model.resolve("Model answer");
+    await run;
+    expect(h.sent.filter((s) => s.cmd.type === "set_session_name")).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleRegeneration).toBeNull();
+  });
+});

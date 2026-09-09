@@ -89,6 +89,7 @@ export function CommandPalette() {
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
+  const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
@@ -164,6 +165,17 @@ export function CommandPalette() {
           run: () => void switchMode(tab.tabId, other),
         },
       );
+      // Re-titling is native-only (issue #433): terminal tabs are titled by
+      // omp's own TUI generator and have no prompt channel to write through.
+      if (tab.mode === "rpc-ui") {
+        out.push({
+          id: "session:retitle",
+          group: t("palette.group.session"),
+          name: t("palette.action.retitle"),
+          desc: t("palette.action.retitleDesc", { title }),
+          run: () => void regenerateSessionTitle(tab.tabId),
+        });
+      }
       // The session-pinned viewer (#379's door): live roster, session-local
       // switches, MCP runtime status, resolved at the session's own working
       // tree — a worktree session's checkout (#325). Gated to native tabs
@@ -211,7 +223,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, regenerateSessionTitle, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
