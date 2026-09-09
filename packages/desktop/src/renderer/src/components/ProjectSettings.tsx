@@ -256,7 +256,7 @@ export function ProjectModelPins({
           onBeginChange={() => beginChange("main")}
           onSubmit={submitDraft}
           onCancel={() => setEditing(null)}
-          onClear={() => void setProjectDefaultModel(project.path, null)}
+          onClear={() => void setProjectDefaultModel(project.path, null, instanceId)}
         />
 
         <PinField
@@ -285,7 +285,7 @@ export function ProjectModelPins({
           onBeginChange={() => beginChange("advisor")}
           onSubmit={submitDraft}
           onCancel={() => setEditing(null)}
-          onClear={() => void setProjectDefaultAdvisorModel(project.path, null)}
+          onClear={() => void setProjectDefaultAdvisorModel(project.path, null, instanceId)}
         />
 
         {/* The pin is a model value only: while the on/off chain resolves
@@ -306,10 +306,11 @@ export function ProjectModelPins({
           variant="main"
           models={models}
           current={mainCurrent}
+          instanceId={instanceId}
           onClose={() => setPicking(null)}
           onPick={(model) => {
             setPicking(null);
-            void setProjectDefaultModel(project.path, `${model.provider}/${model.id}`);
+            void setProjectDefaultModel(project.path, `${model.provider}/${model.id}`, instanceId);
           }}
         />
       )}
@@ -320,12 +321,13 @@ export function ProjectModelPins({
           current={advisorPin}
           inherited={advisorPin === null}
           defaultModel={defaults?.model ?? null}
+          instanceId={instanceId}
           onClose={() => setPicking(null)}
           onPick={(selector) => {
             setPicking(null);
             // A null pick ("use omp's configured advisor") clears the pin —
             // defer-to-config is exactly the no-pin semantics.
-            void setProjectDefaultAdvisorModel(project.path, selector);
+            void setProjectDefaultAdvisorModel(project.path, selector, instanceId);
           }}
         />
       )}

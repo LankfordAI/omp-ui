@@ -61,6 +61,12 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   });
   const projectCwd = useStore((s) => findOwner(s.state, tabId)?.record.projectCwd ?? null);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  // The owning instance's nickname (issue #440): remote no-catalog copy names
+  // the host where credentials must be configured. Falls back to the id if
+  // the instance vanished from state while its tab lives on.
+  const nickname = useStore((s) =>
+    instanceId === null ? null : (findInstance(s.state, instanceId)?.nickname ?? null),
+  );
   const [open, setOpen] = useState(false);
   // Keep one user-selected main model for the duration of a turn. Internal
   // staged-model changes still use the store method directly.
@@ -73,7 +79,23 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   // Either `get_available_models` failed, or omp has no authenticated provider
   // at all — the common cause of the latter is a GUI launch that inherited no
   // API keys, so this doubles as the entry point to the providers page.
+  // A remote session's catalog lives on the owning host, and so do the
+  // credentials that would populate it (issue #440): no settings page here can
+  // fix another host, so the copy states where to act instead — nonactionable.
   if (models.length === 0) {
+    if (instanceId !== null) {
+      const copy = t("composer.model.noModelsRemote", { nickname: nickname ?? instanceId });
+      return (
+        <button
+          type="button"
+          disabled
+          title={copy}
+          className="flex min-w-0 max-w-72 items-center truncate px-1.5 font-mono text-[11px] text-ink-faint"
+        >
+          {copy}
+        </button>
+      );
+    }
     return (
       <button
         type="button"
@@ -108,6 +130,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
       {open && (
         <ModelPalette
           variant="main"
+          instanceId={instanceId}
           models={models}
           current={model}
           onClose={() => setOpen(false)}
@@ -129,8 +152,11 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
 
 /** Rendering 414 rows costs more than it informs; the palette pages by search. */
 const VISIBLE_LIMIT = 120;
-
 type ModelPaletteProps = {
+  /** The owning instance of the session this palette serves (issue #440):
+   *  null for this app's own sessions. Favorites, the provider-keys link, and
+   *  every favorite mutation follow it. */
+  instanceId: string | null;
   models: ModelInfo[];
   onClose(): void;
   /** The project's pin for this variant (issue #257); omit to hide the footer. */
@@ -163,7 +189,16 @@ function selectorFor(model: ModelInfo): string {
 export function ModelPalette(props: ModelPaletteProps) {
   const { models, onClose } = props;
   const t = useT();
-  const favoriteKeys = useStore((s) => s.state?.modelFavorites ?? EMPTY_FAVORITES);
+  // Favorites follow the owning instance (issue #440): this app's registry
+  // for local sessions, the remote's own registry for its sessions.
+  const favoriteKeys = useStore((s) => {
+    if (props.instanceId === null) return s.state?.modelFavorites ?? EMPTY_FAVORITES;
+    return findInstance(s.state, props.instanceId)?.modelFavorites ?? EMPTY_FAVORITES;
+  });
+  // The owner's nickname for the remote footer copy; null for local sessions.
+  const nickname = useStore((s) =>
+    props.instanceId === null ? null : (findInstance(s.state, props.instanceId)?.nickname ?? null),
+  );
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const openSettings = useStore((s) => s.openSettings);
   const favorites = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
@@ -405,7 +440,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                   <IconButton
                     label={isFavorite ? t("composer.model.unfavorite") : t("composer.model.favorite")}
                     tone="copper"
-                    onClick={() => void toggleFavorite(modelKey)}
+                    onClick={() => void toggleFavorite(modelKey, props.instanceId)}
                     className="mr-2 self-center"
                   >
                     <StarIcon filled={isFavorite} className={cn("size-3.5", isFavorite && "text-copper")} />
@@ -423,16 +458,25 @@ export function ModelPalette(props: ModelPaletteProps) {
             {props.variant === "main" && (
               <>
                 <span className="flex-1" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    openSettings("providers");
-                  }}
-                  className="text-ink-faint underline decoration-dotted hover:text-ink-mid"
-                >
-                  {t("composer.model.providerKeys")}
-                </button>
+                {props.instanceId === null ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      openSettings("providers");
+                    }}
+                    className="text-ink-faint underline decoration-dotted hover:text-ink-mid"
+                  >
+                    {t("composer.model.providerKeys")}
+                  </button>
+                ) : (
+                  // The owning host manages its own provider credentials
+                  // (issue #440): no settings hop from a remote palette, just
+                  // the noninteractive fact of where the keys live.
+                  <span className="text-ink-faint">
+                    {t("composer.model.remoteKeysNote", { nickname: nickname ?? props.instanceId })}
+                  </span>
+                )}
                 <span>{t("composer.model.pricesNote")}</span>
               </>
             )}

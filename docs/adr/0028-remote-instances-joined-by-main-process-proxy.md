@@ -18,18 +18,23 @@ We decided against that reading. The Electron **main process** owns the join:
   `remote-instances.json` beside `registry.json`, the same discipline as
   `provider-keys.json`. The password is never stored and no credential ever
   reaches a renderer.
-- Main merges the remote's `BackendState.projects` into local state as
-  `remoteInstances[i].projects`. Local `projects` stays local-only; a remote
-  session is found by walking the joined groups.
+- Main merges the remote's `BackendState.projects` and `BackendState.modelFavorites`
+  into local state as `remoteInstances[i].projects` /
+  `remoteInstances[i].modelFavorites`. Local `projects` and local
+  `modelFavorites` stay local-only; a remote session is found by walking the
+  joined groups.
 - Main routes by **tab id**. Every tab-scoped request or notification carries
   the owning `tabId` as its first argument; `routeByTab` looks up the tab's
   owner and forwards to that instance or to the local handler. Project-scoped
   calls reach a remote through two explicit channels,
   `remote-instance:request` and `remote-instance:notify`, behind an allowlist
-  (`REMOTE_PROXY_CHANNELS`). Remote tab events (`pty:data`, `rpc:frame`,
-  `shell:*`, `pty:exit`, `session:hibernated`) are mirrored into local sinks
-  unchanged; a remote `state:changed` is folded into that instance's
-  `projects`; every other remote event is dropped.
+  (`REMOTE_PROXY_CHANNELS`) — which carries exactly one app-scoped entry,
+  `favorites:toggle`, addressed by `instanceId` because a favorite belongs to
+  the instance, not to a session or project. Remote tab events (`pty:data`,
+  `rpc:frame`, `shell:*`, `pty:exit`, `session:hibernated`) are mirrored into
+  local sinks unchanged; a remote `state:changed` is folded into that
+  instance's `projects` and `modelFavorites`, a partial or malformed payload
+  keeping the last good values; every other remote event is dropped.
 - The renderer keeps **one** backend. Its project-keyed maps use a composite
   `projectKey(instanceId, path)`, and `TabInfo.instanceId` records the owner.
   For project-scoped actions it builds a thin per-instance `OmpBackend` over
@@ -68,9 +73,10 @@ We decided against that reading. The Electron **main process** owns the join:
   decrypts keeps its entry, reported as *sign-in required*, instead of
   silently forgetting the instance.
 - **Joins are one level deep and directed.** The proxy reads a remote's own
-  `projects` only, never its `remoteInstances`, so A↔B mutual joins cannot
-  recurse and joining B from A gives B no view of A. Joining an app's own URL
-  is detected by a persistent per-app `instanceId` and shown as *this app*.
+  `projects` and `modelFavorites` only, never its `remoteInstances`, so A↔B
+  mutual joins cannot recurse and joining B from A gives B no view of A.
+  Joining an app's own URL is detected by a persistent per-app `instanceId`
+  and shown as *this app*.
 - **Version skew surfaces per call.** An older remote without
   `instance:identity` is refused at join time as *incompatible*. A joined
   remote that lacks one newer channel rejects that one action with its own
@@ -80,9 +86,14 @@ We decided against that reading. The Electron **main process** owns the join:
   a terminal, `file:open`, `file:showInFolder`, and the remote's own
   preferences, updates, providers, remote-access and diagnostics channels are
   outside the allowlist. The renderer hides those controls for remote targets;
-  the proxy refuses them if asked.
+  the proxy refuses them if asked. `favorites:toggle` is the one app-level
+  channel inside the allowlist — model favorites follow the owning instance
+  the way its projects do — while general settings and provider channels stay
+  outside it: a remote palette with no catalog shows guidance naming the
+  instance instead of opening this app's Providers page, because provider
+  credentials are host-local.
 - **Disconnects keep the sidebar honest.** A dropped socket marks the instance
-  *unreachable* and keeps its last-known projects visible but dimmed; main
-  retries with capped backoff (1 s → 30 s). A rejected credential (`401`)
-  stops retrying and asks for a fresh sign-in, so a changed remote password
-  never becomes a retry storm.
+  *unreachable* and keeps its last-known projects and favorites visible but
+  dimmed; main retries with capped backoff (1 s → 30 s). A rejected credential
+  (`401`) stops retrying and asks for a fresh sign-in, so a changed remote
+  password never becomes a retry storm.

@@ -2,8 +2,15 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { McpServerEntry, McpServersResult, ProjectRecord } from "@omp-ui/core/types";
-import { backendState } from "../test/fixtures";
+import type {
+  McpServerEntry,
+  McpServersResult,
+  ProjectRecord,
+  SessionSummary,
+} from "@omp-ui/core/types";
+import { projectKey } from "../lib/project-key";
+import type { ModelInfo } from "../lib/rpc-types";
+import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -18,10 +25,12 @@ const backendMock = {
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: "omp/advisor" })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
+  remoteInstanceRequest: vi.fn(),
+  remoteInstanceNotify: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 
-const { useStore } = await import("../store");
+const { useStore, findInstance } = await import("../store");
 const { ProjectSettings } = await import("./ProjectSettings");
 
 const PROJECT = "/p";
@@ -37,6 +46,34 @@ const writableRow: McpServerEntry = {
   state: "enabled",
   writable: true,
 };
+
+/** A live session record: its tab's rpc state is the palette's catalog source. */
+function liveSession(tabId: string): SessionSummary {
+  return {
+    tabId,
+    sessionId: "s1",
+    lineageDir: "omp-ui--p--s1",
+    projectCwd: PROJECT,
+    launchedAt: "t",
+    mode: "rpc-ui",
+    worktree: null,
+    planImplementationSource: null,
+    agentMode: "build",
+    compactionMethod: null,
+    model: null,
+    thinkingLevel: null,
+    advisor: false,
+    advisorModel: null,
+    cachedTitle: "T",
+    cachedModified: "t",
+    title: "T",
+    status: "complete",
+    live: "live",
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+  };
+}
 
 /** A live session in the fixture: the dialog must still pin no tab. */
 const liveSessionState = backendState({
@@ -54,32 +91,7 @@ const liveSessionState = backendState({
         defaultModel: null,
         defaultAdvisorModel: null,
       },
-      sessions: [
-        {
-          tabId: "tab-1",
-          sessionId: "s1",
-          lineageDir: "omp-ui--p--s1",
-          projectCwd: PROJECT,
-          launchedAt: "t",
-          mode: "rpc-ui",
-          worktree: null,
-          planImplementationSource: null,
-          agentMode: "build",
-          compactionMethod: null,
-          model: null,
-          thinkingLevel: null,
-          advisor: false,
-          advisorModel: null,
-          cachedTitle: "T",
-          cachedModified: "t",
-          title: "T",
-          status: "complete",
-          live: "live",
-          pendingPlan: null,
-          planSettle: null,
-          streamStalled: false,
-        },
-      ],
+      sessions: [liveSession("tab-1")],
     },
   ],
 });
@@ -95,6 +107,15 @@ const project: ProjectRecord = {
   defaultModel: "pin/main",
   defaultAdvisorModel: "pin/advisor:high",
 };
+
+/** The joined instance owning the remote project in the routing test below. */
+const INSTANCE = "inst-1";
+
+/** The remote session's live catalog: `Change` opens the palette, not the editor. */
+const catalogModels: ModelInfo[] = [
+  { id: "claude-sonnet", name: "Claude Sonnet", provider: "anthropic" },
+  { id: "gpt-5", name: "GPT-5", provider: "openai" },
+];
 
 /** A catalog read with no rows: the sections still render, per #374's rule. */
 const emptyCatalog = () => ({
@@ -113,17 +134,26 @@ const emptyCatalog = () => ({
   ompVersion: "18.1.10",
 });
 
-/** Mirrors App.tsx's mounting: the dialog exists only while the store says so. */
+/** Mirrors App.tsx's mounting: the dialog reads its project from the owning
+ * registry — this host's, or a joined instance's (issue #416) — and passes the
+ * instance id down; the dialog exists only while the store says so. */
 function Gate() {
   const projectSettings = useStore((s) => s.projectSettings);
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
   const state = useStore((s) => s.state);
+  const instanceId = projectSettings?.instanceId ?? null;
+  const groups =
+    instanceId === null ? state?.projects : findInstance(state, instanceId)?.projects;
   const resolved =
     projectSettings === null
       ? null
-      : state?.projects.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
-  return resolved !== null ? (
-    <ProjectSettings project={resolved} onClose={closeProjectSettings} />
+      : groups?.find((g) => g.project.path === projectSettings.projectCwd)?.project ?? null;
+  return resolved !== null && projectSettings !== null ? (
+    <ProjectSettings
+      project={resolved}
+      instanceId={projectSettings.instanceId}
+      onClose={closeProjectSettings}
+    />
   ) : null;
 }
 
@@ -158,6 +188,22 @@ function switchFor(label: string): HTMLButtonElement {
   return found;
 }
 
+function buttonTitled(title: string): HTMLButtonElement {
+  const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.title === title,
+  );
+  expect(found).toBeDefined();
+  return found!;
+}
+
+function buttonContaining(text: string): HTMLButtonElement {
+  const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.textContent?.includes(text),
+  );
+  expect(found).toBeDefined();
+  return found!;
+}
+
 async function type(input: HTMLInputElement, value: string): Promise<void> {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
@@ -172,6 +218,15 @@ beforeEach(() => {
   backendMock.setMcpServerEnabled.mockResolvedValue({ servers: [], errors: [] });
   backendMock.getScopedCapabilities.mockResolvedValue(emptyCatalog());
   backendMock.setScopedCapability.mockResolvedValue(emptyCatalog());
+  // A joined instance answers the same channels the local backend does.
+  backendMock.remoteInstanceRequest.mockImplementation(
+    async (_instanceId: string, channel: string) =>
+      channel === "mcp:list"
+        ? { servers: [], errors: [] }
+        : channel === "capabilities:scoped"
+          ? emptyCatalog()
+          : {},
+  );
   useStore.setState({
     capabilitiesViewer: null,
     projectSettings: { projectCwd: PROJECT, instanceId: null },
@@ -367,5 +422,93 @@ describe("ProjectSettings", () => {
     const state = useStore.getState().state!;
     act(() => useStore.setState({ state: { ...state, projects: [] } }));
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("routes every pin mutation on a remote project through its instance (issue #440)", async () => {
+    // The project is registered on a joined instance, not this host; its live
+    // session carries the catalog, and the advisor cache keys on instance+cwd.
+    useStore.setState({
+      projectSettings: { projectCwd: PROJECT, instanceId: INSTANCE },
+      state: backendState({
+        remoteInstances: [
+          remoteInstance({ projects: [{ project, sessions: [liveSession("remote-tab")] }] }),
+        ],
+      }),
+      rpc: {},
+      advisorDefaults: {
+        [projectKey(INSTANCE, PROJECT)]: { enabled: false, model: "omp/advisor" },
+      },
+    });
+    await renderDialog();
+
+    // No catalog yet: Change opens the typed editor, and a typed set rides
+    // the instance's project channels with the exact pin args.
+    await act(async () => buttons("Change")[0]!.click());
+    await type(
+      document.body.querySelector<HTMLInputElement>('input[aria-label="Default model"]')!,
+      "provider/model-id",
+    );
+    await act(async () => button("Set").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setDefaultModel",
+      [PROJECT, "provider/model-id"],
+    );
+
+    await act(async () => buttons("Change")[1]!.click());
+    await type(
+      document.body.querySelector<HTMLInputElement>(
+        'input[aria-label="Default advisor model"]',
+      )!,
+      "provider/advisor-id",
+    );
+    await act(async () => button("Set").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setDefaultAdvisorModel",
+      [PROJECT, "provider/advisor-id"],
+    );
+
+    // Clear rides the same instance channels — a remote project never writes
+    // the local registry.
+    await act(async () => buttons("Clear")[0]!.click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setDefaultModel",
+      [PROJECT, null],
+    );
+    await act(async () => buttons("Clear")[1]!.click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setDefaultAdvisorModel",
+      [PROJECT, null],
+    );
+
+    // The remote session's catalog turns Change into a palette pick; picks
+    // ride the instance's channels too.
+    act(() =>
+      useStore.setState({ rpc: { "remote-tab": rpcTabState({ availableModels: catalogModels }) } }),
+    );
+    await act(async () => buttons("Change")[0]!.click());
+    await act(async () => buttonTitled("anthropic").click());
+    await act(async () => buttonContaining("Claude Sonnet").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setDefaultModel",
+      [PROJECT, "anthropic/claude-sonnet"],
+    );
+
+    await act(async () => buttons("Change")[1]!.click());
+    await act(async () => buttonTitled("openai").click());
+    await act(async () => buttonContaining("GPT-5").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setDefaultAdvisorModel",
+      [PROJECT, "openai/gpt-5"],
+    );
+
+    // The local registry is never written for a remote project.
+    expect(backendMock.setProjectDefaultModel).not.toHaveBeenCalled();
+    expect(backendMock.setProjectDefaultAdvisorModel).not.toHaveBeenCalled();
   });
 });

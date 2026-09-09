@@ -4,9 +4,10 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BackendState, ProjectGroup } from "@omp-ui/core/types";
 import type { ModelInfo } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
-import { backendState, rpcTabState } from "../test/fixtures";
+import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,6 +16,11 @@ Object.assign(window, { ompBackend: {} });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
 const { ModelPalette, ModelSelector } = await import("./ModelSelector");
+
+// Tests that replace store actions with mocks restore these originals in
+// beforeEach so a vi.fn() never leaks into later tests.
+const realToggleFavorite = useStore.getState().toggleFavorite;
+const realOpenSettings = useStore.getState().openSettings;
 
 const TAB = "model-selector-tab";
 const current: ModelInfo = { id: "claude-sonnet", name: "Claude Sonnet", provider: "anthropic" };
@@ -25,6 +31,65 @@ const models: ModelInfo[] = [
   { id: "gpt-5", name: "GPT-5", provider: "openai" },
 ];
 const state = backendState();
+
+const INSTANCE = "inst-remote";
+const NICKNAME = "build-box";
+
+function remoteProjectGroup(): ProjectGroup {
+  return {
+    project: {
+      path: "/remote/project",
+      name: "remote-project",
+      addedAt: "2026-09-09T00:00:00.000Z",
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
+    },
+    sessions: [
+      {
+        tabId: TAB,
+        sessionId: `${TAB}-session`,
+        lineageDir: "omp-ui--remote",
+        projectCwd: "/remote/project",
+        launchedAt: "2026-09-09T00:00:00.000Z",
+        mode: "rpc-ui",
+        worktree: null,
+        planImplementationSource: null,
+        agentMode: "build",
+        compactionMethod: null,
+        model: null,
+        thinkingLevel: null,
+        advisor: false,
+        advisorModel: null,
+        cachedTitle: "Remote session",
+        cachedModified: "2026-09-09T00:00:00.000Z",
+        title: "Remote session",
+        status: "complete",
+        live: "live",
+        pendingPlan: null,
+        planSettle: null,
+        streamStalled: false,
+      },
+    ],
+  };
+}
+
+/** BackendState where TAB's session is owned by the remote instance (issue #440). */
+function remoteOwnedState(): BackendState {
+  return backendState({
+    projects: [],
+    remoteInstances: [
+      remoteInstance({
+        id: INSTANCE,
+        nickname: NICKNAME,
+        projects: [remoteProjectGroup()],
+      }),
+    ],
+  });
+}
 
 function tabState(patch: Partial<RpcTabState> = {}) {
   return rpcTabState({
@@ -84,7 +149,12 @@ function modelButtons(): HTMLButtonElement[] {
 }
 
 beforeEach(() => {
-  useStore.setState({ state, rpc: { [TAB]: tabState() } });
+  useStore.setState({
+    state,
+    rpc: { [TAB]: tabState() },
+    toggleFavorite: realToggleFavorite,
+    openSettings: realOpenSettings,
+  });
 });
 
 afterEach(() => {
@@ -161,6 +231,22 @@ describe("ModelSelector", () => {
     const readyTrigger = buttonByTitle("anthropic/claude-sonnet");
     expect(readyTrigger.disabled).toBe(false);
   });
+
+  it("names the owning instance for an empty remote catalog instead of opening local Settings", () => {
+    const openSettings = vi.fn();
+    useStore.setState({
+      state: remoteOwnedState(),
+      rpc: { [TAB]: tabState({ model: null, availableModels: [] }) },
+      openSettings,
+    });
+    mount(<ModelSelector tabId={TAB} />);
+
+    const trigger = document.body.querySelector<HTMLButtonElement>("button");
+    expect(trigger).not.toBeNull();
+    expect([trigger!.title, trigger!.textContent].join(" ")).toContain(NICKNAME);
+    act(() => trigger!.click());
+    expect(openSettings).not.toHaveBeenCalled();
+  });
 });
 
 describe("ModelPalette variants", () => {
@@ -173,6 +259,7 @@ describe("ModelPalette variants", () => {
         current="openai/gpt-5"
         inherited
         defaultModel="anthropic/claude-sonnet"
+        instanceId={null}
         onPick={pick}
         onClose={vi.fn()}
       />,
@@ -209,6 +296,7 @@ describe("ModelPalette variants", () => {
         variant="main"
         models={ranked}
         current={rankedCurrent}
+        instanceId={null}
         onPick={vi.fn()}
         onClose={vi.fn()}
       />,
@@ -223,6 +311,7 @@ describe("ModelPalette variants", () => {
         current="p/m120"
         inherited={false}
         defaultModel={null}
+        instanceId={null}
         onPick={vi.fn()}
         onClose={vi.fn()}
       />,
@@ -248,6 +337,7 @@ describe("ModelPalette variants", () => {
         variant="main"
         models={[rich]}
         current={rich}
+        instanceId={null}
         onPick={pick}
         onClose={vi.fn()}
       />,
@@ -268,6 +358,7 @@ describe("ModelPalette variants", () => {
         variant="main"
         models={models}
         current={current}
+        instanceId={null}
         onPick={vi.fn()}
         onClose={vi.fn()}
       />,
@@ -288,6 +379,7 @@ describe("ModelPalette variants", () => {
         current={current}
         projectPin="openai/gpt-5"
         onPinChange={onPinChange}
+        instanceId={null}
         onPick={vi.fn()}
         onClose={vi.fn()}
       />,
@@ -300,5 +392,79 @@ describe("ModelPalette variants", () => {
     expect(onPinChange).toHaveBeenCalledWith("anthropic/claude-sonnet");
     act(() => buttonByText("Clear").click());
     expect(onPinChange).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("remote instance ownership (#440)", () => {
+  it("serves Favorites from the owning instance and routes star clicks to it", () => {
+    const remoteModel: ModelInfo = { id: "gemini-pro", name: "Gemini Pro", provider: "google" };
+    const catalog: ModelInfo[] = [current, alternate, remoteModel];
+    const toggleFavorite = vi.fn();
+    useStore.setState({
+      state: backendState({
+        modelFavorites: ["anthropic/claude-haiku"],
+        remoteInstances: [
+          remoteInstance({ id: INSTANCE, nickname: NICKNAME, modelFavorites: ["google/gemini-pro"] }),
+        ],
+      }),
+      toggleFavorite,
+    });
+
+    mount(
+      <ModelPalette
+        variant="main"
+        models={catalog}
+        current={current}
+        instanceId={INSTANCE}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const remoteRows = modelButtons();
+    expect(remoteRows).toHaveLength(1);
+    expect(remoteRows[0]!.textContent).toContain("google/gemini-pro");
+    const star = remoteRows[0]!.parentElement!.querySelectorAll<HTMLButtonElement>("button")[1]!;
+    act(() => star.click());
+    expect(toggleFavorite).toHaveBeenCalledTimes(1);
+    expect(toggleFavorite).toHaveBeenCalledWith("google/gemini-pro", INSTANCE);
+
+    mount(
+      <ModelPalette
+        variant="main"
+        models={catalog}
+        current={current}
+        instanceId={null}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const localRows = modelButtons();
+    expect(localRows).toHaveLength(1);
+    expect(localRows[0]!.textContent).toContain("anthropic/claude-haiku");
+  });
+
+  it("points a remote footer at the owning instance without a provider-keys link", () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [remoteInstance({ id: INSTANCE, nickname: NICKNAME })],
+      }),
+    });
+    mount(
+      <ModelPalette
+        variant="main"
+        models={models}
+        current={current}
+        instanceId={INSTANCE}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(document.body.textContent).toContain(NICKNAME);
+    expect(document.body.textContent).toContain(t("composer.model.pricesNote"));
+    const providerKeys = [...document.body.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes(t("composer.model.providerKeys")),
+    );
+    expect(providerKeys).toBeUndefined();
   });
 });

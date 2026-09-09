@@ -5,9 +5,10 @@ import { useT, type MessageKey } from "../lib/i18n";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { usePreparedPlanDocument } from "../lib/plan-document";
+import { projectKey } from "../lib/project-key";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findRecord, useStore } from "../store";
+import { findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { shortLabel, splitRole } from "./AdvisorControl";
@@ -223,8 +224,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const currentThinking = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const availableModels = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY_MODELS);
   const sessionRecord = useStore((s) => findRecord(s.state, tabId));
+  // The session's owning instance (issue #416): its advisor defaults live on
+  // that host, keyed by projectKey in the store.
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
-  const advisorDefaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectCwd] : undefined));
+  const advisorDefaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectKey(instanceId, projectCwd)] : undefined));
   // This instance's dev/test advisor override (issue #372): the same backend
   // state both renderers hydrate from; display precedence only.
   const gateAdvisor = useStore((s) => s.state?.spawnGate.advisorModel ?? null);
@@ -268,10 +272,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     setWorktreeSel(null);
   }
 
-  // omp's config supplies the inherited advisor default, read in main.
+  // omp's config supplies the inherited advisor default, read on the owning
+  // instance's host.
   useEffect(() => {
-    if (projectCwd !== undefined) void loadAdvisorDefaults(projectCwd);
-  }, [projectCwd, loadAdvisorDefaults]);
+    if (projectCwd !== undefined) void loadAdvisorDefaults(projectCwd, instanceId);
+  }, [projectCwd, instanceId, loadAdvisorDefaults]);
 
   /** Anchors for the two thinking-level popovers. */
   const mainLevelAnchor = useRef<HTMLSpanElement | null>(null);
@@ -1076,6 +1081,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
         variant="main"
         models={availableModels}
         current={stagedModel}
+        instanceId={instanceId}
         onClose={() => setPickingModel(false)}
         // Composer parity: picking a model keeps the staged thinking level —
         // omp clamps an invalid one.
@@ -1090,6 +1096,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
         variant="advisor"
         models={availableModels}
         current={effectiveAdvisor}
+        instanceId={instanceId}
         inherited={advisorInherited}
         defaultModel={advisorDefaults?.model ?? null}
         onClose={() => setPickingAdvisorModel(false)}

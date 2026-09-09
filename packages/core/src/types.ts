@@ -895,8 +895,10 @@ export type RemoteInstanceStatus =
 
 /**
  * One joined omp-ui instance as the renderer sees it. Carries the remote's own
- * `projects` verbatim (its owned sessions, live and hibernated); never its
- * credential, never its `remoteInstances`.
+ * `projects` verbatim (its owned sessions, live and hibernated) and its own
+ * favorite model list (issue #440); never its credential, never its
+ * `remoteInstances`, and never any of its other app state (settings,
+ * providers, updates, diagnostics).
  */
 export interface RemoteInstanceSummary {
   id: string;
@@ -909,6 +911,8 @@ export interface RemoteInstanceSummary {
   /** The remote's omp-ui version from `instance:identity`; null until joined. */
   version: string | null;
   projects: ProjectGroup[];
+  /** The remote's own favorite model list (issue #440); [] until adopted. */
+  modelFavorites: string[];
 }
 
 /** Answer to `instance:identity`; lets a joiner detect itself and version skew. */

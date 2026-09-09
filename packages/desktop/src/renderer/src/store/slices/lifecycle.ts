@@ -559,8 +559,18 @@ export function createLifecycleSlice(
     }
   };
 
-  const toggleFavorite = async (key: string): Promise<void> => {
-    await backend.toggleFavorite(key);
+  // No optimistic update: the `stateChanged` broadcast replaces `state`
+  // authoritatively, exactly like moveProject. A rejected remote call is
+  // reported and resolved — the local registry is never touched as a fallback.
+  const toggleFavorite = async (
+    key: string,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    try {
+      await backendFor(instanceId).toggleFavorite(key);
+    } catch (err) {
+      get().reportError(err);
+    }
   };
 
   const newSession = async (

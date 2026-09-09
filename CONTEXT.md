@@ -604,11 +604,18 @@ saved with a nickname, its connection URL, and a credential. Its projects
 and owned sessions appear in the sidebar under the nickname; opening one
 renders that host's own stream, and every action on it runs on that host's
 registry and processes — nothing is copied and no second omp process starts.
-The relation is directed: joining B from A gives B no view of A, and a join
-never follows the remote's own joins. Quitting this app disconnects remote
-instances; their sessions keep running, exactly as closing a browser view
-does. The nickname is optional (defaults to the URL's host), unique among
-joined instances, and is how every surface labels the host.
+Model choice follows the owner: a remote tab's model catalog, favorites,
+project model pins, and advisor defaults are that instance's — starring a
+model or pinning a project default runs on that host, a rejected favorite
+toggle is reported rather than written here, and the same favorites show in
+every view of that instance. Provider administration stays host-local: a
+remote tab with no models shows guidance naming the instance instead of
+opening this app's Providers page, because its provider credentials live on
+that host. The relation is directed: joining B from A gives B no view of A,
+and a join never follows the remote's own joins. Quitting this app
+disconnects remote instances; their sessions keep running, exactly as closing
+a browser view does. The nickname is optional (defaults to the URL's host),
+unique among joined instances, and is how every surface labels the host.
 _Avoid_: remote server (the embedded listener this app hosts), remote host
 (the `RemoteHost` seam), peer, connection
 

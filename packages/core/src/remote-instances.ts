@@ -155,6 +155,10 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   ...TAB_ROUTED_REQUESTS,
   ...TAB_ROUTED_NOTIFIES,
   ...PROJECT_PROXY_CHANNELS,
+  // The remote's favorite model list follows the owning instance (issue #440):
+  // a remote palette toggles the remote's own favorites, never host state.
+  // Instance-scoped rather than project-scoped, so it rides here directly.
+  "favorites:toggle",
 ]);
 
 /** Events a joined instance emits that are mirrored to local sinks unchanged. */

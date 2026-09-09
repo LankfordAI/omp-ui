@@ -511,7 +511,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     model: string | null,
     instanceId?: string | null,
   ): Promise<void>;
-  toggleFavorite(key: string): Promise<void>;
+  toggleFavorite(key: string, instanceId?: string | null): Promise<void>;
   newSession(
     projectCwd: string,
     modeOverride?: SessionMode,
