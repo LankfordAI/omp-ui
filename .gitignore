@@ -3,3 +3,5 @@ out/
 dist/
 *.log
 .omp/
+packages/host/resources/
+packages/host/.cache/

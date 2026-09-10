@@ -22,7 +22,6 @@ import {
 } from "../../lib/transcript";
 import type { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import type { PlanConcernWatcher } from "../../lib/plan-concerns";
-import type { StallContinueWatcher } from "../../lib/stall-continue";
 import { backend } from "../../backend";
 import type {
   RpcTabState,
@@ -38,7 +37,6 @@ export type GetState = StoreApi<UiStore>["getState"];
 export interface Watchers {
   concern: PlanConcernWatcher;
   advisorReply: AdvisorReplyWatcher;
-  stall: StallContinueWatcher;
 }
 
 export interface TranscriptBatch {
@@ -225,7 +223,7 @@ export function deriveSidebarSessionState(
 ): SidebarSessionState {
   if (summary.live !== "live") return summary.live;
   if (exitCode !== undefined) return "dormant";
-  // A pending gate is main-process state (issue #215) — the record alone
+  // A pending gate is host state (issue #215) — the record alone
   // marks the session awaiting-answer, even before its tab is booted.
   if (summary.pendingPlan !== null) return "awaiting-answer";
   if (summary.mode === "pty") return "live";

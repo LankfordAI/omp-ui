@@ -109,7 +109,6 @@ export const TAB_ROUTED_NOTIFIES: ReadonlySet<string> = new Set<string>([
   "shell:write",
   "shell:resize",
   "rpc:send",
-  "stall:cap",
 ]);
 
 /** Project-scoped channels the renderer may address to a joined instance through the proxy. */

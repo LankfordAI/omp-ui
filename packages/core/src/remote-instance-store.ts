@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { writeTextAtomic } from "./atomic-write";
+import { writeTextDurably } from "./atomic-write";
 import type { KeyCipher } from "./provider-keys";
 import type { RemoteInstanceRecord } from "./remote-instances";
 
@@ -80,7 +80,7 @@ export class RemoteInstanceStore {
       schemaVersion: 1,
       instances: this.entries.map((e) => ({ ...e.record, credential: e.blob })),
     };
-    writeTextAtomic(this.file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
+    writeTextDurably(this.file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
   }
 
   private encrypt(credential: string): string {

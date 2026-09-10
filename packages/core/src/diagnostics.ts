@@ -23,16 +23,32 @@ import type {
   ProjectRecord,
 } from "./types";
 
+/**
+ * What the host knows about the desktop client that requested the bundle — its hello, nothing
+ * more: null for a browser client (issue #442 §13). Client-local files (window state, Electron
+ * logs) live on the client machine and never cross the host boundary.
+ */
+export interface DesktopClientFacts {
+  clientKind: string;
+  clientVersion: string;
+  protocolVersion: number;
+}
+
+/** The host process's own identity and health, as `host:status` reports them. */
+export interface HostDiagnosticsFacts {
+  dataRoot: string;
+  hostVersion: string;
+  hostProtocol: number;
+  verifier: { state: "ready" | "degraded"; reason: string | null; pin: string | null; sha256: string | null };
+  credentialBackend: string;
+}
+
 /** Everything about this machine/app that a bundle reports verbatim. */
 export interface DiagnosticsFacts {
   appVersion: string;
   ompVersion: string | null;
   ompPath: string | null;
-  electronVersion: string | null;
   nodeVersion: string;
-  chromeVersion: string | null;
-  packaged: boolean;
-  packageFormat: string;
   platform: string;
   arch: string;
   osRelease: string;
@@ -44,10 +60,11 @@ export interface DiagnosticsFacts {
   agentDir: string;
   registryFile: string;
   logDir: string;
-  windowStateFile: string;
+  host: HostDiagnosticsFacts;
+  desktopClient: DesktopClientFacts | null;
 }
 
-/** One in-memory breadcrumb ring entry (structurally the desktop ring's type). */
+/** One in-memory breadcrumb ring entry (structurally the host ring's type). */
 export interface DiagnosticsBreadcrumbEntry {
   at: string;
   seq: number;
@@ -79,7 +96,7 @@ const DEFAULT_TRANSCRIPT_CAP_BYTES = 64 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_LINES = 2_000;
 
-/** The rotated main-process logs beside the live ones (each ≤ 1 MiB by rotation). */
+/** The host's rotated logs beside the live ones (each ≤ 1 MiB by rotation). */
 const LOG_FILES = [
   "main.log",
   "main.log.old",
@@ -265,11 +282,9 @@ async function buildSections(
     appVersion: o.facts.appVersion,
     ompVersion: o.facts.ompVersion,
     ompPath: o.facts.ompPath,
-    electronVersion: o.facts.electronVersion,
     nodeVersion: o.facts.nodeVersion,
-    chromeVersion: o.facts.chromeVersion,
-    packaged: o.facts.packaged,
-    packageFormat: o.facts.packageFormat,
+    host: o.facts.host,
+    desktopClient: o.facts.desktopClient,
   });
   sections.push({ id: "versions", prefix: "", included: true, files: [versions] });
 
@@ -391,16 +406,6 @@ async function buildSections(
   const breadcrumbs = bytesFile("breadcrumbs.json", [...(o.breadcrumbs ?? [])]);
   sections.push({ id: "breadcrumbs", prefix: "", included: true, files: [breadcrumbs] });
 
-  const windowState: PlannedFile[] = [];
-  const wsSize = statSize(o.facts.windowStateFile);
-  if (wsSize !== null) windowState.push(copyFile("window-state.json", o.facts.windowStateFile));
-  sections.push({
-    id: "window-state",
-    prefix: "",
-    included: windowState.length > 0,
-    files: windowState,
-  });
-
   const transcriptFiles: PlannedFile[] = [];
   if (o.includeTranscripts) {
     const cap = o.transcriptCapBytes ?? DEFAULT_TRANSCRIPT_CAP_BYTES;
@@ -462,14 +467,15 @@ function manifestBytes(
     generatedAt: now.toISOString(),
     appVersion: o.facts.appVersion,
     ompVersion: o.facts.ompVersion,
-    electronVersion: o.facts.electronVersion,
+    host: o.facts.host,
+    desktopClient: o.facts.desktopClient,
     includeTranscripts: o.includeTranscripts,
     sections,
     redaction: [
       "provider-keys.json and all key material are never read",
       "remote-instances.json (joined-instance credentials) is never read",
       "remoteToken/remotePasswordHash/remotePasswordSalt replaced by hasRemoteToken/hasRemotePassword booleans",
-      "<userData>/oauth-login/ is never walked",
+      "<dataRoot>/oauth-login/ is never walked",
       "plan bodies, transcripts (unless opted in), and project file contents are excluded",
     ],
     warnings,

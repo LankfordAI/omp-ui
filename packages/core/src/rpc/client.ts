@@ -6,6 +6,8 @@ import { withFdSweep } from "../fd-sweep";
 import { RpcChunkReassembler, type RpcFrame } from "./codec";
 
 export interface RpcChildProcess {
+  /** The child's OS pid; undefined when the spawn itself failed (`onSpawnError` fires). */
+  readonly pid: number | undefined;
   stdin: Writable;
   stdout: Readable;
   stderr: Readable;
@@ -63,6 +65,7 @@ function defaultSpawn(ompPath: string, args: string[], env: NodeJS.ProcessEnv): 
     env,
   });
   return {
+    pid: proc.pid,
     stdin: proc.stdin,
     stdout: proc.stdout,
     stderr: proc.stderr,
@@ -137,6 +140,11 @@ export class RpcClient {
         );
       }
     }, READY_TIMEOUT_MS);
+  }
+
+  /** The child's OS pid, for the children ledger; undefined when the spawn failed. */
+  get pid(): number | undefined {
+    return this.#proc.pid;
   }
 
   send(cmd: object): void {

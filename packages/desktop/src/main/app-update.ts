@@ -2,33 +2,31 @@ import { join } from "node:path";
 import { shell, type BrowserWindow } from "electron";
 import {
   APP_RELEASE_DOWNLOAD_BASE,
-  compareVersions,
   detectPackageFormat,
   downloadAppAsset,
   fetchLatestAppRelease,
   fetchSha256Sums,
-  parseSemver,
   selectAsset,
   type AppReleaseInfo,
-  type AppPackageFormat,
-  type AppUpdateRestartResult,
-  type AppUpdateState,
-  type DownloadFetchLike,
-  type FetchLike,
-} from "@omp-ui/core";
-import { UpdateController, type UpdateControllerDeps } from "./update-controller";
+} from "@omp-ui/core/app-update";
+import type { DownloadFetchLike, FetchLike } from "@omp-ui/core/fetch";
+import { compareVersions, parseSemver } from "@omp-ui/core/omp-update";
+import type { AppPackageFormat, AppUpdateState } from "@omp-ui/core/types";
+import { UpdateController, type UpdateControllerDeps } from "@omp-ui/core/update-controller";
 
 // Main-process orchestration for omp-ui's own release updates (issue #18).
 // All the machine work — release lookup, package-format detection, the
 // checksum-verified download — lives in @omp-ui/core; this file owns the
-// state machine the renderer's update card renders, plus the AppImage/NSIS/
-// macOS-zip in-place path through electron-updater.
+// state machine the renderer's update card renders through the desktop
+// adapter (#454), plus the AppImage/NSIS/macOS-zip in-place path through
+// electron-updater. The client's own update is a client effect: the
+// persistent host never sees it, and its dismissal is the one thing kept in
+// host settings so it follows the user across clients.
 //
 // Quiet by default: background checks never surface errors or up-to-date
 // states. Auto-updates stage immediately and quietly; only the verified,
 // downloaded update earns the card. Manual checks expose staging progress and
 // failures. Other package formats still wait for an explicit Download click.
-
 
 /** Auto-updatable through electron-updater: AppImage, NSIS, macOS ZIP feed. */
 export type AutoUpdateFormat = "appimage" | "nsis" | "maczip";
@@ -61,12 +59,12 @@ export interface AppUpdaterDeps extends UpdateControllerDeps<AppUpdateState> {
   enabled: boolean;
   currentVersion: string;
   downloadsDir: string; // app.getPath("downloads")
-  /** Main-process live-session authority, re-read immediately before restart. */
-  hasLiveSessions: () => boolean;
   /**
-   * Latches (true) / revokes (false) the main process's update-quit
-   * authorization: bypasses the darwin hide-on-close and both live-session
-   * quit guards while the installer handoff is in flight (issue #244).
+   * Latches (true) / revokes (false) the client's update-quit authorization:
+   * Electron's native quitAndInstall closes every window before before-quit
+   * fires, so the darwin hide-on-close must stand down for that close or the
+   * quit silently aborts (issue #244). Client-local; sessions live in the host
+   * and are unaffected by this process quitting.
    */
   setQuitAuthorized: (on: boolean) => void;
   fetchImpl?: FetchLike; // tests
@@ -339,6 +337,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   private installOnQuitArmed = false;
   /** Irreversible installer-handoff guard while quitAndInstall is in flight. */
   private restarting = false;
+  /** Stale-dismissal reap latch; see checkNow. */
+  private reaped = false;
 
   constructor(private readonly deps: AppUpdaterDeps) {
     super(
@@ -360,9 +360,6 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       deps.enabled &&
       deps.currentVersion !== "0.0.0" &&
       parseSemver(deps.currentVersion) !== null;
-    // The running version is fixed for this process, so stale dismissal
-    // reaping happens once at construction.
-    this.reapDismissed(deps.currentVersion);
     this.machine = { state: this.state, release: null, stage: null };
   }
 
@@ -384,6 +381,13 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    * check swallows: up-to-date, unreachable, disabled.
    */
   async checkNow(manual: boolean): Promise<AppUpdateState> {
+    // The running version is fixed for this process, so the stale-dismissal
+    // reap runs once — at the first check rather than construction, because the
+    // dismissal is a host setting that is only known once main is connected.
+    if (!this.reaped) {
+      this.reaped = true;
+      this.reapDismissed(this.deps.currentVersion);
+    }
     if (!this.enabled) {
       if (manual) this.publish({ t: "disabled" });
       return this.state;
@@ -552,17 +556,14 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   }
 
   /**
-   * Two-step restart contract: a live session makes the first request return
-   * to the initiating renderer for confirmation. A confirmed retry re-reads
-   * live state, authorizes the process quit guard, then installs.
+   * Hands the staged update to the installer. Quitting the client stops no
+   * session — they live in the persistent host — so there is nothing to
+   * confirm; a repeat call while the handoff is in flight is a no-op.
    */
-  restart(confirmed = false): AppUpdateRestartResult {
-    if (this.restarting) return "restarting";
-    if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) {
-      return "unavailable";
-    }
-    if (this.autoUpdater === null) return "unavailable";
-    if (this.deps.hasLiveSessions() && !confirmed) return "confirmation-required";
+  restart(): void {
+    if (this.restarting) return;
+    if (this.state.status !== "downloaded" || !isAutoUpdateFormat(this.state.format)) return;
+    if (this.autoUpdater === null) return;
     this.restarting = true;
     this.publish({ t: "installing" });
     this.deps.setQuitAuthorized(true);
@@ -576,9 +577,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
         t: "apply-failed",
         message: error instanceof Error ? error.message : String(error),
       });
-      return "unavailable";
     }
-    return "restarting";
   }
 
   /**

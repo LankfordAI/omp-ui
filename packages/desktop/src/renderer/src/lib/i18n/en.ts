@@ -722,7 +722,9 @@ export const en = {
   "settings.providers.oauthDismiss": "dismiss",
   "settings.providers.oauthStarting": "Starting omp\u2026",
   "settings.providers.oauthBrowser":
-    "Finish signing in in the browser omp-ui just opened. This page updates as soon as omp receives the callback.",
+    "Finish signing in in your browser. This page updates as soon as omp receives the callback.",
+  "settings.providers.oauthRemoteCallback":
+    "The sign-in page's callback goes to the machine running the omp-ui host. Finish signing in there, or paste the redirect URL here when asked.",
   "settings.providers.oauthOpenLink": "Open sign-in page",
   "settings.providers.oauthSubmit": "Submit",
   "settings.providers.oauthInputAria": "{name} sign-in response",
@@ -846,6 +848,28 @@ export const en = {
   "update.omp.checkFailed": "Update check failed",
   "update.omp.installFailed": "Install failed",
   "update.omp.dismissLabel": "dismiss omp {version} offer",
+  // HostUpdateCard (issue #442 §10.2): the persistent host's own update, shown to every client.
+  "update.host.title": "Host",
+  "update.host.version": "{version} · protocol {protocol}",
+  "update.host.noCheckYet": "no check has run yet",
+  "update.host.checking": "checking…",
+  "update.host.upToDate": "up to date",
+  "update.host.available": "{version} available",
+  "update.host.downloading": "downloading {version}…",
+  "update.host.staged": "{version} downloaded and verified — applies at the next quiet moment",
+  "update.host.countdown": "{version} applies in {remaining}",
+  "update.host.countdownDetail": "{sessions} live session(s) will be interrupted · deferred {deferrals} of {limit}",
+  "update.host.applying": "applying {version} — the host restarts and every client reconnects",
+  "update.host.failed": "host update failed",
+  "update.host.currentIsStaged": "running a staged build that has not confirmed itself yet",
+  "update.host.lastApplied": "last update: {from} → {to}",
+  "update.host.lastRolledBack": "rolled back: {from} → {to}",
+  "update.host.lastFailed": "failed update: {from} → {to}",
+  "update.host.check": "Check now",
+  "update.host.download": "Download",
+  "update.host.applyNow": "Apply now",
+  "update.host.defer": "Defer",
+  "update.host.rollback": "Roll back to {version}",
   // TerminalTab
   "terminal.tab.attachImages": "attach images",
   "terminal.tab.exited": "agent exited",
@@ -1595,6 +1619,7 @@ export const en = {
   "dialog.diagnostics.saveWeb": "Create bundle",
   "dialog.diagnostics.busy": "Writing…",
   "dialog.diagnostics.done": "Bundle written",
+  "dialog.diagnostics.doneOnHost": "Saved on the host at",
   "dialog.diagnostics.retry": "Retry",
   "dialog.diagnostics.cancel": "Cancel",
   "app.crash.diagnostics":
@@ -1604,7 +1629,7 @@ export const en = {
   "remoteinstances.page.intro":
     "Join other omp-ui apps that have Remote access enabled. Their projects and sessions appear in the sidebar under the nickname you choose.",
   "remoteinstances.page.footer":
-    "A joined instance grants this app full control of that host's sessions and files. Credentials are stored encrypted by the OS credential store.",
+    "A joined instance grants this app full control of that instance's sessions and files. Credentials are stored encrypted by the OS credential store.",
   "remoteinstances.page.version": "omp-ui {version}",
   "remoteinstances.field.url": "Connection URL",
   "remoteinstances.field.urlPlaceholder": "http://host:4677 or a pasted token link",
@@ -1638,7 +1663,7 @@ export const en = {
   "remoteinstances.banner.needsSignIn": "{nickname} rejected the stored credential. Sign in again in Settings.",
   "remoteinstances.banner.openSettings": "Open settings",
   "remoteinstances.confirm.remove":
-    "Remove {nickname}? Its sessions keep running on that host; only this app forgets the connection.",
+    "Remove {nickname}? Its sessions keep running on that instance; only this app forgets the connection.",
   "remoteinstances.error.notJoined": "{nickname} is not joined",
   "remoteinstances.picker.title": "Register project on {nickname}",
 } as const;

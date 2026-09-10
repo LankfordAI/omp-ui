@@ -10,7 +10,7 @@ const LOGIN_ATTEMPTS_CAP = 10_000;
 /**
  * Per-IP lockout for POST /login (issue #301). Pure in-memory logic — no HTTP, no Node —
  * so the policy is unit-testable on its own. The server owns one instance per
- * startRemoteServer; a restart (config change) resets the lockout, the documented v1
+ * startHostServer; a restart (config change) resets the lockout, the documented v1
  * behavior.
  */
 export class LoginThrottle {

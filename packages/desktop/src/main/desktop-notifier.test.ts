@@ -1,8 +1,16 @@
-import { CH } from "@omp-ui/core";
+import type { Attention } from "@omp-ui/core/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopNotifier, NOTIFICATION_POST_DELAY_MS } from "./desktop-notifier";
 
 const TAB = "tab-notify";
+/** The notifier's construction instant; levels stamped later are "raised since". */
+const SUBSCRIBED_AT = 10_000;
+let stamp = SUBSCRIBED_AT;
+const level = (kind: Attention["kind"], planTitle: string | null = null): Attention => ({
+  kind,
+  planTitle,
+  atMs: ++stamp,
+});
 
 interface FakeNotification {
   options: { title: string; body: string; icon?: string };
@@ -77,22 +85,21 @@ function setup() {
   const win = makeWin();
   const flags = {
     enabled: true,
-    viewedTab: null as string | null,
     title: "My session",
     icon: "/icons/app.png" as string | null,
     locale: "en",
   };
-  const sent: Array<{ channel: string; args: unknown[] }> = [];
+  const surfaced: string[] = [];
   const notifier = new DesktopNotifier({
     win: win as never,
     isEnabled: () => flags.enabled,
-    isViewedByDesktop: (tabId) => flags.viewedTab === tabId,
     titleOf: () => flags.title,
     localeId: () => flags.locale,
     icon: () => flags.icon,
-    send: (channel, ...args) => sent.push({ channel, args }),
+    surfaceTab: (tabId) => surfaced.push(tabId),
+    now: () => SUBSCRIBED_AT,
   });
-  return { notifier, win, flags, sent };
+  return { notifier, win, flags, surfaced };
 }
 
 beforeEach(() => {
@@ -102,6 +109,7 @@ beforeEach(() => {
   state.ctorError = null;
   state.showError = null;
   state.instances.length = 0;
+  stamp = SUBSCRIBED_AT;
 });
 
 afterEach(() => {
@@ -112,7 +120,7 @@ afterEach(() => {
 describe("DesktopNotifier", () => {
   it("posts a Turn finished banner after the delay, with the session's title", async () => {
     const { notifier } = setup();
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
 
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS - 1);
     expect(state.instances).toHaveLength(0);
@@ -128,34 +136,34 @@ describe("DesktopNotifier", () => {
     });
   });
 
-  it("posts while the window is focused when a different tab is in view (issue #271)", async () => {
-    const { notifier, win, flags } = setup();
+  it("posts while the window is focused when this client views a different tab (issue #271)", async () => {
+    const { notifier, win } = setup();
     win.focused = true;
-    flags.viewedTab = "other-tab";
+    notifier.clientViewed("other-tab");
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(1);
     expect(state.instances[0]!.shown).toBe(1);
   });
 
-  it("suppressed when the focused window is showing this tab", async () => {
-    const { notifier, win, flags } = setup();
+  it("suppressed when the focused window's own client is viewing this tab", async () => {
+    const { notifier, win } = setup();
     win.focused = true;
-    flags.viewedTab = TAB;
+    notifier.clientViewed(TAB);
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(0);
   });
 
   it("posts when the window is unfocused even if the tab is viewed in the window", async () => {
-    const { notifier, flags } = setup();
-    flags.viewedTab = TAB;
+    const { notifier } = setup();
+    notifier.clientViewed(TAB);
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(1);
@@ -165,7 +173,7 @@ describe("DesktopNotifier", () => {
     const { notifier, flags } = setup();
     flags.enabled = false;
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(0);
@@ -175,8 +183,8 @@ describe("DesktopNotifier", () => {
     const { notifier } = setup();
     state.supported = false;
 
-    notifier.turnEnded(TAB);
-    notifier.turnEnded("tab-b");
+    notifier.onAttention(TAB, level("turn-complete"));
+    notifier.onAttention("tab-b", level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(0);
@@ -190,7 +198,7 @@ describe("DesktopNotifier", () => {
     const { notifier, win } = setup();
     win.destroyed = true;
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(0);
@@ -198,7 +206,7 @@ describe("DesktopNotifier", () => {
 
   it("re-reads the switch at fire: flipped off during the delay, nothing posts", async () => {
     const { notifier, flags } = setup();
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     flags.enabled = false;
 
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
@@ -207,20 +215,20 @@ describe("DesktopNotifier", () => {
   });
 
   it("re-reads the view at fire: the focused window showing the tab during the delay, nothing posts", async () => {
-    const { notifier, win, flags } = setup();
-    notifier.turnEnded(TAB);
+    const { notifier, win } = setup();
+    notifier.onAttention(TAB, level("turn-complete"));
     win.focused = true;
-    flags.viewedTab = TAB;
+    notifier.clientViewed(TAB);
 
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(0);
   });
 
-  it("planProposed within the window replaces the pending turn-complete post", async () => {
+  it("a plan-pending level within the window replaces the pending turn-complete post", async () => {
     const { notifier } = setup();
-    notifier.turnEnded(TAB);
-    notifier.planProposed(TAB, "Fix the billing bug");
+    notifier.onAttention(TAB, level("turn-complete"));
+    notifier.onAttention(TAB, level("plan-pending", "Fix the billing bug"));
 
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
@@ -230,18 +238,29 @@ describe("DesktopNotifier", () => {
 
   it("a blank plan title falls back to the answer-needed body", async () => {
     const { notifier } = setup();
-    notifier.planProposed(TAB, "   ");
+    notifier.onAttention(TAB, level("plan-pending", "   "));
 
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances[0]!.options.body).toBe("Plan review — answer needed");
   });
 
+  it("stall-paused posts the paused body", async () => {
+    const { notifier } = setup();
+    notifier.onAttention(TAB, level("stall-paused"));
+
+    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+
+    expect(state.instances[0]!.options.body).toBe(
+      "Stall auto-continue paused — send a prompt to re-arm",
+    );
+  });
+
   it("ko locale: turn-complete posts the Korean body with the session title verbatim", async () => {
     const { notifier, flags } = setup();
     flags.locale = "ko";
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances[0]!.options).toEqual({
@@ -255,7 +274,7 @@ describe("DesktopNotifier", () => {
     const { notifier, flags } = setup();
     flags.locale = "ko";
 
-    notifier.planProposed(TAB, "Fix the billing bug");
+    notifier.onAttention(TAB, level("plan-pending", "Fix the billing bug"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances[0]!.options.body).toBe("플랜 검토: Fix the billing bug");
@@ -265,71 +284,70 @@ describe("DesktopNotifier", () => {
     const { notifier, flags } = setup();
     flags.locale = "ko";
 
-    notifier.planProposed(TAB, "   ");
+    notifier.onAttention(TAB, level("plan-pending", "   "));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances[0]!.options.body).toBe("플랜 검토 — 응답 필요");
   });
 
-  it("stallCap(true) posts the paused body; stallCap(false) drops only stall-paused", async () => {
+  it("a null level drops a pending post and closes a shown banner", async () => {
     const { notifier } = setup();
 
-    notifier.stallCap(TAB, true);
-    notifier.stallCap(TAB, false);
+    notifier.onAttention(TAB, level("turn-complete"));
+    notifier.onAttention(TAB, null);
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances).toHaveLength(0);
 
-    // A turn-complete that replaces the paused state survives the false report.
-    notifier.stallCap(TAB, true);
-    notifier.turnEnded(TAB);
-    notifier.stallCap(TAB, false);
+    notifier.onAttention(TAB, level("plan-pending", "A plan"));
+    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+    expect(state.instances[0]!.shown).toBe(1);
+    notifier.onAttention(TAB, null);
+    expect(state.instances[0]!.closed).toBe(1);
+  });
+
+  it("the same host stamp twice never re-banners; a fresh stamp does", async () => {
+    const { notifier } = setup();
+    const first = level("turn-complete");
+
+    notifier.onAttention(TAB, first);
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances).toHaveLength(1);
-    expect(state.instances[0]!.options.body).toBe("Turn finished");
-  });
 
-  it("planSettled drops only a plan-pending entry", async () => {
-    const { notifier } = setup();
-
-    notifier.planProposed(TAB, "A plan");
-    notifier.planSettled(TAB);
-    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
-    expect(state.instances).toHaveLength(0);
-
-    notifier.planProposed(TAB, "A plan");
-    notifier.planSettled(TAB);
-    notifier.turnEnded(TAB);
+    // A replayed summary carries the same level again (state:changed, reconnect).
+    notifier.onAttention(TAB, { ...first });
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances).toHaveLength(1);
-    expect(state.instances[0]!.options.body).toBe("Turn finished");
+    expect(state.instances[0]!.closed).toBe(0);
+
+    notifier.onAttention(TAB, level("turn-complete"));
+    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
+    expect(state.instances).toHaveLength(2);
+    expect(state.instances[0]!.closed).toBe(1);
   });
 
-  it("turnStarted and sessionExit drop unconditionally; viewedChanged drops the named tab", async () => {
+  it("a level already in place at subscription is recorded, never announced", async () => {
     const { notifier } = setup();
+    const stale: Attention = { kind: "turn-complete", planTitle: null, atMs: SUBSCRIBED_AT };
 
-    notifier.turnEnded(TAB);
-    notifier.turnStarted(TAB);
+    notifier.onAttention(TAB, stale);
+    notifier.onAttention("tab-old", { kind: "plan-pending", planTitle: "p", atMs: SUBSCRIBED_AT - 5_000 });
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances).toHaveLength(0);
 
-    notifier.planProposed(TAB, "A plan");
-    notifier.sessionExit(TAB);
+    // Replaying that same stale level later is still nothing; a newer one posts.
+    notifier.onAttention(TAB, { ...stale });
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
-    expect(state.instances).toHaveLength(0);
-
-    notifier.turnEnded(TAB);
-    notifier.viewedChanged(TAB);
-    await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
-    expect(state.instances).toHaveLength(0);
+    expect(state.instances).toHaveLength(1);
   });
 
-  it("a second schedule closes the previously shown notification (replace, never stack)", async () => {
+  it("a second level closes the previously shown notification (replace, never stack)", async () => {
     const { notifier } = setup();
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances[0]!.shown).toBe(1);
 
-    notifier.planProposed(TAB, "A plan");
+    notifier.onAttention(TAB, level("plan-pending", "A plan"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(2);
@@ -337,10 +355,10 @@ describe("DesktopNotifier", () => {
     expect(state.instances[1]!.shown).toBe(1);
   });
 
-  it("click restores a minimized window, shows, focuses, and fans the focus event", async () => {
-    const { notifier, win, sent } = setup();
+  it("click restores a minimized window, shows, focuses, and surfaces the tab once", async () => {
+    const { notifier, win, surfaced } = setup();
     win.minimized = true;
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     state.instances[0]!.clickHandlers[0]!();
@@ -348,12 +366,12 @@ describe("DesktopNotifier", () => {
     expect(win.restores).toBe(1);
     expect(win.shows).toBe(1);
     expect(win.focuses).toBe(1);
-    expect(sent).toEqual([{ channel: CH.onFocusSession, args: [TAB] }]);
+    expect(surfaced).toEqual([TAB]);
   });
 
   it("click does not restore an un-minimized window", async () => {
     const { notifier, win } = setup();
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     state.instances[0]!.clickHandlers[0]!();
@@ -367,8 +385,8 @@ describe("DesktopNotifier", () => {
     const { notifier } = setup();
     state.ctorError = new Error("no notification daemon");
 
-    notifier.turnEnded(TAB);
-    notifier.turnEnded("tab-b");
+    notifier.onAttention(TAB, level("turn-complete"));
+    notifier.onAttention("tab-b", level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(0);
@@ -379,7 +397,7 @@ describe("DesktopNotifier", () => {
     const { notifier } = setup();
     state.showError = new Error("d-bus is gone");
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
 
     expect(state.instances).toHaveLength(1);
@@ -390,12 +408,12 @@ describe("DesktopNotifier", () => {
   it("dispose cancels a pending post and closes a shown notification", async () => {
     const { notifier } = setup();
 
-    notifier.turnEnded(TAB);
+    notifier.onAttention(TAB, level("turn-complete"));
     notifier.dispose();
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances).toHaveLength(0);
 
-    notifier.planProposed(TAB, "A plan");
+    notifier.onAttention(TAB, level("plan-pending", "A plan"));
     await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS);
     expect(state.instances[0]!.shown).toBe(1);
     notifier.dispose();

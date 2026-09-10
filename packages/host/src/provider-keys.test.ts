@@ -1,0 +1,141 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CH, type ProviderKeysSnapshot, type ProviderOAuthStatus } from "@omp-ui/core";
+import type * as Core from "@omp-ui/core";
+import { HostApplication } from "./host-application";
+import { hostDeps, seedRegistry, testHost, type BoundConnection } from "./test/fixtures";
+
+/**
+ * The provider-key channel surface: what the settings page can actually do, and the
+ * guarantee that key material never crosses the boundary to reach it.
+ */
+
+// No omp binary in these tests: the subscription read must answer from the
+// catalog alone (accounts: []) without spawning anything real.
+vi.mock("@omp-ui/core", async (importOriginal) => {
+  const core = await importOriginal<typeof Core>();
+  return { ...core, resolveOmpBinary: () => null };
+});
+
+const KEY = "OPENROUTER_API_KEY";
+const VALUE = "sk-or-v1-0123456789abcdef";
+
+let base: string;
+let keysFile: string;
+let ipc: BoundConnection;
+
+function setup(): void {
+  base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-provkeys-"));
+  process.env.PI_CODING_AGENT_DIR = path.join(base, "agent");
+  delete process.env.XDG_DATA_HOME;
+  delete process.env[KEY];
+
+  const registryFile = path.join(base, "registry.json");
+  seedRegistry(registryFile);
+  keysFile = path.join(base, "provider-keys.json");
+
+  ipc = testHost(registryFile, { paths: { providerKeysFile: keysFile } });
+}
+
+const invoke = (ch: string, ...args: unknown[]): Promise<unknown> => ipc.invoke(ch, ...args);
+const snapshot = (result: unknown): ProviderKeysSnapshot => result as ProviderKeysSnapshot;
+const row = (snap: ProviderKeysSnapshot, id: string) => {
+  const found = snap.providers.find((p) => p.id === id);
+  if (found === undefined) throw new Error(`no such provider row: ${id}`);
+  return found;
+};
+
+beforeEach(setup);
+
+afterEach(() => {
+  delete process.env[KEY];
+  if (base) fs.rmSync(base, { recursive: true, force: true });
+});
+
+describe("provider-keys channels", () => {
+  it("reads every catalogued provider, unconfigured, with no key material", async () => {
+    const snap = snapshot(await invoke(CH.readProviderKeys, null));
+    expect(snap.providers.length).toBeGreaterThan(10);
+    expect(row(snap, "openrouter")).toMatchObject({ source: "none", masked: null });
+    expect(snap.encryptionAvailable).toBe(true);
+    expect(snap.backend).toBe("test");
+  });
+
+  it("a saved key reaches the environment omp inherits — the whole point", async () => {
+    await invoke(CH.setProviderKey, KEY, VALUE);
+    expect(process.env[KEY]).toBe(VALUE);
+  });
+
+  it("answers a write with the refreshed snapshot, so no re-read is needed", async () => {
+    const snap = snapshot(await invoke(CH.setProviderKey, KEY, VALUE));
+    expect(row(snap, "openrouter")).toMatchObject({ source: "stored", masked: "••••cdef" });
+  });
+
+  it("never returns the key itself over the channel, only a masked tail", async () => {
+    const snap = snapshot(await invoke(CH.setProviderKey, KEY, VALUE));
+    expect(JSON.stringify(snap)).not.toContain(VALUE);
+  });
+
+  it("clearing removes the key from the environment and the store", async () => {
+    await invoke(CH.setProviderKey, KEY, VALUE);
+    const snap = snapshot(await invoke(CH.clearProviderKey, KEY));
+    expect(KEY in process.env).toBe(false);
+    expect(row(snap, "openrouter").source).toBe("none");
+  });
+
+  it("survives a restart: a stored key is applied before any session can spawn", async () => {
+    await invoke(CH.setProviderKey, KEY, VALUE);
+    delete process.env[KEY];
+    // A fresh host is exactly what the next app launch builds.
+    new HostApplication(
+      hostDeps(path.join(base, "registry.json"), { paths: { providerKeysFile: keysFile } }),
+    );
+    expect(process.env[KEY]).toBe(VALUE);
+  });
+
+  it("rejects a variable outside the provider catalog", async () => {
+    await expect(invoke(CH.setProviderKey, "LD_PRELOAD", "/tmp/evil.so")).rejects.toThrow(
+      /unknown provider variable/,
+    );
+  });
+
+  it("reports a project .env key without injecting it — omp loads those itself", async () => {
+    const project = path.join(base, "proj");
+    fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, ".env"), `${KEY}=${VALUE}\n`);
+    const snap = snapshot(await invoke(CH.readProviderKeys, project));
+    expect(row(snap, "openrouter").source).toBe("dotenv");
+    expect(KEY in process.env).toBe(false);
+  });
+});
+
+describe("provider-oauth channels", () => {
+  it("reads the subscription rows — catalog text and accounts, no key material", async () => {
+    const rows = (await invoke(CH.readProviderOAuth)) as ProviderOAuthStatus[];
+    // The boundary: exactly the catalog fields plus omp's own identity strings.
+    expect(Object.keys(rows[0]!).sort()).toEqual(["accounts", "hint", "id", "label", "providerId"]);
+    expect(rows).toEqual([
+      {
+        id: "openai-codex",
+        providerId: "openai-codex",
+        label: "ChatGPT Plus/Pro",
+        hint: "Codex subscription — models appear as openai-codex/…",
+        accounts: [],
+      },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain(VALUE);
+  });
+
+  it("seeds late-joining clients with the idle flow state", async () => {
+    expect(await invoke(CH.getProviderOAuthState)).toEqual({
+      providerId: null,
+      phase: "idle",
+      url: null,
+      instructions: null,
+      prompt: null,
+      error: null,
+    });
+  });
+});

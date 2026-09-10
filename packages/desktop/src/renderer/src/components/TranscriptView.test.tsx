@@ -8,11 +8,9 @@ import {
   type RenderItem,
   type ToolItem,
 } from "../lib/transcript";
-// Statically imported even though the module is mocked: vi.mock hoists above
-// imports, so this binding is the mock, not the window.ompBackend reader.
-import { backend } from "../backend";
+import type { DesktopAdapter } from "@omp-ui/core/desktop-channels";
 import { localeTag } from "../lib/i18n";
-import { rpcTabState } from "../test/fixtures";
+import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
 
@@ -45,14 +43,19 @@ class ResizeObserverStub {
 }
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
 
-// NoticeLine's open/reveal actions call the bridge directly; the module reads
-// window.ompBackend at load, so mock the module instead of the global.
-vi.mock("../backend", () => ({
-  backend: {
-    openPath: vi.fn(async () => {}),
-    showPathInFolder: vi.fn(async () => {}),
-  },
+// The store's module graph reads window.ompBackend at load, so mock the module instead of the
+// global. NoticeLine's open/reveal actions are client effects on the desktop adapter (#454);
+// desktop.ts reads window.ompDesktop at load, so the factory installs the recorder first and
+// keeps the real pathEffects gate.
+vi.mock("../backend", () => ({ backend: {} }));
+const desktopMock = vi.hoisted(() => ({
+  openPath: vi.fn(async () => {}),
+  showPathInFolder: vi.fn(async () => {}),
 }));
+vi.mock("../desktop", async (importOriginal) => {
+  window.ompDesktop = desktopMock as unknown as DesktopAdapter;
+  return importOriginal();
+});
 
 function assistant(id: string, text: string): RenderItem {
   return { kind: "assistant", id, text, thinking: "", streaming: false };
@@ -369,6 +372,20 @@ describe("NoticeLine path actions (issue #84)", () => {
     return { kind: "notice", id: "n1", text, level: "info", ...(path === undefined ? {} : { path }) };
   }
 
+  const remoteTab = "tab-remote";
+  const remoteSession = {
+    tabId: remoteTab, sessionId: null, lineageDir: "l", projectCwd: "/projects/remote",
+    launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui" as const, worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
+    cachedTitle: "Remote", cachedModified: "2026-08-20T00:00:00.000Z", title: "Remote",
+    status: null, live: "dormant" as const, pendingPlan: null, planSettle: null, streamStalled: false,
+  };
+
+  beforeEach(() => {
+    desktopMock.openPath.mockClear();
+    desktopMock.showPathInFolder.mockClear();
+    useStore.setState({ state: null });
+  });
+
   it("opens the file on text click and reveals it on the glyph click", () => {
     const { el, root } = render([notice("exported to /tmp/session.html", "/tmp/session.html")]);
 
@@ -381,13 +398,37 @@ describe("NoticeLine path actions (issue #84)", () => {
     act(() => {
       open!.click();
     });
-    expect(vi.mocked(backend.openPath).mock.calls).toEqual([["/tmp/session.html"]]);
-    expect(vi.mocked(backend.showPathInFolder).mock.calls).toEqual([]);
+    expect(desktopMock.openPath.mock.calls).toEqual([["/tmp/session.html"]]);
+    expect(desktopMock.showPathInFolder.mock.calls).toEqual([]);
 
     act(() => {
       reveal!.click();
     });
-    expect(vi.mocked(backend.showPathInFolder).mock.calls).toEqual([["/tmp/session.html"]]);
+    expect(desktopMock.showPathInFolder.mock.calls).toEqual([["/tmp/session.html"]]);
+    act(() => root.unmount());
+  });
+
+  it("keeps a joined instance's path as inert text even with the adapter present (#416)", () => {
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [
+          remoteInstance({
+            projects: [
+              {
+                project: { path: "/projects/remote", name: "Remote", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+                sessions: [remoteSession],
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    const { el, root } = render(
+      [notice("exported to /tmp/session.html", "/tmp/session.html")],
+      remoteTab,
+    );
+    expect(el.querySelector("button")).toBeNull();
+    expect(el.textContent).toContain("exported to /tmp/session.html");
     act(() => root.unmount());
   });
 

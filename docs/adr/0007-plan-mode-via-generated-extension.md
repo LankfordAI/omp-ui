@@ -100,7 +100,7 @@ publishes that status.
 - **No respawn.** Unlike the advisor, plan mode toggles in-process at any time,
   which is why it earns a HUD button rather than a relaunch.
 - **The plan file is read off disk, path-confined.** It lives at
-  `<lineage>/<session>/local/<slug>-plan.{html,md}`. The `plan:read` IPC channel
+  `<lineage>/<session>/local/<slug>-plan.{html,md}`. The `plan:read` channel
   resolves and confines every request to the session's own lineage dir, so a
   crafted `local://` name cannot turn it into an arbitrary file reader.
 - **The `plan` model role is deliberately not applied.** omp's TUI swaps to the
@@ -119,6 +119,6 @@ publishes that status.
   Verified in the app: a `<script>` the planner was asked to embed sits in the
   frame's DOM without ever running. An empty sandbox still permits the frame to
   navigate *itself*, which would replace the reviewed plan with a remote page
-  off a model-chosen URL, so the main process denies every subframe navigation
+  off a model-chosen URL, so Electron main denies every subframe navigation
   (`will-frame-navigate`) and routes web URLs to the system browser through the
   same `openExternalSafe` policy `window.open` already uses (issue #101).

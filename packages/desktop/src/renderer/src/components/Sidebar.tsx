@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { createPortal } from "react-dom";
 import type { ProjectGroup, ProjectOpenAvailability, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { defaultNickname } from "@omp-ui/core/remote-instances";
-import { backend } from "../backend";
+import { desktop, HAS_DESKTOP } from "../desktop";
 import { projectKey } from "../lib/project-key";
 import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../lib/remote-instance-status";
 import { useDismissal } from "../lib/use-dismissal";
@@ -154,8 +154,8 @@ interface ProjectSectionProps {
   group: ProjectGroup;
   /** The joined remote instance this project lives on; null for this app's own registry (issue #416). */
   instanceId: string | null;
-  /** Whether host-local opens (VS Code / Files / Terminal) make sense: only for this app's own projects. */
-  hostLocalActions: boolean;
+  /** Whether client-local opens (VS Code / Files / Terminal) make sense: only this host's own projects, inside a desktop client. */
+  clientLocalActions: boolean;
   /** The owning instance is not joined: the group dims and every action is inert. */
   disabled?: boolean;
   /** The project name matched the filter, so no tree is trimmed (issue #238). */
@@ -178,7 +178,7 @@ interface ProjectSectionProps {
 function ProjectSection({
   group,
   instanceId,
-  hostLocalActions,
+  clientLocalActions,
   disabled = false,
   projectHit,
   query,
@@ -370,7 +370,7 @@ function ProjectSection({
             // and the ProjectOpenControl error line can grow; the revealed cap is
             // the row itself, so nothing ever clips.
             <div className="proj-reveal proj-reveal-l compact-lifecycle-visible flex shrink-0 items-center gap-1 overflow-hidden opacity-0 max-w-0 transition-all duration-200 group-hover/proj:ml-1.5 group-hover/proj:max-w-full group-hover/proj:opacity-100 focus-within:ml-1.5 focus-within:max-w-full focus-within:opacity-100">
-              {hostLocalActions && (
+              {clientLocalActions && (
                 <ProjectOpenControl
                   project={project}
                   availability={openAvailability}
@@ -500,7 +500,7 @@ function ProjectSection({
  * One joined omp-ui app's registry as a sidebar group (issue #416): a header
  * naming the instance and its connection status, then that host's projects as
  * ordinary ProjectSections addressed to it. Every action inside runs on that
- * host; host-local opens are never offered. While the instance is not joined
+ * instance; client-local opens are never offered. While the instance is not joined
  * the last-known projects stay visible but dimmed and inert — the sessions are
  * still running over there, this app just cannot reach them right now.
  */
@@ -628,7 +628,7 @@ function RemoteInstanceSection({
               key={path}
               group={f.group}
               instanceId={instance.id}
-              hostLocalActions={false}
+              clientLocalActions={false}
               disabled={!joined}
               projectHit={f.projectHit}
               query={query}
@@ -733,10 +733,11 @@ export function Sidebar() {
   const availabilityMounted = useRef(false);
   const availabilityGeneration = useRef(0);
   const refreshAvailability = useCallback(async (): Promise<void> => {
+    if (desktop === null) return;
     const generation = ++availabilityGeneration.current;
     let available: ProjectOpenAvailability = { vsCode: false, terminal: false };
     try {
-      available = await backend.getProjectOpenAvailability();
+      available = await desktop.getProjectOpenAvailability();
     } catch {
       // A failed discovery channel is equivalent to unavailable optional
       // integrations; Files remains a usable project-open destination.
@@ -947,7 +948,7 @@ export function Sidebar() {
                   key={path}
                   group={f.group}
                   instanceId={null}
-                  hostLocalActions
+                  clientLocalActions={HAS_DESKTOP}
                   projectHit={f.projectHit}
                   query={query}
                   openTerminalMenu={openTerminalMenu}

@@ -3,20 +3,18 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiagnosticsPreview } from "@omp-ui/core/types";
+import { installDesktopAdapter } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-// lib/platform computes IS_ELECTRON from the UA at module load, so the desktop
-// identity must exist before the component import below; the web-client case
-// re-imports the module graph under a browser UA instead.
-vi.stubGlobal("navigator", { userAgent: "Electron/37.0.0 Chrome", platform: "Linux" });
-
+// desktop.ts reads window.ompDesktop at module load, so the desktop identity must exist before
+// the component import below; the web-client case re-imports the module graph without it.
 const backendMock = {
   previewDiagnosticsBundle: vi.fn(),
   exportDiagnosticsBundle: vi.fn(),
-  chooseDiagnosticsPath: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
+const desktopMock = installDesktopAdapter();
 
 const { useStore } = await import("../store");
 const { DiagnosticsExportDialog } = await import("./DiagnosticsExportDialog");
@@ -51,7 +49,7 @@ beforeEach(() => {
   root = createRoot(host);
   backendMock.previewDiagnosticsBundle.mockReset().mockResolvedValue(preview);
   backendMock.exportDiagnosticsBundle.mockReset();
-  backendMock.chooseDiagnosticsPath.mockReset().mockResolvedValue(null);
+  desktopMock.chooseSavePath.mockReset().mockResolvedValue(null);
   useStore.setState({ errorNotices: [] });
 });
 
@@ -121,7 +119,7 @@ describe("DiagnosticsExportDialog", () => {
   });
 
   it("desktop save flow calls choose then export with the chosen path", async () => {
-    backendMock.chooseDiagnosticsPath.mockResolvedValue("/home/u/bundle.zip");
+    desktopMock.chooseSavePath.mockResolvedValue("/home/u/bundle.zip");
     backendMock.exportDiagnosticsBundle.mockResolvedValue({
       path: "/home/u/bundle.zip",
       totalBytes: 123,
@@ -130,7 +128,7 @@ describe("DiagnosticsExportDialog", () => {
     open();
     await settle();
     await click(primary());
-    expect(backendMock.chooseDiagnosticsPath).toHaveBeenCalledWith("omp-ui-diagnostics.zip");
+    expect(desktopMock.chooseSavePath).toHaveBeenCalledWith("omp-ui-diagnostics.zip", ["zip"]);
     expect(backendMock.exportDiagnosticsBundle).toHaveBeenCalledWith({
       includeTranscripts: false,
       destinationPath: "/home/u/bundle.zip",
@@ -140,7 +138,7 @@ describe("DiagnosticsExportDialog", () => {
   });
 
   it("cancel in the save dialog exports nothing and keeps the dialog open", async () => {
-    backendMock.chooseDiagnosticsPath.mockResolvedValue(null);
+    desktopMock.chooseSavePath.mockResolvedValue(null);
     open();
     await settle();
     await click(primary());
@@ -149,7 +147,7 @@ describe("DiagnosticsExportDialog", () => {
   });
 
   it("export failure routes to reportError and stays open", async () => {
-    backendMock.chooseDiagnosticsPath.mockResolvedValue("/x.zip");
+    desktopMock.chooseSavePath.mockResolvedValue("/x.zip");
     backendMock.exportDiagnosticsBundle.mockRejectedValue(
       new Error("Error invoking remote method 'diagnostics:export': Error: failed to write"),
     );
@@ -166,7 +164,7 @@ describe("DiagnosticsExportDialog", () => {
       totalBytes: number;
       warnings: string[];
     }>();
-    backendMock.chooseDiagnosticsPath.mockResolvedValue("/y.zip");
+    desktopMock.chooseSavePath.mockResolvedValue("/y.zip");
     backendMock.exportDiagnosticsBundle.mockReturnValue(promise);
     open();
     await settle();
@@ -182,13 +180,12 @@ describe("DiagnosticsExportDialog", () => {
 describe("web client", () => {
   afterEach(() => {
     vi.resetModules();
-    vi.unstubAllGlobals();
-    vi.stubGlobal("navigator", { userAgent: "Electron/37.0.0 Chrome", platform: "Linux" });
+    window.ompDesktop = desktopMock;
   });
 
-  it("skips the native dialog and exports beside the registry", async () => {
+  it("skips the save dialog without an adapter, exports to the host's default path, and says so", async () => {
     vi.resetModules();
-    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 Chrome", platform: "Linux" });
+    delete window.ompDesktop;
     const fresh = await import("./DiagnosticsExportDialog");
     backendMock.exportDiagnosticsBundle.mockResolvedValue({
       path: "/host/diagnostics/omp-ui-diagnostics-x.zip",
@@ -202,10 +199,13 @@ describe("web client", () => {
     const save = primary();
     expect(save.textContent).toBe("Create bundle");
     await click(save);
-    expect(backendMock.chooseDiagnosticsPath).not.toHaveBeenCalled();
+    expect(desktopMock.chooseSavePath).not.toHaveBeenCalled();
     expect(backendMock.exportDiagnosticsBundle).toHaveBeenCalledWith({
       includeTranscripts: false,
       destinationPath: null,
     });
+    // The path is on the host's disk, not this browser's: plain text, no open/reveal affordance.
+    expect(document.body.textContent).toContain("Saved on the host at");
+    expect(document.body.textContent).toContain("/host/diagnostics/omp-ui-diagnostics-x.zip");
   });
 });

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionWorktree } from "@omp-ui/core/types";
-import { backend } from "../backend";
+import { desktop } from "../desktop";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -15,7 +15,7 @@ import { useStore } from "../store";
  * but clicking it opens copy rows for the branch and the checkout path, a
  * quiet "cut from <base>" line, one row that opens the Finish worktree
  * dialog (issues #385–#389 — the merge-and-return decisions moved there,
- * out of this popover), plus host-local open targets when enabled (VS Code
+ * out of this popover), plus client-local open targets when enabled (VS Code
  * when available, Files always) that hand the checkout path to openProject.
  * Neutral chrome throughout — the signal accent stays reserved for liveness
  * (ADR-0004). No status fetch on open: feasibility is the dialog's business.
@@ -28,12 +28,12 @@ const rowText =
 export function WorktreeChip({
   worktree,
   tabId,
-  hostLocalActions,
+  clientLocalActions,
   className,
 }: {
   worktree: SessionWorktree;
   tabId: string;
-  hostLocalActions: boolean;
+  clientLocalActions: boolean;
   className?: string;
 }) {
   const t = useT();
@@ -69,8 +69,9 @@ export function WorktreeChip({
     const rect = triggerRef.current?.getBoundingClientRect();
     setPos(rect ? { x: rect.left, y: rect.bottom + 4 } : null);
     setOpen(true);
-    if (hostLocalActions && vsCodeAvailable === null) {
-      backend
+    if (clientLocalActions && vsCodeAvailable === null) {
+      // clientLocalActions is derived from the desktop adapter by every caller (#454).
+      desktop!
         .getProjectOpenAvailability()
         .then((a) => setVsCodeAvailable(a.vsCode))
         .catch(() => setVsCodeAvailable(false));
@@ -91,7 +92,7 @@ export function WorktreeChip({
 
   const openIn = (target: "vscode" | "files"): void => {
     setError(null);
-    backend.openProject(worktree.path, target).catch((err: unknown) => {
+    desktop!.openProject(worktree.path, target).catch((err: unknown) => {
       setError(err instanceof Error ? err.message : String(err));
     });
   };
@@ -151,7 +152,7 @@ export function WorktreeChip({
               >
                 {t("worktree.actions.finish")}
               </button>
-              {hostLocalActions && (
+              {clientLocalActions && (
                 <>
                   {vsCodeAvailable === true && (
                     <button type="button" role="menuitem" className={rowText} onClick={() => openIn("vscode")}>

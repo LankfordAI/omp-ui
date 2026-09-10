@@ -33,12 +33,24 @@ Glass chrome lets the sidebar, inspector rail, title bar, composer card, sheets,
 
 ## Updates
 
-The two update sections are independent. Each has its own current version, status, launch check, manual check, dismissed version, and **Re-offer** action. Downloads always require a click.
+The page has three panels — **Host**, **omp-ui desktop client**, and **omp binary** — and they are independent: each has its own current version, status, manual check, and dismissal. A browser sees the Host and omp panels only. Downloads always require a click.
 
-### omp-ui
+### Host
+
+The host is the background process that owns your sessions; this panel is visible from the desktop window and from any browser, because the controls run on the host. It leads with the host's version and protocol and a status of `idle`, `checking`, `available`, `downloading`, `staged`, `countdown`, `applying`, or `error`.
+
+- **Check now** reads the host's release feed immediately. **Check on launch** changes whether the host checks when it starts.
+- **Download** stages the release under the host's data root after verifying its checksum. Nothing runs yet.
+- Once staged, the host offers one countdown to every connected client. **Apply now** hibernates every live session (transcripts and worktrees stay on disk), hands over to the new version, and reconnects this window; **Defer** postpones it a bounded number of times and is disabled at the limit, after which the countdown runs out. With no window or browser connected and no live session, a staged release applies at once.
+- **Roll back to \<version\>** appears while the host retains a previous version and returns to it through the same handover. The panel also reports the last attempt's outcome.
+- Dismissing an offer hides only that version. **Re-offer** clears that dismissal and checks again.
+
+### omp-ui desktop client
+
+This panel, and the command palette's **Check for updates** action, appear only in the desktop window: they update the Electron app you are looking at, not the host or your sessions.
 
 - **Check now** runs an update check immediately. **Check on launch** changes whether the check runs on the next app launch.
-- A Linux AppImage can download and stage its update in the app. The Windows installer and macOS ZIP preview builds use the same staged flow. **Restart now** exits and restarts the omp-ui process into the staged version. **Install when I quit** waits for the next normal app exit.
+- A Linux AppImage can download and stage its update in the app. The Windows installer and macOS ZIP preview builds use the same staged flow. **Restart now** exits and restarts the desktop app into the staged version; the host and its sessions keep running and the new window reconnects. **Install when I quit** waits for the next normal app exit.
 - If the current package cannot apply its own update, omp-ui opens the release or download and can reveal the downloaded file instead of claiming it can self-update.
 - Dismissing an offer hides only that version. **Re-offer** clears that dismissal and checks again.
 
@@ -53,20 +65,20 @@ Linux AppImage is the supported desktop package. Windows and macOS remain previe
 
 ## Remote access
 
-Remote access is off by default. A connected client has the same authority as the desktop app, including editing files and running commands. See [Remote access](remote-access.md) for setup and network guidance.
+Remote access is off by default. A connected client has the same authority as the desktop window, including editing files and running commands. See [Remote access](remote-access.md) for setup and network guidance.
 
-- **Enable remote access** starts or stops the embedded server.
+- **Enable remote access** starts or stops the host's remote-exposure listener. The host's always-on local listener, which the desktop window and the `omp-ui` command use, is separate and unaffected by anything on this page.
 - **Bind address** chooses localhost or the local network. Localhost limits the listener to this computer. Local-network binding uses plain HTTP, so traffic is not encrypted. Anyone on that network who has the password or a token link can drive the agent.
 - **Port** accepts a whole number from 1024 through 65535.
 - **Password** is the primary sign-in method. omp-ui trims leading and trailing whitespace when it saves the password. The result must contain at least 8 characters and no more than 512 UTF-8 bytes. omp-ui stores only a salted hash, so it can change or clear the password but cannot reveal it.
-- The access token remains a full-access fallback while a password is set. You can reveal or copy it. Regenerating the token restarts the running server and drops every current connection. Old token links, bearer tokens, and token-derived cookies stop working; password-derived cookies remain valid and can reconnect.
-- While the server is listening, the page shows copyable connection URLs and a pairing QR code. Without a password, the primary URL and QR include the token. With a password, they use the bare sign-in URL, and a separate token link remains available as a fallback. Local-network binding also lists other reachable IPv4 addresses below the primary URL.
+- The access token remains a full-access fallback while a password is set. You can reveal or copy it. Regenerating the token restarts the listener and drops every exposed connection. Old token links, bearer tokens, and token-derived cookies stop working; password-derived cookies remain valid and can reconnect. The desktop window is never dropped by this.
+- While the listener is running, the page shows copyable connection URLs and a pairing QR code. Without a password, the primary URL and QR include the token. With a password, they use the bare sign-in URL, and a separate token link remains available as a fallback. Local-network binding also lists other reachable IPv4 addresses below the primary URL. `omp-ui pair` prints the same URL from a terminal.
 
-A remote-setting change does not restart omp-ui or any omp session process. When remote access is running, changing the bind address, port, password, or token restarts only the embedded server. Enabling remote access starts the server, and disabling it stops the server. Running sessions continue. Localhost provides the full browser app. A local-network URL works as a responsive web app, but browsers require a secure origin for installation and offline support. Plain `http://<lan-ip>` does not qualify. Put the server behind your own HTTPS endpoint if you need those browser features.
+A remote-setting change does not restart the host or any omp session process. When remote access is running, changing the bind address, port, password, or token restarts only the exposure listener. Enabling remote access starts it, and disabling it stops it. Running sessions continue, and the listener outlives the desktop window: remote access stays available while the host runs, whether or not a window is open. Localhost provides the full browser app. A local-network URL works as a responsive web app, but browsers require a secure origin for installation and offline support. Plain `http://<lan-ip>` does not qualify. Put the listener behind your own HTTPS endpoint if you need those browser features.
 
 ## Remote instances
 
-Remote instances joins other omp-ui apps that have remote access enabled, so their projects and sessions appear in this app's sidebar under a nickname. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works.
+Remote instances joins other omp-ui hosts that have remote access enabled, so their projects and sessions appear in this app's sidebar under a nickname. A joined instance grants this host full control of that instance's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works.
 
 The **Join** form takes:
 
@@ -91,9 +103,9 @@ Statuses:
 | `unreachable` | The connection failed or dropped. Projects stay listed but dimmed, tabs stay open with input disabled, and omp-ui retries with a growing delay from 1 to 30 seconds. |
 | `sign-in required` | The remote rejected the stored credential (its password changed or its token was regenerated), or the credential could not be decrypted. omp-ui stops retrying until you **Edit** the instance and sign in again. |
 | `this app` | The URL is this app's own remote-access address. No group is added and nothing is retried. |
-| `incompatible version` | The remote omp-ui is older than this app and cannot be joined. |
+| `incompatible version` | The remote omp-ui speaks a protocol this app cannot join — older than this app, or newer than it; the error names which. Nothing is retried. |
 
-omp-ui stores the credential that the sign-in derived — a password-derived credential or the access token — never the password. It is encrypted through the operating system credential store and written to `remote-instances.json` beside `registry.json`, readable only by your user; it never reaches a renderer, and the diagnostic bundle never reads it. Without a secure credential store, omp-ui refuses to join rather than store the credential insecurely.
+omp-ui stores the credential that the sign-in derived — a password-derived credential or the access token — never the password. The host encrypts it under its own key, held by the operating system credential store, and writes it to `remote-instances.json` beside `registry.json` in the data root, readable only by your user; it never reaches a renderer, and the diagnostic bundle never reads it. While the credential store is unavailable the host refuses to join rather than store the credential insecurely.
 
 ## Providers
 
@@ -106,13 +118,13 @@ The page groups model-provider and web-search credentials and shows the environm
 
 The first available source wins. Within the project source, `.env.local` overrides `.env`. A stored key therefore overrides an inherited or shell value. Removing it reveals the next available source. omp loads a project's dotenv files itself, so omp-ui reports that source but does not inject it.
 
-Keys saved in omp-ui are encrypted through the operating system credential store. Stored plaintext is never returned to the renderer. Provider-status reads contain only a fixed mask and the last four characters, and the edit field is never prefilled. omp-ui supplies the resolved credential to the omp processes it launches. If the operating system has no secure credential store, omp-ui refuses to save a key rather than write it insecurely. Export the environment variable from your shell profile instead.
+Keys saved in omp-ui are encrypted by the host under one key of its own, which is the only secret it hands to the operating system credential store — Secret Service on Linux, Keychain on macOS, DPAPI on Windows. Stored plaintext is never returned to the renderer. Provider-status reads contain only a fixed mask and the last four characters, and the edit field is never prefilled. The host supplies the resolved credential to the omp processes it launches. If the credential store is locked or missing when the host starts, the host keeps running but reports a degraded credential backend: it injects no stored keys, and saving a key is refused until the store is available. Export the environment variable from your shell profile instead, or start the host from a session where the store is unlocked.
 
 omp reads provider credentials when its process starts. A saved or removed key affects the next session spawn, not an already running process; to apply it to an existing session, stop its agent from the Session HUD or sidebar and open the session again.
 
 Under the **Web search** credentials, **Preferred provider** chooses which provider omp's native `web_search` tool tries first. It writes omp's `providers.webSearchOrder`, one provider deep: providers you do not list stay available in omp's own order afterward, so **Automatic — omp's default order** means an empty order, not a disabled tool. The choices are the provider ids the installed omp itself publishes, so they are accurate for that version rather than a list omp-ui maintains; a provider omp does not recognise is still listed, labelled as outside omp's list. Like a credential, the choice applies to sessions started after the change. A value badged `project` comes from the focused project's `.omp/config.yml`, which outranks the global file, and choosing here writes omp's global config only.
 
-Under **Subscriptions**, a provider's subscription plan (currently ChatGPT, provider id `openai-codex`) signs in through its own browser flow. The page tracks the flow's phase: starting, waiting on the browser omp opened, and — only when the provider asks — a field for the pasted redirect URL. Sign-in runs in a short-lived, session-less omp process; the credential lands in omp's own auth broker, shared with terminal omp, and omp-ui stores nothing. A signed-in row lists the provider's identity (account email) and offers **sign out**. New sessions can pick `openai-codex/…` models after a sign-in; a running session needs a restart. With no API key stored, a signed-in subscription also satisfies the provider gate for new sessions.
+Under **Subscriptions**, a provider's subscription plan (currently ChatGPT, provider id `openai-codex`) signs in through its own browser flow. The page tracks the flow's phase: starting, waiting on the browser, and — only when the provider asks — a field for the pasted redirect URL. The desktop window opens the provider's page itself; a browser client shows the link to open. When you are connected from another machine, the callback lands on the host's machine, so pasting the redirect URL is how the sign-in completes. Sign-in runs in a short-lived, session-less omp process on the host; the credential lands in omp's own auth broker, shared with terminal omp, and omp-ui stores nothing. A signed-in row lists the provider's identity (account email) and offers **sign out**. New sessions can pick `openai-codex/…` models after a sign-in; a running session needs a restart. With no API key stored, a signed-in subscription also satisfies the provider gate for new sessions.
 
 ## Memory
 
@@ -138,11 +150,11 @@ Every edit runs through `omp config set`, uses omp's own validation, and writes 
 
 ## Advanced
 
-The Advanced page holds the **Diagnostic bundle** export: one zip with the main-process logs, the lifecycle breadcrumb trail (launch, window, session spawn/resume/exit/terminate/hibernate/mode, update transitions, remote enable/token-regenerate, renderer and child-process deaths, main-process exceptions and rejections), versions (omp-ui, omp, Electron/Node/Chrome, package format), platform facts, the registry plus per-working-tree `git status --porcelain` output, session-lineage listings, the generated per-session extension files of live sessions, window geometry, and a manifest describing all of it and its warnings.
+The Advanced page holds the **Diagnostic bundle** export: one zip with the host's logs and lifecycle breadcrumb trail (host start, authority claim, migration steps, session spawn/resume/exit/terminate/hibernate/mode, update transitions, remote enable/token-regenerate, child-process deaths, host exceptions and rejections), the host's identity — data root, version and protocol, credential backend, verifier health — the omp version and path, platform facts, the registry plus per-working-tree `git status --porcelain` output, session-lineage listings, the generated per-session extension files of live sessions, and a manifest describing all of it and its warnings. When the export is requested from the desktop window the manifest also records that client's kind, version, and protocol; from a browser it records none, because the host does not assume a window exists.
 
-Redaction is fixed, not configurable: provider keys are never read, the remote token and password hash/salt become `hasRemoteToken`/`hasRemotePassword` booleans, the OAuth login scratch directory is never walked, and plan bodies and project file contents stay out. Transcript JSONL is excluded by default — the dialog's **Include transcripts** checkbox is an explicit, warned opt-in, capped at 64 MiB per bundle. Absolute paths, project paths, session titles, and git status filenames are included by design; the manifest inside the zip records exactly which sections exist.
+Redaction is fixed, not configurable: provider keys, `host.json`, and the host's key material are never read, the remote token and password hash/salt become `hasRemoteToken`/`hasRemotePassword` booleans, the OAuth login scratch directory and the verifier browser's profile are never walked, and plan bodies and project file contents stay out. Transcript JSONL is excluded by default — the dialog's **Include transcripts** checkbox is an explicit, warned opt-in, capped at 64 MiB per bundle. Absolute paths, project paths, session titles, and git status filenames are included by design; the manifest inside the zip records exactly which sections exist.
 
-The export is also reachable from the command palette ("Export diagnostic bundle…"). On a remote (browser) client the same action writes the bundle into a `diagnostics/` directory beside the registry on the machine omp-ui runs on; the native save dialog appears only in the desktop app.
+The export is also reachable from the command palette ("Export diagnostic bundle…"). In the desktop window a native save dialog chooses the destination and the host writes exactly that path; from a browser the host writes the bundle into `diagnostics/` under its data root and the client reports *Saved on the host at \<path\>*.
 
 ## About
 

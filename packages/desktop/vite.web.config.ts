@@ -1,7 +1,13 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+
+// The browser client's hello names its own build (issue #442); the bundle can only learn it here.
+const { version } = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8")) as {
+  version: string;
+};
 
 // The same renderer, served over HTTP instead of file:// (ADR-0002). `base: "./"` keeps assets
 // path-independent; publicDir carries build/icon.png through as the manifest icon.
@@ -15,4 +21,5 @@ export default defineConfig({
   publicDir: resolve(__dirname, "build"),
   plugins: [react(), tailwindcss()],
   build: { outDir: resolve(__dirname, "out/web"), emptyOutDir: true },
+  define: { __APP_VERSION__: JSON.stringify(version) },
 });

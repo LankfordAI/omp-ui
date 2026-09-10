@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
-import { backendState, remoteInstance } from "../test/fixtures";
+import { backendState, installDesktopAdapter, remoteInstance } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.setPointerCapture = vi.fn();
@@ -23,13 +23,11 @@ const idleOmpUpdate: OmpUpdateState = {
   error: null,
 };
 
-// store.ts captures the preload bridge at module load, so install the mock
-// before dynamically importing either the store or Sidebar.
+// store.ts captures the preload bridge and desktop.ts the adapter at module load, so install
+// both mocks before dynamically importing either the store or Sidebar.
 const backendMock = {
   getState: vi.fn(),
   addProject: vi.fn(),
-  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean; terminal: boolean }>>(),
-  openProject: vi.fn<(path: string, target: "vscode" | "files" | "terminal") => Promise<void>>(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   moveProject: vi.fn(async () => {}),
@@ -64,17 +62,9 @@ const backendMock = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
-  getAppUpdateState: vi.fn(),
-  checkAppUpdate: vi.fn(),
-  downloadAppUpdate: vi.fn(),
-  openAppUpdateReleaseNotes: vi.fn(),
-  showAppUpdateDownload: vi.fn(),
-  restartForAppUpdate: vi.fn(),
-  setAppUpdateInstallOnQuit: vi.fn(),
-  dismissAppUpdate: vi.fn(),
-  onAppUpdateState: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
+const desktopMock = installDesktopAdapter();
 
 const { useStore } = await import("../store");
 const { Sidebar } = await import("./Sidebar");
@@ -246,9 +236,9 @@ function openMenuItems(): HTMLButtonElement[] {
 }
 
 beforeEach(() => {
-  backendMock.getProjectOpenAvailability.mockReset();
-  backendMock.getProjectOpenAvailability.mockReturnValue(new Promise(() => {}));
-  backendMock.openProject.mockReset();
+  desktopMock.getProjectOpenAvailability.mockReset();
+  desktopMock.getProjectOpenAvailability.mockReturnValue(new Promise(() => {}));
+  desktopMock.openProject.mockReset();
   newSession.mockClear();
   openSession.mockClear();
   useStore.setState({
@@ -511,7 +501,7 @@ describe("Sidebar project open control (issue #169)", () => {
 
   it("keeps both split segments neutral and disabled while availability is unresolved", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
     renderSidebar();
 
     const primary = button("Open Project One");
@@ -538,9 +528,9 @@ describe("Sidebar project open control (issue #169)", () => {
   it("reports a local unwrapped failure, refreshes VS Code, clears pending for retry, and dismisses", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
     const failedOpen = deferred<void>();
-    backendMock.getProjectOpenAvailability
+    desktopMock.getProjectOpenAvailability
       .mockReturnValueOnce(availability.promise).mockResolvedValueOnce({ vsCode: true, terminal: false });
-    backendMock.openProject
+    desktopMock.openProject
       .mockReturnValueOnce(failedOpen.promise)
       .mockResolvedValueOnce(undefined);
     useStore.setState({ state: threeProjectState });
@@ -567,7 +557,7 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(betaAlert?.textContent).toContain("VS Code executable vanished");
     expect(betaAlert?.textContent).not.toContain("Error invoking remote method");
     expect(projectSection("Alpha").querySelector('[role="alert"]')).toBeNull();
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(2);
+    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledTimes(2);
     expect(betaPrimary.disabled).toBe(false);
     expect(betaTrigger.disabled).toBe(false);
 
@@ -575,7 +565,7 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(projectSection("Beta").querySelector('[role="alert"]')).toBeNull();
 
     await act(async () => betaPrimary.click());
-    expect(backendMock.openProject.mock.calls).toEqual([
+    expect(desktopMock.openProject.mock.calls).toEqual([
       [dragBeta, "vscode"],
       [dragBeta, "vscode"],
     ]);
@@ -585,8 +575,8 @@ describe("Sidebar project open control (issue #169)", () => {
 
   it("supports wrapped arrow navigation, native Enter and Space activation, and focus restoration", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     renderSidebar();
     await resolveAvailability(availability, true);
 
@@ -609,7 +599,7 @@ describe("Sidebar project open control (issue #169)", () => {
     items = openMenuItems();
     expect(document.activeElement).toBe(items[0]);
     await activateNativeButtonWithKey(items[0]!, "Enter");
-    expect(backendMock.openProject).toHaveBeenLastCalledWith(projectPath, "vscode");
+    expect(desktopMock.openProject).toHaveBeenLastCalledWith(projectPath, "vscode");
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
 
@@ -618,15 +608,15 @@ describe("Sidebar project open control (issue #169)", () => {
     press(items[0]!, "ArrowDown");
     expect(document.activeElement).toBe(items[1]);
     await activateNativeButtonWithKey(items[1]!, " ");
-    expect(backendMock.openProject).toHaveBeenLastCalledWith(projectPath, "files");
+    expect(desktopMock.openProject).toHaveBeenLastCalledWith(projectPath, "files");
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
 
   it("dismisses an outside pointerdown without launching", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     renderSidebar();
     await resolveAvailability(availability, true);
 
@@ -636,7 +626,7 @@ describe("Sidebar project open control (issue #169)", () => {
       document.body.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })),
     );
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(backendMock.openProject).not.toHaveBeenCalled();
+    expect(desktopMock.openProject).not.toHaveBeenCalled();
   });
 
 
@@ -718,8 +708,8 @@ describe("Sidebar project open control (issue #169)", () => {
 
   it("isolates pointer, click, and dragstart from both segments and a portaled menu item", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     backendMock.moveProject.mockClear();
     backendMock.removeProject.mockClear();
     useStore.setState({ state: threeProjectState });
@@ -752,7 +742,7 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(itemDrag.setData).not.toHaveBeenCalled();
     await act(async () => item.click());
 
-    expect(backendMock.openProject.mock.calls).toEqual([
+    expect(desktopMock.openProject.mock.calls).toEqual([
       [dragAlpha, "vscode"],
       [dragAlpha, "vscode"],
     ]);
@@ -764,28 +754,28 @@ describe("Sidebar project open control (issue #169)", () => {
 
   it("discovers once, prefers VS Code, targets the registered path, and orders the menu", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     renderSidebar();
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
+    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
     await resolveAvailability(availability, true);
 
     const primary = button("Open Project One in VS Code");
     expect(primary.textContent?.trim()).toBe("Open");
     await act(async () => primary.click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "vscode");
+    expect(desktopMock.openProject).toHaveBeenCalledWith(projectPath, "vscode");
     await act(async () => chooseOpen("Project One").click());
     expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
       "Open Project One in VS Code",
       "Open Project One in Files",
     ]);
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
+    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
   });
 
   it("offers Terminal only when the host reports one, and launches it", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     renderSidebar();
     await resolveAvailability(availability, true, true);
 
@@ -796,14 +786,14 @@ describe("Sidebar project open control (issue #169)", () => {
       "Open Project One in Terminal",
     ]);
     await act(async () => button("Open Project One in Terminal").click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "terminal");
+    expect(desktopMock.openProject).toHaveBeenCalledWith(projectPath, "terminal");
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
 
     // A fresh render whose host reports no terminal never offers the item.
     act(() => root!.unmount());
     document.body.replaceChildren();
     const noTerminal = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(noTerminal.promise);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(noTerminal.promise);
     renderSidebar();
     await resolveAvailability(noTerminal, true, false);
     await act(async () => chooseOpen("Project One").click());
@@ -815,8 +805,8 @@ describe("Sidebar project open control (issue #169)", () => {
 
   it("falls back to Files and remains available for a project with zero sessions", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     useStore.setState({
       state: { ...state, projects: [{ ...state.projects[0]!, sessions: [] }] },
     });
@@ -824,7 +814,7 @@ describe("Sidebar project open control (issue #169)", () => {
     await resolveAvailability(availability, false);
     expect(document.body.textContent).toContain("no sessions yet");
     await act(async () => button("Open Project One in Files").click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "files");
+    expect(desktopMock.openProject).toHaveBeenCalledWith(projectPath, "files");
     await act(async () => chooseOpen("Project One").click());
     expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
       "Open Project One in Files",
@@ -833,8 +823,8 @@ describe("Sidebar project open control (issue #169)", () => {
 
   it("keeps every project control bound to its header rather than the focused tab", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockResolvedValue(undefined);
     useStore.setState({
       state: threeProjectState,
       activeTabId: "tab-1",
@@ -843,16 +833,16 @@ describe("Sidebar project open control (issue #169)", () => {
     renderSidebar();
     await resolveAvailability(availability, true);
     await act(async () => button("Open Gamma in VS Code").click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(dragGamma, "vscode");
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
+    expect(desktopMock.openProject).toHaveBeenCalledWith(dragGamma, "vscode");
+    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
   });
 
   it("prevents duplicates per project without blocking another project's request", async () => {
     const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
     const alphaOpen = deferred<void>();
     const betaOpen = deferred<void>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockReturnValueOnce(alphaOpen.promise).mockReturnValueOnce(betaOpen.promise);
+    desktopMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
+    desktopMock.openProject.mockReturnValueOnce(alphaOpen.promise).mockReturnValueOnce(betaOpen.promise);
     useStore.setState({ state: threeProjectState });
     renderSidebar();
     await resolveAvailability(availability, true);
@@ -863,7 +853,7 @@ describe("Sidebar project open control (issue #169)", () => {
     act(() => alpha.click());
     act(() => beta.click());
     expect(beta.disabled).toBe(true);
-    expect(backendMock.openProject.mock.calls).toEqual([
+    expect(desktopMock.openProject.mock.calls).toEqual([
       [dragAlpha, "vscode"],
       [dragBeta, "vscode"],
     ]);
@@ -1993,7 +1983,7 @@ describe("Sidebar remote instances (issue #416)", () => {
 
   it("offers host-local open targets on local groups only", async () => {
     const request = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValue(request.promise);
+    desktopMock.getProjectOpenAvailability.mockReturnValue(request.promise);
     useStore.setState({ state: withInstance({}) });
     renderSidebar();
     await resolveAvailability(request, true);

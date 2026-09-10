@@ -6,10 +6,12 @@ import { defineConfig } from "electron-vite";
 export default defineConfig({
   main: {
     build: {
+      // The workspace packages and ws are bundled; main reaches core only through
+      // node-pty-free subpaths (see eslint.config.mjs), so no native module rides along.
       externalizeDeps: { exclude: ["@omp-ui/core", "@omp-ui/server", "ws"] },
-      // ws require()s these optional native accelerators inside try/catch and falls back to JS.
       rollupOptions: {
         input: { index: resolve("src/main/index.ts") },
+        // ws require()s these optional native accelerators inside try/catch and falls back to JS.
         external: ["bufferutil", "utf-8-validate"],
       },
     },
@@ -17,18 +19,5 @@ export default defineConfig({
   preload: { build: { externalizeDeps: { exclude: ["@omp-ui/core"] } } },
   renderer: {
     plugins: [react(), tailwindcss()],
-    build: {
-      // Two pages ship: the app (index.html — unchanged default entry) and
-      // the private main-owned plan verifier surface (issue #312 follow-up).
-      // electron-builder ships both via `out/**`; the WEB build config
-      // (vite.web.config.ts) deliberately never lists the verifier page, so
-      // the remote client cannot load it.
-      rollupOptions: {
-        input: {
-          index: resolve("src/renderer/index.html"),
-          planVerifier: resolve("src/renderer/plan-verifier.html"),
-        },
-      },
-    },
   },
 });

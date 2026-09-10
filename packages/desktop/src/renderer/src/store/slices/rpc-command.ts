@@ -492,7 +492,6 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     extensionStatus: {},
     streamCheckpoint: undefined,
     streamStallMs: undefined,
-    stallAbortPending: undefined,
     stallCount: 0,
     extensionQueue: [],
     busy: false,
@@ -533,10 +532,7 @@ export function createRpcCommandSlice(
   reconcileGoals(state: BackendState): void;
 } {
   // The bodies moved from the root closure keep their original names.
-  const {
-    advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
-  } = deps;
+  const { advisorReply: advisorReplyWatcher } = deps;
 
   const loadHistory = async (tabId: string): Promise<void> => {
     const resp = await get().rpcCommand(tabId, { type: "get_messages" });
@@ -551,7 +547,6 @@ export function createRpcCommandSlice(
     // A resumed transcript's advisories are history, not a live review: the
     // baseline moves past them so nothing here is ever answered.
     advisorReplyWatcher.reset(tabId);
-    stallContinueWatcher.reset(tabId);
   };
 
   const bootRpcTab = async (tabId: string): Promise<void> => {

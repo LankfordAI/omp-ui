@@ -2,8 +2,9 @@
 
 The Memory pane (issue #206) browses and edits omp's **mnemopi** memory — the
 focus session's project bank plus the shared global bank — by opening the bank
-SQLite files from the main process with Node's built-in `node:sqlite`. No omp
-process is involved in reading or writing memory.
+SQLite files from the authority (today the persistent host, `HostApplication`)
+with Node's built-in `node:sqlite`. No omp process is involved in reading or
+writing memory.
 
 **Amended 2026-08-27 (#330):** the browse/edit pane was removed in #221, and
 its five channels (`memory:list`, `memory:get`, `memory:add`, `memory:update`,
@@ -86,7 +87,7 @@ facts.
 ## Confinement
 
 The renderer never passes a path. `memory:overview` takes `projectCwd` and the
-main process resolves both banks itself (`readMemoryOverview`), so a
+host resolves both banks itself (`readMemoryOverview`), so a
 compromised renderer can only ever reach the two banks its project legitimately
 owns — the same discipline as ADR-0007's `plan:read`. The dedicated
 `requireBank` guard went with the channels it confined (#330).

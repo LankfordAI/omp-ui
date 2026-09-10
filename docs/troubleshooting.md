@@ -1,14 +1,16 @@
 # Troubleshooting
 
-Start with the symptom you see. These checks use app status and supported controls. Do not edit omp-ui's registry, session JSONL files, or stored credential files.
+Start with the symptom you see. These checks use app status and supported controls. Do not edit omp-ui's registry, session JSONL files, stored credential files, or the host's `host.lock`, `host.json`, and `migration.json`.
 
-When an app problem needs a report, export a diagnostic bundle first: **Settings → Advanced → Export diagnostic bundle…**, or the command palette's **Export diagnostic bundle…**. The zip collects the logs, lifecycle breadcrumbs, versions, registry state, and per-project git status in one file, with credentials scrubbed and transcripts excluded unless you tick that option ([Settings → Advanced](settings.md#advanced)). For an app that never starts, there is no dialog to reach — fall back to the raw log paths below.
+When an app problem needs a report, export a diagnostic bundle first: **Settings → Advanced → Export diagnostic bundle…**, or the command palette's **Export diagnostic bundle…**. The zip collects the host's logs, lifecycle breadcrumbs, versions, registry state, and per-project git status in one file, with credentials scrubbed and transcripts excluded unless you tick that option ([Settings → Advanced](settings.md#advanced)). For a host or app that never starts, there is no dialog to reach — fall back to `omp-ui status` and the raw log paths below.
+
+Two processes are involved. The **host** (`omp-ui serve`) owns sessions and logs to `<dataRoot>/logs/main.log` and `<dataRoot>/logs/breadcrumbs.log` (`~/.local/share/omp-ui/logs` on Linux; the service manager also captures its stdout — `journalctl --user -u omp-ui-host` on Linux, `<dataRoot>/logs/host.log` on macOS). The **desktop app** is a client and logs to its own `userData` (`~/.config/@omp-ui/desktop/logs/main.log` on Linux). `omp-ui status` prints both directories.
 
 ## `omp` is missing or a new session exits
 
 ### Cause
 
-omp-ui normally runs its managed `omp` binary. If no managed copy exists, it can fall back to the desktop app's `PATH` and known install locations. A desktop launch does not necessarily have the same `PATH` as an interactive shell, so `omp --version` in a terminal may test a different binary.
+omp-ui normally runs its managed `omp` binary, kept by the host under its data root. If no managed copy exists, the host can fall back to its own `PATH` and known install locations. A host started by a service manager does not necessarily have the same `PATH` as an interactive shell, so `omp --version` in a terminal may test a different binary.
 
 ### Check
 
@@ -26,14 +28,14 @@ On Settings → Updates, choose **Install** when the binary is missing or **Upda
 
 ### Cause
 
-Provider keys enter a session's environment when `omp` starts. A desktop launch may not inherit exports from an interactive shell. On Linux and macOS, omp-ui also captures supported provider variables from the login shell once during app startup. Windows has no login-shell capture. A key added after a session started cannot change that running process.
+Provider keys enter a session's environment when `omp` starts, from the host's environment. A host started by the service manager or the desktop app may not inherit exports from an interactive shell. On Linux and macOS, the host also captures supported provider variables from the login shell once at startup. Windows has no login-shell capture. A key added after a session started cannot change that running process.
 
 ### Check
 
 Open Settings → Providers. If the project already has a session, focus it first so the page can report that project's `.env` source. Each configured row has a source chip:
 
-- `saved here` means omp-ui stored the key in the OS credential store.
-- `environment` means the desktop process inherited it.
+- `saved here` means the host stored the key, encrypted under its own key in the OS credential store.
+- `environment` means the host process inherited it.
 - `shell profile` means startup login-shell capture found it on Linux or macOS.
 - `project .env` means omp-ui found a key in the focused project's dotenv files. omp loads those files itself; omp-ui only reports the key.
 
@@ -41,7 +43,7 @@ A row without a source chip is not configured for that scope. A search-provider 
 
 ### Fix
 
-Add the model provider key through Settings → Providers. If no OS credential store is available, omp-ui refuses the write. On Linux or macOS, export the supported variable from the login shell profile and restart omp-ui. On Windows, set it as a user environment variable and restart omp-ui. Do not edit omp-ui's credential storage.
+Add the model provider key through Settings → Providers. If the write is refused with a degraded credential backend, the host could not reach the OS credential store when it started — Secret Service in your user session on Linux, the login Keychain on macOS, DPAPI on Windows. Confirm with `omp-ui status` (`credentialBackend`), unlock or start the store, then `omp-ui stop` and reopen omp-ui so the host starts again with the store available. A host installed as a lingering systemd service starts before your first login and stays degraded until it is restarted inside a session with a keyring; keys inherited from its environment still apply. On Linux or macOS you can instead export the supported variable from the login shell profile and restart the host. On Windows, set it as a user environment variable and restart the host. Do not edit omp-ui's credential storage.
 
 Spawn a new session after the source chip appears. Existing live sessions keep their original environment. Do not re-enter a key already reported as `project .env`; it already applies to sessions spawned in that project. See [Settings](settings.md#providers) for source priority and storage behavior.
 
@@ -49,17 +51,17 @@ Spawn a new session after the source chip appears. Existing live sessions keep t
 
 ### Cause
 
-Remote access works only while the desktop app is running. The default `localhost` bind is reachable from the same machine only. Other supported causes appear in Settings as a stopped server, a port conflict, or a missing browser bundle in a development checkout.
+Remote access works only while the host is running — not the desktop window, which is just one client. The default `localhost` bind is reachable from the same machine only. Other supported causes appear in Settings as a stopped listener, a port conflict, or a missing browser bundle in a development checkout.
 
 ### Check
 
-Open Settings → Remote access. Confirm that remote access is enabled and the status says **listening on** the expected port. Copy the displayed **Connection URL** rather than reconstructing it. For another device, confirm that **Bind address** is **local network**. If the status is an error, use the message shown there; `port … is already in use` identifies a port conflict.
+Open Settings → Remote access. Confirm that remote access is enabled and the status says **listening on** the expected port. Copy the displayed **Connection URL** rather than reconstructing it, or run `omp-ui pair`. For another device, confirm that **Bind address** is **local network**. If the status is an error, use the message shown there; `port … is already in use` identifies a port conflict. `omp-ui status` exiting 3 means no host is running at all.
 
 A packaged release includes the browser bundle. A `503` response that says the bundle is missing applies to a development build.
 
 ### Fix
 
-Keep the desktop app open. For another device, change the bind address to **local network**, then use the newly displayed connection URL. Choose another port in the supported range if the current port is in use.
+Keep the host running; installing it as a service ([Getting started](getting-started.md#run-the-host-as-a-service)) keeps remote access up after the window closes or you log out. For another device, change the bind address to **local network**, then use the newly displayed connection URL. Choose another port in the supported range if the current port is in use.
 
 For a development checkout with a missing bundle, run this exact command from the repository root:
 
@@ -67,23 +69,23 @@ For a development checkout with a missing bundle, run this exact command from th
 npm run build:web --workspace @omp-ui/desktop
 ```
 
-Turn remote access off and on after the build so the server checks the bundle again. Remote access uses plain HTTP; read the exposure and sign-in guidance before enabling a LAN bind in [Remote access](remote-access.md).
+Restart the development host after the build so it sees the bundle. Remote access uses plain HTTP; read the exposure and sign-in guidance before enabling a LAN bind in [Remote access](remote-access.md).
 
 ## A dismissed update card does not return
 
 ### Cause
 
-Choosing **Later** remembers the dismissal for that exact offered version. omp-ui updates and managed `omp` updates have separate cards, launch-check switches, and dismissal records.
+Choosing **Later** remembers the dismissal for that exact offered version. Host updates, desktop-app updates, and managed `omp` updates have separate cards, launch-check switches, and dismissal records.
 
 ### Check
 
-Open Settings → Updates. Inspect the omp-ui and omp binary sections separately. A remembered offer appears as **Dismissed:** followed by its version. The status line also reports manual check errors, available updates, and the installed version.
+Open Settings → Updates. Inspect the host, desktop, and omp binary sections separately. A remembered offer appears as **Dismissed:** followed by its version. The status line also reports manual check errors, available updates, and the installed version; the host section also reports its staged version, the last attempt, and the rollback target.
 
 ### Fix
 
 Choose **Re-offer** in the matching section. It clears that dismissal and immediately checks again. Use **Check now** when there is no dismissed row. A dismissal never suppresses a later version.
 
-See [Releases](releases.md) for the supported update paths on Linux and the Windows and macOS previews.
+See [Releases](releases.md#how-updates-behave) for the host handover, the desktop update paths on Linux and the Windows and macOS previews, and rollback.
 
 ## A session is absent from the sidebar
 
@@ -133,11 +135,48 @@ Focus a session from the affected project before checking omp, Memory, Providers
 
 See [Settings](settings.md) for layer and timing details and [User guide](user-guide.md) for live session controls.
 
+## The host will not start, or the app cannot reach it
+
+### Cause
+
+The desktop window is a client of the persistent host. When it cannot find or start one it shows a recovery surface instead of the app, with the bootstrap phase (`probing`, `installing`, `starting`, `failed`), the host and client log directories, and **Retry**, **Stop host**, and **Roll back** actions. The host refuses to start when another process owns the data root, when a child process from a crashed host cannot be proven dead, when the registry is unreadable before it has ever been adopted, or when a migration step finds disk and journal disagreeing; it exits rather than guess.
+
+### Check
+
+Ask the host directly; this never opens the registry and is safe while it runs:
+
+```bash
+omp-ui status
+```
+
+| Exit | State | Meaning |
+| --- | --- | --- |
+| `0` | `running` | A host answered an authenticated probe. The report shows its pid, version, verifier health, credential backend, service state, and log directory. |
+| `3` | `absent` | No `host.json` and no `host.lock`: nothing is running for this data root. Open the desktop app, or `omp-ui service install`. |
+| `4` | `unresponsive` or `incompatible` | A record or lock exists but the probe failed or the protocol ranges do not overlap. The report names the owner from `host.lock` and the reason. |
+| `5` | authority conflict | Another process owns this data root: a second host from another checkout or flavour, an omp-ui release from before the host that found a claimed root, or a host still shutting down. `omp-ui serve` and the older app both exit 5 with the owner's pid, version, start time, and endpoint. |
+
+The desktop app's recovery surface shows the same message the host logged. Read the host's own account in `<dataRoot>/logs/main.log` and `breadcrumbs.log` (every boot step leaves an `authority` breadcrumb), and the service manager's capture (`journalctl --user -u omp-ui-host` on Linux). `<dataRoot>/migration.json` lists each migration step as `open` or `committed`; an `open` `credential-handoff-v1` after a start means the credential store was locked and the step will retry next boot — that is not an error.
+
+### Fix
+
+| Message or state | Fix |
+| --- | --- |
+| Exit 5, and the named pid is a host you want | Connect through it: open the desktop app, or use `omp-ui pair`. Nothing else needs to change. |
+| Exit 5, and the named pid is an old or stuck host | `omp-ui stop` asks it to hibernate and exit; it never force-kills. If the process is gone but `host.lock` still names it, the next start proves it dead and takes over by itself — never delete `host.lock` by hand. |
+| Exit 5 from a pre-host omp-ui release | That release cannot open a root a host has claimed. Install the current release; do not run both. |
+| `stopped: children from the previous host could not be proven dead: pid …` | A child `omp` from a crashed host is still alive or cannot be identified. Inspect and end that pid yourself, then retry; the host will not resume a session beside a process it cannot account for. |
+| `stopped: registry … is corrupt or from an unknown schema; nothing was moved` | The registry could not be read before its first adoption. Nothing was quarantined; restore the file from a backup or remove the corrupt root deliberately, then retry. |
+| `boot failed: MigrationConflict …` | Disk and `migration.json` disagree (for example both a legacy and a relocated copy of a store exist and differ). Nothing was touched. Keep the copy you trust, remove the other, and retry; the message names the item. |
+| Recovery surface `failed` after `starting` with no host log lines | The service manager refused the start. On Linux confirm `systemd-run --user` works in your session (`systemctl --user status`); on macOS that `launchctl` can submit into your `gui/<uid>` domain; on Windows that Task Scheduler can create a task for your account. **Retry** resubmits. |
+| `verifier: degraded … No usable sandbox` or a font reason in `omp-ui status` | Sessions work; every HTML plan proposal answers `VERIFIER_UNAVAILABLE`. Enable unprivileged user namespaces (`sysctl kernel.unprivileged_userns_clone=1`, or raise `user.max_user_namespaces`) and install at least one font family, then restart the host. omp-ui never runs the verifier without Chrome's sandbox. |
+| Wrong version after an update, or an update that will not acknowledge | `omp-ui rollback` hands over to the one retained previous version. An update whose replacement never acknowledged has already been killed and the previous version reclaimed; `omp-ui status` reports the last attempt's outcome. |
+
 ## omp-ui won't start (Linux)
 
 ### Cause
 
-An app-menu launch runs the AppImage with `Terminal=false`, so a failure before Electron starts — the AppImage runtime, or shared-library loading — shows no error. The window also never appears if a previous omp-ui process is still alive: omp-ui is single-instance, and a second launch exits silently while the first instance keeps the single-instance lock.
+An app-menu launch runs the AppImage with `Terminal=false`, so a failure before Electron starts — the AppImage runtime, or shared-library loading — shows no error. The window also never appears if a previous omp-ui window is still alive: the desktop client is single-instance per `userData`, and a second launch exits silently while the first holds Chromium's single-instance lock. A host that is running is not the problem here — the window connects to it — but a host that cannot start shows the recovery surface described above rather than an empty window.
 
 ### Check
 
@@ -147,13 +186,13 @@ Run the AppImage from a terminal so the error is visible:
 ~/.local/bin/omp-ui.AppImage
 ```
 
-Anything stuck holding the single-instance lock:
+Anything stuck holding the client's single-instance lock (the host, `omp-ui serve`, is a different process and may legitimately be listed):
 
 ```bash
 pgrep -a omp-ui
 ```
 
-If a process is listed, it is the previous instance; a new launch exits while it lives. Architecture sanity (the Linux build is x64-only):
+If an `omp-ui.AppImage` process is listed, it is the previous window; a new launch exits while it lives. Architecture sanity (the Linux build is x64-only):
 
 ```bash
 uname -m
@@ -169,10 +208,10 @@ tail -50 ~/.config/@omp-ui/desktop/logs/main.log
 
 | Terminal signature | Fix |
 | --- | --- |
-| FUSE mount error text (`dlopen(): error loading libfuse.so.2`, `No suitable fusermount binary found`, `Cannot mount AppImage`) | Applies to direct launches only (terminal or file manager) — the application-menu entry avoids FUSE entirely. Re-run the installer to get the current static-runtime AppImage. For direct launches, `sudo apt install fuse3`, or run `APPIMAGE_EXTRACT_AND_RUN=1 ~/.local/bin/omp-ui.AppImage`. |
+| FUSE mount error text (`dlopen(): error loading libfuse.so.2`, `No suitable fusermount binary found`, `Cannot mount AppImage`) | Applies to direct launches only (terminal or file manager) — the application-menu entry and `~/.local/bin/omp-ui-desktop` avoid FUSE entirely. Re-run the installer to get the current static-runtime AppImage. For direct launches, `sudo apt install fuse3`, or run `APPIMAGE_EXTRACT_AND_RUN=1 ~/.local/bin/omp-ui.AppImage`. |
 | `error while loading shared libraries: …` | Re-run the installer; it verifies the Electron binary's system libraries and prints the exact `sudo apt install …` command. Older installers: install the package that provides the named library. |
 | `Exec format error` | The machine is not x64. The Linux build is x64-only. |
-| Silent immediate exit | A previous omp-ui instance is still alive and holds the single-instance lock. Find it with `pgrep -a omp-ui`, kill it, then relaunch. |
+| Silent immediate exit | A previous omp-ui window is still alive and holds the single-instance lock. Find it with `pgrep -a omp-ui.AppImage`, kill it, then relaunch. Killing the window never touches your sessions; they belong to the host. |
 
 ## A release download needs verification
 

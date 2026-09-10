@@ -5,6 +5,7 @@ import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { currentLocaleId, useT } from "../lib/i18n";
+import { HAS_DESKTOP } from "../desktop";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { Chip, Dot, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
@@ -192,13 +193,17 @@ export function CommandPalette() {
       }
     }
 
-    out.push({
-      id: "app:check-updates",
-      group: t("palette.group.app"),
-      name: t("palette.action.checkApp"),
-      desc: t("palette.action.checkAppDesc"),
-      run: () => void checkAppUpdate(),
-    });
+    // The omp-ui check is the desktop client's own artifact (#454): a browser client runs no
+    // artifact the check could describe, so the action is absent rather than a silent no-op.
+    if (HAS_DESKTOP) {
+      out.push({
+        id: "app:check-updates",
+        group: t("palette.group.app"),
+        name: t("palette.action.checkApp"),
+        desc: t("palette.action.checkAppDesc"),
+        run: () => void checkAppUpdate(),
+      });
+    }
     out.push({
       id: "app:settings",
       group: t("palette.group.app"),

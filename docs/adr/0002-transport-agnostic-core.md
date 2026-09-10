@@ -1,7 +1,13 @@
 # Transport-agnostic core (`packages/core` + `OmpBackend`)
 
 > **Status note:** The future-server wording below is historical.
-> `packages/server` and [remote access](../remote-access.md) now ship. See the
+> `packages/server` and [remote access](../remote-access.md) ship, and since
+> [ADR-0029](0029-persistent-host-owns-authoritative-application.md) the
+> WebSocket transport is the *only* transport: the desktop renderer connects to
+> the persistent host's local-control endpoint exactly as a browser connects to
+> remote exposure, and the Electron IPC `OmpBackend` this record starts from is
+> gone. What survives is the seam it argued for — `packages/core` free of
+> Electron and transport, one typed `OmpBackend`. See the
 > [current architecture](../architecture.md).
 
 Remote browser access to the UI is a stated future goal but not planned work.

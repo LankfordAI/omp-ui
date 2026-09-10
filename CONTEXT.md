@@ -15,8 +15,9 @@ whole lineage dir from the active and archive roots.
 _Avoid_: conversation, chat, thread
 
 **Live session**:
-An owned session with a running `omp` process owned by the omp-ui instance
-(the app is single-instance; the registry lives in the one main process).
+An owned session with a running `omp` process owned by this host's
+`HostApplication` (one authority per data root — the persistent host;
+ADR-0030).
 Its tab may be visible or hidden — closing a tab hides it (the process keeps
 running); clicking the session resurfaces the tab. omp-ui never spawns a
 second process for the same session, because omp has no cross-process session
@@ -44,7 +45,7 @@ _Avoid_: suspended session, parked session, sleeping session
 The renderer's view onto a live session's PTY — one xterm.js instance per
 live session. Tabs hide rather than close; focus/dedupe keys on the tab,
 which exists from spawn — before the session has an id or file. A tab may
-belong to a remote instance: it renders that host's stream, its
+belong to a remote instance: it renders that instance's stream, its
 `instanceId` names the owner, and its label carries the nickname in front of
 the title.
 _Avoid_: window, pane
@@ -77,7 +78,7 @@ _Avoid_: tab history
 A persistent, one-way relation from a fresh implementation session to the
 planning session whose approved plan seeded it. After the fresh session
 acknowledges that seed, the renderer suppresses automatic prompts on the source
-and main hibernates it only when a safety probe finds no turn, queue, stream, or
+and the host hibernates it only when a safety probe finds no turn, queue, stream, or
 blocking human-answer request. A declined reap leaves the source live but still
 handed off until a human prompts or resumes it. Deletion runs one way:
 deleting the planning session deletes the
@@ -127,7 +128,7 @@ project's name and full path, then New session, New terminal session,
 *New worktree session, Project settings, and Remove project. It
 replaces the cluster below 900px. The desktop open targets (VS Code, Files, Terminal) are
 deliberately absent: a compact shell is usually a phone talking to a
-remote omp-ui, where opening on the host answers a question nobody asked.
+remote omp-ui, where opening on the machine that owns the sessions answers a question nobody asked.
 _Avoid_: project context menu, overflow menu, kebab menu
 
 **Subagent view**:
@@ -275,12 +276,12 @@ third, non-answering verdict: `deferPlanReview` dismisses it without resolving
 the gate, so the agent stays paused on its proposal and the plan stays pending
 in the rail's proposed plans pane until the user returns. Defer encodes
 "ignore for the time being"; refine is the only verdict that revises
-immediately. Both keep the working tree read-only. The pending plan gate itself is owned by the main process —
+immediately. Both keep the working tree read-only. The pending plan gate itself is owned by the host —
 the proposal frame is recorded as the session's `pendingPlan` on its summary,
 and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a
 remote client) hydrates the review from the record and settles a verdict
 another client already made; the gate never outlives the session process.
-An HTML gate carries the `sourceHash` main's preflight validated: answering
+An HTML gate carries the `sourceHash` the host's preflight validated: answering
 execute re-checks the artifact's bytes before anything dispatches, and a
 gate whose artifact changed settles as `invalidated` — not a user verdict,
 no implementation, no advisor fold (issue #312 follow-up).
@@ -293,13 +294,13 @@ advisor's notes already land. The fold is a per-review switch, default on.
 _Avoid_: plan approval dialog, confirmation, plan prompt
 
 **Plan preflight**:
-The main-process validation an HTML plan must pass before a plan review can
+The host-side validation an HTML plan must pass before a plan review can
 exist at all (issue #312 follow-up, ADR-0022 amended): the proposal's
 `select` request is claimed at the session's frame edge — before observers,
 clients, notifications, or the pending-plan record — the artifact is read
 through the confined plan reader, and the same parser, transforms, and real
-layout probe every surface uses runs in a hidden, script-less Chromium
-verifier. A passed proposal is delivered once with a main-authored
+layout probe every surface uses runs in the host's headless, script-less
+Chromium verifier. A passed proposal is delivered once with a host-authored
 `sourceHash`; a failed or unavailable one answers the agent directly with
 bounded, source-located diagnostics as the proposal tool result, so the
 agent repairs the reported ranges of the existing artifact instead of the
@@ -377,7 +378,7 @@ whether or not the continue fires (ADR-0019).
 _Avoid_: auto-resume, session revive, stream retry
 
 **Desktop notification**:
-The OS notification the main process posts (Electron `Notification`) when an
+The OS notification the desktop client posts (Electron `Notification`) when an
 owned native session reaches an attention state while the user is not looking
 at that tab in the desktop window — the window is unfocused, or it is focused
 but showing a different tab (issue #271): a turn finished, a plan review is
@@ -387,7 +388,7 @@ turn that auto-resumes never blinks. A remote renderer's viewed tab never
 suppresses or acknowledges the banner — it is a different screen. Clicking
 focuses the window and resurfaces the session through the ordinary openSession
 path. A Settings → General switch, default on. Terminal sessions are never
-announced — main has no turn signal in a PTY — and remote browser clients
+announced — the host has no turn signal in a PTY — and remote browser clients
 receive none; their story is web push and stays a separate feature.
 _Avoid_: toast, system alert, reminder, popup
 
@@ -416,7 +417,7 @@ _Avoid_: plan inbox, plan queue, plan history
 The inspector rail pane that shows every working-tree change on the focus
 session's project git branch — the tracked diff plus new untracked files read
 as creates, one `DiffViewer` per file. It is a repo view, not a session view:
-the rail asks the main process (`core/branch-diff.ts`, the git-only
+the rail asks the host (`core/branch-diff.ts`, the git-only
 `getBranchDiff` channel) and renders the parsed result, so "all changes on
 the current branch" is what the user reads regardless of which session
 produced them. For a worktree session the pane diffs the working tree against
@@ -457,7 +458,7 @@ into a destination checked out nowhere in a scratch worktree under the
 worktrees root, and on a conflict offers to sync the destination into the
 worktree, so the owning session resolves it in the checkout that holds the
 change rather than in the project checkout. A checkout with uncommitted
-changes cannot be returned — main enforces it, and the delete dialog is the
+changes cannot be returned — the host enforces it, and the delete dialog is the
 one surface that offers the loss explicitly. Returning **releases the
 worktree**: the record, its transcript, its tab and its lineage survive back
 at the project checkout; the checkout is removed, and the branch is deleted
@@ -574,16 +575,18 @@ _Avoid_: memory manager, knowledge base, memory browser tab
 
 **Update card**:
 The small non-modal card in the lower-right corner announcing an available
-update. There are two: the omp-ui release card (AppImage, NSIS, and macOS
-installs — the staged ZIP applies through Squirrel.Mac — stage through
-`electron-updater` before it appears, offering Restart now / Install when I quit
-/ Later; unsigned NSIS is the Windows preview path) and the omp binary
+update. There are three, one per thing that updates: the host card (a staged
+host release is offered from the host's `latest-host-<platform>.yml` feed,
+with Apply now / Defer while the bounded countdown runs; every client sees the
+same countdown), the desktop client card (AppImage, NSIS, and macOS installs —
+the staged ZIP applies through Squirrel.Mac — stage through `electron-updater`
+before it appears, offering Restart now / Install when I quit / Later; present
+only in the desktop client, through the desktop adapter), and the omp binary
 install/update card (Update now / Later, or Install / Later when omp is not
 installed at all). Dismissal is remembered per offered version and dropped once
 the running/installed version catches up to it — a dismissal only ever
 suppresses that exact offer, so a caught-up entry is dead state. Background
-failures stay silent. When both show they share one corner stack, the omp-ui
-card on top.
+failures stay silent. When several show they share one corner stack.
 _Avoid_: toast, notification, popup, updater dialog
 
 **Settings surface**:
@@ -599,25 +602,26 @@ project; it does not claim to show what was injected into a session.
 _Avoid_: preferences dialog, options window, config panel
 
 **Remote instance**:
-Another omp-ui app whose embedded server this app has joined as a client,
+Another omp-ui host whose remote exposure this host has joined as a client,
 saved with a nickname, its connection URL, and a credential. Its projects
 and owned sessions appear in the sidebar under the nickname; opening one
-renders that host's own stream, and every action on it runs on that host's
+renders that instance's own stream, and every action on it runs on that instance's
 registry and processes — nothing is copied and no second omp process starts.
 Model choice follows the owner: a remote tab's model catalog, favorites,
 project model pins, and advisor defaults are that instance's — starring a
-model or pinning a project default runs on that host, a rejected favorite
+model or pinning a project default runs on that instance, a rejected favorite
 toggle is reported rather than written here, and the same favorites show in
-every view of that instance. Provider administration stays host-local: a
+every view of that instance. Provider administration stays instance-local: a
 remote tab with no models shows guidance naming the instance instead of
 opening this app's Providers page, because its provider credentials live on
-that host. The relation is directed: joining B from A gives B no view of A,
-and a join never follows the remote's own joins. Quitting this app
+that instance. The relation is directed: joining B from A gives B no view of A,
+and a join never follows the remote's own joins. Stopping this host
 disconnects remote instances; their sessions keep running, exactly as closing
 a browser view does. The nickname is optional (defaults to the URL's host),
-unique among joined instances, and is how every surface labels the host.
-_Avoid_: remote server (the embedded listener this app hosts), remote host
-(the `RemoteHost` seam), peer, connection
+unique among joined instances, and is how every surface labels the instance.
+_Avoid_: remote server (the exposure listener this host runs), remote host,
+that host, peer, connection (the `HostSurface` seam keeps its symbol name and is
+called "the `HostSurface` seam", never "the host")
 
 **Provider key**:
 One API credential omp-ui supplies to every omp it launches, named by the
@@ -721,8 +725,236 @@ long-running prompt, autonomous mode
 The reduced, monotonic view of one session's goal that the generated extension
 publishes over the existing extension-status frame: availability plus its reason,
 OMP's goal with status and token use, the continuation state, the pause reason, and
-any correlated command result. Keyed in main by the process that answered, not the
+any correlated command result. Keyed in the host by the process that answered, not the
 tab, so a replaced process's goal cannot be shown by its successor; a stale or
 malformed publish leaves the last good snapshot standing.
 _Avoid_: goal status (a field of the snapshot), goal cache, goal mirror
+
+**Persistent host** (short: **host**):
+The long-running, display-independent omp-ui process that is the single
+authority for exactly one data root — its registry, every live `omp` child and
+shell, local control, remote exposure, attention, plan files, plan gates and
+preflight, OMP resolution and updates, its own updates, and credential
+decryption. Its code is `HostApplication` in `@omp-ui/host` (ADR-0029), and
+`omp-ui serve` is the only process that constructs it; no Electron runs in that
+process. "This host" is this installation's; a joined app is never "the host".
+_Avoid_: daemon, backend process, headless app, main process (which names the
+Electron client's own process only), host for a joined instance (say "that
+instance")
+
+**Desktop client**:
+The optional Electron application that presents the shared renderer. It owns
+windows, chrome, and client effects, and owns no authoritative state; it
+connects to the local host over local control with the desktop credential —
+the renderer over one WebSocket, Electron main over a second one of its own
+for the notifier — so closing, updating, crashing, or relaunching it changes
+only its own view: live sessions, listeners, and other clients are untouched.
+Where no host is running its host bootstrap starts one, detached and reaped by
+the platform supervisor, never as its own child.
+_Avoid_: the app (when a browser client is also meant), Electron backend
+
+**Browser client**:
+A generic authenticated renderer reaching the host over the WebSocket
+transport, local or remote. Same role and the same host-owned channels
+everywhere; nothing is desktop-only except client effects, which it lacks and
+replaces with truthful behaviour rather than faking.
+_Avoid_: web client (collides with the desktop's own web contents), remote
+renderer as a role name
+
+**Instance client**:
+The client role this host's join presents to another host's remote exposure
+— one socket per joined instance, dialled with the joined-instance header and
+a `hello` naming `clientRole: "instance"`. It is how a remote instance is
+joined; the user-facing term for the joined app stays *remote instance*, and
+in prose that app is "that instance", "the joined instance".
+_Avoid_: peer, remote host, bare "instance" for a running process
+
+**Local control**:
+The host's always-on loopback endpoint (`127.0.0.1`, ephemeral port) plus the
+connection record that advertises it. It exists whether or not remote exposure
+is on, requires the `hello` handshake from every client, and is unaffected by
+enabling, disabling, or rotating exposure credentials. Restarting the host
+rotates both of its credentials.
+_Avoid_: management endpoint, admin port, local server
+
+**Remote exposure**:
+The optional network-facing listener governed by the Settings → Remote access
+page and its password or token. Enabling, disabling, or rotating it affects
+exposed clients only; it still accepts a legacy client whose first frame is a
+request rather than a `hello` (implicit protocol 1) until that bridge is
+retired (ADR-0029).
+_Avoid_: remote server as the concept (it is the listener), remote access
+for the endpoint itself (that is the settings page)
+
+**Client role**:
+The host-side classification of one authenticated connection — browser
+client, desktop client, or instance client — decided by the credential
+presented at the HTTP upgrade and the listener it arrived on (local or
+exposed, with or without control), never by a renderer-supplied id. The role
+selects which channels that connection's table contains; a gated channel is
+absent, not denied.
+_Avoid_: trust level, client type, permission
+
+**Client effect**:
+An observable action only a UI client can perform on its own machine:
+desktop notifications, revealing or opening paths in VS Code, Files,
+Explorer, or a terminal, native save dialogs, safe external-link opening,
+window chrome, and applying an update to the client's own artifact. The host
+never performs one; a desktop client performs it through the desktop adapter
+beside `window.ompBackend`, and a browser client gets truthful replacement
+behaviour — never a silent skip or a fake.
+_Avoid_: desktop action (narrower, remote-instance prose), native action,
+host action, host-local (say client-local or instance-local)
+
+**Data root**:
+The one directory a persistent host owns: `<dataHome>/omp-ui`, or
+`omp-ui-dev` / `omp-ui-dev-server` by build flavour (`$XDG_DATA_HOME` or
+`~/.local/share`, `~/Library/Application Support`, `%LOCALAPPDATA%`),
+replaced whole by `OMP_UI_DATA_DIR`, blind to `OMP_PROFILE`, and never nested
+inside another flavour's root. It holds the registry, credential stores,
+`oauth-login/`, `worktrees/`, `logs/`, `updates/`, the managed omp, and the
+host's own `host.lock`, `host.json`, `migration.json`, and
+`runtime/children.json`. Electron's `userData` keeps client state only — the
+Chromium profile, `window-state.json`, client-local logs.
+_Avoid_: userData, app data (when the client's profile is meant), profile
+directory, registry path
+
+**Authority claim**:
+How a host becomes the one owner of a data root (ADR-0030): it publishes its
+own owner record by hard link as `host.lock`, refuses when a live host answers
+the probe or the recorded owner is alive or unverifiable, and takes over only
+on proof that the recorded owner is gone — another boot, or a dead pid or
+different start time on this boot. The result is the `AuthorityToken`, the
+only route to `Registry.load` and the resume seam. `omp-ui serve` exits 5 on a
+refusal; a pre-cutover desktop build that finds claim evidence in the root
+refuses to start with the same code.
+_Avoid_: single-instance lock (Electron's, scoped to `userData`), lease,
+heartbeat, lock file for `host.json`
+
+**Migration journal**:
+`<dataRoot>/migration.json`: the durable, ordered record of every one-shot
+change to the authoritative stores, one step per frozen id
+(`relocate-authority-stores-v1`, `credential-handoff-v1`), each item's
+evidence written before the file system is touched, so a replay after a
+crash can tell "never started" from "moved but unrecorded" and stop when disk
+and evidence disagree. An unknown step fails closed.
+_Avoid_: migration log, upgrade marker, migration flag
+
+**Children ledger**:
+`<dataRoot>/runtime/children.json`: every `omp` or shell child the host
+spawned, recorded with pid, process group, boot id, start time, kind, tab,
+and lineage dir before the spawn is reported, removed on reap. The next
+authority reconciles it before it loads the registry — drops the dead,
+terminates the identified survivors, and stops the boot by pid over anything
+it cannot prove dead — so a crash leaves exactly one resumer.
+_Avoid_: pid file, orphan list, process table
+
+**Connection record**:
+`<dataRoot>/host.json`, mode 0600: the host's endpoint, version, protocol
+range, pid and start time, incarnation, and the two local credentials —
+desktop and control. It is how a desktop client or the CLI finds and
+authenticates to the running host; its presence never proves liveness — an
+authenticated probe does — and it is not the lock. A clean stop deletes it.
+_Avoid_: lock file, pid file, discovery file
+
+**Control channel**:
+A backend channel declared with `gate: "control"` — `host:status`,
+`host:stop`, `host:pair` — present only in a connection table whose grant
+carries `control`, which the local-control credential alone confers; a
+connection without it sees no such channel. They are the verbs the `omp-ui`
+CLI drives. Not a fourth client role: the CLI connects as a browser client
+with control.
+_Avoid_: admin channel, management API, CLI role
+
+**DEK**:
+The host's 32-byte data encryption key, one per data root, the only secret the
+OS credential store holds. Every stored credential is an AES-256-GCM envelope
+under it (`0x02 || nonce || ciphertext || tag`), so a slow or locked keyring
+costs one bounded lookup at boot rather than one per credential. Read once on
+a worker with a 5 s deadline; with ciphertext on disk a missing DEK is
+*key-lost*, never a fresh key.
+_Avoid_: master password, encryption key (unqualified), safeStorage key
+
+**Credential protector**:
+The platform adapter that files the DEK in the OS store — Secret Service on
+Linux, Keychain on macOS, DPAPI over `<dataRoot>/master.key` on Windows — with
+no keyutils or plaintext fallback. When it cannot answer, the host opens a
+degraded cipher that fails closed: it reports its backend and reason, injects
+no stored provider key, and refuses stored-key writes and credential joins
+while the rest of the host keeps serving.
+_Avoid_: keyring (as the omp-ui concept), safeStorage, secret store backend
+
+**Credential handoff**:
+The journalled migration step that re-encrypts `provider-keys.json` and
+`remote-instances.json` from Electron `safeStorage` ciphertext into host
+envelopes, per value: a host envelope is kept, a readable blob is
+re-encrypted, a locked keyring leaves the bytes and the step open for a later
+run, and an unreadable blob drops a provider key by name or marks a joined
+instance *sign-in required*. Runs under the authority claim before the
+registry loads; plaintext never touches disk. The legacy `safeStorage` readers
+it needs stay in the host until two later minor releases and twelve months
+after the cutover have both passed.
+_Avoid_: key migration, re-keying, credential import
+
+**Cutover handoff**:
+`<dataRoot>/runtime/cutover-handoff.json`, mode 0600: the one-use note a
+pre-cutover desktop client writes — its pid and start time, its Electron
+`userData`, the target root, a nonce — while it is still running and before it
+submits the host start, so the supervisor-started host can prove that exact
+process still holds Chromium's `SingletonLock` and adopt its stores through the
+migration journal. The host renames the note to a consumed name before it
+migrates; a stale, foreign, or unverifiable note migrates nothing. The handoff
+grants no authority.
+_Avoid_: migration marker, upgrade token, handover file
+
+**Desktop adapter**:
+`window.ompDesktop`: the separately named in-process seam beside
+`window.ompBackend` through which the renderer performs client effects and
+reports this window's viewed tab, built from `DESKTOP_CHANNELS` over preload
+IPC. Present only in the desktop client; `null` in a browser client, which is
+how the renderer knows to gate path effects on `desktop !== null` and a local
+tab. It is not `OmpBackend` and never reaches the host.
+_Avoid_: desktop backend, native bridge, IPC backend
+
+**Host bootstrap**:
+`window.ompHostBootstrap`: the desktop client's preload surface, beside the
+desktop adapter, through which the renderer obtains its local endpoint and
+desktop credential. Electron main finds a compatible live host (connection
+record plus authenticated probe), else installs the embedded seed as the
+`current` host, submits the supervisor's on-demand start, and polls until the
+host answers — reporting `probing`, `installing`, `starting`, `ready`, or
+`failed` with the data root, both log directories, and the supervisor kind.
+Its `retry`, `stop`, and `rollback` verbs drive the recovery surface the
+renderer shows before React loads. Absent in a browser client; it never opens
+an authoritative store and never constructs a backend.
+_Avoid_: launcher, backend starter, host manager
+
+**Attention level**:
+The neutral per-tab state the host publishes for an owned native session —
+`turn-complete`, `plan-pending` (with the plan's title), or `stall-paused`,
+stamped with the moment it arose — carried on the session summary and on
+`attention:changed`. Authored only by host observers (agent start and end,
+proposal, verdict, invalidation, process exit, the stall cap); a pending plan
+outranks a finished turn, a new turn clears it, PTY tabs never hold one, and
+no viewed report changes it. A desktop notification is one client's
+translation of it.
+_Avoid_: notification (the client effect), alert, unread state
+
+**Attention transition**:
+One change of a tab's attention level, broadcast to every client. Transitions
+are global: they begin and end a tab's attention for everyone; a client that
+has already bannered a level's stamp never re-banners it.
+_Avoid_: notification event, ping
+
+**Viewed report** (connection-qualified):
+A connection's statement of the one tab it currently shows (`tab:viewed`,
+null for none), kept per connection by the host, dropped when that connection
+closes, and stale after fifteen minutes. It protects that tab from idle
+hibernation and gates only that connection's own client effects; it never
+begins or ends attention, and no other connection's report suppresses this
+client's banner — a remote renderer's viewed tab is a different screen. The
+desktop client reports its own window's tab through the desktop adapter as
+well, for its banner gate.
+_Avoid_: viewed tab (unqualified — say whose connection reports it viewed),
+focused tab, active tab, acknowledgement
 

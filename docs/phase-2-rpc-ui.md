@@ -4,8 +4,11 @@
 
 **Current status:** Native RPC UI sessions are shipped and are the default
 session mode. See the [current architecture](architecture.md) and
-[user guide](user-guide.md) for the implemented behavior. The original design
-record follows.
+[user guide](user-guide.md) for the implemented behavior. The Electron IPC
+wiring below is historical: the rpc-ui child runs in the persistent host and
+its frames reach every renderer over WebSocket
+([ADR-0029](adr/0029-persistent-host-owns-authoritative-application.md)). The
+original design record follows.
 
 ## Goal
 

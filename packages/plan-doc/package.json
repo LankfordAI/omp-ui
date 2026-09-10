@@ -1,0 +1,29 @@
+{
+  "name": "@omp-ui/plan-doc",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plan-diagrams": "./src/plan-diagrams.ts",
+    "./plan-highlight": "./src/plan-highlight.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@omp-ui/core": "*",
+    "@shikijs/langs": "^4.4.3",
+    "mermaid": "^11.17.1",
+    "parse5": "^8.0.1",
+    "shiki": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "jsdom": "^30.0.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

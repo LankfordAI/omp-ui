@@ -1,7 +1,6 @@
 import type {
   AgentMode,
   AdvisorDefaults,
-  AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
   BranchList,
@@ -168,8 +167,6 @@ export interface RpcTabState {
   stallCount?: number;
   /** The turn's terminal assistant message end; drives settle target and stall classification. */
   lastTurn?: LastTurnMeta;
-  /** A main-process watchdog abort notice arrived; the next agent_end feeds auto-continue (issue #254). */
-  stallAbortPending?: boolean;
   extensionQueue: unknown[];
   /** True while any rpc command is in flight. */
   busy: boolean;
@@ -391,7 +388,7 @@ export interface UpdatesSlice {
   downloadAppUpdate(): Promise<void>;
   openAppUpdateReleaseNotes(): Promise<void>;
   showAppUpdateDownload(): Promise<void>;
-  restartForAppUpdate(confirmed?: boolean): Promise<AppUpdateRestartResult>;
+  restartForAppUpdate(): Promise<void>;
   setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   dismissAppUpdate(version: string, remember: boolean): Promise<void>;
 }

@@ -6,9 +6,14 @@ directories:
 files:
   - out/**
   - package.json
-asarUnpack:
-  - "**/node_modules/node-pty/**"
-npmRebuild: false
+# The persistent host seed (issue #442 §10.1): the lane's unpacked host layout
+# that `npm run package:host -w @omp-ui/host -- --lane ${os}-${arch}` wrote,
+# embedded as resources/host/<version>/{bin,lib,resources,service}. The desktop
+# client relocates it into <dataHome>/omp-ui-host/versions/ only when no live
+# or installed host exists; a desktop update never writes an installed host.
+extraResources:
+  - from: "../host/out/${os}-${arch}/seed"
+    to: host
 toolsets:
   appimage: "1.0.3"
 linux:
@@ -25,6 +30,11 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   notarize: true
+  # The host verifies the vendored Chrome for Testing against the SHA-256 in
+  # its browser.manifest.json before every launch (issue #442 §7); re-signing
+  # it here would change those bytes. Google's own signature stays in place.
+  signIgnore:
+    - "/Resources/host/[^/]+/resources/plan-verifier/"
   artifactName: ${productName}-${version}-mac-preview-${arch}.${ext}
   target:
     - dmg

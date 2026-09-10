@@ -30,6 +30,7 @@ function fakeProc(): FakeProc {
   let exitCb: ((code: number | null) => void) | undefined;
   return {
     proc: {
+      pid: 4242,
       stdin,
       stdout,
       stderr,
@@ -67,7 +68,6 @@ interface Harness {
   runCalls: Array<{ argv: string[] }>;
   spawnArgs: string[];
   stdinLines: object[];
-  openedUrls: string[];
   frame: (f: unknown) => void;
   /** Write a raw stdout line (no frame validation) — e.g. an oversized one. */
   raw: (line: string) => void;
@@ -88,7 +88,6 @@ function harness(opts: {
   const states: ProviderOAuthState[] = [];
   const events: string[] = [];
   const runCalls: Array<{ argv: string[] }> = [];
-  const openedUrls: string[] = [];
   const stdinLines: object[] = [];
   let spawnArgs: string[] = [];
   let failNext = false;
@@ -112,7 +111,6 @@ function harness(opts: {
       states.push(state);
       events.push(`state:${state.phase}`);
     },
-    onOpenUrl: (url) => openedUrls.push(url),
     run: (o) => oauthRun(o),
     spawnProcess: (_cmd, args) => {
       spawnArgs = args;
@@ -132,7 +130,6 @@ function harness(opts: {
       return spawnArgs;
     },
     stdinLines,
-    openedUrls,
     frame: (f) => fake.stdout.write(`${JSON.stringify(f)}\n`),
     raw: (line) => fake.stdout.write(`${line}\n`),
     exit: (code) => fake.exit(code),
@@ -283,17 +280,33 @@ describe("start", () => {
 });
 
 describe("open_url frame", () => {
-  it("confirms, publishes the browser phase, and opens the URL once", async () => {
+  it("confirms and publishes the browser phase without touching a browser itself", async () => {
     const h = harness();
     await startAtBrowser(h, "https://chatgpt.com/auth?x=1");
     expect(h.stdinLines).toContainEqual({ type: "extension_ui_response", id: "r1", confirmed: true });
-    expect(h.openedUrls).toEqual(["https://chatgpt.com/auth?x=1"]);
     expect(h.states.at(-1)).toMatchObject({
       phase: "browser",
       url: "https://chatgpt.com/auth?x=1",
       instructions: "Finish signing in",
     });
     h.oauth.dispose();
+  });
+
+  it("a flow with no client attached still reaches done from the callback alone", async () => {
+    const h = harness({ listOutput: "1. me@example.com\n" });
+    await startAtBrowser(h);
+    // Nothing opened the URL: the only side effects are the confirm reply and the published state.
+    expect(h.stdinLines).toEqual([
+      expect.objectContaining({ type: "negotiate_protocol" }),
+      expect.objectContaining({ type: "login" }),
+      { type: "extension_ui_response", id: "r1", confirmed: true },
+    ]);
+    expect(h.events).toEqual(["state:starting", "state:browser"]);
+    h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
+    await nextTick();
+    await nextTick();
+    expect(h.states.at(-1)).toMatchObject({ phase: "done", prompt: null, url: "https://chatgpt.com/auth" });
+    expect(h.oauth.statuses()[0]!.accounts).toEqual(["me@example.com"]);
   });
 
   it("an empty URL cancels and fails the flow", async () => {
