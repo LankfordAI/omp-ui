@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { backend } from "../backend";
+import { pathEffects } from "../desktop";
 import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
@@ -211,14 +211,17 @@ const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info:
 function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   const t = useT();
   const reportError = useStore((s) => s.reportError);
-  // A path on a remote instance's disk (issue #416) cannot be opened here:
-  // `file:open` is host-local, so the notice reads as plain text there.
-  const remote = useStore((s) => tabId !== undefined && findOwner(s.state, tabId)?.instanceId != null);
+  // Opening or revealing a path is a client effect (#454): it needs a desktop
+  // client on this host's machine. A browser client, or a path on a joined
+  // instance's disk (issue #416), gets the notice as plain selectable text.
+  const effects = useStore((s) =>
+    pathEffects(tabId === undefined ? null : (findOwner(s.state, tabId)?.instanceId ?? null)),
+  );
   const tone = NOTICE_TONE[item.level ?? "info"] ?? "neutral";
   // A notice carrying a path (the exported transcript HTML, issue #84) is a
   // link: the text opens the file with the system handler, the folder glyph
   // reveals it in the file manager.
-  const path = remote ? undefined : item.path;
+  const path = effects === null ? undefined : item.path;
   return (
     <div className="animate-rise flex justify-center">
       <div
@@ -232,7 +235,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
         {item.source && (
           <span className="shrink-0 font-mono text-[10px] text-ink-faint">{item.source}</span>
         )}
-        {path === undefined ? (
+        {path === undefined || effects === null ? (
           <span className="min-w-0 break-words" data-selectable>
             {item.text}
           </span>
@@ -243,7 +246,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
               title={t("notice.path.open", { path })}
               className="min-w-0 cursor-pointer break-words text-left underline decoration-dotted underline-offset-2 hover:text-ink"
               data-selectable
-              onClick={() => void backend.openPath(path).catch(reportError)}
+              onClick={() => void effects.openPath(path).catch(reportError)}
             >
               {item.text}
             </button>
@@ -252,7 +255,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
               title={t("notice.path.reveal")}
               aria-label={t("notice.path.reveal")}
               className="shrink-0 cursor-pointer text-ink-faint hover:text-ink"
-              onClick={() => void backend.showPathInFolder(path).catch(reportError)}
+              onClick={() => void effects.showPathInFolder(path).catch(reportError)}
             >
               <svg viewBox="0 0 16 16" aria-hidden className="size-3">
                 <path

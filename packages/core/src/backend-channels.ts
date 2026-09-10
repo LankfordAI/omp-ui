@@ -111,19 +111,19 @@ export interface EventChannel<Args extends unknown[]> {
 const EVENT = { kind: "event" } as const;
 
 /** Declares a request/reply channel's argument tuple, codecs, and result. */
-function request<Args extends unknown[], Result>(
+export function request<Args extends unknown[], Result>(
   args: ArgCodecs<Args>,
 ): RequestChannel<Args, Result> {
   return { kind: "request", args };
 }
 
 /** Declares a fire-and-forget notification channel's argument tuple and codecs. */
-function notify<Args extends unknown[]>(args: ArgCodecs<Args>): NotifyChannel<Args> {
+export function notify<Args extends unknown[]>(args: ArgCodecs<Args>): NotifyChannel<Args> {
   return { kind: "notify", args };
 }
 
 /** Declares a backend event channel's callback argument tuple. */
-function event<Args extends unknown[]>(): EventChannel<Args> {
+export function event<Args extends unknown[]>(): EventChannel<Args> {
   return EVENT;
 }
 

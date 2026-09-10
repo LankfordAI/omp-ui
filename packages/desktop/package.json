@@ -17,6 +17,7 @@
     "dev": "electron-vite dev --watch",
     "build": "npm run themes:generate && electron-vite build && npm run build:web",
     "build:web": "vite build --config vite.web.config.ts",
+    "prototype:desktop-adapter": "vite --config vite.web.config.ts",
     "package": "npm run package:linux",
     "package:linux": "npm run build && electron-builder --linux",
     "package:mac": "npm run build && electron-builder --mac",

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionWorktree } from "@omp-ui/core/types";
-import { backend } from "../backend";
+import { desktop } from "../desktop";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -70,7 +70,8 @@ export function WorktreeChip({
     setPos(rect ? { x: rect.left, y: rect.bottom + 4 } : null);
     setOpen(true);
     if (hostLocalActions && vsCodeAvailable === null) {
-      backend
+      // hostLocalActions is derived from the desktop adapter by every caller (#454).
+      desktop!
         .getProjectOpenAvailability()
         .then((a) => setVsCodeAvailable(a.vsCode))
         .catch(() => setVsCodeAvailable(false));
@@ -91,7 +92,7 @@ export function WorktreeChip({
 
   const openIn = (target: "vscode" | "files"): void => {
     setError(null);
-    backend.openProject(worktree.path, target).catch((err: unknown) => {
+    desktop!.openProject(worktree.path, target).catch((err: unknown) => {
       setError(err instanceof Error ? err.message : String(err));
     });
   };

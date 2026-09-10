@@ -15,4 +15,11 @@ export default defineConfig({
   publicDir: resolve(__dirname, "build"),
   plugins: [react(), tailwindcss()],
   build: { outDir: resolve(__dirname, "out/web"), emptyOutDir: true },
+  // PROTOTYPE (#454): dev server only; `vite build` ignores `server`. Points at the running
+  // Electron's remote listener (Settings → Remote access; default port 4677).
+  server: {
+    port: 4680,
+    strictPort: true,
+    proxy: { "/ws": { target: "ws://127.0.0.1:4677", ws: true } },
+  },
 });

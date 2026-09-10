@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { backend } from "../backend";
+import { desktop } from "../desktop";
 
 import themeSourcesJson from "./theme-sources.json";
 
@@ -279,15 +279,16 @@ export function applyTheme(theme: Theme): void {
   }
 
   // Native chrome is painted by the OS, not CSS — the frameless titlebar
-  // overlay only changes through main. The bridge is absent under test, and
-  // main already swallows platform errors, so neither a missing bridge nor a
-  // rejected call may take the switch down with it.
+  // overlay only changes through the desktop client. A browser client has no
+  // adapter and no native chrome to repaint. The module may load under test
+  // with no window, and main already swallows platform errors, so neither a
+  // missing adapter nor a rejected call may take the switch down with it.
   try {
-    void backend
+    void desktop
       ?.setWindowChrome(theme.tokens["--color-void"], theme.tokens["--color-ink-mid"])
-      ?.catch(() => {});
+      .catch(() => {});
   } catch {
-    // No bridge: native chrome keeps its previous colour.
+    // No adapter: native chrome keeps its previous colour.
   }
 
   for (const cb of listeners) cb();

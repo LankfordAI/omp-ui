@@ -9,6 +9,7 @@
     "./types": "./src/types.ts",
     "./model-role": "./src/model-role.ts",
     "./backend-channels": "./src/backend-channels.ts",
+    "./desktop-channels": "./src/desktop-channels.ts",
     "./plan": "./src/plan.ts",
     "./project-files-limit": "./src/project-files-limit.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",

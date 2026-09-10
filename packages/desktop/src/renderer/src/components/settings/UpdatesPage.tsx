@@ -1,4 +1,5 @@
 import type { AppUpdateState, OmpUpdateState } from "@omp-ui/core/types";
+import { desktop } from "../../desktop";
 import { useStore } from "../../store";
 import { AppUpdateRestartAction } from "../AppUpdateCard";
 import { Button, Panel, Switch } from "../ui";
@@ -99,6 +100,16 @@ export function UpdatesPage() {
   return (
     <div className="space-y-3 px-4 py-3">
       <Panel className="px-4 py-3">
+        {/* The omp-ui panel describes the desktop client's own artifact (#454).
+            A browser client keeps only the host preference beneath one line
+            of copy: printing "unversioned build" for a version it does not
+            run would be a fake capability. */}
+        {desktop === null ? (
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-ink">omp-ui</p>
+            <p className="mt-0.5 text-[11px] text-ink-dim">{t("settings.updates.desktopOnly")}</p>
+          </div>
+        ) : (
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-ink">omp-ui</p>
@@ -172,6 +183,7 @@ export function UpdatesPage() {
             </Button>
           </div>
         </div>
+        )}
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch
@@ -180,7 +192,7 @@ export function UpdatesPage() {
             label={t("settings.updates.checkAppOnLaunchLabel")}
           />
         </div>
-        {typeof state?.dismissedAppUpdateVersion === "string" && (
+        {desktop !== null && typeof state?.dismissedAppUpdateVersion === "string" && (
           <div className="mt-2 flex items-center justify-between gap-3">
             <span className="text-xs text-ink-mid">
               {t("settings.updates.dismissed", {

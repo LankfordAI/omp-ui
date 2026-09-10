@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { createPortal } from "react-dom";
 import type { ProjectGroup, ProjectOpenAvailability, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { defaultNickname } from "@omp-ui/core/remote-instances";
-import { backend } from "../backend";
+import { desktop } from "../desktop";
 import { projectKey } from "../lib/project-key";
 import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../lib/remote-instance-status";
 import { useDismissal } from "../lib/use-dismissal";
@@ -733,10 +733,11 @@ export function Sidebar() {
   const availabilityMounted = useRef(false);
   const availabilityGeneration = useRef(0);
   const refreshAvailability = useCallback(async (): Promise<void> => {
+    if (desktop === null) return;
     const generation = ++availabilityGeneration.current;
     let available: ProjectOpenAvailability = { vsCode: false, terminal: false };
     try {
-      available = await backend.getProjectOpenAvailability();
+      available = await desktop.getProjectOpenAvailability();
     } catch {
       // A failed discovery channel is equivalent to unavailable optional
       // integrations; Files remains a usable project-open destination.
@@ -947,7 +948,7 @@ export function Sidebar() {
                   key={path}
                   group={f.group}
                   instanceId={null}
-                  hostLocalActions
+                  hostLocalActions={desktop !== null}
                   projectHit={f.projectHit}
                   query={query}
                   openTerminalMenu={openTerminalMenu}

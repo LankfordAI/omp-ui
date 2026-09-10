@@ -1,5 +1,5 @@
-import { join } from "node:path";
-import { app, BrowserWindow, dialog, screen } from "electron";
+import { basename, join } from "node:path";
+import { app, BrowserWindow, dialog, ipcMain, screen } from "electron";
 import { clearImageScratch, formatModelRole } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { appUpdateEnabledForBuild } from "./app-update-policy";
@@ -334,6 +334,28 @@ if (!app.requestSingleInstanceLock()) {
     backend = be;
     stopFdWatchdog = startFdWatchdog({ logDir });
     be.registerIpc();
+    // PROTOTYPE (#454): the three desktop-adapter members with no MainBackend alias.
+    ipcMain.handle("desktop:openExternal", (_e, url: unknown) => {
+      if (typeof url === "string") openExternalSafe(url);
+    });
+    ipcMain.handle(
+      "desktop:chooseSavePath",
+      async (_e, defaultName: unknown, extensions: unknown) => {
+        const name =
+          typeof defaultName === "string" && defaultName !== "" ? basename(defaultName) : "untitled";
+        const exts = Array.isArray(extensions)
+          ? extensions.filter((x): x is string => typeof x === "string")
+          : [];
+        const result = await dialog.showSaveDialog(win, {
+          defaultPath: name,
+          filters: exts.length > 0 ? [{ name: exts.join(", "), extensions: exts }] : [],
+        });
+        return result.canceled || !result.filePath ? null : result.filePath;
+      },
+    );
+    ipcMain.on("desktop:viewedTab", () => {
+      // The host's tab:viewed decoration (backend.ts registerIpc) still gates banners in the prototype.
+    });
     void be.hydrateAll();
     void be.startRemote();
     be.startRemoteInstances();

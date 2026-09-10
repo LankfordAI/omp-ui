@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DiagnosticsPreview } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
-import { IS_ELECTRON } from "../lib/platform";
+import { desktop } from "../desktop";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
@@ -50,8 +50,8 @@ export function DiagnosticsExportDialog() {
     setBusy(true);
     try {
       let destinationPath: string | null = null;
-      if (IS_ELECTRON) {
-        destinationPath = await backend.chooseDiagnosticsPath(DEFAULT_BASENAME);
+      if (desktop !== null) {
+        destinationPath = await desktop.chooseSavePath(DEFAULT_BASENAME, ["zip"]);
         // Cancel keeps the dialog open for a retry (nothing was written).
         if (destinationPath === null) return;
       }
@@ -108,7 +108,11 @@ export function DiagnosticsExportDialog() {
               disabled={preview === null || busy}
               onClick={() => void save()}
             >
-              {busy ? t("dialog.diagnostics.busy") : IS_ELECTRON ? t("dialog.diagnostics.save") : t("dialog.diagnostics.saveWeb")}
+              {busy
+                ? t("dialog.diagnostics.busy")
+                : desktop !== null
+                  ? t("dialog.diagnostics.save")
+                  : t("dialog.diagnostics.saveWeb")}
             </Button>
           )}
         </>

@@ -595,6 +595,7 @@ export const en = {
   "settings.updates.installing": "installing {version}…",
   "settings.updates.installed": "{version} installed — new sessions use it",
   "settings.updates.unversionedBuild": "unversioned build",
+  "settings.updates.desktopOnly": "Desktop client updates are managed inside the desktop client.",
   "settings.updates.viewRelease": "View release",
   "settings.updates.updateAction": "Update",
   "settings.updates.download": "Download",

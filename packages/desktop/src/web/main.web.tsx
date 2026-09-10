@@ -1,4 +1,5 @@
 import { connectRemoteBackend, type RemoteConnection } from "./remote-backend";
+import { fakeDesktopAdapter, mountPrototypeBar, roleFromLocation } from "./prototype-desktop-adapter";
 
 // The browser boot shim (issue #37). Order is load-bearing: renderer/src/backend.ts reads
 // window.ompBackend eagerly at module load, so the global must be installed before anything in
@@ -122,9 +123,13 @@ async function boot(): Promise<void> {
     return;
   }
   window.ompBackend = connection.backend;
+  // PROTOTYPE (#454): the desktop adapter, like the backend, must exist before renderer/src loads.
+  const role = import.meta.env.DEV ? roleFromLocation() : "browser";
+  if (role !== "browser") window.ompDesktop = fakeDesktopAdapter(role === "desktop-failing");
   // Only now is it safe to pull in the renderer: this import is what calls createRoot.
   await import("../renderer/src/main");
   mountReconnectBanner(connection.onStatus);
+  if (import.meta.env.DEV) mountPrototypeBar(role);
 }
 
 void boot();

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import type { NativeGoal } from "@omp-ui/core/goal";
+import { pathEffects } from "../desktop";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
@@ -848,7 +849,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <WorktreeChip
           worktree={worktree}
           tabId={tabId}
-          hostLocalActions={instanceId === null}
+          hostLocalActions={pathEffects(instanceId) !== null}
           className="[app-region:no-drag]"
         />
       )}

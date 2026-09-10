@@ -543,6 +543,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.updates.installing": "{version} 설치 중…",
   "settings.updates.installed": "{version} 설치됨 — 새 세션에서 사용",
   "settings.updates.unversionedBuild": "버전 없는 빌드",
+  "settings.updates.desktopOnly": "데스크톱 클라이언트 업데이트는 데스크톱 클라이언트 안에서 관리됩니다.",
   "settings.updates.viewRelease": "릴리스 보기",
   "settings.updates.updateAction": "업데이트",
   "settings.updates.download": "다운로드",

@@ -7,6 +7,7 @@ import type {
 import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
 import type { StateCreator, StoreApi } from "zustand";
 import { backend } from "../../backend";
+import { desktop } from "../../desktop";
 import {
   desktopViewStorage,
   loadDesktopView,
@@ -289,7 +290,10 @@ export function installViewedTabReporter(api: StoreApi<UiStore>): () => void {
   if (reporterInstalled.has(api)) return () => {};
   reporterInstalled.add(api);
   const report = (): void => {
-    backend.tabViewed(clientId(), api.getState().activeTabId);
+    const activeTabId = api.getState().activeTabId;
+    backend.tabViewed(clientId(), activeTabId);
+    // Second, distinct report (#453/#454): this window's own banner gate.
+    desktop?.viewedTab(activeTabId);
   };
   report(); // post-restore initial report (restoringTabs settled by then)
   const unsubscribe = api.subscribe((state, previous) => {

@@ -1,7 +1,6 @@
 import type {
   AgentMode,
   AdvisorDefaults,
-  AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
   BranchList,
@@ -391,7 +390,7 @@ export interface UpdatesSlice {
   downloadAppUpdate(): Promise<void>;
   openAppUpdateReleaseNotes(): Promise<void>;
   showAppUpdateDownload(): Promise<void>;
-  restartForAppUpdate(confirmed?: boolean): Promise<AppUpdateRestartResult>;
+  restartForAppUpdate(): Promise<void>;
   setAppUpdateInstallOnQuit(on: boolean): Promise<void>;
   dismissAppUpdate(version: string, remember: boolean): Promise<void>;
 }
