@@ -8,11 +8,11 @@ import { HostApplication } from "./host-application";
 import { hostDeps, seedRegistry, testHost, type BoundConnection } from "./test/fixtures";
 
 /**
- * The provider-key IPC surface: what the settings page can actually do, and the
+ * The provider-key channel surface: what the settings page can actually do, and the
  * guarantee that key material never crosses the boundary to reach it.
  */
 
-// No omp binary in the IPC tests: the subscription read must answer from the
+// No omp binary in these tests: the subscription read must answer from the
 // catalog alone (accounts: []) without spawning anything real.
 vi.mock("@omp-ui/core", async (importOriginal) => {
   const core = await importOriginal<typeof Core>();
@@ -54,7 +54,7 @@ afterEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
 });
 
-describe("provider-keys IPC", () => {
+describe("provider-keys channels", () => {
   it("reads every catalogued provider, unconfigured, with no key material", async () => {
     const snap = snapshot(await invoke(CH.readProviderKeys, null));
     expect(snap.providers.length).toBeGreaterThan(10);
@@ -73,7 +73,7 @@ describe("provider-keys IPC", () => {
     expect(row(snap, "openrouter")).toMatchObject({ source: "stored", masked: "••••cdef" });
   });
 
-  it("never returns the key itself over IPC, only a masked tail", async () => {
+  it("never returns the key itself over the channel, only a masked tail", async () => {
     const snap = snapshot(await invoke(CH.setProviderKey, KEY, VALUE));
     expect(JSON.stringify(snap)).not.toContain(VALUE);
   });
@@ -111,7 +111,7 @@ describe("provider-keys IPC", () => {
   });
 });
 
-describe("provider-oauth IPC", () => {
+describe("provider-oauth channels", () => {
   it("reads the subscription rows — catalog text and accounts, no key material", async () => {
     const rows = (await invoke(CH.readProviderOAuth)) as ProviderOAuthStatus[];
     // The boundary: exactly the catalog fields plus omp's own identity strings.

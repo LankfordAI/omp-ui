@@ -844,12 +844,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {agentModeChip}
       {goalChip}
       {/* Remote sessions retain the informational and finish-capable chip;
-          only host-local open rows are suppressed (issue #435). */}
+          only client-local open rows are suppressed (issue #435). */}
       {worktree && (
         <WorktreeChip
           worktree={worktree}
           tabId={tabId}
-          hostLocalActions={pathEffects(instanceId) !== null}
+          clientLocalActions={pathEffects(instanceId) !== null}
           className="[app-region:no-drag]"
         />
       )}

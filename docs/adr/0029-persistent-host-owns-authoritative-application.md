@@ -2,9 +2,16 @@
 
 ## Status
 
-Accepted (decided now, effective at release C; release P prepares). Issues
+Accepted and effective. Issues
 [#442](https://github.com/LankfordAI/omp-ui/issues/442) and
 [#443](https://github.com/LankfordAI/omp-ui/issues/443) (decision map).
+
+**Rollout.** Shipped in two releases: a preparation release (P) extracted
+`HostApplication`, the role-aware transport, the desktop adapter, the headless
+verifier, and the authority machinery while Electron main still constructed the
+application and remained the sole authority; the cutover release (C) made
+`omp-ui serve` the only constructor, made Electron a client, and deleted the
+IPC backend. Everything below describes the state after C.
 
 Supersedes in part [ADR-0028](0028-remote-instances-joined-by-main-process-proxy.md):
 its single-owner reasoning stands unchanged, but the owner it names — the
@@ -14,10 +21,10 @@ what makes the move an extraction rather than a rewrite.
 
 ## Context
 
-Until release P the application backend and the Electron desktop lifecycle
-were one process: Electron main constructed the only `MainBackend`, which
-owned the registry, the sole `SessionManager`, every live `omp` child, the
-joined remote instances, OMP updates, and the embedded `@omp-ui/server`
+Before the cutover the application backend and the Electron desktop lifecycle
+were one process: Electron main constructed the only backend (`MainBackend`),
+which owned the registry, the sole `SessionManager`, every live `omp` child,
+the joined remote instances, OMP updates, and the embedded `@omp-ui/server`
 listener; `before-quit` called `backend.killAll()`. The display stack was
 therefore on the availability path of every remote session. On a monitorless
 Fedora 44 host, a Mutter zero-area-window crash triggered by a development
@@ -42,14 +49,14 @@ resolution and updates, provider environment and provider OAuth, the joined
 remote instances, attention, diagnostics orchestration, and shutdown. It
 imports no Electron; eslint forbids `electron` under `packages/host/**`.
 
-**Who constructs it changes by release.** In release P, Electron main is the
-only code that constructs `HostApplication`, and Electron remains the sole
-authority (Chromium's single-instance lock plus the permanent-claim tripwire,
-`claimLegacyElectronAuthority`). P installs no `omp-ui serve`, no `bin`, no
-service, and no connection record. In release C, `omp-ui serve` constructs it
-after claiming the data root (ADR-0030), and Electron becomes a client:
-`MainBackend.registerIpc`, the preload `ipcRenderer` business bridge, and the
-`before-quit → killAll` path are deleted rather than kept as a fallback.
+**Only `omp-ui serve` constructs it.** `packages/host/src/serve.ts` claims the
+data root (ADR-0030), reconciles the children ledger, replays the migration
+journal, opens the credential cipher, constructs `HostApplication`, and starts
+local control; `packages/host/src/cli.ts` is the one entrypoint that calls it.
+Electron is a client: `MainBackend.registerIpc`, the preload `ipcRenderer`
+business bridge, the `before-quit → killAll` path, the Electron `safeStorage`
+cipher, and the `BrowserWindow` verifier are deleted, not kept as a fallback.
+The desktop package does not depend on `@omp-ui/host`.
 
 **Every UI is a client of the host over one role-aware WebSocket transport.**
 `@omp-ui/server` exposes `HostSurface` (`packages/server/src/index.ts`):
@@ -71,7 +78,7 @@ accepted only where the listener sets `allowImplicitProtocol1` — the remote
 exposure listener, so existing browser and joined-instance clients keep
 working — and never on local control (`startLocalControl` passes `false`).
 Implicit protocol 1 is retired once two later minor releases have shipped and
-twelve months have passed since C (#457). A joined app that answers
+twelve months have passed since the cutover (#457). A joined app that answers
 `incompatible` is reported as *too new* or *too old* from the host's own
 range instead of being inferred from a missing `instance:identity`.
 
@@ -79,10 +86,27 @@ range instead of being inferred from a missing `instance:identity`.
 binds `127.0.0.1:0`, mints a desktop credential
 (`{ role: "desktop", local: true, control: false }`) and a control credential
 (`{ role: "browser", local: true, control: true }`), and publishes them with
-the endpoint in the mode-0600 connection record `<dataRoot>/host.json`. Remote
-exposure is the existing Remote access listener (`browser` and `instance`
-grants, `local: false`). Enabling, disabling, or rotating one never touches the
-other.
+the endpoint in the mode-0600 connection record `<dataRoot>/host.json`
+(`packages/core/src/host-record.ts`). Remote exposure is the existing Remote
+access listener (`browser` and `instance` grants, `local: false`). Enabling,
+disabling, or rotating one never touches the other; a host restart rotates the
+local pair.
+
+**The desktop client finds or starts the host through a bootstrap surface.**
+Electron main exposes `window.ompHostBootstrap`
+(`packages/core/src/host-bootstrap-channels.ts`): it reads `host.json`, probes
+it with the desktop credential, and — when no compatible host answers — installs
+the host directory the desktop artifact embeds under
+`<dataHome>/omp-ui-host/versions/<version>`, points `current` and the stable
+`omp-ui` command at it, submits the platform supervisor's on-demand identity
+(`packages/core/src/host-launch.ts`: `systemd-run --user`, `launchctl submit`,
+`schtasks`), and polls until the host is ready. The renderer awaits
+`connection()`, connects with the desktop hello, and only then imports React;
+a failure renders a raw-DOM recovery surface with retry, stop, and rollback.
+Electron never `spawn()`s the host and never opens an authoritative store. A
+pre-cutover desktop leaves a one-use cutover handoff
+(`<dataRoot>/runtime/cutover-handoff.json`) so the first host can adopt its
+`userData` stores under the migration journal.
 
 **Client effects leave the host.** Actions only a UI client can perform on its
 own machine — window chrome, opening or revealing paths, opening a project in
@@ -128,7 +152,7 @@ process changes.
   cross-process session lock. The host replaces the Electron ownership path;
   it never supplements it.
 - **Host-delegated client effects over a host→client request frame
-  (rejected for P).** The wire has no host→client request; effects ride an
+  (rejected).** The wire has no host→client request; effects ride an
   in-process desktop adapter beside the backend client instead (#454).
 
 ## Consequences
@@ -137,18 +161,20 @@ process changes.
   executable (`npm run package:host --workspace @omp-ui/host`: pinned Node
   runtime verified against `SHASUMS256.txt` and its signature, `node-pty`
   built for that runtime's ABI, the verifier payload, rendered supervisor
-  definitions; `npm run smoke:package` boots the result). Release P builds
-  and smoke-tests it in CI and publishes nothing; C publishes it beside the
-  desktop artifacts and refuses a desktop release without its matching host.
-  The desktop embeds the host as a cold-start seed and starts it detached
-  through the platform supervisor, never as a child of the client.
+  definitions; `npm run smoke:package` boots the result). Each release lane
+  publishes `omp-ui-host-<version>-<platform>-<arch>` beside its desktop
+  artifact with a `latest-host-<platform>.yml` feed, and the release manifest
+  refuses a desktop release without its matching host. The desktop embeds
+  the host as a cold-start seed and starts it detached through the platform
+  supervisor, never as a child of the client. The host updates itself through
+  a staged handover (`packages/host/src/update/host-update.ts`).
 - **The data root moves out of Electron's `userData`** to
   `<dataHome>/omp-ui` (`omp-ui-dev`, `omp-ui-dev-server` by build flavor):
   `$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application
   Support` on macOS, `%LOCALAPPDATA%` on Windows
   (`packages/core/src/data-root.ts`). `OMP_UI_DATA_DIR` replaces the whole
-  root, logs included; `OMP_UI_REGISTRY_PATH`, which relocated the store but
-  not the logs, is deleted at C. `OMP_PROFILE`/`PI_PROFILE` never enter the
+  root, logs included; the earlier registry-only path override, which
+  relocated the store but not the logs, is deleted. `OMP_PROFILE`/`PI_PROFILE` never enter the
   mapping. Electron's `userData` keeps only client state — the Chromium
   profile, `window-state.json`, client-local logs.
 - **Versions are reported separately.** Host version, host protocol and

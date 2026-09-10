@@ -7,7 +7,7 @@ import type { HostPairing, HostStatus } from "@omp-ui/core";
 import { HOST_PROTOCOL, InstanceConnectError, type InstanceClient, type ServerHello } from "@omp-ui/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OwnerRecordV1 } from "./authority/lock";
-import type { HostConnectionRecordV1 } from "./control/connection-record";
+import type { HostConnectionRecordV1 } from "@omp-ui/core";
 import {
   defaultIsDesktopInstalled,
   defaultLaunchDesktop,
@@ -374,6 +374,16 @@ describe("status", () => {
     expect(JSON.parse(stdout())).toMatchObject({ state: "unresponsive", owner: LOCK });
     expect(connect).not.toHaveBeenCalled();
   });
+
+  it("a released lock without a record is a stopped host: absent, naming the last owner", async () => {
+    const root = tmpRoot();
+    const { io, stdout } = makeIo(root);
+    const released = { ...LOCK, releasedAtMs: 1_700_000_100_000 };
+    const { deps, connect } = makeDeps({ record: null, lock: released });
+    expect(await runCli(["status", "--json"], io, deps)).toBe(EXIT.ABSENT);
+    expect(JSON.parse(stdout())).toEqual({ schemaVersion: 1, state: "absent", dataRoot: root, lastOwner: released });
+    expect(connect).not.toHaveBeenCalled();
+  });
 });
 
 describe("pair", () => {
@@ -594,14 +604,20 @@ describe("desktop launcher", () => {
     return { spawn, calls };
   }
 
-  it("detects and launches the Linux AppImage detached", async () => {
+  it("launches the Linux desktop wrapper when installed, else the AppImage, detached", async () => {
     const { io } = makeIo(tmpRoot());
     const appImage = "/home/me/.local/bin/omp-ui.AppImage";
+    const wrapper = "/home/me/.local/bin/omp-ui-desktop";
     expect(defaultIsDesktopInstalled(io, (p) => p === appImage)).toBe(true);
+    expect(defaultIsDesktopInstalled(io, (p) => p === wrapper)).toBe(true);
     expect(defaultIsDesktopInstalled(io, () => false)).toBe(false);
-    const { spawn, calls } = spawnFake("spawn");
-    expect(await defaultLaunchDesktop(io, { exists: (p) => p === appImage, spawn })).toBe(EXIT.OK);
-    expect(calls).toEqual([[appImage, []]]);
+    const viaImage = spawnFake("spawn");
+    expect(await defaultLaunchDesktop(io, { exists: (p) => p === appImage, spawn: viaImage.spawn })).toBe(EXIT.OK);
+    expect(viaImage.calls).toEqual([[appImage, []]]);
+    const viaWrapper = spawnFake("spawn");
+    const both = (p: string): boolean => p === appImage || p === wrapper;
+    expect(await defaultLaunchDesktop(io, { exists: both, spawn: viaWrapper.spawn })).toBe(EXIT.OK);
+    expect(viaWrapper.calls).toEqual([[wrapper, []]]);
   });
 
   it("uses `open -a` on macOS and the installed exe on Windows", async () => {

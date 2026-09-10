@@ -105,7 +105,7 @@ export function ProjectOpenControl({
     setError(null);
     void (async () => {
       try {
-        // Mounted only under hostLocalActions, which implies a desktop client (#454).
+        // Mounted only under clientLocalActions, which implies a desktop client (#454).
         await desktop!.openProject(project.path, target);
       } catch (err) {
         if (mountedRef.current) setError(displayMessage(err));

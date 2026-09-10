@@ -223,7 +223,7 @@ export function deriveSidebarSessionState(
 ): SidebarSessionState {
   if (summary.live !== "live") return summary.live;
   if (exitCode !== undefined) return "dormant";
-  // A pending gate is main-process state (issue #215) — the record alone
+  // A pending gate is host state (issue #215) — the record alone
   // marks the session awaiting-answer, even before its tab is booted.
   if (summary.pendingPlan !== null) return "awaiting-answer";
   if (summary.mode === "pty") return "live";

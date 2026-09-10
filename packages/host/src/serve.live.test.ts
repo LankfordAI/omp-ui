@@ -6,8 +6,8 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BackendState, HostStatus } from "@omp-ui/core";
 import { connectInstanceClient, HOST_PROTOCOL, type InstanceClient } from "@omp-ui/server";
-import { lockPath } from "./authority/lock";
-import { hostRecordPath, readHostRecord, type HostConnectionRecordV1 } from "./control/connection-record";
+import { lockPath, readOwnerRecord } from "./authority/lock";
+import { hostRecordPath, readHostRecord, type HostConnectionRecordV1 } from "@omp-ui/core";
 import type { KeyProtector } from "./credentials/host-key-cipher";
 import { serve, type ServeOptions } from "./serve";
 
@@ -155,10 +155,25 @@ describe("serve (live)", () => {
     await expect(first.done).resolves.toBe(0);
     running.pop();
     expect(fs.existsSync(hostRecordPath(root))).toBe(false);
+    // Never unlinked; released in place so the next boot takes over without proving this pid dead.
     expect(fs.existsSync(lockPath(root))).toBe(true);
+    expect(readOwnerRecord(root)?.releasedAtMs).toBeTypeOf("number");
     expect(first.log.at(-1)).toBe("shutdown complete");
     // The boot left its breadcrumbs on disk for the next reader.
     expect(fs.readFileSync(path.join(root, "logs", "breadcrumbs.log"), "utf8")).toContain("boot: host ready");
+  });
+
+  it("a control-plane host:stop ends the boot sequence the way a signal does", async () => {
+    const { done, log } = start();
+    const record = await awaitRecord(done, log);
+    const control = await dial(record, record.controlCredential, "browser");
+    // The socket closes under the request as the listener drains; either answer is the stop landing.
+    await control.request("host:stop", []).catch(() => undefined);
+    await expect(done).resolves.toBe(0);
+    running.pop();
+    expect(fs.existsSync(hostRecordPath(root))).toBe(false);
+    expect(log).toContain("host:stop; shutting down");
+    expect(log.at(-1)).toBe("shutdown complete");
   });
 
   it("stops on a corrupt registry and leaves the file exactly as it found it", async () => {

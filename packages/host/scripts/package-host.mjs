@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-// Packages the host as a Node single-executable application (issue #442
-// §10.6): the pinned Node runtime with the CLI bundle injected, node-pty built
-// for that runtime's ABI, the verifier payload, and rendered supervisor
-// definitions, laid out under dist/host/<version>/ and archived.
+// Packages the persistent host as a Node single-executable application (issue
+// #442 §10.1): the pinned Node runtime with the CLI bundle injected, node-pty
+// built for that runtime's ABI, the verifier payload, the browser client's web
+// bundle, and rendered supervisor definitions, laid out as
+// out/<lane>/seed/<version>/{bin,lib,resources,service} and archived beside a
+// `latest-host-<platform>.yml` feed for this lane.
 //
 //   node scripts/package-host.mjs [--lane linux-x64|mac-x64|mac-arm64|win-x64]
-//                                 [--out dist/host] [--skip-node-pty] [--allow-unsigned]
+//                                 [--out out/<lane>] [--skip-node-pty] [--allow-unsigned]
+//                                 [--allow-missing-verifier]
 //
 // The lane defaults to the running platform and must match it: a SEA blob
 // carries a V8 code cache for the exact binary that generated it, so the
-// downloaded Node builds its own blob. Release P builds and smoke-tests the
-// artifact in CI and publishes nothing.
+// downloaded Node builds its own blob. `out/<lane>/seed` is what
+// electron-builder embeds as the desktop client's cold-start seed
+// (`resources/host/<version>/`), so the layout root is the version directory.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -19,10 +23,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { hostFeedName, renderHostFeed, sha512Base64 } from "../../../scripts/host-feed.mjs";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const hostRoot = path.resolve(here, "..");
+const desktopRoot = path.resolve(hostRoot, "..", "desktop");
 const pin = JSON.parse(fs.readFileSync(path.join(hostRoot, "runtime.pin.json"), "utf8"));
-const pkg = JSON.parse(fs.readFileSync(path.join(hostRoot, "package.json"), "utf8"));
+/**
+ * The product version: the release tag is stamped onto packages/desktop only,
+ * and the host and the desktop client that embeds it must agree on it (the
+ * desktop names its seed directory by this version).
+ */
+const { version } = JSON.parse(fs.readFileSync(path.join(desktopRoot, "package.json"), "utf8"));
 const hostRequire = createRequire(path.join(hostRoot, "package.json"));
 
 const NODE_DIST = "https://nodejs.org/dist";
@@ -81,7 +93,7 @@ function currentLane() {
 }
 
 function parseArgs(argv) {
-  const out = { lane: null, out: path.join(hostRoot, "dist", "host"), skipNodePty: false, allowUnsigned: false };
+  const out = { lane: null, out: null, skipNodePty: false, allowUnsigned: false, allowMissingVerifier: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -95,6 +107,7 @@ function parseArgs(argv) {
     else if (arg.startsWith("--out=")) out.out = path.resolve(arg.slice("--out=".length));
     else if (arg === "--skip-node-pty") out.skipNodePty = true;
     else if (arg === "--allow-unsigned") out.allowUnsigned = true;
+    else if (arg === "--allow-missing-verifier") out.allowMissingVerifier = true;
     else throw new Error(`unknown argument ${arg}`);
   }
   out.lane ??= currentLane();
@@ -105,6 +118,7 @@ function parseArgs(argv) {
       `lane ${out.lane} packages only on ${lane.platform}/${lane.arch} (this is ${process.platform}/${process.arch}): the SEA blob is built by the target runtime`,
     );
   }
+  out.out ??= path.join(hostRoot, "out", out.lane);
   return out;
 }
 
@@ -264,7 +278,7 @@ async function bundleCli(esbuild) {
     platform: "node",
     format: "cjs",
     target: "node22",
-    define: { __HOST_VERSION__: JSON.stringify(pkg.version) },
+    define: { __HOST_VERSION__: JSON.stringify(version) },
     banner: { js: SEA_REQUIRE_BANNER },
     plugins: [externalsPlugin()],
     legalComments: "none",
@@ -354,20 +368,38 @@ function packageNodePty(nodeBinary, laneName, layout) {
   }
 }
 
-function packageResources(laneName, layout) {
+/**
+ * The verifier browser is vendored, never fetched at runtime (issue #442 §7), so
+ * a release package refuses to ship without it; `--allow-missing-verifier` is
+ * for local packaging where the fetch was skipped on purpose.
+ */
+function packageResources(laneName, layout, allowMissingVerifier) {
   const browser = path.join(hostRoot, "resources", "plan-verifier", laneName);
   if (fs.existsSync(path.join(browser, "browser.manifest.json"))) {
     copyTree(browser, path.join(layout, "resources", "plan-verifier"));
     log(`verifier browser from resources/plan-verifier/${laneName} → resources/plan-verifier`);
+  } else if (allowMissingVerifier) {
+    warn(`no verifier browser at resources/plan-verifier/${laneName}; the package ships without one (--allow-missing-verifier)`);
   } else {
-    warn(`no verifier browser at resources/plan-verifier/${laneName} (run scripts/fetch-verifier-browser.mjs); the package ships without one`);
+    throw new Error(`no verifier browser at resources/plan-verifier/${laneName}: run scripts/fetch-verifier-browser.mjs, or pass --allow-missing-verifier for a local package`);
   }
   const page = path.join(hostRoot, "dist", "verifier");
   if (fs.existsSync(path.join(page, "index.html"))) {
     copyTree(page, path.join(layout, "resources", "verifier-page"));
     log("verifier page from dist/verifier → resources/verifier-page");
+  } else if (allowMissingVerifier) {
+    warn("no verifier page at dist/verifier; the package ships without one (--allow-missing-verifier)");
   } else {
-    warn("no verifier page at dist/verifier (run `npm run build --workspace @omp-ui/host`); the package ships without one");
+    throw new Error("no verifier page at dist/verifier: run `npm run build --workspace @omp-ui/host`");
+  }
+  // Browser clients of an installed host load the web bundle from
+  // resources/web (cli-main's webRoot); without it the host serves transport only.
+  const web = path.join(desktopRoot, "out", "web");
+  if (fs.existsSync(path.join(web, "index.html"))) {
+    copyTree(web, path.join(layout, "resources", "web"));
+    log("browser client from ../desktop/out/web → resources/web");
+  } else {
+    warn("no browser client at ../desktop/out/web (run `npm run build --workspace @omp-ui/desktop`); the host serves the transport only");
   }
 }
 
@@ -478,19 +510,46 @@ async function packageService(esbuild, laneName, layout) {
   }
 }
 
-function archive(laneName, out, versionDir) {
+/** `<out>/omp-ui-host-<version>-<lane>.<ext>` whose top-level entry is `<version>/`. */
+function archive(laneName, out, seed) {
   const lane = LANES[laneName];
-  const name = `omp-ui-host-${pkg.version}-${laneName}.${lane.archive}`;
+  const name = `omp-ui-host-${version}-${laneName}.${lane.archive}`;
   const file = path.join(out, name);
   fs.rmSync(file, { force: true });
   if (lane.archive === "tar.gz") {
-    run("tar", ["-czf", file, "-C", out, versionDir]);
+    run("tar", ["-czf", file, "-C", seed, version]);
   } else {
     // bsdtar (macOS, Windows 10+) picks the zip format from the suffix.
-    run("tar", ["-a", "-cf", file, "-C", out, versionDir]);
+    run("tar", ["-a", "-cf", file, "-C", seed, version]);
   }
   log(`archived ${path.relative(hostRoot, file)} (${fs.statSync(file).size} bytes)`);
   return file;
+}
+
+/**
+ * This lane's `latest-host-<platform>.yml`. Linux and Windows publish it as
+ * is; the two macOS lanes build on separate runners, so release-manifest
+ * composes their one two-arch feed from the uploaded archives with the same
+ * renderer (scripts/host-feed.mjs).
+ */
+async function writeFeed(laneName, out, archiveFile) {
+  const lane = LANES[laneName];
+  const platform = laneName.slice(0, laneName.indexOf("-"));
+  const feed = path.join(out, hostFeedName(platform));
+  const text = renderHostFeed({
+    version,
+    files: [
+      {
+        url: path.basename(archiveFile),
+        arch: lane.arch,
+        size: fs.statSync(archiveFile).size,
+        sha512: await sha512Base64(archiveFile),
+      },
+    ],
+  });
+  fs.writeFileSync(feed, text);
+  log(`feed ${path.relative(hostRoot, feed)}`);
+  return feed;
 }
 
 async function main() {
@@ -498,18 +557,20 @@ async function main() {
   const esbuild = await import("esbuild");
   const nodeBinary = await fetchNode(args.lane, args.allowUnsigned);
 
-  const layout = path.join(args.out, pkg.version);
-  fs.rmSync(layout, { recursive: true, force: true });
+  const seed = path.join(args.out, "seed");
+  const layout = path.join(seed, version);
+  fs.rmSync(seed, { recursive: true, force: true });
   fs.mkdirSync(layout, { recursive: true });
 
   await bundleCli(esbuild);
   await buildSea(nodeBinary, args.lane, layout);
   if (args.skipNodePty) warn("--skip-node-pty: the package ships without lib/node-pty");
   else packageNodePty(nodeBinary, args.lane, layout);
-  packageResources(args.lane, layout);
+  packageResources(args.lane, layout, args.allowMissingVerifier);
   packageCredentialWorker(args.lane, layout);
   await packageService(esbuild, args.lane, layout);
-  archive(args.lane, args.out, pkg.version);
+  const file = archive(args.lane, args.out, seed);
+  await writeFeed(args.lane, args.out, file);
 }
 
 try {

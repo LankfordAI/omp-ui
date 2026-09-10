@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AppReleaseInfo, AppUpdateState } from "@omp-ui/core";
+import type { AppReleaseInfo } from "@omp-ui/core/app-update";
+import type { AppUpdateState } from "@omp-ui/core/types";
 import {
   deriveAppUpdateState,
   type AppUpdateEvent,

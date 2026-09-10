@@ -5,7 +5,7 @@ import type { MigrationJournal } from "./journal";
 
 /**
  * Re-encrypts the credential stores from Electron's safeStorage envelopes to
- * the host's own cipher (issue #442, WP7 §10.2). Runs after
+ * the host's own cipher (issue #442 §5.4). Runs after
  * {@link relocateAuthorityStores}, on the files already inside the data root.
  *
  * Per stored value: a host envelope is left alone; plaintext the Electron

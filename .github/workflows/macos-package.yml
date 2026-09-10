@@ -52,17 +52,33 @@ jobs:
           else
             npm version "$version" --no-git-tag-version --workspace @omp-ui/desktop
           fi
-      - name: Rebuild node-pty
+      - name: Fetch the pinned verifier browser
+        run: npm run fetch:verifier-browser --workspace @omp-ui/host
+      - name: Build plan-doc, host verifier page, and desktop bundles
+        run: npm run build
+      - name: Package and smoke-test the macOS host
+        # The desktop client embeds this lane's host layout as its cold-start
+        # seed (issue #442 §10.1), so it is packaged first; the record is the
+        # release evidence release-manifest consumes.
         shell: bash
-        run: bash packages/desktop/scripts/rebuild-native.sh --arch="${{ matrix.arch }}"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          lane="mac-${{ matrix.arch }}"
+          npm run package:host --workspace @omp-ui/host -- --lane "$lane"
+          npm run smoke:package --workspace @omp-ui/host -- --lane "$lane" \
+            --record "$PWD/package-records/package-record-${lane}.json" --release-tag "v${INPUT_VERSION#v}"
       - name: Package signed macOS build (with retries, notarization deferred)
         shell: bash
         run: |
           # dmgbuild can exhaust its own detach retries while the runner still
           # holds the fresh volume (issue #278). A bounded step retry recovers.
+          # electron-builder directly: `npm run build` above already produced
+          # the bundles the `package:mac` script would rebuild.
           status=0
           for attempt in 1 2 3; do
-            if npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never --config.mac.notarize=false; then
+            if npm exec --workspace @omp-ui/desktop -- electron-builder --mac --${{ matrix.arch }} --publish never --config.mac.notarize=false; then
               status=0
               break
             else
@@ -71,7 +87,7 @@ jobs:
             if (( attempt >= 3 )); then
               break
             fi
-            echo "::warning::package:mac attempt $attempt failed (exit $status); retrying in 15s"
+            echo "::warning::electron-builder attempt $attempt failed (exit $status); retrying in 15s"
             sleep 15
           done
           exit "$status"
@@ -94,7 +110,16 @@ jobs:
           bash packages/desktop/scripts/verify-macos-package.sh
           "${{ matrix.arch }}"
           "${{ inputs.notarize && 'full' || 'signed-only' }}"
+      - name: Stage macOS package evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-record-mac-${{ matrix.arch }}
+          path: package-records/
+          if-no-files-found: error
+          retention-days: 1
       - name: Stage macOS package for caller
+        # Two roots, so the artifact keeps `desktop/dist/...` and
+        # `host/out/mac-<arch>/...` beneath `packages/`.
         uses: actions/upload-artifact@v4
         with:
           name: macos-package-${{ matrix.arch }}
@@ -102,6 +127,7 @@ jobs:
             packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.dmg
             packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.zip
             packages/desktop/dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
+            packages/host/out/mac-${{ matrix.arch }}/omp-ui-host-*-mac-${{ matrix.arch }}.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 1

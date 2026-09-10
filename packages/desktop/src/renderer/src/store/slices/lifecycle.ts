@@ -660,7 +660,7 @@ export function createLifecycleSlice(
 
   /**
    * Converts an unprompted session to a worktree session (issue #225): the
-   * main process mints the checkout, patches the record, and respawns in
+   * host mints the checkout, patches the record, and respawns in
    * place, and its broadcasts drive the state here — no tab churn. Throws
    * on failure; the composer renders the message inline.
    */
@@ -683,7 +683,7 @@ export function createLifecycleSlice(
 
   /**
    * Resurfaces or resumes a session's tab. A tab-scoped resume rides the
-   * local backend: main routes it to the owning instance by resumeTabId. An
+   * local backend: the host routes it to the owning instance by resumeTabId. An
    * instance that is not joined cannot resume anything, so the attempt is
    * refused up front instead of surfacing the proxy's rejection (issue #416).
    */
@@ -991,7 +991,7 @@ export function createLifecycleSlice(
     try {
       if (rec?.live === "live" && rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
       const answered = await backend.releaseWorktree(tabId, opts);
-      // checkoutSwitch is required of a local main process; an older remote
+      // checkoutSwitch is required of this host; an older remote
       // instance answers without it, so it is normalized at the seam exactly
       // as spawn-request.ts:113 normalizes a missing mint.baseBranch (#416).
       const release = {

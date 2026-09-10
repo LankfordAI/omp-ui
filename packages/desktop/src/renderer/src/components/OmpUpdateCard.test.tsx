@@ -53,15 +53,6 @@ const backendMock = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
-  getAppUpdateState: vi.fn(),
-  checkAppUpdate: vi.fn(),
-  downloadAppUpdate: vi.fn(),
-  openAppUpdateReleaseNotes: vi.fn(),
-  showAppUpdateDownload: vi.fn(),
-  restartForAppUpdate: vi.fn(),
-  setAppUpdateInstallOnQuit: vi.fn(),
-  dismissAppUpdate: vi.fn(),
-  onAppUpdateState: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 

@@ -129,7 +129,7 @@ export function createPlanExecutionSlice(
 
   /**
    * Reconciles each open rpc tab's plan-review gate against the
-   * main-process-owned record on the session summary (issue #215). The
+   * host-owned record on the session summary (issue #215). The
    * record wins: a pending gate hydrates the review pane (a late-joining
    * renderer never saw the proposal frame), and a settled gate closes a
    * verdict another client already made. Idempotent — patches only on
@@ -197,7 +197,7 @@ export function createPlanExecutionSlice(
   /**
    * Answers the blocked plan-review `select` and clears the pane — the
    * UNACKNOWLEDGED path, kept for markdown gates, whose semantics are
-   * unchanged. HTML gates go through `acknowledgePlanReview`: only main's
+   * unchanged. HTML gates go through `acknowledgePlanReview`: only the host's
    * accepted answer may settle one (issue #312 follow-up, §6). Returns false
    * when there is no pending review to answer, so callers skip dispatch.
    */

@@ -56,7 +56,7 @@ const updater = {
   download: vi.fn(async () => {}),
   openReleaseNotes: vi.fn(async () => {}),
   showDownload: vi.fn(async () => {}),
-  restart: vi.fn(() => "restarting"),
+  restart: vi.fn(),
   setInstallOnQuit: vi.fn(),
   dismiss: vi.fn(),
 };
@@ -168,7 +168,7 @@ describe("registerDesktopAdapter", () => {
     });
   });
 
-  it("drives the client's own updater, restarting without a confirmation round-trip", async () => {
+  it("drives the client's own updater; restart carries no confirmation argument", async () => {
     register();
     expect(await invoke(DCH.getAppUpdateState)).toBe(updater.state);
     expect(await invoke(DCH.checkAppUpdate)).toEqual({ status: "up-to-date" });
@@ -180,7 +180,7 @@ describe("registerDesktopAdapter", () => {
     await invoke(DCH.showAppUpdateDownload);
     expect(updater.showDownload).toHaveBeenCalledOnce();
     expect(await invoke(DCH.restartForAppUpdate)).toBeUndefined();
-    expect(updater.restart).toHaveBeenCalledWith(true);
+    expect(updater.restart).toHaveBeenCalledWith();
     await invoke(DCH.setAppUpdateInstallOnQuit, true);
     expect(updater.setInstallOnQuit).toHaveBeenCalledWith(true);
     await invoke(DCH.dismissAppUpdate, "1.2.0", true);

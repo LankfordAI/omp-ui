@@ -2,14 +2,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import type { KeyCipher } from "@omp-ui/core";
 
 /**
- * The host's credential cipher (issue #442 §10.3): AES-256-GCM under a data
+ * The host's credential cipher (issue #442 §6): AES-256-GCM under a data
  * encryption key (DEK) the OS credential store protects. The DEK is the only
  * thing the OS store holds; every provider key and remote-instance credential
  * on disk is an envelope under it, so a keyring that is slow or locked costs
- * one bounded lookup at boot instead of one per credential.
- *
- * Release P builds and tests this cipher but Electron's `safeStorage` stays the
- * active one; Release C switches the store over and migrates the ciphertext.
+ * one bounded lookup at boot instead of one per credential. Legacy Electron
+ * `safeStorage` ciphertext is migrated into it once by `credential-handoff`.
  */
 
 /** Where the DEK lives: the platform keyring, or a test double. */

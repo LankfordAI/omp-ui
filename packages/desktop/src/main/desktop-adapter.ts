@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { dialog, ipcMain, shell, type BrowserWindow } from "electron";
-import type { NotifyChannel, RequestChannel } from "@omp-ui/core";
+import type { NotifyChannel, RequestChannel } from "@omp-ui/core/backend-channels";
 import {
   DCH,
   DESKTOP_CHANNELS,
@@ -106,10 +106,7 @@ export function registerDesktopAdapter(deps: DesktopAdapterDeps): () => void {
     [DCH.downloadAppUpdate]: () => updater.download(),
     [DCH.openAppUpdateReleaseNotes]: () => updater.openReleaseNotes(),
     [DCH.showAppUpdateDownload]: () => updater.showDownload(),
-    // Already confirmed: quitting the client stops no session (#455 §4).
-    [DCH.restartForAppUpdate]: () => {
-      updater.restart(true);
-    },
+    [DCH.restartForAppUpdate]: () => updater.restart(),
     [DCH.setAppUpdateInstallOnQuit]: (on) => updater.setInstallOnQuit(on),
     [DCH.dismissAppUpdate]: (version, remember) => updater.dismiss(version, remember),
   };

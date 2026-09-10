@@ -16,7 +16,7 @@ export interface ShellHostDependencies {
    * TUI runs real turns, so a gated app instance gates this child too.
    */
   getOmpModelArg?: () => string | null;
-  /** The children ledger (#450): console programs are children too. Absent in Electron main and tests. */
+  /** The children ledger (#450): console programs are children too. Absent for focused tests. */
   ledger?: ChildrenLedger;
 }
 

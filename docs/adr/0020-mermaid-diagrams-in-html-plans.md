@@ -75,3 +75,13 @@ and ADR-0007's empty sandbox).
   non-diagram content.
 - **Markdown plans unaffected.** The transform runs only on the HTML render
   path; `md` plans route through `Markdown` as before.
+
+**Amended 2026-09-10 (#442; ADR-0029):** the transform moved from
+`packages/desktop` into `@omp-ui/plan-doc` (`src/plan-diagrams.ts`), whose
+`package.json` carries the `mermaid` dependency; the renderer and the host's
+headless verifier page import the same module, so the diagram a browser reviews
+is the one the host measured at preflight. "Renderer: mermaid, bundled as a
+`packages/desktop` dependency" above is historical. The trust posture is
+unchanged: the pipeline runs in a trusted process (the renderer, or the host's
+pinned Chrome), never inside the `sandbox=""` plan frame, and `packages/core`
+still only owns the prompt string.

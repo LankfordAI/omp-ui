@@ -23,14 +23,15 @@ import type {
   ProjectRecord,
 } from "./types";
 
-/** What the desktop client knows about itself; null when the bundle is collected without one attached. */
+/**
+ * What the host knows about the desktop client that requested the bundle — its hello, nothing
+ * more: null for a browser client (issue #442 §13). Client-local files (window state, Electron
+ * logs) live on the client machine and never cross the host boundary.
+ */
 export interface DesktopClientFacts {
+  clientKind: string;
   clientVersion: string;
-  electronVersion: string | null;
-  chromeVersion: string | null;
-  windowStateFile: string | null;
-  packaged: boolean;
-  packageFormat: string;
+  protocolVersion: number;
 }
 
 /** The host process's own identity and health, as `host:status` reports them. */
@@ -38,7 +39,7 @@ export interface HostDiagnosticsFacts {
   dataRoot: string;
   hostVersion: string;
   hostProtocol: number;
-  verifier: { state: "ready" | "degraded"; reason: string | null; pin: string | null };
+  verifier: { state: "ready" | "degraded"; reason: string | null; pin: string | null; sha256: string | null };
   credentialBackend: string;
 }
 
@@ -63,7 +64,7 @@ export interface DiagnosticsFacts {
   desktopClient: DesktopClientFacts | null;
 }
 
-/** One in-memory breadcrumb ring entry (structurally the desktop ring's type). */
+/** One in-memory breadcrumb ring entry (structurally the host ring's type). */
 export interface DiagnosticsBreadcrumbEntry {
   at: string;
   seq: number;
@@ -95,7 +96,7 @@ const DEFAULT_TRANSCRIPT_CAP_BYTES = 64 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_LINES = 2_000;
 
-/** The rotated main-process logs beside the live ones (each ≤ 1 MiB by rotation). */
+/** The host's rotated logs beside the live ones (each ≤ 1 MiB by rotation). */
 const LOG_FILES = [
   "main.log",
   "main.log.old",
@@ -405,18 +406,6 @@ async function buildSections(
   const breadcrumbs = bytesFile("breadcrumbs.json", [...(o.breadcrumbs ?? [])]);
   sections.push({ id: "breadcrumbs", prefix: "", included: true, files: [breadcrumbs] });
 
-  const windowState: PlannedFile[] = [];
-  const windowStateFile = o.facts.desktopClient?.windowStateFile ?? null;
-  if (windowStateFile !== null && statSize(windowStateFile) !== null) {
-    windowState.push(copyFile("window-state.json", windowStateFile));
-  }
-  sections.push({
-    id: "window-state",
-    prefix: "",
-    included: windowState.length > 0,
-    files: windowState,
-  });
-
   const transcriptFiles: PlannedFile[] = [];
   if (o.includeTranscripts) {
     const cap = o.transcriptCapBytes ?? DEFAULT_TRANSCRIPT_CAP_BYTES;
@@ -486,7 +475,7 @@ function manifestBytes(
       "provider-keys.json and all key material are never read",
       "remote-instances.json (joined-instance credentials) is never read",
       "remoteToken/remotePasswordHash/remotePasswordSalt replaced by hasRemoteToken/hasRemotePassword booleans",
-      "<userData>/oauth-login/ is never walked",
+      "<dataRoot>/oauth-login/ is never walked",
       "plan bodies, transcripts (unless opted in), and project file contents are excluded",
     ],
     warnings,

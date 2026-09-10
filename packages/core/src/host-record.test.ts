@@ -10,7 +10,7 @@ import {
   readHostRecord,
   writeHostRecord,
   type HostConnectionRecordV1,
-} from "./connection-record";
+} from "./host-record";
 
 const roots: string[] = [];
 

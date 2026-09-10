@@ -1,14 +1,16 @@
 # Remote instances are joined by the main process, not the renderer
 
-> **Status:** Superseded in part by [ADR-0029](0029-persistent-host-owns-authoritative-application.md)
-> (the proxy's owner moves to the persistent host at release C). The
-> single-owner reasoning below stands; only the owning process changes.
+> **Status:** Superseded in part by [ADR-0029](0029-persistent-host-owns-authoritative-application.md),
+> effective. The proxy's owner is the persistent host (`HostApplication` in
+> `@omp-ui/host`), not the Electron main process this record names. The
+> single-owner reasoning below stands unchanged; read "main" as "the host",
+> "backend" as `HostApplication`, and "host-local" as instance-local.
 
 A **remote instance** (issue #416) is another omp-ui app whose embedded server
 this app joins as a client, so that its projects and sessions appear in this
 app's sidebar under a nickname. [ADR-0002](0002-transport-agnostic-core.md)
 designed `OmpBackend` so a renderer could talk to any transport, and the browser
-renderer already dials a WebSocket to reach `MainBackend`. The obvious reading
+renderer already dials a WebSocket to reach the backend. The obvious reading
 of that seam is that the desktop renderer should dial each remote instance
 itself, hold one `OmpBackend` per instance, and let every store slice pick the
 backend for the tab or project it is acting on.

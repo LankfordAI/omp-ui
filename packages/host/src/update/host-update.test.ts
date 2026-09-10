@@ -309,6 +309,39 @@ describe("HostUpdater", () => {
     });
   });
 
+  it("afterCommit runs once the pointers name the new version, and its failure never reclaims", async () => {
+    seedInstalled(root, "1.0.0");
+    const seen: Array<{ dir: string; current: string; previous: boolean }> = [];
+    const h = harness(root, {
+      afterCommit: (dir) => {
+        seen.push({
+          dir,
+          current: fs.readFileSync(paths.current, "utf8"),
+          previous: fs.existsSync(paths.previous),
+        });
+        throw new Error("stable command is not ours");
+      },
+    });
+    const updater = new HostUpdater(h.deps);
+    await updater.check();
+    await updater.download();
+
+    expect(seen).toEqual([{ dir: paths.versionDir("1.1.0"), current: "1.1.0\n", previous: true }]);
+    expect(h.calls).not.toContain("reclaim");
+    expect(updater.state).toMatchObject({ status: "idle", currentIsStaged: true, rollbackVersion: "1.0.0" });
+    expect(updater.state.lastAttempt?.outcome).toBe("applied");
+    expect(h.crumbs).toContain("update-stage host:after-commit failed stable command is not ours");
+  });
+
+  it("an ack timeout never runs afterCommit", async () => {
+    seedInstalled(root, "1.0.0");
+    const afterCommit = vi.fn();
+    const updater = new HostUpdater(harness(root, { ack: false, afterCommit }).deps);
+    await updater.check();
+    await updater.download();
+    expect(afterCommit).not.toHaveBeenCalled();
+  });
+
   it("an ack timeout kills the replacement, reclaims authority, records a failed attempt, and keeps pointers", async () => {
     seedInstalled(root, "1.0.0");
     const h = harness(root, { ack: false });

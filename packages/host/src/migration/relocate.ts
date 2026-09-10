@@ -6,7 +6,7 @@ import { MigrationConflict, type ItemEvidence, type MigrationJournal } from "./j
 
 /**
  * Moves the authority stores from Electron's userData dir into the host data
- * root (issue #442, WP7 §10.2). Runs once per data root, before anything
+ * root (issue #442 §5.4). Runs once per data root, before anything
  * else in the host writes into it: a destination that exists without journal
  * evidence is treated as someone else's and stops the migration.
  */

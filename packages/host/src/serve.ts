@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import {
+  appendMainLog,
   canonicalDataRoot,
   createBreadcrumbRing,
   RegistryCorrupt,
@@ -10,16 +11,22 @@ import {
   type BuildFlavor,
 } from "@omp-ui/core";
 import { connectInstanceClient, HOST_PROTOCOL } from "@omp-ui/server";
-import { AuthorityConflict, claimAuthority, LOCK_LOST_EXIT_CODE, type ClaimedAuthority } from "./authority/authority";
+import {
+  AuthorityConflict,
+  claimAuthority,
+  LOCK_LOST_EXIT_CODE,
+  type AuthorityDeps,
+  type ClaimedAuthority,
+} from "./authority/authority";
 import { ChildrenLedger, LedgerUnresolved, type ChildrenLedgerDeps } from "./authority/children-ledger";
 import { ownProcessStartMs, processAlive, readBootId } from "./authority/process-identity";
 import { EXIT } from "./cli";
-import type { HostConnectionRecordV1 } from "./control/connection-record";
+import type { HostConnectionRecordV1 } from "@omp-ui/core";
 import { startLocalControl, type LocalControl } from "./control/local-control";
 import { asBuffer, DEK_WORKER_TIMEOUT_MS, runProtectorInWorker } from "./credentials/dek-worker";
 import { DekTimeout, isHostEnvelope, openHostKeyCipher, type KeyProtector } from "./credentials/host-key-cipher";
 import { selectProtector } from "./credentials/protector";
-import { HostApplication, type HostApplicationDeps } from "./host-application";
+import { HostApplication, type HostApplicationDeps, type HostUpdateHandoverDeps } from "./host-application";
 import { handoffCredentials, type ElectronBlobReader } from "./migration/credential-handoff";
 import { consumeCutoverHandoff } from "./migration/cutover-handoff";
 import { MigrationJournal } from "./migration/journal";
@@ -34,15 +41,33 @@ import {
   readLocalStateEncryptedKey,
   WINDOWS_KEY_PREFIX,
 } from "./migration/windows-electron";
+import {
+  downloadHostArchive,
+  fetchHostFeed,
+  sha512File,
+  spawnStagedHost,
+  switchCurrent,
+  unpackHostArchive,
+} from "./update/host-update-deps";
 
 /**
- * The host's foreground boot sequence (issue #442 §10; #450): the one place
+ * The host's foreground boot sequence (issue #442 §9; #450): the one place
  * the authority claim, the children ledger, the one-shot migration, the
- * credential cipher, the application, and the loopback control plane are
- * composed, in that fixed order. `omp-ui serve` calls it and nothing else
- * does; every step leaves an `authority` breadcrumb and a `log` line so a
- * boot that stopped can be read back from `logs/breadcrumbs.log`.
+ * credential cipher, the application, the loopback control plane, and the
+ * host's own updater are composed, in that fixed order. `omp-ui serve` calls
+ * it and nothing else does; every step leaves an `authority` breadcrumb and a
+ * `log` line so a boot that stopped can be read back from `logs/main.log` and
+ * `logs/breadcrumbs.log`.
  */
+
+/** The updater's feed/archive/replacement machinery; production takes every default from `host-update-deps`. */
+export type ServeHandoverDeps = Pick<
+  HostUpdateHandoverDeps,
+  "fetchFeed" | "download" | "sha512File" | "unpack" | "spawnStaged" | "limits"
+> & {
+  /** Re-points the installed layout's `current` at the committed version dir (issue #442 §10.1). */
+  switchCurrent: (versionDir: string) => void;
+};
 
 /** Seams for the boot-order unit test; production takes every default. */
 export interface ServeDeps {
@@ -52,6 +77,7 @@ export interface ServeDeps {
   /** `true` when the host `record` describes still authenticates a probe (a veto on the claim). */
   probe: (record: HostConnectionRecordV1) => Promise<boolean>;
   now: () => number;
+  handover?: Partial<ServeHandoverDeps>;
 }
 
 export interface ServeOptions {
@@ -70,6 +96,7 @@ export interface ServeOptions {
   /** Where SIGINT/SIGTERM arrive; default `process`. */
   signals?: NodeJS.EventEmitter;
   env?: NodeJS.ProcessEnv;
+  /** Default: stdout plus `<dataRoot>/logs/main.log`. */
   log?: (line: string) => void;
   deps?: Partial<ServeDeps>;
 }
@@ -194,13 +221,15 @@ async function electronReader(
 }
 
 /**
- * Runs the host until SIGINT/SIGTERM. Resolves with the process exit code:
- * 0 after a clean shutdown, {@link EXIT.AUTHORITY_CONFLICT} when another
- * authority owns the root, 1 for any other boot failure — every one of which
- * releases the token and closes the control plane before returning.
+ * Runs the host until a stop: SIGINT/SIGTERM, a `host:stop` control request,
+ * or a committed update handover (the replacement owns the root; this process
+ * exits so the supervisor's `KillMode=process` leaves the replacement alone).
+ * Resolves with the process exit code: 0 after any of those,
+ * {@link EXIT.AUTHORITY_CONFLICT} when another authority owns the root, 1 for
+ * any other boot failure — every path releases the token and closes the
+ * control plane before returning.
  */
 export async function serve(opts: ServeOptions): Promise<number> {
-  const log = opts.log ?? ((line: string) => console.log(`[host] ${line}`));
   const now = opts.deps?.now ?? Date.now;
   const claim = opts.deps?.claim ?? claimAuthority;
   const probe = opts.deps?.probe ?? defaultProbe;
@@ -209,7 +238,14 @@ export async function serve(opts: ServeOptions): Promise<number> {
 
   const root = canonicalDataRoot(opts.dataRoot, platform);
   fs.mkdirSync(root, { recursive: true });
-  const breadcrumbs: BreadcrumbSink = createBreadcrumbRing(path.join(root, "logs"));
+  const logDir = path.join(root, "logs");
+  const log =
+    opts.log ??
+    ((line: string) => {
+      console.log(`[host] ${line}`);
+      appendMainLog(logDir, "main.log", line);
+    });
+  const breadcrumbs: BreadcrumbSink = createBreadcrumbRing(logDir);
   const step = (detail: string): void => {
     breadcrumbs.record("authority", { detail: `boot: ${detail}` });
     log(detail);
@@ -217,22 +253,23 @@ export async function serve(opts: ServeOptions): Promise<number> {
   step(`data root ${root} (${opts.flavor} ${opts.hostVersion})`);
 
   const processStartMs = ownProcessStartMs(platform);
+  const claimDeps: AuthorityDeps = {
+    hostVersion: opts.hostVersion,
+    flavor: opts.flavor,
+    probe,
+    processAlive: (pid, startMs) => processAlive(pid, startMs, platform),
+    bootId: () => readBootId(platform),
+    now,
+    breadcrumbs,
+    processStartMs,
+    onLockLost: () => {
+      log(`host.lock no longer names this process; exiting ${LOCK_LOST_EXIT_CODE}`);
+      process.exit(LOCK_LOST_EXIT_CODE);
+    },
+  };
   let token: ClaimedAuthority;
   try {
-    token = await claim(root, {
-      hostVersion: opts.hostVersion,
-      flavor: opts.flavor,
-      probe,
-      processAlive: (pid, startMs) => processAlive(pid, startMs, platform),
-      bootId: () => readBootId(platform),
-      now,
-      breadcrumbs,
-      processStartMs,
-      onLockLost: () => {
-        log(`host.lock no longer names this process; exiting ${LOCK_LOST_EXIT_CODE}`);
-        process.exit(LOCK_LOST_EXIT_CODE);
-      },
-    });
+    token = await claim(root, claimDeps);
   } catch (error) {
     if (error instanceof AuthorityConflict) {
       step(`authority conflict: ${error.message}`);
@@ -242,6 +279,12 @@ export async function serve(opts: ServeOptions): Promise<number> {
   }
   step(`authority claimed incarnation=${token.incarnation}`);
 
+  // One stop for every reason; the first wins and the rest are ignored.
+  // Executor form (not Promise.withResolvers): the node tsconfig lib is ES2022.
+  let resolveStop: (reason: string) => void = () => {};
+  const stopping = new Promise<string>((resolve) => {
+    resolveStop = resolve;
+  });
   let host: HostApplication | null = null;
   let control: LocalControl | null = null;
   try {
@@ -308,7 +351,7 @@ export async function serve(opts: ServeOptions): Promise<number> {
         remoteInstancesFile: path.join(root, "remote-instances.json"),
         worktreesRoot: path.join(root, "worktrees"),
         oauthScratchDir: path.join(root, "oauth-login"),
-        logDir: path.join(root, "logs"),
+        logDir,
         webRoot: opts.webRoot,
       },
       hostVersion: opts.hostVersion,
@@ -318,19 +361,66 @@ export async function serve(opts: ServeOptions): Promise<number> {
       breadcrumbs,
       ledger,
       recoveryPolicy: "stop",
+      requestStop: () => resolveStop("host:stop"),
     });
     step("registry loaded; application constructed");
 
-    control = await startLocalControl({
-      surface: host,
-      dataRoot: root,
-      hostVersion: opts.hostVersion,
-      processStartMs,
-      incarnation: token.incarnation,
-      now,
-      breadcrumbs,
-    });
+    const openControl = async (incarnation: number): Promise<LocalControl> =>
+      startLocalControl({
+        surface: host!,
+        dataRoot: root,
+        hostVersion: opts.hostVersion,
+        processStartMs,
+        incarnation,
+        now,
+        breadcrumbs,
+      });
+    control = await openControl(token.incarnation);
     step(`control plane listening at ${control.record.endpoint}`);
+
+    // The host's own updater (issue #442 §10.2). Its handover half lives here
+    // because only the boot sequence holds the token and the control plane. A
+    // dev-flavour host has no installed layout to switch, so it stays idle
+    // (the env override exercises the real flow against a release, like the
+    // desktop's OMP_UI_APP_UPDATE_ENABLE).
+    const handover = opts.deps?.handover ?? {};
+    const env = opts.env ?? process.env;
+    if (opts.flavor === "installed" || env.OMP_UI_HOST_UPDATE_ENABLE === "1") host.attachHostUpdater({
+      fetchFeed: handover.fetchFeed ?? (() => fetchHostFeed(platform, process.arch)),
+      download: handover.download ?? downloadHostArchive,
+      sha512File: handover.sha512File ?? sha512File,
+      unpack: handover.unpack ?? unpackHostArchive,
+      spawnStaged:
+        handover.spawnStaged ??
+        ((versionDir, spawnOpts) =>
+          spawnStagedHost(versionDir, spawnOpts, { platform, hostVersion: opts.hostVersion, env: opts.env, now })),
+      limits: handover.limits,
+      // Release only stops asserting and marks the record; the lock name stays for the replacement's takeover.
+      releaseAuthority: () => token.release(),
+      // The replacement never acknowledged and is dead: the ordinary claim path takes the root back, and the
+      // listeners the drain closed come back under the new incarnation.
+      reclaimAuthority: async () => {
+        token = await claim(root, claimDeps);
+        host!.adoptAuthority(token);
+        control = await openControl(token.incarnation);
+        await host!.startRemote();
+        step(`authority reclaimed incarnation=${token.incarnation}; control plane at ${control.record.endpoint}`);
+      },
+      drainListeners: async () => {
+        await host!.drainRemote();
+        await control?.close();
+        control = null;
+        step("listeners drained for handover");
+      },
+      afterCommit: (versionDir) => {
+        try {
+          (handover.switchCurrent ?? ((dir) => switchCurrent(dir, { platform, env: opts.env, dataRoot: root })))(versionDir);
+          step(`current host is now ${versionDir}`);
+        } finally {
+          resolveStop("handover");
+        }
+      },
+    });
 
     await host.hydrateAll();
     await host.startRemote();
@@ -338,22 +428,24 @@ export async function serve(opts: ServeOptions): Promise<number> {
     host.captureShellKeys().catch((error: unknown) => log(`login-shell key capture failed: ${String(error)}`));
     host.refreshProviderOAuth().catch((error: unknown) => log(`provider OAuth refresh failed: ${String(error)}`));
     step("host ready");
+    host.checkUpdatesOnLaunch();
 
-    const signal = await new Promise<string>((resolve) => {
-      const onSignal = (name: string): void => {
-        signals.off("SIGINT", onSigint);
-        signals.off("SIGTERM", onSigterm);
-        resolve(name);
-      };
-      const onSigint = (): void => onSignal("SIGINT");
-      const onSigterm = (): void => onSignal("SIGTERM");
-      signals.on("SIGINT", onSigint);
-      signals.on("SIGTERM", onSigterm);
-    });
-    step(`${signal} received; shutting down`);
+    const onSigint = (): void => resolveStop("SIGINT");
+    const onSigterm = (): void => resolveStop("SIGTERM");
+    signals.on("SIGINT", onSigint);
+    signals.on("SIGTERM", onSigterm);
+    const reason = await stopping;
+    signals.off("SIGINT", onSigint);
+    signals.off("SIGTERM", onSigterm);
+    step(`${reason}; shutting down`);
+    if (reason !== "handover") {
+      // Graceful: every live session records a clean stop before whatever remains is killed.
+      const dormant = await host.hibernateAll();
+      if (dormant.length > 0) step(`hibernated ${dormant.length} live session(s)`);
+    }
     await host.shutdown();
     host = null;
-    await control.close();
+    await control?.close();
     control = null;
     token.release();
     step("shutdown complete");

@@ -5,7 +5,8 @@ import { LaunchdAgentSupervisor } from "./macos-launchd";
 import type { Supervisor, SupervisorDeps, SupervisorFs, SupervisorStatus } from "./types";
 import { WindowsTaskSupervisor } from "./windows-task";
 
-export { SYSTEMD_UNIT_NAME, SystemdUserSupervisor, systemdRunArgs, type SystemdDeps } from "./linux-systemd";
+export { SYSTEMD_UNIT_NAME, SystemdUserSupervisor, type SystemdDeps } from "./linux-systemd";
+export { systemdRunArgs } from "@omp-ui/core";
 export { LAUNCHD_LABEL, LaunchdAgentSupervisor, type LaunchdDeps } from "./macos-launchd";
 export { WINDOWS_TASK_NAME, WindowsTaskSupervisor, type WindowsTaskDeps } from "./windows-task";
 export type {

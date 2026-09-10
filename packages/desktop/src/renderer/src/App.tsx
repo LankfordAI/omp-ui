@@ -20,11 +20,12 @@ import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
 import { useT, type MessageKey } from "./lib/i18n";
-import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
+import { IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
 import { findInstance, findOwner, useStore } from "./store";
+import { HAS_DESKTOP } from "./desktop";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
 const HINTS: [combo: string, what: MessageKey][] = [
@@ -43,9 +44,9 @@ const HINTS: [combo: string, what: MessageKey][] = [
 // visual-fit value — if a theme draws wider buttons, adjust this one line.
 // macOS paints no overlay; its traffic lights sit top-left, so the inset
 // moves to the left edge instead.
-// Both insets are Electron-only: the remote web client (#37) serves this same
-// bundle to a browser tab, where there are no caption buttons to avoid, so
-// every use is gated on IS_ELECTRON (#122).
+// Both insets belong to the desktop client's frameless window: a browser client (#37) runs this
+// same bundle in a tab with no caption buttons to avoid, so every use is gated on HAS_DESKTOP
+// (#122, #442 §11).
 const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
 const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
 
@@ -146,7 +147,7 @@ function TitleBar() {
     <header
       className="relative flex h-9 shrink-0 select-none items-center gap-1 glass-void [app-region:drag]"
       style={
-        IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined
+        HAS_DESKTOP && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined
       }
     >
       <div className="flex shrink-0 items-center gap-1 pl-3 [app-region:no-drag]">
@@ -187,7 +188,7 @@ function TitleBar() {
         </>
       )}
 
-      {IS_ELECTRON && OVERLAY_INSET > 0 && (
+      {HAS_DESKTOP && OVERLAY_INSET > 0 && (
         <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />
       )}
     </header>
@@ -413,7 +414,7 @@ export default function App() {
          */
         <nav
           className="flex min-h-11 shrink-0 items-center gap-1 border-b border-line glass-void px-[max(0.25rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.25rem,var(--safe-right))] [app-region:drag]"
-          style={IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
+          style={HAS_DESKTOP && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
         >
           <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
             <IconMenu />
@@ -436,7 +437,7 @@ export default function App() {
           {/* Reserve the caption-button strip so no control slides under it.
               Left undeclared, like TitleBar's: the native overlay owns the hit
               test there anyway. */}
-          {IS_ELECTRON && OVERLAY_INSET > 0 && <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />}
+          {HAS_DESKTOP && OVERLAY_INSET > 0 && <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />}
         </nav>
       )}
       <div className="flex min-h-0 flex-1 border-t border-line">

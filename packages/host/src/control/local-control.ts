@@ -15,7 +15,7 @@ import {
   mintDesktopCredential,
   writeHostRecord,
   type HostConnectionRecordV1,
-} from "./connection-record";
+} from "@omp-ui/core";
 
 export interface LocalControlDeps {
   surface: HostSurface;

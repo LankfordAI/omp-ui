@@ -148,9 +148,9 @@ export class ChromeVerifierPage implements VerifierPage {
 
   private async launch(): Promise<Browser> {
     fs.mkdirSync(this.deps.userDataDir, { recursive: true, mode: 0o700 });
-    // Dynamic import by design: puppeteer-core is not on disk in the packaged
-    // host layout (release P ships the CLI without it), so a static import
-    // would fail `omp-ui status` at boot. A host whose verifier payload is
+    // Dynamic import by design: puppeteer-core is laid out beside the binary
+    // under lib/ and resolved on first launch, so a static import would make
+    // `omp-ui status` pay for it at boot. A host whose verifier payload is
     // absent (degraded) never loads it either.
     const { default: puppeteer } = await import("puppeteer-core");
     let browser: Browser;

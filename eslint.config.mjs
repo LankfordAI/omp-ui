@@ -89,6 +89,36 @@ export default tseslint.config(
     },
   },
   {
+    // Issue #442 §2: after the cutover the desktop client is a WebSocket client of the
+    // host and links neither the host package nor anything it alone owns.
+    files: ["packages/desktop/**/*.ts", "packages/desktop/**/*.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { patterns: ["@omp-ui/host", "@omp-ui/host/*", "node-pty", "puppeteer-core"] },
+      ],
+    },
+  },
+  {
+    // Electron main and preload bundle core and server; their roots re-export
+    // node-pty (core/pty.ts), which the client no longer ships. Subpaths only.
+    files: ["packages/desktop/src/main/**/*.ts", "packages/desktop/src/preload/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["@omp-ui/host", "@omp-ui/host/*", "node-pty", "puppeteer-core"] },
+            {
+              regex: "^@omp-ui/(core|server)$",
+              message: "Import a subpath (e.g. @omp-ui/core/types, @omp-ui/server/client); the package roots load node-pty.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // ADR-0002 backstop: the renderer takes types only — the core root pulls
     // node-only code (node-pty, fs) into the browser bundle.
     files: ["packages/desktop/src/renderer/**"],

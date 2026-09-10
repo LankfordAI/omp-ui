@@ -27,7 +27,9 @@ export type BreadcrumbKind =
   | "child-process-gone"
   | "main-exception"
   | "main-rejection"
-  // Release P (issue #442): host-side kinds.
+  // The desktop client's search for its host (issue #442 §11).
+  | "host-bootstrap"
+  // Host-side kinds (issue #442).
   | "authority"
   | "attention"
   | "verifier"

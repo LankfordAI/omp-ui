@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Fetches the pinned Chrome for Testing build the plan verifier drives (issue
-// #442 §8.3) into packages/host/resources/plan-verifier/<os>-<arch>/ and
-// writes browser.manifest.json beside it. Build-time only: the app never
-// downloads at runtime and never runs a system browser.
+// #442 §7) into packages/host/resources/plan-verifier/<lane>/ and writes
+// browser.manifest.json beside it; package-host.mjs ships that directory as the
+// lane's resources/plan-verifier. Build-time only: the host never downloads a
+// browser at runtime and never runs a system browser.
 //
 //   node scripts/fetch-verifier-browser.mjs [--platform linux64|mac-x64|mac-arm64|win64]
 //   node scripts/fetch-verifier-browser.mjs --pin      # re-pin to current Stable, record zip hashes
@@ -24,7 +25,7 @@ const resourcesRoot = path.join(hostRoot, "resources", "plan-verifier");
 const LKG_URL =
   "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
 
-/** CfT platform → where electron-builder's `${os}-${arch}` finds it, Node's platform/arch, binary path in the zip. */
+/** CfT platform → host lane (package-host.mjs LANES), Node's platform/arch, binary path in the zip. */
 const PLATFORMS = {
   linux64: {
     dir: "linux-x64",

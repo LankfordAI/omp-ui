@@ -2,13 +2,19 @@
 
 ## Status
 
-Accepted (decided now, effective at release C; release P builds and tests the
-machinery and plants the legacy tripwire). Issues
+Accepted and effective. Issues
 [#442](https://github.com/LankfordAI/omp-ui/issues/442) §6,
 [#450](https://github.com/LankfordAI/omp-ui/issues/450) (lock, root, journal),
 [#451](https://github.com/LankfordAI/omp-ui/issues/451) (credential envelope),
 [#457](https://github.com/LankfordAI/omp-ui/issues/457) (cutover order).
 Companion to [ADR-0029](0029-persistent-host-owns-authoritative-application.md).
+
+**Rollout.** The preparation release built and tested this machinery behind a
+tripwire while Electron main still held authority through
+`claimLegacyElectronAuthority`; the cutover release made `omp-ui serve` the
+only claimant, deleted that legacy mint, and added the one-use cutover handoff
+that lets the first host adopt a running desktop's stores. Everything below
+describes the state after the cutover.
 
 ## Context
 
@@ -73,9 +79,8 @@ exists, so exactly one `owner.json` is ever reachable through it.
 **`AuthorityToken` is the only route to authoritative state.** `claimAuthority`
 mints `{ dataRoot, incarnation }`; `Registry.load` and the resume seam demand
 it, so a store reached without a claimed lock is a type error rather than a
-boot-sequence convention. In release P only, `claimLegacyElectronAuthority`
-mints the same witness for Electron main after Chromium's lock and the
-tripwire below; it is deleted at C.
+boot-sequence convention. `omp-ui serve` is the only product code that mints
+one; `Registry.loadUnlocked` exists for focused tests alone.
 
 **The children ledger makes the crash survivor the only resumer**
 (`packages/host/src/authority/children-ledger.ts`). The lock stops two hosts;
@@ -144,27 +149,40 @@ host still starts: it reports zero stored keys, injects only inherited and
 login-shell provider sources, and refuses stored-key writes and credential
 joins.
 
-**The legacy Electron tripwire ships in release P**
+**The legacy Electron tripwire still guards the old binary**
 (`packages/core/src/data-root.ts`, `packages/desktop/src/main/authority-tripwire.ts`).
-A pre-cutover Electron build refuses to start when the canonical root carries
+A pre-cutover desktop build refuses to start when the canonical root carries
 any `AUTHORITY_CLAIM_MARKERS` — `host.lock`, `migration.json`,
 `registry.json`, `provider-keys.json`, `remote-instances.json`, or
 `worktrees/`. This is filesystem evidence, deliberately not a liveness probe:
 a crashed or half-migrated host is exactly when an empty Electron registry
 beside it would be most dangerous. The refusal names the root and `omp-ui
 status`, `omp-ui stop`, and `omp-ui rollback`, logs and breadcrumbs it, and
-exits with status 5 before any registry or credential read. Already-published
-binaries older than P cannot be taught this and are unsupported against a
-migrated root.
+exits with status 5 before any registry or credential read. Binaries older
+than the preparation release cannot be taught this and are unsupported against
+a migrated root.
+
+**Adoption is a one-use handoff, not a copy**
+(`packages/core/src/cutover-handoff.ts`, `packages/host/src/migration/cutover-handoff.ts`).
+The last Electron-authority desktop writes `<dataRoot>/runtime/cutover-handoff.json`
+(mode 0600: its pid and start time, its `userData`, the target root, a 256-bit
+nonce) while it is still running and before it submits the supervisor start.
+The host verifies the pid is alive with that start time and still holds
+Chromium's `SingletonLock` in that `userData`, checks the target root, age, and
+nonce, atomically renames the note to a consumed name, and only then runs the
+relocation step from that `userData`. A stale, foreign, or unverifiable note
+migrates nothing; any other live legacy owner blocks migration. The handoff
+grants no authority — the claim above still decides.
 
 **Boot order is one sequence** (`packages/host/src/serve.ts`) for first run,
 restart, crash recovery, and post-update relaunch: resolve and canonicalise
 the root → publish the claim and mint the token → reconcile the children
-ledger → replay/advance the journal (relocation, then credential handoff) →
-open the protector and cipher → `Registry.load` under the token (`stop` on a
-corrupt file: nothing is quarantined) → write `host.json` → hydrate → first
-request or spawn. Every failure after the claim releases the token and
-removes `host.json` before the process exits 1; a conflict exits 5.
+ledger → consume the cutover handoff → replay/advance the journal (relocation,
+then credential handoff) → open the protector and cipher → `Registry.load`
+under the token (`stop` on a corrupt file: nothing is quarantined) → write
+`host.json` → hydrate → first request or spawn. Every failure after the claim
+releases the token and removes `host.json` before the process exits 1; a
+conflict exits 5.
 
 ## Considered options
 
@@ -214,6 +232,6 @@ removes `host.json` before the process exits 1; a conflict exits 5.
   rename-only `writeTextAtomic` because its writes sit on interactive paths.
 - Legacy relocation and credential readers remain isolated to the adoption
   path until two later minor releases have shipped *and* twelve months have
-  passed since C; a newer host then fails closed with an instruction to run
-  release C as the bridge, never starting empty or quarantining an unadopted
-  store.
+  passed since the cutover release; a newer host then fails closed with an
+  instruction to install the cutover release as the bridge, never starting
+  empty or quarantining an unadopted store.

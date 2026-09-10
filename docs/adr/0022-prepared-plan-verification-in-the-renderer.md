@@ -54,14 +54,14 @@ never false-positive-block a valid plan or hang a test.
   fallback is the artifact the execute verdict dispatches, so reviewing it
   as text remains a real review; refine sends the planner back to rewrite.
 
-**Amended 2026-09-08 (#312 follow-up): main owns the submission gate.** The
+**Amended 2026-09-08 (#312 follow-up): the authority owns the submission gate.** The
 rejected option above assumed a main-process probe would *replace* remote
 verification; it does not — it *precedes* it. An HTML plan proposal is now
-validated by the main process before a review gate exists for any client
+validated by the authority before a review gate exists for any client
 (see `plan-preflight.ts`, `plan-verifier.ts`, and the *Plan preflight* entry
 in CONTEXT.md): the select frame is claimed ahead of observers, fan-out,
-notifications, and the pending-plan record, a hidden script-less Chromium
-verifier window runs the SAME parser, transforms, structural checks, and
+notifications, and the pending-plan record, a script-less Chromium
+verifier runs the SAME parser, transforms, structural checks, and
 layout probe described here, and a failed or inconclusive outcome answers
 the agent with located diagnostics through the proposal tool result instead
 of opening a review. Renderer-local preparation stays exactly as specified
@@ -82,3 +82,24 @@ body margin, so every plan document laid out 16px wider than the viewport
 `LAYOUT_OVERFLOW` under an honest probe. Auto width contains the margin
 by definition, the canvas paint rides on `:root`, and an authored body
 margin stays authored layout rather than generated overflow.
+
+**Amended 2026-09-10 (#442; ADR-0029):** the submission gate is the persistent
+host's, and its verifier is headless. The pure pipeline this record describes
+— `verifyPlanStructure`, `preparePlanDocument`, `probePlanLayout`,
+`preparePlanForReview`, `renderPlanPreflight`, `PLAN_PREFLIGHT_WIDTHS = [800, 360]`
+— lives in `@omp-ui/plan-doc`; `usePreparedPlanDocument` stays in the renderer
+and imports it. The host (`packages/host/src/verifier/`) drives a vendored,
+exact-version-pinned Chrome for Testing through `puppeteer-core` from an
+ephemeral loopback origin with a random path prefix, one fresh page per
+proposal, a 30 s deadline that includes queue time, foreign requests denied,
+cache off, service workers bypassed, and Chrome's sandbox always on — never
+`--no-sandbox`, never a system browser, never a runtime download; the
+executable's hash must match `resources/plan-verifier/browser.manifest.json`
+before each launch. The hidden `BrowserWindow` verifier and the renderer
+verifier entry are deleted. The "Main-process BrowserWindow probe" option
+rejected above is therefore rejected twice over: the preflight now needs no
+window at all, so a host with no display performs the real two-width layout
+probe with zero clients attached. `PlanDiagnosticCode` is unchanged; payload,
+hash, launch, sandbox, font, and page-crash failures answer
+`VERIFIER_UNAVAILABLE`, the deadline answers `VERIFIER_TIMEOUT` with its phase,
+and `passed` is produced only by the in-page render after real measurement.

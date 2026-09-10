@@ -12,6 +12,7 @@
     "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.verifier.json",
     "build": "vite build --config verifier/vite.config.ts",
+    "dev:serve": "node scripts/dev-serve.mjs",
     "fetch:verifier-browser": "node scripts/fetch-verifier-browser.mjs",
     "package:host": "node scripts/package-host.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",

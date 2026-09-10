@@ -61,7 +61,7 @@ function seedStore(): void {
 
 function render(
   patch: Partial<SessionWorktree> = {},
-  hostLocalActions = true,
+  clientLocalActions = true,
   tabId = TAB_ID,
 ): void {
   if (root !== null) {
@@ -76,7 +76,7 @@ function render(
       <WorktreeChip
         worktree={{ ...worktree, ...patch }}
         tabId={tabId}
-        hostLocalActions={hostLocalActions}
+        clientLocalActions={clientLocalActions}
       />,
     ),
   );

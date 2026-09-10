@@ -51,8 +51,6 @@ import {
   type AgentMode,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
-  type AppUpdateRestartResult,
-  type AppUpdateState,
   type BackendState,
   type ClientRole,
   type ChannelTable,
@@ -72,7 +70,6 @@ import {
   type DiagnosticsExportResult,
   type DiagnosticsOptions,
   type KeyCipher,
-  type RegistrySettings,
   type RemoteBind,
   type RemoteInstanceInput,
   type RemoteInstancePatch,
@@ -86,8 +83,6 @@ import {
   type PlanReviewVerdict,
   type PlanFormat,
   type ProjectGroup,
-  type ProjectOpenAvailability,
-  type ProjectOpenTarget,
   controlOnlyChannels,
   idleHostUpdateState,
   type BreadcrumbSink,
@@ -107,6 +102,7 @@ import {
   type ScopedSink,
 } from "@omp-ui/server";
 import { OmpUpdater } from "./update/omp-update";
+import { HostUpdater, type HostUpdaterDeps } from "./update/host-update";
 import { RemoteServerManager } from "./remote/remote-server";
 import { RemoteInstanceManager } from "./remote/remote-instance-manager";
 import { routeByTab } from "./remote/remote-route";
@@ -120,11 +116,6 @@ import { AttentionTracker } from "./session/trackers/attention-tracker";
 import { NO_GATE, type SpawnGate } from "./session/spawn-gate";
 import type { AuthorityToken } from "./authority/authority";
 import type { ChildrenLedger } from "./authority/children-ledger";
-
-export type { DesktopClientFacts };
-
-/** The desktop window's own connection id: its sink takes connection-scoped events under it. */
-export const IPC_CONNECTION_ID = "ipc";
 
 /** Channels only a control-plane connection may reach (issue #442): declared with `gate: "control"`. */
 const CONTROL_ONLY_CHANNELS = controlOnlyChannels();
@@ -159,33 +150,25 @@ export interface HostPaths {
   webRoot: string;
 }
 
-/** The desktop client's own artifact updater, as the client-effect channels drive it. */
-export interface ClientAppUpdate {
-  readonly state: AppUpdateState;
-  checkNow(manual: boolean): Promise<AppUpdateState>;
-  download(): Promise<void>;
-  openReleaseNotes(): Promise<void>;
-  showDownload(): Promise<void>;
-  restart(confirmed: boolean): AppUpdateRestartResult;
-  setInstallOnQuit(on: boolean): void;
-  dismiss(version: string, remember: boolean): void;
-}
-
 /**
- * Release P forwarding for the client-effect channels still declared in
- * BACKEND_CHANNELS: effects only the desktop client can perform on its own
- * machine. A host constructed without them answers every such channel with
- * "not available on this host".
+ * The handover half of the host updater (issue #442 §10.2): what only the
+ * boot sequence can supply — the feed and archive machinery, the replacement
+ * launcher, and the authority/listener hooks. The application adds its own
+ * half (hibernation, counts, publication) in {@link HostApplication.attachHostUpdater}.
  */
-export interface ClientEffects {
-  openPath(absPath: string): Promise<void>;
-  showPathInFolder(absPath: string): void;
-  openProject(projectPath: string, target: ProjectOpenTarget): Promise<void>;
-  getProjectOpenAvailability(): ProjectOpenAvailability | Promise<ProjectOpenAvailability>;
-  setWindowChrome(background: string, symbol: string): void;
-  chooseDiagnosticsPath(basename: string): Promise<string | null>;
-  appUpdate: ClientAppUpdate;
-}
+export type HostUpdateHandoverDeps = Pick<
+  HostUpdaterDeps,
+  | "fetchFeed"
+  | "download"
+  | "sha512File"
+  | "unpack"
+  | "spawnStaged"
+  | "releaseAuthority"
+  | "reclaimAuthority"
+  | "drainListeners"
+  | "afterCommit"
+  | "limits"
+>;
 
 export interface HostApplicationDeps {
   paths: HostPaths;
@@ -198,13 +181,13 @@ export interface HostApplicationDeps {
   /**
    * What a corrupt registry does at construction (issue #442 §10.1). The
    * persistent host passes `"stop"` so it never discards a user's registry;
-   * Electron main keeps the quarantine it always had. Default `"quarantine"`.
+   * default `"quarantine"` is for focused tests.
    */
   recoveryPolicy?: "quarantine" | "stop";
   /**
    * The children ledger the authority reconciled before this host loaded
    * (#450): every spawn lands in it before the child is reported live, every
-   * reap removes it. Absent for Electron main and focused tests.
+   * reap removes it. Absent for focused tests.
    */
   ledger?: ChildrenLedger;
   /**
@@ -217,19 +200,20 @@ export interface HostApplicationDeps {
   spawnGate?: SpawnGate;
   /** Process owner override for focused tests. */
   sessions?: SessionManager;
-  /** The attached desktop client's facts for diagnostics; absent or null when none is attached. */
-  clientFacts?: () => DesktopClientFacts | null;
-  clientEffects?: ClientEffects | null;
+  /**
+   * What `host:stop` invokes (issue #442 §9): the boot sequence resolves its
+   * wait and runs the ordinary graceful shutdown. Default: `shutdown()` alone,
+   * for tests that own no process.
+   */
+  requestStop?: () => void;
 }
 
-const NOT_ON_THIS_HOST = "not available on this host";
-
 /**
- * The authoritative application (issue #442 §9): owns the registry, the
- * stores, and every live child through SessionManager, and is the one
- * HostSurface every transport dispatches into. It knows no Electron: the
- * desktop client's effects and facts arrive injected, and its window is one
- * event sink among the remote ones.
+ * The authoritative application (issue #442 §9; ADR-0029): owns the registry,
+ * the stores, and every live child through SessionManager, and is the one
+ * HostSurface every listener dispatches into. It knows no client: a desktop
+ * and a browser are the same WebSocket connection with different grants, and
+ * client effects never reach it.
  */
 export class HostApplication implements HostSurface {
   /** Serializes each complete state build and delivery so an older snapshot can never overtake a newer one. */
@@ -251,8 +235,8 @@ export class HostApplication implements HostSurface {
   private verifierOrigin: Promise<VerifierOrigin> | null = null;
   /** The host-authored per-tab attention level (issue #442); read by summaries and test seams. */
   readonly attention: AttentionTracker;
-  /** The authority witness this host was constructed under; the registry and the resume seam opened with it. */
-  readonly authority: AuthorityToken;
+  /** The authority witness this host runs under; the registry and the resume seam opened with the first one, a reclaim after a failed handover adopts the next. */
+  private authority: AuthorityToken;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
   /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
@@ -278,8 +262,9 @@ export class HostApplication implements HostSurface {
   private readonly breadcrumbs: BreadcrumbSink;
   /** This build's version as reported to joiners and the state projection alike. */
   private readonly hostVersion: string;
-  private readonly clientFacts: () => DesktopClientFacts | null;
-  private readonly clientEffects: ClientEffects | null;
+  private readonly requestStop: () => void;
+  /** The host's own updater once the boot sequence attached one (issue #442 §10.2); null in tests and before attach. */
+  private hostUpdater: HostUpdater | null = null;
   /** One in-flight export at a time (issue #413). */
   private exportInFlight = false;
   /** Last delivered omp-update status, for one-per-transition breadcrumbs. */
@@ -290,8 +275,7 @@ export class HostApplication implements HostSurface {
     this.breadcrumbs = deps.breadcrumbs;
     this.hostVersion = deps.hostVersion;
     this.authority = deps.authority;
-    this.clientFacts = deps.clientFacts ?? (() => null);
-    this.clientEffects = deps.clientEffects ?? null;
+    this.requestStop = deps.requestStop ?? (() => void this.shutdown());
     this.registry = Registry.load(deps.paths.registryFile, deps.authority, deps.recoveryPolicy ?? "quarantine");
     // Applied in the constructor, not at boot: spawn() must never be reachable
     // with a keyless environment, and the login-shell capture (boot, async) only
@@ -483,7 +467,7 @@ export class HostApplication implements HostSurface {
 
   private readonly sinks = new Set<ScopedSink>();
 
-  /** Registers an event mirror (the remote server, the desktop window). Returns its unsubscribe. */
+  /** Registers an event mirror (a listener's fan-out). Returns its unsubscribe. */
   addSink(sink: ScopedSink): () => void {
     this.sinks.add(sink);
     return () => this.sinks.delete(sink);
@@ -515,9 +499,17 @@ export class HostApplication implements HostSurface {
     for (const sink of this.sinks) sink(scope, channel, args);
   }
 
-  /** Assembles the collector's view of this app from state the class already owns. */
+  /** The requester's own hello when it is a desktop client; a browser export reports none (issue #442 §13). */
+  private static desktopClientFacts(ctx: ConnectionContext): DesktopClientFacts | null {
+    return ctx.role === "desktop"
+      ? { clientKind: ctx.clientKind, clientVersion: ctx.clientVersion, protocolVersion: ctx.protocolVersion }
+      : null;
+  }
+
+  /** Assembles the collector's view of this host from state the class already owns. */
   private async diagnosticsOptions(
     req: DiagnosticsExportRequest,
+    ctx: ConnectionContext,
   ): Promise<DiagnosticsOptions> {
     const sessions = this.registry.sessions;
     return {
@@ -544,26 +536,30 @@ export class HostApplication implements HostSurface {
         registryFile: this.paths.registryFile,
         logDir: this.paths.logDir,
         host: this.hostFacts(),
-        desktopClient: this.clientFacts(),
+        desktopClient: HostApplication.desktopClientFacts(ctx),
       },
     };
   }
 
   /** One in-flight export at a time; the renderer's busy state has the same guard as a backstop. */
-  private async exportDiagnostics(req: DiagnosticsExportRequest): Promise<DiagnosticsExportResult> {
+  private async exportDiagnostics(
+    req: DiagnosticsExportRequest,
+    ctx: ConnectionContext,
+  ): Promise<DiagnosticsExportResult> {
     if (this.exportInFlight) throw new Error("diagnostic export already in progress");
     this.exportInFlight = true;
     try {
-      return await collectDiagnosticsBundle(await this.diagnosticsOptions(req));
+      return await collectDiagnosticsBundle(await this.diagnosticsOptions(req, ctx));
     } finally {
       this.exportInFlight = false;
     }
   }
+
   /**
-   * Every channel's implementation for one connection, transport-agnostic: Electron IPC binds a
-   * table below and the remote WebSocket server dispatches one per socket (issue #37). The table
-   * is built with the connection's context so `state:get` can stamp `self`, and the connection
-   * is remembered until connectionClosed so each state:changed reaches it addressed.
+   * Every channel's implementation for one connection: each listener dispatches one table per
+   * socket (issue #37). The table is built with the connection's context so `state:get` can stamp
+   * `self` and diagnostics can name the requester, and the connection is remembered until
+   * connectionClosed so each state:changed reaches it addressed.
    */
   handlers(ctx: ConnectionContext): ChannelTable {
     this.connections.set(ctx.id, ctx);
@@ -700,8 +696,13 @@ export class HostApplication implements HostSurface {
           this.registry.setSetting("ompUpdateCheckOnLaunch", on);
           await this.broadcast();
         },
-        // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
-        // re-arming a dismissed card from Settings needs its own pair.
+        // The desktop's own update card persists its dismissal here; the omp
+        // updater sets its own. Re-arming a dismissed card from Settings is the
+        // clear pair.
+        [CH.setDismissedAppUpdateVersion]: async (version: string | null) => {
+          this.registry.setSetting("dismissedAppUpdateVersion", version);
+          await this.broadcast();
+        },
         [CH.clearDismissedAppUpdate]: async () => {
           this.registry.setSetting("dismissedAppUpdateVersion", null);
           await this.broadcast();
@@ -762,14 +763,6 @@ export class HostApplication implements HostSurface {
           verdict: PlanReviewVerdict,
           sourceHash: string | null,
         ) => this.sessions.answerPlanReview(tabId, frameId, verdict, sourceHash),
-        // Client effects (P only): forwarded to the attached desktop client, refused without one.
-        [CH.getProjectOpenAvailability]: () => this.effects().getProjectOpenAvailability(),
-        [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
-          this.effects().openProject(projectPath, target),
-        [CH.openPath]: (absPath: string) => this.effects().openPath(absPath),
-        [CH.showPathInFolder]: (absPath: string) => {
-          this.effects().showPathInFolder(absPath);
-        },
         [CH.getBranchDiff]: (projectCwd: string, base?: string | null) =>
           readBranchDiff(projectCwd, base ?? null),
         // Stateless core calls: branch operations touch no registry/BackendState field,
@@ -784,8 +777,8 @@ export class HostApplication implements HostSurface {
         // so this handler never broadcasts.
         [CH.pushBranch]: (projectCwd: string, branch: string, remote?: string | null) =>
           pushBranch(projectCwd, branch, remote),
-        // Builds a URL only. Main never opens it: the renderer hands the result
-        // to window.open, where setWindowOpenHandler's web-scheme guard decides.
+        // Builds a URL only. The host never opens it: the renderer hands the result
+        // to its own client (desktop adapter or window.open), which decides.
         [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) =>
           pullRequestUrl(projectCwd, base, head),
         [CH.createBranch]: (projectCwd: string, name: string, startPoint: string) =>
@@ -853,9 +846,6 @@ export class HostApplication implements HostSurface {
           this.providerOAuth.cancel();
         },
         [CH.signOutProviderOAuth]: (id: string) => this.providerOAuth.signOut(id),
-        [CH.setWindowChrome]: (background: string, symbol: string) => {
-          this.effects().setWindowChrome(background, symbol);
-        },
         [CH.getMcpServers]: (projectCwd: string | null) => resolveMcpServers(projectCwd),
         [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => setMcpServerEnabled(req),
         // Capability catalogs (issue #383): stateless core reads like
@@ -891,16 +881,6 @@ export class HostApplication implements HostSurface {
         [CH.downloadOmpUpdate]: () => this.ompUpdater.download(),
         [CH.dismissOmpUpdate]: (version: string, remember: boolean) =>
           this.ompUpdater.dismiss(version, remember),
-        // The client's own artifact updater (P only): the desktop constructs and injects it.
-        [CH.getAppUpdateState]: () => this.effects().appUpdate.state,
-        [CH.checkAppUpdate]: () => this.effects().appUpdate.checkNow(true),
-        [CH.downloadAppUpdate]: () => this.effects().appUpdate.download(),
-        [CH.openAppUpdateReleaseNotes]: () => this.effects().appUpdate.openReleaseNotes(),
-        [CH.showAppUpdateDownload]: () => this.effects().appUpdate.showDownload(),
-        [CH.restartForAppUpdate]: (confirmed = false) => this.effects().appUpdate.restart(confirmed),
-        [CH.setAppUpdateInstallOnQuit]: (on: boolean) => this.effects().appUpdate.setInstallOnQuit(on),
-        [CH.dismissAppUpdate]: (version: string, remember: boolean) =>
-          this.effects().appUpdate.dismiss(version, remember),
         [CH.getRemoteState]: () => this.remote.state,
         [CH.setRemoteEnabled]: async (on: boolean) => {
           this.registry.setSetting("remoteEnabled", on);
@@ -943,30 +923,23 @@ export class HostApplication implements HostSurface {
           protocolVersion: HOST_PROTOCOL,
           protocolRange: HOST_PROTOCOL_RANGE,
         }),
-        // Control plane (issue #442 §10.4): omitted from every table whose grant lacks control —
-        // in P, that is every connection there is.
+        // Control plane (issue #442 §9): omitted from every table whose grant lacks control.
         [CH.getHostStatus]: () => this.hostStatus(),
         [CH.stopHost]: () => {
-          void this.shutdown();
+          this.requestStop();
         },
         [CH.getHostPairing]: (): HostPairing => ({
           urls: this.remote.state.urls,
           tokenUrls: this.remote.state.tokenUrls,
           hasPassword: this.remote.state.hasPassword,
         }),
-        // Host self-update (§7): P ships no host updater, so the state is idle and every action refuses.
+        // Host self-update (issue #442 §10.2): every role may read and act; apply/rollback policy is the updater's.
         [CH.getHostUpdateState]: () => this.hostUpdateState(),
-        [CH.checkHostUpdate]: () => this.hostUpdateState(),
-        [CH.deferHostUpdate]: () => this.hostUpdateState(),
-        [CH.downloadHostUpdate]: () => {
-          throw new Error("no host updater in this build");
-        },
-        [CH.applyHostUpdate]: () => {
-          throw new Error("no host updater in this build");
-        },
-        [CH.rollbackHostUpdate]: () => {
-          throw new Error("no host updater in this build");
-        },
+        [CH.checkHostUpdate]: () => this.updater().check(),
+        [CH.deferHostUpdate]: () => this.updater().defer(),
+        [CH.downloadHostUpdate]: () => this.updater().download(),
+        [CH.applyHostUpdate]: () => this.updater().apply(),
+        [CH.rollbackHostUpdate]: () => this.updater().rollback(),
         [CH.addRemoteInstance]: (input: RemoteInstanceInput) => this.remoteInstances.add(input),
         [CH.updateRemoteInstance]: (id: string, patch: RemoteInstancePatch) =>
           this.remoteInstances.update(id, patch),
@@ -976,10 +949,9 @@ export class HostApplication implements HostSurface {
           this.remoteInstances.request(instanceId, channel, args),
         [CH.previewDiagnosticsBundle]: async () =>
           previewDiagnosticsBundle(
-            await this.diagnosticsOptions({ includeTranscripts: false, destinationPath: null }),
+            await this.diagnosticsOptions({ includeTranscripts: false, destinationPath: null }, ctx),
           ),
-        [CH.exportDiagnosticsBundle]: (req: DiagnosticsExportRequest) => this.exportDiagnostics(req),
-        [CH.chooseDiagnosticsPath]: (basename: string) => this.effects().chooseDiagnosticsPath(basename),
+        [CH.exportDiagnosticsBundle]: (req: DiagnosticsExportRequest) => this.exportDiagnostics(req, ctx),
       },
       notify: {
         [CH.ptyWrite]: (tabId: string, data: string) => this.sessions.ptyWrite(tabId, data),
@@ -1005,28 +977,44 @@ export class HostApplication implements HostSurface {
     );
   }
 
-  /** The attached desktop client's effects; a host with no client refuses the channel outright. */
-  private effects(): ClientEffects {
-    if (this.clientEffects === null) throw new Error(NOT_ON_THIS_HOST);
-    return this.clientEffects;
-  }
-
-  /** A registry setting the desktop reads for its own client-side concerns (updater dismissal, notifier gates). */
-  getSetting<K extends keyof RegistrySettings>(key: K): RegistrySettings[K] {
-    return this.registry.getSetting(key);
-  }
-
-  setSetting<K extends keyof RegistrySettings>(key: K, value: RegistrySettings[K]): void {
-    this.registry.setSetting(key, value);
+  /** The attached updater; a host booted without one (tests) refuses every update action. */
+  private updater(): HostUpdater {
+    if (this.hostUpdater === null) throw new Error("no host updater in this build");
+    return this.hostUpdater;
   }
 
   /**
-   * Launch-time background check — quiet unless an install/update offer
-   * exists. Gated by the same launch preference as its app-update twin.
+   * Constructs the host's own updater from the boot sequence's handover half
+   * plus this application's: live-session hibernation, the client and session
+   * counts the countdown policy reads, and `host-update:state` publication to
+   * every connection. Returns it so the boot sequence can check on launch.
    */
-  checkOmpUpdateBackground(): void {
-    if (!this.registry.getSetting("ompUpdateCheckOnLaunch")) return;
-    void this.ompUpdater.checkNow(false);
+  attachHostUpdater(handover: HostUpdateHandoverDeps): HostUpdater {
+    if (this.hostUpdater !== null) throw new Error("host updater already attached");
+    this.hostUpdater = new HostUpdater({
+      ...handover,
+      dataRoot: this.paths.dataRoot,
+      currentVersion: this.hostVersion,
+      hibernateAll: () => this.hibernateAll(),
+      clientCount: () => this.connections.size,
+      liveSessionCount: () => this.sessions.liveCount,
+      send: (state) => this.send(CH.onHostUpdateState, state),
+      breadcrumbs: this.breadcrumbs,
+    });
+    return this.hostUpdater;
+  }
+
+  /**
+   * Launch-time background checks — quiet unless an offer exists. The omp
+   * check surfaces only available/missing; the host check publishes through
+   * `host-update:state` and, with no client and no live session, applies at
+   * once (issue #442 §10.2). Each is gated by its own launch preference.
+   */
+  checkUpdatesOnLaunch(): void {
+    if (this.registry.getSetting("ompUpdateCheckOnLaunch")) void this.ompUpdater.checkNow(false);
+    if (this.hostUpdater !== null && this.registry.getSetting("appUpdateCheckOnLaunch")) {
+      void this.hostUpdater.check();
+    }
   }
 
   hydrateAll(): Promise<void> {
@@ -1074,14 +1062,38 @@ export class HostApplication implements HostSurface {
   }
 
   /**
-   * Stops everything this host owns. The synchronous part runs first — every
-   * live child is killed and every joined instance dropped before the first
-   * await — because Electron's before-quit does not wait for the returned
-   * promise; the verifier origin and the remote listener close behind it. In
-   * P the process exits right after, so the children are killed; the host
-   * that outlives its client hibernates them instead (Release C).
+   * Hibernates every live session — the graceful half of a stop and the first
+   * step of the update handover (issue #442 §10.2) — and resolves with the tab
+   * ids that went dormant. A child that ignores the escalation stays live and
+   * is reported by `liveCount`; `shutdown()` kills whatever remains.
+   */
+  hibernateAll(): Promise<string[]> {
+    return this.sessions.hibernateAll();
+  }
+
+  /** Stops the remote listener so no new client attaches while the handover runs. Idempotent. */
+  drainRemote(): Promise<void> {
+    return this.remote.stop();
+  }
+
+  /**
+   * A failed handover reclaimed the root under a fresh incarnation: `host:status`
+   * and the diagnostics bundle report that witness from now on. The registry
+   * and every store stay open — they were never closed — so nothing reloads.
+   */
+  adoptAuthority(token: AuthorityToken): void {
+    this.authority = token;
+  }
+
+  /**
+   * Stops everything this host owns, now: every live child is killed along
+   * with the shells, joined instances drop, the verifier and its origin close,
+   * and the remote listener drains. The boot sequence hibernates the live
+   * sessions first (`hibernateAll`) so each transcript records a clean stop,
+   * then closes local control and releases authority after this returns.
    */
   async shutdown(): Promise<void> {
+    this.hostUpdater?.dispose();
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
     this.sessions.killAll();
@@ -1139,7 +1151,7 @@ export class HostApplication implements HostSurface {
    * Titles a prompt with omp's own small model. Null on every failure path —
    * no omp binary, a model the config names but the machine cannot reach, a
    * timeout, or a greeting the model declines to title. The renderer falls
-   * back to its derived title, so this must never throw across IPC.
+   * back to its derived title, so this must never throw across the channel.
    */
   private async generateTitle(
     projectCwd: string,
@@ -1168,7 +1180,7 @@ export class HostApplication implements HostSurface {
   /**
    * Re-titles a live session from a transcript digest. Null on every failure
    * path — the row keeps its current title, so this must never throw across
-   * IPC. Same best-effort contract and model-role chain as titling.
+   * the channel. Same best-effort contract and model-role chain as titling.
    */
   private async retitleSession(
     projectCwd: string,
@@ -1195,7 +1207,7 @@ export class HostApplication implements HostSurface {
   /**
    * Suggests a branch name for a plan with omp's own small model. Null on
    * every failure path — the renderer pre-fills its slug-derived name, so
-   * this must never throw across IPC.
+   * this must never throw across the channel.
    */
   private async suggestBranchName(
     projectCwd: string,
@@ -1268,7 +1280,7 @@ export class HostApplication implements HostSurface {
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
       dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),
       // Instance metadata, not registry state: identical on every read and
-      // broadcast, for the desktop window and remote clients alike.
+      // broadcast, for desktop and browser clients alike.
       spawnGate: this.spawnGateState,
       remoteInstances: this.remoteInstances.summaries(),
       hostVersion: this.hostVersion,
@@ -1278,9 +1290,9 @@ export class HostApplication implements HostSurface {
     };
   }
 
-  /** The idle state of a build with no host updater (issue #442 §7). */
+  /** The updater's live state, or the idle projection of a build that attached none. */
   private hostUpdateState(): HostUpdateState {
-    return idleHostUpdateState(this.hostVersion);
+    return this.hostUpdater?.state ?? idleHostUpdateState(this.hostVersion);
   }
 
   /** The host's identity and health as both `host:status` and the diagnostics bundle report them. */
@@ -1290,12 +1302,12 @@ export class HostApplication implements HostSurface {
       dataRoot: this.authority.dataRoot,
       hostVersion: this.hostVersion,
       hostProtocol: HOST_PROTOCOL,
-      verifier: { state: health.state, reason: health.reason, pin: health.pin },
+      verifier: { state: health.state, reason: health.reason, pin: health.pin, sha256: health.sha256 },
       credentialBackend: this.providerKeys.backend,
     };
   }
 
-  /** The control plane's `host:status` answer; in P the Electron process is the host itself. */
+  /** The control plane's `host:status` answer (issue #442 §9). */
   private hostStatus(): HostStatus {
     return {
       schemaVersion: 1,

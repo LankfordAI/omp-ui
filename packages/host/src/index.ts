@@ -1,26 +1,22 @@
 /**
- * The persistent host (issue #442). Release P: the authoritative application
- * and its verifier are constructed by Electron main; `serve` is the host
- * binary's boot sequence, built and live-tested but wired to no shipped `bin`
- * until Release C.
+ * The persistent host (issue #442; ADR-0029): the sole authoritative
+ * composition root. `omp-ui serve` (cli-main.ts, bundled into the SEA) is the
+ * one process that constructs `HostApplication`; this index exists for the
+ * package's own tests and scripts — no other workspace depends on it.
  */
 // application
 export {
   HostApplication,
-  IPC_CONNECTION_ID,
   omitUnless,
-  type ClientAppUpdate,
-  type ClientEffects,
-  type DesktopClientFacts,
   type HostApplicationDeps,
   type HostPaths,
+  type HostUpdateHandoverDeps,
 } from "./host-application";
 export { SessionManager, type SessionManagerDependencies } from "./session/session-manager";
 export { gateSelector, NO_GATE, parseSpawnGate, type SpawnGate } from "./session/spawn-gate";
 export { AttentionTracker, type AttentionSink } from "./session/trackers/attention-tracker";
 export { readConfinedPlanFile, type ConfinedPlanRead } from "./verifier/plan-file";
 export { OmpUpdater, type OmpUpdaterDeps } from "./update/omp-update";
-export { UpdateController, type UpdateControllerDeps } from "./update/update-controller";
 // verifier
 export {
   PlanVerifier,
@@ -41,15 +37,6 @@ export {
   type VerifierUnavailable,
 } from "./verifier/payload";
 // control
-export {
-  deleteHostRecord,
-  hostRecordPath,
-  mintControlCredential,
-  mintDesktopCredential,
-  readHostRecord,
-  writeHostRecord,
-  type HostConnectionRecordV1,
-} from "./control/connection-record";
 export { startLocalControl, type LocalControl, type LocalControlDeps } from "./control/local-control";
 // migration
 export {
@@ -74,14 +61,7 @@ export {
   type CredentialHandoffOptions,
   type ElectronBlobReader,
 } from "./migration/credential-handoff";
-export {
-  consumeCutoverHandoff,
-  cutoverHandoffPath,
-  writeCutoverHandoff,
-  CUTOVER_HANDOFF_MAX_AGE_MS,
-  type ConsumeCutoverDeps,
-  type CutoverHandoffV1,
-} from "./migration/cutover-handoff";
+export { consumeCutoverHandoff, type ConsumeCutoverDeps } from "./migration/cutover-handoff";
 export {
   readElectronSafeStorage as readLinuxSafeStorage,
   LINUX_BASIC_PASSWORD,
@@ -161,7 +141,6 @@ export {
 export {
   AuthorityConflict,
   claimAuthority,
-  claimLegacyElectronAuthority,
   LOCK_ASSERT_INTERVAL_MS,
   LOCK_LOST_EXIT_CODE,
   type AuthorityConflictReason,
@@ -232,5 +211,19 @@ export {
   type HostUpdaterDeps,
   type StagedHostChild,
 } from "./update/host-update";
+export {
+  downloadHostArchive,
+  fetchHostFeed,
+  HOST_RELEASE_BASE,
+  hostFeedName,
+  normalizeSha512,
+  parseHostFeed,
+  sha512File,
+  spawnStagedHost,
+  switchCurrent,
+  unpackHostArchive,
+  type SpawnStagedDeps,
+  type SwitchCurrentDeps,
+} from "./update/host-update-deps";
 // serve
-export { serve, type ServeDeps, type ServeOptions } from "./serve";
+export { serve, type ServeDeps, type ServeHandoverDeps, type ServeOptions } from "./serve";

@@ -17,7 +17,7 @@ import {
   type HostSurface,
   type InstanceClient,
 } from "@omp-ui/server";
-import { hostRecordPath, readHostRecord } from "./connection-record";
+import { hostRecordPath, readHostRecord } from "@omp-ui/core";
 import { startLocalControl, type LocalControl } from "./local-control";
 
 interface FakeSurface extends HostSurface {

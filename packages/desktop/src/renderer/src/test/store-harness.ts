@@ -26,6 +26,7 @@ import type {
   SessionCapabilitiesResult,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
+import { idleHostUpdateState } from "@omp-ui/core/host-update-state";
 import { backendState as makeBackendState, desktopAdapterMock } from "./fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
@@ -54,6 +55,8 @@ const idleOmpUpdate: OmpUpdateState = {
   progress: null,
   error: null,
 };
+
+const idleHostUpdate = idleHostUpdateState("0.0.0-test");
 
 const idleRemoteState: RemoteState = {
   status: "stopped",
@@ -243,6 +246,12 @@ const mockBackend = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
+  onHostUpdateState: vi.fn(),
+  checkHostUpdate: vi.fn(async () => idleHostUpdate),
+  downloadHostUpdate: vi.fn(async () => {}),
+  deferHostUpdate: vi.fn(async () => idleHostUpdate),
+  applyHostUpdate: vi.fn(async () => {}),
+  rollbackHostUpdate: vi.fn(async () => {}),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),

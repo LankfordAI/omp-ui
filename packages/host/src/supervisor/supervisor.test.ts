@@ -67,7 +67,7 @@ describe("systemd user supervisor", () => {
     expect(sup.definitionPath).toBe(UNIT);
     expect(sup.render(LINUX_OPTS)).toBe(
       "[Unit]\nDescription=omp-ui persistent host\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n" +
-        "[Service]\nExecStart=%h/.local/bin/omp-ui serve\nRestart=on-failure\nRestartSec=5\n" +
+        "[Service]\nExecStart=%h/.local/bin/omp-ui serve\nRestart=on-failure\nRestartSec=5\nKillMode=process\n" +
         "Environment=OMP_UI_DATA_DIR=/home/ada/.local/share/omp-ui\n\n[Install]\nWantedBy=default.target\n",
     );
   });

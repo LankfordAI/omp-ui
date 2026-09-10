@@ -1,4 +1,4 @@
-import { compareVersions } from "@omp-ui/core";
+import { compareVersions } from "./omp-update";
 
 export interface CommonUpdateState {
   status: string;
@@ -14,7 +14,11 @@ export interface UpdateControllerDeps<T extends CommonUpdateState> {
   channel: string;
 }
 
-/** Shared state publication and exact-version dismissal policy for updaters. */
+/**
+ * Shared state publication and exact-version dismissal policy for updaters:
+ * the host's OMP updater and the desktop client's own artifact updater both
+ * ride on it, so it lives here rather than in either package.
+ */
 export abstract class UpdateController<T extends CommonUpdateState> {
   state: T;
 

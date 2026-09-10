@@ -1,8 +1,7 @@
 /**
  * The opaque witness that exactly one process owns a data root (issue #442
- * §10.1; #450). Minted only by `claimAuthority` — which publishes `host.lock`
- * — and, for Release P's Electron main, `claimLegacyElectronAuthority`, both
- * in `@omp-ui/host`. `Registry.load` and the resume seam demand one, so a
+ * §10.1; #450). Minted only by `claimAuthority` in `@omp-ui/host`, which
+ * publishes `host.lock`. `Registry.load` and the resume seam demand one, so a
  * store reached without a claimed lock is a type error rather than a
  * boot-sequence convention. Core defines the shape and never mints it.
  */

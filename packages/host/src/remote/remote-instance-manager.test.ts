@@ -566,7 +566,7 @@ describe("proxy and routing", () => {
 
     const bytes = new Uint8Array([1, 2, 3]);
     const mirrored = h.nextSent(CH.onPtyData);
-    host.emit(CH.onAppUpdateState, [{ status: "idle" }]);
+    host.emit(CH.onHostUpdateState, [{ status: "idle" }]);
     host.emit(CH.onPtyData, ["t-remote", bytes]);
     const args = await mirrored;
     expect(args[0]).toBe("t-remote");

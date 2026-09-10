@@ -302,3 +302,34 @@ export type { FrameObserver } from "./frame-observer";
 export { WatcherHub, type WatcherHubDeps } from "./watcher-hub";
 export { makeChannelClient, type ChannelClient, type ChannelSpec } from "./channel-client";
 export { idleHostUpdateState } from "./host-update-state";
+export {
+  UpdateController,
+  type CommonUpdateState,
+  type UpdateControllerDeps,
+} from "./update-controller";
+export {
+  deleteHostRecord,
+  hostRecordPath,
+  mintControlCredential,
+  mintDesktopCredential,
+  readHostRecord,
+  writeHostRecord,
+  type HostConnectionRecordV1,
+} from "./host-record";
+export {
+  CUTOVER_HANDOFF_MAX_AGE_MS,
+  CUTOVER_NONCE_PATTERN,
+  cutoverHandoffPath,
+  isCutoverHandoff,
+  writeCutoverHandoff,
+  type CutoverHandoffV1,
+} from "./cutover-handoff";
+export {
+  HOST_LAUNCHD_LABEL,
+  HOST_SYSTEMD_UNIT,
+  HOST_WINDOWS_TASK,
+  hostLaunchCommands,
+  systemdRunArgs,
+  type HostLaunchCommand,
+  type HostLaunchOpts,
+} from "./host-launch";

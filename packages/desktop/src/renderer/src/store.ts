@@ -313,6 +313,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       backend.onOmpUpdateState((ompUpdate) =>
         get().replaceOmpUpdate(ompUpdate),
       );
+      // Host self-update progress (#442 §10.2) rides its own event between state refreshes; the
+      // snapshot in `state` is authoritative, so the patch lands there rather than in a slice.
+      backend.onHostUpdateState((hostUpdate) =>
+        set((s) => (s.state === null ? {} : { state: { ...s.state, hostUpdate } })),
+      );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       const [state, appUpdate, ompUpdate, remote, providerOAuth] = await Promise.all([

@@ -30,9 +30,9 @@ jobs:
       - run: npm run test:live
       - run: npm run build
 
-  # Release P (issue #442 §10.6): prove the host SEA packages and boots on a
-  # stock Linux runner. Nothing is uploaded — no host artifact or feed ships
-  # until Release C.
+  # The host SEA packages and boots on a stock Linux runner (issue #442 §12):
+  # the same package/smoke pair the release lanes run, record writer included.
+  # The Fedora no-display gate and publication live in release.yml.
   host-package-smoke:
     runs-on: ubuntu-latest
     needs: check
@@ -43,6 +43,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace @omp-ui/host
+      - run: npm run fetch:verifier-browser --workspace @omp-ui/host
+      - run: npm run build
       - run: npm run package:host --workspace @omp-ui/host -- --lane linux-x64
-      - run: npm run smoke:package --workspace @omp-ui/host
+      - run: npm run smoke:package --workspace @omp-ui/host -- --lane linux-x64 --record "$PWD/package-record-linux-x64.json"

@@ -92,13 +92,23 @@ because it described a contract the renderer no longer asks for.
 
 **Amended 2026-09-08 (#312 follow-up): the review consequence changed.** The
 html artifact is still the one and only plan, but under `html` a proposal is
-no longer *presented* the moment the agent proposes: main validates the
+no longer *presented* the moment the agent proposes: the host validates the
 file's bytes first (plan preflight — CONTEXT.md and ADR-0022 as amended), so
 what "the gate resolves" now splits into two outcomes. A detectable source
 defect never reaches the review: it answers the agent's propose call with
 located diagnostics and the artifact stays unreviewed until repaired and
-resubmitted. A passed proposal carries a main-authored `sourceHash` through
+resubmitted. A passed proposal carries a host-authored `sourceHash` through
 the gate: answering execute re-reads the confined artifact and a changed
 file settles the gate as `invalidated` instead of starting implementation.
 The reference that gets pinned and executed is still exactly this file —
 preflight changes who sees it first, not what the implementer runs.
+
+**Amended 2026-09-10 (#442; ADR-0029):** the pipeline that prepares, verifies,
+and measures the html plan — source parsing and composition, the diagram and
+highlight transforms, structural verification, the layout probe, the theme
+values — lives in `@omp-ui/plan-doc`, a browser-targeted package with no
+Electron and no Node, imported by both the renderer and the host's verifier
+page. The preflight that validates a proposal runs in the persistent host's
+headless, hash-pinned Chrome for Testing (`packages/host/src/verifier/`), so an
+html plan is verified with no UI client attached and no `BrowserWindow`; the
+prompt string in `packages/core` and the one-file contract above are unchanged.

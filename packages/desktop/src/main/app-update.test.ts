@@ -3,11 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type {
-  AppUpdateState,
-  DownloadFetchLike,
-  FetchLike,
-} from "@omp-ui/core";
+import type { DownloadFetchLike, FetchLike } from "@omp-ui/core/fetch";
+import type { AppUpdateState } from "@omp-ui/core/types";
 import type { AppUpdaterDeps, AppUpdater as AppUpdaterType, AutoUpdaterLike } from "./app-update";
 
 // app-update.ts touches only electron's `shell`; stub it and capture calls.
@@ -114,13 +111,11 @@ interface MadeUpdater {
   updater: AppUpdaterType;
   downloadsDir: string;
   dismissed: { value: string | null };
-  hasLiveSessions: Mock<() => boolean>;
   setQuitAuthorized: Mock<(on: boolean) => void>;
 }
 
 function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
   const dismissed = { value: null as string | null };
-  const hasLiveSessions = vi.fn(() => false);
   const setQuitAuthorized = vi.fn();
   const downloadsDir = mkTmp();
   const updater = new AppUpdater({
@@ -132,14 +127,13 @@ function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
     setDismissed: (v) => {
       dismissed.value = v;
     },
-    hasLiveSessions,
     setQuitAuthorized,
     send: (channel, state) => sent.push({ channel, state: { ...state } }),
     channel: "app:updateState",
     platform: "linux",
     ...overrides,
   });
-  return { updater, downloadsDir, dismissed, hasLiveSessions, setQuitAuthorized };
+  return { updater, downloadsDir, dismissed, setQuitAuthorized };
 }
 
 const statuses = (): AppUpdateState["status"][] => sent.map((s) => s.state.status);
@@ -281,33 +275,36 @@ describe("AppUpdater.dismiss", () => {
 });
 
 describe("AppUpdater dismissal reaping (issue #88)", () => {
-  /** Constructs an updater whose registry already holds `dismissedVersion`. */
-  const makeSeeded = (dismissedVersion: string, currentVersion = "1.0.0"): { value: string | null } => {
+  /** Constructs an updater whose host setting already holds `dismissedVersion`. */
+  const makeSeeded = async (dismissedVersion: string, currentVersion = "1.0.0"): Promise<{ value: string | null }> => {
     const cell = { value: dismissedVersion as string | null };
-    makeUpdater({
+    const { updater } = makeUpdater({
       currentVersion,
       getDismissed: () => cell.value,
       setDismissed: (v) => {
         cell.value = v;
       },
+      // Offline (404): the reap must land before and regardless of the release lookup.
+      fetchImpl: updateFetch({}),
     });
+    await updater.checkNow(false);
     return cell;
   };
 
-  it("drops a dismissal older than the running build", () => {
-    expect(makeSeeded("0.9.0").value).toBeNull();
+  it("drops a dismissal older than the running build on the first check", async () => {
+    expect((await makeSeeded("0.9.0")).value).toBeNull();
   });
 
-  it("drops a dismissal equal to the running build", () => {
-    expect(makeSeeded("1.0.0").value).toBeNull();
+  it("drops a dismissal equal to the running build", async () => {
+    expect((await makeSeeded("1.0.0")).value).toBeNull();
   });
 
-  it("keeps a dismissal newer than the running build — it still suppresses that offer", () => {
-    expect(makeSeeded("1.2.0").value).toBe("1.2.0");
+  it("keeps a dismissal newer than the running build — it still suppresses that offer", async () => {
+    expect((await makeSeeded("1.2.0")).value).toBe("1.2.0");
   });
 
-  it("keeps the dismissal on unversioned builds, which never compare as caught up", () => {
-    expect(makeSeeded("0.9.0", "0.0.0").value).toBe("0.9.0");
+  it("keeps the dismissal on unversioned builds, which never compare as caught up", async () => {
+    expect((await makeSeeded("0.9.0", "0.0.0")).value).toBe("0.9.0");
   });
 });
 
@@ -473,21 +470,19 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
   });
 
-  it("requires renderer confirmation for live sessions, then authorizes restart", async () => {
+  it("authorizes the client quit and hands off to the installer without any confirmation", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater, hasLiveSessions, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
+    const { updater, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
-    hasLiveSessions.mockReturnValue(true);
+    autoUpdater.quitAndInstall.mockImplementation(() => {
+      expect(updater.state.status).toBe("installing");
+      expect(updater.state.progress).toBeNull();
+      expect(updater.state.error).toBeNull();
+    });
 
-    expect(updater.restart()).toBe("confirmation-required");
-    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
-    expect(setQuitAuthorized).not.toHaveBeenCalled();
-    expect(updater.state.status).toBe("downloaded");
-
-    expect(updater.restart(true)).toBe("restarting");
+    updater.restart();
+    updater.restart();
     expect(updater.state.status).toBe("installing");
-    expect(updater.restart(true)).toBe("restarting");
-    expect(hasLiveSessions).toHaveBeenCalledTimes(2);
     expect(setQuitAuthorized).toHaveBeenCalledTimes(1);
     expect(setQuitAuthorized).toHaveBeenCalledWith(true);
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
@@ -496,32 +491,18 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     );
   });
 
-  it("publishes installing before the installer handoff and invokes it once", async () => {
-    const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAutoUpdate(autoUpdater);
-    autoUpdater.emitDownloaded();
-    autoUpdater.quitAndInstall.mockImplementation(() => {
-      expect(updater.state.status).toBe("installing");
-      expect(updater.state.progress).toBeNull();
-      expect(updater.state.error).toBeNull();
-    });
-
-    expect(updater.restart()).toBe("restarting");
-    expect(updater.restart()).toBe("restarting");
-    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
-  });
-
   it("surfaces updater errors during the installer handoff and clears the latch", async () => {
     const autoUpdater = makeFakeAutoUpdater();
     const { updater, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
-    expect(updater.restart()).toBe("restarting");
+    updater.restart();
 
     autoUpdater.emitError(new Error("native preparation failed"));
 
     expect(updater.state.status).toBe("error");
     expect(updater.state.error).toBe("could not apply update: native preparation failed");
-    expect(updater.restart()).toBe("unavailable");
+    updater.restart();
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     expect(setQuitAuthorized.mock.calls).toEqual([[true], [false]]);
   });
 
@@ -533,19 +514,21 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     const { updater, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
     autoUpdater.emitDownloaded();
 
-    expect(updater.restart()).toBe("unavailable");
+    updater.restart();
     expect(updater.state.status).toBe("error");
     expect(updater.state.error).toBe("could not apply update: installer launch failed");
-    expect(updater.restart()).toBe("unavailable");
+    updater.restart();
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     expect(setQuitAuthorized.mock.calls).toEqual([[true], [false]]);
   });
 
-  it("reports restart unavailable until the update is downloaded", async () => {
+  it("ignores restart until the update is downloaded", async () => {
     const autoUpdater = makeFakeAutoUpdater();
-    const { updater } = await stageAutoUpdate(autoUpdater);
-    expect(updater.restart()).toBe("unavailable");
+    const { updater, setQuitAuthorized } = await stageAutoUpdate(autoUpdater);
+    updater.restart();
     expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(setQuitAuthorized).not.toHaveBeenCalled();
+    expect(updater.state.status).toBe("idle");
   });
 
   it("keeps a background factory failure quiet and surfaces it manually", async () => {

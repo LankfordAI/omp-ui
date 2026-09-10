@@ -69,6 +69,12 @@ export interface HostUpdaterDeps {
   drainListeners: () => Promise<void>;
   clientCount: () => number;
   liveSessionCount: () => number;
+  /**
+   * Runs once the replacement acknowledged and `current`/`staged`/`host-previous`
+   * name the new version: the installed layout's `current` pointer and the stable
+   * command switch here (issue #442 §10.1), and the arbiter process may exit.
+   */
+  afterCommit?: (versionDir: string) => void;
   send: (state: HostUpdateState) => void;
   breadcrumbs: BreadcrumbSink;
   now?: () => number;
@@ -376,8 +382,10 @@ export class HostUpdater {
 
   /**
    * Switches `current` (and `staged`) to `target`, points `host-previous` at
-   * the replaced version's dir when it exists, and removes every other
-   * version dir. Returns the retained previous version, or null.
+   * the replaced version's dir when it exists, removes every other version
+   * dir, then runs `afterCommit`. Returns the retained previous version, or
+   * null. An `afterCommit` failure is recorded, never propagated: the
+   * replacement already owns the root, so nothing here may trigger a reclaim.
    */
   private commit(target: string, replaced: string): string | null {
     const { paths } = this;
@@ -395,6 +403,11 @@ export class HostUpdater {
       const version = entry.name.slice("host-".length);
       if (version === target || (keepPrevious && version === replaced)) continue;
       fs.rmSync(path.join(paths.dir, entry.name), { recursive: true, force: true });
+    }
+    try {
+      this.deps.afterCommit?.(paths.versionDir(target));
+    } catch (error) {
+      this.deps.breadcrumbs.record("update-stage", { detail: `host:after-commit failed ${errorMessage(error)}` });
     }
     return keepPrevious ? replaced : null;
   }

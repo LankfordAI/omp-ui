@@ -1,5 +1,5 @@
 import { Notification, type BrowserWindow } from "electron";
-import type { Attention, AttentionKind } from "@omp-ui/core";
+import type { Attention, AttentionKind } from "@omp-ui/core/types";
 
 /**
  * Posts OS notifications for owned native sessions that reach an attention
@@ -18,7 +18,7 @@ export interface DesktopNotifierDeps {
   win: BrowserWindow;
   /** The Settings → General switch (re-read at every fire). */
   isEnabled: () => boolean;
-  /** The registry's localeId (re-read at every fire). */
+  /** The host's localeId setting, from the mirrored state (re-read at every fire). */
   localeId: () => string;
   /** The sidebar's session title for the tab. */
   titleOf: (tabId: string) => string;

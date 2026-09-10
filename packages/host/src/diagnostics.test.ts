@@ -4,10 +4,19 @@ import * as path from "node:path";
 import { inflateRaw } from "node:zlib";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CH, createBreadcrumbRing, type DesktopClientFacts } from "@omp-ui/core";
+import { CH, createBreadcrumbRing } from "@omp-ui/core";
 import type * as Core from "@omp-ui/core";
-import type { ClientEffects } from "./host-application";
-import { seedRegistry, testHost, type BoundConnection } from "./test/fixtures";
+import { HOST_PROTOCOL } from "@omp-ui/server";
+import { HostApplication } from "./host-application";
+import {
+  bindConnection,
+  desktopConnection,
+  hostDeps,
+  remoteConnection,
+  seedRegistry,
+  testHost,
+  type BoundConnection,
+} from "./test/fixtures";
 
 vi.mock("@omp-ui/core", async (importOriginal) => {
   const core = await importOriginal<typeof Core>();
@@ -58,47 +67,10 @@ async function unzipEntry(zipPath: string, wanted: string): Promise<string> {
 
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> => ipc.invoke(ch, ...args);
 
-/** Every client effect stubbed; only `chooseDiagnosticsPath` is exercised here. */
-function fakeEffects(): ClientEffects {
-  return {
-    openPath: vi.fn(async () => {}),
-    showPathInFolder: vi.fn(),
-    openProject: vi.fn(async () => {}),
-    getProjectOpenAvailability: vi.fn(() => ({ vsCode: false, terminal: false })),
-    setWindowChrome: vi.fn(),
-    chooseDiagnosticsPath: vi.fn(async () => null),
-    appUpdate: {
-      state: {
-        status: "disabled",
-        currentVersion: null,
-        latestVersion: null,
-        releaseUrl: null,
-        releaseName: null,
-        format: "unknown",
-        progress: null,
-        downloadedPath: null,
-        installOnQuit: false,
-        error: null,
-      },
-      checkNow: vi.fn(),
-      download: vi.fn(async () => {}),
-      openReleaseNotes: vi.fn(async () => {}),
-      showDownload: vi.fn(async () => {}),
-      restart: vi.fn(() => "unavailable" as const),
-      setInstallOnQuit: vi.fn(),
-      dismiss: vi.fn(),
-    },
-  };
-}
-
-function makeHost(patch: {
-  clientEffects?: ClientEffects;
-  clientFacts?: () => DesktopClientFacts | null;
-} = {}): void {
+function makeHost(): void {
   ipc = testHost(registryFile, {
     paths: { logDir: path.join(base, "logs") },
     breadcrumbs: createBreadcrumbRing(path.join(base, "logs")),
-    ...patch,
   });
 }
 
@@ -149,7 +121,7 @@ describe("diagnostics channels", () => {
     const settingsText = await unzipEntry(dest, "settings.json");
     expect(settingsText).not.toContain("tok-abc");
     expect(JSON.parse(settingsText).hasRemoteToken).toBe(true);
-    // The manifest reports the host's own facts; no desktop client is attached.
+    // The manifest reports the host's own facts and the requester's hello.
     const manifest = JSON.parse(await unzipEntry(dest, "manifest.json")) as {
       host: { verifier: { state: string } };
       desktopClient: unknown;
@@ -161,29 +133,30 @@ describe("diagnostics channels", () => {
       credentialBackend: "test",
     });
     expect(manifest.host.verifier.state).toBe("degraded");
-    expect(manifest.desktopClient).toBeNull();
+    expect(manifest.desktopClient).toEqual({ clientKind: "desktop", clientVersion: "0.0.0", protocolVersion: 2 });
   });
 
-  it("export reports the attached desktop client and carries its window state", async () => {
-    const windowStateFile = path.join(base, "window-state.json");
-    fs.writeFileSync(windowStateFile, '{"bounds":{}}');
-    makeHost({
-      clientFacts: () => ({
-        clientVersion: "9.9.9",
-        electronVersion: "37.0.0",
-        chromeVersion: "130.0",
-        windowStateFile,
-        packaged: false,
-        packageFormat: "deb",
+  it("export names the requesting desktop client from its hello, and a browser as none", async () => {
+    const host = new HostApplication(
+      hostDeps(registryFile, {
+        paths: { logDir: path.join(base, "logs") },
+        breadcrumbs: createBreadcrumbRing(path.join(base, "logs")),
       }),
+    );
+    ipc = bindConnection(host, desktopConnection({ clientVersion: "9.9.9" }));
+    const browser = bindConnection(host, remoteConnection());
+    const desktopZip = path.join(base, "desktop.zip");
+    await invoke(CH.exportDiagnosticsBundle, { includeTranscripts: false, destinationPath: desktopZip });
+    expect(JSON.parse(await unzipEntry(desktopZip, "manifest.json")).desktopClient).toEqual({
+      clientKind: "desktop",
+      clientVersion: "9.9.9",
+      protocolVersion: HOST_PROTOCOL,
     });
-    const dest = path.join(base, "client.zip");
-    await invoke(CH.exportDiagnosticsBundle, { includeTranscripts: false, destinationPath: dest });
-    const manifest = JSON.parse(await unzipEntry(dest, "manifest.json")) as {
-      desktopClient: { electronVersion: string };
-    };
-    expect(manifest.desktopClient.electronVersion).toBe("37.0.0");
-    expect(await zipNames(dest)).toContain("window-state.json");
+    const browserZip = path.join(base, "browser.zip");
+    await browser.invoke(CH.exportDiagnosticsBundle, { includeTranscripts: false, destinationPath: browserZip });
+    expect(JSON.parse(await unzipEntry(browserZip, "manifest.json")).desktopClient).toBeNull();
+    expect(await zipNames(browserZip)).not.toContain("window-state.json");
+    browser.unbind();
   });
 
   it("export with null destination lands beside the registry", async () => {
@@ -206,24 +179,6 @@ describe("diagnostics channels", () => {
       invoke(CH.exportDiagnosticsBundle, { includeTranscripts: false, destinationPath: dest }),
     ).rejects.toThrow("diagnostic export already in progress");
     await first;
-  });
-
-  it("choosePath returns the client's file path or null on cancel", async () => {
-    const effects = fakeEffects();
-    const choose = vi.mocked(effects.chooseDiagnosticsPath);
-    makeHost({ clientEffects: effects });
-    choose.mockResolvedValue("/tmp/picked.zip");
-    expect(await invoke(CH.chooseDiagnosticsPath, "omp-ui-diagnostics.zip")).toBe("/tmp/picked.zip");
-    expect(choose).toHaveBeenCalledWith("omp-ui-diagnostics.zip");
-    choose.mockResolvedValue(null);
-    expect(await invoke(CH.chooseDiagnosticsPath, "")).toBeNull();
-  });
-
-  it("choosePath is refused on a host with no desktop client attached", async () => {
-    makeHost();
-    await expect(invoke(CH.chooseDiagnosticsPath, "x")).rejects.toThrow(
-      "not available on this host",
-    );
   });
 
   it("records breadcrumbs that reach the bundle's logs", async () => {

@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { writeTextDurably, type ProtocolRange } from "@omp-ui/core";
+import { writeTextDurably } from "./atomic-write";
+import type { ProtocolRange } from "./types";
 
 /**
  * `<dataRoot>/host.json` (issue #442 §10.4): how a local client — the desktop

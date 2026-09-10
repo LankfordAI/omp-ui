@@ -124,16 +124,17 @@ and the renderer feeds the following agent_end into the same bounded
 continue. The watchdog abort's diagnostic is that notice itself — the issue
 #100 provider diagnostic still posts only for provider-classified ends.
 
-**Amended 2026-09-10 (#442):** the guard moved into the host. `StallContinueWatcher`
-now lives in main (`stall-continue.ts`) behind a `StallContinueTracker` frame
-observer: the session's own frame stream classifies the turn end (the provider
-stall from `message_end`, the watchdog abort straight from the watchdog instead
-of a tagged notice), the continue is dispatched through `SessionManager.rpcSend`
-with an `omp-ui-` prompt id so the guard's own prompt never re-arms it, and the
-cap raises the host's `stall-paused` attention level. Fire-time gates are the
-host's: a live rpc-ui entry, no pending human answer, no plan gate, no
-goal-owned session, and the `stallAutoContinue` setting. One dispatch per stall
-regardless of how many clients are connected — the "dispatch from the main
-process" route above is now the design; the renderer keeps only the issue #100
-diagnostic and renders the host's notices, and `PromptRoute` loses
-`stall_continue`.
+**Amended 2026-09-10 (#442):** the guard moved into the persistent host. `StallContinueWatcher`
+now lives in the host (`packages/host/src/session/trackers/stall-continue.ts`)
+behind a `StallContinueTracker` frame observer: the session's own frame stream
+classifies the turn end (the provider stall from `message_end`, the watchdog
+abort straight from the watchdog instead of a tagged notice), the continue is
+dispatched through `SessionManager.rpcSend` with an `omp-ui-` prompt id so the
+guard's own prompt never re-arms it, and the cap raises the host's
+`stall-paused` attention level. Fire-time gates are the host's: a live rpc-ui
+entry, no pending human answer, no plan gate, no goal-owned session, and the
+`stallAutoContinue` setting. One dispatch per stall regardless of how many
+clients are connected — the "dispatch from the main process" route rejected
+above is now the design, with the host process rather than Electron main as the
+dispatcher; the renderer keeps only the issue #100 diagnostic and renders the
+host's notices, and `PromptRoute` loses `stall_continue`.

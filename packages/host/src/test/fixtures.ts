@@ -16,13 +16,16 @@ import {
   type TranscriptWidth,
 } from "@omp-ui/core";
 import { HOST_PROTOCOL, type ConnectionContext } from "@omp-ui/server";
-import { claimLegacyElectronAuthority } from "../authority/authority";
-import {
-  HostApplication,
-  IPC_CONNECTION_ID,
-  type HostApplicationDeps,
-  type HostPaths,
-} from "../host-application";
+import type { AuthorityToken } from "../authority/authority";
+import { HostApplication, type HostApplicationDeps, type HostPaths } from "../host-application";
+
+/** The desktop client's connection id in these tests; any string a listener mints would do. */
+export const DESKTOP_CONNECTION_ID = "conn-desktop";
+
+/** A witness for tests that never claim `host.lock`: incarnation 0, touches no file. */
+export function testAuthority(dataRoot: string): AuthorityToken {
+  return { dataRoot, incarnation: 0 };
+}
 
 interface RegistrySettings {
   defaultMode: SessionMode;
@@ -136,10 +139,10 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
-/** The desktop window's connection, as index.ts mints it for `bindBackendIpc`. */
-export function ipcConnection(patch: Partial<ConnectionContext> = {}): ConnectionContext {
+/** A desktop client's connection, as the local listener mints it for the desktop credential. */
+export function desktopConnection(patch: Partial<ConnectionContext> = {}): ConnectionContext {
   return {
-    id: IPC_CONNECTION_ID,
+    id: DESKTOP_CONNECTION_ID,
     role: "desktop",
     local: true,
     control: false,
@@ -172,7 +175,7 @@ export const TEST_CIPHER: KeyCipher = {
   decrypt: (blob) => blob.toString("utf8").replace(/^enc:/, ""),
 };
 
-/** Every store beside the registry, the way Electron main lays them out under its data root. */
+/** Every store beside the registry, the way the host lays them out under its data root. */
 export function hostPaths(registryFile: string, patch: Partial<HostPaths> = {}): HostPaths {
   const dataRoot = path.dirname(registryFile);
   return {
@@ -201,7 +204,7 @@ export function hostDeps(
     paths: hostPaths(registryFile, paths),
     hostVersion: "0.0.0",
     cipher: TEST_CIPHER,
-    authority: claimLegacyElectronAuthority(path.dirname(registryFile)),
+    authority: testAuthority(path.dirname(registryFile)),
     verifier: null,
     breadcrumbs: NO_BREADCRUMBS,
     ...rest,
@@ -226,13 +229,13 @@ export interface BoundConnection {
 }
 
 /**
- * Binds a connection the way the desktop's ipc-bridge binds the window: the
- * table from `host.handlers(ctx)`, and a sink hearing broadcasts, the
- * connection's role, and events addressed to its id.
+ * Binds a connection the way a listener binds a socket: the table from
+ * `host.handlers(ctx)`, and a sink hearing broadcasts, the connection's role,
+ * and events addressed to its id.
  */
 export function bindConnection(
   host: HostApplication,
-  ctx: ConnectionContext = ipcConnection(),
+  ctx: ConnectionContext = desktopConnection(),
 ): BoundConnection {
   const table = host.handlers(ctx);
   const sent: SentEvent[] = [];
@@ -257,7 +260,7 @@ export function bindConnection(
   };
 }
 
-/** A host over `registryFile` with the desktop window's connection bound; the common test opening. */
+/** A host over `registryFile` with a desktop client's connection bound; the common test opening. */
 export function testHost(
   registryFile: string,
   patch: HostDepsPatch = {},

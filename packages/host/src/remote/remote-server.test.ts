@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { CH, type AppUpdateRestartResult } from "@omp-ui/core";
+import { CH } from "@omp-ui/core";
 import type { RemoteState } from "@omp-ui/core/types";
 import {
   HOST_PROTOCOL,
@@ -11,7 +11,7 @@ import {
   parseServerHello,
   REMOTE_WS_PATH,
 } from "@omp-ui/server/protocol";
-import { HostApplication, type ClientEffects } from "../host-application";
+import { HostApplication } from "../host-application";
 import { bindConnection, hostDeps, testHost, type BoundConnection } from "../test/fixtures";
 
 let base: string;
@@ -89,42 +89,6 @@ function registryPassword(): { hash: string; salt: string } {
     settings: { remotePasswordHash: string; remotePasswordSalt: string };
   };
   return { hash: raw.settings.remotePasswordHash, salt: raw.settings.remotePasswordSalt };
-}
-
-/** Client effects with a real `appUpdate.restart` answer; every other member is unreachable here. */
-function clientEffectsWithRestart(result: AppUpdateRestartResult): ClientEffects {
-  const unreachable = (): never => {
-    throw new Error("not exercised");
-  };
-  return {
-    openPath: unreachable,
-    showPathInFolder: unreachable,
-    openProject: unreachable,
-    getProjectOpenAvailability: unreachable,
-    setWindowChrome: unreachable,
-    chooseDiagnosticsPath: unreachable,
-    appUpdate: {
-      state: {
-        status: "disabled",
-        currentVersion: null,
-        latestVersion: null,
-        releaseUrl: null,
-        releaseName: null,
-        format: "unknown",
-        progress: null,
-        downloadedPath: null,
-        installOnQuit: false,
-        error: null,
-      },
-      checkNow: unreachable,
-      download: unreachable,
-      openReleaseNotes: unreachable,
-      showDownload: unreachable,
-      restart: () => result,
-      setInstallOnQuit: unreachable,
-      dismiss: unreachable,
-    },
-  };
 }
 
 beforeEach(() => {
@@ -271,31 +235,8 @@ describe("remote server lifecycle", () => {
 
     const res = await reply;
     expect(res).toMatchObject({ t: "res", id: 1, ok: true });
-    // The remote client sees the same BackendState the desktop window does.
+    // Every client sees the same BackendState shape, whatever its role.
     expect(res.value).toHaveProperty("projects");
-  });
-
-  it("returns the app-update restart handshake over the remote socket", async () => {
-    // The restart is the desktop client's own effect; a host with one attached forwards it.
-    await ipc.host.shutdown();
-    ipc = testHost(registryFile, { clientEffects: clientEffectsWithRestart("unavailable") });
-    await invoke(CH.setRemotePort, 45687);
-    await invoke(CH.setRemoteEnabled, true);
-    const ws = await connect(45687, lastPush().token);
-    const reply = new Promise<Record<string, unknown>>((resolve) => {
-      ws.once("message", (raw: Buffer) =>
-        resolve(JSON.parse(raw.toString("utf8")) as Record<string, unknown>),
-      );
-    });
-
-    ws.send(JSON.stringify({ t: "req", id: 138, ch: CH.restartForAppUpdate, args: [false] }));
-
-    expect(await reply).toMatchObject({
-      t: "res",
-      id: 138,
-      ok: true,
-      value: "unavailable",
-    });
   });
 
   it("disabling stops the listener and frees the port", async () => {

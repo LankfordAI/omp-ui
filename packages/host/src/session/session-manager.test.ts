@@ -11,8 +11,7 @@ import { CH } from "@omp-ui/core";
 import { SessionManager, type SessionManagerDependencies } from "./session-manager";
 import type { AttentionSink } from "./trackers/attention-tracker";
 import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
-import { ownedSessionRecord, seedRegistry } from "../test/fixtures";
-import { claimLegacyElectronAuthority } from "../authority/authority";
+import { ownedSessionRecord, seedRegistry, testAuthority } from "../test/fixtures";
 import type { ChildEntry, ChildrenLedger } from "../authority/children-ledger";
 
 vi.mock("@omp-ui/core", async (importOriginal) => {
@@ -193,7 +192,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   const crumbs: BreadcrumbEntry[] = [];
   const deps: SessionManagerDependencies = {
     registry,
-    authority: claimLegacyElectronAuthority(base),
+    authority: testAuthority(base),
     ledger: opts.ledger,
     providerKeys,
     hasOAuthProvider: opts.hasOAuthProvider,

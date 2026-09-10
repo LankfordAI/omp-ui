@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BreadcrumbEntry, BreadcrumbSink } from "@omp-ui/core";
-import type { HostConnectionRecordV1 } from "../control/connection-record";
+import type { HostConnectionRecordV1 } from "@omp-ui/core";
 import { AuthorityConflict, acquireHostLock, lockPath, readOwnerRecord, type HostLockDeps, type OwnerRecordV1 } from "./lock";
 import type { ProcessLiveness } from "./process-identity";
 

@@ -2,8 +2,6 @@ import type {
   AdvisorDefaults,
   AgentMode,
   Attention,
-  AppUpdateRestartResult,
-  AppUpdateState,
   BackendState,
   BranchDiff,
   BranchList,
@@ -32,8 +30,6 @@ import type {
   OmpUpdateState,
   PlanFormat,
   ProjectRecord,
-  ProjectOpenAvailability,
-  ProjectOpenTarget,
   ProviderKeysSnapshot,
   PushResult,
   ProviderOAuthState,
@@ -74,7 +70,6 @@ import {
   ompSettingValueCodec,
   oneOf,
   planFormatCodec,
-  projectOpenTargetCodec,
   remoteBindCodec,
   remoteInstanceInputCodec,
   remoteInstancePatchCodec,
@@ -141,8 +136,11 @@ export function event<Args extends unknown[]>(): EventChannel<Args> {
 }
 
 /**
- * The renderer↔backend seam (ADR-0002). A capability is declared once here;
- * the public client, channel names, and main-process handler table derive from it.
+ * The client↔host seam (ADR-0002, ADR-0029): every capability the persistent
+ * host serves a browser or desktop client is declared once here; the public
+ * client, channel names, and the host's handler table derive from it. Client
+ * effects (opening paths, native dialogs, window chrome, the desktop's own
+ * update) are NOT channels: they live on the desktop adapter (issue #442 §3.2).
  */
 export const BACKEND_CHANNELS = {
   getState: { channel: "state:get", ...request<[], BackendState>([]) },
@@ -153,22 +151,6 @@ export const BACKEND_CHANNELS = {
    * resolves to its existing record.
    */
   addProject: { channel: "project:add", ...request<[path: string], ProjectRecord>([str()]) },
-  /**
-   * Reports which external project-open targets are available. The host
-   * resolves this once and caches the result for the application lifetime.
-   */
-  getProjectOpenAvailability: {
-    channel: "project:openAvailability",
-    ...request<[], ProjectOpenAvailability>([]),
-  },
-  /**
-   * Opens a project in the selected external target. Rejects with an
-   * actionable, user-facing message when the target cannot be opened.
-   */
-  openProject: {
-    channel: "project:open",
-    ...request<[projectPath: string, target: ProjectOpenTarget], void>([str(), projectOpenTargetCodec]),
-  },
   /** Directory listing for the in-app project picker (read-only, never mutates). */
   browseDirectories: {
     channel: "dir:browse",
@@ -288,15 +270,18 @@ export const BACKEND_CHANNELS = {
     channel: "settings:clearDismissedAppUpdate",
     ...request<[], void>([]),
   },
+  /**
+   * The desktop client's own update card remembers its dismissal here so it
+   * follows the user across desktop installs (issue #442 §10.2); null forgets it.
+   */
+  setDismissedAppUpdateVersion: {
+    channel: "settings:setDismissedAppUpdateVersion",
+    ...request<[version: string | null], void>([nullable(str())]),
+  },
   /** Clears the remembered omp update dismissal so the offer can return. */
   clearDismissedOmpUpdate: {
     channel: "settings:clearDismissedOmpUpdate",
     ...request<[], void>([]),
-  },
-  /** Repaints the native title-bar overlay to match the active theme. */
-  setWindowChrome: {
-    channel: "window:setChrome",
-    ...request<[background: string, symbol: string], void>([str(), str()]),
   },
   /**
    * omp's own settings for the allowlist, with the layer each value comes from.
@@ -511,16 +496,6 @@ export const BACKEND_CHANNELS = {
       [tabId: string, frameId: string, verdict: PlanReviewVerdict, sourceHash: string | null],
       PlanAnswerResult
     >([str(), str(), oneOf(PLAN_EXECUTE, PLAN_REFINE), nullable(str())]),
-  },
-  /**
-   * Opens an absolute path with the system default handler (a browser for the
-   * exported transcript HTML). Rejects when the handler reports a failure.
-   */
-  openPath: { channel: "file:open", ...request<[absPath: string], void>([str()]) },
-  /** Reveals an absolute path in the platform file manager. */
-  showPathInFolder: {
-    channel: "file:showInFolder",
-    ...request<[absPath: string], void>([str()]),
   },
   /**
    * Working-tree changes on the active branch of a project's git repo: tracked
@@ -846,42 +821,6 @@ export const BACKEND_CHANNELS = {
     ...request<[version: string, remember: boolean], void>([str(), bool()]),
   },
   onOmpUpdateState: { channel: "omp:updateState", ...event<[state: OmpUpdateState]>() },
-  /** Current omp-ui update state. */
-  getAppUpdateState: { channel: "app:updateGetState", ...request<[], AppUpdateState>([]) },
-  /** Manual check — surfaces up-to-date/error/disabled transiently. */
-  checkAppUpdate: { channel: "app:updateCheck", ...request<[], AppUpdateState>([]) },
-  /**
-   * Starts the package-appropriate manual action for non-auto-update formats:
-   * verified download + system-installer handoff. AppImage/NSIS/macOS-zip
-   * staging begins as soon as a check finds an update (issue #99, issue #125).
-   */
-  downloadAppUpdate: { channel: "app:updateDownload", ...request<[], void>([]) },
-  /** Opens the pending release's GitHub page. */
-  openAppUpdateReleaseNotes: { channel: "app:updateOpenNotes", ...request<[], void>([]) },
-  /** Reveals the downloaded update artifact in its folder. */
-  showAppUpdateDownload: { channel: "app:updateShowDownload", ...request<[], void>([]) },
-  /**
-   * Requests a restart into a staged update. The first call leaves `confirmed`
-   * false; `confirmation-required` must be answered in the initiating renderer.
-   */
-  restartForAppUpdate: {
-    channel: "app:updateRestart",
-    ...request<[confirmed?: boolean], AppUpdateRestartResult>([trailingOptional(bool())]),
-  },
-  /** Arms or disarms applying a staged update on the next natural quit. */
-  setAppUpdateInstallOnQuit: {
-    channel: "app:updateInstallOnQuit",
-    ...request<[on: boolean], void>([bool()]),
-  },
-  /**
-   * Hides the card. `remember: true` also persists the version so background
-   * checks stay quiet for that release; `false` is a transient hide.
-   */
-  dismissAppUpdate: {
-    channel: "app:updateDismiss",
-    ...request<[version: string, remember: boolean], void>([str(), bool()]),
-  },
-  onAppUpdateState: { channel: "app:updateState", ...event<[state: AppUpdateState]>() },
   /** Embedded remote-access server settings + live status (issue #37). */
   getRemoteState: { channel: "remote:getState", ...request<[], RemoteState>([]) },
   setRemoteEnabled: { channel: "remote:setEnabled", ...request<[on: boolean], void>([bool()]) },
@@ -940,17 +879,16 @@ export const BACKEND_CHANNELS = {
     channel: "diagnostics:preview",
     ...request<[], DiagnosticsPreview>([]),
   },
-  /** Builds the zip and writes it to destinationPath (absolute) or beside the registry when null. */
+  /**
+   * Builds the zip and writes it to `destinationPath` (absolute) or, when null, to the host's default
+   * bundle path beside the registry; the result names the written file. A desktop client passes the
+   * path its own save dialog chose, a browser passes null and shows the returned path (issue #442 §3.2).
+   */
   exportDiagnosticsBundle: {
     channel: "diagnostics:export",
     ...request<[req: DiagnosticsExportRequest], DiagnosticsExportResult>([
       diagnosticsExportRequestCodec,
     ]),
-  },
-  /** Desktop-only: native save dialog; resolves the chosen path or null on cancel. */
-  chooseDiagnosticsPath: {
-    channel: "diagnostics:choosePath",
-    ...request<[basename: string], string | null>([str()]),
   },
   /** The app-wide subscription sign-in flow's phase changes. */
   onProviderOAuthState: { channel: "provider-oauth:state", ...event<[state: ProviderOAuthState]>() },
@@ -1031,7 +969,7 @@ type NotifyHandlers = {
     : never;
 };
 
-/** Complete main-process implementations for request and notify channels; events have no handlers. */
+/** Complete host implementations for request and notify channels, built per connection; events have no handlers. */
 export interface ChannelTable {
   readonly request: RequestHandlers;
   readonly notify: NotifyHandlers;
@@ -1060,9 +998,9 @@ function decodeArgs(
 }
 
 /**
- * The single dispatch boundary into a {@link ChannelTable}. Both transports — Electron's
- * ipcMain and the remote ws server — deliver dynamically decoded `unknown[]` argument
- * arrays. This boundary rejects malformed tuples before tuple-checked handlers run.
+ * The single dispatch boundary into a {@link ChannelTable}. The host's WebSocket listeners
+ * deliver dynamically decoded `unknown[]` argument arrays; this boundary rejects malformed
+ * tuples before tuple-checked handlers run.
  *
  * An unknown request channel rejects with a named error; a throwing handler rejects with
  * its own error. The transport decides what a rejection means on the wire.
@@ -1089,7 +1027,7 @@ export function dispatchRequest(
 /**
  * Fire-and-forget dispatch. Unknown notify channels are ignored — there is no one to tell —
  * and a throwing handler is swallowed: a notify has no reply channel, so the error can only
- * be dropped. Both transports share that policy (issue #301).
+ * be dropped. Every listener shares that policy (issue #301).
  */
 export function dispatchNotify(
   table: ChannelTable,
@@ -1108,7 +1046,7 @@ export function dispatchNotify(
   }
 }
 
-/** Transport primitives implemented at an IPC or WebSocket boundary. */
+/** Transport primitives a channel client is built over: the WebSocket backend or the desktop adapter's IPC. */
 export interface BackendTransport {
   request<Args extends unknown[], Result>(channel: string, args: Args): Promise<Result>;
   notify<Args extends unknown[]>(channel: string, args: Args): void;

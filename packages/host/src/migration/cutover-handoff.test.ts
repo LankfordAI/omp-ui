@@ -2,15 +2,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { BreadcrumbEntry, BreadcrumbSink } from "@omp-ui/core";
 import {
-  consumeCutoverHandoff,
   CUTOVER_HANDOFF_MAX_AGE_MS,
   cutoverHandoffPath,
   writeCutoverHandoff,
-  type ConsumeCutoverDeps,
+  type BreadcrumbEntry,
+  type BreadcrumbSink,
   type CutoverHandoffV1,
-} from "./cutover-handoff";
+} from "@omp-ui/core";
+import { consumeCutoverHandoff, type ConsumeCutoverDeps } from "./cutover-handoff";
 
 const dirs: string[] = [];
 

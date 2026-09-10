@@ -1,5 +1,5 @@
 import type { AuthorityToken, BreadcrumbSink, BuildFlavor } from "@omp-ui/core";
-import { readHostRecord, type HostConnectionRecordV1 } from "../control/connection-record";
+import { readHostRecord, type HostConnectionRecordV1 } from "@omp-ui/core";
 import { acquireHostLock } from "./lock";
 import type { ProcessLiveness } from "./process-identity";
 
@@ -12,7 +12,12 @@ export { AuthorityConflict, type AuthorityConflictReason } from "./lock";
  */
 export type { AuthorityToken };
 
-/** A claimed token: `release()` stops the lock assertion for the updater's hand-off; it never unlinks `host.lock`. */
+/**
+ * A claimed token: `release()` stops the lock assertion and marks the owner
+ * record released so a successor — the update handover's replacement, or the
+ * next boot — may take the root over while this pid is still alive. It never
+ * unlinks `host.lock`. Idempotent.
+ */
 export type ClaimedAuthority = AuthorityToken & { release(): void };
 
 export interface AuthorityDeps {
@@ -43,9 +48,10 @@ export const LOCK_LOST_EXIT_CODE = 5;
 /**
  * Claims `dataRoot`, sweeps leftovers the claim can prove dead, and keeps
  * asserting ownership every `LOCK_ASSERT_INTERVAL_MS` until `release()`.
- * `release()` only stops the assertion — for the updater's hand-off to a
- * successor that will take over from our recorded pid — and never unlinks
- * `host.lock`.
+ * `release()` stops the assertion and writes `releasedAtMs` into the owner
+ * record in place — the same inode `host.lock` names — so the next claimant
+ * takes over without waiting for this pid to die (issue #442 §10.2). It never
+ * unlinks `host.lock`.
  */
 export async function claimAuthority(
   dataRoot: string,
@@ -61,22 +67,16 @@ export async function claimAuthority(
     onLockLost();
   }, LOCK_ASSERT_INTERVAL_MS);
   timer.unref();
+  let released = false;
   return {
     dataRoot,
     incarnation: lock.owner.incarnation,
     release() {
+      if (released) return;
+      released = true;
       clearInterval(timer);
+      lock.release(deps.now());
+      deps.breadcrumbs.record("authority", { detail: `released incarnation=${lock.owner.incarnation}` });
     },
   };
-}
-
-/**
- * Release P only: Electron main is still the sole owner, and its witness is
- * Chromium's single-instance lock plus the permanent-claim tripwire
- * (`authorityClaimEvidence`), not `host.lock`. This token lets the ported
- * host code demand an `AuthorityToken` today. Deleted in Release C, when
- * `claimAuthority` becomes the only constructor of a token.
- */
-export function claimLegacyElectronAuthority(dataRoot: string): AuthorityToken {
-  return { dataRoot, incarnation: 0 };
 }

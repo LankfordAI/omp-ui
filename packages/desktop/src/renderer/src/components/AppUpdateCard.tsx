@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { desktop } from "../desktop";
+import { HAS_DESKTOP } from "../desktop";
 import { useStore } from "../store";
 import { Button, UpdateCard } from "./ui";
 import { useT } from "../lib/i18n";
@@ -43,7 +43,7 @@ export function AppUpdateCard() {
 
   // The card announces the desktop client's own artifact (#454): a browser
   // client runs nothing this card could update.
-  if (desktop === null || status === "idle" || status === "checking") return null;
+  if (!HAS_DESKTOP || status === "idle" || status === "checking") return null;
 
   let body: ReactNode;
   if (status === "available") {

@@ -2,20 +2,21 @@ import {
   checkOmpUpdate as coreCheckOmpUpdate,
   downloadOmp,
   managedOmpPath,
+  UpdateController,
   type DownloadFetchLike,
   type FetchLike,
   type OmpUpdateState,
+  type UpdateControllerDeps,
   type VersionRunner,
 } from "@omp-ui/core";
-import { UpdateController, type UpdateControllerDeps } from "./update-controller";
 
-// Main-process orchestration for omp install/update (issue #19), mirroring
-// app-update.ts: core owns the machine work (version reads, registry lookup,
-// the atomic verified download); this class owns the state machine the
-// renderer's update card renders. Quiet by default: background checks never
-// surface error/up-to-date — only "available"/"missing" earn the card.
-// Nothing downloads without an explicit Update now/Install click, and a
-// failed install leaves the previous binary untouched (core tmp+rename).
+// Host orchestration for omp install/update (issue #19): core owns the machine
+// work (version reads, registry lookup, the atomic verified download); this
+// class owns the state machine the update card renders. Quiet by default:
+// background checks never surface error/up-to-date — only "available"/"missing"
+// earn the card. Nothing downloads without an explicit Update now/Install
+// click, and a failed install leaves the previous binary untouched (core
+// tmp+rename).
 
 export interface OmpUpdaterDeps extends UpdateControllerDeps<OmpUpdateState> {
   /** Fires only after a successful install so the caller re-resolves the binary. */

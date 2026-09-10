@@ -9,9 +9,9 @@ const instanceBackends = new Map<string, OmpBackend>();
 
 /**
  * A backend addressed to one joined remote instance (issue #416). Requests
- * and notifies ride the local backend's proxy channels; main forwards the
- * allowlisted ones to that instance. Events never come this way — the main
- * process mirrors a remote's tab events onto the local backend, so `on` is
+ * and notifies ride the local backend's proxy channels; the host forwards the
+ * allowlisted ones to that instance. Events never come this way — the host
+ * mirrors a remote's tab events onto the local backend, so `on` is
  * a programming error, not a fallback.
  */
 export function instanceBackend(instanceId: string): OmpBackend {
@@ -35,7 +35,11 @@ export function backendFor(instanceId: string | null): OmpBackend {
   return instanceId === null ? backend : instanceBackend(instanceId);
 }
 
-/** ipcRenderer.invoke wraps main-process errors — unwrap for display (#16 precedent). */
+/**
+ * One display form for a failed call. The host answers over the WebSocket with the bare message;
+ * the desktop adapter still rides ipcRenderer.invoke, which wraps main-process errors (#16
+ * precedent) — unwrap that so both read the same.
+ */
 export function displayMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   return raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");

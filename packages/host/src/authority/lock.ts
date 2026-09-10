@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextDurably, type BuildFlavor } from "@omp-ui/core";
-import type { HostConnectionRecordV1 } from "../control/connection-record";
+import type { HostConnectionRecordV1 } from "@omp-ui/core";
 import type { AuthorityDeps } from "./authority";
 import { sameBoot } from "./process-identity";
 
@@ -12,9 +12,9 @@ import { sameBoot } from "./process-identity";
  * as `<dataRoot>/host.lock`: `link(2)` is atomic and fails `EEXIST` when the
  * name exists, so exactly one owner.json is ever reachable through that name.
  * `host.lock` is never unlinked — a takeover renames it aside, and only after
- * proving the recorded owner dead. Ownership while running is the inode
- * identity of the two names; no lease, heartbeat, or clock is involved, so a
- * suspended machine resumes into the same lock rather than an expired one.
+ * proving the recorded owner dead or released. Ownership while running is the
+ * inode identity of the two names; no lease, heartbeat, or clock is involved,
+ * so a suspended machine resumes into the same lock rather than an expired one.
  */
 export interface OwnerRecordV1 {
   schemaVersion: 1;
@@ -26,6 +26,12 @@ export interface OwnerRecordV1 {
   hostVersion: string;
   dataRoot: string;
   flavor: BuildFlavor;
+  /**
+   * Set in place by `release()` (issue #442 §10.2): the owner gave the root up
+   * while still running — the update handover's arbiter, or a clean stop — so
+   * a claimant may take over without proving the pid dead.
+   */
+  releasedAtMs?: number;
 }
 
 export type AuthorityConflictReason = "live host" | "owner alive" | "owner unverifiable" | "lost race";
@@ -76,6 +82,12 @@ export interface HostLock {
   assertStillOwner(): boolean;
   /** Removes leftover `locks/host-*` dirs and `host.lock.stale-*` names whose recorded owner is proven dead. */
   sweepStale(): void;
+  /**
+   * Writes `releasedAtMs` into the owner record on the inode `host.lock` names
+   * (truncate-and-rewrite, never a rename, so the hard link stays intact) and
+   * lets a successor take the root over from this live pid.
+   */
+  release(atMs: number): void;
 }
 
 export type HostLockDeps = AuthorityDeps & {
@@ -157,7 +169,8 @@ function isOwnerRecordV1(v: unknown): v is OwnerRecordV1 {
     Number.isInteger(r.incarnation) &&
     typeof r.hostVersion === "string" &&
     typeof r.dataRoot === "string" &&
-    (r.flavor === "installed" || r.flavor === "dev" || r.flavor === "dev-server")
+    (r.flavor === "installed" || r.flavor === "dev" || r.flavor === "dev-server") &&
+    (r.releasedAtMs === undefined || (typeof r.releasedAtMs === "number" && Number.isFinite(r.releasedAtMs)))
   );
 }
 
@@ -224,6 +237,8 @@ export async function acquireHostLock(dataRoot: string, deps: HostLockDeps): Pro
       takeoverReason = "unparseable owner";
     } else if (!sameBoot(inspected.owner.bootId, bootId)) {
       takeoverReason = `other boot pid=${inspected.owner.pid} incarnation=${inspected.owner.incarnation}`;
+    } else if (inspected.owner.releasedAtMs !== undefined) {
+      takeoverReason = `released pid=${inspected.owner.pid} incarnation=${inspected.owner.incarnation}`;
     } else {
       const { pid, processStartMs, incarnation } = inspected.owner;
       const liveness = deps.processAlive(pid, processStartMs);
@@ -270,11 +285,25 @@ export async function acquireHostLock(dataRoot: string, deps: HostLockDeps): Pro
         return false;
       }
     },
+    release(atMs) {
+      owner.releasedAtMs = atMs;
+      // In place: a temp+rename would give owner.json a new inode and leave host.lock naming the old bytes.
+      const fd = fs.openSync(ownerFile, "r+");
+      try {
+        fs.ftruncateSync(fd, 0);
+        fs.writeSync(fd, `${JSON.stringify(owner, null, 2)}\n`, 0, "utf8");
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+    },
     sweepStale() {
       const provenDead = (record: OwnerRecordV1 | null | undefined): boolean =>
         record !== null &&
         record !== undefined &&
-        (!sameBoot(record.bootId, bootId) || deps.processAlive(record.pid, record.processStartMs) === "dead");
+        (!sameBoot(record.bootId, bootId) ||
+          record.releasedAtMs !== undefined ||
+          deps.processAlive(record.pid, record.processStartMs) === "dead");
       let names: string[];
       try {
         names = fs.readdirSync(locksDir);

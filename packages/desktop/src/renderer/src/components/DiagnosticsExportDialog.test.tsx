@@ -183,7 +183,7 @@ describe("web client", () => {
     window.ompDesktop = desktopMock;
   });
 
-  it("skips the save dialog without an adapter and exports beside the registry", async () => {
+  it("skips the save dialog without an adapter, exports to the host's default path, and says so", async () => {
     vi.resetModules();
     delete window.ompDesktop;
     const fresh = await import("./DiagnosticsExportDialog");
@@ -204,5 +204,8 @@ describe("web client", () => {
       includeTranscripts: false,
       destinationPath: null,
     });
+    // The path is on the host's disk, not this browser's: plain text, no open/reveal affordance.
+    expect(document.body.textContent).toContain("Saved on the host at");
+    expect(document.body.textContent).toContain("/host/diagnostics/omp-ui-diagnostics-x.zip");
   });
 });

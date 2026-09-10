@@ -180,7 +180,7 @@ function flowActive(flow: ProviderOAuthState): boolean {
  * this page started the flow), a remote client's note that the callback lands
  * on the host machine, and, only if omp asks, the pasted-redirect-URL input.
  * The renderer never sees a token — the row shows omp's own identity strings
- * and the flow state is main's.
+ * and the flow state is the host's.
  */
 function SubscriptionRow({
   row,

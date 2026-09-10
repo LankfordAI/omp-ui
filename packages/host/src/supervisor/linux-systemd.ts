@@ -46,6 +46,9 @@ export class SystemdUserSupervisor implements Supervisor {
       `ExecStart=${exec} serve`,
       "Restart=on-failure",
       "RestartSec=5",
+      // The update handover (issue #442 §10.2) launches the replacement inside this
+      // cgroup and then exits the main process: only that process may be reaped.
+      "KillMode=process",
       `Environment=${systemdQuote(`OMP_UI_DATA_DIR=${opts.dataRoot}`)}`,
       "",
       "[Install]",
@@ -116,24 +119,6 @@ export class SystemdUserSupervisor implements Supervisor {
     }
     if (opts.purgeData) await fs.rm(opts.dataRoot, { recursive: true });
   }
-}
-
-/**
- * The transient on-demand identity Electron submits before any service is
- * installed (#456): same unit name, so a later `service install` promotes it
- * instead of racing a second host. Pass to `systemd-run`.
- */
-export function systemdRunArgs(opts: RenderOpts): string[] {
-  return [
-    "--user",
-    "--unit=omp-ui-host",
-    "--property=Restart=no",
-    "--collect",
-    `--setenv=OMP_UI_DATA_DIR=${opts.dataRoot}`,
-    "--",
-    opts.execPath,
-    "serve",
-  ];
 }
 
 /** `%h/.local/bin/...` when the binary sits under the stable command dir; absolute otherwise. */

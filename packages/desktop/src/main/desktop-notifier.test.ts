@@ -1,4 +1,4 @@
-import type { Attention } from "@omp-ui/core";
+import type { Attention } from "@omp-ui/core/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopNotifier, NOTIFICATION_POST_DELAY_MS } from "./desktop-notifier";
 

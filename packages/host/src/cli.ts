@@ -14,14 +14,14 @@ import {
   type InstanceClient,
 } from "@omp-ui/server";
 import type { OwnerRecordV1 } from "./authority/lock";
-import type { HostConnectionRecordV1 } from "./control/connection-record";
+import type { HostConnectionRecordV1 } from "@omp-ui/core";
 import type { Supervisor, SupervisorStatus } from "./supervisor";
 
 /**
- * The `omp-ui` command (issue #442 §10.5, decision #456). Every effect is an
+ * The `omp-ui` command (issue #442 §9, decision #456). Every effect is an
  * injected dependency so the whole command table runs under vitest with a fake
  * host; the SEA entry supplies the real ones. `serve` is foreground-only and
- * arrives injected because the host's boot sequence lands after WP6.
+ * arrives injected so this module never imports the boot sequence.
  */
 
 export interface CliIo {
@@ -212,8 +212,14 @@ async function hostReport(
 ): Promise<{ report: Record<string, unknown>; code: ExitCode }> {
   const record = deps.readHostRecord(dataRoot);
   const lock = deps.readLock(dataRoot);
-  if (record === null && lock === null) {
-    return { report: { schemaVersion: 1, state: "absent", dataRoot }, code: EXIT.ABSENT };
+  // A clean stop deletes host.json but leaves host.lock in place with `releasedAtMs`
+  // (the lock is never unlinked as cleanup, ADR-0030): that is a stopped host, not a
+  // wedged one. A lock without either is an owner that died holding the root.
+  if (record === null && (lock === null || lock.releasedAtMs !== undefined)) {
+    return {
+      report: { schemaVersion: 1, state: "absent", dataRoot, ...(lock === null ? {} : { lastOwner: lock }) },
+      code: EXIT.ABSENT,
+    };
   }
   if (record === null) {
     return {
@@ -534,32 +540,51 @@ export interface DesktopLaunchDeps {
 
 const realLaunch: DesktopLaunchDeps = { exists: existsSync, spawn };
 
+/**
+ * Linux only: `packaging/install.sh` also installs `~/.local/bin/omp-ui-desktop`,
+ * a wrapper that falls back to extract-and-run where FUSE is missing. Launch
+ * prefers it; the AppImage itself stays the canonical artifact (ADR-0011).
+ */
+function linuxDesktopWrapper(io: CliIo): string {
+  return path.posix.join(io.home, ".local", "bin", "omp-ui-desktop");
+}
+
+/** The executable `defaultLaunchDesktop` starts: the Linux wrapper when present, else the artifact. */
+function desktopLaunchPath(io: CliIo, exists: (p: string) => boolean): string | null {
+  const artifact = desktopArtifactPath(io);
+  if (artifact === null) return null;
+  if (io.platform === "linux" && exists(linuxDesktopWrapper(io))) return linuxDesktopWrapper(io);
+  return artifact;
+}
+
 export function defaultIsDesktopInstalled(io: CliIo, exists: (p: string) => boolean = existsSync): boolean {
   const artifact = desktopArtifactPath(io);
   if (artifact === null) return false;
   if (io.platform === "darwin") {
     return exists(artifact) || exists(path.posix.join(io.home, "Applications", "omp-ui.app"));
   }
+  if (io.platform === "linux") return exists(linuxDesktopWrapper(io)) || exists(artifact);
   return exists(artifact);
 }
 
 /**
- * Starts the desktop client detached so the CLI can exit: the AppImage on Linux
- * (its own FUSE/extract choice), `open -a` on macOS, the installed exe on
- * Windows. An absent client is an operational error, not a usage one.
+ * Starts the desktop client detached so the CLI can exit: the wrapper or the
+ * AppImage on Linux, `open -a` on macOS, the installed exe on Windows. An
+ * absent client is an operational error, not a usage one.
  */
 export async function defaultLaunchDesktop(io: CliIo, launch: DesktopLaunchDeps = realLaunch): Promise<number> {
-  const artifact = desktopArtifactPath(io);
-  if (artifact === null) {
+  const target = desktopLaunchPath(io, launch.exists);
+  if (target === null) {
     io.stderr(`omp-ui: no desktop client is defined for ${io.platform}\n`);
     return EXIT.UNSUPPORTED;
   }
   if (!defaultIsDesktopInstalled(io, launch.exists)) {
-    io.stderr(`omp-ui: desktop client not installed at ${artifact}\n`);
+    io.stderr(`omp-ui: desktop client not installed at ${target}\n`);
     return EXIT.OPERATIONAL;
   }
   const [command, args] =
-    io.platform === "darwin" ? ["open", ["-a", "omp-ui"]] : [artifact, [] as string[]];
+    io.platform === "darwin" ? ["open", ["-a", "omp-ui"]] : [target, [] as string[]];
+  // Executor form (not Promise.withResolvers): the node tsconfig lib is ES2022.
   return new Promise<number>((resolve) => {
     const child = launch.spawn(command, args, { detached: true, stdio: "ignore", env: io.env });
     child.once("error", (err) => {

@@ -6,7 +6,6 @@ import type { BreadcrumbEntry, BreadcrumbSink } from "@omp-ui/core";
 import {
   LOCK_ASSERT_INTERVAL_MS,
   claimAuthority,
-  claimLegacyElectronAuthority,
   type AuthorityDeps,
 } from "./authority";
 import { lockPath, readOwnerRecord } from "./lock";
@@ -107,15 +106,19 @@ describe("claimAuthority", () => {
     expect(d.breadcrumbs.details().filter((x) => x.startsWith("lock lost"))).toHaveLength(1);
   });
 
-  it("release() stops the assertion without touching host.lock", async () => {
+  it("release() stops the assertion, marks the record released, and never unlinks host.lock", async () => {
     const onLockLost = vi.fn();
-    const token = await claimAuthority(root, deps({ onLockLost }));
+    const d = deps({ onLockLost });
+    const token = await claimAuthority(root, d);
+    const before = fs.statSync(lockPath(root)).ino;
     token.release();
-    expect(fs.existsSync(lockPath(root))).toBe(true);
+    token.release();
+    expect(fs.statSync(lockPath(root)).ino).toBe(before);
+    expect(readOwnerRecord(root)).toMatchObject({ pid: 4321, releasedAtMs: 1_700_000_000_000 });
+    expect(d.breadcrumbs.details().filter((x) => x.startsWith("released"))).toHaveLength(1);
     displaceLock(root);
     await vi.advanceTimersByTimeAsync(LOCK_ASSERT_INTERVAL_MS * 3);
     expect(onLockLost).not.toHaveBeenCalled();
-    expect(readOwnerRecord(root)?.pid).toBe(4321);
   });
 
   it("does not let a second claimant in while the owner is alive", async () => {
@@ -125,16 +128,21 @@ describe("claimAuthority", () => {
     await expect(claimAuthority(root, second)).rejects.toMatchObject({ name: "AuthorityConflict", reason: "owner alive" });
     expect(readOwnerRecord(root)?.pid).toBe(4321);
   });
-});
 
-describe("claimLegacyElectronAuthority", () => {
-  it("is incarnation 0 for the given root and touches no file", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-legacy-authority-"));
-    try {
-      expect(claimLegacyElectronAuthority(root)).toEqual({ dataRoot: root, incarnation: 0 });
-      expect(fs.readdirSync(root)).toEqual([]);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
+  it("a released owner is taken over while its pid is still alive, and can reclaim afterwards", async () => {
+    // The update handover (issue #442 §10.2): the arbiter releases, the replacement claims from a live pid.
+    const arbiter = await claimAuthority(root, deps());
+    arbiter.release();
+    const replacement = deps({ pid: 8765, processAlive: () => "alive" });
+    const next = await claimAuthority(root, replacement);
+    expect(next.incarnation).toBe(arbiter.incarnation + 1);
+    expect(readOwnerRecord(root)).toMatchObject({ pid: 8765, incarnation: next.incarnation });
+    expect(readOwnerRecord(root)?.releasedAtMs).toBeUndefined();
+    expect(replacement.breadcrumbs.details().some((x) => x.startsWith("takeover released pid=4321"))).toBe(true);
+    // The replacement never acknowledged: it released too (killed after release, in this model) and the arbiter reclaims.
+    next.release();
+    const reclaimed = await claimAuthority(root, deps({ processAlive: () => "alive" }));
+    expect(reclaimed.incarnation).toBe(next.incarnation + 1);
+    expect(readOwnerRecord(root)?.pid).toBe(4321);
   });
 });

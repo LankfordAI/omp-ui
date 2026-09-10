@@ -42,23 +42,27 @@ export class IncompatibleHostError extends Error {
 }
 
 export interface RemoteBackendOptions {
-  /** WebSocket URL; defaults to the same-origin `/ws` with the page's `?t=` (the cookie covers the rest). */
+  /**
+   * The host's `/ws` URL (http(s) or ws(s) scheme); defaults to the page's own origin. A desktop
+   * client passes the local-control endpoint from its bootstrap record (issue #442 §11).
+   */
   endpoint?: string;
-  /** Overrides the token the URL would carry. */
+  /** Credential carried as the `?t=` query; defaults to the page's own `?t=` (the cookie covers the rest). */
   credential?: string;
   hello: Omit<ClientHello, "t">;
 }
 
-function socketUrl(credential: string | undefined): string {
-  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  const token = credential ?? new URLSearchParams(location.search).get(REMOTE_TOKEN_PARAM);
-  // The cookie covers the normal case; the query keeps a cold load working.
-  const query = token === null || token === "" ? "" : `?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`;
-  return `${scheme}//${location.host}${REMOTE_WS_PATH}${query}`;
+function socketUrl(endpoint: string | undefined, credential: string | undefined): string {
+  const url = endpoint === undefined ? new URL(REMOTE_WS_PATH, location.href) : new URL(endpoint);
+  url.protocol = url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:";
+  const token =
+    credential ?? (endpoint === undefined ? new URLSearchParams(location.search).get(REMOTE_TOKEN_PARAM) : null);
+  if (token !== null && token !== "") url.searchParams.set(REMOTE_TOKEN_PARAM, token);
+  return url.href;
 }
 
 export function connectRemoteBackend(opts: RemoteBackendOptions): Promise<RemoteConnection> {
-  const ws = new WebSocket(opts.endpoint ?? socketUrl(opts.credential));
+  const ws = new WebSocket(socketUrl(opts.endpoint, opts.credential));
   ws.binaryType = "arraybuffer";
 
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();

@@ -98,3 +98,22 @@ works without any FUSE setup. `packaging/install.sh` additionally verifies
 the Electron binary's system shared-library dependencies on the staged
 AppImage and fails with the exact distribution install command before
 modifying an existing install.
+
+**Amended 2026-09-10 (#442; ADR-0029):** the persistent host adds a second
+per-user Linux artifact beside the AppImage, and the two share `~/.local/bin`
+without colliding. `~/.local/bin/omp-ui.AppImage` is unchanged: the canonical
+desktop path, still replaced in place by electron-updater. The extensionless
+`~/.local/bin/omp-ui` is now the **host command** — an installer-owned symlink
+to `<dataHome>/omp-ui-host/current/bin/omp-ui`, where `current` is an atomic
+symlink to `versions/<version>/` and the host's own staged handover moves it.
+`packaging/install.sh` therefore no longer writes its launcher wrapper at that
+name: the AppImage's FUSE-fallback launcher is `~/.local/bin/omp-ui-desktop`,
+the `.desktop` entry's `Exec` points at it, and an older installer's wrapper at
+`~/.local/bin/omp-ui` is removed by marker on upgrade so the desktop bootstrap
+can place the symlink. The bootstrap refuses to replace a path at either name
+that it did not create. `omp-ui desktop` (and bare `omp-ui` when the desktop is
+installed) runs `omp-ui-desktop` when present and the AppImage otherwise, so a
+terminal user has one word for both processes. The host archive
+(`omp-ui-host-<version>-linux-x64.tar.gz`) and its `latest-host-linux.yml` feed
+are additional release assets; the AppImage-only policy for the desktop client
+is unchanged.

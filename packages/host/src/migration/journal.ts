@@ -3,8 +3,8 @@ import * as path from "node:path";
 import { writeTextDurably } from "@omp-ui/core";
 
 /**
- * Crash-safe record of the one-shot Electron → host migration (issue #442,
- * WP7 §10.2). Every step writes its evidence BEFORE it mutates the file
+ * Crash-safe record of the one-shot Electron → host migration (issue #442
+ * §5.4). Every step writes its evidence BEFORE it mutates the file
  * system, so a replay after a crash can tell "never started" from "moved but
  * unrecorded" by comparing the evidence against what is on disk. Every
  * mutation rewrites `<dataRoot>/migration.json` durably.

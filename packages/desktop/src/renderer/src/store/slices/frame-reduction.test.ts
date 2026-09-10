@@ -2907,6 +2907,7 @@ describe("initialization snapshot ordering", () => {
       h.mockBackend.onOmpUpdateState,
       h.mockBackend.onRemoteState,
       h.mockBackend.onProviderOAuthState,
+      h.mockBackend.onHostUpdateState,
     ];
     const reads = [
       h.mockBackend.getState,

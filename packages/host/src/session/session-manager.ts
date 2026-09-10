@@ -105,7 +105,7 @@ export interface SessionManagerDependencies {
   authority: AuthorityToken;
   /**
    * The children ledger (#450): each spawn is recorded before its tab is
-   * published live, each reap removes it. Absent for Electron main and tests.
+   * published live, each reap removes it. Absent for focused tests.
    */
   ledger?: ChildrenLedger;
   providerKeys: ProviderKeys;
@@ -128,7 +128,7 @@ export interface SessionManagerDependencies {
    * The main-owned plan verifier service (issue #312 follow-up). Absent (or
    * in unit tests) answers every verification `unavailable` — a proposal is
    * never presented on an inconclusive gate, and never blocked by a missing
-   * Electron runtime either: the seam keeps the gate semantics identical.
+   * browser either: the seam keeps the gate semantics identical.
    */
   planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<PlanRenderResult>;
   /**
@@ -1219,6 +1219,25 @@ export class SessionManager {
     return this.enqueueOp(sourceTabId, "hibernate", () =>
       this.hibernation.attemptHandoff(sourceTabId, implementationTabId),
     );
+  }
+
+  /**
+   * Hibernates every live session at once (issue #442 §10.2: the update
+   * handover and a graceful stop). Each tab's reap runs serialized behind its
+   * own op chain, all tabs concurrently; resolves with the tab ids that went
+   * dormant. A child that ignores the escalation stays in `live`.
+   */
+  async hibernateAll(): Promise<string[]> {
+    const tabIds = [...this.live.keys()];
+    const dormant = await Promise.all(
+      tabIds.map((tabId) =>
+        this.enqueueOp(tabId, "hibernate", async () => {
+          const entry = this.live.get(tabId);
+          return entry === undefined ? true : this.hibernate(tabId, entry);
+        }),
+      ),
+    );
+    return tabIds.filter((_, index) => dormant[index]);
   }
 
   private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {

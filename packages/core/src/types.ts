@@ -401,9 +401,9 @@ export interface ProjectGroup {
 }
 
 /**
- * Instance-only spawn selectors this app instance forces at the spawn choke
- * point (docs/development.md). Serialized projection of the main-process
- * `SpawnGate`; never persisted, never a session or project pin.
+ * Instance-only spawn selectors this host forces at the spawn choke point
+ * (docs/development.md). Serialized projection of the host's `SpawnGate`;
+ * never persisted, never a session or project pin.
  */
 export interface SpawnGateState {
   /** Instance-only selectors; null means this role is not overridden. */
@@ -777,10 +777,7 @@ export interface AppUpdateState {
   error: string | null;
 }
 
-/** Result of requesting a restart into a staged app update. */
-export type AppUpdateRestartResult = "confirmation-required" | "restarting" | "unavailable";
-
-/** Where the omp binary install/update flow stands (see desktop main/omp-update.ts). */
+/** Where the omp binary install/update flow stands (see host update/omp-update.ts). */
 export type OmpUpdateStatus =
   | "idle" // nothing to show
   | "checking"
@@ -1049,7 +1046,7 @@ export type ProviderKeySource = "stored" | "environment" | "login-shell" | "dote
 
 /**
  * One provider row on the settings page. Carries no key material: `masked` is
- * the last four characters behind a fixed mask, computed in the main process.
+ * the last four characters behind a fixed mask, computed by the host.
  */
 export interface ProviderKeyStatus {
   /** omp's provider id where one exists, else a stable slug (see PROVIDER_KEY_SPECS). */
@@ -1103,7 +1100,7 @@ export interface ProviderOAuthState {
 }
 /**
  * Mnemopi memory overview (issue #206). Read straight off the SQLite banks by
- * the main process (see core/memory-store.ts) — omp exposes no runtime surface
+ * the host (see core/memory-store.ts) — omp exposes no runtime surface
  * for memory, so Settings → Memory reports the banks omp itself persisted.
  */
 export type MemoryBackendKind = "off" | "local" | "hindsight" | "mnemopi";
@@ -1153,7 +1150,6 @@ export interface DiagnosticsSection {
     | "extensions"
     | "logs"
     | "breadcrumbs"
-    | "window-state"
     | "transcripts";
   /** Stable zip prefix this section writes under, e.g. "logs/". */
   prefix: string;

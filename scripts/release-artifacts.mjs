@@ -1,24 +1,35 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-// Kinds every requested architecture must ship. Host artifacts (`host`,
-// `host-feed`) are classified below but deliberately absent here: Release P
-// builds them without publishing (issue #442 §10.6), so a manifest is complete
-// without them until Release C adds them to the required set.
+import { HOST_ARCHIVE_EXT } from "./host-feed.mjs";
+
+// Kinds every requested architecture must ship (issue #442 §10.1): the desktop
+// distributables plus the persistent host archive for that arch.
 const PLATFORM_KINDS = {
-  linux: ["appimage"],
-  mac: ["dmg", "zip"],
-  win: ["nsis"],
+  linux: ["appimage", "host"],
+  mac: ["dmg", "zip", "host"],
+  win: ["nsis", "host"],
 };
 
-const HOST_ARCHIVE = {
-  linux: "tar\\.gz",
-  mac: "zip",
-  win: "zip",
+/** Per-platform kinds: one feed lists every arch of the platform. */
+const PLATFORM_FEEDS = ["host-feed"];
+
+/**
+ * Release evidence (issue #442 §12): one `host-package` record per arch, written
+ * by `smoke-package.mjs --record` from the unpacked archive, and on Linux the
+ * Fedora no-display gate record. Publication refuses without every one.
+ */
+const PLATFORM_GATES = {
+  linux: ["fedora-no-display-gate"],
+  mac: [],
+  win: [],
 };
+
+const SHA256_RE = /^[0-9a-f]{64}$/;
+const ISO_DATE_RE = /^\d{4}-\d\d-\d\dT[^']+$/;
 
 function compareNames(left, right) {
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
@@ -53,7 +64,7 @@ function classify(file, target) {
     const escapedArch = escapeRegExp(arch);
     if (
       new RegExp(
-        `^omp-ui-host-${version}-${platform}-${escapedArch}\\.${HOST_ARCHIVE[target.platform]}$`,
+        `^omp-ui-host-${version}-${platform}-${escapedArch}\\.${escapeRegExp(HOST_ARCHIVE_EXT[target.platform])}$`,
       ).test(file.name)
     ) {
       return { arch, kind: "host" };
@@ -122,7 +133,165 @@ function assertTarget(target) {
   }
 }
 
-export function planReleaseManifest(files, target) {
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+/** Throws with `where` in the message on the first field that fails its predicate. */
+function requireFields(where, record, checks) {
+  for (const [field, predicate] of Object.entries(checks)) {
+    const value = field.split(".").reduce((node, key) => (isRecord(node) ? node[key] : undefined), record);
+    if (!predicate(value)) throw new Error(`${where}: invalid ${field}: ${JSON.stringify(value)}`);
+  }
+}
+
+/**
+ * One `host-package` record per requested arch. Every field the spec names
+ * must be present and coherent with the release: the tag, the exact archive
+ * (name and SHA-256), host/desktop versions equal to the release version,
+ * a rendered service definition, a credential outcome, a ready verifier with
+ * its Chrome pin/hash, timing, and exit codes. Skips and source-tree runs
+ * are refused: evidence comes from the unpacked archive or not at all.
+ */
+function validateHostPackageRecord(record, target, hostArtifacts, where) {
+  requireFields(where, record, {
+    schemaVersion: (v) => v === 1,
+    kind: (v) => v === "host-package",
+    releaseTag: (v) => v === `v${target.version}`,
+    platform: (v) => v === target.platform,
+    arch: nonEmptyString,
+    source: (v) => v === "packaged" || v === "source-tree",
+    "artifact.name": nonEmptyString,
+    "artifact.size": (v) => Number.isSafeInteger(v) && v > 0,
+    "artifact.sha256": (v) => typeof v === "string" && SHA256_RE.test(v),
+    "versions.host": (v) => v === target.version,
+    "versions.desktop": (v) => v === target.version,
+    "versions.omp": (v) => v === null || nonEmptyString(v),
+    "versions.protocol": (v) => Number.isSafeInteger(v) && v > 0,
+    "versions.protocolRange.min": (v) => Number.isSafeInteger(v) && v > 0,
+    "versions.protocolRange.max": (v) => Number.isSafeInteger(v) && v > 0,
+    "versions.node": nonEmptyString,
+    "versions.abi": (v) => Number.isSafeInteger(v) && v > 0,
+    "service.file": nonEmptyString,
+    "service.sha256": (v) => typeof v === "string" && SHA256_RE.test(v),
+    "credentials.backend": nonEmptyString,
+    "credentials.outcome": (v) => v === "available" || v === "degraded",
+    "verifier.state": (v) => v === "ready" || v === "degraded",
+    "verifier.pin": (v) => v === null || nonEmptyString(v),
+    "verifier.sha256": (v) => v === null || (typeof v === "string" && SHA256_RE.test(v)),
+    startedAt: (v) => typeof v === "string" && ISO_DATE_RE.test(v),
+    finishedAt: (v) => typeof v === "string" && ISO_DATE_RE.test(v),
+    skipped: (v) => Array.isArray(v) && v.every(nonEmptyString),
+    steps: (v) => Array.isArray(v) && v.length > 0,
+    "logs.dir": nonEmptyString,
+  });
+  for (const [index, step] of record.steps.entries()) {
+    requireFields(`${where} steps[${index}]`, step, {
+      name: nonEmptyString,
+      exitCode: (v) => Number.isSafeInteger(v),
+      expectedExitCode: (v) => Number.isSafeInteger(v),
+      startedAtMs: (v) => Number.isSafeInteger(v) && v > 0,
+      endedAtMs: (v) => Number.isSafeInteger(v) && v > 0,
+    });
+    if (step.exitCode !== step.expectedExitCode) {
+      throw new Error(`${where}: step ${step.name} exited ${step.exitCode}, expected ${step.expectedExitCode}`);
+    }
+  }
+  if (record.source !== "packaged") {
+    throw new Error(`${where}: evidence from a ${record.source} run is not release evidence`);
+  }
+  if (record.skipped.length > 0) {
+    throw new Error(`${where}: skipped ${record.skipped.join(", ")}`);
+  }
+  if (!target.arches.includes(record.arch)) {
+    throw new Error(`${where}: unexpected ${target.platform} arch ${record.arch}`);
+  }
+  if (record.verifier.state !== "ready" || record.verifier.pin === null || record.verifier.sha256 === null) {
+    throw new Error(`${where}: verifier ${record.verifier.state}: ${record.verifier.reason ?? "no pin"}`);
+  }
+  const artifact = hostArtifacts.get(record.arch);
+  if (record.artifact.name !== artifact.name) {
+    throw new Error(`${where}: names ${record.artifact.name}, the release ships ${artifact.name}`);
+  }
+  if (record.artifact.size !== artifact.size) {
+    throw new Error(`${where}: ${artifact.name} is ${record.artifact.size} bytes in the record, ${artifact.size} in the release`);
+  }
+  if (artifact.sha256 !== undefined && artifact.sha256 !== record.artifact.sha256) {
+    throw new Error(`${where}: ${artifact.name} SHA-256 ${record.artifact.sha256} does not match the release asset ${artifact.sha256}`);
+  }
+}
+
+/** The Fedora H scenario (issue #442 §12): live tests ran with no display, none skipped, none failed. */
+function validateGateRecord(record, target, where) {
+  requireFields(where, record, {
+    schemaVersion: (v) => v === 1,
+    kind: (v) => v === "fedora-no-display-gate",
+    releaseTag: (v) => v === `v${target.version}`,
+    platform: (v) => v === "linux",
+    arch: (v) => v === "x64",
+    "os.id": (v) => v === "fedora",
+    "os.versionId": (v) => v === "44",
+    "display.DISPLAY": (v) => v === null,
+    "display.WAYLAND_DISPLAY": (v) => v === null,
+    "liveTests.total": (v) => Number.isSafeInteger(v) && v > 0,
+    "liveTests.passed": (v) => Number.isSafeInteger(v) && v >= 0,
+    "liveTests.failed": (v) => v === 0,
+    "liveTests.skipped": (v) => v === 0,
+    smokeRecord: nonEmptyString,
+  });
+  if (record.liveTests.passed !== record.liveTests.total) {
+    throw new Error(`${where}: ${record.liveTests.passed} of ${record.liveTests.total} live tests passed`);
+  }
+}
+
+function validateRecords(records, target, artifacts) {
+  const hostArtifacts = new Map(
+    artifacts.filter(({ kind }) => kind === "host").map((artifact) => [artifact.arch, artifact]),
+  );
+  const seenPackages = new Map();
+  const seenGates = new Map();
+  for (const { name, record } of records) {
+    const where = `Record ${name}`;
+    if (!isRecord(record)) throw new Error(`${where}: not an object`);
+    if (record.kind === "host-package") {
+      if (record.platform !== target.platform) continue;
+      validateHostPackageRecord(record, target, hostArtifacts, where);
+      const previous = seenPackages.get(record.arch);
+      if (previous) throw new Error(`Duplicate ${target.platform} host-package record for ${record.arch}: ${previous}, ${name}`);
+      seenPackages.set(record.arch, name);
+    } else if (typeof record.kind === "string" && PLATFORM_GATES[target.platform].includes(record.kind)) {
+      validateGateRecord(record, target, where);
+      const previous = seenGates.get(record.kind);
+      if (previous) throw new Error(`Duplicate ${record.kind} record: ${previous}, ${name}`);
+      seenGates.set(record.kind, name);
+    } else if (typeof record.kind !== "string" || !Object.values(PLATFORM_GATES).flat().includes(record.kind)) {
+      throw new Error(`${where}: unknown record kind ${JSON.stringify(record.kind)}`);
+    }
+  }
+  const missing = target.arches.filter((arch) => !seenPackages.has(arch)).map((arch) => `${arch} host-package`);
+  for (const gate of PLATFORM_GATES[target.platform]) {
+    if (!seenGates.has(gate)) missing.push(gate);
+  }
+  if (missing.length > 0) {
+    throw new Error(`Missing ${target.platform} records: ${missing.join(", ")}`);
+  }
+  return {
+    packages: target.arches.map((arch) => seenPackages.get(arch)),
+    gates: PLATFORM_GATES[target.platform].map((gate) => seenGates.get(gate)),
+  };
+}
+
+/**
+ * `files`: `{ name, size, sha256? }` per release asset. `records`: `{ name,
+ * record }` per evidence file. Returns the classified artifacts, the sorted
+ * checksum inputs, the macOS desktop feed plan, and which records vouch for
+ * the release.
+ */
+export function planReleaseManifest(files, target, records = []) {
   assertTarget(target);
 
   const duplicateNames = files
@@ -157,6 +326,7 @@ export function planReleaseManifest(files, target) {
     artifacts.push({
       name: file.name,
       size: file.size,
+      ...(file.sha256 !== undefined ? { sha256: file.sha256 } : {}),
       platform: target.platform,
       arch: classification.arch,
       kind: classification.kind,
@@ -169,12 +339,18 @@ export function planReleaseManifest(files, target) {
       if (!seen.has(`${arch}:${kind}`)) missing.push(`${arch} ${kind}`);
     }
   }
+  for (const kind of PLATFORM_FEEDS) {
+    if (!seen.has(`null:${kind}`)) missing.push(kind);
+  }
   if (missing.length > 0) {
     throw new Error(`Missing ${target.platform} artifacts: ${missing.join(", ")}`);
   }
 
+  const evidence = validateRecords(records, target, artifacts);
+
   artifacts.sort(compareNames);
-  const checksumInputs = artifacts.map(({ name }) => name);
+  // Feeds are metadata about the archives, not checksummed distributables.
+  const checksumInputs = artifacts.filter(({ kind }) => kind !== "host-feed").map(({ name }) => name);
   let latestMac = null;
   if (target.platform === "mac") {
     const byArchAndKind = new Map(
@@ -191,12 +367,12 @@ export function planReleaseManifest(files, target) {
     };
   }
 
-  return { artifacts, checksumInputs, latestMac };
+  return { artifacts, checksumInputs, latestMac, evidence };
 }
 
 function parseArguments(argv) {
   const values = {};
-  const allowed = new Set(["dir", "platform", "version", "arches", "out-dir"]);
+  const allowed = new Set(["dir", "platform", "version", "arches", "out-dir", "records"]);
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -215,6 +391,7 @@ function parseArguments(argv) {
   return {
     dir: values.dir,
     outDir: values["out-dir"],
+    recordsDir: values.records,
     target: {
       platform: values.platform,
       version: values.version,
@@ -223,21 +400,21 @@ function parseArguments(argv) {
   };
 }
 
-async function sha512(file) {
-  const hash = createHash("sha512");
+async function digest(file, algorithm, encoding) {
+  const hash = createHash(algorithm);
   await new Promise((resolve, reject) => {
     createReadStream(file)
       .on("data", (chunk) => hash.update(chunk))
       .on("end", resolve)
       .on("error", reject);
   });
-  return hash.digest("base64");
+  return hash.digest(encoding);
 }
 
 async function renderLatestMac(plan, dir) {
   const files = [];
   for (const file of plan.latestMac.files) {
-    files.push({ ...file, sha512: await sha512(path.join(dir, file.url)) });
+    files.push({ ...file, sha512: await digest(path.join(dir, file.url), "sha512", "base64") });
   }
   const primary = files.find(({ url }) => url === plan.latestMac.path);
   const lines = [`version: ${plan.latestMac.version}`, "files:"];
@@ -253,18 +430,39 @@ async function renderLatestMac(plan, dir) {
   return `${lines.join("\n")}\n`;
 }
 
-export async function runCli(argv) {
-  const { dir, outDir, target } = parseArguments(argv);
+async function readRecords(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
+  const records = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const text = await readFile(path.join(dir, entry.name), "utf8");
+    let record;
+    try {
+      record = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Record ${entry.name}: ${error instanceof Error ? error.message : error}`, { cause: error });
+    }
+    records.push({ name: entry.name, record });
+  }
+  return records;
+}
+
+export async function runCli(argv) {
+  const { dir, outDir, recordsDir, target } = parseArguments(argv);
+  const entries = await readdir(dir, { withFileTypes: true });
+  const hostArchive = new RegExp(`^omp-ui-host-.+\\.${escapeRegExp(HOST_ARCHIVE_EXT[target.platform] ?? "")}$`);
   const files = await Promise.all(
     entries
       .filter((entry) => entry.isFile())
-      .map(async (entry) => ({
-        name: entry.name,
-        size: (await stat(path.join(dir, entry.name))).size,
-      })),
+      .map(async (entry) => {
+        const file = path.join(dir, entry.name);
+        const { size } = await stat(file);
+        // Only host archives are tied to a record by hash; hashing the DMGs here would be wasted work.
+        const sha256 = hostArchive.test(entry.name) ? await digest(file, "sha256", "hex") : undefined;
+        return { name: entry.name, size, ...(sha256 !== undefined ? { sha256 } : {}) };
+      }),
   );
-  const plan = planReleaseManifest(files, target);
+  const plan = planReleaseManifest(files, target, await readRecords(recordsDir));
 
   await mkdir(outDir, { recursive: true });
   await writeFile(

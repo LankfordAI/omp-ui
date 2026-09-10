@@ -20,12 +20,13 @@ import {
 import type { EventScope } from "@omp-ui/server";
 import { HostApplication, omitUnless } from "./host-application";
 import { SessionManager } from "./session/session-manager";
-import { claimLegacyElectronAuthority } from "./authority/authority";
 import {
+  DESKTOP_CONNECTION_ID,
   hostDeps,
   ownedSessionRecord,
   remoteConnection,
   seedRegistry,
+  testAuthority,
   testHost,
   type BoundConnection,
 } from "./test/fixtures";
@@ -137,7 +138,7 @@ afterEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
 });
 
-describe("IPC spawn argument boundary (issue #358)", () => {
+describe("spawn argument boundary (issue #358)", () => {
   const request: SpawnRequest = {
     origin: "new",
     mode: "rpc-ui",
@@ -250,7 +251,7 @@ describe("per-connection state (issue #442)", () => {
     await ipc.invoke(CH.setThemeId, "nord");
 
     expect(deliveries.map((d) => d.scope)).toEqual([
-      { kind: "connection", id: "ipc" },
+      { kind: "connection", id: DESKTOP_CONNECTION_ID },
       { kind: "connection", id: ctx.id },
     ]);
     expect(deliveries[0]!.state.self).toEqual({ role: "desktop", local: true });
@@ -285,7 +286,7 @@ describe("per-connection state (issue #442)", () => {
     host.connectionClosed(ctx.id);
     await ipc.invoke(CH.setThemeId, "graphite");
     expect(to(deliveries, ctx.id)).toHaveLength(1);
-    expect(to(deliveries, "ipc")).toHaveLength(2);
+    expect(to(deliveries, DESKTOP_CONNECTION_ID)).toHaveLength(2);
   });
 });
 
@@ -406,7 +407,7 @@ describe("plan-review gate on the wire (issue #215)", () => {
     const backendRef: { current: HostApplication | null } = { current: null };
     const manager = new SessionManager({
       registry: Registry.loadUnlocked(registryFile),
-      authority: claimLegacyElectronAuthority(base),
+      authority: testAuthority(base),
       providerKeys: new ProviderKeys(
         path.join(base, "provider-keys.json"),
         cipher,
