@@ -122,9 +122,9 @@ jobs:
   # binary that named-skips in development must not skip release evidence.
   fedora-no-display-gate:
     runs-on: [self-hosted, gfx1201]
-    env:
-      # Nothing here may touch the runner user's real data root.
-      OMP_UI_DATA_DIR: ${{ runner.temp }}/omp-ui-gate-data
+    # OMP_UI_DATA_DIR is exported by the first step: `runner.temp` is not
+    # available in job-level env, and nothing here may touch the runner
+    # user's real data root.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -132,7 +132,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Assert the Fedora 44 row
+      - name: Assert the Fedora 44 row and isolate the data root
         shell: bash
         run: |
           set -euo pipefail
@@ -141,7 +141,8 @@ jobs:
             printf 'The no-display gate is the Fedora 44 x64 row; this runner is %s %s\n' "$ID" "$VERSION_ID" >&2
             exit 1
           fi
-          mkdir -p "$OMP_UI_DATA_DIR" package-records/gate
+          echo "OMP_UI_DATA_DIR=$RUNNER_TEMP/omp-ui-gate-data" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/omp-ui-gate-data" package-records/gate
       - name: Stamp version from tag
         run: |
           tag="${GITHUB_REF_NAME#v}"
