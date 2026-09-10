@@ -30,7 +30,7 @@ Enforcement points:
   an explicit `{ origin: "new", mode: "rpc-ui" }` request to
   `backend.spawnSession` (`packages/desktop/src/renderer/src/store.ts`); the
   main process parses the wire shape and honors it in `SessionManager.spawn`
-  (`packages/desktop/src/main/session-manager.ts`).
+  (`packages/host/src/session/session-manager.ts`).
 - **Same-session / compacted contexts** — the store's `ensureBuildMode`
   helper waits (bounded, 15 s) for the extension's exit status frame
   (`plan.enabled === false`). In the healthy path the verdict-time,

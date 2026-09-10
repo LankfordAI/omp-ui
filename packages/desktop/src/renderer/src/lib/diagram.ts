@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { renderMermaid } from "./plan-diagrams";
+import { renderMermaid } from "@omp-ui/plan-doc";
 import { useTheme } from "./themes";
 
 /**

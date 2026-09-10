@@ -45,6 +45,22 @@ const fixtures = {
   },
 };
 
+const hostArtifacts = {
+  linux: [
+    { name: "omp-ui-host-1.2.3-linux-x64.tar.gz", arch: "x64", kind: "host" },
+    { name: "latest-host-linux.yml", arch: null, kind: "host-feed" },
+  ],
+  mac: [
+    { name: "omp-ui-host-1.2.3-mac-arm64.zip", arch: "arm64", kind: "host" },
+    { name: "omp-ui-host-1.2.3-mac-x64.zip", arch: "x64", kind: "host" },
+    { name: "latest-host-mac.yml", arch: null, kind: "host-feed" },
+  ],
+  win: [
+    { name: "omp-ui-host-1.2.3-win-x64.zip", arch: "x64", kind: "host" },
+    { name: "latest-host-win.yml", arch: null, kind: "host-feed" },
+  ],
+};
+
 function metadata(names) {
   return names.map((name, index) => ({ name, size: index + 1 }));
 }
@@ -78,6 +94,37 @@ for (const [platform, fixture] of Object.entries(fixtures)) {
     }
   });
 }
+
+for (const [platform, fixture] of Object.entries(fixtures)) {
+  test(`classifies ${platform} host artifacts without requiring them`, () => {
+    const expected = hostArtifacts[platform];
+    const names = [...fixture.names, ...expected.map(({ name }) => name)];
+    const plan = planReleaseManifest(metadata(names), fixture.target);
+
+    assert.deepEqual(plan.checksumInputs, sorted(names));
+    assert.deepEqual(
+      plan.artifacts
+        .filter(({ kind }) => kind === "host" || kind === "host-feed")
+        .map(({ name, arch, kind }) => ({ name, arch, kind }))
+        .sort((left, right) => (left.name < right.name ? -1 : 1)),
+      [...expected].sort((left, right) => (left.name < right.name ? -1 : 1)),
+    );
+    if (platform === "mac") {
+      assert.deepEqual(
+        plan.latestMac.files.map(({ url }) => url),
+        fixture.names,
+      );
+    }
+  });
+}
+
+test("ignores host artifacts and feeds for other platforms", () => {
+  const fixture = fixtures.linux;
+  const foreign = [...hostArtifacts.mac, ...hostArtifacts.win].map(({ name }) => name);
+  const plan = planReleaseManifest(metadata([...fixture.names, ...foreign]), fixture.target);
+
+  assert.deepEqual(plan.checksumInputs, sorted(fixture.names));
+});
 
 test("rejects a missing requested architecture", () => {
   const fixture = fixtures.linux;

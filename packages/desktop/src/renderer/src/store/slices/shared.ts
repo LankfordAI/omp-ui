@@ -22,7 +22,6 @@ import {
 } from "../../lib/transcript";
 import type { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import type { PlanConcernWatcher } from "../../lib/plan-concerns";
-import type { StallContinueWatcher } from "../../lib/stall-continue";
 import { backend } from "../../backend";
 import type {
   RpcTabState,
@@ -38,7 +37,6 @@ export type GetState = StoreApi<UiStore>["getState"];
 export interface Watchers {
   concern: PlanConcernWatcher;
   advisorReply: AdvisorReplyWatcher;
-  stall: StallContinueWatcher;
 }
 
 export interface TranscriptBatch {

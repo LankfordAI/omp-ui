@@ -6,9 +6,7 @@ import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 import type { ThemedToken } from "shiki/core";
 import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import type { PreparedPlanState } from "../lib/plan-document";
-import type { ParsedPlanSource } from "../lib/plan-source";
-import type { CodeTokenizer } from "../lib/plan-highlight";
-import type { Theme } from "../lib/themes";
+import type { CodeTokenizer, ParsedPlanSource, Theme } from "@omp-ui/plan-doc";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 
 const clipboardImageMock = vi.hoisted(() => ({
@@ -46,10 +44,10 @@ vi.mock("../lib/plan-document", async (importOriginal) => {
 // budget under full-suite load. Stubbing the renderer and the tokenizer at the
 // seams the pipeline injects keeps the substitution, guardrail, verification
 // and theme behaviour under test real while making the pipeline
-// microtask-only. Real-engine coverage lives in lib/plan-diagrams.smoke.test.ts
-// and lib/plan-highlight.smoke.test.ts.
-vi.mock("../lib/plan-diagrams", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
+// microtask-only. Real-engine coverage lives in plan-doc's
+// plan-diagrams.smoke.test.ts and plan-highlight.smoke.test.ts.
+vi.mock("@omp-ui/plan-doc/plan-diagrams", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@omp-ui/plan-doc/plan-diagrams")>();
   return {
     ...original,
     // The pipeline injects this renderer itself (issue #384), so the stub has
@@ -59,8 +57,8 @@ vi.mock("../lib/plan-diagrams", async (importOriginal) => {
   };
 });
 
-vi.mock("../lib/plan-highlight", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../lib/plan-highlight")>();
+vi.mock("@omp-ui/plan-doc/plan-highlight", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@omp-ui/plan-doc/plan-highlight")>();
   // One coloured token per source line: enough for the `tk-N` spans and the
   // token rule the case asserts, without loading a grammar.
   const tokenizeStub: CodeTokenizer = async (source) =>
@@ -1680,7 +1678,7 @@ describe("PlanReview code highlighting (issue #319)", () => {
 
     const frame = planFrame()!;
     // The tokenizer is stubbed at the module seam (issue #329); real shiki is
-    // covered by lib/plan-highlight.smoke.test.ts.
+    // covered by plan-doc's plan-highlight.smoke.test.ts.
     await until(() => (frame.getAttribute("srcdoc") ?? "") !== "");
     const srcdoc = frame.getAttribute("srcdoc")!;
     expect(srcdoc).toContain('class="omp-ui-hl"');

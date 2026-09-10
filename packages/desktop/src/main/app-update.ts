@@ -16,7 +16,7 @@ import {
   type DownloadFetchLike,
   type FetchLike,
 } from "@omp-ui/core";
-import { UpdateController, type UpdateControllerDeps } from "./update-controller";
+import { UpdateController, type UpdateControllerDeps } from "@omp-ui/host";
 
 // Main-process orchestration for omp-ui's own release updates (issue #18).
 // All the machine work — release lookup, package-format detection, the

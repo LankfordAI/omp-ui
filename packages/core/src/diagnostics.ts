@@ -23,16 +23,31 @@ import type {
   ProjectRecord,
 } from "./types";
 
+/** What the desktop client knows about itself; null when the bundle is collected without one attached. */
+export interface DesktopClientFacts {
+  clientVersion: string;
+  electronVersion: string | null;
+  chromeVersion: string | null;
+  windowStateFile: string | null;
+  packaged: boolean;
+  packageFormat: string;
+}
+
+/** The host process's own identity and health, as `host:status` reports them. */
+export interface HostDiagnosticsFacts {
+  dataRoot: string;
+  hostVersion: string;
+  hostProtocol: number;
+  verifier: { state: "ready" | "degraded"; reason: string | null; pin: string | null };
+  credentialBackend: string;
+}
+
 /** Everything about this machine/app that a bundle reports verbatim. */
 export interface DiagnosticsFacts {
   appVersion: string;
   ompVersion: string | null;
   ompPath: string | null;
-  electronVersion: string | null;
   nodeVersion: string;
-  chromeVersion: string | null;
-  packaged: boolean;
-  packageFormat: string;
   platform: string;
   arch: string;
   osRelease: string;
@@ -44,7 +59,8 @@ export interface DiagnosticsFacts {
   agentDir: string;
   registryFile: string;
   logDir: string;
-  windowStateFile: string;
+  host: HostDiagnosticsFacts;
+  desktopClient: DesktopClientFacts | null;
 }
 
 /** One in-memory breadcrumb ring entry (structurally the desktop ring's type). */
@@ -265,11 +281,9 @@ async function buildSections(
     appVersion: o.facts.appVersion,
     ompVersion: o.facts.ompVersion,
     ompPath: o.facts.ompPath,
-    electronVersion: o.facts.electronVersion,
     nodeVersion: o.facts.nodeVersion,
-    chromeVersion: o.facts.chromeVersion,
-    packaged: o.facts.packaged,
-    packageFormat: o.facts.packageFormat,
+    host: o.facts.host,
+    desktopClient: o.facts.desktopClient,
   });
   sections.push({ id: "versions", prefix: "", included: true, files: [versions] });
 
@@ -392,8 +406,10 @@ async function buildSections(
   sections.push({ id: "breadcrumbs", prefix: "", included: true, files: [breadcrumbs] });
 
   const windowState: PlannedFile[] = [];
-  const wsSize = statSize(o.facts.windowStateFile);
-  if (wsSize !== null) windowState.push(copyFile("window-state.json", o.facts.windowStateFile));
+  const windowStateFile = o.facts.desktopClient?.windowStateFile ?? null;
+  if (windowStateFile !== null && statSize(windowStateFile) !== null) {
+    windowState.push(copyFile("window-state.json", windowStateFile));
+  }
   sections.push({
     id: "window-state",
     prefix: "",
@@ -462,7 +478,8 @@ function manifestBytes(
     generatedAt: now.toISOString(),
     appVersion: o.facts.appVersion,
     ompVersion: o.facts.ompVersion,
-    electronVersion: o.facts.electronVersion,
+    host: o.facts.host,
+    desktopClient: o.facts.desktopClient,
     includeTranscripts: o.includeTranscripts,
     sections,
     redaction: [

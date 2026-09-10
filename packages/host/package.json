@@ -1,0 +1,42 @@
+{
+  "name": "@omp-ui/host",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.verifier.json",
+    "build": "vite build --config verifier/vite.config.ts",
+    "fetch:verifier-browser": "node scripts/fetch-verifier-browser.mjs",
+    "package:host": "node scripts/package-host.mjs",
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "build:secret-service": "node-gyp rebuild -C src/credentials/linux-secret-service"
+  },
+  "dependencies": {
+    "@omp-ui/core": "*",
+    "@omp-ui/plan-doc": "*",
+    "@omp-ui/server": "*",
+    "node-pty": "^1.1.0",
+    "puppeteer-core": "^24.0.0"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "^2.0.0",
+    "@primno/dpapi": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "node-gyp": "^11.0.0",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.1.10",
+    "ws": "^8.18.3"
+  }
+}

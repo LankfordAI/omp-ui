@@ -1,9 +1,36 @@
-import { basename, join } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, screen } from "electron";
-import { clearImageScratch, formatModelRole } from "@omp-ui/core";
-import { MainBackend } from "./backend";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { app, BrowserWindow, dialog, screen, shell } from "electron";
+import {
+  appendMainLog,
+  CH,
+  clearImageScratch,
+  createBreadcrumbRing,
+  detectPackageFormat,
+  formatModelRole,
+  startFdWatchdog,
+  type Attention,
+  type BackendState,
+} from "@omp-ui/core";
+import { DCH } from "@omp-ui/core/desktop-channels";
+import {
+  claimLegacyElectronAuthority,
+  gateSelector,
+  HostApplication,
+  IPC_CONNECTION_ID,
+  parseSpawnGate,
+  type ClientEffects,
+} from "@omp-ui/host";
+import { HOST_PROTOCOL, type ConnectionContext } from "@omp-ui/server";
+import { AppUpdater } from "./app-update";
 import { appUpdateEnabledForBuild } from "./app-update-policy";
+import { refuseLegacyAuthorityIfClaimed } from "./authority-tripwire";
+import { registerDesktopAdapter, sendSurfaceTab, sendToWindow } from "./desktop-adapter";
+import { DesktopNotifier } from "./desktop-notifier";
+import { bindBackendIpc, bindWindowSink } from "./ipc-bridge";
+import { electronKeyCipher } from "./key-cipher";
 import { openExternalSafe } from "./open-external";
+import { ProjectOpener } from "./project-open";
 import { setupSpellcheck } from "./spellcheck";
 import {
   fitWindowBounds,
@@ -12,10 +39,6 @@ import {
   windowStatePath,
 } from "./window-state";
 import { installApplicationMenu } from "./application-menu";
-import { startFdWatchdog } from "./fd-watchdog";
-import { appendMainLog } from "./main-log";
-import { createBreadcrumbRing } from "./breadcrumbs";
-import { gateSelector, parseSpawnGate } from "./spawn-gate";
 import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 
 // Packaged, standalone unpackaged, and electron-vite runs need independent
@@ -47,7 +70,7 @@ if (process.env.OMP_UI_CDP_PORT) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  let backend: MainBackend | null = null;
+  let host: HostApplication | null = null;
   let forceQuit = false;
   let appQuitting = false;
   let quitDialogOpen = false;
@@ -62,6 +85,7 @@ if (!app.requestSingleInstanceLock()) {
   // the closure is set once whenReady has a window (see whenReady below).
   let flushWindowState: (() => void) | null = null;
   let stopFdWatchdog: (() => void) | null = null;
+  let disposeNotifier: (() => void) | null = null;
 
   // The userData path is pinned above, so the log dir and the breadcrumb sink
   // can exist before whenReady — process-error hooks registered here still
@@ -88,8 +112,7 @@ if (!app.requestSingleInstanceLock()) {
 
   /** Awaitable quit guard used by window and application quit paths. */
   const confirmLiveQuit = async (): Promise<boolean> => {
-    if (forceQuit || updateQuitAuthorized || !backend || backend.sessions.liveCount === 0)
-      return true;
+    if (forceQuit || updateQuitAuthorized || host === null || host.liveCount === 0) return true;
     if (quitDialogOpen) return false;
     quitDialogOpen = true;
     const win = BrowserWindow.getAllWindows()[0];
@@ -100,7 +123,7 @@ if (!app.requestSingleInstanceLock()) {
         buttons: ["Quit", "Cancel"],
         defaultId: 1,
         cancelId: 1,
-        message: `${backend.sessions.liveCount} agent session(s) still running — quit?`,
+        message: `${host.liveCount} agent session(s) still running — quit?`,
       });
       if (r.response !== 0) return false;
       forceQuit = true;
@@ -112,13 +135,12 @@ if (!app.requestSingleInstanceLock()) {
 
   /**
    * Quit guard used by non-Darwin window close and every quit that starts with
-   * before-quit (Ctrl+Q, app menu, app.quit()). killAll must run only when the
+   * before-quit (Ctrl+Q, app menu, app.quit()). shutdown must run only when the
    * quit actually proceeds — draining `live` first would make the confirm
    * never show. Returns true when the quit may proceed.
    */
   const confirmQuitIfLive = (): boolean => {
-    if (forceQuit || updateQuitAuthorized || !backend || backend.sessions.liveCount === 0)
-      return true;
+    if (forceQuit || updateQuitAuthorized || host === null || host.liveCount === 0) return true;
     void confirmLiveQuit().then((ok) => {
       if (ok) app.quit();
     });
@@ -290,6 +312,10 @@ if (!app.requestSingleInstanceLock()) {
       });
     });
 
+    // Release P tripwire (issue #442): a canonical host root with permanent claim
+    // evidence belongs to a persistent host; this legacy Electron authority must
+    // refuse before Registry.load could touch anything.
+    refuseLegacyAuthorityIfClaimed({ logDir, breadcrumbs });
     const registryFile =
       process.env.OMP_UI_REGISTRY_PATH ?? join(app.getPath("userData"), "registry.json");
     // Dev/test seam (docs/development.md): when set, every session this instance
@@ -305,69 +331,187 @@ if (!app.requestSingleInstanceLock()) {
           }`,
       );
     }
-    const be = new MainBackend(win, registryFile, {
-      setAppUpdateQuitAuthorized: (on) => {
-        updateQuitAuthorized = on;
+    // Every store beside the registry; the data root is the registry's directory so a
+    // relocated OMP_UI_REGISTRY_PATH carries the whole layout with it.
+    const dataRoot = dirname(registryFile);
+    const hostVersion = process.env.OMP_UI_APP_UPDATE_VERSION ?? app.getVersion();
+    const iconPath = join(__dirname, "../../build/icon.png");
+    const projectOpener = new ProjectOpener();
+    const setWindowChrome = (background: string, symbol: string): void => {
+      if (win.isDestroyed()) return;
+      try {
+        win.setTitleBarOverlay({ color: background, symbolColor: symbol, height: 36 });
+      } catch {
+        // No title-bar overlay on this platform (macOS hiddenInset, Linux frameless).
+      }
+    };
+    // The client effects the host's BACKEND_CHANNELS still carry in P (#454 moves them to desktop:*).
+    const clientEffects: ClientEffects = {
+      // shell.openPath resolves with an error string on failure ("" on success); rejecting lets
+      // the renderer surface it instead of the click dying silently.
+      openPath: async (absPath) => {
+        const failure = await shell.openPath(absPath);
+        if (failure !== "") throw new Error(failure);
       },
+      showPathInFolder: (absPath) => shell.showItemInFolder(absPath),
+      openProject: (projectPath, target) => projectOpener.open(projectPath, target),
+      getProjectOpenAvailability: () => projectOpener.availability(),
+      setWindowChrome,
+      chooseDiagnosticsPath: async (basename) => {
+        const result = await dialog.showSaveDialog(win, {
+          defaultPath: basename || "omp-ui-diagnostics.zip",
+          filters: [{ name: "Zip archive", extensions: ["zip"] }],
+        });
+        return result.canceled || !result.filePath ? null : result.filePath;
+      },
+      // The updater is constructed after the host it reads dismissals from; the host only ever
+      // reaches it from a channel handler, long after both exist.
+      get appUpdate() {
+        return appUpdater;
+      },
+    };
+    const application = new HostApplication({
+      paths: {
+        dataRoot,
+        registryFile,
+        providerKeysFile: join(dataRoot, "provider-keys.json"),
+        remoteInstancesFile: join(dataRoot, "remote-instances.json"),
+        worktreesRoot: join(dataRoot, "worktrees"),
+        oauthScratchDir: join(dataRoot, "oauth-login"),
+        logDir,
+        // __dirname is out/main in dev and packaged alike, so out/web resolves in both; inside
+        // app.asar Electron's patched fs reads it normally.
+        webRoot: join(__dirname, "../web"),
+      },
+      hostVersion,
+      cipher: electronKeyCipher(),
+      // Release P: Chromium's single-instance lock plus the tripwire above are the witness.
+      authority: claimLegacyElectronAuthority(dataRoot),
+      // The headless plan verifier (issue #442 §8): the pinned Chrome for Testing
+      // rides in resources/plan-verifier and its page in resources/verifier-page
+      // when packaged; a dev run points OMP_UI_VERIFIER_BROWSER at a fetched
+      // payload and reads the page from packages/host/dist/verifier.
+      verifier: {
+        resourcesDir: process.resourcesPath,
+        packaged: app.isPackaged,
+        runtimeDir: join(app.getPath("userData"), "runtime"),
+        pageDir: app.isPackaged
+          ? join(process.resourcesPath, "verifier-page")
+          : join(__dirname, "../../../host/dist/verifier"),
+      },
+      breadcrumbs,
+      spawnGate,
+      clientFacts: () => ({
+        clientVersion: app.getVersion(),
+        electronVersion: process.versions.electron ?? null,
+        chromeVersion: process.versions.chrome ?? null,
+        windowStateFile: winStateFile,
+        packaged: app.isPackaged,
+        packageFormat: detectPackageFormat(),
+      }),
+      clientEffects,
+    });
+    host = application;
+    // The client's own artifact updater (issue #18): reads its dismissal from the host's registry
+    // at construction, so it follows the host.
+    let lastAppUpdateStatus: string | null = null;
+    const appUpdater = new AppUpdater({
+      win,
       // omp-ui updates are enabled for packaged Linux, Windows, and macOS
       // builds; the env override lets a dev run exercise the real flow against
       // a release.
-      appUpdateEnabled: appUpdateEnabledForBuild({
+      enabled: appUpdateEnabledForBuild({
         packaged: app.isPackaged,
         platform: process.platform,
         forceEnabled: process.env.OMP_UI_APP_UPDATE_ENABLE === "1",
       }),
-      appVersion: process.env.OMP_UI_APP_UPDATE_VERSION ?? app.getVersion(),
+      currentVersion: hostVersion,
       // Dev-only AppImage fake: APPIMAGE is never set outside a real AppImage
       // run, so without this the electron-updater path is unreachable in dev.
-      appUpdateEnv:
+      env:
         process.env.OMP_UI_APP_UPDATE_FORMAT === "appimage"
           ? { APPIMAGE: "/dev/omp-ui.AppImage" }
           : undefined,
-      // __dirname is out/main in dev and packaged alike, so out/web resolves in both; inside
-      // app.asar Electron's patched fs reads it normally.
-      webRoot: join(__dirname, "../web"),
-      spawnGate,
-      logDir,
-      breadcrumbs,
-    });
-    backend = be;
-    stopFdWatchdog = startFdWatchdog({ logDir });
-    be.registerIpc();
-    // PROTOTYPE (#454): the three desktop-adapter members with no MainBackend alias.
-    ipcMain.handle("desktop:openExternal", (_e, url: unknown) => {
-      if (typeof url === "string") openExternalSafe(url);
-    });
-    ipcMain.handle(
-      "desktop:chooseSavePath",
-      async (_e, defaultName: unknown, extensions: unknown) => {
-        const name =
-          typeof defaultName === "string" && defaultName !== "" ? basename(defaultName) : "untitled";
-        const exts = Array.isArray(extensions)
-          ? extensions.filter((x): x is string => typeof x === "string")
-          : [];
-        const result = await dialog.showSaveDialog(win, {
-          defaultPath: name,
-          filters: exts.length > 0 ? [{ name: exts.join(", "), extensions: exts }] : [],
-        });
-        return result.canceled || !result.filePath ? null : result.filePath;
+      downloadsDir: app.getPath("downloads"),
+      getDismissed: () => application.getSetting("dismissedAppUpdateVersion"),
+      setDismissed: (v) => application.setSetting("dismissedAppUpdateVersion", v),
+      hasLiveSessions: () => application.liveCount > 0,
+      setQuitAuthorized: (on) => {
+        updateQuitAuthorized = on;
       },
-    );
-    ipcMain.on("desktop:viewedTab", () => {
-      // The host's tab:viewed decoration (backend.ts registerIpc) still gates banners in the prototype.
+      // The updater is the client's own: its state goes to this window and nowhere else.
+      send: (_channel, state) => {
+        // One breadcrumb per status transition, not per heartbeat (issue #413).
+        if (lastAppUpdateStatus !== state.status) {
+          lastAppUpdateStatus = state.status;
+          breadcrumbs.record("update-stage", { detail: `app:${state.status}` });
+        }
+        sendToWindow(win, DCH.onAppUpdateState, state);
+      },
+      channel: DCH.onAppUpdateState,
     });
-    void be.hydrateAll();
-    void be.startRemote();
-    be.startRemoteInstances();
+    stopFdWatchdog = startFdWatchdog({ logDir });
+    // The window's own connection (issue #442): the one desktop-role, loopback client. Its version is
+    // this build's; a control grant is WP4's to decide.
+    const ipcCtx: ConnectionContext = {
+      id: IPC_CONNECTION_ID,
+      role: "desktop",
+      local: true,
+      control: false,
+      clientKind: "desktop",
+      clientVersion: app.getVersion(),
+      protocolVersion: HOST_PROTOCOL,
+    };
+    bindBackendIpc(application, ipcCtx);
+    bindWindowSink(application, win);
+    // OS notifications for background sessions (issue #271): a desktop client of the host's
+    // attention level (#442), subscribed to `attention:changed` like any other sink and
+    // surfacing clicks into this window only (#453). Titles come from the last state this
+    // connection was addressed — the same sidebar titles the renderer shows.
+    let lastState: BackendState | null = null;
+    const notifier = new DesktopNotifier({
+      win,
+      isEnabled: () => application.getSetting("desktopNotifications"),
+      localeId: () => application.getSetting("localeId"),
+      titleOf: (tabId) => {
+        for (const group of lastState?.projects ?? []) {
+          const session = group.sessions.find((s) => s.tabId === tabId);
+          if (session !== undefined) return session.title;
+        }
+        return "New session";
+      },
+      // The wordmark tile (build/icon.png), mirroring the BrowserWindow icon above.
+      icon: () => (existsSync(iconPath) ? iconPath : null),
+      surfaceTab: (tabId) => sendSurfaceTab(win, tabId),
+    });
+    application.addSink((scope, channel, args) => {
+      if (channel === CH.onStateChanged && scope.kind === "connection" && scope.id === IPC_CONNECTION_ID) {
+        lastState = args[0] as BackendState;
+      } else if (channel === CH.onAttentionChanged && scope.kind === "broadcast") {
+        notifier.onAttention(args[0] as string, args[1] as Attention | null);
+      }
+    });
+    disposeNotifier = () => notifier.dispose();
+    registerDesktopAdapter({
+      win,
+      appUpdater,
+      projectOpener,
+      setWindowChrome,
+      openExternal: openExternalSafe,
+      clientViewed: (tabId) => notifier.clientViewed(tabId),
+    });
+    void application.hydrateAll();
+    void application.startRemote();
+    application.startRemoteInstances();
     // A .desktop/AppImage/dock launch inherits the session-manager environment,
     // never ~/.zshrc — so keys the user exported from their shell are invisible
     // and omp's model catalog collapses to the providers needing no auth. Void-
     // fired: sessions spawn on user action, long after this settles, and the
     // stored keys are already applied synchronously in the constructor.
-    void be.captureShellKeys();
+    void application.captureShellKeys();
     // The fresh-spawn gate consults the subscription account cache, so prime
     // it at boot the same way the shell keys are (issue #368).
-    void be.refreshProviderOAuth();
+    void application.refreshProviderOAuth();
 
     win.on("close", (e) => {
       // updateQuitAuthorized: the close was issued by native quitAndInstall,
@@ -390,11 +534,12 @@ if (!app.requestSingleInstanceLock()) {
 
     // omp install/update check (issue #19): silent on offline/no-update,
     // void-fired so first paint never waits on the registry.
-    be.checkOmpUpdateBackground();
+    application.checkOmpUpdateBackground();
 
     // omp-ui's own release check (issue #18): silent on offline/no-update,
-    // void-fired so first paint never waits on GitHub.
-    be.checkAppUpdateBackground();
+    // void-fired so first paint never waits on GitHub. Gated by the launch
+    // preference; the palette's manual check goes through checkNow(true).
+    if (application.getSetting("appUpdateCheckOnLaunch")) void appUpdater.checkNow(false);
   });
 
   // Explicit kill, never SIGHUP reliance (ConPTY has no hangup semantics) —
@@ -411,7 +556,8 @@ if (!app.requestSingleInstanceLock()) {
     appQuitting = true;
     breadcrumbs.record("quit", { detail: `forced=${forceQuit}` });
     stopFdWatchdog?.();
-    backend?.killAll();
+    disposeNotifier?.();
+    void host?.shutdown();
     // Pasted-image scratch files are only ever needed by a live omp process.
     clearImageScratch();
   });

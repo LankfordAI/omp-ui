@@ -91,7 +91,7 @@ Statuses:
 | `unreachable` | The connection failed or dropped. Projects stay listed but dimmed, tabs stay open with input disabled, and omp-ui retries with a growing delay from 1 to 30 seconds. |
 | `sign-in required` | The remote rejected the stored credential (its password changed or its token was regenerated), or the credential could not be decrypted. omp-ui stops retrying until you **Edit** the instance and sign in again. |
 | `this app` | The URL is this app's own remote-access address. No group is added and nothing is retried. |
-| `incompatible version` | The remote omp-ui is older than this app and cannot be joined. |
+| `incompatible version` | The remote omp-ui speaks a protocol this app cannot join — older than this app, or newer than it; the error names which. Nothing is retried. |
 
 omp-ui stores the credential that the sign-in derived — a password-derived credential or the access token — never the password. It is encrypted through the operating system credential store and written to `remote-instances.json` beside `registry.json`, readable only by your user; it never reaches a renderer, and the diagnostic bundle never reads it. Without a secure credential store, omp-ui refuses to join rather than store the credential insecurely.
 

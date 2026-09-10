@@ -125,10 +125,7 @@ export function createLifecycleSlice(
   deps: LifecycleDeps,
 ): LifecycleSlice {
   // The bodies moved from the root closure keep their original names.
-  const {
-    advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
-  } = deps;
+  const { advisorReply: advisorReplyWatcher } = deps;
 
   const prepareRpcRelaunch = (tabId: string): void => {
     const tab = get().rpc[tabId];
@@ -403,7 +400,6 @@ export function createLifecycleSlice(
 
     handedOffPlanSources.add(srcTabId);
     advisorReplyWatcher.cancel(srcTabId);
-    stallContinueWatcher.cancel(srcTabId);
     m.appendItem(
       srcTabId,
       noticeItem(

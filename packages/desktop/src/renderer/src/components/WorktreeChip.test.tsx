@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
+import { installDesktopAdapter } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -24,8 +25,6 @@ const branchFixture: BranchList = {
 };
 
 const backendMock = {
-  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean; terminal: boolean }>>(),
-  openProject: vi.fn<(path: string, target: "vscode" | "files" | "terminal") => Promise<void>>(),
   listBranches: vi.fn<() => Promise<BranchList>>(),
   // Merge feasibility moved to the Finish worktree dialog (issues #385–#389):
   // the chip must never call this, and the finish test asserts it stays quiet.
@@ -36,8 +35,9 @@ const backendMock = {
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
 };
 Object.assign(window, { ompBackend: backendMock });
-// Dynamic imports are required: ../store → ./backend reads window.ompBackend
-// at module load, so the mock above must land first.
+const desktopMock = installDesktopAdapter();
+// Dynamic imports are required: ../store → ./backend reads window.ompBackend and ../desktop
+// reads window.ompDesktop at module load, so both mocks above must land first.
 const { useStore } = await import("../store");
 const { WorktreeChip } = await import("./WorktreeChip");
 
@@ -123,10 +123,10 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 beforeEach(() => {
-  backendMock.getProjectOpenAvailability.mockReset();
-  backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: false, terminal: false });
-  backendMock.openProject.mockReset();
-  backendMock.openProject.mockResolvedValue(undefined);
+  desktopMock.getProjectOpenAvailability.mockReset();
+  desktopMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: false, terminal: false });
+  desktopMock.openProject.mockReset();
+  desktopMock.openProject.mockResolvedValue(undefined);
   backendMock.listBranches.mockReset();
   backendMock.listBranches.mockResolvedValue(branchFixture);
   backendMock.getMergeBackStatus.mockReset();
@@ -174,20 +174,20 @@ describe("WorktreeChip (issue #260)", () => {
   });
 
   it("offers Open in VS Code only when availability resolves true, and opens with it", async () => {
-    backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: true, terminal: false });
+    desktopMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: true, terminal: false });
     render();
     await openPopover();
 
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
+    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
     const vscode = menuItem("Open in VS Code");
     expect(vscode).toBeDefined();
     await act(async () => vscode!.click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "vscode");
+    expect(desktopMock.openProject).toHaveBeenCalledWith(worktree.path, "vscode");
 
     // Availability is asked once per mount — reopening does not re-probe.
     act(() => trigger().click());
     await openPopover();
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
+    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
   });
 
   it("hides Open in VS Code when availability resolves false or rejects", async () => {
@@ -196,7 +196,7 @@ describe("WorktreeChip (issue #260)", () => {
     expect(menuItem("Open in VS Code")).toBeUndefined();
     act(() => trigger().click());
 
-    backendMock.getProjectOpenAvailability.mockRejectedValue(new Error("no channel"));
+    desktopMock.getProjectOpenAvailability.mockRejectedValue(new Error("no channel"));
     render();
     await openPopover();
     expect(menuItem("Open in VS Code")).toBeUndefined();
@@ -209,11 +209,11 @@ describe("WorktreeChip (issue #260)", () => {
     const files = menuItem("Open in Files");
     expect(files).toBeDefined();
     await act(async () => files!.click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
+    expect(desktopMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
   });
 
   it("surfaces a rejected open as an alert and keeps the popover up", async () => {
-    backendMock.openProject.mockRejectedValue(new Error("xdg-open failed"));
+    desktopMock.openProject.mockRejectedValue(new Error("xdg-open failed"));
     render();
     await openPopover();
 
@@ -262,7 +262,7 @@ describe("WorktreeChip (issue #260)", () => {
 
     await press(menuItem("Open in Files")!);
 
-    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
+    expect(desktopMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
     expect(menu()).not.toBeNull();
   });
 
@@ -319,14 +319,14 @@ describe("WorktreeChip (issue #260)", () => {
     expect(menuItem("finish worktree…")).toBeDefined();
     expect(menuItem("Open in VS Code")).toBeUndefined();
     expect(menuItem("Open in Files")).toBeUndefined();
-    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
-    expect(backendMock.openProject).not.toHaveBeenCalled();
+    expect(desktopMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(desktopMock.openProject).not.toHaveBeenCalled();
 
     await act(async () => menuItem("finish worktree…")!.click());
 
     expect(useStore.getState().finishWorktreeTab).toBe(remoteTabId);
     expect(menu()).toBeNull();
-    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
-    expect(backendMock.openProject).not.toHaveBeenCalled();
+    expect(desktopMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(desktopMock.openProject).not.toHaveBeenCalled();
   });
 });

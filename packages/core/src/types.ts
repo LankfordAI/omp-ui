@@ -95,6 +95,14 @@ export interface SessionWorktree {
    * checkout is detached. Null only on records predating this field.
    */
   base: string | null;
+  /**
+   * Set by the host migration when `git worktree repair` failed after the
+   * checkout moved with the data root (issue #442): the record still points
+   * at the moved checkout, but resuming it would spawn omp in a directory git
+   * no longer recognises as a worktree, so resume is refused until the link
+   * is repaired. Absent means repaired or never moved.
+   */
+  resumeUnavailable?: boolean;
 }
 
 /** Default destination resolution from a recorded base (see resolveMergeDestination). */
@@ -363,6 +371,28 @@ export interface SessionSummary extends OwnedSessionRecord {
    * omp's runtime inside the child stays the only owner.
    */
   goal?: GoalSnapshot;
+  /** Host-authored attention level (issue #442); optional so an older instance still decodes. */
+  attention?: Attention | null;
+}
+
+export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused";
+
+/**
+ * Neutral host-owned per-tab attention level (issue #442); null = nothing awaits
+ * the user. `atMs` is the transition instant and the client dedupe generation.
+ */
+export interface Attention {
+  kind: AttentionKind;
+  planTitle: string | null;
+  atMs: number;
+}
+
+/** Which kind of client a connection is (issue #442). */
+export type ClientRole = "browser" | "desktop" | "instance";
+
+export interface ProtocolRange {
+  min: number;
+  max: number;
 }
 
 export interface ProjectGroup {
@@ -425,6 +455,17 @@ export interface BackendState {
   spawnGate: SpawnGateState;
   /** Joined remote instances and their registries (issue #416); never persisted here, never carries a credential. */
   remoteInstances: RemoteInstanceSummary[];
+  /**
+   * The connection-specific view (issue #442): who this client is to the host. Stamped per
+   * connection, so two clients reading the same snapshot see different `self` values.
+   */
+  self: { role: ClientRole; local: boolean };
+  /** The host's build version and the protocol it speaks; identical on every connection. */
+  hostVersion: string;
+  hostProtocol: number;
+  protocolRange: ProtocolRange;
+  /** The host's own update lifecycle (issue #442 §7); idle on a build with no host updater. */
+  hostUpdate: HostUpdateState;
 }
 
 /**
@@ -919,6 +960,70 @@ export interface RemoteInstanceSummary {
 export interface InstanceIdentity {
   instanceId: string;
   version: string;
+  /** The protocol the host speaks; a pre-#442 host omits it, which reads as 1. */
+  protocolVersion: number;
+  protocolRange: ProtocolRange;
+}
+
+/** Where the persistent host's self-update stands (issue #442 §7). */
+export type HostUpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "staged" // downloaded and verified; waiting for a quiet moment or the grace deadline
+  | "countdown" // grace deadline armed; live sessions named in affectedTabIds
+  | "applying"
+  | "error";
+
+export interface HostUpdateState {
+  currentVersion: string;
+  latestVersion: string | null;
+  stagedVersion: string | null;
+  status: HostUpdateStatus;
+  /** 0–100 while downloading; null = indeterminate or not downloading. */
+  progress: number | null;
+  /** Wall-clock deadline of the running grace countdown; null when none is armed. */
+  graceDeadlineMs: number | null;
+  deferrals: number;
+  deferralLimit: number;
+  /** Live sessions the apply will interrupt. */
+  affectedTabIds: string[];
+  lastAttempt: {
+    fromVersion: string;
+    toVersion: string;
+    outcome: "applied" | "rolled-back" | "failed";
+    atMs: number;
+  } | null;
+  /** The version a rollback would restore; null when none is retained. */
+  rollbackVersion: string | null;
+  /** True while the running binary is itself a staged (not yet confirmed) version. */
+  currentIsStaged: boolean;
+  error: string | null;
+}
+
+/** Answer to the control-plane `host:status` request (issue #442 §10.4). */
+export interface HostStatus {
+  schemaVersion: 1;
+  dataRoot: string;
+  hostVersion: string;
+  hostProtocol: number;
+  protocolRange: ProtocolRange;
+  pid: number;
+  startedAtMs: number;
+  incarnation: number;
+  liveSessions: number;
+  connections: number;
+  verifier: { state: "ready" | "degraded"; reason: string | null; pin: string | null };
+  credentialBackend: string;
+  hostUpdate: HostUpdateState;
+}
+
+/** Answer to the control-plane `host:pair` request: how a remote client may join. */
+export interface HostPairing {
+  urls: string[];
+  tokenUrls: string[];
+  hasPassword: boolean;
 }
 
 /** What the user types to join or edit an instance. The secret never comes back. */

@@ -9,8 +9,12 @@
  * iframe. Diagnostics stay machine-readable and locale-independent; UI
  * localization happens at the presentation boundary, never here.
  */
-import { DEFAULT_THEME_ID, resolveTheme } from "./lib/themes";
-import { renderPlanPreflight } from "./lib/plan-document";
+import {
+  DEFAULT_THEME_ID,
+  PLAN_PREFLIGHT_WIDTHS,
+  renderPlanPreflight,
+  resolveTheme,
+} from "@omp-ui/plan-doc";
 import type { PlanDiagnostic, PlanRenderResult } from "@omp-ui/core/plan";
 
 interface VerifyArgs {
@@ -41,7 +45,7 @@ function verify(raw: VerifyArgs): Promise<PlanRenderResult> {
   const preparedByteLimit =
     typeof raw.preparedByteLimit === "number" ? raw.preparedByteLimit : undefined;
   return renderPlanPreflight(raw.html, theme, {
-    widths: [800, 360],
+    widths: PLAN_PREFLIGHT_WIDTHS,
     preparedByteLimit,
   }).catch((err: unknown) => ({
     status: "unavailable" as const,

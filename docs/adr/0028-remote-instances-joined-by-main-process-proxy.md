@@ -1,5 +1,9 @@
 # Remote instances are joined by the main process, not the renderer
 
+> **Status:** Superseded in part by [ADR-0029](0029-persistent-host-owns-authoritative-application.md)
+> (the proxy's owner moves to the persistent host at release C). The
+> single-owner reasoning below stands; only the owning process changes.
+
 A **remote instance** (issue #416) is another omp-ui app whose embedded server
 this app joins as a client, so that its projects and sessions appear in this
 app's sidebar under a nickname. [ADR-0002](0002-transport-agnostic-core.md)

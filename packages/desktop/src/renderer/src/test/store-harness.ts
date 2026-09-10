@@ -26,7 +26,7 @@ import type {
   SessionCapabilitiesResult,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
-import { backendState as makeBackendState } from "./fixtures";
+import { backendState as makeBackendState, desktopAdapterMock } from "./fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
@@ -123,13 +123,11 @@ const mockBackend = {
     sent.push({ tabId, cmd });
   }),
   tabViewed: vi.fn(),
-  reportStallCap: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
   onSessionHibernated: vi.fn(),
-  onFocusSession: vi.fn(),
   onShellData: vi.fn(),
   onShellExit: vi.fn((cb: (tabId: string, code: number) => void) => {
     shellExitCb = cb;
@@ -245,15 +243,6 @@ const mockBackend = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
-  getAppUpdateState: vi.fn(async () => idleAppUpdate),
-  checkAppUpdate: vi.fn(),
-  downloadAppUpdate: vi.fn(),
-  openAppUpdateReleaseNotes: vi.fn(),
-  showAppUpdateDownload: vi.fn(),
-  restartForAppUpdate: vi.fn(),
-  setAppUpdateInstallOnQuit: vi.fn(),
-  dismissAppUpdate: vi.fn(),
-  onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
@@ -263,7 +252,6 @@ const mockBackend = {
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
   clearDismissedOmpUpdate: vi.fn(async () => {}),
-  setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
   writeOmpSetting: vi.fn(async () => {}),
   readWebSearchProviders: vi.fn(async () => emptyWebSearchProviders),
@@ -295,6 +283,10 @@ const mockBackend = {
   remoteInstanceNotify: vi.fn(),
 };
 
+// The desktop adapter (#454): the store reads window.ompDesktop at module load too, and the
+// harness models a desktop client.
+const mockDesktop = desktopAdapterMock({ getAppUpdateState: vi.fn(async () => idleAppUpdate) });
+
 // The renderer no longer uses native dialogs (issue #373): a surviving
 // alert/confirm call is a regression, so these stubs throw instead of
 // recording, and nothing auto-accepts on a test's behalf.
@@ -302,6 +294,7 @@ const openedUrls: string[] = [];
 
 const windowStub = {
   ompBackend: mockBackend,
+  ompDesktop: mockDesktop,
   alert: (msg: string): never => {
     throw new Error(`unexpected window.alert: ${msg}`);
   },
@@ -503,6 +496,7 @@ export const h = {
   sent,
   openedUrls,
   mockBackend,
+  mockDesktop,
   windowStub,
   emptyOmpSettings,
   get backendState(): BackendState {

@@ -1,7 +1,13 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+
+// The browser client's hello names its own build (issue #442); the bundle can only learn it here.
+const { version } = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8")) as {
+  version: string;
+};
 
 // The same renderer, served over HTTP instead of file:// (ADR-0002). `base: "./"` keeps assets
 // path-independent; publicDir carries build/icon.png through as the manifest icon.
@@ -15,11 +21,5 @@ export default defineConfig({
   publicDir: resolve(__dirname, "build"),
   plugins: [react(), tailwindcss()],
   build: { outDir: resolve(__dirname, "out/web"), emptyOutDir: true },
-  // PROTOTYPE (#454): dev server only; `vite build` ignores `server`. Points at the running
-  // Electron's remote listener (Settings → Remote access; default port 4677).
-  server: {
-    port: 4680,
-    strictPort: true,
-    proxy: { "/ws": { target: "ws://127.0.0.1:4677", ws: true } },
-  },
+  define: { __APP_VERSION__: JSON.stringify(version) },
 });

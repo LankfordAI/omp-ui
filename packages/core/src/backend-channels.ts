@@ -1,6 +1,7 @@
 import type {
   AdvisorDefaults,
   AgentMode,
+  Attention,
   AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
@@ -16,6 +17,9 @@ import type {
   DirBrowseResult,
   GlassChrome,
   ImageAttachment,
+  HostPairing,
+  HostStatus,
+  HostUpdateState,
   McpServersResult,
   InstanceIdentity,
   McpSetEnabledRequest,
@@ -52,6 +56,7 @@ import type {
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { RpcFrame } from "./rpc/codec";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
+import { makeChannelClient } from "./channel-client";
 import {
   agentModeCodec,
   any,
@@ -91,6 +96,8 @@ declare const CHANNEL_ARGS: unique symbol;
 export interface RequestChannel<Args extends unknown[], Result> {
   readonly kind: "request";
   readonly args: ArgCodecs<NoInfer<Args>>;
+  /** Present only on control-plane channels; see {@link controlOnlyChannels}. */
+  readonly gate?: "control";
   readonly $result?: Result;
   readonly [CHANNEL_ARGS]?: Args;
 }
@@ -110,11 +117,17 @@ export interface EventChannel<Args extends unknown[]> {
 
 const EVENT = { kind: "event" } as const;
 
+/** Per-descriptor policy the surface reads back: `control` restricts a channel to control-plane connections. */
+export interface ChannelOptions {
+  readonly gate?: "control";
+}
+
 /** Declares a request/reply channel's argument tuple, codecs, and result. */
 export function request<Args extends unknown[], Result>(
   args: ArgCodecs<Args>,
+  opts?: ChannelOptions,
 ): RequestChannel<Args, Result> {
-  return { kind: "request", args };
+  return opts?.gate === undefined ? { kind: "request", args } : { kind: "request", args, gate: opts.gate };
 }
 
 /** Declares a fire-and-forget notification channel's argument tuple and codecs. */
@@ -787,22 +800,13 @@ export const BACKEND_CHANNELS = {
   rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: RpcFrame]>([str(), rpcFrameCodec]) },
   /**
    * Reports the tab this renderer currently has in view, or null when none.
-   * `clientId` is the renderer's stable report identity so a reload replaces
-   * its previous report instead of accumulating. Fire-and-forget: the
-   * hibernation guard re-checks report freshness on every quiet-window tick,
-   * so a report that goes silent (closed window, dead socket) stops
+   * The connection id is the report's identity — the transport supplies it,
+   * so a reconnect replaces its predecessor's report and a closed connection
+   * drops its own. Fire-and-forget: the hibernation guard re-checks report
+   * freshness on every quiet-window tick, so a report that goes silent stops
    * protecting on its own (issue #266).
    */
-  tabViewed: { channel: "tab:viewed", ...notify<[clientId: string, tabId: string | null]>([str(), nullable(str())]) },
-  /**
-   * Reports this renderer's stall auto-continue guard for a tab (issue #271):
-   * true when it pauses at its cap, false when it re-arms (user prompt / plan
-   * execute) or the tab is erased or re-booted.
-   */
-  reportStallCap: {
-    channel: "stall:cap",
-    ...notify<[tabId: string, paused: boolean]>([str(), bool()]),
-  },
+  tabViewed: { channel: "tab:viewed", ...notify<[tabId: string | null]>([nullable(str())]) },
   onPtyData: { channel: "pty:data", ...event<[tabId: string, data: Uint8Array]>() },
   onPtyExit: {
     channel: "pty:exit",
@@ -813,16 +817,13 @@ export const BACKEND_CHANNELS = {
     channel: "session:hibernated",
     ...event<[tabId: string]>(),
   },
-  /**
-   * A desktop OS notification for this tab was clicked: every renderer
-   * resurfaces (or resumes) the session's tab through openSession (issue #271).
-   */
-  onFocusSession: {
-    channel: "session:focus",
-    ...event<[tabId: string]>(),
-  },
   onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: object]>() },
   onStateChanged: { channel: "state:changed", ...event<[state: BackendState]>() },
+  /** Host-authored per-tab attention level changed (issue #442); null clears it. */
+  onAttentionChanged: {
+    channel: "attention:changed",
+    ...event<[tabId: string, attention: Attention | null]>(),
+  },
   toggleFavorite: {
     channel: "favorites:toggle",
     ...request<[key: string], void>([str()]),
@@ -953,6 +954,24 @@ export const BACKEND_CHANNELS = {
   },
   /** The app-wide subscription sign-in flow's phase changes. */
   onProviderOAuthState: { channel: "provider-oauth:state", ...event<[state: ProviderOAuthState]>() },
+  /**
+   * Control plane (issue #442 §10.4): the host's own vitals, for the control CLI. Exists only in the
+   * table of a connection whose grant carries `control`; every other connection sees an unknown channel.
+   */
+  getHostStatus: { channel: "host:status", ...request<[], HostStatus>([], { gate: "control" }) },
+  /** Stops the host: every live session is torn down and the process exits. Control-gated. */
+  stopHost: { channel: "host:stop", ...request<[], void>([], { gate: "control" }) },
+  /** The remote-access pairing material (URLs and whether a password is set). Control-gated. */
+  getHostPairing: { channel: "host:pair", ...request<[], HostPairing>([], { gate: "control" }) },
+  /** The host's own update lifecycle (issue #442 §7); visible to every role — apply/rollback policy is the host's. */
+  getHostUpdateState: { channel: "host-update:getState", ...request<[], HostUpdateState>([]) },
+  checkHostUpdate: { channel: "host-update:check", ...request<[], HostUpdateState>([]) },
+  downloadHostUpdate: { channel: "host-update:download", ...request<[], void>([]) },
+  /** Pushes the grace deadline out once more; the host caps deferrals at `deferralLimit`. */
+  deferHostUpdate: { channel: "host-update:defer", ...request<[], HostUpdateState>([]) },
+  applyHostUpdate: { channel: "host-update:apply", ...request<[], void>([]) },
+  rollbackHostUpdate: { channel: "host-update:rollback", ...request<[], void>([]) },
+  onHostUpdateState: { channel: "host-update:state", ...event<[state: HostUpdateState]>() },
 } as const;
 export type BackendChannelSpec = typeof BACKEND_CHANNELS;
 export type BackendMethodName = keyof BackendChannelSpec;
@@ -965,6 +984,13 @@ type ChannelNames = {
 export const CH = Object.fromEntries(
   Object.entries(BACKEND_CHANNELS).map(([method, descriptor]) => [method, descriptor.channel]),
 ) as ChannelNames;
+
+/** Channels declared with `gate: "control"`: a surface strips them from every table whose connection lacks control. */
+export function controlOnlyChannels(): readonly string[] {
+  return Object.values(BACKEND_CHANNELS)
+    .filter((d) => "gate" in d && d.gate === "control")
+    .map((d) => d.channel);
+}
 
 const ARG_CODECS_BY_CHANNEL = new Map<string, readonly ArgCodec<unknown>[]>();
 for (const descriptor of Object.values(BACKEND_CHANNELS)) {
@@ -1089,25 +1115,7 @@ export interface BackendTransport {
   on<Args extends unknown[]>(channel: string, cb: (...args: Args) => void): void;
 }
 
-type RuntimeMethod = (...args: never[]) => unknown;
-
 /** Builds every backend method from the shared spec and transport primitives. */
 export function makeBackendClient(transport: BackendTransport): OmpBackend {
-  const client: Record<string, RuntimeMethod> = {};
-
-  for (const [method, descriptor] of Object.entries(BACKEND_CHANNELS)) {
-    switch (descriptor.kind) {
-      case "request":
-        client[method] = (...args) => transport.request<never[], never>(descriptor.channel, args);
-        break;
-      case "notify":
-        client[method] = (...args) => transport.notify(descriptor.channel, args);
-        break;
-      case "event":
-        client[method] = (...args) => transport.on(descriptor.channel, args[0]);
-        break;
-    }
-  }
-
-  return client as OmpBackend;
+  return makeChannelClient(BACKEND_CHANNELS, transport) as OmpBackend;
 }

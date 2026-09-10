@@ -4,10 +4,20 @@ import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+// Kinds every requested architecture must ship. Host artifacts (`host`,
+// `host-feed`) are classified below but deliberately absent here: Release P
+// builds them without publishing (issue #442 §10.6), so a manifest is complete
+// without them until Release C adds them to the required set.
 const PLATFORM_KINDS = {
   linux: ["appimage"],
   mac: ["dmg", "zip"],
   win: ["nsis"],
+};
+
+const HOST_ARCHIVE = {
+  linux: "tar\\.gz",
+  mac: "zip",
+  win: "zip",
 };
 
 function compareNames(left, right) {
@@ -33,9 +43,22 @@ function linuxArchNames(arch) {
 
 function classify(file, target) {
   const version = escapeRegExp(target.version);
+  const platform = escapeRegExp(target.platform);
+
+  if (file.name === `latest-host-${target.platform}.yml`) {
+    return { arch: null, kind: "host-feed" };
+  }
 
   for (const arch of target.arches) {
     const escapedArch = escapeRegExp(arch);
+    if (
+      new RegExp(
+        `^omp-ui-host-${version}-${platform}-${escapedArch}\\.${HOST_ARCHIVE[target.platform]}$`,
+      ).test(file.name)
+    ) {
+      return { arch, kind: "host" };
+    }
+
     if (target.platform === "mac") {
       const match = file.name.match(
         new RegExp(`^omp-ui-${version}-mac-preview-${escapedArch}\\.(dmg|zip)$`),

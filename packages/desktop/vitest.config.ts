@@ -10,10 +10,9 @@ export default defineConfig({
     // freezes the machine. Local runs cap at 4 workers; CI (GitHub Actions
     // always sets CI=true) keeps full parallelism for wall-clock speed.
     maxWorkers: process.env.CI ? undefined : 4,
-    // Process-backed integration proofs (real `omp --mode=rpc-ui` spawns)
-    // run separately and serially via `npm run test:live` (see
-    // vitest.live.config.ts). The `-live` suffix is main-process only:
-    // renderer `.live.test.tsx` files (real shiki, no subprocess) stay here.
-    exclude: [...configDefaults.exclude, "src/main/**/*-live.test.ts"],
+    // Process-backed integration proofs (real `omp --mode=rpc-ui` spawns) live
+    // with the host application in packages/host and run via its `test:live`.
+    // Renderer `.live.test.tsx` files (real shiki, no subprocess) stay here.
+    exclude: [...configDefaults.exclude],
   },
 });

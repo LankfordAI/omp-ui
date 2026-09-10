@@ -138,11 +138,7 @@ export function createFrameReductionSlice(
   deps: Watchers,
 ): FrameReductionSlice {
   // The bodies moved from the root closure keep their original names.
-  const {
-    concern: concernWatcher,
-    advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
-  } = deps;
+  const { concern: concernWatcher, advisorReply: advisorReplyWatcher } = deps;
 
   /** Trailing-throttled roster refresh for the subagent_* heartbeat path. */
   const pulseSubagents = (tabId: string): void => {
@@ -324,13 +320,6 @@ export function createFrameReductionSlice(
         return;
       case "append-transcript-item":
         m.appendItem(tabId, effect.item);
-        return;
-      case "trigger-stall-continue":
-        if (
-          get().rpc[tabId] !== undefined &&
-          get().state?.stallAutoContinue !== false
-        )
-          stallContinueWatcher.trigger(tabId);
         return;
     }
   };
@@ -666,16 +655,15 @@ export function createFrameReductionSlice(
         }
         case "omp_ui_notice": {
           // Main-process notice frame (issue #248: the stall watchdog's abort
-          // report). Appended verbatim, never answered.
+          // report; issue #442: the host's stall auto-continue announcements).
+          // Appended verbatim, never answered.
           m.appendItem(
             tabId,
-            noticeItem(strField(frame, "message") ?? "omp-ui notice", "warn"),
+            noticeItem(
+              strField(frame, "message") ?? "omp-ui notice",
+              strField(frame, "level") === "info" ? "info" : "warn",
+            ),
           );
-          // A watchdog abort ends the turn with stopReason "aborted", which
-          // isStreamStallEnd can never classify — the tagged notice is what
-          // feeds auto-continue instead (issue #254).
-          if (strField(frame, "reason") === "stall-abort")
-            m.patchRpc(tabId, { stallAbortPending: true });
           return;
         }
         case "host_tool_call":

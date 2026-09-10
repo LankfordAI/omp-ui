@@ -723,7 +723,9 @@ export const en = {
   "settings.providers.oauthDismiss": "dismiss",
   "settings.providers.oauthStarting": "Starting omp\u2026",
   "settings.providers.oauthBrowser":
-    "Finish signing in in the browser omp-ui just opened. This page updates as soon as omp receives the callback.",
+    "Finish signing in in your browser. This page updates as soon as omp receives the callback.",
+  "settings.providers.oauthRemoteCallback":
+    "The sign-in page's callback goes to the machine running the omp-ui host. Finish signing in there, or paste the redirect URL here when asked.",
   "settings.providers.oauthOpenLink": "Open sign-in page",
   "settings.providers.oauthSubmit": "Submit",
   "settings.providers.oauthInputAria": "{name} sign-in response",

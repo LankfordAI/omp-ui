@@ -61,8 +61,15 @@ export * from "./types";
 export { parseSpawnRequest } from "./spawn-request";
 export * from "./backend-arg-codecs";
 export * from "./backend-channels";
-export { Registry, planHandoffDescendants, type RegistrySettings } from "./registry";
-export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
+export {
+  Registry,
+  RegistryCorrupt,
+  planHandoffDescendants,
+  type RegistryRecoveryPolicy,
+  type RegistrySettings,
+} from "./registry";
+export type { AuthorityToken } from "./authority-token";
+export { defaultShell, spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export { settledWithin } from "./promise-utils";
 export { BLOCKING_DIALOG_METHODS, isBlockingDialogMethod } from "./extension-dialog";
@@ -177,6 +184,7 @@ export {
   ProviderKeys,
   readDotenvKeys,
   type KeyCipher,
+  type RawKeyFile,
   type ShellCaptureFn,
 } from "./provider-keys";
 export {
@@ -272,3 +280,25 @@ export {
   type RpcChildProcess,
   type RpcSpawnFn,
 } from "./rpc/client";
+export * from "./data-root";
+export { writeTextAtomic, writeTextDurably } from "./atomic-write";
+export { appendMainLog } from "./main-log";
+export {
+  createBreadcrumbRing,
+  NO_BREADCRUMBS,
+  type BreadcrumbEntry,
+  type BreadcrumbKind,
+  type BreadcrumbSink,
+} from "./breadcrumbs";
+export {
+  startFdWatchdog,
+  summarizeTargets,
+  thresholdViolations,
+  type FdSnapshot,
+  type FdWatchdogLimits,
+  type FdWatchdogOptions,
+} from "./fd-watchdog";
+export type { FrameObserver } from "./frame-observer";
+export { WatcherHub, type WatcherHubDeps } from "./watcher-hub";
+export { makeChannelClient, type ChannelClient, type ChannelSpec } from "./channel-client";
+export { idleHostUpdateState } from "./host-update-state";

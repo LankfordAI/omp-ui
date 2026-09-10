@@ -101,30 +101,25 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
     reconcilePlanGates,
   } = plan;
   const lifecycle = createLifecycleSlice(set, get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
   });
   const rpcCommandSlice = createRpcCommandSlice(set, get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
     reconcilePlanGates,
   });
   const sessionParams = createSessionParamsSlice(set, get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
     prepareRpcRelaunch: lifecycle.prepareRpcRelaunch,
   });
   const frame = createFrameReductionSlice(get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
-    stall: stallContinueWatcher,
   });
 
   /**

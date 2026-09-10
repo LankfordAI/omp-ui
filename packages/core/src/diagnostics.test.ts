@@ -85,11 +85,7 @@ function facts(override: Partial<DiagnosticsFacts> = {}): DiagnosticsFacts {
     appVersion: "0.10.2",
     ompVersion: "17.1.8",
     ompPath: "/usr/bin/omp",
-    electronVersion: "37.0.0",
     nodeVersion: process.version,
-    chromeVersion: "130.0",
-    packaged: false,
-    packageFormat: "unknown",
     platform: process.platform,
     arch: process.arch,
     osRelease: os.release(),
@@ -101,7 +97,21 @@ function facts(override: Partial<DiagnosticsFacts> = {}): DiagnosticsFacts {
     agentDir: path.join(tmpRoot, "agent"),
     registryFile: path.join(tmpRoot, "registry.json"),
     logDir: path.join(tmpRoot, "logs"),
-    windowStateFile: path.join(tmpRoot, "window-state.json"),
+    host: {
+      dataRoot: tmpRoot,
+      hostVersion: "0.10.2",
+      hostProtocol: 2,
+      verifier: { state: "degraded", reason: "no verifier configured", pin: null },
+      credentialBackend: "test",
+    },
+    desktopClient: {
+      clientVersion: "0.10.2",
+      electronVersion: "37.0.0",
+      chromeVersion: "130.0",
+      windowStateFile: path.join(tmpRoot, "window-state.json"),
+      packaged: false,
+      packageFormat: "unknown",
+    },
     ...override,
   };
 }
@@ -295,10 +305,22 @@ describe("collectDiagnosticsBundle", () => {
     const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
     expect(manifest.includeTranscripts).toBe(false);
     expect(manifest.appVersion).toBe("0.10.2");
+    expect(manifest.host).toMatchObject({ dataRoot: tmpRoot, hostProtocol: 2, credentialBackend: "test" });
+    expect(manifest.desktopClient).toMatchObject({ electronVersion: "37.0.0", packaged: false });
     expect(manifest.redaction).toContain(
       "remote-instances.json (joined-instance credentials) is never read",
     );
     expect(result.totalBytes).toBe(fs.statSync(result.path).size);
+  });
+
+  it("omits window state without a desktop client, even when the file exists beside the registry", async () => {
+    fs.writeFileSync(path.join(tmpRoot, "window-state.json"), '{"bounds":{}}');
+    const result = await collectDiagnosticsBundle(options({ facts: facts({ desktopClient: null }) }));
+    const entries = await readZip(result.path);
+    expect(entries.has("window-state.json")).toBe(false);
+    const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
+    expect(manifest.desktopClient).toBeNull();
+    expect(jsonOf(entries.get("versions.json"))).toMatchObject({ desktopClient: null, host: { hostVersion: "0.10.2" } });
   });
 
   it("excludes transcripts by default and caps them with a warning when opted in", async () => {

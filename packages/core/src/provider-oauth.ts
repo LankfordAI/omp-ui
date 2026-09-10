@@ -30,8 +30,6 @@ export interface ProviderOAuthDeps {
   /** Scratch dir used as both --cwd and --session-dir for the bare child; created on demand. */
   scratchDir: string;
   send: (state: ProviderOAuthState) => void;
-  /** Host-side browser launch for the open_url frame (desktop: openExternalSafe). */
-  onOpenUrl?: (url: string) => void;
   run?: OmpOnceRunner;
   spawnProcess?: RpcSpawnFn;
 }
@@ -45,10 +43,15 @@ interface ActiveFlow {
 }
 
 /**
- * Subscription (OAuth) sign-ins, owned by MainBackend. Two responsibilities:
- * a cached account list per catalogued provider (read through `omp token
- * --list`, so no token ever reaches this process), and the one app-wide
- * sign-in flow, which drives omp's rpc `login` command in a bare rpc-ui child.
+ * Subscription (OAuth) sign-ins, owned by the host application. Two
+ * responsibilities: a cached account list per catalogued provider (read
+ * through `omp token --list`, so no token ever reaches this process), and the
+ * one app-wide sign-in flow, which drives omp's rpc `login` command in a bare
+ * rpc-ui child. The host opens nothing: the sign-in URL is only published in
+ * the flow state, and opening it is a client effect of whichever client
+ * started the flow — so a browser never pops on the host machine for a remote
+ * client's sign-in, and the flow completes with no client attached when the
+ * user's browser can reach the callback.
  */
 export class ProviderOAuth {
   /** One entry per catalogued provider id, refreshed in place (static keys, so a Record, not a Map). */
@@ -183,7 +186,6 @@ export class ProviderOAuth {
           ...this.#state, phase: "browser", url,
           instructions: typeof f.instructions === "string" ? f.instructions : null,
         });
-        this.deps.onOpenUrl?.(url);
         return;
       }
       if (f.method === "input") {

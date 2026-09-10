@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import type { DiagramRenderer } from "../lib/plan-diagrams";
+import type { DiagramRenderer } from "@omp-ui/plan-doc";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { linkify, Markdown } from "./Markdown";
@@ -95,8 +95,8 @@ describe("Markdown lists", () => {
 // coverage lives in lib/diagram.smoke.test.ts.
 const mermaidRenders = vi.hoisted(() => ({ calls: [] as string[] }));
 
-vi.mock("../lib/plan-diagrams", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
+vi.mock("@omp-ui/plan-doc/plan-diagrams", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@omp-ui/plan-doc/plan-diagrams")>();
   const render: DiagramRenderer = async (id, source) => {
     mermaidRenders.calls.push(`${id}\u0000${source}`);
     // A source of "fail" models a mermaid parse rejection.

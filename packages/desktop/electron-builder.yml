@@ -6,6 +6,15 @@ directories:
 files:
   - out/**
   - package.json
+# The headless plan verifier (issue #442 §8): the pinned Chrome for Testing that
+# `npm run fetch:verifier-browser -w @omp-ui/host` unpacked for this os/arch, and
+# the built verifier page (`npm run build -w @omp-ui/host`). Both are resolved
+# through process.resourcesPath; nothing is downloaded at runtime.
+extraResources:
+  - from: "../host/resources/plan-verifier/${os}-${arch}"
+    to: plan-verifier
+  - from: ../host/dist/verifier
+    to: verifier-page
 asarUnpack:
   - "**/node_modules/node-pty/**"
 npmRebuild: false

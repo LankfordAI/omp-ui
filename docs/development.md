@@ -1,6 +1,6 @@
 # Development
 
-omp-ui is an npm workspace containing a transport-agnostic Node core, an Electron desktop app, and the server used by remote browser clients. This guide covers a local checkout, repository commands, tests, and contributor constraints.
+omp-ui is an npm workspace containing a transport-agnostic Node core, a browser-safe plan-document pipeline, the server used by remote browser clients, the persistent host package, and an Electron desktop app. This guide covers a local checkout, repository commands, tests, and contributor constraints.
 
 Return to the [Documentation home](README.md). Read [Architecture](architecture.md) before changing package boundaries and [Releases](releases.md) before changing packaging or update behavior.
 
@@ -80,10 +80,14 @@ Run a single workspace's tests or type check with the same form:
 
 ```bash
 npm test --workspace @omp-ui/core
-npm test --workspace @omp-ui/desktop
+npm test --workspace @omp-ui/plan-doc
 npm test --workspace @omp-ui/server
+npm test --workspace @omp-ui/host
+npm test --workspace @omp-ui/desktop
 npm run typecheck --workspace @omp-ui/core
 ```
+
+`@omp-ui/host` also has `npm run test:live --workspace @omp-ui/host` for its serial process-backed proofs (real child process groups, an authenticated loopback WebSocket, the packaged Chrome verifier), which skip by name in a checkout that lacks the required binaries.
 
 Vitest accepts a test path after `--`. The path is relative to the selected workspace:
 
@@ -122,15 +126,40 @@ npm run package:win --workspace @omp-ui/desktop
 
 Packaging runs the full desktop build first. macOS release signing and notarization require the release credentials described in [Releases](releases.md). The Windows script always passes `--x64`.
 
+The persistent host has its own packaging lane, independent of electron-builder:
+
+```bash
+# Fetch the pinned Chrome for Testing the plan verifier drives, into
+# packages/host/resources/plan-verifier/<os>-<arch>/ with its browser.manifest.json.
+npm run fetch:verifier-browser --workspace @omp-ui/host
+
+# Build the verifier page (packages/host/verifier) that the headless browser loads.
+npm run build --workspace @omp-ui/host
+
+# Assemble the omp-ui Node 22 single executable for this machine's lane under
+# packages/host/dist/host/<version>/: the pinned Node runtime verified against
+# SHASUMS256.txt and its signature, node-pty built for that runtime's ABI, the
+# verifier payload, and rendered supervisor definitions.
+npm run package:host --workspace @omp-ui/host
+
+# Unpack that archive somewhere fresh and run it as an installer would: the SEA
+# boots, `status` answers against an empty data root, and node-pty loads.
+npm run smoke:package --workspace @omp-ui/host
+```
+
+`package:host` builds for the running platform only (a SEA blob carries a V8 code cache for the exact binary that generated it); `--lane` names it explicitly and `--skip-node-pty` omits the native rebuild. Release P builds and smoke-tests this artifact in CI and publishes nothing: no host executable, `bin`, service definition, or feed ships until release C ([ADR-0029](adr/0029-persistent-host-owns-authoritative-application.md)).
+
 ## Workspace layout
 
 | Path | Responsibility | Main entries and tests |
 |---|---|---|
 | `packages/core` | Plain Node and TypeScript for OMP-facing behavior, including PTYs, rpc-ui framing, session files, settings, updates, and shared backend types. It must not import Electron or a transport. | Public exports start at `src/index.ts`. Tests live beside source as `src/**/*.test.ts`, including `src/rpc/*.test.ts`. |
+| `packages/plan-doc` | Browser-safe HTML plan pipeline shared by the renderer and the host's verifier page: plan source parsing, structural verification, document preparation, the Mermaid and code-highlight transforms, the layout probe, and the pure theme table. Electron-free and Node-free. | Public exports start at `src/index.ts`. Tests live beside source as `src/*.test.ts`. |
 | `packages/desktop` | Electron shell, backend orchestration, preload bridge, React renderer, remote web entry, and packaging configuration. | Main process: `src/main/index.ts`. Preload: `src/preload/index.ts`. Desktop renderer: `src/renderer/index.html` and `src/renderer/src/main.tsx`. Browser renderer: `src/web/index.html` and `src/web/main.web.tsx`. Tests are colocated as `*.test.ts` and `*.test.tsx`. |
 | `packages/server` | Node HTTP and WebSocket transport that serves the browser bundle and exposes the same typed backend used by the desktop renderer. | Public server entry: `src/index.ts`. Tests live beside source as `src/*.test.ts`. |
+| `packages/host` | The persistent host ([ADR-0029](adr/0029-persistent-host-owns-authoritative-application.md)): `HostApplication`, the authoritative application that Electron main constructs in release P and `omp-ui serve` constructs from release C; the headless plan verifier; and the authority claim, children ledger, migration journal, host credential cipher, local control, CLI, supervisors, and host updater, built and tested in P but reachable only from release C. Imports no Electron — eslint enforces it. | Public exports start at `src/index.ts`; the CLI entry is `src/cli-main.ts`; the verifier page is `verifier/`. Tests live beside source as `src/**/*.test.ts`; live proofs as `src/**/*.live.test.ts`. |
 
-The desktop and browser entries load the same renderer. Electron reaches the backend through the sandboxed preload and IPC. The browser entry installs the WebSocket backend before it imports renderer code. See [Architecture](architecture.md) and [ADR-0002](adr/0002-transport-agnostic-core.md) for the boundary and its rationale.
+The desktop and browser entries load the same renderer. In release P, Electron main constructs `HostApplication` and reaches it through the sandboxed preload and IPC; the browser entry installs the WebSocket backend before it imports renderer code; client effects reach the desktop client through `window.ompDesktop`. From release C the desktop renderer also connects over WebSocket, to the host's local-control endpoint. See [Architecture](architecture.md), [ADR-0002](adr/0002-transport-agnostic-core.md), and [ADR-0029](adr/0029-persistent-host-owns-authoritative-application.md) for the boundary and its rationale.
 
 ## Contributor invariants
 
@@ -139,9 +168,9 @@ Read [`CONTEXT.md`](../CONTEXT.md) before changing code. It defines terms such a
 Keep these rules intact:
 
 - Current source is authoritative when an old plan or old prose disagrees with it. Use the phase documents and ADRs for intent and rejected alternatives, then verify behavior in the implementation.
-- `packages/core` stays free of Electron and transport imports. Electron-specific wiring belongs in `packages/desktop`; HTTP and WebSocket transport belongs in `packages/server`.
+- `packages/core` stays free of Electron and transport imports. `packages/host` stays free of Electron; `packages/server` stays transport-only and never imports `@omp-ui/host` or `@omp-ui/plan-doc`. Electron-specific wiring belongs in `packages/desktop`; HTTP and WebSocket transport belongs in `packages/server`. ESLint `no-restricted-imports` enforces all three.
 - A session file is the source of truth. omp-ui reads and resumes it, but never rewrites its contents. The only destructive write is an explicit, user-confirmed deletion of the whole owned lineage directory.
-- One main process owns the registry and live sessions. Never spawn a second OMP process for the same session. Closing a tab hides it; it does not stop the live session.
+- One process owns the registry and live sessions: `HostApplication`, constructed by Electron main in release P and by the persistent host from release C ([ADR-0030](adr/0030-one-authority-per-data-root.md)). Never spawn a second OMP process for the same session. Closing a tab hides it; it does not stop the live session.
 - Native transcript render items are derived state. Unknown event types add nothing rather than breaking the transcript or changing the session file.
 - Search for an existing GitHub issue before filing a bug or feature request. Keep one request or defect per issue, use `CONTEXT.md` vocabulary, and do not close the issue until the change has been verified.
 
@@ -155,13 +184,15 @@ The following environment variables are developer and test seams. They are not u
 |---|---|
 | `OMP_UI_OMP_PATH` | Adds an explicit OMP executable as the first binary-resolution candidate. If it does not exist, resolution continues to the managed copy and normal search paths. |
 | `OMP_UI_INSTALL_DIR` | Overrides the directory that holds omp-ui's managed OMP executable. This is a directory, not the executable path. |
-| `OMP_UI_REGISTRY_PATH` | Replaces the main process's default `registry.json` path, which isolates a development run's app state. |
+| `OMP_UI_DATA_DIR` | Replaces the whole canonical data root — registry, credential stores, `oauth-login/`, `worktrees/`, `logs/`, managed omp, and the host's own files — with the given directory, no build-flavour suffix appended. It is what the host CLI, the supervisor definitions, and `smoke:package` use to point a run at an isolated root. In release P the live Electron stores still sit in `userData`, so for a development run it only moves the authority tripwire's evidence path; from release C it is the one control for an isolated run. |
+| `OMP_UI_REGISTRY_PATH` | Replaces the main process's default `registry.json` path, which isolates a development run's app state. Release P only: it relocates the store but not `logs/` or `window-state.json`, so it is removed at release C in favour of `OMP_UI_DATA_DIR`, which moves the whole root. |
 | `OMP_UI_CDP_PORT` | Adds Electron's `remote-debugging-port` switch for programmatic renderer inspection. Set it only for a local development run. |
 | `OMP_UI_TEST_MODEL` | Pins the main model of every session this app instance spawns — fresh or resumed, terminal or native — by passing the `provider/model[:level]` selector to OMP as `--model` and writing it into the lineage's `omp-ui-model.yml` overlay as `modelRoles.default`. It overrides the project's default-model pin and last-used model, and never rewrites a registry record. A selector OMP cannot resolve fails the spawn with OMP's own message in the tab's failure surface. |
 | `OMP_UI_TEST_ADVISOR` | Pins only the advisor model, as `modelRoles.advisor` in the lineage's advisor overlay. The advisor's on/off posture still comes from the session record and the composer, so an advisor test under the gate still tests the advisor. |
 | `OMP_UI_APP_UPDATE_ENABLE=1` | Forces app-update behavior on for an unpackaged development build. |
 | `OMP_UI_APP_UPDATE_VERSION` | Overrides the current app version passed to the updater. |
 | `OMP_UI_APP_UPDATE_FORMAT=appimage` | Supplies the development-only AppImage environment needed to reach the AppImage updater path. Other values do not select a fake package format. |
+| `OMP_UI_VERIFIER_BROWSER` | Points an unpackaged run at a fetched plan-verifier browser directory (the `browser.manifest.json` parent that `npm run fetch:verifier-browser --workspace @omp-ui/host` writes under `packages/host/resources/plan-verifier/<os>-<arch>`). The host hashes the executable against that manifest before every launch and refuses a mismatch; it never discovers a system browser or downloads at runtime. Without the variable a development run's plan verifier is degraded and every preflight answers `VERIFIER_UNAVAILABLE`; a packaged build ignores it and reads only its own resources. The page itself comes from `npm run build --workspace @omp-ui/host`. |
 
 Pass controls on the same command invocation so they do not leak into later runs. For example:
 

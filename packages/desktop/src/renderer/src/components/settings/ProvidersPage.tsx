@@ -16,6 +16,7 @@ import {
   webSearchSelection,
 } from "@omp-ui/core/web-search-order";
 import { displayMessage } from "../../backend";
+import { desktop } from "../../desktop";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import { Button, Chip, Dot, Empty, Label, Panel } from "../ui";
@@ -175,14 +176,17 @@ function flowActive(flow: ProviderOAuthState): boolean {
 
 /**
  * One subscription row plus, under it while its flow is live, the sign-in
- * panel: the browser phase (link omp opened) and, only if omp asks, the
- * pasted-redirect-URL input. The renderer never sees a token — the row shows
- * omp's own identity strings and the flow state is main's.
+ * panel: the browser phase (the sign-in link, opened on this client only when
+ * this page started the flow), a remote client's note that the callback lands
+ * on the host machine, and, only if omp asks, the pasted-redirect-URL input.
+ * The renderer never sees a token — the row shows omp's own identity strings
+ * and the flow state is main's.
  */
 function SubscriptionRow({
   row,
   flow,
   flowBusy,
+  remote,
   onSignIn,
   onSignOut,
   onSubmit,
@@ -192,6 +196,8 @@ function SubscriptionRow({
   flow: ProviderOAuthState;
   /** A flow is running somewhere (this row or another) — buttons disabled. */
   flowBusy: boolean;
+  /** This client is not on the host's machine: the browser callback cannot reach it. */
+  remote: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
   onSubmit: (value: string) => void;
@@ -261,6 +267,11 @@ function SubscriptionRow({
           <p className="text-[11px] leading-relaxed text-ink-dim">
             {t("settings.providers.oauthBrowser")}
           </p>
+          {remote && flow.phase === "browser" && (
+            <p className="text-[11px] leading-relaxed text-ink-dim">
+              {t("settings.providers.oauthRemoteCallback")}
+            </p>
+          )}
           {flow.instructions !== null && (
             <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-ink-faint">
               {flow.instructions}
@@ -513,6 +524,7 @@ export function ProvidersPage({
   const cancelProviderOAuth = useStore((s) => s.cancelProviderOAuth);
   const signOutProviderOAuth = useStore((s) => s.signOutProviderOAuth);
   const providerOAuth = useStore((s) => s.providerOAuth);
+  const remoteClient = useStore((s) => s.state !== null && !s.state.self.local);
   const readWebSearchProviders = useStore((s) => s.readWebSearchProviders);
 
   const [keysLoad, setKeysLoad] = useState<ProviderKeysLoad>({ status: "loading" });
@@ -525,6 +537,10 @@ export function ProvidersPage({
   const oauthGen = useRef(0);
   const webSearchGen = useRef(0);
   const previousPhase = useRef<ProviderOAuthState["phase"]>("idle");
+  /** Provider whose sign-in this page started; only that flow's URL opens on this client. */
+  const initiatedHere = useRef<string | null>(null);
+  /** `providerId\nurl` last handed to the desktop, so one browser phase opens one tab. */
+  const openedUrl = useRef<string | null>(null);
 
   useEffect(() => {
     const g = ++gen.current;
@@ -598,6 +614,25 @@ export function ProvidersPage({
     previousPhase.current = phase;
   }, [providerOAuth.phase, readProviderOAuth]);
 
+  // Publish-only main (§7.5): the host never opens a browser itself. The client
+  // that started the flow opens the URL, once per sign-in page; a flow another
+  // client started, or a flow whose phase has moved on, opens nothing here.
+  useEffect(() => {
+    const flow = providerOAuth;
+    if (
+      initiatedHere.current !== null &&
+      (flow.providerId !== initiatedHere.current || !flowActive(flow))
+    ) {
+      initiatedHere.current = null;
+    }
+    if (initiatedHere.current === null || desktop === null) return;
+    if (flow.phase !== "browser" || flow.url === null) return;
+    const key = `${flow.providerId}\n${flow.url}`;
+    if (openedUrl.current === key) return;
+    openedUrl.current = key;
+    void desktop.openExternal(flow.url);
+  }, [providerOAuth]);
+
   /** Every write answers with the refreshed snapshot, so no re-read is needed. */
   const run = (envName: string, op: Promise<ProviderKeysSnapshot>): void => {
     setPendingEnv(envName);
@@ -611,9 +646,11 @@ export function ProvidersPage({
   };
 
   const signIn = (id: string): void => {
-    void startProviderOAuth(id).catch((err: unknown) =>
-      setWriteError(displayMessage(err)),
-    );
+    initiatedHere.current = id;
+    startProviderOAuth(id).catch((err: unknown) => {
+      initiatedHere.current = null;
+      setWriteError(displayMessage(err));
+    });
   };
 
   const signOut = (id: string): void => {
@@ -712,6 +749,7 @@ export function ProvidersPage({
                     row={row}
                     flow={providerOAuth}
                     flowBusy={flowActive(providerOAuth)}
+                    remote={remoteClient}
                     onSignIn={() => signIn(row.id)}
                     onSignOut={() => signOut(row.id)}
                     onSubmit={submit}

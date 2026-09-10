@@ -2,9 +2,13 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   BACKEND_CHANNELS,
   CH,
+  controlOnlyChannels,
   dispatchNotify,
   dispatchRequest,
+  event,
   makeBackendClient,
+  notify,
+  request,
   type BackendChannelSpec,
   type BackendTransport,
   type ChannelTable,
@@ -12,6 +16,8 @@ import {
   type OmpBackend,
   type RequestChannel,
 } from "./backend-channels";
+import { num, str } from "./backend-arg-codecs";
+import { makeChannelClient } from "./channel-client";
 import type { MergeBackStatus, SpawnRequest } from "./types";
 
 type SpecChannel<Kind extends BackendChannelSpec[keyof BackendChannelSpec]["kind"]> = {
@@ -54,8 +60,10 @@ const VALID_ARGS = {
   addRemoteInstance: [{ url: "http://127.0.0.1:4678", nickname: "", secret: { kind: "token", value: "tok" } }],
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   browseDirectories: ["/project"],
+  applyHostUpdate: [],
   cancelProviderOAuth: [],
   checkAppUpdate: [],
+  checkHostUpdate: [],
   checkOmpUpdate: [],
   checkoutBranch: ["/project", "feature", { create: true }],
   clearDismissedAppUpdate: [],
@@ -66,9 +74,11 @@ const VALID_ARGS = {
   convertToWorktree: ["tab-1", "feature", null, "TECH-123"],
   deleteSession: ["tab-1", true],
   deleteSessionPreview: ["tab-1"],
+  deferHostUpdate: [],
   dismissAppUpdate: ["1.2.3", true],
   dismissOmpUpdate: ["1.2.3", false],
   downloadAppUpdate: [],
+  downloadHostUpdate: [],
   downloadOmpUpdate: [],
   exportDiagnosticsBundle: [{ includeTranscripts: false, destinationPath: null }],
   forkSession: ["tab-1"],
@@ -76,6 +86,9 @@ const VALID_ARGS = {
   getAdvisorDefaults: ["/project"],
   getAppUpdateState: [],
   getBranchDiff: ["/project", "main"],
+  getHostPairing: [],
+  getHostStatus: [],
+  getHostUpdateState: [],
   getMcpServers: [null],
   getMergeBackStatus: ["/project", "feature", "main", null],
   getOmpUpdateState: [],
@@ -121,9 +134,9 @@ const VALID_ARGS = {
   removeRemoteInstance: ["inst-1"],
   remoteInstanceNotify: ["inst-1", "pty:write", ["tab-1", "x"]],
   remoteInstanceRequest: ["inst-1", "state:get", []],
-  reportStallCap: ["tab-1", true],
   resolveFileMentions: ["/project", "@file"],
   restartForAppUpdate: [false],
+  rollbackHostUpdate: [],
   restartSession: ["tab-1"],
   rpcSend: ["tab-1", { type: "prompt", custom: undefined }],
   setAdvisorAutoReply: [true],
@@ -164,13 +177,14 @@ const VALID_ARGS = {
   showAppUpdateDownload: [],
   showPathInFolder: ["/tmp/file"],
   signOutProviderOAuth: ["openai-codex"],
+  stopHost: [],
   spawnSession: [spawnRequest],
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],
   suggestBranchName: ["/project", "plan"],
   switchMode: ["tab-1", "pty"],
   submitProviderOAuthInput: ["https://chatgpt.com/…"],
-  tabViewed: ["client-1", null],
+  tabViewed: [null],
   terminateSession: ["tab-1"],
   toggleFavorite: ["model"],
   updateRemoteInstance: ["inst-1", { nickname: "box" }],
@@ -227,6 +241,14 @@ describe("BACKEND_CHANNELS", () => {
     for (const [, descriptor] of events) expect(descriptor).not.toHaveProperty("args");
   });
 
+  it("gates exactly the host control-plane requests behind `control`", () => {
+    expect([...controlOnlyChannels()].sort()).toEqual(
+      [CH.getHostStatus, CH.stopHost, CH.getHostPairing].sort(),
+    );
+    expect(BACKEND_CHANNELS.getHostUpdateState).not.toHaveProperty("gate");
+    expect(BACKEND_CHANNELS.getState).not.toHaveProperty("gate");
+  });
+
   it("derives the complete public client and handler table", () => {
     type Method = keyof BackendChannelSpec;
     type HandledChannel = keyof ChannelTable["request"] | keyof ChannelTable["notify"];
@@ -263,6 +285,32 @@ describe("makeBackendClient", () => {
         expect(records.at(-1)).toEqual({ channel: descriptor.channel, args });
       }
     }
+  });
+});
+
+describe("makeChannelClient", () => {
+  it("maps each descriptor kind onto its transport primitive and channel", async () => {
+    const spec = {
+      ping: { channel: "x:ping", ...request<[n: number], string>([num()]) },
+      poke: { channel: "x:poke", ...notify<[s: string]>([str()]) },
+      onTick: { channel: "x:tick", ...event<[t: number]>() },
+    } as const;
+    const recorded = recordingTransport();
+    const client = makeChannelClient(spec, recorded.transport);
+
+    await client.ping(7);
+    expect(recorded.requests).toEqual([{ channel: "x:ping", args: [7] }]);
+
+    client.poke("hi");
+    expect(recorded.notifications).toEqual([{ channel: "x:poke", args: ["hi"] }]);
+
+    const listener = (): void => undefined;
+    client.onTick(listener);
+    expect(recorded.listeners.get("x:tick")).toBe(listener);
+
+    expectTypeOf(client.ping).returns.resolves.toBeString();
+    expectTypeOf(client.poke).parameters.toEqualTypeOf<[s: string]>();
+    expectTypeOf(client.onTick).parameter(0).toEqualTypeOf<(t: number) => void>();
   });
 });
 

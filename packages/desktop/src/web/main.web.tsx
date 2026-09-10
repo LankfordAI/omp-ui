@@ -1,5 +1,5 @@
-import { connectRemoteBackend, type RemoteConnection } from "./remote-backend";
-import { fakeDesktopAdapter, mountPrototypeBar, roleFromLocation } from "./prototype-desktop-adapter";
+import { HOST_PROTOCOL } from "@omp-ui/server/protocol";
+import { connectRemoteBackend, IncompatibleHostError, type RemoteConnection } from "./remote-backend";
 
 // The browser boot shim (issue #37). Order is load-bearing: renderer/src/backend.ts reads
 // window.ompBackend eagerly at module load, so the global must be installed before anything in
@@ -117,19 +117,33 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
 async function boot(): Promise<void> {
   let connection: RemoteConnection;
   try {
-    connection = await connectRemoteBackend();
+    connection = await connectRemoteBackend({
+      hello: {
+        clientRole: "browser",
+        clientKind: "browser",
+        clientVersion: __APP_VERSION__,
+        clientProtocol: HOST_PROTOCOL,
+      },
+    });
   } catch (err) {
-    renderConnectFailure(err instanceof Error ? err.message : String(err));
+    // An incompatible verdict is final for this bundle — the host's reason is shown as-is and no
+    // reconnect probe runs; every other failure reads the same way with its own message.
+    const message =
+      err instanceof IncompatibleHostError
+        ? err.hostVersion === ""
+          ? err.message
+          : `${err.message} (omp-ui ${err.hostVersion})`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    renderConnectFailure(message);
     return;
   }
   window.ompBackend = connection.backend;
-  // PROTOTYPE (#454): the desktop adapter, like the backend, must exist before renderer/src loads.
-  const role = import.meta.env.DEV ? roleFromLocation() : "browser";
-  if (role !== "browser") window.ompDesktop = fakeDesktopAdapter(role === "desktop-failing");
+  // No window.ompDesktop: a browser client has no adapter, so every client effect is hidden (#454).
   // Only now is it safe to pull in the renderer: this import is what calls createRoot.
   await import("../renderer/src/main");
   mountReconnectBanner(connection.onStatus);
-  if (import.meta.env.DEV) mountPrototypeBar(role);
 }
 
 void boot();

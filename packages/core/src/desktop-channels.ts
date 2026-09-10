@@ -1,13 +1,6 @@
 import type { AppUpdateState, ProjectOpenAvailability, ProjectOpenTarget } from "./types";
-import {
-  event,
-  notify,
-  request,
-  type BackendTransport,
-  type EventChannel,
-  type NotifyChannel,
-  type RequestChannel,
-} from "./backend-channels";
+import { event, notify, request, type BackendTransport } from "./backend-channels";
+import { makeChannelClient, type ChannelClient } from "./channel-client";
 import {
   arrayOf,
   bool,
@@ -97,19 +90,8 @@ export const DCH = Object.fromEntries(
   Object.entries(DESKTOP_CHANNELS).map(([m, d]) => [m, d.channel]),
 ) as { readonly [M in DesktopMethodName]: DesktopChannelSpec[M]["channel"] };
 
-type Method<D> =
-  D extends RequestChannel<infer A, infer R>
-    ? (...args: A) => Promise<R>
-    : D extends NotifyChannel<infer A>
-      ? (...args: A) => void
-      : D extends EventChannel<infer A>
-        ? (cb: (...args: A) => void) => void
-        : never;
-
 /** The one client-effect surface. Present only inside a desktop client. */
-export type DesktopAdapter = {
-  readonly [M in DesktopMethodName]: Method<DesktopChannelSpec[M]>;
-};
+export type DesktopAdapter = ChannelClient<DesktopChannelSpec>;
 
 const codecsByChannel = new Map<string, readonly ArgCodec<unknown>[]>();
 for (const d of Object.values(DESKTOP_CHANNELS)) {
@@ -118,27 +100,10 @@ for (const d of Object.values(DESKTOP_CHANNELS)) {
   }
 }
 
-/** Codecs by channel, for the main-side dispatcher (cutover); unused by the prototype's aliases. */
+/** Codecs by channel, for the main-side desktop adapter dispatcher. */
 export const desktopArgCodecs: ReadonlyMap<string, readonly ArgCodec<unknown>[]> = codecsByChannel;
 
-/**
- * Same loop as makeBackendClient (backend-channels.ts); the cutover generalizes both into
- * one makeChannelClient(spec, transport).
- */
+/** The one client-effect surface, built from the shared spec like makeBackendClient. */
 export function makeDesktopAdapter(transport: BackendTransport): DesktopAdapter {
-  const client: Record<string, (...args: never[]) => unknown> = {};
-  for (const [method, d] of Object.entries(DESKTOP_CHANNELS)) {
-    switch (d.kind) {
-      case "request":
-        client[method] = (...args) => transport.request<never[], never>(d.channel, args);
-        break;
-      case "notify":
-        client[method] = (...args) => transport.notify(d.channel, args);
-        break;
-      case "event":
-        client[method] = (...args) => transport.on(d.channel, args[0]);
-        break;
-    }
-  }
-  return client as DesktopAdapter;
+  return makeChannelClient(DESKTOP_CHANNELS, transport);
 }

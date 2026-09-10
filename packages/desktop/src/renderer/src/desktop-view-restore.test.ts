@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUpdateState, BackendState, OmpUpdateState, RemoteState } from "@omp-ui/core/types";
 import { DESKTOP_VIEW_STORAGE_KEY, type DesktopViewStateV1 } from "./lib/desktop-view-state";
-import { backendState as makeBackendState, rpcTabState, tabInfo } from "./test/fixtures";
+import { backendState as makeBackendState, installDesktopAdapter, rpcTabState, tabInfo } from "./test/fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
@@ -48,13 +48,11 @@ const mockBackend = {
   getState: vi.fn(async () => backendState),
   rpcSend: vi.fn(),
   tabViewed: vi.fn(),
-  reportStallCap: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
   onSessionHibernated: vi.fn(),
-  onFocusSession: vi.fn(),
   onShellData: vi.fn(),
   onShellExit: vi.fn(),
   shellSpawn: vi.fn(),
@@ -95,15 +93,6 @@ const mockBackend = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
-  getAppUpdateState: vi.fn(async () => appUpdate),
-  checkAppUpdate: vi.fn(),
-  downloadAppUpdate: vi.fn(),
-  openAppUpdateReleaseNotes: vi.fn(),
-  showAppUpdateDownload: vi.fn(),
-  restartForAppUpdate: vi.fn(),
-  setAppUpdateInstallOnQuit: vi.fn(),
-  dismissAppUpdate: vi.fn(),
-  onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
@@ -113,7 +102,6 @@ const mockBackend = {
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
   clearDismissedOmpUpdate: vi.fn(async () => {}),
-  setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => ({ entries: [], agentDir: null, projectConfigPath: null, error: null })),
   writeOmpSetting: vi.fn(async () => {}),
   getRemoteState: vi.fn(async () => idleRemoteState),
@@ -140,6 +128,8 @@ const mockBackend = {
   signOutProviderOAuth: vi.fn(async () => []),
 };
 Object.assign(window, { ompBackend: mockBackend });
+// The client's own version comes from the desktop adapter (#454): the restore gate reads it.
+installDesktopAdapter({ getAppUpdateState: vi.fn(async () => appUpdate) });
 
 /** `init` latches a module-level flag, so every test needs a fresh store. */
 const freshStore = async (): Promise<typeof import("./store")> => {
@@ -354,26 +344,26 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     const spy = vi.spyOn(Storage.prototype, "setItem");
 
     await store.useStore.getState().init();
-    // init also persists the viewed-tab reporter's one-time clientId
-    // (issue #266); every later write is a view snapshot.
-    expect(spy).toHaveBeenCalledTimes(2);
+    // The viewed-tab report carries no client identity any more (issue #442):
+    // init persists one view snapshot, and every later write is another.
+    expect(spy).toHaveBeenCalledTimes(1);
 
     store.useStore.setState({ rpc: { someTab: rpcTabState() } });
-    expect(spy).toHaveBeenCalledTimes(2); // rpc traffic never persists
+    expect(spy).toHaveBeenCalledTimes(1); // rpc traffic never persists
 
     store.useStore.getState().setSidebarWidth(400);
-    expect(spy).toHaveBeenCalledTimes(3);
+    expect(spy).toHaveBeenCalledTimes(2);
     store.useStore.getState().setInspectorWidth(260);
-    expect(spy).toHaveBeenCalledTimes(4);
+    expect(spy).toHaveBeenCalledTimes(3);
 
     store.useStore.setState({ tabs: [tabInfo({ tabId: "t1", mode: "rpc-ui", projectCwd: "/p/a", hidden: false })], rpc: {} });
-    expect(spy).toHaveBeenCalledTimes(5);
+    expect(spy).toHaveBeenCalledTimes(4);
 
     store.useStore.getState().focusTab("t1");
-    expect(spy).toHaveBeenCalledTimes(6);
+    expect(spy).toHaveBeenCalledTimes(5);
 
     store.useStore.getState().hideTab("t1");
-    expect(spy).toHaveBeenCalledTimes(7);
+    expect(spy).toHaveBeenCalledTimes(6);
   });
 
   it("onStateChanged prunes focus entries whose tab or project is gone", async () => {

@@ -1,6 +1,6 @@
 // Plan execution domain (decomposed for #295): the plan-review gate, the
-// three transcript watchers (concern fold, advisor reply, stall continue),
-// and the execute/refine dispatch paths.
+// two transcript watchers (concern fold, advisor reply), and the
+// execute/refine dispatch paths.
 import type {
   BackendState,
   PlanImplementationSource,
@@ -21,10 +21,6 @@ import {
   type PlanExecutionContext,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
-import {
-  STALL_CONTINUE_LEAD,
-  StallContinueWatcher,
-} from "../../lib/stall-continue";
 import { noticeItem } from "../../lib/transcript";
 import { findRecord } from "./view";
 import { handedOffPlanSources } from "./shared";
@@ -416,7 +412,6 @@ export function createPlanExecutionSlice(
       // reads false — this reset is what stops the reply watcher from
       // separately answering the very review this dispatch just folded in.
       advisorReply.reset(tabId);
-      stall.reset(tabId);
       dispatchExecutePlan(
         tabId,
         intent.context,
@@ -460,40 +455,6 @@ export function createPlanExecutionSlice(
     onReply: (tabId, message) => {
       void get().sendPrompt(tabId, message, "advisor_reply");
     },
-  });
-
-  /**
-   * Continues a live session whose turn died to a stream stall (issue #251):
-   * the watchdog aborted the turn, omp will not retry after content, and
-   * without this the session sits idle. Bounded like the advisor watcher —
-   * a settle window so a user's own "continue" wins the race, and a
-   * consecutive-continue cap, since the continue turn is itself stallable.
-   */
-  const stall = new StallContinueWatcher({
-    canContinue: (tabId) => {
-      if (handedOffPlanSources.has(tabId)) return false;
-      const tab = get().rpc[tabId];
-      if (!tab) return false;
-      // #381: an auto-prompt must not bypass an explicit goal pause or budget;
-      // goal diagnostics still render — this gates dispatch, not display.
-      if (goalOwnsSession(tabId)) return false;
-      if (get().state?.stallAutoContinue === false) return false;
-      // "ready" only: a running turn already has the continue in flight or
-      // the user is mid-prompt; a dead process must never receive one.
-      if (tab.status !== "ready") return false;
-      if (get().exited[tabId] !== undefined) return false;
-      // A question is already pending above the composer — do not stack a
-      // prompt on it.
-      if (tab.extensionQueue.length > 0) return false;
-      // The agent is blocked inside a plan gate — only the user can resolve it.
-      if (tab.planReview !== null || tab.planDeferred) return false;
-      return true;
-    },
-    onDispatch: (tabId) => {
-      void get().sendPrompt(tabId, STALL_CONTINUE_LEAD, "stall_continue");
-    },
-    onNotice: (tabId, text, level) => m.appendItem(tabId, noticeItem(text, level)),
-    onCapChange: (tabId, paused) => backend.reportStallCap(tabId, paused),
   });
 
   const executePlan = (
@@ -653,7 +614,6 @@ export function createPlanExecutionSlice(
     reconcilePlanGates,
     concern,
     advisorReply,
-    stall,
     executePlan,
     refinePlan,
     deferPlanReview,
