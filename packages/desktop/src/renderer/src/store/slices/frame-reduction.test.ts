@@ -3299,6 +3299,9 @@ describe("transcript commit batching (issue #187)", () => {
   });
 
   it("coalesces a burst of transcript frames into one render commit", () => {
+    // Fake timers own the delta batch's wake; the captured rAF stub still
+    // models the frame callbacks (#481).
+    vi.useFakeTimers();
     const commits: number[] = [];
     const unsub = h.useStore.subscribe((state, prev) => {
       if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items)
@@ -3310,6 +3313,8 @@ describe("transcript commit batching (issue #187)", () => {
         type: "message_start",
         message: { role: "user", content: [{ type: "text", text: "go" }] },
       });
+      runFrame(); // lifecycle batch: commits on this frame
+      expect(commits).toEqual([1]);
       store.handleRpcFrame(h.TAB, {
         type: "message_update",
         assistantMessageEvent: { type: "text_delta", delta: "a" },
@@ -3319,10 +3324,15 @@ describe("transcript commit batching (issue #187)", () => {
         assistantMessageEvent: { type: "text_delta", delta: "b" },
       });
       // Nothing committed yet — the renderer stays free for input mid-burst.
-      expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
       expect(rafQueue).toHaveLength(1);
       runFrame();
-      expect(commits).toEqual([2]);
+      // #481's discriminating assertion: the delta batch's rAF fast path ran
+      // under the cap (the lifecycle commit above just painted), so unlike
+      // the pre-#481 frame-exact flush this still commits nothing.
+      expect(commits).toEqual([1]);
+      vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+      expect(commits).toEqual([1, 2]);
       const items = h.useStore.getState().rpc[h.TAB]!.items;
       expect(items[0]).toMatchObject({ kind: "user", text: "go" });
       expect(items[1]).toMatchObject({
@@ -3332,6 +3342,7 @@ describe("transcript commit batching (issue #187)", () => {
       });
     } finally {
       unsub();
+      vi.useRealTimers();
     }
   });
 
@@ -3358,27 +3369,34 @@ describe("transcript commit batching (issue #187)", () => {
   });
 
   it("keeps control frames immediate while a transcript commit is pending", async () => {
-    const store = h.useStore.getState();
-    store.handleRpcFrame(h.TAB, {
-      type: "message_update",
-      assistantMessageEvent: { type: "text_delta", delta: "x" },
-    });
-    expect(rafQueue).toHaveLength(1);
-    // A dialog request must not wait for the flush — omp blocks on its reply.
-    store.handleRpcFrame(h.TAB, {
-      type: "extension_ui_request",
-      id: "e1",
-      method: "confirm",
-      title: "sure?",
-    });
-    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
-    // A command response also resolves without waiting for the flush.
-    const cmd = store.rpcCommand(h.TAB, { type: "get_state" });
-    h.respond(h.TAB, h.sent.pop()!.cmd, {});
-    await expect(cmd).resolves.toBeDefined();
-    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
-    runFrame();
-    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
+    vi.useFakeTimers();
+    try {
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "x" },
+      });
+      expect(rafQueue).toHaveLength(1);
+      // A dialog request must not wait for the flush — omp blocks on its reply.
+      store.handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "e1",
+        method: "confirm",
+        title: "sure?",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
+      // A command response also resolves without waiting for the flush.
+      const cmd = store.rpcCommand(h.TAB, { type: "get_state" });
+      h.respond(h.TAB, h.sent.pop()!.cmd, {});
+      await expect(cmd).resolves.toBeDefined();
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+      // The delta batch is capped (#481): its rAF fast path would be a
+      // no-op, so the wake timer is what finally commits it.
+      vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("settles running tools from the pending batch on process death", () => {
@@ -3406,18 +3424,27 @@ describe("transcript commit batching (issue #187)", () => {
   });
 
   it("drops a pending batch on relaunch so stale frames cannot land", async () => {
-    h.useStore.setState({ state: h.stateWithRecord(null) });
-    const store = h.useStore.getState();
-    store.handleRpcFrame(h.TAB, {
-      type: "message_update",
-      assistantMessageEvent: { type: "text_delta", delta: "old" },
-    });
-    expect(rafQueue).toHaveLength(1);
-    h.mockBackend.restartSession.mockResolvedValueOnce(undefined);
-    await store.restartSession(h.TAB);
-    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
-    runFrame();
-    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ state: h.stateWithRecord(null) });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "old" },
+      });
+      expect(rafQueue).toHaveLength(1);
+      h.mockBackend.restartSession.mockResolvedValueOnce(undefined);
+      await store.restartSession(h.TAB);
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+      // #481: the orphan delta batch also armed a wake timer. Disposal must
+      // cancel it — advancing past the cap fires the wake at nothing.
+      vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+      runFrame();
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("feeds the advisor reply watcher from the pending batch, not the commit", async () => {
@@ -3438,6 +3465,145 @@ describe("transcript commit batching (issue #187)", () => {
       expect(replies).toHaveLength(1);
       expect(String(replies[0]!.cmd.message)).toContain("Do it now");
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps a visible stream to one commit per TRANSCRIPT_FLUSH_MS", () => {
+    vi.useFakeTimers();
+    let commits = 0;
+    const unsub = h.useStore.subscribe((state, prev) => {
+      if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items) commits++;
+    });
+    try {
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
+        type: "message_start",
+        message: { role: "user", content: [{ type: "text", text: "go" }] },
+      });
+      runFrame(); // lifecycle commit opens the paint
+      // A 20 ms delta stream over 200 ms: pre-#481 each frame committed
+      // (11 commits here); capped, at most two wakes fall in the window.
+      for (let i = 0; i < 10; i++) {
+        store.handleRpcFrame(h.TAB, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: String(i) },
+        });
+        vi.advanceTimersByTime(20);
+        runFrame();
+      }
+      expect(commits).toBeLessThanOrEqual(3);
+      vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+      const assistant = h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.find((i) => i.kind === "assistant");
+      expect(assistant).toMatchObject({ text: "0123456789", streaming: true });
+    } finally {
+      unsub();
+      vi.useRealTimers();
+    }
+  });
+
+  it("commits the final text at message_end without waiting for the cap", () => {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "go" }] },
+    });
+    // No runFrame, no timer advance: the deltas' batch is capped and stays
+    // pending; the lifecycle message_end must force-flush it this tick.
+    for (const delta of ["a", "b", "c"]) {
+      store.handleRpcFrame(h.TAB, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta },
+      });
+    }
+    store.handleRpcFrame(h.TAB, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "abc" }] },
+    });
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
+    expect(items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+    expect(items[1]).toMatchObject({ text: "abc", streaming: false });
+  });
+
+  it("keeps hidden-window streams unpainted and converges on the visible edge", () => {
+    vi.useFakeTimers();
+    let commits = 0;
+    const unsub = h.useStore.subscribe((state, prev) => {
+      if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items) commits++;
+    });
+    try {
+      vi.stubGlobal("document", { hidden: true });
+      const store = h.useStore.getState();
+      // A hidden window paints nothing: stream frames, and let the wake
+      // ticks run. The rAF fast path consumed on these frames skips via the
+      // hidden guard; every wake skips too (re-arming), never commits.
+      for (const delta of ["a", "b", "c"]) {
+        store.handleRpcFrame(h.TAB, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta },
+        });
+        runFrame();
+        vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+      }
+      expect(commits).toBe(0);
+      // The visible edge: the batch is still pending, and the next wake (or,
+      // in a real window, the first frame) converges it immediately.
+      vi.stubGlobal("document", { hidden: false });
+      vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+      expect(commits).toBe(1);
+      const assistant = h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.find((i) => i.kind === "assistant");
+      expect(assistant).toMatchObject({ text: "abc" });
+    } finally {
+      unsub();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps tool partial output but settles the card at once", () => {
+    vi.useFakeTimers();
+    let commits = 0;
+    const unsub = h.useStore.subscribe((state, prev) => {
+      if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items) commits++;
+    });
+    try {
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+        args: { command: "make" },
+      });
+      runFrame(); // lifecycle: the running card commits at once
+      expect(commits).toBe(1);
+      for (let i = 1; i <= 6; i++) {
+        store.handleRpcFrame(h.TAB, {
+          type: "tool_execution_update",
+          toolCallId: "t1",
+          partialResult: { content: [{ type: "text", text: `line ${i}` }] },
+        });
+        vi.advanceTimersByTime(20);
+        runFrame();
+      }
+      // 120 ms of updates fit at most two capped commits (start included).
+      expect(commits).toBeLessThanOrEqual(3);
+      // Settling the card is lifecycle: it force-flushes the capped batch,
+      // so the done state and the last partial land with no timer advance.
+      store.handleRpcFrame(h.TAB, {
+        type: "tool_execution_end",
+        toolCallId: "t1",
+        result: { content: [{ type: "text", text: "built" }] },
+      });
+      const tool = h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.find((i) => i.kind === "tool");
+      expect(tool).toMatchObject({ status: "done", resultText: "built" });
+    } finally {
+      unsub();
       vi.useRealTimers();
     }
   });
