@@ -1,0 +1,350 @@
+name: Nightly
+
+# Manually triggered builds from the trunk (issue #480). No schedule, no push,
+# no pull_request trigger — this workflow never runs on its own.
+#
+# Divergence rule: the Linux/Windows lanes mirror main's release.yml lane
+# steps (macOS runs main's macos-package.yml directly through the static
+# cross-ref below). Change release.yml's lane steps and mirror them here.
+# The checkout is pinned to the resolved `ref` input, so the packaged tree is
+# the trunk tip regardless of which branch's copy of this file executes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to package the tip of (branch, tag, or SHA).
+        type: string
+        default: main
+        required: false
+      notarize:
+        description: >-
+          Notarize with Apple. Set false during a Notary Service outage
+          (issue #124) to still get signed, non-notarized artifacts.
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+
+permissions:
+  # The rolling-release updater needs contents: write, and a called reusable
+  # cannot widen the token, so it must be granted here (issue #377). The
+  # publish job's notes step reads merged PRs too (issue #480 metadata).
+  contents: write
+  pull-requests: read
+
+concurrency:
+  # The publish job deletes and recreates the rolling `nightly` release; two
+  # runs in flight would race on it. Queue, never cancel.
+  group: nightly-rolling-release
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.stamp.outputs.sha }}
+      version: ${{ steps.stamp.outputs.version }}
+    steps:
+      - name: Resolve ref and compute the nightly version
+        id: stamp
+        shell: bash
+        env:
+          GH_REPO: ${{ github.repository }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          # gh resolves branches, tags, and full/short SHAs to one canonical SHA.
+          sha="$(gh api "repos/${GH_REPO}/commits/${INPUT_REF}" --jq .sha)" || {
+            printf 'ref %s does not resolve in %s\n' "$INPUT_REF" "$GH_REPO" >&2
+            exit 1
+          }
+          # The prerelease base is the latest STABLE release, never the tree
+          # version (it lags between tags on the trunk): stamped as
+          # <stable>-nightly.<date>.<sha>, the app's update check compares equal
+          # to stable and reports "no update available".
+          base="$(gh release view --latest --json tagName --jq .tagName)" || base=""
+          base="${base#v}"
+          if [ -z "$base" ]; then
+            base="$(gh api "repos/${GH_REPO}/contents/packages/desktop/package.json?ref=${sha}" --jq .content \
+              | base64 -d | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+          fi
+          version="${base}-nightly.$(date -u +%Y%m%d).${sha:0:7}"
+          node -e '
+            const v = process.argv[1];
+            if (!/^\d+\.\d+\.\d+-nightly\.\d{8}\.[0-9a-f]{7}$/.test(v)) {
+              console.error(`refusing to stamp non-conforming nightly version ${v}`);
+              process.exit(1);
+            }
+          ' "$version"
+          { echo "sha=$sha"; echo "version=$version"; } >> "$GITHUB_OUTPUT"
+          echo "nightly version: $version ($sha)"
+
+  linux-x64:
+    needs: meta
+    runs-on: [self-hosted, gfx1201]
+    env:
+      NIGHTLY_VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Stamp nightly version
+        # Root with --workspace (issue #90); never the tree version.
+        run: npm version "$NIGHTLY_VERSION" --no-git-tag-version --workspace @omp-ui/desktop
+      - name: Build Linux package
+        run: npm run package:linux --workspace @omp-ui/desktop -- --publish never
+      - name: Assert Linux artifacts exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version="$(node -p 'require("./packages/desktop/package.json").version')"
+          cd packages/desktop/dist
+          appimages=(*.AppImage)
+          if (( ${#appimages[@]} != 1 )); then
+            printf 'Expected exactly one AppImage, found %s\n' "${#appimages[@]}" >&2
+            exit 1
+          fi
+          grep -Fq "omp-ui-${version}" <<<"${appimages[0]}"
+      - name: Stage Linux nightly
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-linux-x64
+          path: packages/desktop/dist/*.AppImage
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  # macOS lanes via the trunk's own copy of the reusable. `uses:` forbids
+  # expressions (parsed before contexts exist), so the ref is the static
+  # literal `main` — that always runs the trunk's packaging steps no matter
+  # which branch's copy of this file executes; the tree itself comes from
+  # meta's SHA through the reusable's `ref` input.
+  macos:
+    needs: meta
+    uses: LankfordAI/omp-ui/.github/workflows/macos-package.yml@main
+    with:
+      version: ${{ needs.meta.outputs.version }}
+      ref: ${{ needs.meta.outputs.sha }}
+      notarize: ${{ inputs.notarize == 'true' }}
+      targets: >-
+        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15-intel"}]}
+    secrets: inherit
+
+  windows-x64:
+    needs: meta
+    runs-on: windows-latest
+    env:
+      NIGHTLY_VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run Windows core tests
+        run: npm test --workspace @omp-ui/core -- --testTimeout=15000
+      - name: Run Windows desktop tests
+        run: npm test --workspace @omp-ui/desktop
+      - name: Stamp nightly version
+        shell: pwsh
+        run: npm version "$env:NIGHTLY_VERSION" --no-git-tag-version --workspace @omp-ui/desktop
+      - name: Ensure Spectre-mitigated MSVC libraries
+        # node-pty's binding.gyp requires them; the rebuild step below
+        # compiles it for Electron's ABI. Verbatim from release.yml.
+        shell: pwsh
+        run: |
+          $component = "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre"
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -property installationPath
+          $withSpectre = & $vswhere -latest -products * -requires $component -property installationPath
+          if (-not $withSpectre) {
+            $setup = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\setup.exe"
+            $args = "modify --installPath `"$installPath`" --add $component --quiet --norestart"
+            $process = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Visual Studio setup exited $($process.ExitCode)" }
+          }
+          if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) {
+            throw "Required Spectre-mitigated MSVC libraries are unavailable"
+          }
+      - name: Rebuild node-pty for Electron x64
+        shell: bash
+        run: bash packages/desktop/scripts/rebuild-native.sh --arch=x64
+      - name: Build unsigned Windows preview
+        run: npm run package:win --workspace @omp-ui/desktop -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Verify Windows package
+        shell: pwsh
+        run: ./packages/desktop/scripts/verify-windows-package.ps1
+      - name: Assert Windows artifacts exist
+        shell: pwsh
+        run: |
+          $version = $env:NIGHTLY_VERSION
+          $dist = "packages/desktop/dist"
+          $installers = @(Get-ChildItem $dist -File -Filter "*-windows-preview-x64-setup.exe")
+          if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer, found $($installers.Count)" }
+          $expected = "omp-ui-$version-windows-preview-x64-setup.exe"
+          if ($installers[0].Name -ne $expected) { throw "Installer named $($installers[0].Name), expected $expected" }
+          $blockmaps = @(Get-ChildItem $dist -File -Filter "*-windows-preview-x64-setup.exe.blockmap")
+          if ($blockmaps.Count -ne 1 -or $blockmaps[0].Name -ne "$($installers[0].Name).blockmap") { throw "Blockmap missing or does not match installer" }
+      - name: Stage Windows nightly
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-win-x64
+          path: packages/desktop/dist/*-windows-preview-x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    needs: [meta, linux-x64, macos, windows-x64]
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      SHA: ${{ needs.meta.outputs.sha }}
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Download Linux nightly
+        uses: actions/download-artifact@v4
+        with:
+          name: nightly-linux-x64
+          path: packages/desktop/dist
+      - name: Download Windows nightly
+        uses: actions/download-artifact@v4
+        with:
+          name: nightly-win-x64
+          path: packages/desktop/dist
+      - name: Download packaged macOS nightlies
+        # The trunk reusable stages each arch from the single dist root, so
+        # the files land directly in packages/desktop/dist (as in release.yml).
+        uses: actions/download-artifact@v4
+        with:
+          pattern: macos-package-*
+          merge-multiple: true
+          path: packages/desktop/dist
+      - name: Compose the release notes body
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # refs/tags/nightly was created at the PREVIOUS run's packaged SHA by
+          # the create step below (delete+create moves it every run) — exactly
+          # the previous nightly's code. First run falls back to latest stable.
+          prev="$(git ls-remote origin refs/tags/nightly | cut -f1)"
+          if [ -z "$prev" ]; then
+            stable_tag="$(gh release view --latest --json tagName --jq .tagName)"
+            prev="$(git ls-remote origin "refs/tags/${stable_tag}" | cut -f1)"
+          fi
+          {
+            printf 'Nightly build at [%s](https://github.com/%s/commit/%s).\n\n' "${SHA:0:7}" "$GH_REPO" "$SHA"
+            printf 'Version: `%s`\n\n' "$VERSION"
+          } > notes.md
+          if [ "$prev" = "$SHA" ]; then
+            printf 'No new commits since the previous nightly.\n' >> notes.md
+          elif [ -n "$prev" ] && git cat-file -e "${prev}^{commit}" 2>/dev/null; then
+            {
+              printf 'Changes since the previous nightly (%s):\n\n' "${prev:0:7}"
+              # main's first-parent subjects are squash titles carrying (#N);
+              # grep -oE catches every issue number in a subject, gh pr view
+              # drops the ones that are not PRs.
+              git log --first-parent --format='%s' "${prev}..${SHA}" \
+                | grep -oE '#[0-9]+' | tr -d '#' | sort -n | uniq | head -100 \
+                | while IFS= read -r pr; do
+                    gh pr view "$pr" --json number,title,url \
+                      --jq '"- [#\(.number)](\(.url)) — \(.title)"' || true
+                  done
+            } >> notes.md
+          else
+            printf 'Previous nightly revision is no longer reachable; no range to list.\n' >> notes.md
+          fi
+      - name: Replace the rolling nightly prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Clobber-by-asset-name cannot work across runs (every run's version,
+          # hence every file name, differs) — delete the old release with its
+          # tag and recreate it at this run's SHA. Prereleases are excluded
+          # from /releases/latest, install.sh, and the app's update check.
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly --target "$SHA" --prerelease \
+            --title "Nightly ${VERSION}" --notes-file notes.md
+      - name: Upload distributables and checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd packages/desktop/dist
+          assets=(
+            *.AppImage
+            *-windows-preview-x64-setup.exe
+            *-mac-preview-*.dmg
+            *-mac-preview-*.zip
+            SHA256SUMS-macos-*.txt
+          )
+          # 1 AppImage + 1 exe + 2 dmg + 2 zip + 2 per-arch sums = 8.
+          (( ${#assets[@]} == 8 )) || { printf 'expected 8 distributables, found %s\n' "${#assets[@]}" >&2; exit 1; }
+          sha256sum "${assets[@]}" > SHA256SUMS.txt
+          gh release upload nightly --clobber "${assets[@]}" SHA256SUMS.txt
+      - name: Stage macOS arm64 bundles as 14-day run artifacts
+        # The reusable's own artifact lives 1 day; mirror macos-preview.yml's
+        # publish step so a dispatched run's files outlive the release cycle.
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-macos-arm64-${{ inputs.notarize == 'true' && 'notarized' || 'signed-only' }}
+          path: |
+            packages/desktop/dist/*-mac-preview-arm64.dmg
+            packages/desktop/dist/*-mac-preview-arm64.zip
+            packages/desktop/dist/SHA256SUMS-macos-arm64.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Stage macOS x64 bundles as 14-day run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-macos-x64-${{ inputs.notarize == 'true' && 'notarized' || 'signed-only' }}
+          path: |
+            packages/desktop/dist/*-mac-preview-x64.dmg
+            packages/desktop/dist/*-mac-preview-x64.zip
+            packages/desktop/dist/SHA256SUMS-macos-x64.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Assert the nightly release stays off the stable channel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ "$(gh release view nightly --json isDraft --jq .isDraft)" = "false" ]
+          [ "$(gh release view nightly --json isPrerelease --jq .isPrerelease)" = "true" ]
+          names="$(gh release view nightly --json assets --jq '.assets[].name')"
+          # No update feeds of any kind ship with a nightly (issue #480):
+          # neither latest*.yml metadata nor Windows blockmaps, both of which
+          # electron-builder leaves in dist on every run.
+          ! grep -Eq '^latest' <<<"$names"
+          ! grep -Eq '\.blockmap$' <<<"$names"
+          # The stable channel still resolves the last stable release.
+          [ "$(gh api "repos/${GH_REPO}/releases/latest" --jq .tag_name)" != "nightly" ]
