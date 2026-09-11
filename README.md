@@ -39,7 +39,7 @@ Install the supported Linux AppImage:
 curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash
 ```
 
-### macOS preview
+### macOS
 
 Download the signed and notarized DMG for your Mac from the
 [latest release](https://github.com/LankfordAI/omp-ui/releases/latest): use

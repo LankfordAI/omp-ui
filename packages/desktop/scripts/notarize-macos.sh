@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Notarize a packaged macOS preview artifact via notarytool, with retries.
+# Notarize a packaged macOS artifact via notarytool, with retries.
 #
 # Why this exists: electron-builder's built-in `mac.notarize` makes exactly one
 # notarytool submission attempt. Apple's Notary Service intermittently returns
-# HTTP 500 (see issue #124), which kills the whole build. The preview workflow
+# HTTP 500 (see issue #124), which kills the whole build. The packaging lane
 # therefore builds with `--config.mac.notarize=false` and delegates notarization
 # to this script, which submits the DMG (so Apple issues tickets for both the
 # disk image and the app inside), retries transient failures with backoff, then
 # staples the tickets onto the .app and .dmg and re-zips the artifact.
 #
-# Usage: notarize-macos-preview.sh <arm64|x64>
+# Usage: notarize-macos.sh <arm64|x64>
 #
 # Required env: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
 set -euo pipefail
@@ -34,11 +34,11 @@ esac
 
 shopt -s nullglob
 dist="packages/desktop/dist"
-zips=("$dist"/*-mac-preview-"$arch".zip)
-dmgs=("$dist"/*-mac-preview-"$arch".dmg)
+zips=("$dist"/*-mac-"$arch".zip)
+dmgs=("$dist"/*-mac-"$arch".dmg)
 
 if (( ${#zips[@]} != 1 || ${#dmgs[@]} != 1 )); then
-  printf 'Expected exactly one preview ZIP and one DMG for %s in %s, found %s ZIP(s) and %s DMG(s)\n' \
+  printf 'Expected exactly one ZIP and one DMG for %s in %s, found %s ZIP(s) and %s DMG(s)\n' \
     "$arch" "$dist" "${#zips[@]}" "${#dmgs[@]}" >&2
   exit 1
 fi

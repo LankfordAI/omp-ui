@@ -303,8 +303,8 @@ jobs:
             *-windows-preview-x64-setup.exe
             *-windows-preview-x64-setup.exe.blockmap
             latest.yml
-            *-mac-preview-*.dmg
-            *-mac-preview-*.zip
+            *-mac-*.dmg
+            *-mac-*.zip
             SHA256SUMS-macos-*.txt
           )
           # 1 AppImage + 1 feed + 1 exe + 1 blockmap + 1 feed + 2 dmg + 2 zip + 2 sums = 11.
@@ -318,8 +318,8 @@ jobs:
         with:
           name: nightly-macos-arm64-${{ inputs.notarize == 'true' && 'notarized' || 'signed-only' }}
           path: |
-            packages/desktop/dist/*-mac-preview-arm64.dmg
-            packages/desktop/dist/*-mac-preview-arm64.zip
+            packages/desktop/dist/*-mac-arm64.dmg
+            packages/desktop/dist/*-mac-arm64.zip
             packages/desktop/dist/SHA256SUMS-macos-arm64.txt
           if-no-files-found: error
           compression-level: 0
@@ -329,8 +329,8 @@ jobs:
         with:
           name: nightly-macos-x64-${{ inputs.notarize == 'true' && 'notarized' || 'signed-only' }}
           path: |
-            packages/desktop/dist/*-mac-preview-x64.dmg
-            packages/desktop/dist/*-mac-preview-x64.zip
+            packages/desktop/dist/*-mac-x64.dmg
+            packages/desktop/dist/*-mac-x64.zip
             packages/desktop/dist/SHA256SUMS-macos-x64.txt
           if-no-files-found: error
           compression-level: 0
