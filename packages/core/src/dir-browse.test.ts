@@ -57,6 +57,29 @@ describe("browseDirectories", () => {
     expect(r.entries).toEqual([{ name: "alpha", fullPath: path.join(dir, "alpha") }]);
   });
 
+  it("matches non-contiguous leaf characters", async () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, "axle"));
+    fs.mkdirSync(path.join(dir, "alpha"));
+    fs.mkdirSync(path.join(dir, "other"));
+
+    const r = await browseDirectories(path.join(dir, "al"));
+    expect(r.error).toBeNull();
+    // Recall only — the backend does not rank; equal footing stays name-sorted.
+    expect(r.entries.map((e) => e.name)).toEqual(["alpha", "axle"]);
+  });
+
+  it("fuzzy recall does not surface hidden directories", async () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, ".hidden"));
+    fs.mkdirSync(path.join(dir, "visible"));
+
+    // "hi" is a subsequence of ".hidden", but the leaf does not start with "."
+    const r = await browseDirectories(path.join(dir, "hi"));
+    expect(r.entries).toEqual([]);
+    expect(r.error).toBeNull();
+  });
+
   it("expands ~ against opts.home", async () => {
     const home = tmpDir();
     fs.mkdirSync(path.join(home, "proj"));

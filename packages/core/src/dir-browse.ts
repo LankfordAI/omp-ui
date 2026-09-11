@@ -18,11 +18,23 @@ function isBrowsablePath(trimmed: string, home: string): boolean {
   return path.isAbsolute(expandHomePath(trimmed, home));
 }
 
+/** Case-insensitive subsequence test: every needle char appears, in order. */
+function matchesLeaf(lowerName: string, lowerLeaf: string): boolean {
+  let at = 0;
+  for (const ch of lowerLeaf) {
+    at = lowerName.indexOf(ch, at);
+    if (at === -1) return false;
+    at += 1;
+  }
+  return true;
+}
+
 /**
  * Lists candidate directories for a partial path. The input splits at its last
  * separator: a trailing "/" (or bare "~") lists that directory unfiltered;
  * otherwise the dirname is listed and the basename is a case-insensitive
- * prefix filter. Hidden entries only when the prefix starts with ".".
+ * subsequence filter (every typed char present in order, not necessarily
+ * adjacent). Hidden entries only when the leaf starts with ".".
  */
 export async function browseDirectories(
   partialPath: string,
@@ -53,7 +65,7 @@ export async function browseDirectories(
     .filter(
       (d) =>
         d.isDirectory() &&
-        d.name.toLowerCase().startsWith(lowerPrefix) &&
+        matchesLeaf(d.name.toLowerCase(), lowerPrefix) &&
         (showHidden || !d.name.startsWith(".")),
     )
     .map((d) => ({ name: d.name, fullPath: path.join(parentPath, d.name) }))

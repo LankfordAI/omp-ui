@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import type { DirBrowseEntry, DirBrowseResult } from "@omp-ui/core/types";
 import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
+import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
 import { useT } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
@@ -11,10 +12,12 @@ import { Button, Chip, Modal } from "./ui";
 
 /**
  * In-app, keyboard-driven directory picker for "Add project" (issue #16).
- * Every keystroke asks the main process for one directory listing; a
+ * Every keystroke asks the main process for one directory listing whose leaf
+ * fuzzy-matches (subsequence) the current directory's names (issue #483); a
  * generation counter discards stale responses (no debounce needed — local
- * readdir is cheap). Enter with no row selected registers the resolved path;
- * a selected row descends into it instead.
+ * readdir is cheap). Rows are ranked here with the shared scorer, and matched
+ * characters are highlighted. Enter with no row selected registers the
+ * resolved path; a selected row descends into it instead.
  */
 
 /** String dirname for display paths — the renderer must not import node:path. */
@@ -23,7 +26,7 @@ function parentOf(p: string): string {
 }
 
 /** A list row: the ".." parent link or a real directory entry. */
-type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry };
+type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry; hits: number[] };
 
 export function ProjectPicker() {
   const t = useT();
@@ -72,9 +75,20 @@ export function ProjectPicker() {
   const resolvedPath = trailingSep ? parentPath : (exact?.fullPath ?? trimmed);
 
   const hasParent = parentPath !== "" && parentOf(parentPath) !== parentPath;
+  // Fuzzy recall comes from the backend; ranking reuses the shared scorer so
+  // the picker matches exactly like every other palette. Array.prototype.sort
+  // is stable, so equal scores keep the backend's alphabetical order.
+  const dirs = leaf === ""
+    ? entries.map((entry) => ({ entry, hits: [] as number[], score: 0 }))
+    : entries.flatMap((entry) => {
+        const hit = fuzzyMatch(entry.name, leaf);
+        return hit === null ? [] : [{ entry, hits: hit.hits, score: hit.score }];
+      })
+      .sort((a, b) => b.score - a.score);
+
   const rows: PickerRow[] = [
     ...(hasParent ? [{ kind: "up" } as const] : []),
-    ...entries.map((entry) => ({ kind: "dir", entry }) as const),
+    ...dirs.map((d) => ({ kind: "dir" as const, entry: d.entry, hits: d.hits })),
   ];
 
   const descend = (row: PickerRow): void => {
@@ -180,7 +194,15 @@ export function ProjectPicker() {
                 row.kind === "up" ? "text-ink-dim" : "text-ink",
               )}
             >
-              {row.kind === "up" ? ".." : row.entry.name}
+              {row.kind === "up" ? (
+                ".."
+              ) : (
+                highlightRuns(row.entry.name, row.hits).map((part, j) => (
+                  <span key={j} className={part.hit ? "text-signal" : undefined}>
+                    {part.text}
+                  </span>
+                ))
+              )}
             </span>
           </button>
         ))}
