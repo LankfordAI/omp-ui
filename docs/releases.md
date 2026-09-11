@@ -4,14 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The tagged release lane fans out from a draft-only `prepare` job, packages both macOS architectures on Apple Silicon runners that upload their own assets, runs the Windows tests beside the Windows build, and ships `node-pty`'s Node-API prebuilds with an Electron-runtime smoke test instead of rebuilding them — about 7 minutes per tagged release instead of 15 (#484, #485, #486).
-- The packaged app no longer carries renderer-only `node_modules` that the renderer bundle already contains, foreign-platform `node-pty` prebuilds, or MSVC debug symbols, so installers and update downloads are smaller (#487).
-- Nightly builds are a manual dispatch of the [Nightly workflow](../.github/workflows/nightly.yml): one run packages the selected ref for Linux x64, Windows x64, and macOS arm64/x64 under `<latest-stable>-nightly.<date>.<sha>`, delivers the files as 14-day run artifacts and on one rolling `nightly` prerelease, and uploads no update feed at all, so nightlies never reach an update check ([#480](https://github.com/LankfordAI/omp-ui/issues/480)).
-- Creating a worktree session no longer silently loses the base segment of its branch name when the dialog is submitted before the branch listing lands: the mint is now finalized through git's truth — a base-blind name recomposes to `<project>/<base>/<hash>` — before the checkout is cut, and the dialog and chip *Create* controls stay disabled until the listing resolves ([#482](https://github.com/LankfordAI/omp-ui/issues/482)).
-- Plan review on a machine joined to a remote instance shows the host's real branch list: the worktree fields' branch queries now route through the owning instance instead of the joiner's filesystem, so the Base control no longer collapses to *current HEAD* and plan sessions no longer mint `<repo>/<hash>` branches with no base segment ([#488](https://github.com/LankfordAI/omp-ui/issues/488)).
-- macOS packaging now restores the executable bit that node-pty's npm prebuild stores on `spawn-helper`, so the unrebuilt-prebuild lane ships a Mac app that can actually spawn terminals and managed `omp` sessions; the Electron-runtime smoke, the packaged tree, and the macOS verifier each enforce it (#489).
-
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.12.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
