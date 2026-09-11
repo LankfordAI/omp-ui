@@ -5,6 +5,9 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - macOS release artifacts are named `omp-ui-<version>-mac-<arch>.dmg`/`.zip`, dropping the vestigial `-preview-` token, and macOS is documented as a supported release platform (#500).
+- The composer's branch chip now follows the checkout instead of the click: a checkout issued by a joined instance, a `git checkout` in a terminal while the window stays visible, and a host-side worktree switch all emit `branch:changed` — from the mutating git handlers and from a per-project gitdir watcher — and the chip re-reads local refs, while upstream freshness stays on the window-focus and menu paths (#498).
+- Streaming text no longer repaints the native transcript once per animation frame: a tab's visual commits are capped to one per 100 ms while reduction stays eager and frame-exact, a settled lifecycle frame flushes a capped batch immediately so nothing waits behind the cap, and a hidden window still paints nothing — about 100 commits per second at baseline now run at about 10, with identical final text (#481).
+- An issue named by a closing keyword now closes when the work lands on `develop` as well as on `main`: the Close Landed Issues workflow replays GitHub's keyword semantics for the pushed range, reads the same keyword grammar as the release notes so the two can never disagree, skips pull-request references and already-closed issues, and comments with the landing commit and the update train that branch feeds (#501).
 
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
