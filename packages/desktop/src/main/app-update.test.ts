@@ -707,6 +707,47 @@ describe("AppUpdater update trains (issue #493)", () => {
     autoUpdater.emitDownloaded();
     expect(made.updater.state.status).not.toBe("downloaded");
   });
+
+  it("drops a check that started on the previous train", async () => {
+    let train: "stable" | "nightly" = "stable";
+    const json = (body: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    let resolveStable!: (body: unknown) => void;
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.includes("/releases/latest")) {
+        return new Promise((res) => {
+          resolveStable = (body) => res(json(body));
+        });
+      }
+      return json(nightlyBody("1.0.0-nightly.20260911.abc1234"));
+    };
+    const autoUpdater = makeFakeAutoUpdater();
+    // Settle the nightly stage (an available-but-empty feed) so the old
+    // check cannot hide behind the reentrant reveal path: it must fail the
+    // generation gate itself, not merely find a stage already in flight.
+    autoUpdater.checkForUpdates.mockResolvedValue({ isUpdateAvailable: false });
+    const made = makeUpdater({
+      getTrain: () => train,
+      fetchImpl,
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    const pending = made.updater.checkNow(false); // parked on the stable fetch
+    train = "nightly";
+    await made.updater.onTrainChanged(); // the nightly check completes and stages
+    const mark = sent.length;
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledTimes(1);
+    resolveStable(releaseBody("1.2.0"));
+    await pending;
+    // The superseded check publishes nothing and never touches the feed.
+    expect(sent.length).toBe(mark);
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledTimes(1);
+    expect(made.updater.state.latestVersion).toBe("1.0.0-nightly.20260911.abc1234");
+  });
 });
 describe("resolveAutoUpdater", () => {
   it("unwraps the CJS default export (real electron-updater shape, issue #87)", () => {

@@ -3,7 +3,6 @@ import { shell, type BrowserWindow } from "electron";
 import {
   APP_RELEASE_DOWNLOAD_BASE,
   compareAppVersions,
-  compareVersions,
   detectPackageFormat,
   downloadAppAsset,
   fetchLatestAppRelease,
@@ -364,6 +363,9 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   private installOnQuitArmed = false;
   /** Irreversible installer-handoff guard while quitAndInstall is in flight. */
   private restarting = false;
+  /** Monotonic checkNow token: a newer check (or a train switch)
+   *  supersedes every older in-flight check, which then goes silent. */
+  private checkGen = 0;
 
   constructor(private readonly deps: AppUpdaterDeps) {
     super(
@@ -409,6 +411,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    * check swallows: up-to-date, unreachable, disabled.
    */
   async checkNow(manual: boolean): Promise<AppUpdateState> {
+    const gen = ++this.checkGen;
     if (!this.enabled) {
       if (manual) this.publish({ t: "disabled" });
       return this.state;
@@ -418,6 +421,9 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     const release = await (train === "nightly"
       ? fetchNightlyAppRelease(this.deps.fetchImpl)
       : fetchLatestAppRelease(this.deps.fetchImpl));
+    // A newer check — or onTrainChanged's reset + re-check — superseded
+    // this one; it must not publish or stage anything anymore.
+    if (gen !== this.checkGen) return this.state;
     if (release === null) {
       this.publish({ t: "unreachable", manual });
       return this.state;
@@ -434,7 +440,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     const format = detectPackageFormat(this.deps.env, this.deps.exists, this.deps.platform);
     if (isAutoUpdateFormat(format)) {
-      await this.stageAutoUpdate(release, format, manual);
+      await this.stageAutoUpdate(release, format, manual, train, gen);
       return this.state;
     }
     this.publish({ t: "available", release, format: train === "nightly" ? "unknown" : format });
@@ -451,6 +457,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     release: AppReleaseInfo,
     format: AutoUpdateFormat,
     visible: boolean,
+    train: UpdateTrain,
+    gen: number,
   ): Promise<void> {
     if (this.machine.stage !== null) {
       if (visible && !this.machine.stage.visible) {
@@ -462,6 +470,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     this.publish({ t: "stage-enter", visible, release, format });
     try {
       this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
+      // A superseded check must not touch the shared updater anymore.
+      if (gen !== this.checkGen) return;
       const autoUpdater = this.autoUpdater;
       // omp-ui controls when staging begins; electron-updater must not start a
       // second download from its own checkForUpdates() call.
@@ -494,7 +504,6 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
           this.publish({ t: "stage-failed", visible: this.machine.stage.visible, message: err.message });
         });
       }
-      const train = this.deps.getTrain();
       autoUpdater.setFeedURL(
         train === "nightly"
           ? { provider: "generic", url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/" }
@@ -505,6 +514,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       autoUpdater.allowDowngrade = train === "nightly";
 
       const result = await autoUpdater.checkForUpdates();
+      // A superseded call never publishes for the new generation's stage.
+      if (gen !== this.checkGen) return;
       if (result?.isUpdateAvailable) {
         await autoUpdater.downloadUpdate();
       } else {
@@ -519,6 +530,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       // stage-enter (and updater callbacks) mutate the snapshot across the
       // await; TypeScript retains the stale pre-await null narrowing.
       const currentStage = (this.machine as AppUpdateMachine).stage;
+      // An abandoned check cannot fail a stage the new generation owns.
+      if (gen !== this.checkGen) return;
       if (currentStage === null) return;
       this.publish({
         t: "stage-failed",
