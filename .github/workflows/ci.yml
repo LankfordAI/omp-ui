@@ -15,6 +15,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run smoke:pty --workspace @omp-ui/desktop
       - run: npm run lint
         # npm ci validates the dependency tree but not workspace metadata —
         # a version stamped without regenerating the lock (issue #90) passes

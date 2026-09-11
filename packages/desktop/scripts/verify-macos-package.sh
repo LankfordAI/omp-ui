@@ -58,7 +58,7 @@ fi
 
 app="${apps[0]}"
 executable="$app/Contents/MacOS/omp-ui"
-pty="$app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node"
+pty="$app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${arch}/pty.node"
 test -f "$executable" || { printf 'Missing app executable: %s\n' "$executable" >&2; exit 1; }
 test -f "$pty" || { printf 'Missing unpacked node-pty binary: %s\n' "$pty" >&2; exit 1; }
 

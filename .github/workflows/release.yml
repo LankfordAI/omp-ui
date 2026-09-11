@@ -13,7 +13,31 @@ permissions:
   pull-requests: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Create draft GitHub release if missing
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The release stays a draft until release-manifest publishes it.
+          # /releases/latest and the releases Atom feed exclude drafts, so while
+          # this build is in flight the updater and install.sh keep resolving
+          # the last COMPLETED release instead of 404ing on this release's
+          # not-yet-uploaded feed files (issue #265). Every platform lane
+          # uploads into this draft, so it exists before any of them start
+          # (issue #486).
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "${GITHUB_REF_NAME#v}" --notes "" \
+              || gh release view "$GITHUB_REF_NAME" >/dev/null
+          fi
+
   release-linux:
+    needs: prepare
     runs-on: [self-hosted, gfx1201]
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +48,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Smoke-test node-pty under Electron
+        run: npm run smoke:pty --workspace @omp-ui/desktop
       - name: Stamp version from tag
         # Tolerate the version being stamped on main before tagging (issue
         # 85): `npm version` exits 1 ("Version not changed") when the tree
@@ -55,22 +81,6 @@ jobs:
           test -f latest-linux.yml
           grep -q "sha512" latest-linux.yml
           grep -Fq "${appimages[0]}" latest-linux.yml
-      - name: Create draft GitHub release if missing
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # The release stays a draft until release-manifest publishes it.
-          # /releases/latest and the releases Atom feed exclude drafts, so while
-          # this build is in flight the updater and install.sh keep resolving
-          # the last COMPLETED release instead of 404ing on this release's
-          # not-yet-uploaded feed files (issue #265).
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
-              --title "${GITHUB_REF_NAME#v}" --notes "" \
-              || gh release view "$GITHUB_REF_NAME" >/dev/null
-          fi
       - name: Upload Linux assets
         shell: bash
         env:
@@ -85,7 +95,7 @@ jobs:
             latest-linux.yml
 
   release-notes:
-    needs: release-linux
+    needs: prepare
     uses: ./.github/workflows/release-notes.yml
     with:
       tag: ${{ github.ref_name }}
@@ -93,47 +103,21 @@ jobs:
     secrets: inherit
 
   package-macos:
-    needs: release-linux
+    needs: prepare
     uses: ./.github/workflows/macos-package.yml
     with:
       version: ${{ github.ref_name }}
       notarize: true
+      release_tag: ${{ github.ref_name }}
+      # Both architectures package on Apple Silicon: the Intel runner is about
+      # twice as slow at every step and nothing in the lane executes the app
+      # (issue #485).
       targets: >-
-        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15-intel"}]}
+        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15"}]}
     secrets: inherit
 
-  release-macos:
-    needs: package-macos
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.package-macos.outputs.targets) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download packaged macOS release
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-package-${{ matrix.arch }}
-          path: packages/desktop/dist
-      - name: Upload macOS assets to release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          dist="packages/desktop/dist"
-          dmgs=("$dist"/*-mac-preview-${{ matrix.arch }}.dmg)
-          zips=("$dist"/*-mac-preview-${{ matrix.arch }}.zip)
-          (( ${#dmgs[@]} == 1 ))
-          (( ${#zips[@]} == 1 ))
-          gh release upload "$GITHUB_REF_NAME" --clobber \
-            "${dmgs[0]}" \
-            "${zips[0]}" \
-            "$dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
-
-  release-windows:
-    needs: release-linux
+  test-windows:
+    needs: prepare
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -146,6 +130,22 @@ jobs:
         run: npm test --workspace @omp-ui/core -- --testTimeout=15000
       - name: Run Windows desktop tests
         run: npm test --workspace @omp-ui/desktop
+
+  release-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Smoke-test node-pty under Electron
+        # node-pty's win32-x64 Node-API prebuild ships unrebuilt (no MSVC
+        # toolchain on this lane; issue #484); this proves it loads inside
+        # Electron.
+        run: npm run smoke:pty --workspace @omp-ui/desktop
       - name: Stamp version from tag
         shell: pwsh
         run: |
@@ -156,25 +156,6 @@ jobs:
           } else {
             npm version $tag --no-git-tag-version --workspace @omp-ui/desktop
           }
-      - name: Ensure Spectre-mitigated MSVC libraries
-        shell: pwsh
-        run: |
-          $component = "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre"
-          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installPath = & $vswhere -latest -products * -property installationPath
-          $withSpectre = & $vswhere -latest -products * -requires $component -property installationPath
-          if (-not $withSpectre) {
-            $setup = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\setup.exe"
-            $args = "modify --installPath `"$installPath`" --add $component --quiet --norestart"
-            $process = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
-            if ($process.ExitCode -ne 0) { throw "Visual Studio setup exited $($process.ExitCode)" }
-          }
-          if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) {
-            throw "Required Spectre-mitigated MSVC libraries are unavailable"
-          }
-      - name: Rebuild node-pty for Electron x64
-        shell: bash
-        run: bash packages/desktop/scripts/rebuild-native.sh --arch=x64
       - name: Build unsigned Windows preview
         run: npm run package:win --workspace @omp-ui/desktop -- --publish never
         env:
@@ -210,8 +191,8 @@ jobs:
             latest.yml
 
   release-manifest:
-    needs: [release-linux, package-macos, release-macos, release-windows, release-notes]
-    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
+    needs: [release-linux, package-macos, release-windows, test-windows, release-notes]
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.package-macos.result == 'success' && needs.release-windows.result == 'success' && needs.test-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}

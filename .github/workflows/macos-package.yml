@@ -23,6 +23,14 @@ on:
         description: JSON matrix whose include entries contain arch and runner.
         required: true
         type: string
+      release_tag:
+        description: >-
+          GitHub release tag to upload the DMG, ZIP, and checksum file to.
+          Empty stages them as a workflow artifact named macos-package-<arch>
+          for the caller instead (issue #485).
+        required: false
+        type: string
+        default: ""
     outputs:
       targets:
         description: The target matrix used to build the packages.
@@ -50,6 +58,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Smoke-test node-pty under Electron
+        # The lane ships node-pty's Node-API prebuild unrebuilt (issue #484);
+        # this proves the host-arch prebuild loads and spawns inside Electron's
+        # runtime.
+        run: npm run smoke:pty --workspace @omp-ui/desktop
       - name: Stamp package version
         shell: bash
         env:
@@ -62,9 +75,6 @@ jobs:
           else
             npm version "$version" --no-git-tag-version --workspace @omp-ui/desktop
           fi
-      - name: Rebuild node-pty
-        shell: bash
-        run: bash packages/desktop/scripts/rebuild-native.sh --arch="${{ matrix.arch }}"
       - name: Package signed macOS build (with retries, notarization deferred)
         shell: bash
         run: |
@@ -105,6 +115,7 @@ jobs:
           "${{ matrix.arch }}"
           "${{ inputs.notarize && 'full' || 'signed-only' }}"
       - name: Stage macOS package for caller
+        if: ${{ inputs.release_tag == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: macos-package-${{ matrix.arch }}
@@ -115,3 +126,22 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
+      - name: Upload macOS assets to release
+        if: ${{ inputs.release_tag != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dist="packages/desktop/dist"
+          dmgs=("$dist"/*-mac-preview-"$ARCH".dmg)
+          zips=("$dist"/*-mac-preview-"$ARCH".zip)
+          (( ${#dmgs[@]} == 1 ))
+          (( ${#zips[@]} == 1 ))
+          gh release upload "$RELEASE_TAG" --clobber \
+            "${dmgs[0]}" \
+            "${zips[0]}" \
+            "$dist/SHA256SUMS-macos-$ARCH.txt"

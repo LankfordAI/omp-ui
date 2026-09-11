@@ -6,6 +6,9 @@ directories:
 files:
   - out/**
   - package.json
+  # node-pty ships every platform's prebuilt addon plus MSVC debug symbols; the
+  # platform blocks below keep only what that platform's runtime can load.
+  - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
 asarUnpack:
   - "**/node_modules/node-pty/**"
 npmRebuild: false
@@ -18,6 +21,9 @@ linux:
   category: Development
   synopsis: Desktop GUI for the omp coding agent
   maintainer: Austin Lankford <austin@austinlankford.com>
+  files:
+    # No Linux prebuild exists; npm ci compiles build/Release/pty.node.
+    - "!**/node_modules/node-pty/prebuilds{,/**/*}"
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.png
@@ -29,11 +35,21 @@ mac:
   target:
     - dmg
     - zip
+  files:
+    - "!**/node_modules/node-pty/prebuilds/win32-*{,/**/*}"
+dmg:
+  # The release uploads the DMG, ZIP, and checksums; latest-mac.yml never names
+  # a DMG blockmap, so building one is wasted time.
+  writeUpdateInfo: false
 win:
   target:
     - nsis
   icon: build/icon.ico
   artifactName: ${productName}-${version}-windows-preview-${arch}-setup.${ext}
+  files:
+    - "!**/node_modules/node-pty/prebuilds/darwin-*{,/**/*}"
+    # package:win builds x64 only.
+    - "!**/node_modules/node-pty/prebuilds/win32-arm64{,/**/*}"
 nsis:
   oneClick: false
   perMachine: false

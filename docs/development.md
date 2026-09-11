@@ -10,13 +10,13 @@ Install these tools before checking out the repository:
 
 - Git.
 - Node.js 22 or newer and its bundled npm. The current Electron package requires Node 22.12.0 or newer, so use a current Node 22 release.
-- The native build tools required by `node-pty`.
+- The native build tools required by `node-pty` on Linux.
 
-`node-pty` compiles native code when a suitable prebuild is unavailable. Install the tools for the platform where you develop:
+`node-pty` ships Node-API prebuilds for Windows and macOS, so `npm install` compiles it only on Linux. Node-API is ABI-stable across Node and Electron, so the copy npm installs is the copy that ships in every package; nothing rebuilds it for Electron. Install the platform tools:
 
 - Linux: Python 3, `make`, and a C/C++ build toolchain. On Debian or Ubuntu, install them with `sudo apt install -y python3 make build-essential`.
-- macOS preview: Xcode, including its command-line build tools.
-- Windows preview: Python, the Visual Studio C++ build tools, the Windows SDK Desktop C++ components, and the matching MSVC Spectre-mitigated libraries.
+- macOS preview: Xcode command-line tools for `codesign`, `hdiutil`, and `notarytool`.
+- Windows preview: no native toolchain; electron-builder bundles NSIS.
 
 Linux AppImage is the supported distribution. Windows and macOS packages are previews, but their development and packaging scripts remain available.
 
@@ -60,8 +60,8 @@ Use npm's workspace flag for a focused task. These commands match the scripts in
 # Build only the remote browser bundle.
 npm run build:web --workspace @omp-ui/desktop
 
-# Rebuild node-pty for Electron or a target architecture.
-npm run rebuild:native --workspace @omp-ui/desktop
+# Prove the installed node-pty addon loads and spawns a shell inside Electron.
+npm run smoke:pty --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
 npm run themes:generate --workspace @omp-ui/desktop
@@ -70,11 +70,13 @@ npm run themes:generate --workspace @omp-ui/desktop
 npm run themes:check --workspace @omp-ui/desktop
 ```
 
-The release lanes call `packages/desktop/scripts/rebuild-native.sh` instead: the
-same rebuild with three attempts on Electron-header fetch failures, a dist-url
-default of Electron's headers CDN (`artifacts.electronjs.org/headers/dist`,
-overridable via `ELECTRON_REBUILD_DIST_URL`), and error lines that label the
-failure a headers download or a compile defect (issue #426).
+No lane rebuilds `node-pty` for Electron: the addon is Node-API, so the copy
+`npm ci` installs — a prebuild on Windows and macOS, a node-gyp build on Linux —
+is the copy electron-builder packs. The package verifiers only prove that copy
+exists on disk, so every packaging lane and CI run `smoke:pty` first. It
+relaunches itself as the Electron binary with `ELECTRON_RUN_AS_NODE=1` (no
+display needed), spawns a shell through `node-pty`, and fails if the addon
+cannot load or spawn under the exact Electron the package embeds (issue #484).
 
 Run a single workspace's tests or type check with the same form:
 
@@ -207,6 +209,8 @@ The main CI job uses Node 22 and runs these commands in order:
 
 ```bash
 npm ci
+npm run smoke:pty --workspace @omp-ui/desktop
+npm run lint
 npm install --package-lock-only
 git diff --exit-code package-lock.json
 npm run typecheck

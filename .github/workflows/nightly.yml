@@ -97,6 +97,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Smoke-test node-pty under Electron
+        run: npm run smoke:pty --workspace @omp-ui/desktop
       - name: Stamp nightly version
         # Root with --workspace (issue #90); never the tree version.
         run: npm version "$NIGHTLY_VERSION" --no-git-tag-version --workspace @omp-ui/desktop
@@ -137,7 +139,7 @@ jobs:
       ref: ${{ needs.meta.outputs.sha }}
       notarize: ${{ inputs.notarize == 'true' }}
       targets: >-
-        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15-intel"}]}
+        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15"}]}
     secrets: inherit
 
   windows-x64:
@@ -158,30 +160,13 @@ jobs:
         run: npm test --workspace @omp-ui/core -- --testTimeout=15000
       - name: Run Windows desktop tests
         run: npm test --workspace @omp-ui/desktop
+      - name: Smoke-test node-pty under Electron
+        # node-pty's win32-x64 Node-API prebuild ships unrebuilt (issue #484).
+        # Verbatim from release.yml.
+        run: npm run smoke:pty --workspace @omp-ui/desktop
       - name: Stamp nightly version
         shell: pwsh
         run: npm version "$env:NIGHTLY_VERSION" --no-git-tag-version --workspace @omp-ui/desktop
-      - name: Ensure Spectre-mitigated MSVC libraries
-        # node-pty's binding.gyp requires them; the rebuild step below
-        # compiles it for Electron's ABI. Verbatim from release.yml.
-        shell: pwsh
-        run: |
-          $component = "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre"
-          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installPath = & $vswhere -latest -products * -property installationPath
-          $withSpectre = & $vswhere -latest -products * -requires $component -property installationPath
-          if (-not $withSpectre) {
-            $setup = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\setup.exe"
-            $args = "modify --installPath `"$installPath`" --add $component --quiet --norestart"
-            $process = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
-            if ($process.ExitCode -ne 0) { throw "Visual Studio setup exited $($process.ExitCode)" }
-          }
-          if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) {
-            throw "Required Spectre-mitigated MSVC libraries are unavailable"
-          }
-      - name: Rebuild node-pty for Electron x64
-        shell: bash
-        run: bash packages/desktop/scripts/rebuild-native.sh --arch=x64
       - name: Build unsigned Windows preview
         run: npm run package:win --workspace @omp-ui/desktop -- --publish never
         env:

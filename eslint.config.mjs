@@ -23,10 +23,15 @@ export default tseslint.config(
       "packages/desktop/src/preload/**/*.ts",
       "packages/server/**/*.ts",
       "packages/desktop/*.ts",
-      "packages/desktop/scripts/**/*.mjs",
+      "packages/desktop/scripts/**/*.{mjs,cjs}",
       "scripts/**/*.mjs",
     ],
     languageOptions: { globals: { ...globals.node } },
+  },
+  {
+    // A .cjs file is CommonJS by definition; require() is its import syntax.
+    files: ["**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   {
     // ADR-0002 backstop: core and the remote server stay transport-agnostic, zero Electron imports.
