@@ -27,6 +27,11 @@ Use **Add project** in the title bar or sidebar, choose a directory, and add the
 
 Tab completes the path you are typing, like a shell: with no row selected, Tab on a leaf that matches exactly one directory descends into it; when several match, Tab inserts their longest common prefix and repeated Tab cycles the candidates (Shift+Tab cycles backwards). Tab on a selected row opens that row, as before. A completed or cycled name always lands on the directory's real path and casing, never on your query text.
 
+When the candidates' common prefix would not extend what you typed — `~/al`
+matching `alpha` and `axle`, which share only `a` — Tab cycles the candidates
+immediately instead of inserting a prefix: the first Tab gives `~/alpha`, the
+next `~/axle`; it never rewrites your text to the shorter `a`.
+
 On a desktop-sized window, a project header exposes open, project-settings, new-session, and remove actions. The Open control's menu offers **VS Code** (when installed), **Files**, and **Terminal** (when a launchable system terminal is found); Terminal opens the host's terminal with its shell in the project root. Right-click the new-session control to choose a terminal or worktree session. In the compact shell, use the project's ellipsis button to open the [project actions sheet](#command-palette-and-compact-shell).
 
 You must terminate a project's live sessions before removing the project. Removal deletes the project registration and all of its session records, then attempts to force-remove the recorded omp-ui worktree checkouts. Uncommitted changes in a removed checkout are lost, but its branch and commits survive. Removal does not delete transcripts, artifacts, or files in the registered project. A failed worktree cleanup does not stop record removal.

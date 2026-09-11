@@ -438,4 +438,31 @@ describe("ProjectPicker", () => {
     });
     expect(rowNames()).toEqual(["..", "alpha"]);
   });
+
+  it("does not complete from a stale listing while the current browse is pending", async () => {
+    let resolveBrowse!: (r: DirBrowseResult) => void;
+    backendMock.browseDirectories.mockImplementation((q: string) => {
+      if (q === "/tmp/ap") {
+        return new Promise<DirBrowseResult>((r) => {
+          resolveBrowse = r;
+        });
+      }
+      return Promise.resolve(listings[q] ?? { parentPath: "", entries: [], error: "invalid" });
+    });
+    await renderPicker();
+    await type("~/al"); // /home/u listing: alpha/axle
+    await type("/tmp/ap"); // new parent AND leaf; response pending
+    await press("Tab");
+    // Must not descend into the stale /home/u listing.
+    expect(input().value).toBe("/tmp/ap");
+    await act(async () => {
+      resolveBrowse({
+        parentPath: "/tmp",
+        entries: [{ name: "apple", fullPath: "/tmp/apple" }],
+        error: null,
+      });
+    });
+    await press("Tab");
+    expect(input().value).toBe("/tmp/apple/");
+  });
 });

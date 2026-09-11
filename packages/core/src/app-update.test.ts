@@ -332,6 +332,8 @@ describe("nightly app releases", () => {
     expect(parseNightlyRelease({ ...body, draft: true })).toBeNull();
     expect(parseNightlyRelease({ ...body, prerelease: false })).toBeNull();
     expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly build 1.2.3-nightly.20260911.abc1234" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3-nightly.20260911.abc1234 (re-roll)" })).toBeNull();
   });
 
   it("fetches the fixed rolling tag endpoint", async () => {
@@ -370,5 +372,10 @@ describe("compareAppVersions", () => {
     expect(compareAppVersions(old, "1.2.3", "nightly")).toBeGreaterThan(0);
     expect(compareAppVersions(old, "1.2.3", "stable")).toBeLessThan(0);
     expect(compareAppVersions("1.2.3", old, "stable")).toBeGreaterThan(0);
+  });
+
+  it("treats trailing text and non-nightly prereleases as unparseable", () => {
+    expect(compareAppVersions("1.2.3-invalid", "1.2.3", "stable")).toBeLessThan(0);
+    expect(compareAppVersions("1.2.3+build5", "1.2.3", "nightly")).toBeLessThan(0);
   });
 });

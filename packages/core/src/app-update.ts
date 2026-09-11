@@ -67,8 +67,10 @@ export function parseLatestRelease(body: unknown): AppReleaseInfo | null {
   };
 }
 
-/** nightly.yml stamps `Nightly <X.Y.Z-nightly.YYYYMMDD.sha7>` as the release title. */
-const NIGHTLY_TITLE_RE = /(\d+\.\d+\.\d+-nightly\.\d{8}\.[0-9a-f]{7})/;
+/** nightly.yml stamps `Nightly <X.Y.Z-nightly.YYYYMMDD.sha7>` as the release title
+ *  (nightly.yml line 290 titles the release exactly `Nightly ${VERSION}`);
+ *  anything else is not a nightly we can trust. */
+const NIGHTLY_TITLE_RE = /^Nightly (\d+\.\d+\.\d+-nightly\.\d{8}\.[0-9a-f]{7})$/;
 
 /** Validated parse of GET /releases/tags/nightly (issue #493). */
 export function parseNightlyRelease(body: unknown): AppReleaseInfo | null {
@@ -106,7 +108,7 @@ export async function fetchNightlyAppRelease(
   }
 }
 
-const APP_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d{8})\.([0-9a-f]{7}))?/;
+const APP_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d{8})\.([0-9a-f]{7}))?$/;
 
 /**
  * Train-aware version ordering (issue #493). Base X.Y.Z decides first. At

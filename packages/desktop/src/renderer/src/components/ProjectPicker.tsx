@@ -69,6 +69,10 @@ export function ProjectPicker() {
   // completion triggers may error (a finished leaf recalls nothing), so the
   // cycle must not read live state. Typing ends it: the query changes.
   const cycle = useRef<{ query: string; base: string; options: string[]; pos: number } | null>(null);
+  // The exact query the current entries/parentPath answered. Completion
+  // must not use a listing that belongs to an older query while the
+  // current browse is still in flight.
+  const listedQuery = useRef<string | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -81,6 +85,7 @@ export function ProjectPicker() {
     setSubmitError(null);
     void backendFor(instanceId).browseDirectories(query).then((r) => {
       if (g !== gen.current) return;
+      listedQuery.current = query;
       setEntries(r.entries);
       setParentPath(r.parentPath);
       setBrowseError(r.error);
@@ -129,8 +134,10 @@ export function ProjectPicker() {
   // parent; Enter registers a cycled name via `exact`. The cycle list is
   // pinned to the query that produced it — later browses recall fewer rows
   // (a complete name matches only itself), so continuing must not re-derive
-  // candidates from them. Shift+Tab cycles backwards; typing ends the cycle
-  // because the pinned query stops matching.
+  // candidates from them. A fresh completion likewise uses only the listing
+  // the current query produced, never one still awaiting its own browse.
+  // Shift+Tab cycles backwards; typing ends the cycle because the pinned
+  // query stops matching.
   const complete = (back = false): void => {
     const state =
       cycle.current !== null && cycle.current.query === query ? cycle.current : null;
@@ -143,7 +150,7 @@ export function ProjectPicker() {
       return;
     }
 
-    if (browseError !== null) return;
+    if (listedQuery.current !== query || browseError !== null) return;
     const candidates = dirs.map((d) => d.entry);
     if (candidates.length === 0) return;
     if (candidates.length === 1) {
