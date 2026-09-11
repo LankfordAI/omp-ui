@@ -331,8 +331,8 @@ function copyTree(from, to, filter) {
 /**
  * Rebuilds node-pty against the pinned Node in a scratch copy — never the tree
  * under node_modules, which electron-rebuild may have pointed at Electron's
- * ABI — proves the result loads under the downloaded binary, and ships
- * `package.json`, `lib/*.js`, and the native output.
+ * ABI — ships `package.json`, `lib/`, and the native output, then proves the
+ * shipped addon loads under the downloaded binary.
  */
 function packageNodePty(nodeBinary, laneName, layout) {
   const lane = LANES[laneName];
@@ -356,23 +356,48 @@ function packageNodePty(nodeBinary, laneName, layout) {
       { cwd: scratch, shell: process.platform === "win32" },
     );
 
-    const loaded = capture(nodeBinary, ["-e", "require(process.argv[1]); process.stdout.write('ok')", copy]);
-    if (loaded.status !== 0 || loaded.stdout !== "ok") {
-      throw new Error(`rebuilt node-pty does not load under node v${pin.node}:\n${loaded.stderr}`);
-    }
-
     const dest = path.join(layout, "lib", "node-pty");
     fs.mkdirSync(dest, { recursive: true });
     fs.copyFileSync(path.join(source, "package.json"), path.join(dest, "package.json"));
-    copyTree(path.join(copy, "lib"), path.join(dest, "lib"), (source) => {
-      return !source.endsWith(".test.js") && !source.endsWith(".js.map") && !source.endsWith(".d.ts");
+    copyTree(path.join(copy, "lib"), path.join(dest, "lib"), (src) => {
+      return !src.endsWith(".test.js") && !src.endsWith(".js.map") && !src.endsWith(".d.ts");
     });
-    const built = path.join(copy, "build", "Release");
-    const prebuilt = path.join(copy, "prebuilds", `${lane.platform}-${lane.arch}`);
-    const native = fs.existsSync(built) ? built : prebuilt;
-    if (!fs.existsSync(native)) throw new Error(`node-pty produced neither build/Release nor prebuilds/${lane.platform}-${lane.arch}`);
-    copyTree(native, path.join(dest, "build", "Release"));
-    log(`node-pty native output from ${path.basename(path.dirname(native))}/${path.basename(native)} → lib/node-pty/build/Release`);
+    // node-pty's install script keeps a bundled prebuild instead of running
+    // node-gyp, and its postinstall then adds only build/Release/conpty/ on
+    // Windows (issue #474): ship the prebuild first and let whatever landed in
+    // build/Release — a real gyp build, or that ConPTY directory — overlay it.
+    const release = path.join(dest, "build", "Release");
+    const shipped = [];
+    for (const dir of [path.join("prebuilds", `${lane.platform}-${lane.arch}`), path.join("build", "Release")]) {
+      if (!fs.existsSync(path.join(copy, dir))) continue;
+      copyTree(path.join(copy, dir), release, (src) => !src.endsWith(".pdb"));
+      shipped.push(dir.split(path.sep).join("/"));
+    }
+    if (shipped.length === 0) throw new Error(`node-pty produced neither build/Release nor prebuilds/${lane.platform}-${lane.arch}`);
+    const required =
+      lane.platform === "win32"
+        ? ["conpty.node", "conpty_console_list.node", "conpty/conpty.dll", "conpty/OpenConsole.exe"]
+        : lane.platform === "darwin"
+          ? ["pty.node", "spawn-helper"]
+          : ["pty.node"];
+    for (const file of required) {
+      if (!fs.existsSync(path.join(release, ...file.split("/")))) {
+        throw new Error(`node-pty native output lacks ${file} (shipped from ${shipped.join(", ")})`);
+      }
+    }
+    log(`node-pty native output from ${shipped.join(" + ")} → lib/node-pty/build/Release`);
+
+    // Windows loads its addon on the first spawn, not at require time, so the
+    // probe asks node-pty's own loader for it explicitly.
+    const addon = lane.platform === "win32" ? "conpty" : "pty";
+    const probe =
+      "const dir = process.argv[1]; require(dir); " +
+      `require(require('node:path').join(dir, 'lib', 'utils')).loadNativeModule(${JSON.stringify(addon)}); ` +
+      "process.stdout.write('ok')";
+    const loaded = capture(nodeBinary, ["-e", probe, dest]);
+    if (loaded.status !== 0 || loaded.stdout !== "ok") {
+      throw new Error(`shipped node-pty does not load under node v${pin.node}:\n${loaded.stderr}`);
+    }
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }

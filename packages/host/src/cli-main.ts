@@ -55,13 +55,16 @@ function smokeNodePty(): number {
   // The SEA's own `require` loads builtins only; a real one rooted at the
   // executable reaches `<install>/lib/node-pty` the packager laid out.
   const req = createRequire(process.execPath);
-  const pty = req(path.join(path.dirname(process.execPath), "..", "lib", "node-pty")) as {
-    spawn?: unknown;
-  };
+  const dir = path.join(path.dirname(process.execPath), "..", "lib", "node-pty");
+  const pty = req(dir) as { spawn?: unknown };
   if (typeof pty.spawn !== "function") {
     process.stderr.write("node-pty loaded but exports no spawn()\n");
     return 1;
   }
+  // Windows loads its addon on the first spawn, not at require time (issue
+  // #474), so ask node-pty's own loader for it the way a spawn would.
+  const utils = req(path.join(dir, "lib", "utils")) as { loadNativeModule: (name: string) => unknown };
+  utils.loadNativeModule(process.platform === "win32" ? "conpty" : "pty");
   process.stdout.write("ok\n");
   return 0;
 }
