@@ -50,6 +50,14 @@ const LANES = {
 };
 
 /**
+ * The archiver. macOS and Windows 10+ ship bsdtar, which reads and writes zip;
+ * on Windows it must be named by path because Git for Windows puts GNU tar
+ * ahead of System32 on the release runner's PATH (issue #470), and GNU tar
+ * neither reads a zip nor writes one — `-a -cf x.zip` silently emits a tar.
+ */
+const TAR = process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+
+/**
  * Not bundled: native addons and the modules that load them. The bundle's
  * banner resolves each from `<install>/lib/<name>` at runtime; marking them
  * side-effect free lets esbuild drop the ones the CLI never reaches (core's
@@ -243,15 +251,9 @@ async function fetchNode(laneName, allowUnsigned) {
   const member = `${prefix}/${lane.nodeBinary}`;
   const binary = path.join(cache, ...member.split("/"));
   if (!fs.existsSync(binary)) {
-    if (lane.platform === "win32") {
-      run(
-        "powershell.exe",
-        ["-NoProfile", "-NonInteractive", "-Command", "Expand-Archive", "-LiteralPath", archive, "-DestinationPath", ".", "-Force"],
-        { cwd: cache },
-      );
-    } else {
-      run("tar", ["-xf", archive, member], { cwd: cache });
-    }
+    // Run inside the cache so tar receives local relative paths; a Windows
+    // drive colon is otherwise parsed as a remote archive.
+    run(TAR, ["-xf", archive, member], { cwd: cache });
     if (!fs.existsSync(binary)) throw new Error(`${member} was not extracted from ${archive}`);
   }
   const reported = capture(binary, ["--version"]).stdout.trim();
@@ -528,10 +530,18 @@ function archive(laneName, out, seed) {
   fs.rmSync(file, { force: true });
   const input = path.relative(out, seed);
   if (lane.archive === "tar.gz") {
-    run("tar", ["-czf", name, "-C", input, version], { cwd: out });
+    run(TAR, ["-czf", name, "-C", input, version], { cwd: out });
   } else {
-    // bsdtar (macOS, Windows 10+) picks the zip format from the suffix.
-    run("tar", ["-a", "-cf", name, "-C", input, version], { cwd: out });
+    // bsdtar picks the zip format from the suffix.
+    run(TAR, ["-a", "-cf", name, "-C", input, version], { cwd: out });
+    const magic = Buffer.alloc(2);
+    const fd = fs.openSync(file, "r");
+    try {
+      fs.readSync(fd, magic, 0, 2, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (magic.toString("latin1") !== "PK") throw new Error(`${name} is not a zip: ${TAR} wrote ${magic.toString("hex")}, not PK`);
   }
   log(`archived ${path.relative(hostRoot, file)} (${fs.statSync(file).size} bytes)`);
   return file;

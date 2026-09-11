@@ -30,6 +30,8 @@ const LANES = {
   "mac-arm64": { platform: "darwin", arch: "arm64", archive: "zip" },
   "win-x64": { platform: "win32", arch: "x64", archive: "zip" },
 };
+/** Mirrors package-host.mjs: bsdtar by path on Windows, where Git's GNU tar can shadow it (issue #470). */
+const TAR = process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 
 /** cli.ts EXIT codes the checks expect. */
 const EXIT_OK = 0;
@@ -267,9 +269,9 @@ async function main() {
     const unpacked = path.join(scratch, "unpacked");
     fs.mkdirSync(unpacked);
     // tar reads both formats: GNU tar the tarball, bsdtar (macOS, Windows 10+) the zip too.
-    const untar = spawnSync("tar", ["-xf", args.artifact, "-C", unpacked], { stdio: "inherit" });
-    if (untar.error) throw new Error(`tar: ${untar.error.message}`);
-    if (untar.status !== 0) throw new Error(`tar -xf ${args.artifact} exited ${untar.status}`);
+    const untar = spawnSync(TAR, ["-xf", args.artifact, "-C", unpacked], { stdio: "inherit" });
+    if (untar.error) throw new Error(`${TAR}: ${untar.error.message}`);
+    if (untar.status !== 0) throw new Error(`${TAR} -xf ${args.artifact} exited ${untar.status}`);
 
     const layout = path.join(unpacked, version);
     const bin = path.join(layout, "bin", process.platform === "win32" ? "omp-ui.exe" : "omp-ui");

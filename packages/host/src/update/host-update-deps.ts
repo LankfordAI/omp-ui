@@ -195,9 +195,13 @@ export function sha512File(file: string): Promise<string> {
  * the tarball, bsdtar (macOS, Windows 10+) the zip too — as the packager and
  * its smoke test already rely on; the archive's single top-level `<version>/`
  * directory is stripped so `dir/bin/omp-ui` is the layout the updater runs.
+ * On Windows bsdtar is named by path: a Git for Windows install can put GNU
+ * tar, which cannot read a zip, ahead of System32 on PATH (issue #470).
  */
 export async function unpackHostArchive(archive: string, dir: string): Promise<void> {
-  await execFileAsync("tar", ["-xf", archive, "-C", dir, "--strip-components=1"], { windowsHide: true });
+  const tar =
+    process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  await execFileAsync(tar, ["-xf", archive, "-C", dir, "--strip-components=1"], { windowsHide: true });
   const bin = path.join(dir, "bin", process.platform === "win32" ? "omp-ui.exe" : "omp-ui");
   if (!fs.existsSync(bin)) throw new Error(`${path.basename(archive)} has no bin/${path.basename(bin)}`);
 }
