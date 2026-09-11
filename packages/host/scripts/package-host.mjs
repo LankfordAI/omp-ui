@@ -183,7 +183,7 @@ function verifySignature(shasums, signature) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-node-keys-"));
   try {
     fs.chmodSync(home, 0o700);
-    const base = ["--batch", "--quiet", "--homedir", home, "--no-default-keyring", "--keyring", path.join(home, "node.kbx")];
+    const base = ["--batch", "--quiet", "--homedir", home];
     const imported = capture("gpg", [...base, "--import", RELEASE_KEYS]);
     if (imported.status !== 0) throw new Error(`gpg --import failed:\n${imported.stderr}`);
     const verified = capture("gpg", [...base, "--verify", signature, shasums]);
