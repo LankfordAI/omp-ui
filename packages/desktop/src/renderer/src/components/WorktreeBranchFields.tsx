@@ -159,7 +159,6 @@ export function WorktreeBranchFields({
     if (showBase === false) return;
     const next = remintWorktreeBranch(branch, prefix, segment);
     if (next !== branch) onBranchChange(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branch, prefix, segment, showBase]);
 
   const branchNames = info?.branches ?? [];
