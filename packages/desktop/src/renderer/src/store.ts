@@ -5,7 +5,6 @@ import type {
 } from "@omp-ui/core/types";
 // (core/plan, advisor-stats, mcp-status imports moved to the frame-reduction slice for #295)
 import { backend } from "./backend";
-import { desktop } from "./desktop";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
@@ -101,25 +100,30 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
     reconcilePlanGates,
   } = plan;
   const lifecycle = createLifecycleSlice(set, get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
   });
   const rpcCommandSlice = createRpcCommandSlice(set, get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
     reconcilePlanGates,
   });
   const sessionParams = createSessionParamsSlice(set, get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
     prepareRpcRelaunch: lifecycle.prepareRpcRelaunch,
   });
   const frame = createFrameReductionSlice(get, m, {
     concern: concernWatcher,
     advisorReply: advisorReplyWatcher,
+    stall: stallContinueWatcher,
   });
 
   /**
@@ -284,11 +288,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
       backend.onSessionHibernated((tabId) =>
         lifecycle.teardownProcess(tabId, 0, true),
       );
-      // OS notification click (issue #271, #453): a banner click is a client
-      // effect delivered inside the clicking desktop client, so only that
-      // client's view moves. openSession is the hide/resurface path; main
-      // dedupes the resume against a live process. No adapter, no subscription.
-      desktop?.onSurfaceTab((tabId) => {
+      // OS notification click (issue #271): resurface the session's tab —
+      // openSession is the hide/resurface path; main dedupes the resume
+      // against a live process, so a late-joining renderer never
+      // double-spawns. The event fans out to every renderer, so a click
+      // resurfaces the tab in all of them.
+      backend.onFocusSession((tabId) => {
         void get().openSession(tabId);
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
@@ -307,22 +312,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
         });
       });
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
-      // The client's own artifact update (#454, #455 §4): a browser client runs
-      // no artifact this state could describe, so the slice default stands.
-      desktop?.onAppUpdateState((appUpdate) => get().replaceAppUpdate(appUpdate));
+      backend.onAppUpdateState((appUpdate) =>
+        get().replaceAppUpdate(appUpdate),
+      );
       backend.onOmpUpdateState((ompUpdate) =>
         get().replaceOmpUpdate(ompUpdate),
-      );
-      // Host self-update progress (#442 §10.2) rides its own event between state refreshes; the
-      // snapshot in `state` is authoritative, so the patch lands there rather than in a slice.
-      backend.onHostUpdateState((hostUpdate) =>
-        set((s) => (s.state === null ? {} : { state: { ...s.state, hostUpdate } })),
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       const [state, appUpdate, ompUpdate, remote, providerOAuth] = await Promise.all([
         backend.getState(),
-        desktop?.getAppUpdateState() ?? Promise.resolve(get().appUpdate),
+        backend.getAppUpdateState(),
         backend.getOmpUpdateState(),
         backend.getRemoteState(),
         backend.getProviderOAuthState(),

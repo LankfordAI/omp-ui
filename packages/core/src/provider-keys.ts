@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { writeTextDurably } from "./atomic-write";
 import { PROVIDER_ENV_NAMES, PROVIDER_KEY_SPECS } from "./provider-catalog";
 import type { ProviderKeyStatus, ProviderKeySource } from "./types";
 
@@ -52,7 +51,7 @@ export interface KeyCipher {
 }
 
 /** On-disk shape. Values are base64 of the cipher's blob, never plaintext. */
-export interface RawKeyFile {
+interface KeyFile {
   schemaVersion: 1;
   /** Keyed by environment variable name. */
   keys: Record<string, string>;
@@ -209,11 +208,11 @@ export function credentialStoreUnavailableMessage(
 
 /**
  * The credential set omp-ui hands to omp, plus the reporting the providers page
- * renders. One instance per host, owned by HostApplication.
+ * renders. One instance per app, owned by MainBackend.
  */
 export class ProviderKeys {
-  /** Plaintext keys, keyed by env name. Never leaves the host process. */
-  private readonly stored: Map<string, string>;
+  /** Plaintext keys, keyed by env name. Never leaves the main process. */
+  private stored = new Map<string, string>();
   private shellKeys: Record<string, string> = {};
   private shellCaptured = false;
   /** The environment as inherited, captured before any value is installed. */
@@ -236,7 +235,7 @@ export class ProviderKeys {
       if (value) snapshot[name] = value;
     }
     this.baseEnv = snapshot;
-    this.stored = ProviderKeys.decryptWith(ProviderKeys.readRaw(file), cipher);
+    this.load();
   }
 
   get backend(): string {
@@ -248,46 +247,30 @@ export class ProviderKeys {
   }
 
   /**
-   * The key file as written, without decrypting anything, or null when the
-   * file is missing, unparsable, or not shaped like a key file. Split from
-   * {@link decryptWith} so a cipher migration can read the blobs under one
-   * cipher and re-encrypt them under another without a ProviderKeys instance.
-   */
-  static readRaw(file: string): RawKeyFile | null {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch {
-      return null;
-    }
-    if (parsed === null || typeof parsed !== "object" || !("keys" in parsed)) return null;
-    const keys = (parsed as RawKeyFile).keys;
-    if (keys === null || typeof keys !== "object") return null;
-    const known: Record<string, string> = {};
-    for (const [name, blob] of Object.entries(keys)) {
-      if (knownEnvName(name) && typeof blob === "string") known[name] = blob;
-    }
-    return { schemaVersion: 1, keys: known };
-  }
-
-  /**
    * A key file written by a working keyring cannot be decrypted after the
    * keyring changes, and an undecryptable entry is indistinguishable from a
    * corrupt one — both are dropped rather than taking the app down, and the
    * page simply reports the key as unset so the user can retype it.
    */
-  static decryptWith(raw: RawKeyFile | null, cipher: KeyCipher): Map<string, string> {
-    const stored = new Map<string, string>();
-    if (raw === null) return stored;
-    for (const [name, blob] of Object.entries(raw.keys)) {
+  private load(): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(this.file, "utf8"));
+    } catch {
+      return;
+    }
+    if (parsed === null || typeof parsed !== "object" || !("keys" in parsed)) return;
+    const keys = (parsed as KeyFile).keys;
+    if (keys === null || typeof keys !== "object") return;
+    for (const [name, blob] of Object.entries(keys)) {
+      if (!knownEnvName(name) || typeof blob !== "string") continue;
       try {
-        const value = cipher.decrypt(Buffer.from(blob, "base64")).trim();
-        if (value !== "") stored.set(name, value);
+        const value = this.cipher.decrypt(Buffer.from(blob, "base64")).trim();
+        if (value !== "") this.stored.set(name, value);
       } catch {
         // Wrong keyring, rotated master key, or a truncated file.
       }
     }
-    return stored;
   }
 
   /** 0600 — the file holds credentials even when the cipher is only obfuscation. */
@@ -296,8 +279,9 @@ export class ProviderKeys {
     for (const [name, value] of this.stored) {
       keys[name] = this.cipher.encrypt(value).toString("base64");
     }
-    const data: RawKeyFile = { schemaVersion: 1, keys };
-    writeTextDurably(this.file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
+    const data: KeyFile = { schemaVersion: 1, keys };
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    fs.writeFileSync(this.file, `${JSON.stringify(data, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   }
 
   /**

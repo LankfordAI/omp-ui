@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import type { NativeGoal } from "@omp-ui/core/goal";
-import { pathEffects } from "../desktop";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
@@ -844,12 +843,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {agentModeChip}
       {goalChip}
       {/* Remote sessions retain the informational and finish-capable chip;
-          only client-local open rows are suppressed (issue #435). */}
+          only host-local open rows are suppressed (issue #435). */}
       {worktree && (
         <WorktreeChip
           worktree={worktree}
           tabId={tabId}
-          clientLocalActions={pathEffects(instanceId) !== null}
+          hostLocalActions={instanceId === null}
           className="[app-region:no-drag]"
         />
       )}

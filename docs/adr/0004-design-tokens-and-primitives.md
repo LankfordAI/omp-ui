@@ -1,7 +1,7 @@
 # Design tokens and UI primitives
 
 Every renderer surface draws from semantic tokens sourced in
-`packages/plan-doc/src/theme-sources.json`. The committed
+`packages/desktop/src/renderer/src/lib/theme-sources.json`. The committed
 `theme-default.css` projects the graphite tokens into Tailwind v4 `@theme`
 declarations for first paint (there is no `tailwind.config`), and surfaces
 compose one primitive vocabulary in
@@ -45,13 +45,12 @@ holds, which is why `signal` is called out above.
 
 - **Tokens only.** `neutral-*`, `zinc-*`, `gray-*`, `green-*`, `amber-*`,
   `red-*`, and raw hex are prohibited in renderer components. Literal colours
-  live in exactly one place, `packages/plan-doc/src/theme-sources.json`: each
-  theme supplies complete semantic tokens, compact syntax seeds, and only the
+  live in exactly one place, `renderer/src/lib/theme-sources.json`: each theme
+  supplies complete semantic tokens, compact syntax seeds, and only the
   exceptional terminal or code overrides needed to preserve its identity.
-  `@omp-ui/plan-doc`'s `themes.ts` derives the renderer chrome, xterm palette,
-  and Shiki palette from that source (the renderer's `lib/themes.ts` applies
-  the chosen one to the document). The generated `theme-default.css` projects
-  the same graphite tokens into the build-time first-paint fallback.
+  `lib/themes.ts` derives the renderer chrome, xterm palette, and Shiki palette
+  from that source. The generated `theme-default.css` projects the same
+  graphite tokens into the build-time first-paint fallback.
 - **Motion is CSS-only** — five named animations (`rise`, `slide-in`, `breathe`,
   `sweep`, `caret`) and one easing curve (`ease-out-quint`). No animation
   library. `breathe` means "work is happening now"; `sweep` means "indeterminate

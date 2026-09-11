@@ -1,7 +1,6 @@
-import type { ReactNode } from "react";
-import { HAS_DESKTOP } from "../desktop";
+import { useState, type ReactNode } from "react";
 import { useStore } from "../store";
-import { Button, UpdateCard } from "./ui";
+import { Button, ConfirmDialog, UpdateCard } from "./ui";
 import { useT } from "../lib/i18n";
 
 /**
@@ -14,17 +13,46 @@ import { useT } from "../lib/i18n";
  * Renders nothing for idle/checking — background failures stay silent by
  * design. No `signal` tokens: ADR-0004 reserves signal for agent liveness.
  */
-/**
- * Shared restart action used by both update surfaces. No confirmation step:
- * sessions belong to the host, so quitting the client stops none (#455 §4).
- */
+/** Shared restart action used by both update surfaces. */
 export function AppUpdateRestartAction({ size }: { size?: "xs" }) {
   const restartForAppUpdate = useStore((s) => s.restartForAppUpdate);
+  const [confirming, setConfirming] = useState(false);
   const t = useT();
+
+  const restart = async (confirmed = false): Promise<void> => {
+    const result = await restartForAppUpdate(confirmed);
+    setConfirming(result === "confirmation-required");
+  };
+
   return (
-    <Button size={size} variant="solid" onClick={() => void restartForAppUpdate()}>
-      {t("update.app.restartNow")}
-    </Button>
+    <>
+      <Button size={size} variant="solid" onClick={() => void restart()}>
+        {t("update.app.restartNow")}
+      </Button>
+      {confirming && (
+        <ConfirmDialog
+          kicker={t("update.app.restartKicker")}
+          title={t("update.app.restartTitle")}
+          tone="copper"
+          onClose={() => setConfirming(false)}
+          width="w-[28rem]"
+          actions={
+            <>
+              <Button variant="ghost" onClick={() => setConfirming(false)}>
+                {t("update.app.cancel")}
+              </Button>
+              <Button variant="solid" tone="copper" onClick={() => void restart(true)}>
+                {t("update.app.restartAndStop")}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm leading-relaxed text-ink-dim">
+            {t("update.app.restartBody")}
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 
@@ -41,9 +69,7 @@ export function AppUpdateCard() {
     appUpdate;
   const version = latestVersion ?? "";
 
-  // The card announces the desktop client's own artifact (#454): a browser
-  // client runs nothing this card could update.
-  if (!HAS_DESKTOP || status === "idle" || status === "checking") return null;
+  if (status === "idle" || status === "checking") return null;
 
   let body: ReactNode;
   if (status === "available") {

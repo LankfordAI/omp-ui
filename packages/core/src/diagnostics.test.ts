@@ -85,7 +85,11 @@ function facts(override: Partial<DiagnosticsFacts> = {}): DiagnosticsFacts {
     appVersion: "0.10.2",
     ompVersion: "17.1.8",
     ompPath: "/usr/bin/omp",
+    electronVersion: "37.0.0",
     nodeVersion: process.version,
+    chromeVersion: "130.0",
+    packaged: false,
+    packageFormat: "unknown",
     platform: process.platform,
     arch: process.arch,
     osRelease: os.release(),
@@ -97,14 +101,7 @@ function facts(override: Partial<DiagnosticsFacts> = {}): DiagnosticsFacts {
     agentDir: path.join(tmpRoot, "agent"),
     registryFile: path.join(tmpRoot, "registry.json"),
     logDir: path.join(tmpRoot, "logs"),
-    host: {
-      dataRoot: tmpRoot,
-      hostVersion: "0.10.2",
-      hostProtocol: 2,
-      verifier: { state: "degraded", reason: "no verifier configured", pin: null, sha256: null },
-      credentialBackend: "test",
-    },
-    desktopClient: { clientKind: "desktop", clientVersion: "0.10.2", protocolVersion: 2 },
+    windowStateFile: path.join(tmpRoot, "window-state.json"),
     ...override,
   };
 }
@@ -206,6 +203,7 @@ describe("previewDiagnosticsBundle", () => {
     expect(logs.files.map((f) => f.name)).toEqual(["main.log"]);
     expect(logs.totalBytes).toBe(4096);
     expect(sectionOf(preview, "transcripts").included).toBe(false);
+    expect(sectionOf(preview, "window-state").included).toBe(false);
     for (const id of ["versions", "platform", "settings", "registry", "lineages", "breadcrumbs"]) {
       expect(sectionOf(preview, id).included, id).toBe(true);
     }
@@ -280,10 +278,11 @@ describe("collectDiagnosticsBundle", () => {
     }
   });
 
-  it("copies logs, the breadcrumb ring, and manifest", async () => {
+  it("copies logs, the breadcrumb ring, window state, and manifest", async () => {
     fs.mkdirSync(path.join(tmpRoot, "logs"), { recursive: true });
     fs.writeFileSync(path.join(tmpRoot, "logs", "main.log"), "hello log\n");
     fs.writeFileSync(path.join(tmpRoot, "logs", "breadcrumbs.log.old"), "old\n");
+    fs.writeFileSync(path.join(tmpRoot, "window-state.json"), '{"bounds":{}}');
     const result = await collectDiagnosticsBundle(
       options({ breadcrumbs: [{ at: NOW.toISOString(), seq: 1, kind: "launch", detail: "v" }] }),
     );
@@ -291,26 +290,15 @@ describe("collectDiagnosticsBundle", () => {
     expect(textOf(entries.get("logs/main.log")!)).toBe("hello log\n");
     expect(entries.has("logs/breadcrumbs.log.old")).toBe(true);
     expect(entries.has("logs/breadcrumbs.log")).toBe(false);
+    expect(entries.has("window-state.json")).toBe(true);
     expect(jsonOf(entries.get("breadcrumbs.json"))).toHaveLength(1);
     const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
     expect(manifest.includeTranscripts).toBe(false);
     expect(manifest.appVersion).toBe("0.10.2");
-    expect(manifest.host).toMatchObject({ dataRoot: tmpRoot, hostProtocol: 2, credentialBackend: "test" });
-    expect(manifest.desktopClient).toEqual({ clientKind: "desktop", clientVersion: "0.10.2", protocolVersion: 2 });
     expect(manifest.redaction).toContain(
       "remote-instances.json (joined-instance credentials) is never read",
     );
     expect(result.totalBytes).toBe(fs.statSync(result.path).size);
-  });
-
-  it("reports a null desktop client for a browser export and never reads files beside the registry", async () => {
-    fs.writeFileSync(path.join(tmpRoot, "window-state.json"), '{"bounds":{}}');
-    const result = await collectDiagnosticsBundle(options({ facts: facts({ desktopClient: null }) }));
-    const entries = await readZip(result.path);
-    expect(entries.has("window-state.json")).toBe(false);
-    const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
-    expect(manifest.desktopClient).toBeNull();
-    expect(jsonOf(entries.get("versions.json"))).toMatchObject({ desktopClient: null, host: { hostVersion: "0.10.2" } });
   });
 
   it("excludes transcripts by default and caps them with a warning when opted in", async () => {

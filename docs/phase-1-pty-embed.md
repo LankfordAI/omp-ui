@@ -4,11 +4,7 @@
 
 **Current status:** PTY sessions are shipped as an optional terminal mode. See
 the [current architecture](architecture.md) and [user guide](user-guide.md) for
-the implemented behavior. The Electron IPC transport and the "one main
-process" wiring below are historical: the PTY now runs in the persistent host
-and its bytes reach every renderer over the WebSocket binary frame
-([ADR-0029](adr/0029-persistent-host-owns-authoritative-application.md)). The
-original design record follows.
+the implemented behavior. The original design record follows.
 
 > Session-format and CLI claims verified against `@oh-my-pi/pi-coding-agent`
 > **v17.1.8** (`src/session/session-paths.ts`, `session-listing.ts`,

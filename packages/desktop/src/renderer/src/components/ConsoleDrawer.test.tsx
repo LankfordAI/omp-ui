@@ -51,6 +51,7 @@ vi.mock("@xterm/addon-webgl", () => ({
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 vi.mock("../lib/platform", () => ({
   IS_MAC: false,
+  IS_ELECTRON: false,
   // Getter so a test can flip the platform between renders/clicks.
   get IS_WINDOWS() {
     return mocks.IS_WINDOWS;

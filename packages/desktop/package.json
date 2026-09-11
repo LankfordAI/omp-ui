@@ -1,7 +1,7 @@
 {
   "name": "@omp-ui/desktop",
   "desktopName": "ai.lankford.omp-ui",
-  "version": "0.11.1",
+  "version": "0.10.6",
   "private": true,
   "description": "Desktop GUI for the omp coding agent",
   "author": "Austin Lankford <austin@austinlankford.com>",
@@ -21,10 +21,12 @@
     "package:linux": "npm run build && electron-builder --linux",
     "package:mac": "npm run build && electron-builder --mac",
     "package:win": "npm run build && electron-builder --win --x64",
+    "rebuild:native": "electron-rebuild -f -w node-pty",
     "icon": "node scripts/render-icon.mjs",
     "themes:generate": "node scripts/generate-theme-css.mjs",
     "themes:check": "node scripts/generate-theme-css.mjs --check",
     "test": "npm run themes:check && vitest run --passWithNoTests",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {
@@ -34,7 +36,6 @@
     "@fontsource/ubuntu": "^5.3.0",
     "@fontsource/ubuntu-mono": "^5.3.0",
     "@omp-ui/core": "*",
-    "@omp-ui/plan-doc": "*",
     "@omp-ui/server": "*",
     "@shikijs/langs": "^4.4.3",
     "@xterm/addon-fit": "^0.11.0",
@@ -46,6 +47,7 @@
     "electron-updater": "^6.8.9",
     "katex": "^0.18.4",
     "mermaid": "^11.17.1",
+    "node-pty": "^1.1.0",
     "parse5": "^8.0.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
@@ -55,6 +57,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
     "@types/qrcode": "^1.5.6",

@@ -43,9 +43,9 @@ vi.mock("../lib/plan-document", async (importOriginal) => {
 // full-suite load. Stubbing the renderer the pipeline injects keeps the
 // substitution, guardrail and verification behaviour under test real while
 // making the pipeline microtask-only. Real-engine coverage lives in
-// plan-doc's plan-diagrams.smoke.test.ts.
-vi.mock("@omp-ui/plan-doc/plan-diagrams", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@omp-ui/plan-doc/plan-diagrams")>();
+// lib/plan-diagrams.smoke.test.ts.
+vi.mock("../lib/plan-diagrams", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../lib/plan-diagrams")>();
   return {
     ...original,
     renderMermaid: async (id: string) =>

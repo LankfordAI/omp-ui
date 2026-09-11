@@ -1,24 +1,14 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { HOST_ARCHIVE_EXT } from "./host-feed.mjs";
-
-// Kinds every requested architecture must ship (issue #442 §10.1): the desktop
-// distributables plus the persistent host archive for that arch.
 const PLATFORM_KINDS = {
-  linux: ["appimage", "host"],
-  mac: ["dmg", "zip", "host"],
-  win: ["nsis", "host"],
+  linux: ["appimage"],
+  mac: ["dmg", "zip"],
+  win: ["nsis"],
 };
-
-/** Per-platform kinds: one feed lists every arch of the platform. */
-const PLATFORM_FEEDS = ["host-feed"];
-
-const SHA256_RE = /^[0-9a-f]{64}$/;
-const ISO_DATE_RE = /^\d{4}-\d\d-\d\dT[^']+$/;
 
 function compareNames(left, right) {
   return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
@@ -43,22 +33,9 @@ function linuxArchNames(arch) {
 
 function classify(file, target) {
   const version = escapeRegExp(target.version);
-  const platform = escapeRegExp(target.platform);
-
-  if (file.name === `latest-host-${target.platform}.yml`) {
-    return { arch: null, kind: "host-feed" };
-  }
 
   for (const arch of target.arches) {
     const escapedArch = escapeRegExp(arch);
-    if (
-      new RegExp(
-        `^omp-ui-host-${version}-${platform}-${escapedArch}\\.${escapeRegExp(HOST_ARCHIVE_EXT[target.platform])}$`,
-      ).test(file.name)
-    ) {
-      return { arch, kind: "host" };
-    }
-
     if (target.platform === "mac") {
       const match = file.name.match(
         new RegExp(`^omp-ui-${version}-mac-preview-${escapedArch}\\.(dmg|zip)$`),
@@ -122,133 +99,7 @@ function assertTarget(target) {
   }
 }
 
-function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function nonEmptyString(value) {
-  return typeof value === "string" && value.length > 0;
-}
-
-/** Throws with `where` in the message on the first field that fails its predicate. */
-function requireFields(where, record, checks) {
-  for (const [field, predicate] of Object.entries(checks)) {
-    const value = field.split(".").reduce((node, key) => (isRecord(node) ? node[key] : undefined), record);
-    if (!predicate(value)) throw new Error(`${where}: invalid ${field}: ${JSON.stringify(value)}`);
-  }
-}
-
-/**
- * One `host-package` record per requested arch. Every field the spec names
- * must be present and coherent with the release: the tag, the exact archive
- * (name and SHA-256), host/desktop versions equal to the release version,
- * a rendered service definition, an ABI-loadable platform credential binding,
- * a ready verifier with its Chrome pin/hash, timing, and exit codes. Skips and
- * source-tree runs are refused: evidence comes from the unpacked archive or not at all.
- */
-function validateHostPackageRecord(record, target, hostArtifacts, where) {
-  requireFields(where, record, {
-    schemaVersion: (v) => v === 2,
-    kind: (v) => v === "host-package",
-    releaseTag: (v) => v === `v${target.version}`,
-    platform: (v) => v === target.platform,
-    arch: nonEmptyString,
-    source: (v) => v === "packaged" || v === "source-tree",
-    "artifact.name": nonEmptyString,
-    "artifact.size": (v) => Number.isSafeInteger(v) && v > 0,
-    "artifact.sha256": (v) => typeof v === "string" && SHA256_RE.test(v),
-    "versions.host": (v) => v === target.version,
-    "versions.desktop": (v) => v === target.version,
-    "versions.omp": (v) => v === null || nonEmptyString(v),
-    "versions.protocol": (v) => Number.isSafeInteger(v) && v > 0,
-    "versions.protocolRange.min": (v) => Number.isSafeInteger(v) && v > 0,
-    "versions.protocolRange.max": (v) => Number.isSafeInteger(v) && v > 0,
-    "versions.node": nonEmptyString,
-    "versions.abi": (v) => Number.isSafeInteger(v) && v > 0,
-    "service.file": nonEmptyString,
-    "service.sha256": (v) => typeof v === "string" && SHA256_RE.test(v),
-    "credentials.backend": nonEmptyString,
-    "credentials.binding": (v) => v === "loadable",
-    "verifier.state": (v) => v === "ready" || v === "degraded",
-    "verifier.pin": (v) => v === null || nonEmptyString(v),
-    "verifier.sha256": (v) => v === null || (typeof v === "string" && SHA256_RE.test(v)),
-    startedAt: (v) => typeof v === "string" && ISO_DATE_RE.test(v),
-    finishedAt: (v) => typeof v === "string" && ISO_DATE_RE.test(v),
-    skipped: (v) => Array.isArray(v) && v.every(nonEmptyString),
-    steps: (v) => Array.isArray(v) && v.length > 0,
-    "logs.dir": nonEmptyString,
-  });
-  for (const [index, step] of record.steps.entries()) {
-    requireFields(`${where} steps[${index}]`, step, {
-      name: nonEmptyString,
-      exitCode: (v) => Number.isSafeInteger(v),
-      expectedExitCode: (v) => Number.isSafeInteger(v),
-      startedAtMs: (v) => Number.isSafeInteger(v) && v > 0,
-      endedAtMs: (v) => Number.isSafeInteger(v) && v > 0,
-    });
-    if (step.exitCode !== step.expectedExitCode) {
-      throw new Error(`${where}: step ${step.name} exited ${step.exitCode}, expected ${step.expectedExitCode}`);
-    }
-  }
-  if (record.source !== "packaged") {
-    throw new Error(`${where}: evidence from a ${record.source} run is not release evidence`);
-  }
-  if (record.skipped.length > 0) {
-    throw new Error(`${where}: skipped ${record.skipped.join(", ")}`);
-  }
-  if (!target.arches.includes(record.arch)) {
-    throw new Error(`${where}: unexpected ${target.platform} arch ${record.arch}`);
-  }
-  if (record.verifier.state !== "ready" || record.verifier.pin === null || record.verifier.sha256 === null) {
-    throw new Error(`${where}: verifier ${record.verifier.state}: ${record.verifier.reason ?? "no pin"}`);
-  }
-  const artifact = hostArtifacts.get(record.arch);
-  if (record.artifact.name !== artifact.name) {
-    throw new Error(`${where}: names ${record.artifact.name}, the release ships ${artifact.name}`);
-  }
-  if (record.artifact.size !== artifact.size) {
-    throw new Error(`${where}: ${artifact.name} is ${record.artifact.size} bytes in the record, ${artifact.size} in the release`);
-  }
-  if (artifact.sha256 !== undefined && artifact.sha256 !== record.artifact.sha256) {
-    throw new Error(`${where}: ${artifact.name} SHA-256 ${record.artifact.sha256} does not match the release asset ${artifact.sha256}`);
-  }
-}
-
-function validateRecords(records, target, artifacts) {
-  const hostArtifacts = new Map(
-    artifacts.filter(({ kind }) => kind === "host").map((artifact) => [artifact.arch, artifact]),
-  );
-  const seenPackages = new Map();
-  for (const { name, record } of records) {
-    const where = `Record ${name}`;
-    if (!isRecord(record)) throw new Error(`${where}: not an object`);
-    if (record.kind === "host-package") {
-      if (record.platform !== target.platform) continue;
-      validateHostPackageRecord(record, target, hostArtifacts, where);
-      const previous = seenPackages.get(record.arch);
-      if (previous) throw new Error(`Duplicate ${target.platform} host-package record for ${record.arch}: ${previous}, ${name}`);
-      seenPackages.set(record.arch, name);
-    } else {
-      throw new Error(`${where}: unknown record kind ${JSON.stringify(record.kind)}`);
-    }
-  }
-  const missing = target.arches.filter((arch) => !seenPackages.has(arch)).map((arch) => `${arch} host-package`);
-  if (missing.length > 0) {
-    throw new Error(`Missing ${target.platform} records: ${missing.join(", ")}`);
-  }
-  return {
-    packages: target.arches.map((arch) => seenPackages.get(arch)),
-    gates: [],
-  };
-}
-
-/**
- * `files`: `{ name, size, sha256? }` per release asset. `records`: `{ name,
- * record }` per evidence file. Returns the classified artifacts, the sorted
- * checksum inputs, the macOS desktop feed plan, and which records vouch for
- * the release.
- */
-export function planReleaseManifest(files, target, records = []) {
+export function planReleaseManifest(files, target) {
   assertTarget(target);
 
   const duplicateNames = files
@@ -283,7 +134,6 @@ export function planReleaseManifest(files, target, records = []) {
     artifacts.push({
       name: file.name,
       size: file.size,
-      ...(file.sha256 !== undefined ? { sha256: file.sha256 } : {}),
       platform: target.platform,
       arch: classification.arch,
       kind: classification.kind,
@@ -296,18 +146,12 @@ export function planReleaseManifest(files, target, records = []) {
       if (!seen.has(`${arch}:${kind}`)) missing.push(`${arch} ${kind}`);
     }
   }
-  for (const kind of PLATFORM_FEEDS) {
-    if (!seen.has(`null:${kind}`)) missing.push(kind);
-  }
   if (missing.length > 0) {
     throw new Error(`Missing ${target.platform} artifacts: ${missing.join(", ")}`);
   }
 
-  const evidence = validateRecords(records, target, artifacts);
-
   artifacts.sort(compareNames);
-  // Feeds are metadata about the archives, not checksummed distributables.
-  const checksumInputs = artifacts.filter(({ kind }) => kind !== "host-feed").map(({ name }) => name);
+  const checksumInputs = artifacts.map(({ name }) => name);
   let latestMac = null;
   if (target.platform === "mac") {
     const byArchAndKind = new Map(
@@ -324,12 +168,12 @@ export function planReleaseManifest(files, target, records = []) {
     };
   }
 
-  return { artifacts, checksumInputs, latestMac, evidence };
+  return { artifacts, checksumInputs, latestMac };
 }
 
 function parseArguments(argv) {
   const values = {};
-  const allowed = new Set(["dir", "platform", "version", "arches", "out-dir", "records"]);
+  const allowed = new Set(["dir", "platform", "version", "arches", "out-dir"]);
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -348,7 +192,6 @@ function parseArguments(argv) {
   return {
     dir: values.dir,
     outDir: values["out-dir"],
-    recordsDir: values.records,
     target: {
       platform: values.platform,
       version: values.version,
@@ -357,21 +200,21 @@ function parseArguments(argv) {
   };
 }
 
-async function digest(file, algorithm, encoding) {
-  const hash = createHash(algorithm);
+async function sha512(file) {
+  const hash = createHash("sha512");
   await new Promise((resolve, reject) => {
     createReadStream(file)
       .on("data", (chunk) => hash.update(chunk))
       .on("end", resolve)
       .on("error", reject);
   });
-  return hash.digest(encoding);
+  return hash.digest("base64");
 }
 
 async function renderLatestMac(plan, dir) {
   const files = [];
   for (const file of plan.latestMac.files) {
-    files.push({ ...file, sha512: await digest(path.join(dir, file.url), "sha512", "base64") });
+    files.push({ ...file, sha512: await sha512(path.join(dir, file.url)) });
   }
   const primary = files.find(({ url }) => url === plan.latestMac.path);
   const lines = [`version: ${plan.latestMac.version}`, "files:"];
@@ -387,39 +230,18 @@ async function renderLatestMac(plan, dir) {
   return `${lines.join("\n")}\n`;
 }
 
-async function readRecords(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const records = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const text = await readFile(path.join(dir, entry.name), "utf8");
-    let record;
-    try {
-      record = JSON.parse(text);
-    } catch (error) {
-      throw new Error(`Record ${entry.name}: ${error instanceof Error ? error.message : error}`, { cause: error });
-    }
-    records.push({ name: entry.name, record });
-  }
-  return records;
-}
-
 export async function runCli(argv) {
-  const { dir, outDir, recordsDir, target } = parseArguments(argv);
+  const { dir, outDir, target } = parseArguments(argv);
   const entries = await readdir(dir, { withFileTypes: true });
-  const hostArchive = new RegExp(`^omp-ui-host-.+\\.${escapeRegExp(HOST_ARCHIVE_EXT[target.platform] ?? "")}$`);
   const files = await Promise.all(
     entries
       .filter((entry) => entry.isFile())
-      .map(async (entry) => {
-        const file = path.join(dir, entry.name);
-        const { size } = await stat(file);
-        // Only host archives are tied to a record by hash; hashing the DMGs here would be wasted work.
-        const sha256 = hostArchive.test(entry.name) ? await digest(file, "sha256", "hex") : undefined;
-        return { name: entry.name, size, ...(sha256 !== undefined ? { sha256 } : {}) };
-      }),
+      .map(async (entry) => ({
+        name: entry.name,
+        size: (await stat(path.join(dir, entry.name))).size,
+      })),
   );
-  const plan = planReleaseManifest(files, target, await readRecords(recordsDir));
+  const plan = planReleaseManifest(files, target);
 
   await mkdir(outDir, { recursive: true });
   await writeFile(

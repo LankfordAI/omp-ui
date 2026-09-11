@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DiagnosticsPreview } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
-import { desktop } from "../desktop";
+import { IS_ELECTRON } from "../lib/platform";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 
 /**
- * The diagnostic-bundle export dialog (issue #413): preview rows from the host's manifest, an
- * explicit warned opt-in for transcripts, and one Save/Create action. The host writes the bundle
- * (#442 §3.2): a desktop client picks the destination through its adapter first, a browser client
- * takes the host's default path. All backend calls live here, not in the store slice — the same
- * shape as ProjectPicker.
+ * The diagnostic-bundle export dialog (issue #413): preview rows from the
+ * main-process manifest, an explicit warned opt-in for transcripts, and one
+ * Save/Create action. All backend calls live here, not in the store slice —
+ * the same shape as ProjectPicker.
  */
 
 function humanSize(bytes: number): string {
@@ -51,8 +50,8 @@ export function DiagnosticsExportDialog() {
     setBusy(true);
     try {
       let destinationPath: string | null = null;
-      if (desktop !== null) {
-        destinationPath = await desktop.chooseSavePath(DEFAULT_BASENAME, ["zip"]);
+      if (IS_ELECTRON) {
+        destinationPath = await backend.chooseDiagnosticsPath(DEFAULT_BASENAME);
         // Cancel keeps the dialog open for a retry (nothing was written).
         if (destinationPath === null) return;
       }
@@ -81,11 +80,6 @@ export function DiagnosticsExportDialog() {
           </Button>
         }
       >
-        {/* A browser client exported to the host's default bundle path (#442 §3.2): the path is on
-            another machine's disk, so it is shown as plain text and nothing offers to open it. */}
-        {desktop === null && (
-          <p className="mb-1 text-xs text-ink-mid">{t("dialog.diagnostics.doneOnHost")}</p>
-        )}
         <p data-selectable className="break-all font-mono text-xs text-ink">
           {donePath}
         </p>
@@ -114,11 +108,7 @@ export function DiagnosticsExportDialog() {
               disabled={preview === null || busy}
               onClick={() => void save()}
             >
-              {busy
-                ? t("dialog.diagnostics.busy")
-                : desktop !== null
-                  ? t("dialog.diagnostics.save")
-                  : t("dialog.diagnostics.saveWeb")}
+              {busy ? t("dialog.diagnostics.busy") : IS_ELECTRON ? t("dialog.diagnostics.save") : t("dialog.diagnostics.saveWeb")}
             </Button>
           )}
         </>

@@ -13,11 +13,6 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Every lane packages the persistent host first (issue #442 §10.1): the
-  # desktop client embeds the lane's unpacked host layout as its cold-start
-  # seed, so `package:host` and `smoke:package` run before electron-builder.
-  # `smoke:package --record` writes the package evidence record that
-  # release-manifest consumes before publishing (§12).
   release-linux:
     runs-on: [self-hosted, gfx1201]
     steps:
@@ -44,28 +39,13 @@ jobs:
           else
             npm version "$tag" --no-git-tag-version --workspace @omp-ui/desktop
           fi
-      - name: Fetch the pinned verifier browser
-        run: npm run fetch:verifier-browser --workspace @omp-ui/host
-      - name: Build plan-doc, host verifier page, and desktop bundles
-        run: npm run build
-      - name: Build the Linux Secret Service addon
-        run: npm run build:secret-service --workspace @omp-ui/host
-      - name: Package and smoke-test the Linux host
-        run: |
-          set -euo pipefail
-          npm run package:host --workspace @omp-ui/host -- --lane linux-x64
-          npm run smoke:package --workspace @omp-ui/host -- --lane linux-x64 \
-            --record "$PWD/package-records/package-record-linux-x64.json" --release-tag "$GITHUB_REF_NAME"
       - name: Build Linux package
-        # electron-builder directly: `npm run build` above already produced the
-        # bundles the `package:linux` script would rebuild.
-        run: npm exec --workspace @omp-ui/desktop -- electron-builder --linux --publish never
-      - name: Assert Linux artifacts and update metadata exist
+        run: npm run package:linux --workspace @omp-ui/desktop -- --publish never
+      - name: Assert Linux artifact and update metadata exist
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          version="${GITHUB_REF_NAME#v}"
           cd packages/desktop/dist
           appimages=(*.AppImage)
           if (( ${#appimages[@]} != 1 )); then
@@ -75,18 +55,6 @@ jobs:
           test -f latest-linux.yml
           grep -q "sha512" latest-linux.yml
           grep -Fq "${appimages[0]}" latest-linux.yml
-          cd ../../host/out/linux-x64
-          test -f "omp-ui-host-${version}-linux-x64.tar.gz"
-          test -f latest-host-linux.yml
-          grep -q "^version: ${version}$" latest-host-linux.yml
-          grep -Fq "omp-ui-host-${version}-linux-x64.tar.gz" latest-host-linux.yml
-      - name: Stage Linux package evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-record-linux-x64
-          path: package-records/
-          if-no-files-found: error
-          retention-days: 1
       - name: Create draft GitHub release if missing
         shell: bash
         env:
@@ -95,7 +63,7 @@ jobs:
           set -euo pipefail
           # The release stays a draft until release-manifest publishes it.
           # /releases/latest and the releases Atom feed exclude drafts, so while
-          # this build is in flight the updaters and install.sh keep resolving
+          # this build is in flight the updater and install.sh keep resolving
           # the last COMPLETED release instead of 404ing on this release's
           # not-yet-uploaded feed files (issue #265).
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
@@ -110,13 +78,11 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          version="${GITHUB_REF_NAME#v}"
-          appimages=(packages/desktop/dist/*.AppImage)
+          cd packages/desktop/dist
+          appimages=(*.AppImage)
           gh release upload "$GITHUB_REF_NAME" --clobber \
             "${appimages[0]}" \
-            packages/desktop/dist/latest-linux.yml \
-            "packages/host/out/linux-x64/omp-ui-host-${version}-linux-x64.tar.gz" \
-            packages/host/out/linux-x64/latest-host-linux.yml
+            latest-linux.yml
 
   release-notes:
     needs: release-linux
@@ -148,7 +114,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: macos-package-${{ matrix.arch }}
-          path: packages
+          path: packages/desktop/dist
       - name: Upload macOS assets to release
         shell: bash
         env:
@@ -156,20 +122,15 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          version="${GITHUB_REF_NAME#v}"
           dist="packages/desktop/dist"
           dmgs=("$dist"/*-mac-preview-${{ matrix.arch }}.dmg)
           zips=("$dist"/*-mac-preview-${{ matrix.arch }}.zip)
           (( ${#dmgs[@]} == 1 ))
           (( ${#zips[@]} == 1 ))
-          host="packages/host/out/mac-${{ matrix.arch }}/omp-ui-host-${version}-mac-${{ matrix.arch }}.zip"
-          test -f "$host"
-          # latest-host-mac.yml lists both arches, so release-manifest composes it.
           gh release upload "$GITHUB_REF_NAME" --clobber \
             "${dmgs[0]}" \
             "${zips[0]}" \
-            "$dist/SHA256SUMS-macos-${{ matrix.arch }}.txt" \
-            "$host"
+            "$dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
 
   release-windows:
     needs: release-linux
@@ -196,8 +157,6 @@ jobs:
             npm version $tag --no-git-tag-version --workspace @omp-ui/desktop
           }
       - name: Ensure Spectre-mitigated MSVC libraries
-        # node-pty's binding.gyp requires them; the host lane compiles it for
-        # the pinned Node ABI.
         shell: pwsh
         run: |
           $component = "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre"
@@ -213,19 +172,11 @@ jobs:
           if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) {
             throw "Required Spectre-mitigated MSVC libraries are unavailable"
           }
-      - name: Fetch the pinned verifier browser
-        run: npm run fetch:verifier-browser --workspace @omp-ui/host
-      - name: Build plan-doc, host verifier page, and desktop bundles
-        run: npm run build
-      - name: Package and smoke-test the Windows host
+      - name: Rebuild node-pty for Electron x64
         shell: bash
-        run: |
-          set -euo pipefail
-          npm run package:host --workspace @omp-ui/host -- --lane win-x64
-          npm run smoke:package --workspace @omp-ui/host -- --lane win-x64 \
-            --record "$PWD/package-records/package-record-win-x64.json" --release-tag "$GITHUB_REF_NAME"
+        run: bash packages/desktop/scripts/rebuild-native.sh --arch=x64
       - name: Build unsigned Windows preview
-        run: npm exec --workspace @omp-ui/desktop -- electron-builder --win --x64 --publish never
+        run: npm run package:win --workspace @omp-ui/desktop -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Verify Windows package
@@ -234,7 +185,6 @@ jobs:
       - name: Assert Windows artifacts and update metadata exist
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
           $dist = "packages/desktop/dist"
           $installers = @(Get-ChildItem $dist -File -Filter "*-windows-preview-x64-setup.exe")
           if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer, found $($installers.Count)" }
@@ -245,20 +195,6 @@ jobs:
           if (-not (Test-Path $latest)) { throw "latest.yml is missing" }
           if (-not (Select-String -Path $latest -Pattern "sha512" -Quiet)) { throw "latest.yml has no sha512" }
           if (-not (Select-String -Path $latest -Pattern $installers[0].Name -SimpleMatch -Quiet)) { throw "latest.yml does not name the installer" }
-          $hostOut = "packages/host/out/win-x64"
-          $hostZip = "omp-ui-host-$version-win-x64.zip"
-          if (-not (Test-Path (Join-Path $hostOut $hostZip))) { throw "$hostZip is missing" }
-          $hostFeed = Join-Path $hostOut "latest-host-win.yml"
-          if (-not (Test-Path $hostFeed)) { throw "latest-host-win.yml is missing" }
-          if (-not (Select-String -Path $hostFeed -Pattern "^version: $([regex]::Escape($version))$" -Quiet)) { throw "latest-host-win.yml does not carry version $version" }
-          if (-not (Select-String -Path $hostFeed -Pattern $hostZip -SimpleMatch -Quiet)) { throw "latest-host-win.yml does not name $hostZip" }
-      - name: Stage Windows package evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-record-win-x64
-          path: package-records/
-          if-no-files-found: error
-          retention-days: 1
       - name: Upload Windows assets
         shell: bash
         env:
@@ -266,14 +202,12 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          version="${GITHUB_REF_NAME#v}"
-          installers=(packages/desktop/dist/*-windows-preview-x64-setup.exe)
+          cd packages/desktop/dist
+          installers=(*-windows-preview-x64-setup.exe)
           gh release upload "$GITHUB_REF_NAME" --clobber \
             "${installers[0]}" \
             "${installers[0]}.blockmap" \
-            packages/desktop/dist/latest.yml \
-            "packages/host/out/win-x64/omp-ui-host-${version}-win-x64.zip" \
-            packages/host/out/win-x64/latest-host-win.yml
+            latest.yml
 
   release-manifest:
     needs: [release-linux, package-macos, release-macos, release-windows, release-notes]
@@ -295,22 +229,7 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern 'omp-ui-host-*'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern 'latest-host-*.yml'
-      - name: Download package evidence
-        uses: actions/download-artifact@v4
-        with:
-          pattern: package-record-*
-          merge-multiple: true
-          path: package-records
-      - name: Compose the macOS host feed
-        # The two macOS lanes build on separate runners; the one feed listing
-        # both arches is rendered here from the uploaded archives.
-        run: |
-          set -euo pipefail
-          node scripts/host-feed.mjs --dir release-assets --platform mac --version "${GITHUB_REF_NAME#v}" \
-            --out release-assets/latest-host-mac.yml
-      - name: Plan release artifacts, consume evidence, and generate metadata
+      - name: Plan release artifacts and generate metadata
         shell: bash
         env:
           MACOS_TARGETS: ${{ needs.package-macos.outputs.targets }}
@@ -320,13 +239,13 @@ jobs:
           macos_arches="$(node -e 'process.stdout.write(JSON.parse(process.env.MACOS_TARGETS).include.map(({arch}) => arch).join(","))')"
           node scripts/release-artifacts.mjs \
             --dir release-assets --platform linux --version "$version" --arches x64 \
-            --records package-records --out-dir release-manifest/linux
+            --out-dir release-manifest/linux
           node scripts/release-artifacts.mjs \
             --dir release-assets --platform mac --version "$version" --arches "$macos_arches" \
-            --records package-records --out-dir release-manifest/mac
+            --out-dir release-manifest/mac
           node scripts/release-artifacts.mjs \
             --dir release-assets --platform win --version "$version" --arches x64 \
-            --records package-records --out-dir release-manifest/win
+            --out-dir release-manifest/win
       - name: Generate and upload canonical metadata
         shell: bash
         env:
@@ -340,7 +259,6 @@ jobs:
           done < checksum-inputs.txt > SHA256SUMS.txt
           gh release upload "$GITHUB_REF_NAME" --clobber \
             SHA256SUMS.txt \
-            latest-host-mac.yml \
             ../release-manifest/mac/latest-mac.yml
       - name: Assert release metadata and asset boundary
         shell: bash
@@ -353,7 +271,6 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-linux.yml'
           gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest.yml'
           gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-mac.yml'
-          gh release download "$GITHUB_REF_NAME" --dir release-metadata --pattern 'latest-host-*.yml'
           appimage="$(basename release-assets/*.AppImage)"
           grep -q "sha512" release-metadata/latest-linux.yml
           grep -Fq "$appimage" release-metadata/latest-linux.yml
@@ -362,15 +279,6 @@ jobs:
           grep -Fq "$installer" release-metadata/latest.yml
           grep -q "sha512" release-metadata/latest-mac.yml
           grep -q "^version: ${ver}$" release-metadata/latest-mac.yml
-          for lane in linux-x64 mac-arm64 mac-x64 win-x64; do
-            platform="${lane%%-*}"
-            ext=tar.gz
-            [ "$platform" = linux ] || ext=zip
-            grep -q "^version: ${ver}$" "release-metadata/latest-host-${platform}.yml"
-            grep -Fq "url: omp-ui-host-${ver}-${lane}.${ext}" "release-metadata/latest-host-${platform}.yml"
-            grep -Fq "omp-ui-host-${ver}-${lane}.${ext}" release-assets/SHA256SUMS.txt
-          done
-          test "$(wc -l < release-assets/SHA256SUMS.txt)" -eq 10
       - name: Warn when release notes are missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -385,11 +293,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Reached only when every packaging lane and the evidence
-          # check above passed — the "complete and ready" gate that makes the
-          # release visible to /releases/latest.
+          # Reached only when all three platform jobs succeeded (job-level
+          # if:) and the boundary check above passed — the "complete and
+          # ready" gate that makes the release visible to /releases/latest.
           gh release edit "$GITHUB_REF_NAME" --draft=false
           if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" != "false" ]; then
-            echo "release $GITHUB_REF_NAME is still a draft after publish" >&2
+            echo "release $GITHUB_REF_NAME is still a draft" >&2
             exit 1
           fi

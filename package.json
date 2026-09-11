@@ -5,7 +5,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "npm run dev --workspace @omp-ui/desktop",
-    "build": "npm run build --workspace @omp-ui/plan-doc --if-present && npm run build --workspace @omp-ui/host && npm run build --workspace @omp-ui/desktop",
+    "build": "npm run build --workspace @omp-ui/desktop",
     "package": "npm run package --workspace @omp-ui/desktop",
     "stamp": "npm version patch --no-git-tag-version --workspace @omp-ui/desktop",
     "notes": "node scripts/release-notes.mjs",

@@ -23,7 +23,6 @@ function fakeProc(): FakeProc {
   let exitCb: ((code: number | null) => void) | undefined;
   return {
     proc: {
-      pid: 4242,
       stdin,
       stdout,
       stderr,

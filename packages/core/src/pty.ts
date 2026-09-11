@@ -6,8 +6,6 @@ import { batched } from "./pty-batch";
 
 export interface PtyHandle {
   readonly id: string;
-  /** The child's OS pid: the children ledger records it before the spawn is reported. */
-  readonly pid: number;
   /** Returns an unsubscribe — teardown must detach so a dying process cannot deliver into its successor. */
   onData(cb: (data: Buffer) => void): () => void;
   onExit(cb: (e: { exitCode: number; signal?: number }) => void): void;
@@ -34,7 +32,6 @@ export function ptyChunkToBuffer(data: string | Buffer): Buffer {
 function adapt(id: string, proc: pty.IPty): PtyHandle {
   return batched({
     id,
-    pid: proc.pid,
     onData: (cb) => {
       const disposable = proc.onData((data) => cb(ptyChunkToBuffer(data)));
       return () => disposable.dispose();

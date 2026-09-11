@@ -11,11 +11,7 @@ APP_ID="ai.lankford.omp-ui"
 
 BIN_DIR="$HOME/.local/bin"
 TARGET="$BIN_DIR/omp-ui.AppImage"
-# The desktop client's launcher. `$BIN_DIR/omp-ui` is the persistent host's
-# CLI (issue #442 §10.1): a symlink the host installer owns, never written here.
-LAUNCHER="$BIN_DIR/omp-ui-desktop"
-LEGACY_LAUNCHER="$BIN_DIR/omp-ui"
-LEGACY_LAUNCHER_MARKER="# omp-ui launcher, installed by packaging/install.sh."
+LAUNCHER="$BIN_DIR/omp-ui"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 APPLICATIONS_DIR="$DATA_HOME/applications"
 DESKTOP_FILE="$APPLICATIONS_DIR/$APP_ID.desktop"
@@ -52,9 +48,8 @@ Installs the omp-ui AppImage for the current user (no root required).
 options:
   --version <vX.Y.Z>  install a specific release (default: latest)
   --binary <path>     install a local AppImage instead of downloading
-  --uninstall         remove the AppImage, launcher, desktop entry, and icons;
-                      preserves the client profile in ~/.config/@omp-ui/desktop
-                      and never touches the host (see: omp-ui service uninstall)
+  --uninstall         remove the AppImage, desktop entry, and icons;
+                      preserves user data in ~/.config/@omp-ui/desktop
   --purge             with --uninstall, also remove ~/.config/@omp-ui/desktop
   --help              show this help and exit
 EOF
@@ -232,26 +227,16 @@ install_icons() {
     fi
 }
 
-# Releases before the persistent host wrote the launcher at $BIN_DIR/omp-ui;
-# that name now belongs to the host CLI. Remove only our own wrapper (by its
-# marker line) so the desktop client can place the host symlink there.
-remove_legacy_launcher() {
-    [ -f "$LEGACY_LAUNCHER" ] && [ ! -L "$LEGACY_LAUNCHER" ] || return 0
-    if head -n 3 "$LEGACY_LAUNCHER" | grep -qxF "$LEGACY_LAUNCHER_MARKER"; then
-        rm -f -- "$LEGACY_LAUNCHER"
-    fi
-}
-
 # The menu entry execs a per-user launcher rather than the AppImage
 # directly: the AppImage's static runtime mounts via FUSE when the system
 # provides /dev/fuse and a fusermount binary, and the launcher otherwise
 # forces the runtime's extract-and-run mode, so the menu launch needs no
-# FUSE setup at all. `omp-ui desktop` (the host CLI) execs this launcher too.
+# FUSE setup at all.
 write_launcher() {
     mkdir -p "$BIN_DIR"
     cat >"$LAUNCHER" <<'EOF'
 #!/usr/bin/env bash
-# omp-ui desktop launcher, installed by packaging/install.sh.
+# omp-ui launcher, installed by packaging/install.sh.
 # Launches the omp-ui AppImage that sits beside this launcher, using a
 # FUSE mount when the system provides /dev/fuse and a fusermount binary.
 # Otherwise it forces the AppImage runtime's extract-and-run mode, so
@@ -334,7 +319,6 @@ do_install() {
     [ -z "$extract_root" ] || check_prerequisites "$extract_root"
 
     install_appimage "$staged_appimage"
-    remove_legacy_launcher
     write_launcher
     if [ -n "$extract_root" ]; then
         install_icons "$extract_root"
@@ -360,7 +344,6 @@ do_uninstall() {
         rm -f -- "$LAUNCHER"
         found=1
     fi
-    remove_legacy_launcher
     if [ -e "$DESKTOP_FILE" ]; then
         rm -f -- "$DESKTOP_FILE"
         found=1

@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -10,86 +9,51 @@ import { loginPage } from "./login-page";
 import { LoginThrottle } from "./login-throttle";
 import {
   encodeBinaryEvent,
-  HOST_CLOSE_INCOMPATIBLE,
-  HOST_PROTOCOL,
-  HOST_PROTOCOL_RANGE,
   makeServerEventFrame,
-  makeServerHello,
   makeServerResponseErr,
   makeServerResponseOk,
-  MAX_PAYLOAD_BYTES,
   parseClientFrame,
   REMOTE_COOKIE,
   REMOTE_TOKEN_PARAM,
   REMOTE_WS_PATH,
-  type ClientHello,
-  type ClientRole,
-  type ConnectionContext,
-  type ProtocolRange,
   type ServerFrame,
 } from "./protocol";
-import { passwordSessionCredential, verifyRemotePassword } from "./token";
+import {
+  passwordSessionCredential,
+  tokenMatches,
+  verifyRemotePassword,
+} from "./token";
 
-/** Who an event is for. The surface decides; the server only resolves scope to sockets. */
-export type EventScope =
-  | { kind: "broadcast" }
-  | { kind: "role"; role: ClientRole }
-  | { kind: "connection"; id: string };
-
-export type ScopedSink = (scope: EventScope, channel: string, args: unknown[]) => void;
-
-/** What the transport needs from the host application — nothing about sessions, Electron, or the registry. */
-export interface HostSurface {
-  /** Built once per connection, with that connection's context; the table is what the socket dispatches into. */
-  handlers(ctx: ConnectionContext): ChannelTable;
-  /** Fired exactly once per socket the server ever accepted, hello or not. */
-  connectionClosed(id: string): void;
-  addSink(sink: ScopedSink): () => void;
+/** What the transport needs from MainBackend — nothing about sessions, Electron, or the registry. */
+export interface RemoteHost {
+  handlers(): ChannelTable;
+  addSink(sink: (channel: string, args: unknown[]) => void): () => void;
 }
 
-/** What `authenticate` says about a credential: the server owns no token policy. */
-export interface UpgradeGrant {
-  role: ClientRole;
-  local: boolean;
-  control: boolean;
-}
-
-export interface HostServerOptions {
-  surface: HostSurface;
-  bind: RemoteBind | "loopback";
+export interface RemoteServerOptions {
+  host: RemoteHost;
+  token: string;
+  bind: RemoteBind;
   port: number;
   /** Directory holding the built browser bundle (index.html + assets + icon.png). */
   webRoot: string;
-  /** null = unauthenticated. Called for every HTTP request and upgrade, with whatever credential was presented (or none). */
-  authenticate: (presented: string | null, req: IncomingMessage) => UpgradeGrant | null;
-  /** Enables /login; the server derives the session credential from `hash` and hands it to `authenticate` like any other credential. */
+  /** Password credential; null = password auth disabled (token-only). */
   password?: { salt: string; hash: string } | null;
-  /** Token the manifest's start_url carries; null = bare start_url (password mode). */
-  manifestToken?: (() => string | null) | null;
-  hostVersion: string;
-  hostProtocol?: number;
-  protocolRange?: ProtocolRange;
-  /** Accept a protocol-1 client whose first frame is req/notify rather than a hello. */
-  allowImplicitProtocol1: boolean;
-  /** Stamped on every ConnectionContext: this listener serves loopback only. */
-  local: boolean;
-  /** A connection-scoped event whose socket is gone. */
-  onEmitMiss?: (scope: EventScope, channel: string) => void;
 }
 
-export interface HostServerHandle {
+export interface RemoteServerHandle {
+  /** Primary pairing URLs: bare when a password is set, otherwise see tokenUrls. */
+  readonly urls: string[];
+  /** Token-bearing pairing URLs (fallback), always carrying the token. */
+  readonly tokenUrls: string[];
+  readonly webBundleMissing: boolean;
   /** The bound port — meaningful when `port: 0` asked the OS to pick one. */
   readonly port: number;
-  /** Bare URLs, LAN first (lan bind) or loopback alone; see withRemoteToken for pairing links. */
-  readonly urls: string[];
-  readonly webBundleMissing: boolean;
   close(): Promise<void>;
-  /** Closes every open socket the predicate selects with the given code — credential rotation, role eviction. */
-  closeConnections(predicate: (ctx: ConnectionContext) => boolean, code: number, reason: string): void;
-  /** Context of every socket currently open, hello answered or still awaited. */
-  connections(): readonly ConnectionContext[];
 }
 
+/** Matches core/rpc's maximum reassembled logical frame. */
+const MAX_PAYLOAD = 64 * 1024 * 1024;
 const COOKIE_MAX_AGE = 31_536_000;
 /** How long a 1001 close handshake gets before the socket is torn down anyway. */
 const CLOSE_DRAIN_MS = 250;
@@ -109,14 +73,6 @@ const MIME: Readonly<Record<string, string>> = {
   ".woff2": "font/woff2",
   ".map": "application/json; charset=utf-8",
 };
-
-/** Per-socket state. A socket dispatches into its own table, built with its own context. */
-interface ConnState {
-  readonly ctx: ConnectionContext;
-  phase: "awaiting-hello" | "open";
-  table: ChannelTable | null;
-  closed: boolean;
-}
 
 function cookieToken(header: string | undefined): string | null {
   if (!header) return null;
@@ -186,8 +142,7 @@ function lanHosts(port: number): string[] {
   return out;
 }
 
-/** Pairing links: each bare URL with the token as its `?t=` query. */
-export function withRemoteToken(urls: string[], token: string): string[] {
+function withToken(urls: string[], token: string): string[] {
   return urls.map((u) => `${u}?${REMOTE_TOKEN_PARAM}=${encodeURIComponent(token)}`);
 }
 
@@ -200,10 +155,8 @@ async function statOrNull(file: string): Promise<fs.Stats | null> {
   }
 }
 
-export function startHostServer(opts: HostServerOptions): Promise<HostServerHandle> {
-  const { surface, bind, port, webRoot, authenticate, hostVersion, allowImplicitProtocol1 } = opts;
-  const hostProtocol = opts.hostProtocol ?? HOST_PROTOCOL;
-  const protocolRange = opts.protocolRange ?? HOST_PROTOCOL_RANGE;
+export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServerHandle> {
+  const { host, token, bind, port, webRoot } = opts;
   const password = opts.password ?? null;
   // The session credential is derived from the stored hash, never from the password: a logged-in
   // browser can present it indefinitely, and it rotates the moment the hash changes.
@@ -214,6 +167,12 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
   const send = (res: ServerResponse, code: number, body: string, type = "text/plain; charset=utf-8"): void => {
     res.writeHead(code, { "Content-Type": type, "Content-Length": Buffer.byteLength(body) });
     res.end(body);
+  };
+
+  /** Accepts the bearer token or the password-derived session credential. */
+  const credentialMatches = (value: string | null): boolean => {
+    if (value === null) return false;
+    return tokenMatches(token, value) || (sessionCred !== null && tokenMatches(sessionCred, value));
   };
 
   // One throttle per server: a restart (config change) resetting the lockout is the
@@ -331,7 +290,7 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
     }
     const { value, from } = presentedToken(req, url);
 
-    if (authenticate(value, req) !== null) {
+    if (credentialMatches(value)) {
       if (from === "query" && value !== null) {
         // A query hit re-sets the cookie to the exact credential presented, so a pairing link
         // (token) and the login page (session credential) both work for the WS upgrade.
@@ -345,7 +304,8 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
         return;
       }
       if (url.pathname === "/manifest.webmanifest") {
-        send(res, 200, manifest(opts.manifestToken?.() ?? null), "application/manifest+json");
+        // Password mode: bare start_url, the cookie carries the credential.
+        send(res, 200, manifest(password ? null : token), "application/manifest+json");
         return;
       }
       void serveStatic(res, url.pathname);
@@ -387,8 +347,7 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
     send(res, 401, "unauthorized");
   });
 
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
-  const states = new WeakMap<WebSocket, ConnState>();
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     let url: URL;
@@ -399,69 +358,19 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
       return;
     }
     const { value } = presentedToken(req, url);
-    const grant = url.pathname === REMOTE_WS_PATH ? authenticate(value, req) : null;
-    if (grant === null) {
+    if (url.pathname !== REMOTE_WS_PATH || !credentialMatches(value)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
     }
-    // Protocol 1 until a hello says otherwise: kind mirrors the role, version unknown.
-    const ctx: ConnectionContext = {
-      id: randomUUID(),
-      role: grant.role,
-      local: opts.local,
-      control: grant.control,
-      clientKind: grant.role,
-      clientVersion: "",
-      protocolVersion: 1,
-    };
-    wss.handleUpgrade(req, socket, head, (ws) => attach(ws, ctx));
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
 
-  const refuse = (ws: WebSocket, reason: string): void => {
-    reply(
-      ws,
-      makeServerHello({ verdict: "incompatible", hostVersion, hostProtocol, protocolRange, reason }),
-    );
-    ws.close(HOST_CLOSE_INCOMPATIBLE, reason);
-  };
-
-  /** Answers the first frame's hello: a compatible verdict opens the socket, anything else closes it. */
-  const greet = (ws: WebSocket, state: ConnState, hello: ClientHello): void => {
-    if (hello.clientRole !== state.ctx.role) {
-      refuse(ws, "role mismatch");
-      return;
-    }
-    if (hello.clientProtocol < protocolRange.min || hello.clientProtocol > protocolRange.max) {
-      refuse(
-        ws,
-        `protocol ${hello.clientProtocol} unsupported; host supports ${protocolRange.min}..${protocolRange.max}`,
-      );
-      return;
-    }
-    state.ctx.clientKind = hello.clientKind;
-    state.ctx.clientVersion = hello.clientVersion;
-    state.ctx.protocolVersion = hello.clientProtocol;
-    reply(
-      ws,
-      makeServerHello({ verdict: "compatible", hostVersion, hostProtocol, protocolRange, reason: null }),
-    );
-    state.table = surface.handlers(state.ctx);
-    state.phase = "open";
-  };
-
-  const attach = (ws: WebSocket, ctx: ConnectionContext): void => {
-    const state: ConnState = { ctx, phase: "awaiting-hello", table: null, closed: false };
-    states.set(ws, state);
+  wss.on("connection", (ws: WebSocket) => {
     // `ws` emits receiver failures (including maxPayload close 1009) here. A
     // malformed remote client may lose its socket, but must never crash the
     // Electron main process with an uncaught exception.
     ws.on("error", () => {});
-    ws.on("close", () => {
-      if (state.closed) return;
-      state.closed = true;
-      surface.connectionClosed(ctx.id);
-    });
     ws.on("message", (raw: Buffer, isBinary: boolean) => {
       if (isBinary) return; // clients never send binary — nothing upstream takes bytes.
       let parsed: unknown;
@@ -472,22 +381,6 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
       }
       const frame = parseClientFrame(parsed);
       if (frame === null) return;
-      if (frame.t === "hello") {
-        // Only the first frame may be a hello; a later one is noise.
-        if (state.phase === "awaiting-hello") greet(ws, state, frame);
-        return;
-      }
-      let table = state.table;
-      if (table === null) {
-        // First frame is req/notify: a protocol-1 client that never says hello.
-        if (!allowImplicitProtocol1) {
-          ws.close(HOST_CLOSE_INCOMPATIBLE, "hello required");
-          return;
-        }
-        table = surface.handlers(ctx);
-        state.table = table;
-        state.phase = "open";
-      }
       if (frame.t === "notify") {
         dispatchNotify(table, frame.ch, frame.args);
         return;
@@ -501,32 +394,14 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
           reply(ws, makeServerResponseErr(id, err instanceof Error ? err.message : String(err)));
         });
     });
-  };
+  });
 
-  /** Open sockets that have finished their hello, with their state. */
-  const openStates = (): Array<[WebSocket, ConnState]> => {
-    const out: Array<[WebSocket, ConnState]> = [];
-    for (const client of wss.clients) {
-      if (client.readyState !== WebSocket.OPEN) continue;
-      const state = states.get(client);
-      if (state !== undefined) out.push([client, state]);
-    }
-    return out;
-  };
+  // Built once per server, not per message: the handlers are stateless closures over the
+  // host and nothing invalidates the table (issue #301).
+  const table = host.handlers();
 
-  // One sink for the whole server, not one per socket: the surface fans out once and we fan to clients.
-  const unsink = surface.addSink((scope, channel, args) => {
-    const targets: WebSocket[] = [];
-    for (const [client, state] of openStates()) {
-      if (state.phase !== "open") continue;
-      if (scope.kind === "role" && state.ctx.role !== scope.role) continue;
-      if (scope.kind === "connection" && state.ctx.id !== scope.id) continue;
-      targets.push(client);
-    }
-    if (targets.length === 0) {
-      if (scope.kind === "connection") opts.onEmitMiss?.(scope, channel);
-      return;
-    }
+  // One sink for the whole server, not one per socket: the host fans out once and we fan to clients.
+  const unsink = host.addSink((channel, args) => {
     const payload = args[1];
     // Structural detection, not a channel allowlist: any event whose second arg is bytes rides
     // a binary frame (pty:data, shell:data today).
@@ -534,10 +409,13 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
       payload instanceof Uint8Array && typeof args[0] === "string"
         ? encodeBinaryEvent(channel, args[0], payload)
         : JSON.stringify(makeServerEventFrame(channel, args));
-    for (const client of targets) client.send(frame);
+    for (const client of wss.clients) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+      client.send(frame);
+    }
   });
 
-  return new Promise<HostServerHandle>((resolve, reject) => {
+  return new Promise<RemoteServerHandle>((resolve, reject) => {
     const onEarlyError = (err: NodeJS.ErrnoException): void => {
       unsink();
       wss.close();
@@ -552,8 +430,10 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
       server.removeListener("error", onEarlyError);
       const address = server.address();
       const bound = typeof address === "object" && address !== null ? address.port : port;
+      const bare = bind === "lan" ? lanHosts(bound) : [`http://127.0.0.1:${bound}/`];
       resolve({
-        urls: bind === "lan" ? lanHosts(bound) : [`http://127.0.0.1:${bound}/`],
+        urls: bare,
+        tokenUrls: withToken(bare, token),
         webBundleMissing,
         port: bound,
         close: async () => {
@@ -570,12 +450,6 @@ export function startHostServer(opts: HostServerOptions): Promise<HostServerHand
             server.closeAllConnections();
           });
         },
-        closeConnections: (predicate, code, reason) => {
-          for (const [client, state] of openStates()) {
-            if (predicate(state.ctx)) client.close(code, reason);
-          }
-        },
-        connections: () => openStates().map(([, state]) => state.ctx),
       });
     });
   });
@@ -586,28 +460,7 @@ function reply(ws: WebSocket, frame: ServerFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-export {
-  decodeBinaryEvent,
-  encodeBinaryEvent,
-  HOST_CLOSE_INCOMPATIBLE,
-  HOST_PROTOCOL,
-  HOST_PROTOCOL_RANGE,
-  INSTANCE_CLIENT_HEADER,
-  makeClientHello,
-  parseServerHello,
-  REMOTE_CLOSE_REVOKED,
-  REMOTE_COOKIE,
-  REMOTE_TOKEN_PARAM,
-  REMOTE_WS_PATH,
-  type ClientFrame,
-  type ClientHello,
-  type ClientKind,
-  type ClientRole,
-  type ConnectionContext,
-  type ProtocolRange,
-  type ServerFrame,
-  type ServerHello,
-} from "./protocol";
+export { REMOTE_CLOSE_REVOKED, REMOTE_COOKIE, REMOTE_TOKEN_PARAM, REMOTE_WS_PATH } from "./protocol";
 export {
   hashRemotePassword,
   mintRemoteToken,
@@ -619,13 +472,14 @@ export {
   verifyRemotePassword,
   type PasswordHash,
 } from "./token";
+export { decodeBinaryEvent, encodeBinaryEvent } from "./protocol";
+export type { ClientFrame, ServerFrame } from "./protocol";
 export {
   connectInstanceClient,
   InstanceConnectError,
   signInForCredential,
   type InstanceClient,
   type InstanceConnectFailure,
-  type InstanceConnectOptions,
 } from "./client";
 
 /**

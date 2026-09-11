@@ -2,74 +2,29 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { CH, type ChannelTable } from "@omp-ui/core";
-import {
-  startHostServer,
-  withRemoteToken,
-  type ConnectionContext,
-  type EventScope,
-  type HostServerHandle,
-  type HostServerOptions,
-  type HostSurface,
-  type UpgradeGrant,
-} from "./index";
-import {
-  decodeBinaryEvent,
-  HOST_CLOSE_INCOMPATIBLE,
-  makeClientHello,
-  REMOTE_WS_PATH,
-  type ClientRole,
-  type ServerHello,
-} from "./protocol";
+import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
+import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
 import {
   hashRemotePassword,
   mintRemoteToken,
   passwordSessionCredential,
-  tokenMatches,
-  type PasswordHash,
 } from "./token";
 
 const TOKEN = mintRemoteToken();
-/** A second credential the per-role tests grant `instance` to. */
-const INSTANCE_TOKEN = mintRemoteToken();
-const HOST_VERSION = "9.9.9-test";
 
-const BROWSER_GRANT: UpgradeGrant = { role: "browser", local: false, control: false };
-const INSTANCE_GRANT: UpgradeGrant = { role: "instance", local: false, control: true };
-
-/**
- * The token policy the server used to own, now the test's: TOKEN → browser, INSTANCE_TOKEN →
- * instance, and the password-derived session credential → browser when a password is set.
- */
-function tokenAuth(password: PasswordHash | null): HostServerOptions["authenticate"] {
-  const sessionCred = password ? passwordSessionCredential(password.hash) : null;
-  return (presented) => {
-    if (presented === null) return null;
-    if (tokenMatches(TOKEN, presented)) return BROWSER_GRANT;
-    if (tokenMatches(INSTANCE_TOKEN, presented)) return INSTANCE_GRANT;
-    if (sessionCred !== null && tokenMatches(sessionCred, presented)) return BROWSER_GRANT;
-    return null;
-  };
-}
-
-interface FakeSurface extends HostSurface {
+interface FakeHost extends RemoteHost {
   /** Every notify the table received, in order. */
   readonly notified: Array<{ ch: string; args: unknown[] }>;
-  /** Every context handlers() built a table for, in order. */
-  readonly built: ConnectionContext[];
-  /** Every id connectionClosed() reported, in order. */
-  readonly closed: string[];
-  /** Fires every registered sink, as HostApplication.send() does. */
-  emit(scope: EventScope, channel: string, args: unknown[]): void;
+  /** Fires every registered sink, as MainBackend.send() does. */
+  emit(channel: string, args: unknown[]): void;
 }
 
-function fakeSurface(): FakeSurface {
+function fakeHost(): FakeHost {
   const notified: Array<{ ch: string; args: unknown[] }> = [];
-  const built: ConnectionContext[] = [];
-  const closed: string[] = [];
-  const sinks = new Set<(scope: EventScope, channel: string, args: unknown[]) => void>();
+  const sinks = new Set<(channel: string, args: unknown[]) => void>();
   const table = {
     request: {
       [CH.getState]: () => ({ ok: 1 }),
@@ -88,27 +43,18 @@ function fakeSurface(): FakeSurface {
   } as unknown as ChannelTable;
   return {
     notified,
-    built,
-    closed,
-    handlers(ctx) {
-      // A snapshot: the server mutates its context in place when the hello lands.
-      built.push({ ...ctx });
-      return table;
-    },
-    connectionClosed(id) {
-      closed.push(id);
-    },
+    handlers: () => table,
     addSink(sink) {
       sinks.add(sink);
       return () => sinks.delete(sink);
     },
-    emit(scope, channel, args) {
-      for (const sink of sinks) sink(scope, channel, args);
+    emit(channel, args) {
+      for (const sink of sinks) sink(channel, args);
     },
   };
 }
 
-const open: HostServerHandle[] = [];
+const open: RemoteServerHandle[] = [];
 const sockets: WebSocket[] = [];
 
 afterEach(async () => {
@@ -116,33 +62,21 @@ afterEach(async () => {
   for (const h of open.splice(0)) await h.close();
 });
 
-function serverOptions(overrides: Partial<HostServerOptions> = {}): HostServerOptions {
-  return {
-    surface: fakeSurface(),
-    bind: "loopback",
+async function serve(
+  overrides: Partial<Parameters<typeof startRemoteServer>[0]> = {},
+): Promise<{ handle: RemoteServerHandle; host: FakeHost; base: string }> {
+  const host = (overrides.host as FakeHost | undefined) ?? fakeHost();
+  const handle = await startRemoteServer({
+    host,
+    token: TOKEN,
+    bind: "localhost",
     port: 0,
     // Deliberately absent: the static route's 503 branch is not what these cases exercise.
     webRoot: "/nonexistent-web-root",
-    authenticate: tokenAuth(overrides.password ?? null),
-    manifestToken: overrides.password ? null : () => TOKEN,
-    hostVersion: HOST_VERSION,
-    allowImplicitProtocol1: true,
-    local: false,
     ...overrides,
-  };
-}
-
-async function serve(
-  overrides: Partial<HostServerOptions> = {},
-): Promise<{ handle: HostServerHandle; surface: FakeSurface; base: string }> {
-  const options = serverOptions(overrides);
-  const handle = await startHostServer(options);
+  });
   open.push(handle);
-  return {
-    handle,
-    surface: options.surface as FakeSurface,
-    base: `http://127.0.0.1:${handle.port}`,
-  };
+  return { handle, host, base: `http://127.0.0.1:${handle.port}` };
 }
 
 /** Opens a socket and resolves once it is OPEN; rejects if it closes first. */
@@ -166,36 +100,6 @@ function nextJson(ws: WebSocket): Promise<Record<string, unknown>> {
   });
 }
 
-/** Next close event as its code and reason. */
-function nextClose(ws: WebSocket): Promise<{ code: number; reason: string }> {
-  return new Promise((resolve) => {
-    ws.once("close", (code: number, reason: Buffer) => resolve({ code, reason: reason.toString("utf8") }));
-  });
-}
-
-/** Sends a hello for `role` and resolves with the server's answer. */
-async function sayHello(
-  ws: WebSocket,
-  role: ClientRole,
-  clientProtocol = 2,
-): Promise<ServerHello> {
-  const answer = nextJson(ws);
-  ws.send(
-    JSON.stringify(
-      makeClientHello({ clientRole: role, clientKind: role, clientVersion: "1.2.3", clientProtocol }),
-    ),
-  );
-  return (await answer) as unknown as ServerHello;
-}
-
-/** Connects with the credential for `role` and completes a compatible hello. */
-async function connectOpen(base: string, role: "browser" | "instance"): Promise<WebSocket> {
-  const ws = await connect(base, role === "browser" ? TOKEN : INSTANCE_TOKEN);
-  const hello = await sayHello(ws, role);
-  expect(hello.verdict).toBe("compatible");
-  return ws;
-}
-
 function nextBinary(ws: WebSocket): Promise<Buffer> {
   return new Promise((resolve) => {
     const onMessage = (raw: Buffer, isBinary: boolean): void => {
@@ -209,7 +113,7 @@ function nextBinary(ws: WebSocket): Promise<Buffer> {
   });
 }
 
-describe("startHostServer auth", () => {
+describe("startRemoteServer auth", () => {
   it("rejects every route without a token, manifest included", async () => {
     const { base } = await serve();
     for (const route of ["/", "/manifest.webmanifest", "/healthz"]) {
@@ -284,7 +188,7 @@ function connectWithCookie(base: string, cookie: string): Promise<WebSocket> {
   });
 }
 
-describe("startHostServer password auth", () => {
+describe("startRemoteServer password auth", () => {
   it("redirects an unauthenticated GET / to /login, but /healthz stays a bare 401", async () => {
     const { base } = await serve({ password: PW_HASH });
     const res = await fetch(`${base}/`, { redirect: "manual" });
@@ -402,34 +306,23 @@ describe("startHostServer password auth", () => {
     open.splice(open.indexOf(first.handle), 1);
     await first.handle.close();
 
-    const second = await startHostServer(
-      serverOptions({ port, password: hashRemotePassword("some-other-passphrase") }),
-    );
+    const second = await startRemoteServer({
+      host: fakeHost(),
+      token: TOKEN,
+      bind: "localhost",
+      port,
+      webRoot: "/nonexistent-web-root",
+      password: hashRemotePassword("some-other-passphrase"),
+    });
     open.push(second);
     const stale = await fetch(`http://127.0.0.1:${port}/healthz`, {
       headers: { cookie: `omp_ui_token=${cred}` },
     });
     expect(stale.status).toBe(401);
   });
-
-  it("hands the session cookie to authenticate on the upgrade, like any credential", async () => {
-    const authenticate = vi.fn(tokenAuth(PW_HASH));
-    const { base, surface } = await serve({ password: PW_HASH, authenticate });
-    const login = await postLogin(base, PW);
-    const jar = login.headers.get("set-cookie")!.split(";")[0];
-    const cred = passwordSessionCredential(PW_HASH.hash);
-    expect(jar).toBe(`omp_ui_token=${encodeURIComponent(cred)}`);
-
-    const ws = await connectWithCookie(base, jar);
-    const hello = await sayHello(ws, "browser");
-    expect(hello.verdict).toBe("compatible");
-    // The upgrade's grant came out of authenticate, and the connection wears its role.
-    expect(authenticate).toHaveBeenLastCalledWith(cred, expect.anything());
-    expect(surface.built.map((c) => c.role)).toEqual(["browser"]);
-  });
 });
 
-describe("startHostServer websocket", () => {
+describe("startRemoteServer websocket", () => {
   it("refuses an upgrade without a token and accepts one with it", async () => {
     const { base } = await serve();
     await expect(connect(base, null)).rejects.toThrow("closed before open");
@@ -450,7 +343,7 @@ describe("startHostServer websocket", () => {
     ).rejects.toThrow("closed before open");
   });
 
-  it("answers a request from the surface's table", async () => {
+  it("answers a request from the host's table", async () => {
     const { base } = await serve();
     const ws = await connect(base, TOKEN);
     const reply = nextJson(ws);
@@ -506,7 +399,7 @@ describe("startHostServer websocket", () => {
   });
 
   it("routes a notify to the notify table and replies nothing", async () => {
-    const { base, surface } = await serve();
+    const { base, host } = await serve();
     const ws = await connect(base, TOKEN);
     let replied = false;
     ws.on("message", () => {
@@ -517,24 +410,24 @@ describe("startHostServer websocket", () => {
     const reply = nextJson(ws);
     ws.send(JSON.stringify({ t: "req", id: 3, ch: CH.getState, args: [] }));
     await reply;
-    expect(surface.notified).toEqual([{ ch: CH.ptyWrite, args: ["tab", "x"] }]);
+    expect(host.notified).toEqual([{ ch: CH.ptyWrite, args: ["tab", "x"] }]);
     // The only frame seen was the request's own reply.
     expect(replied).toBe(true);
   });
 
   it("drops malformed notifications and keeps the socket usable", async () => {
-    const { base, surface } = await serve();
+    const { base, host } = await serve();
     const ws = await connect(base, TOKEN);
     ws.send(JSON.stringify({ t: "notify", ch: CH.ptyWrite, args: ["tab", 42] }));
     const reply = nextJson(ws);
     ws.send(JSON.stringify({ t: "req", id: 4, ch: CH.getState, args: [] }));
     expect(await reply).toMatchObject({ id: 4, ok: true });
-    expect(surface.notified).toEqual([]);
+    expect(host.notified).toEqual([]);
     expect(ws.readyState).toBe(WebSocket.OPEN);
   });
 
   it("accepts an Attachment-sized remote notification", async () => {
-    const { base, surface } = await serve();
+    const { base, host } = await serve();
     const ws = await connect(base, TOKEN);
     const payload = "x".repeat(2 * 1024 * 1024);
     ws.send(JSON.stringify({ t: "notify", ch: "pty:write", args: ["tab", payload] }));
@@ -542,7 +435,7 @@ describe("startHostServer websocket", () => {
     const reply = nextJson(ws);
     ws.send(JSON.stringify({ t: "req", id: 5, ch: "state:get", args: [] }));
     await reply;
-    expect(surface.notified).toEqual([{ ch: "pty:write", args: ["tab", payload] }]);
+    expect(host.notified).toEqual([{ ch: "pty:write", args: ["tab", payload] }]);
   });
 
   it("closes an over-limit client without taking down the server", async () => {
@@ -570,153 +463,33 @@ describe("startHostServer websocket", () => {
     expect(ws.readyState).toBe(WebSocket.OPEN);
   });
 
-  it("builds the surface's table once per connection, not per message", async () => {
-    const { base, surface } = await serve();
+  it("builds the host's table once per server, not per message", async () => {
+    const host = fakeHost();
+    let tableCalls = 0;
+    const original = host.handlers;
+    host.handlers = () => {
+      tableCalls += 1;
+      return original();
+    };
+    const { base } = await serve({ host });
     const ws = await connect(base, TOKEN);
     const reply = nextJson(ws);
     ws.send(JSON.stringify({ t: "notify", ch: "pty:write", args: ["tab", "x"] }));
     ws.send(JSON.stringify({ t: "req", id: 9, ch: "nope:nope", args: [] }));
     ws.send(JSON.stringify({ t: "req", id: 10, ch: "state:get", args: [] }));
     expect(await reply).toMatchObject({ id: 10, ok: true });
-    expect(surface.built).toHaveLength(1);
+    expect(tableCalls).toBe(1);
   });
+
 });
 
-describe("startHostServer hello", () => {
-  it("answers a compatible hello and builds the table from the hello's claims", async () => {
-    const { base, surface } = await serve();
-    const ws = await connect(base, TOKEN);
-    const hello = await sayHello(ws, "browser");
-    expect(hello).toEqual({
-      t: "hello",
-      verdict: "compatible",
-      hostVersion: HOST_VERSION,
-      hostProtocol: 2,
-      protocolRange: { min: 1, max: 2 },
-      reason: null,
-    });
-    expect(surface.built).toHaveLength(1);
-    expect(surface.built[0]).toMatchObject({
-      role: "browser",
-      local: false,
-      control: false,
-      clientKind: "browser",
-      clientVersion: "1.2.3",
-      protocolVersion: 2,
-    });
-
-    const reply = nextJson(ws);
-    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    expect(await reply).toEqual({ t: "res", id: 1, ok: true, value: { ok: 1 } });
-  });
-
-  it("stamps the server's `local` on every context", async () => {
-    const { base, surface } = await serve({ local: true });
-    await connectOpen(base, "browser");
-    expect(surface.built[0].local).toBe(true);
-  });
-
-  it("refuses a hello whose role contradicts the credential's grant", async () => {
-    const { base, surface } = await serve();
-    const ws = await connect(base, TOKEN);
-    const closed = nextClose(ws);
-    const hello = await sayHello(ws, "instance");
-    expect(hello).toMatchObject({ verdict: "incompatible", reason: "role mismatch" });
-    expect(await closed).toEqual({ code: HOST_CLOSE_INCOMPATIBLE, reason: "role mismatch" });
-    expect(surface.built).toEqual([]);
-  });
-
-  it("refuses a protocol outside the host's range, naming the range", async () => {
-    const { base } = await serve();
-    const ws = await connect(base, TOKEN);
-    const closed = nextClose(ws);
-    const hello = await sayHello(ws, "browser", 3);
-    const reason = "protocol 3 unsupported; host supports 1..2";
-    expect(hello).toMatchObject({ verdict: "incompatible", reason });
-    expect(await closed).toEqual({ code: HOST_CLOSE_INCOMPATIBLE, reason });
-  });
-
-  it("honours a narrowed protocolRange override", async () => {
-    const { base } = await serve({ protocolRange: { min: 2, max: 2 } });
-    const ws = await connect(base, TOKEN);
-    const closed = nextClose(ws);
-    const hello = await sayHello(ws, "browser", 1);
-    expect(hello).toMatchObject({ reason: "protocol 1 unsupported; host supports 2..2" });
-    expect((await closed).code).toBe(HOST_CLOSE_INCOMPATIBLE);
-  });
-
-  it("accepts an implicit protocol-1 client when allowed, with an unversioned context", async () => {
-    const { base, surface } = await serve({ allowImplicitProtocol1: true });
-    const ws = await connect(base, TOKEN);
-    const reply = nextJson(ws);
-    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    expect(await reply).toMatchObject({ id: 1, ok: true });
-    expect(surface.built[0]).toMatchObject({
-      role: "browser",
-      clientKind: "browser",
-      clientVersion: "",
-      protocolVersion: 1,
-    });
-  });
-
-  it("closes an implicit protocol-1 client with 4002 when a hello is required", async () => {
-    const { base, surface } = await serve({ allowImplicitProtocol1: false });
-    const ws = await connect(base, TOKEN);
-    const closed = nextClose(ws);
-    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    expect(await closed).toEqual({ code: HOST_CLOSE_INCOMPATIBLE, reason: "hello required" });
-    expect(surface.built).toEqual([]);
-
-    // The same listener still opens a hello-first client.
-    await connectOpen(base, "browser");
-    expect(surface.built).toHaveLength(1);
-  });
-
-  it("drops a malformed first frame and keeps waiting for the hello", async () => {
-    const { base, surface } = await serve({ allowImplicitProtocol1: false });
-    const ws = await connect(base, TOKEN);
-    ws.send("{not json");
-    ws.send(JSON.stringify({ t: "hello", clientRole: "browser" }));
-    const hello = await sayHello(ws, "browser");
-    expect(hello.verdict).toBe("compatible");
-    expect(surface.built).toHaveLength(1);
-  });
-
-  it("ignores a second hello on an open socket", async () => {
-    const { base, surface } = await serve();
-    const ws = await connectOpen(base, "browser");
-    ws.send(
-      JSON.stringify(
-        makeClientHello({ clientRole: "browser", clientKind: "browser", clientVersion: "9", clientProtocol: 2 }),
-      ),
-    );
-    const reply = nextJson(ws);
-    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    expect(await reply).toMatchObject({ id: 1, ok: true });
-    expect(surface.built).toHaveLength(1);
-    expect(ws.readyState).toBe(WebSocket.OPEN);
-  });
-
-  it("builds each socket's table with its own context", async () => {
-    const { base, surface, handle } = await serve();
-    await connectOpen(base, "browser");
-    await connectOpen(base, "instance");
-    expect(surface.built.map((c) => c.role)).toEqual(["browser", "instance"]);
-    expect(surface.built.map((c) => c.control)).toEqual([false, true]);
-    expect(surface.built[0].id).not.toBe(surface.built[1].id);
-    expect(handle.connections().map((c) => c.id).sort()).toEqual(
-      surface.built.map((c) => c.id).sort(),
-    );
-  });
-});
-
-describe("startHostServer event fan-out", () => {
-  it("mirrors one broadcast event to every open client", async () => {
-    const { base, surface } = await serve();
-    const a = await connectOpen(base, "browser");
-    const b = await connectOpen(base, "instance");
+describe("startRemoteServer event fan-out", () => {
+  it("mirrors one host event to every connected client", async () => {
+    const { base, host } = await serve();
+    const a = await connect(base, TOKEN);
+    const b = await connect(base, TOKEN);
     const both = Promise.all([nextJson(a), nextJson(b)]);
-    surface.emit({ kind: "broadcast" }, "state:changed", [{ projects: [] }]);
+    host.emit("state:changed", [{ projects: [] }]);
     expect(await both).toEqual([
       { t: "ev", ch: "state:changed", args: [{ projects: [] }] },
       { t: "ev", ch: "state:changed", args: [{ projects: [] }] },
@@ -724,90 +497,18 @@ describe("startHostServer event fan-out", () => {
   });
 
   it("sends a byte payload as a binary frame decodeBinaryEvent resolves", async () => {
-    const { base, surface } = await serve();
-    const ws = await connectOpen(base, "browser");
+    const { base, host } = await serve();
+    const ws = await connect(base, TOKEN);
     const frame = nextBinary(ws);
-    surface.emit({ kind: "broadcast" }, "pty:data", ["tab-1", Buffer.from([1, 2, 3])]);
-    const raw = await frame;
-    // Golden vector: kind, u16 channel length, u16 tab length, channel, tab, payload.
-    expect([...raw]).toEqual([
-      0x01, 0x00, 0x08, 0x00, 0x05,
-      ...Buffer.from("pty:data"), ...Buffer.from("tab-1"),
-      1, 2, 3,
-    ]);
-    const decoded = decodeBinaryEvent(new Uint8Array(raw));
+    host.emit("pty:data", ["tab-1", Buffer.from([1, 2, 3])]);
+    const decoded = decodeBinaryEvent(new Uint8Array(await frame));
     expect(decoded?.channel).toBe("pty:data");
     expect(decoded?.tabId).toBe("tab-1");
     expect([...(decoded?.payload ?? [])]).toEqual([1, 2, 3]);
   });
-
-  it("does not deliver to a socket still awaiting its hello", async () => {
-    const { base, surface } = await serve();
-    const opened = await connectOpen(base, "browser");
-    const waiting = await connect(base, TOKEN);
-    let leaked = false;
-    waiting.on("message", () => {
-      leaked = true;
-    });
-    const got = nextJson(opened);
-    surface.emit({ kind: "broadcast" }, "state:changed", [1]);
-    expect(await got).toEqual({ t: "ev", ch: "state:changed", args: [1] });
-    expect(leaked).toBe(false);
-  });
-
-  it("delivers a role-scoped event only to sockets of that role", async () => {
-    const { base, surface } = await serve();
-    const browser = await connectOpen(base, "browser");
-    const instance = await connectOpen(base, "instance");
-    let browserGot = 0;
-    browser.on("message", () => {
-      browserGot += 1;
-    });
-    const got = nextJson(instance);
-    surface.emit({ kind: "role", role: "instance" }, "peer:only", ["x"]);
-    expect(await got).toEqual({ t: "ev", ch: "peer:only", args: ["x"] });
-    // A round-trip on the browser socket proves nothing else was queued ahead of it.
-    const reply = nextJson(browser);
-    browser.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    await reply;
-    expect(browserGot).toBe(1);
-  });
-
-  it("delivers a connection-scoped event to exactly that socket", async () => {
-    const { base, surface } = await serve();
-    const a = await connectOpen(base, "browser");
-    const b = await connectOpen(base, "browser");
-    const [ctxA] = surface.built;
-    let bGot = 0;
-    b.on("message", () => {
-      bGot += 1;
-    });
-    const got = nextJson(a);
-    surface.emit({ kind: "connection", id: ctxA.id }, "you:only", [7]);
-    expect(await got).toEqual({ t: "ev", ch: "you:only", args: [7] });
-    const reply = nextJson(b);
-    b.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    await reply;
-    expect(bGot).toBe(1);
-  });
-
-  it("reports a connection-scoped event for a gone socket through onEmitMiss", async () => {
-    const onEmitMiss = vi.fn();
-    const { base, surface } = await serve({ onEmitMiss });
-    const ws = await connectOpen(base, "browser");
-    const [ctx] = surface.built;
-    ws.close();
-    await vi.waitFor(() => expect(surface.closed).toEqual([ctx.id]));
-    surface.emit({ kind: "connection", id: ctx.id }, "you:only", [7]);
-    expect(onEmitMiss).toHaveBeenCalledWith({ kind: "connection", id: ctx.id }, "you:only");
-
-    // A broadcast into an empty room is silence, not a miss.
-    surface.emit({ kind: "broadcast" }, "state:changed", []);
-    expect(onEmitMiss).toHaveBeenCalledTimes(1);
-  });
 });
 
-describe("startHostServer lifecycle", () => {
+describe("startRemoteServer lifecycle", () => {
   it("close() ends every connection and frees the port", async () => {
     const { handle, base } = await serve();
     const ws = await connect(base, TOKEN);
@@ -818,60 +519,27 @@ describe("startHostServer lifecycle", () => {
     expect(await closed).toBe(1001);
 
     // The port is genuinely free: a fresh server binds the same number.
-    const second = await startHostServer(serverOptions({ port }));
+    const second = await startRemoteServer({
+      host: fakeHost(),
+      token: TOKEN,
+      bind: "localhost",
+      port,
+      webRoot: "/nonexistent-web-root",
+    });
     open.push(second);
     expect(second.port).toBe(port);
-  });
-
-  it("reports connectionClosed exactly once per socket, including sockets close() tears down", async () => {
-    const { handle, base, surface } = await serve();
-    const a = await connectOpen(base, "browser");
-    const b = await connectOpen(base, "instance");
-    // A socket that never said hello is still a connection the surface hears about.
-    await connect(base, TOKEN);
-    const [ctxA, ctxB] = surface.built;
-    a.close();
-    await vi.waitFor(() => expect(surface.closed).toEqual([ctxA.id]));
-    const bClosed = nextClose(b);
-    open.splice(open.indexOf(handle), 1);
-    await handle.close();
-    expect((await bClosed).code).toBe(1001);
-    await vi.waitFor(() => expect(surface.closed).toHaveLength(3));
-    expect(surface.closed.filter((id) => id === ctxA.id)).toHaveLength(1);
-    expect(surface.closed.filter((id) => id === ctxB.id)).toHaveLength(1);
-    expect(new Set(surface.closed).size).toBe(3);
-  });
-
-  it("closeConnections() closes the matching sockets with the given code and keeps listening", async () => {
-    const { handle, base, surface } = await serve();
-    const browser = await connectOpen(base, "browser");
-    const instance = await connectOpen(base, "instance");
-    const browserClosed = nextClose(browser);
-    let instanceClosed = false;
-    instance.once("close", () => {
-      instanceClosed = true;
-    });
-    handle.closeConnections((ctx) => ctx.role === "browser", 4001, "credential rotated");
-    expect(await browserClosed).toEqual({ code: 4001, reason: "credential rotated" });
-    expect(instanceClosed).toBe(false);
-    await vi.waitFor(() => expect(handle.connections().map((c) => c.role)).toEqual(["instance"]));
-
-    handle.closeConnections(() => true, 4001, "credential rotated");
-    await vi.waitFor(() => expect(instanceClosed).toBe(true));
-    expect(handle.connections()).toEqual([]);
-
-    // The listener itself is untouched: a fresh client pairs and is served.
-    const fresh = await connectOpen(base, "browser");
-    const reply = nextJson(fresh);
-    fresh.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
-    expect(await reply).toMatchObject({ id: 1, ok: true });
-    expect(surface.built).toHaveLength(3);
   });
 
   it("rejects with a port-in-use message when the port is taken", async () => {
     const { handle } = await serve();
     await expect(
-      startHostServer(serverOptions({ port: handle.port })),
+      startRemoteServer({
+        host: fakeHost(),
+        token: TOKEN,
+        bind: "localhost",
+        port: handle.port,
+        webRoot: "/nonexistent-web-root",
+      }),
     ).rejects.toThrow(`port ${handle.port} is already in use`);
   });
 
@@ -883,16 +551,14 @@ describe("startHostServer lifecycle", () => {
     expect(await res.text()).toBe('omp-ui web bundle not built — run "npm run build:web"');
   });
 
-  it("reports bare URLs; withRemoteToken builds the pairing links", async () => {
+  it("puts the bare loopback URL first and keeps the token in tokenUrls", async () => {
     const { handle } = await serve();
     expect(handle.urls).toEqual([`http://127.0.0.1:${handle.port}/`]);
-    expect(withRemoteToken(handle.urls, TOKEN)).toEqual([
-      `http://127.0.0.1:${handle.port}/?t=${encodeURIComponent(TOKEN)}`,
-    ]);
+    expect(handle.tokenUrls).toEqual([`http://127.0.0.1:${handle.port}/?t=${TOKEN}`]);
   });
 });
 
-describe("startHostServer malformed requests", () => {
+describe("startRemoteServer malformed requests", () => {
   // One malformed escape anywhere in attacker-controlled text must never crash main: the
   // process installs no uncaughtException handler, so a throw here would kill the whole app.
 
@@ -950,7 +616,7 @@ describe("startHostServer malformed requests", () => {
   });
 });
 
-describe("startHostServer static bundle", () => {
+describe("startRemoteServer static bundle", () => {
   const roots: string[] = [];
 
   afterEach(() => {

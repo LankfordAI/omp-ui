@@ -7,8 +7,7 @@ silently collapses to whatever providers need no auth.
 
 omp-ui therefore owns a credential set and installs it into its own
 `process.env` before any session can spawn. Users can also type keys into a
-Providers settings page, stored encrypted under a key the OS credential store
-holds.
+Providers settings page, stored encrypted by the OS credential store.
 
 ## The bug this came from
 
@@ -56,13 +55,12 @@ inherited), **login-shell** (captured), **dotenv** (report-only).
 
 ## Consequences
 
-- **An unavailable credential store counts as no encryption.** Electron's
-  safeStorage fell back to a hardcoded key (`basic_text`) when no keyring was
-  present; the write was *refused* with a message pointing at the shell rather
-  than writing a decodable secret to disk under an "encrypted" label. The host
-  keeps that rule with its own protector (see the 2026-09-10 amendment). On
+- **`basic_text` counts as no encryption.** Electron's safeStorage falls back to
+  a hardcoded key when no keyring is present. `electronKeyCipher` reports that as
+  unavailable and the write is *refused* with a message pointing at the shell,
+  rather than writing a decodable secret to disk under an "encrypted" label. On
   this machine the backend is `gnome_libsecret`.
-- **Key material never crosses the client boundary.** The renderer receives a
+- **Key material never crosses the IPC boundary.** The renderer receives a
   masked tail (`••••cdef`) and a source label. There is no "reveal" — unlike the
   remote-access token, which omp-ui mints and the user must copy, these are the
   user's own secrets held on their behalf.
@@ -82,43 +80,3 @@ inherited), **login-shell** (captured), **dotenv** (report-only).
   `AWS_PROFILE`, `GOOGLE_CLOUD_PROJECT`, and `GOOGLE_APPLICATION_CREDENTIALS`
   are a profile name, a project id, and a file path. A "paste your key" field is
   the wrong shape for all three, and a half-right control is worse than none.
-
-**Amended 2026-09-10 (#442, #451; ADR-0029/ADR-0030):** the cipher is the
-persistent host's, not Electron's. `packages/host/src/credentials/` holds one
-32-byte per-data-root **DEK**, the only secret handed to the OS store through a
-**credential protector** — Secret Service on Linux (an in-repo N-API adapter,
-no keyutils fallback), Keychain on macOS (`@napi-rs/keyring`), DPAPI on Windows
-(`@primno/dpapi`, `CurrentUser`, wrapping `<dataRoot>/master.key`). The DEK is
-read once at boot on a worker with a hard 5 s deadline; `KeyCipher.encrypt` and
-`decrypt` stay synchronous and make no OS call, so a slow or locked keyring
-costs one bounded lookup rather than one per credential. Every stored value is
-the **envelope** `0x02 || nonce[12] || ciphertext || tag[16]`, AES-256-GCM with
-a fresh nonce; `0x01` marks Electron ciphertext met mid-handoff, and bare
-`v10`/`v11` is legacy `safeStorage` output. With ciphertext on disk a missing
-DEK is *key-lost*, never a fresh key that would orphan it. A protector that
-cannot answer yields a degraded cipher that fails closed: the host starts and
-serves, reports its backend and reason, injects only inherited and login-shell
-sources, and refuses stored-key writes — the `basic_text` refusal above,
-generalised. The **credential handoff** (`credential-handoff-v1`, a journalled
-migration step) re-encrypts `provider-keys.json` and `remote-instances.json`
-from `safeStorage` ciphertext per value under the authority claim and before
-the registry loads: a host envelope is kept, a readable blob is re-encrypted, a
-locked keyring leaves the bytes and the step open for a later boot, and a
-foreign blob drops a provider key by name with a breadcrumb (a joined instance
-keeps its record with a null credential, *sign-in required*). "An undecryptable
-entry is dropped, not fatal" above therefore now happens once, at handoff, and
-is recorded — never silently on a later read. The Electron readers the handoff
-needs stay in the host until two later minor releases and twelve months after
-the cutover have both passed.
-
-**Amended 2026-09-10 (#475, #476):** Linux `v11` handoff reads Chromium schema
-`chrome_libsecret_os_crypt_password_v2` through the same bounded Secret Service
-worker. It tries `application` values `@omp-ui/desktop`,
-`ai.lankford.omp-ui`, then `omp-ui` in that order. No returned candidates, a
-locked collection, an unavailable service, or a worker timeout keeps the blob
-locked and the handoff open. Only a reachable store whose returned candidates
-all fail decryption marks it foreign. If the one-shot cutover note is already
-gone, the host derives the legacy Electron `userData` path from the committed
-`relocate-authority-stores-v1` source evidence; disagreeing source parents stop
-the migration instead of guessing. This lets a fixed host retry credentials
-that v0.11.0 relocated but could not decrypt.

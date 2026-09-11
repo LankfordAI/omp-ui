@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
-  BackendState,
   MemoryOverview,
   OmpSettingValue,
   OmpSettingsSnapshot,
@@ -16,7 +15,7 @@ import type {
   RemoteState,
   WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
-import { backendState, installDesktopAdapter, tabInfo } from "../test/fixtures";
+import { backendState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
 import { applyLocale, resolveLocale } from "../lib/i18n";
 
@@ -116,6 +115,15 @@ const backendMock = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
+  getAppUpdateState: vi.fn(),
+  checkAppUpdate: vi.fn(),
+  downloadAppUpdate: vi.fn(),
+  openAppUpdateReleaseNotes: vi.fn(),
+  showAppUpdateDownload: vi.fn(),
+  restartForAppUpdate: vi.fn(),
+  setAppUpdateInstallOnQuit: vi.fn(),
+  dismissAppUpdate: vi.fn(),
+  onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
@@ -125,6 +133,7 @@ const backendMock = {
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
   clearDismissedOmpUpdate: vi.fn(async () => {}),
+  setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
   readProviderKeys: vi.fn(
     async (): Promise<{
@@ -157,7 +166,6 @@ const backendMock = {
   signOutProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),
 };
 Object.assign(window, { ompBackend: backendMock });
-const desktopMock = installDesktopAdapter();
 
 // Dynamic imports are required because store.ts captures the mocked preload bridge at module load.
 const { useStore } = await import("../store");
@@ -254,7 +262,7 @@ describe("Settings Updates page (issue #89)", () => {
     });
     await renderSettings();
     click(buttonWithText("Download")!);
-    expect(desktopMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
+    expect(backendMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
   });
 
   it.each(["appimage", "maczip"] as const)(
@@ -270,7 +278,7 @@ describe("Settings Updates page (issue #89)", () => {
       await renderSettings();
       expect(buttonWithText("Download")).toBeNull();
       click(buttonWithText("Update")!);
-      expect(desktopMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
+      expect(backendMock.downloadAppUpdate).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -284,8 +292,8 @@ describe("Settings Updates page (issue #89)", () => {
     });
     await renderSettings();
     click(buttonWithText("View release")!);
-    expect(desktopMock.openAppUpdateReleaseNotes).toHaveBeenCalledTimes(1);
-    expect(desktopMock.downloadAppUpdate).not.toHaveBeenCalled();
+    expect(backendMock.openAppUpdateReleaseNotes).toHaveBeenCalledTimes(1);
+    expect(backendMock.downloadAppUpdate).not.toHaveBeenCalled();
   });
 
   it("offers Restart now once an AppImage update is downloaded", async () => {
@@ -298,7 +306,7 @@ describe("Settings Updates page (issue #89)", () => {
     });
     await renderSettings();
     click(buttonWithText("Restart now")!);
-    expect(desktopMock.restartForAppUpdate).toHaveBeenCalledTimes(1);
+    expect(backendMock.restartForAppUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("offers Restart now once a macOS zip update is downloaded", async () => {
@@ -311,7 +319,7 @@ describe("Settings Updates page (issue #89)", () => {
     });
     await renderSettings();
     click(buttonWithText("Restart now")!);
-    expect(desktopMock.restartForAppUpdate).toHaveBeenCalledTimes(1);
+    expect(backendMock.restartForAppUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("shows an applying macOS update without actions and disables checks", async () => {
@@ -342,7 +350,7 @@ describe("Settings Updates page (issue #89)", () => {
     await renderSettings();
     expect(buttonWithText("Restart now")).toBeNull();
     click(buttonWithText("Show in folder")!);
-    expect(desktopMock.showAppUpdateDownload).toHaveBeenCalledTimes(1);
+    expect(backendMock.showAppUpdateDownload).toHaveBeenCalledTimes(1);
   });
 
   it("offers Update now for an available omp update", async () => {
@@ -1152,7 +1160,7 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     shadowsEnvironment: false,
   };
 
-  const seedProviders = (rows: ProviderOAuthStatus[], state: BackendState | null = null): void => {
+  const seedProviders = (rows: ProviderOAuthStatus[]): void => {
     backendMock.readProviderOAuth.mockResolvedValueOnce(rows);
     backendMock.readProviderKeys.mockResolvedValueOnce({
       providers: [keyRow],
@@ -1161,13 +1169,11 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     });
     useStore.setState({
       settingsPage: "providers",
-      state,
+      state: null,
       tabs: [],
       activeTabId: null,
       appUpdate: appUpdateState({}),
       ompUpdate: idleOmpUpdate,
-      // The flow is module-global store state: a prior test's live phase would disable Sign in.
-      providerOAuth: idleProviderOAuth,
     });
   };
 
@@ -1235,70 +1241,6 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(backendMock.submitProviderOAuthInput).toHaveBeenCalledWith(
       "https://auth.openai.com/callback?code=abc123",
     );
-  });
-
-  const browserFlow = (url = "https://chatgpt.com/auth?x=1"): ProviderOAuthState => ({
-    providerId: "openai-codex",
-    phase: "browser",
-    url,
-    instructions: null,
-    prompt: null,
-    error: null,
-  });
-
-  const publish = async (flow: ProviderOAuthState): Promise<void> => {
-    await act(async () => {
-      useStore.getState().replaceProviderOAuth(flow);
-    });
-  };
-
-  const REMOTE_NOTE = "callback goes to the machine running the omp-ui host";
-
-  it("tells a remote client that the callback lands on the host machine", async () => {
-    seedProviders([oauthRow()], backendState({ self: { role: "browser", local: false } }));
-    await renderSettings();
-    await publish(browserFlow());
-    expect(document.body.textContent).toContain(REMOTE_NOTE);
-    expect(buttonWithText("Open sign-in page")).not.toBeNull();
-  });
-
-  it("shows no host-machine note to a local client", async () => {
-    seedProviders([oauthRow()], backendState({ self: { role: "desktop", local: true } }));
-    await renderSettings();
-    await publish(browserFlow());
-    expect(document.body.textContent).not.toContain(REMOTE_NOTE);
-    expect(buttonWithText("Open sign-in page")).not.toBeNull();
-  });
-
-  it("opens the sign-in URL on this desktop exactly once when this page started the flow", async () => {
-    seedProviders([oauthRow()]);
-    await renderSettings();
-    click(buttonWithText("Sign in")!);
-    await publish({ ...browserFlow(), phase: "starting", url: null });
-    expect(desktopMock.openExternal).not.toHaveBeenCalled();
-    await publish(browserFlow());
-    // A republished browser phase (omp adding instructions) is the same sign-in page.
-    await publish({ ...browserFlow(), instructions: "Finish signing in" });
-    expect(desktopMock.openExternal).toHaveBeenCalledTimes(1);
-    expect(desktopMock.openExternal).toHaveBeenCalledWith("https://chatgpt.com/auth?x=1");
-  });
-
-  it("does not open a sign-in URL for a flow another client started", async () => {
-    seedProviders([oauthRow()]);
-    await renderSettings();
-    await publish(browserFlow());
-    expect(desktopMock.openExternal).not.toHaveBeenCalled();
-    expect(buttonWithText("Open sign-in page")).not.toBeNull();
-  });
-
-  it("forgets that this page started a flow once that flow has ended", async () => {
-    seedProviders([oauthRow()]);
-    await renderSettings();
-    click(buttonWithText("Sign in")!);
-    await publish({ ...browserFlow(), phase: "error", url: null, error: "sign-in failed" });
-    // The next flow for the same provider came from elsewhere.
-    await publish(browserFlow("https://chatgpt.com/auth?x=2"));
-    expect(desktopMock.openExternal).not.toHaveBeenCalled();
   });
 });
 

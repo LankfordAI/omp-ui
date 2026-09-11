@@ -56,7 +56,8 @@ type AfterCommitEffect =
       phase: "after-commit";
       type: "append-transcript-item";
       item: NoticeItem;
-    };
+    }
+  | { phase: "after-commit"; type: "trigger-stall-continue" };
 
 /**
  * Effects are ordered within each phase. The explicit pre-commit phase keeps
@@ -254,14 +255,14 @@ export function reduceAgentEvent(
       settleQueue: true,
     });
 
-    // The continue itself is the host's (issue #442); the renderer keeps only
-    // the #100 diagnostic.
-    if (tab.lastTurn !== undefined && isStreamStallEnd(tab.lastTurn)) {
+    const providerStall =
+      tab.lastTurn !== undefined && isStreamStallEnd(tab.lastTurn);
+    if (providerStall) {
       const stall = stallNotice(
         tab,
         {
-          errorMessage: tab.lastTurn.errorMessage,
-          errorId: tab.lastTurn.errorId,
+          errorMessage: tab.lastTurn?.errorMessage,
+          errorId: tab.lastTurn?.errorId,
         },
         now,
       );
@@ -275,6 +276,17 @@ export function reduceAgentEvent(
         });
       }
     }
+
+    const watchdogAbort = tab.stallAbortPending === true;
+    if (watchdogAbort) {
+      rpc.stallAbortPending = false;
+      hasRpcPatch = true;
+    }
+    if (providerStall || watchdogAbort)
+      effects.push({
+        phase: "after-commit",
+        type: "trigger-stall-continue",
+      });
   }
 
   return {

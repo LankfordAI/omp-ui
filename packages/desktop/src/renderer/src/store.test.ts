@@ -512,17 +512,17 @@ describe("viewed-tab reporter (issue #266)", () => {
       const init = fresh.getState().init();
       await init;
       expect(h.mockBackend.tabViewed).toHaveBeenCalledTimes(1);
-      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(null);
+      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), null);
 
       h.mockBackend.tabViewed.mockClear();
       fresh.getState().focusTab(h.TAB);
       expect(h.mockBackend.tabViewed).toHaveBeenCalledTimes(1);
-      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(h.TAB);
+      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), h.TAB);
 
       h.mockBackend.tabViewed.mockClear();
       await vi.advanceTimersByTimeAsync(5 * 60_000); // heartbeat
       expect(h.mockBackend.tabViewed).toHaveBeenCalledTimes(1);
-      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(h.TAB);
+      expect(h.mockBackend.tabViewed).toHaveBeenLastCalledWith(expect.any(String), h.TAB);
     } finally {
       vi.useRealTimers();
     }
@@ -591,7 +591,7 @@ describe("notification click focus (issue #271)", () => {
 
     const init = fresh.getState().init();
     await init;
-    const cb = h.mockDesktop.onSurfaceTab.mock.calls[0]![0] as (tabId: string) => void;
+    const cb = h.mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
 
     void cb(h.TAB);
     await h.flushMicrotasks();
@@ -611,7 +611,7 @@ describe("notification click focus (issue #271)", () => {
 
     const init = fresh.getState().init();
     await init;
-    const cb = h.mockDesktop.onSurfaceTab.mock.calls[0]![0] as (tabId: string) => void;
+    const cb = h.mockBackend.onFocusSession.mock.calls[0]![0] as (tabId: string) => void;
 
     void cb(h.TAB);
     await h.flushMicrotasks();

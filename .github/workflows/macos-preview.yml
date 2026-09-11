@@ -50,7 +50,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: macos-package-${{ matrix.arch }}
-          path: packages
+          path: packages/desktop/dist
       - name: Upload macOS preview
         uses: actions/upload-artifact@v4
         with:
@@ -59,7 +59,6 @@ jobs:
             packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.dmg
             packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.zip
             packages/desktop/dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
-            packages/host/out/mac-${{ matrix.arch }}/omp-ui-host-*-mac-${{ matrix.arch }}.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

@@ -1,50 +1,66 @@
 import { Notification, type BrowserWindow } from "electron";
-import type { Attention, AttentionKind } from "@omp-ui/core/types";
+import { CH } from "@omp-ui/core";
 
 /**
  * Posts OS notifications for owned native sessions that reach an attention
  * state while the user is not looking at them (issue #271): a turn finished,
  * a plan review is pending, or stall auto-continue paused at its cap.
  *
- * The attention level itself is the host's (issue #442): this class only
- * subscribes to `attention:changed` and decides whether this desktop client
- * should banner it. The state is per tab — one notification, replaced rather
- * than stacked. Every post is delayed (NOTIFICATION_POST_DELAY_MS) and
- * re-gated at fire time so the gate reads live state at the moment the user
- * would see the banner.
+ * The state is per tab — one notification, replaced rather than stacked.
+ * Every post is delayed (NOTIFICATION_POST_DELAY_MS) and re-gated at fire
+ * time: the delay absorbs the stall auto-continue settle window (1.5 s), so
+ * a turn that auto-resumes never blinks a "finished" banner, and the gate
+ * reads live state at the moment the user would see the banner.
  */
+
+export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused";
+
+/** The frame-derived attention transitions SessionManager reports. */
+export interface Attention {
+  /** A turn started on this tab: activity answers every pending attention. */
+  turnStarted(tabId: string): void;
+  /** The last running turn ended and the session is idle (no gate/dialog pending). */
+  turnEnded(tabId: string): void;
+  /** A plan proposal was recorded as the tab's pending gate. */
+  planProposed(tabId: string, planTitle: string): void;
+  /** A verdict closed the tab's plan gate. */
+  planSettled(tabId: string): void;
+  /**
+   * The desktop renderer's viewed-tab report named this tab: the user is
+   * looking at it, so its attention is acknowledged.
+   */
+  viewedChanged(tabId: string): void;
+  /** The tab's live process left `live` (exit, terminate, hibernation reap). */
+  sessionExit(tabId: string): void;
+}
 
 export interface DesktopNotifierDeps {
   win: BrowserWindow;
   /** The Settings → General switch (re-read at every fire). */
   isEnabled: () => boolean;
-  /** The host's localeId setting, from the mirrored state (re-read at every fire). */
+  /** The registry's localeId (re-read at every fire). */
   localeId: () => string;
+  /** True while the desktop renderer's fresh viewed report names the tab (issue #271). */
+  isViewedByDesktop: (tabId: string) => boolean;
   /** The sidebar's session title for the tab. */
   titleOf: (tabId: string) => string;
   /** OS notification icon path, or null when absent. */
   icon: () => string | null;
-  /** A banner click: surface the tab in this window and nowhere else (#453). */
-  surfaceTab: (tabId: string) => void;
-  /** Clock, for the subscription-time cutoff. */
-  now?: () => number;
+  /** Fans the notification-click event out to every renderer sink. */
+  send: (channel: string, ...args: unknown[]) => void;
 }
 
 interface TabAttention {
   kind: AttentionKind;
   planTitle: string | null;
-  /** The host's stamp on the level being announced; the same stamp never re-banners. */
-  atMs: number;
   notification: Notification | null;
   timer: NodeJS.Timeout | undefined;
 }
 
 /**
- * Post delay. Must stay above STALL_CONTINUE_SETTLE_MS (1500 ms): the host's
- * stall auto-continue dispatches its prompt ~1.5 s after a stall end, in
- * another process from the one that will banner, so the next turn's
- * `attention:changed(null)` must have time to arrive and cancel the pending
- * post before it can fire.
+ * Post delay. Must stay above STALL_CONTINUE_SETTLE_MS (1500 ms) so a
+ * stall-continue prompt — dispatched by the renderer ~1.5 s after a stall
+ * end — starts its turn and cancels the pending post before it can fire.
  */
 export const NOTIFICATION_POST_DELAY_MS = 3_000;
 /** OS notification body copy, keyed by locale. The title stays the session's
@@ -71,40 +87,43 @@ const COPY: Record<"en" | "ko", {
   },
 };
 
-export class DesktopNotifier {
+export class DesktopNotifier implements Attention {
   private readonly tabs = new Map<string, TabAttention>();
-  /** The host stamp last seen per tab, announced or not; repeats are dropped. */
-  private readonly seenAtMs = new Map<string, number>();
-  /** The tab this window's own renderer reports in view (#453). */
-  private clientViewedTab: string | null = null;
-  /** Levels stamped at or before this were in place when we subscribed: recorded, never announced. */
-  private readonly subscribedAtMs: number;
   private warnedUnsupported = false;
   private warnedShowFailure = false;
 
-  constructor(private readonly deps: DesktopNotifierDeps) {
-    this.subscribedAtMs = (deps.now ?? Date.now)();
+  constructor(private readonly deps: DesktopNotifierDeps) {}
+
+  // --- Attention (SessionManager hooks) ---------------------------------
+
+  turnStarted(tabId: string): void {
+    this.drop(tabId);
   }
 
-  /** The host's `attention:changed` for a tab; null clears any pending or shown banner. */
-  onAttention(tabId: string, level: Attention | null): void {
-    if (level === null) {
-      this.seenAtMs.delete(tabId);
-      this.drop(tabId);
-      return;
-    }
-    if (this.seenAtMs.get(tabId) === level.atMs) return;
-    const first = !this.seenAtMs.has(tabId);
-    this.seenAtMs.set(tabId, level.atMs);
-    // Observed at subscription, not raised since: the user already had their
-    // chance to see it, and a restart must never re-banner every idle tab.
-    if (first && level.atMs <= this.subscribedAtMs) return;
-    this.schedule(tabId, level);
+  turnEnded(tabId: string): void {
+    this.schedule(tabId, "turn-complete", null);
   }
 
-  /** This window's renderer reports the tab it shows (#453); the fire-time gate reads it. */
-  clientViewed(tabId: string | null): void {
-    this.clientViewedTab = tabId;
+  planProposed(tabId: string, planTitle: string): void {
+    this.schedule(tabId, "plan-pending", planTitle);
+  }
+
+  planSettled(tabId: string): void {
+    this.drop(tabId, "plan-pending");
+  }
+
+  viewedChanged(tabId: string): void {
+    this.drop(tabId);
+  }
+
+  sessionExit(tabId: string): void {
+    this.drop(tabId);
+  }
+
+  /** The tab's stall auto-continue guard paused at its cap, or re-armed. */
+  stallCap(tabId: string, paused: boolean): void {
+    if (paused) this.schedule(tabId, "stall-paused", null);
+    else this.drop(tabId, "stall-paused");
   }
 
   /** Clears every timer and closes every notification (app quit). */
@@ -119,7 +138,7 @@ export class DesktopNotifier {
    * older one for the same tab; an already-shown notification is closed so a
    * tab never carries two banners.
    */
-  private schedule(tabId: string, level: Attention): void {
+  private schedule(tabId: string, kind: AttentionKind, planTitle: string | null): void {
     const prev = this.tabs.get(tabId);
     if (prev !== undefined) {
       clearTimeout(prev.timer);
@@ -134,19 +153,14 @@ export class DesktopNotifier {
     }
     const timer = setTimeout(() => this.fire(tabId), NOTIFICATION_POST_DELAY_MS);
     if (typeof timer.unref === "function") timer.unref();
-    this.tabs.set(tabId, {
-      kind: level.kind,
-      planTitle: level.planTitle,
-      atMs: level.atMs,
-      notification: null,
-      timer,
-    });
+    this.tabs.set(tabId, { kind, planTitle, notification: null, timer });
   }
 
-  /** Closes the tab's pending or shown attention. */
-  private drop(tabId: string): void {
+  /** Closes the tab's attention; a kind limits the drop to that state. */
+  private drop(tabId: string, kind: AttentionKind | null = null): void {
     const entry = this.tabs.get(tabId);
     if (entry === undefined) return;
+    if (kind !== null && entry.kind !== kind) return;
     clearTimeout(entry.timer);
     if (entry.notification !== null) entry.notification.close();
     this.tabs.delete(tabId);
@@ -173,14 +187,14 @@ export class DesktopNotifier {
     if (entry === undefined || entry.timer === undefined) return;
     entry.timer = undefined;
     const win = this.deps.win;
-    // Suppressed only while this window is focused AND its renderer shows
-    // this tab. A turn that finishes while the user works a different tab is
-    // exactly the case this feature exists for (issue #271); other clients'
-    // viewed tabs never count — they are a different screen.
+    // Suppressed only while the desktop window is focused AND showing this
+    // tab. A turn that finishes while the user works a different tab is
+    // exactly the case this feature exists for (issue #271); remote
+    // renderers' viewed tabs never count — they are a different screen.
     if (
       !this.enabled() ||
       win.isDestroyed() ||
-      (win.isFocused() && this.clientViewedTab === tabId)
+      (win.isFocused() && this.deps.isViewedByDesktop(tabId))
     ) {
       this.tabs.delete(tabId);
       return;
@@ -238,8 +252,8 @@ export class DesktopNotifier {
 
   /**
    * Click handler: bring the window forward (restore if minimized, show if
-   * macOS-hidden) and surface the tab in this window's renderer, which
-   * resurfaces (or resumes) it through the ordinary openSession path.
+   * macOS-hidden) and fan the focus event to every renderer; each resurfaces
+   * (or resumes) the tab through the ordinary openSession path.
    */
   private focusSession(tabId: string): void {
     const win = this.deps.win;
@@ -247,6 +261,6 @@ export class DesktopNotifier {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-    this.deps.surfaceTab(tabId);
+    this.deps.send(CH.onFocusSession, tabId);
   }
 }

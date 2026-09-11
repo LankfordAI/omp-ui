@@ -7,7 +7,16 @@ import type {
   ProviderOAuthState,
   RemoteState,
 } from "@omp-ui/core/types";
-import { ADVISOR_REPLY_SETTLE_MS } from "../../lib/advisor-reply";
+import {
+  ADVISOR_REPLY_CAP_NOTICE,
+  ADVISOR_REPLY_LEAD,
+  ADVISOR_REPLY_SETTLE_MS,
+} from "../../lib/advisor-reply";
+import {
+  STALL_CONTINUE_CAP_NOTICE,
+  STALL_CONTINUE_LEAD,
+  STALL_CONTINUE_SETTLE_MS,
+} from "../../lib/stall-continue";
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
@@ -1646,6 +1655,43 @@ describe("handleRpcFrame routing", () => {
     }
   });
 
+  it("suppresses stall auto-continue after a successful fresh seed (issue #283)", async () => {
+    vi.useFakeTimers();
+    const hibernation = h.deferred<boolean>();
+    h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => hibernation.promise);
+    try {
+      const seed = await dispatchFreshSeed("handoff-stall");
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
+      }));
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "partial" }],
+          stopReason: "error",
+          errorMessage: "OpenAI responses stream stalled while waiting for the next event",
+          errorId: 397312,
+        },
+      });
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+      await h.flushMicrotasks();
+
+      expect(
+        h.sent.some(
+          (entry) => entry.tabId === h.TAB && entry.cmd.message === STALL_CONTINUE_LEAD,
+        ),
+      ).toBe(false);
+    } finally {
+      hibernation.resolve(false);
+      await rearmHandoffSource();
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ["false result", async () => false],
     ["rejection", async () => Promise.reject(new Error("transport failed"))],
@@ -2671,9 +2717,9 @@ describe("handleRpcFrame routing", () => {
   });
 });
 
-describe("stall turn ends (issue #100, #251)", () => {
-  // The continue itself is the host's (issue #442): the renderer only renders
-  // the diagnostic and the host's notices, and never sends a prompt of its own.
+describe("stall auto-continue (issue #251)", () => {
+  // The loop-guard state lives in module-scoped watchers keyed by tab id, so
+  // each test owns its own tab: a shared id would leak counts between cases.
   /** The incident's terminal message_end: the provider watchdog's stall abort. */
   const stallEndFrame = () => ({
     type: "message_end",
@@ -2686,7 +2732,10 @@ describe("stall turn ends (issue #100, #251)", () => {
     },
   });
 
-  it("a stalled turn end aborts the in-flight card and posts the diagnostic, sending nothing (incident replay)", async () => {
+  const continuePrompts = () =>
+    h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === STALL_CONTINUE_LEAD);
+
+  it("continues a stalled turn end with a bounded follow-up prompt (incident replay)", async () => {
     const T = "tab-stall-a";
     vi.useFakeTimers();
     try {
@@ -2722,7 +2771,7 @@ describe("stall turn ends (issue #100, #251)", () => {
       // Ninety seconds of silence later, omp's provider watchdog aborts.
       store.handleRpcFrame(T, stallEndFrame());
       store.handleRpcFrame(T, { type: "agent_end" });
-      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
     } finally {
       vi.useRealTimers();
     }
@@ -2741,11 +2790,50 @@ describe("stall turn ends (issue #100, #251)", () => {
     );
     expect(diagnostic).toBeDefined();
     expect(diagnostic!.text).toContain("OpenAI responses stream stalled");
-    expect(h.useStore.getState().rpc[T]!.status).toBe("ready");
-    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+
+    // The continue announced itself, then went out as a followUp prompt.
+    const announced = items.find(
+      (i) => i.kind === "notice" && i.level === "info" && i.text.includes("stall auto-continue #1"),
+    );
+    expect(announced).toBeDefined();
+    const prompts = continuePrompts();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
   });
 
-  it("does not diagnose a user interrupt: the card cancels, no notice", async () => {
+  it("posts the diagnostic but sends no continue when the app switch is off", async () => {
+    const T = "tab-stall-b";
+    vi.useFakeTimers();
+    try {
+      h.backendState = { ...h.backendState, stallAutoContinue: false };
+      h.useStore.setState({
+        state: h.backendState,
+        rpc: { [T]: rpcTabState({ status: "running" }) },
+      });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+      });
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    const items = h.useStore.getState().rpc[T]!.items;
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
+    ).toBe(true);
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("stall auto-continue")),
+    ).toBe(false);
+  });
+
+  it("does not continue a user interrupt: the card cancels, no diagnostic, no prompt", async () => {
     const T = "tab-stall-c";
     h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
     const store = h.useStore.getState();
@@ -2767,12 +2855,13 @@ describe("stall turn ends (issue #100, #251)", () => {
     const items = h.useStore.getState().rpc[T]!.items;
     const tool = items.find((i) => i.kind === "tool");
     expect(tool).toMatchObject({ status: "cancelled" });
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
     ).toBe(false);
   });
 
-  it("aborts cards on a non-stall error end, with no diagnostic", async () => {
+  it("aborts cards on a non-stall error end, with no diagnostic and no continue", async () => {
     const T = "tab-stall-d";
     h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
     const store = h.useStore.getState();
@@ -2795,78 +2884,295 @@ describe("stall turn ends (issue #100, #251)", () => {
     const items = h.useStore.getState().rpc[T]!.items;
     const tool = items.find((i) => i.kind === "tool");
     expect(tool).toMatchObject({ status: "aborted" });
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
     expect(
       items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
     ).toBe(false);
   });
 
-  it("renders the host's omp_ui_notice frames at their own level, never answering them", async () => {
+  it("a watchdog abort notice feeds auto-continue", async () => {
     const T = "tab-stall-w1";
-    h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-    const store = h.useStore.getState();
-    // Main's stall watchdog aborted the turn and reported it (issue #253) …
-    store.handleRpcFrame(T, {
-      type: "omp_ui_notice",
-      level: "warn",
-      source: "omp-ui",
-      reason: "stall-abort",
-      message: "omp-ui aborted a stalled turn #1 — no stream events for 90s",
-    });
-    store.handleRpcFrame(T, {
-      type: "message_end",
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "half done" }],
-        stopReason: "aborted",
-      },
-    });
-    store.handleRpcFrame(T, { type: "agent_end" });
-    // … and the host's guard announced its continue (issue #442).
-    store.handleRpcFrame(T, {
-      type: "omp_ui_notice",
-      level: "info",
-      source: "omp-ui",
-      message: "stall auto-continue #1 — the previous turn's model stream stalled; continuing",
-    });
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      // Main's stall watchdog aborted the turn and reported it (issue #253);
+      // the tagged notice frame is the only stall marker — the turn itself
+      // ends with stopReason "aborted", invisible to isStreamStallEnd.
+      store.handleRpcFrame(T, {
+        type: "omp_ui_notice",
+        level: "warn",
+        source: "omp-ui",
+        reason: "stall-abort",
+        message: "omp-ui aborted a stalled turn #1 — no stream events for 90s",
+      });
+      store.handleRpcFrame(T, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "half done" }],
+          stopReason: "aborted",
+        },
+      });
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    } finally {
+      vi.useRealTimers();
+    }
     await h.flushMicrotasks();
 
-    const notices = h.useStore
-      .getState()
-      .rpc[T]!.items.filter((i): i is NoticeItem => i.kind === "notice");
-    expect(notices.map((n) => [n.level, n.text])).toEqual([
-      ["warn", expect.stringContaining("aborted a stalled turn")],
-      ["info", expect.stringContaining("stall auto-continue #1")],
-    ]);
+    const items = h.useStore.getState().rpc[T]!.items;
+    // Main's notice is the diagnostic — no provider-stall diagnostic on top.
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
+    ).toBe(false);
+    expect(
+      items.some(
+        (i) =>
+          i.kind === "notice" && i.level === "info" && i.text.includes("stall auto-continue #1"),
+      ),
+    ).toBe(true);
+    const prompts = continuePrompts();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
+    // Consumed at the turn boundary: a later non-stall end must not continue.
+    expect(h.useStore.getState().rpc[T]!.stallAbortPending ?? false).toBe(false);
+  });
+
+  it("the app switch also gates watchdog-abort continues", async () => {
+    const T = "tab-stall-w2";
+    vi.useFakeTimers();
+    try {
+      h.backendState = { ...h.backendState, stallAutoContinue: false };
+      h.useStore.setState({
+        state: h.backendState,
+        rpc: { [T]: rpcTabState({ status: "running" }) },
+      });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "omp_ui_notice",
+        level: "warn",
+        source: "omp-ui",
+        reason: "stall-abort",
+        message: "omp-ui aborted a stalled turn #1 — no stream events for 90s",
+      });
+      store.handleRpcFrame(T, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "half done" }],
+          stopReason: "aborted",
+        },
+      });
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+
+    const items = h.useStore.getState().rpc[T]!.items;
+    // The abort report still lands in the transcript; only the continue is gated.
+    expect(
+      items.some(
+        (i) =>
+          i.kind === "notice" && i.level === "warn" && i.text.includes("aborted a stalled turn"),
+      ),
+    ).toBe(true);
     expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
   });
 
-  it("numbers the per-tab stall diagnostic across consecutive stalls", async () => {
+  it("an untagged omp_ui_notice does not arm auto-continue", async () => {
+    const T = "tab-stall-w3";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "omp_ui_notice",
+        level: "warn",
+        source: "omp-ui",
+        message: "omp-ui: some unrelated advisory",
+      });
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+    expect(h.useStore.getState().rpc[T]!.stallAbortPending ?? false).toBe(false);
+  });
+
+  it("caps consecutive continues, then re-arms on a user prompt", async () => {
     const T = "tab-stall-e";
-    h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
-    const stalledTurn = (): void => {
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      // One stalled turn end: the continue prompt goes out, then its turn
+      // (simulated) dies to a stall again.
+      const stalledTurn = async () => {
+        h.useStore.setState((s) => ({
+          rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
+        }));
+        h.useStore.getState().handleRpcFrame(T, stallEndFrame());
+        h.useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+      };
+
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(1);
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(2);
+
+      // A third consecutive stall hits the cap: explained once, nothing sent.
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(2);
+      const capped = h.useStore
+        .getState()
+        .rpc[T]!.items.filter(
+          (i) => i.kind === "notice" && i.text === STALL_CONTINUE_CAP_NOTICE,
+        );
+      expect(capped).toHaveLength(1);
+
+      // The OS-notification cap report latched exactly once, and clears on the
+      // user prompt that re-arms the guard.
+      expect(h.mockBackend.reportStallCap).toHaveBeenCalledTimes(1);
+      expect(h.mockBackend.reportStallCap).toHaveBeenCalledWith(T, true);
+
+      // The per-session stall counter (issue #100 numbering) advanced across
+      // stalls — stallNotice must mutate the live tab, not the frame-start
+      // capture the ready patch above it replaced.
+      const stallNotices = h.useStore
+        .getState()
+        .rpc[T]!.items.filter(
+          (i): i is NoticeItem =>
+            i.kind === "notice" && i.text.includes("provider stream stall"),
+        );
+      expect(stallNotices.map((n) => n.text)).toEqual([
+        expect.stringContaining("provider stream stall #1"),
+        expect.stringContaining("provider stream stall #2"),
+        expect.stringContaining("provider stream stall #3"),
+      ]);
+
+      // A user prompt re-arms the guard: the next stall gets its continue.
+      void h.useStore.getState().sendPrompt(T, "carry on");
+      await stalledTurn();
+      expect(continuePrompts()).toHaveLength(3);
+      expect(h.mockBackend.reportStallCap).toHaveBeenCalledTimes(2);
+      expect(h.mockBackend.reportStallCap).toHaveBeenLastCalledWith(T, false);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+  });
+
+  it("a user prompt inside the settle window wins the race", async () => {
+    const T = "tab-stall-f";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+      });
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      // The user sees the error and types their own continuation.
+      void h.useStore.getState().sendPrompt(T, "carry on where you stopped");
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd.message).toBe("carry on where you stopped");
+  });
+
+  it("does not dispatch into a process that died inside the settle window", async () => {
+    const T = "tab-stall-g";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+      });
+      store.handleRpcFrame(T, stallEndFrame());
+      store.handleRpcFrame(T, { type: "agent_end" });
+      // The session process dies before the settle window closes.
+      h.useStore.setState((s) => ({ exited: { ...s.exited, [T]: 1 } }));
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+  });
+
+  it("the auto-continue does not reset the advisor-reply streak", async () => {
+    const T = "tab-stall-h";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      // The production sequence, load-bearing for the advisor watcher's cursor:
+      // the reviewed turn's agent_end lands while the tab still reads running
+      // (seeding the baseline past the marker), then the review arrives on the
+      // idle session.
+      const review = async (note: string) => {
+        h.useStore.setState((s) => ({
+          rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
+        }));
+        h.useStore.getState().handleRpcFrame(T, { type: "agent_end" });
+        h.useStore.getState().handleRpcFrame(T, {
+          type: "message_end",
+          message: {
+            role: "custom",
+            customType: "advisor",
+            content: "<advisory/>",
+            details: { notes: [{ note, severity: "concern", advisor: "ops" }] },
+          },
+        });
+        await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+      };
+      const advisorReplies = () =>
+        h.sent.filter(
+          (s) => s.cmd.type === "prompt" && String(s.cmd.message).startsWith(ADVISOR_REPLY_LEAD),
+        );
+
+      // Two reviews fill the reply guard's budget.
+      await review("first finding");
+      expect(advisorReplies()).toHaveLength(1);
+      await review("second finding");
+      expect(advisorReplies()).toHaveLength(2);
+
+      // A stall end dispatches its continue; the advisor guard must not reset.
       h.useStore.setState((s) => ({
         rpc: { ...s.rpc, [T]: { ...s.rpc[T]!, status: "running" } },
       }));
       h.useStore.getState().handleRpcFrame(T, stallEndFrame());
       h.useStore.getState().handleRpcFrame(T, { type: "agent_end" });
-    };
-    stalledTurn();
-    stalledTurn();
-    stalledTurn();
-    await h.flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+      expect(continuePrompts()).toHaveLength(1);
 
-    // stallNotice must mutate the live tab, not the frame-start capture the
-    // ready patch above it replaced.
-    const stallNotices = h.useStore
-      .getState()
-      .rpc[T]!.items.filter(
-        (i): i is NoticeItem => i.kind === "notice" && i.text.includes("provider stream stall"),
+      // A third review arrives: the guard is still capped, so it explains
+      // instead of answering. Had the continue reset it, the reply would go out.
+      await review("third finding");
+      expect(advisorReplies()).toHaveLength(2);
+      const capNotice = h.useStore.getState().rpc[T]!.items.find(
+        (i) => i.kind === "notice" && i.text === ADVISOR_REPLY_CAP_NOTICE,
       );
-    expect(stallNotices.map((n) => n.text)).toEqual([
-      expect.stringContaining("provider stream stall #1"),
-      expect.stringContaining("provider stream stall #2"),
-      expect.stringContaining("provider stream stall #3"),
-    ]);
+      expect(capNotice).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
   });
 });
 
@@ -2883,7 +3189,7 @@ describe("initialization snapshot ordering", () => {
     const initialRemote = { ...h.idleRemoteState, enabled: true };
     const initialOauth = { ...h.idleProviderOAuth, phase: "done" as const };
     h.mockBackend.getState.mockImplementationOnce(() => stateRead.promise);
-    h.mockDesktop.getAppUpdateState.mockImplementationOnce(() => appRead.promise);
+    h.mockBackend.getAppUpdateState.mockImplementationOnce(() => appRead.promise);
     h.mockBackend.getOmpUpdateState.mockImplementationOnce(() => ompRead.promise);
     h.mockBackend.getRemoteState.mockImplementationOnce(() => remoteRead.promise);
     h.mockBackend.getProviderOAuthState.mockImplementationOnce(() => oauthRead.promise);
@@ -2903,15 +3209,14 @@ describe("initialization snapshot ordering", () => {
       h.mockBackend.onShellData,
       h.mockBackend.onShellExit,
       h.mockBackend.onRpcFrame,
-      h.mockDesktop.onAppUpdateState,
+      h.mockBackend.onAppUpdateState,
       h.mockBackend.onOmpUpdateState,
       h.mockBackend.onRemoteState,
       h.mockBackend.onProviderOAuthState,
-      h.mockBackend.onHostUpdateState,
     ];
     const reads = [
       h.mockBackend.getState,
-      h.mockDesktop.getAppUpdateState,
+      h.mockBackend.getAppUpdateState,
       h.mockBackend.getOmpUpdateState,
       h.mockBackend.getRemoteState,
       h.mockBackend.getProviderOAuthState,

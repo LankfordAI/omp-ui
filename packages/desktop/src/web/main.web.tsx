@@ -1,39 +1,130 @@
-import { HOST_PROTOCOL } from "@omp-ui/server/protocol";
-import { connectFailureMessage, mountReconnectBanner, renderConnectFailure } from "./boot-ui";
 import { connectRemoteBackend, type RemoteConnection } from "./remote-backend";
 
 // The browser boot shim (issue #37). Order is load-bearing: renderer/src/backend.ts reads
 // window.ompBackend eagerly at module load, so the global must be installed before anything in
 // renderer/src is imported — hence the dynamic import below rather than a top-level one.
 
+const WEB_COPY = {
+  en: {
+    connectFailure: "omp-ui could not connect",
+    retry: "retry",
+    reconnecting: "reconnecting to omp-ui…",
+    sessionEnded: "session ended — tap to sign in again",
+  },
+  ko: {
+    connectFailure: "omp-ui에 연결할 수 없습니다",
+    retry: "다시 시도",
+    reconnecting: "omp-ui에 다시 연결하는 중…",
+    sessionEnded: "세션이 종료되었습니다. 탭하여 다시 로그인하세요",
+  },
+} as const;
+
+function webCopy(): (typeof WEB_COPY)["en"] | (typeof WEB_COPY)["ko"] {
+  try {
+    return localStorage.getItem("omp-ui.localeId") === "ko" ? WEB_COPY.ko : WEB_COPY.en;
+  } catch {
+    return WEB_COPY.en;
+  }
+}
+
+/**
+ * Fallback for a failed connect. Deliberately raw DOM with inline styles: it must not depend on
+ * the renderer, its stylesheet, or React, any of which could be the thing that failed.
+ */
+function renderConnectFailure(message: string): void {
+  const root = document.getElementById("root");
+  if (!root) return;
+  root.innerHTML = "";
+  const box = document.createElement("div");
+  box.style.cssText =
+    "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+    "height:100dvh;background:#0a0b0d;color:#c8d0da;font:14px/1.5 system-ui,sans-serif;padding:24px;text-align:center";
+  const title = document.createElement("h1");
+  title.textContent = webCopy().connectFailure;
+  title.style.cssText = "margin:0;font-size:15px;font-weight:600;color:#e6ebf2";
+  const detail = document.createElement("p");
+  detail.textContent = message;
+  detail.style.cssText = "margin:0;max-width:36rem;color:#8b95a3";
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = webCopy().retry;
+  retry.style.cssText =
+    "border:1px solid #2a3038;background:#14171b;color:#c8d0da;border-radius:4px;padding:4px 12px;cursor:pointer;font:inherit";
+  retry.addEventListener("click", () => location.reload());
+  box.append(title, detail, retry);
+  root.append(box);
+}
+
+/**
+ * Fixed strip shown while the socket is down, plus a probe that reloads once the server answers
+ * again. A reload rather than an in-place resync is deliberate: bootRpcTab already refetches
+ * transcript history from omp, so a reload is a correct and complete resync with no synthetic
+ * frames to invent.
+ */
+function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): void {
+  const host = document.getElementById("remote-banner");
+  if (!host) return;
+  const strip = document.createElement("div");
+  strip.textContent = webCopy().reconnecting;
+  strip.style.cssText =
+    "position:fixed;left:0;right:0;top:0;z-index:2147483647;display:none;padding:calc(4px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 4px calc(12px + env(safe-area-inset-left, 0px));" +
+    "background:#3a2a12;color:#e8c99a;font:12px/1.4 system-ui,sans-serif;text-align:center";
+  host.append(strip);
+
+  // Browser setInterval, so a plain number — no Node timer handle in this bundle.
+  let probe: number | undefined;
+  onStatus((up) => {
+    if (up) {
+      strip.style.display = "none";
+      clearInterval(probe);
+      probe = undefined;
+      return;
+    }
+    strip.textContent = webCopy().reconnecting;
+    strip.style.display = "block";
+    if (probe !== undefined) return;
+    probe = window.setInterval(() => {
+      void fetch("./healthz", { credentials: "same-origin" })
+        .then((res) => {
+          if (res.ok) {
+            location.reload();
+            return;
+          }
+          // The server is up but no longer accepts this credential — the password changed
+          // or the token was regenerated. Offer the login page instead of waiting forever.
+          if (res.status === 401) {
+            strip.textContent = webCopy().sessionEnded;
+            strip.style.cursor = "pointer";
+            strip.addEventListener(
+              "click",
+              () => {
+                location.href = "./login";
+              },
+              { once: true },
+            );
+            clearInterval(probe);
+            probe = undefined;
+          }
+        })
+        .catch(() => {
+          // Still down — the next tick tries again.
+        });
+    }, 2_000);
+  });
+}
+
 async function boot(): Promise<void> {
   let connection: RemoteConnection;
   try {
-    connection = await connectRemoteBackend({
-      hello: {
-        clientRole: "browser",
-        clientKind: "browser",
-        clientVersion: __APP_VERSION__,
-        clientProtocol: HOST_PROTOCOL,
-      },
-    });
+    connection = await connectRemoteBackend();
   } catch (err) {
-    // An incompatible verdict is final for this bundle — the host's reason is shown as-is and no
-    // reconnect probe runs; every other failure reads the same way with its own message.
-    renderConnectFailure(connectFailureMessage(err));
+    renderConnectFailure(err instanceof Error ? err.message : String(err));
     return;
   }
   window.ompBackend = connection.backend;
-  // No window.ompDesktop: a browser client has no adapter, so every client effect is hidden (#454).
   // Only now is it safe to pull in the renderer: this import is what calls createRoot.
-  await import("../renderer/src/app-entry");
-  mountReconnectBanner(connection.onStatus, async () => {
-    const res = await fetch("./healthz", { credentials: "same-origin" });
-    if (res.ok) return "up";
-    // The host is up but no longer accepts this credential — the password changed or the token
-    // was regenerated.
-    return res.status === 401 ? "signed-out" : "down";
-  });
+  await import("../renderer/src/main");
+  mountReconnectBanner(connection.onStatus);
 }
 
 void boot();

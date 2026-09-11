@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
 import path from "node:path";
 
-import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core/types";
+import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core";
 import { app, shell } from "electron";
 
 const VSCODE_PROTOCOL_URL = "vscode://file/";

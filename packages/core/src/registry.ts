@@ -1,8 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
-import type { AuthorityToken } from "./authority-token";
-import { isWithin } from "./worktree";
 import type {
   AgentMode,
   GlassChrome,
@@ -327,10 +325,7 @@ function isWorktreeShape(v: unknown): boolean {
     typeof v.branch === "string" &&
     // base post-dates the first worktree records: absent is legal and
     // normalized to null on load; a present value must be a string.
-    optNullable(v, "base", isStr) &&
-    // Set by the host migration when a moved checkout could not be re-linked
-    // (issue #442); absent is the common case and a present value is a flag.
-    optional(v, "resumeUnavailable", (flag) => typeof flag === "boolean")
+    optNullable(v, "base", isStr)
   );
 }
 
@@ -415,14 +410,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       compactionMethod: s.compactionMethod ?? null,
       agentMode: s.agentMode ?? "build",
       worktree: s.worktree
-        ? {
-            path: s.worktree.path,
-            branch: s.worktree.branch,
-            base: s.worktree.base ?? null,
-            // Only the set flag survives a round trip: an absent or false flag
-            // is the same "resumable" state and is never written back.
-            ...(s.worktree.resumeUnavailable === true ? { resumeUnavailable: true } : {}),
-          }
+        ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
         : null,
       planImplementationSource: s.planImplementationSource ?? null,
     }));
@@ -502,25 +490,6 @@ function seedSessionOrder(file: string, data: RegistryData): void {
 }
 
 /**
- * What `Registry.load` does with a file it cannot parse or from an unknown
- * schema: `quarantine` renames it aside and starts empty (Electron main's
- * behaviour); `stop` throws {@link RegistryCorrupt} and touches nothing, so a
- * persistent host never silently discards a user's registry.
- */
-export type RegistryRecoveryPolicy = "quarantine" | "stop";
-
-/** `Registry.load` under the `stop` policy found a registry it cannot read; nothing was moved. */
-export class RegistryCorrupt extends Error {
-  readonly file: string;
-
-  constructor(file: string) {
-    super(`registry ${file} is corrupt or from an unknown schema`);
-    this.name = "RegistryCorrupt";
-    this.file = file;
-  }
-}
-
-/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -534,29 +503,7 @@ export class Registry {
     this.#data = data;
   }
 
-  /**
-   * The production loader (issue #442 §10.1): `token` must cover the
-   * directory holding `file` — equal to it or an ancestor — so a registry can
-   * only be opened by the process that claimed its data root.
-   */
-  static load(file: string, token: AuthorityToken, recoveryPolicy: RegistryRecoveryPolicy): Registry {
-    const dir = path.dirname(path.resolve(file));
-    if (path.resolve(token.dataRoot) !== dir && !isWithin(token.dataRoot, dir)) {
-      throw new Error(`authority token does not cover ${file}`);
-    }
-    return Registry.#open(file, recoveryPolicy);
-  }
-
-  /**
-   * Loads without an authority witness. For focused tests over a temp file
-   * only; production code loads through {@link Registry.load} (an eslint
-   * rule in `eslint.config.mjs` keeps it that way).
-   */
-  static loadUnlocked(file: string, recoveryPolicy: RegistryRecoveryPolicy = "quarantine"): Registry {
-    return Registry.#open(file, recoveryPolicy);
-  }
-
-  static #open(file: string, recoveryPolicy: RegistryRecoveryPolicy): Registry {
+  static load(file: string): Registry {
     let raw: string;
     try {
       raw = fs.readFileSync(file, "utf8");
@@ -574,7 +521,6 @@ export class Registry {
       seedSessionOrder(file, data);
       return new Registry(file, data);
     }
-    if (recoveryPolicy === "stop") throw new RegistryCorrupt(file);
     // Corrupt (or unknown schemaVersion): quarantine and start empty.
     try {
       fs.renameSync(file, `${file}.corrupt-${Date.now()}`);

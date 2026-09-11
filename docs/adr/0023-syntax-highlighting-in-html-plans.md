@@ -120,15 +120,3 @@ structural verification queries the parsed result instead. The
 language-class consumption rule lives on as attribute-range splices, and
 the "never re-prepare generated HTML" rule is now enforced by the
 authored-source-only input contract rather than by byte-idempotence.
-
-**Amended 2026-09-10 (#442; ADR-0029):** the plan half of the highlighter —
-`resolveLang`, `HIGHLIGHT_CHAR_CAP`, `ensureTheme`, `tokenizeCode`, and the
-block transform — moved into `@omp-ui/plan-doc` (`src/highlight.ts`,
-`src/plan-highlight.ts`), which carries the `shiki` and `@shikijs/langs`
-dependencies; the streaming React hooks (`useHighlightTokens`, the incremental
-tool-draft path) stay in the renderer. The `LANG_IMPORTS`/`ALIASES` tables the
-prompt contract must track therefore live in plan-doc, and the host's headless
-verifier page tokenizes with the same module the renderer uses, so a plan's
-highlighted blocks measure at preflight exactly as they later render.
-`theme` still threads from `usePreparedPlanDocument` in the renderer; the
-verifier page passes the theme it renders with.

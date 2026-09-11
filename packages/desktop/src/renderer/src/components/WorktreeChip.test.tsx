@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
-import { installDesktopAdapter } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,6 +24,8 @@ const branchFixture: BranchList = {
 };
 
 const backendMock = {
+  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean; terminal: boolean }>>(),
+  openProject: vi.fn<(path: string, target: "vscode" | "files" | "terminal") => Promise<void>>(),
   listBranches: vi.fn<() => Promise<BranchList>>(),
   // Merge feasibility moved to the Finish worktree dialog (issues #385–#389):
   // the chip must never call this, and the finish test asserts it stays quiet.
@@ -35,9 +36,8 @@ const backendMock = {
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
 };
 Object.assign(window, { ompBackend: backendMock });
-const desktopMock = installDesktopAdapter();
-// Dynamic imports are required: ../store → ./backend reads window.ompBackend and ../desktop
-// reads window.ompDesktop at module load, so both mocks above must land first.
+// Dynamic imports are required: ../store → ./backend reads window.ompBackend
+// at module load, so the mock above must land first.
 const { useStore } = await import("../store");
 const { WorktreeChip } = await import("./WorktreeChip");
 
@@ -61,7 +61,7 @@ function seedStore(): void {
 
 function render(
   patch: Partial<SessionWorktree> = {},
-  clientLocalActions = true,
+  hostLocalActions = true,
   tabId = TAB_ID,
 ): void {
   if (root !== null) {
@@ -76,7 +76,7 @@ function render(
       <WorktreeChip
         worktree={{ ...worktree, ...patch }}
         tabId={tabId}
-        clientLocalActions={clientLocalActions}
+        hostLocalActions={hostLocalActions}
       />,
     ),
   );
@@ -123,10 +123,10 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 beforeEach(() => {
-  desktopMock.getProjectOpenAvailability.mockReset();
-  desktopMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: false, terminal: false });
-  desktopMock.openProject.mockReset();
-  desktopMock.openProject.mockResolvedValue(undefined);
+  backendMock.getProjectOpenAvailability.mockReset();
+  backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: false, terminal: false });
+  backendMock.openProject.mockReset();
+  backendMock.openProject.mockResolvedValue(undefined);
   backendMock.listBranches.mockReset();
   backendMock.listBranches.mockResolvedValue(branchFixture);
   backendMock.getMergeBackStatus.mockReset();
@@ -174,20 +174,20 @@ describe("WorktreeChip (issue #260)", () => {
   });
 
   it("offers Open in VS Code only when availability resolves true, and opens with it", async () => {
-    desktopMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: true, terminal: false });
+    backendMock.getProjectOpenAvailability.mockResolvedValue({ vsCode: true, terminal: false });
     render();
     await openPopover();
 
-    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
+    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
     const vscode = menuItem("Open in VS Code");
     expect(vscode).toBeDefined();
     await act(async () => vscode!.click());
-    expect(desktopMock.openProject).toHaveBeenCalledWith(worktree.path, "vscode");
+    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "vscode");
 
     // Availability is asked once per mount — reopening does not re-probe.
     act(() => trigger().click());
     await openPopover();
-    expect(desktopMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
+    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(1);
   });
 
   it("hides Open in VS Code when availability resolves false or rejects", async () => {
@@ -196,7 +196,7 @@ describe("WorktreeChip (issue #260)", () => {
     expect(menuItem("Open in VS Code")).toBeUndefined();
     act(() => trigger().click());
 
-    desktopMock.getProjectOpenAvailability.mockRejectedValue(new Error("no channel"));
+    backendMock.getProjectOpenAvailability.mockRejectedValue(new Error("no channel"));
     render();
     await openPopover();
     expect(menuItem("Open in VS Code")).toBeUndefined();
@@ -209,11 +209,11 @@ describe("WorktreeChip (issue #260)", () => {
     const files = menuItem("Open in Files");
     expect(files).toBeDefined();
     await act(async () => files!.click());
-    expect(desktopMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
+    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
   });
 
   it("surfaces a rejected open as an alert and keeps the popover up", async () => {
-    desktopMock.openProject.mockRejectedValue(new Error("xdg-open failed"));
+    backendMock.openProject.mockRejectedValue(new Error("xdg-open failed"));
     render();
     await openPopover();
 
@@ -262,7 +262,7 @@ describe("WorktreeChip (issue #260)", () => {
 
     await press(menuItem("Open in Files")!);
 
-    expect(desktopMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
+    expect(backendMock.openProject).toHaveBeenCalledWith(worktree.path, "files");
     expect(menu()).not.toBeNull();
   });
 
@@ -319,14 +319,14 @@ describe("WorktreeChip (issue #260)", () => {
     expect(menuItem("finish worktree…")).toBeDefined();
     expect(menuItem("Open in VS Code")).toBeUndefined();
     expect(menuItem("Open in Files")).toBeUndefined();
-    expect(desktopMock.getProjectOpenAvailability).not.toHaveBeenCalled();
-    expect(desktopMock.openProject).not.toHaveBeenCalled();
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(backendMock.openProject).not.toHaveBeenCalled();
 
     await act(async () => menuItem("finish worktree…")!.click());
 
     expect(useStore.getState().finishWorktreeTab).toBe(remoteTabId);
     expect(menu()).toBeNull();
-    expect(desktopMock.getProjectOpenAvailability).not.toHaveBeenCalled();
-    expect(desktopMock.openProject).not.toHaveBeenCalled();
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(backendMock.openProject).not.toHaveBeenCalled();
   });
 });

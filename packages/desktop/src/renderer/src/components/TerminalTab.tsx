@@ -70,7 +70,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   // spawned anew at 80×24 and needs this tab's real size again.
   const redrawRevision = useStore((s) => s.ptyRedrawRevision[tabId] ?? 0);
   /**
-   * An image Attachment cannot ride the PTY as bytes, so the host writes it to a scratch
+   * An image Attachment cannot ride the PTY as bytes, so main writes it to a scratch
    * file and delivers the *path* as a bracketed paste — omp's TUI editor
    * recognises an image path there and loads the file itself. Feedback is a
    * transient note, because the terminal itself shows omp's `[Image #N]` marker

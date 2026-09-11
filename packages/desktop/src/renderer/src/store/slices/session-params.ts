@@ -169,7 +169,8 @@ export function createSessionParamsSlice(
   deps: SessionParamsDeps,
 ): SessionParamsSlice {
   // The bodies moved from the root closure keep their original names.
-  const { advisorReply: advisorReplyWatcher } = deps;
+  const { advisorReply: advisorReplyWatcher, stall: stallContinueWatcher } =
+    deps;
 
   const trackSessionParameterAction = (tabId: string, action: Promise<void>): Promise<void> => {
     const actions = pendingSessionParameterActions.get(tabId) ?? new Set<Promise<void>>();
@@ -213,10 +214,10 @@ export function createSessionParamsSlice(
   ): Promise<boolean> => {
     const tab = get().rpc[tabId];
     if (!tab || tab.status === "starting") return false;
-    if (route === "advisor_reply") {
-      // omp-ui's own prompt (a late-review answer): it must not title the
-      // session and must not re-arm the loop guard — an auto-prompt is not
-      // human direction.
+    if (route === "advisor_reply" || route === "stall_continue") {
+      // omp-ui's own prompt (a late-review answer, a stall continue): it
+      // must not title the session and must not re-arm either loop guard —
+      // an auto-prompt is not human direction.
     } else {
       // Human direction makes a previously handed-off source active again,
       // even when its immediate hibernation was declined.
@@ -224,6 +225,7 @@ export function createSessionParamsSlice(
       // Titling reads the first substantive prompt, whichever route it took.
       get().setInitialPrompt(tabId, message);
       advisorReplyWatcher.reset(tabId);
+      stallContinueWatcher.reset(tabId);
     }
     // Always the `prompt` frame, never `steer`/`follow_up`: only AgentSession.prompt
     // builds the magic-keyword notices (orchestrate/ultrathink/workflowz), so those
@@ -233,7 +235,9 @@ export function createSessionParamsSlice(
     // An advisor reply rides followUp, not steer: if a turn started between the
     // settle and this send, the reply queues behind it instead of interrupting.
     const streamingBehavior =
-      route === "follow_up" || route === "advisor_reply" ? "followUp" : "steer";
+      route === "follow_up" || route === "advisor_reply" || route === "stall_continue"
+        ? "followUp"
+        : "steer";
     const cmd = { type: "prompt", message, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
@@ -254,6 +258,7 @@ export function createSessionParamsSlice(
     handedOffPlanSources.delete(tabId);
     get().setInitialPrompt(tabId, message);
     advisorReplyWatcher.reset(tabId);
+    stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
     await m.runCommand(
       tabId,

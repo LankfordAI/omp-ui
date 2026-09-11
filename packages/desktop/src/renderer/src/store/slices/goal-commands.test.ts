@@ -3,9 +3,11 @@
 // and what automatic prompts may not do while the child owns the session.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BackendState } from "@omp-ui/core/types";
+import { STALL_CONTINUE_LEAD, STALL_CONTINUE_SETTLE_MS } from "../../lib/stall-continue";
 import { GOAL_COMMAND, GOAL_STATUS_KEY, type GoalSnapshot } from "@omp-ui/core/goal";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
+import type { UiStore } from "../types";
 
 function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
   return {
@@ -354,6 +356,65 @@ describe("native goal commands (issue #381)", () => {
       };
       onStateChanged(dormant);
       expect(fresh.getState().rpc[h.TAB]?.goal).toBeNull();
+    });
+  });
+
+  describe("automatic prompts against a goal-owned session", () => {
+    const stallFrames = (store: UiStore, T: string): void => {
+      store.handleRpcFrame(T, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "half an answer" }],
+          stopReason: "error",
+          errorMessage: "OpenAI responses stream stalled while waiting for the next event",
+          errorId: 397312,
+        },
+      });
+      store.handleRpcFrame(T, { type: "agent_end" });
+    };
+
+    const continuePrompts = (): Array<{ cmd: Record<string, unknown> }> =>
+      h.sent.filter((entry) => entry.cmd.type === "prompt" && entry.cmd.message === STALL_CONTINUE_LEAD);
+
+    const runStall = async (goal: GoalSnapshot | null): Promise<void> => {
+      const T = "tab-goal-stall-" + (goal?.pauseReason ?? "none");
+      vi.useFakeTimers();
+      try {
+        h.useStore.setState({
+          state: { ...h.backendState, stallAutoContinue: true },
+          rpc: { [T]: rpcTabState({ status: "running", goal }) },
+        });
+        h.sent.length = 0;
+        stallFrames(h.useStore.getState(), T);
+        await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+      await h.flushMicrotasks();
+    };
+
+    it("sends no stall continue while a paused goal owns the session", async () => {
+      await runStall(
+        goalSnapshot({ enabled: false, goal: { ...goalSnapshot().goal!, status: "paused" }, pauseReason: "Paused" }),
+      );
+      expect(continuePrompts()).toHaveLength(0);
+    });
+
+    it("sends no continue that would restart a budget-limited goal", async () => {
+      await runStall(
+        goalSnapshot({
+          goal: { ...goalSnapshot().goal!, status: "budget-limited", tokenBudget: 10, tokensUsed: 40 },
+        }),
+      );
+      expect(continuePrompts()).toHaveLength(0);
+    });
+
+    it("restores ordinary stall policy once the goal is complete", async () => {
+      await runStall(
+        goalSnapshot({ enabled: false, goal: { ...goalSnapshot().goal!, status: "complete" } }),
+      );
+      expect(continuePrompts()).toHaveLength(1);
     });
   });
 });

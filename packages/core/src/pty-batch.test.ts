@@ -12,7 +12,6 @@ function fakeHandle(): {
   return {
     handle: {
       id: "fake",
-      pid: 4242,
       onData: (fn) => {
         cb = fn;
         return () => {

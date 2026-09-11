@@ -1,4 +1,4 @@
-import type { ProjectOpenTarget } from "@omp-ui/core/types";
+import type { ProjectOpenTarget } from "@omp-ui/core";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectOpener, vscodeProjectUrl, type ProjectOpenHost } from "./project-open";
 

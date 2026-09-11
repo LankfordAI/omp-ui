@@ -11,7 +11,7 @@ import { Button, Chip, Modal } from "./ui";
 
 /**
  * In-app, keyboard-driven directory picker for "Add project" (issue #16).
- * Every keystroke asks the host for one directory listing; a
+ * Every keystroke asks the main process for one directory listing; a
  * generation counter discards stale responses (no debounce needed — local
  * readdir is cheap). Enter with no row selected registers the resolved path;
  * a selected row descends into it instead.

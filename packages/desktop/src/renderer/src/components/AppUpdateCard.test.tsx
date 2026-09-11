@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUpdateState, OmpUpdateState } from "@omp-ui/core/types";
-import { installDesktopAdapter } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -16,8 +15,8 @@ const idleOmpUpdate: OmpUpdateState = {
   error: null,
 };
 
-// store.ts captures the preload bridge and desktop.ts the adapter at module load, so install
-// both mocks before dynamically importing either the store or AppUpdateCard.
+// store.ts captures the preload bridge at module load, so install the mock
+// before dynamically importing either the store or AppUpdateCard.
 const backendMock = {
   getState: vi.fn(),
   addProject: vi.fn(),
@@ -54,9 +53,17 @@ const backendMock = {
   downloadOmpUpdate: vi.fn(),
   dismissOmpUpdate: vi.fn(),
   onOmpUpdateState: vi.fn(),
+  getAppUpdateState: vi.fn(),
+  checkAppUpdate: vi.fn(),
+  downloadAppUpdate: vi.fn(),
+  openAppUpdateReleaseNotes: vi.fn(),
+  showAppUpdateDownload: vi.fn(),
+  restartForAppUpdate: vi.fn(),
+  setAppUpdateInstallOnQuit: vi.fn(),
+  dismissAppUpdate: vi.fn(),
+  onAppUpdateState: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
-const desktopMock = installDesktopAdapter();
 
 const { useStore } = await import("../store");
 const { AppUpdateCard } = await import("./AppUpdateCard");
@@ -138,10 +145,10 @@ describe("AppUpdateCard", () => {
     buttonWithText("Download");
     buttonWithText("Release notes");
     click(buttonWithText("Later"));
-    expect(desktopMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", true);
+    expect(backendMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", true);
 
     click(document.body.querySelector<HTMLButtonElement>('[aria-label="dismiss omp-ui 1.2.0 update"]')!);
-    expect(desktopMock.dismissAppUpdate).toHaveBeenLastCalledWith("1.2.0", true);
+    expect(backendMock.dismissAppUpdate).toHaveBeenLastCalledWith("1.2.0", true);
   });
 
   it.each(["appimage", "nsis", "maczip"] as const)("labels %s available action Update", (format) => {
@@ -201,16 +208,37 @@ describe("AppUpdateCard", () => {
       expect(document.body.textContent).toContain("omp-ui 1.2.0 ready");
 
       click(buttonWithText("Restart now"));
-      // No confirmation round-trip: quitting the client stops no session (#455 §4).
-      expect(desktopMock.restartForAppUpdate).toHaveBeenCalledWith();
+      expect(backendMock.restartForAppUpdate).toHaveBeenCalled();
 
       click(buttonWithText("Install when I quit"));
-      expect(desktopMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(true);
+      expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(true);
 
       click(buttonWithText("Later"));
-      expect(desktopMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", false);
+      expect(backendMock.dismissAppUpdate).toHaveBeenCalledWith("1.2.0", false);
     },
   );
+
+  it("confirms a restart with live sessions in the initiating renderer", async () => {
+    backendMock.restartForAppUpdate
+      .mockResolvedValueOnce("confirmation-required")
+      .mockResolvedValueOnce("restarting");
+    useStore.setState({
+      appUpdate: appUpdateState({
+        status: "downloaded",
+        latestVersion: "1.2.0",
+        format: "appimage",
+      }),
+    });
+    renderCard();
+
+    await act(async () => buttonWithText("Restart now").click());
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      "sessions are still live",
+    );
+    await act(async () => buttonWithText("Restart and stop sessions").click());
+    expect(backendMock.restartForAppUpdate).toHaveBeenNthCalledWith(1, false);
+    expect(backendMock.restartForAppUpdate).toHaveBeenNthCalledWith(2, true);
+  });
 
   it.each(["appimage", "nsis", "maczip"] as const)(
     "shows and disarms a %s install-on-quit choice",
@@ -226,7 +254,7 @@ describe("AppUpdateCard", () => {
       renderCard();
       expect(document.body.textContent).toContain("will install when you quit");
       click(buttonWithText("Undo"));
-      expect(desktopMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(false);
+      expect(backendMock.setAppUpdateInstallOnQuit).toHaveBeenCalledWith(false);
     },
   );
 
@@ -241,7 +269,7 @@ describe("AppUpdateCard", () => {
     renderCard();
     expect(document.body.textContent).toContain("Downloaded omp-ui 1.2.0");
     click(buttonWithText("Show in folder"));
-    expect(desktopMock.showAppUpdateDownload).toHaveBeenCalled();
+    expect(backendMock.showAppUpdateDownload).toHaveBeenCalled();
   });
 
   it("auto-dismisses the up-to-date answer after five seconds", () => {
@@ -253,7 +281,7 @@ describe("AppUpdateCard", () => {
       act(() => {
         vi.advanceTimersByTime(5000);
       });
-      expect(desktopMock.dismissAppUpdate).toHaveBeenCalledWith("", false);
+      expect(backendMock.dismissAppUpdate).toHaveBeenCalledWith("", false);
     } finally {
       vi.useRealTimers();
     }
@@ -269,27 +297,5 @@ describe("AppUpdateCard", () => {
     renderCard();
     expect(document.body.textContent).toContain("Update failed");
     expect(document.body.textContent).not.toContain("Download failed");
-  });
-});
-
-describe("AppUpdateCard without a desktop adapter", () => {
-  afterEach(() => {
-    vi.resetModules();
-    window.ompDesktop = desktopMock;
-  });
-
-  it("renders nothing: a browser client runs no artifact the card could update", async () => {
-    vi.resetModules();
-    delete window.ompDesktop;
-    const fresh = await import("./AppUpdateCard");
-    const freshStore = await import("../store");
-    freshStore.useStore.setState({
-      appUpdate: appUpdateState({ status: "available", latestVersion: "1.2.0" }),
-    });
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    root = createRoot(host);
-    act(() => root!.render(<fresh.AppUpdateCard />));
-    expect(document.body.textContent).toBe("");
   });
 });

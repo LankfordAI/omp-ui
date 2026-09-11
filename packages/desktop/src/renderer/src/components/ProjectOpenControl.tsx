@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ProjectOpenAvailability, ProjectOpenTarget, ProjectRecord } from "@omp-ui/core/types";
-import { displayMessage } from "../backend";
-import { desktop } from "../desktop";
+import { backend, displayMessage } from "../backend";
 import { useDismissal } from "../lib/use-dismissal";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -105,8 +104,7 @@ export function ProjectOpenControl({
     setError(null);
     void (async () => {
       try {
-        // Mounted only under clientLocalActions, which implies a desktop client (#454).
-        await desktop!.openProject(project.path, target);
+        await backend.openProject(project.path, target);
       } catch (err) {
         if (mountedRef.current) setError(displayMessage(err));
         // A failed launch of a discoverable target is the one moment the

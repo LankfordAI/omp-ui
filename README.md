@@ -1,10 +1,9 @@
 # omp-ui
 
-omp-ui is a cross-platform GUI for
+omp-ui is a cross-platform desktop GUI for
 [Oh My Pi](https://github.com/can1357/oh-my-pi), the `omp` coding agent.
-A persistent host owns your registered projects and sessions; the desktop
-app and any browser are windows onto it, with native transcript tabs and
-terminal tabs for your coding work.
+It keeps registered projects and owned sessions in one place while providing
+both native transcript tabs and terminal tabs for your coding work.
 
 ## What it gives you
 
@@ -21,29 +20,24 @@ terminal tabs for your coding work.
 - Follow todos and subagents in the inspector rail, inspect session details
   and proposed plans, and review project branch changes in Diffs.
 
-- Keep sessions running in a persistent host that outlives the window: close,
-  update, or crash the desktop app and nothing stops. Turn on optional remote
-  access to reach the same host and live sessions from a browser or phone, or
-  run the host as a login service on a machine with no display.
+- Turn on optional remote access to reach the same app and live sessions from
+  a browser or phone.
 
 - Let omp-ui install and update its managed `omp` binary, and supply provider
   keys to every `omp` process it launches.
 
-- Install available host, desktop, and managed `omp` updates from their
-  in-app update cards.
+- Install available omp-ui and managed `omp` updates from their in-app update
+  cards.
 
 ## Install
 
 ### Linux
 
-Install the supported Linux AppImage; it carries and installs the host:
+Install the supported Linux AppImage:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/install.sh | bash
 ```
-
-The `omp-ui` command (`serve`, `status`, `pair`, `stop`, `service install`, …)
-lands in `~/.local/bin`; see [Getting started](docs/getting-started.md#the-host-command-and-service).
 
 ### macOS preview
 
@@ -77,12 +71,11 @@ guide:
 
 ## Development
 
-Development requires Node.js 22 or newer. A development run is two processes:
+Development requires Node.js 22 or newer.
 
 ```bash
 npm install
-npm run dev:serve -w @omp-ui/host -- --flavor dev-server   # the host
-npm run dev                                                # the Electron client
+npm run dev
 ```
 
 See the [development guide](docs/development.md) for the repository layout,

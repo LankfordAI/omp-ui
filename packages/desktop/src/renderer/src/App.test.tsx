@@ -134,9 +134,9 @@ describe("compact App shell", () => {
     expect(title.parentElement!.classList.contains("[app-region:no-drag]")).toBe(false);
   });
 
-  it("reserves no native caption strip without a desktop adapter", () => {
-    // No window.ompDesktop here, so this covers a browser client: a phone must not lose 132px to
-    // buttons that do not exist.
+  it("reserves no native caption strip outside the Electron shell", () => {
+    // jsdom's UA carries no `Electron/`, so this covers the remote web client:
+    // a phone must not lose 132px to buttons that do not exist.
     renderApp();
     const nav = document.body.querySelector<HTMLElement>("nav")!;
     expect(nav.style.paddingLeft).toBe("");
@@ -163,9 +163,10 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     expect(header.className).toContain("glass-void");
   });
 
-  it("reserves no native caption strip without a desktop adapter (issue #122)", () => {
-    // A browser client is served this same bundle in an ordinary tab, where no preload installed
-    // window.ompDesktop: the strip must run the full window width rather than park 132px of dead
+  it("reserves no native caption strip outside the Electron shell (issue #122)", () => {
+    // The remote web client is served this same bundle in an ordinary browser
+    // tab, where jsdom's UA (like the browser's) carries no `Electron/`: the
+    // strip must run the full window width rather than park 132px of dead
     // space where native window controls would be, squeezing the HUD.
     renderApp();
     const header = document.body.querySelector<HTMLElement>("header")!;

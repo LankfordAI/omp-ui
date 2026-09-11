@@ -1,6 +1,5 @@
 import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
-import { desktop } from "../../desktop";
 import type { UiStore, UpdatesSlice } from "../types";
 
 const DEFAULT_APP_UPDATE: UpdatesSlice["appUpdate"] = {
@@ -50,30 +49,30 @@ export const createUpdatesSlice: StateCreator<UiStore, [], [], UpdatesSlice> = (
   },
 
   async checkAppUpdate() {
-    await desktop?.checkAppUpdate();
+    await backend.checkAppUpdate();
   },
 
   async downloadAppUpdate() {
-    await desktop?.downloadAppUpdate();
+    await backend.downloadAppUpdate();
   },
 
   async openAppUpdateReleaseNotes() {
-    await desktop?.openAppUpdateReleaseNotes();
+    await backend.openAppUpdateReleaseNotes();
   },
 
   async showAppUpdateDownload() {
-    await desktop?.showAppUpdateDownload();
+    await backend.showAppUpdateDownload();
   },
 
-  async restartForAppUpdate() {
-    await desktop?.restartForAppUpdate();
+  async restartForAppUpdate(confirmed = false) {
+    return backend.restartForAppUpdate(confirmed);
   },
 
   async setAppUpdateInstallOnQuit(on) {
-    await desktop?.setAppUpdateInstallOnQuit(on);
+    await backend.setAppUpdateInstallOnQuit(on);
   },
 
   async dismissAppUpdate(version, remember) {
-    await desktop?.dismissAppUpdate(version, remember);
+    await backend.dismissAppUpdate(version, remember);
   },
 });
