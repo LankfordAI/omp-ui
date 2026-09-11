@@ -86,6 +86,7 @@ const backendMock = {
   setGlassChrome: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
+  setAppUpdateTrain: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
   clearDismissedOmpUpdate: vi.fn(async () => {}),

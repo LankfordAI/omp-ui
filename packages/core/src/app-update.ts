@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { downloadFileAtomically } from "./download";
 import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
-import { parseSemver } from "./omp-update";
-import type { AppPackageFormat } from "./types";
+import { compareVersions, parseSemver } from "./omp-update";
+import type { AppPackageFormat, UpdateTrain } from "./types";
 
 // Pure, transport- and UI-agnostic omp-ui release update logic. The Electron
 // main process drives this over IPC; nothing here touches Electron (ADR-0002).
@@ -15,6 +15,8 @@ import type { AppPackageFormat } from "./types";
 export const APP_GITHUB_REPO = "LankfordAI/omp-ui";
 export const APP_LATEST_RELEASE_URL =
   "https://api.github.com/repos/LankfordAI/omp-ui/releases/latest";
+export const APP_NIGHTLY_RELEASE_URL =
+  "https://api.github.com/repos/LankfordAI/omp-ui/releases/tags/nightly";
 export const APP_RELEASE_DOWNLOAD_BASE =
   `https://github.com/${APP_GITHUB_REPO}/releases/download`;
 
@@ -63,6 +65,73 @@ export function parseLatestRelease(body: unknown): AppReleaseInfo | null {
     name,
     assets,
   };
+}
+
+/** nightly.yml stamps `Nightly <X.Y.Z-nightly.YYYYMMDD.sha7>` as the release title. */
+const NIGHTLY_TITLE_RE = /(\d+\.\d+\.\d+-nightly\.\d{8}\.[0-9a-f]{7})/;
+
+/** Validated parse of GET /releases/tags/nightly (issue #493). */
+export function parseNightlyRelease(body: unknown): AppReleaseInfo | null {
+  if (body === null || typeof body !== "object") return null;
+  if (!("tag_name" in body) || typeof body.tag_name !== "string") return null;
+  if (!("html_url" in body) || typeof body.html_url !== "string") return null;
+  if (!("prerelease" in body) || body.prerelease !== true) return null;
+  if ("draft" in body && body.draft === true) return null;
+  if (!("name" in body) || typeof body.name !== "string") return null;
+  const version = NIGHTLY_TITLE_RE.exec(body.name)?.[1];
+  if (version === undefined) return null;
+  const assets =
+    "assets" in body && Array.isArray(body.assets)
+      ? body.assets
+          .filter((a): a is { name: string } =>
+            a !== null && typeof a === "object" && "name" in a && typeof a.name === "string",
+          )
+          .map((a) => a.name)
+      : [];
+  return { version, tag: body.tag_name, url: body.html_url, name: body.name, assets };
+}
+
+/** Rolling nightly prerelease, or null on any network/HTTP/parse failure. */
+export async function fetchNightlyAppRelease(
+  fetchImpl: FetchLike = defaultFetch,
+): Promise<AppReleaseInfo | null> {
+  try {
+    const res = await fetchImpl(APP_NIGHTLY_RELEASE_URL, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    return parseNightlyRelease(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+const APP_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d{8})\.([0-9a-f]{7}))?/;
+
+/**
+ * Train-aware version ordering (issue #493). Base X.Y.Z decides first. At
+ * equal base, nightly ranks newer on the nightly train and bare stable ranks
+ * newer on the stable train. Two nightlies order by date, then sha.
+ * Unparseable versions sort lowest, mirroring compareVersions.
+ */
+export function compareAppVersions(a: string, b: string, train: UpdateTrain): number {
+  const A = APP_VERSION_RE.exec(a);
+  const B = APP_VERSION_RE.exec(b);
+  if (!A && !B) return 0;
+  if (!A) return -1;
+  if (!B) return 1;
+  const base = compareVersions(`${A[1]}.${A[2]}.${A[3]}`, `${B[1]}.${B[2]}.${B[3]}`);
+  if (base !== 0) return base;
+  const aNightly = A[4] !== undefined;
+  const bNightly = B[4] !== undefined;
+  if (aNightly && bNightly) {
+    if (A[4] !== B[4]) return A[4]! < B[4]! ? -1 : 1;
+    if (A[5] !== B[5]) return A[5]! < B[5]! ? -1 : 1;
+    return 0;
+  }
+  if (aNightly === bNightly) return 0;
+  const nightlyNewer = train === "nightly";
+  return aNightly === nightlyNewer ? 1 : -1;
 }
 
 /** Latest stable release, or null on any network/HTTP/parse failure. 10s timeout. */

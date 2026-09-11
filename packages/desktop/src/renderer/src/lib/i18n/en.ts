@@ -604,6 +604,11 @@ export const en = {
   "settings.updates.checkNow": "Check now",
   "settings.updates.checkOnLaunch": "Check on launch",
   "settings.updates.checkAppOnLaunchLabel": "check for omp-ui updates on launch",
+  "settings.updates.trainLabel": "Update train",
+  "settings.updates.trainStable": "stable",
+  "settings.updates.trainNightly": "nightly",
+  "settings.updates.trainHint":
+    "Nightly follows the trunk: a rolling prerelease built on demand — expect rough edges. The Windows nightly is the unsigned preview build. Switching back to stable returns you to the latest stable release.",
   "settings.updates.dismissed": "Dismissed: {version}",
   "settings.updates.reoffer": "Re-offer",
   "settings.updates.ompBinary": "omp binary",

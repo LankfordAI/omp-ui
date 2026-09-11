@@ -55,6 +55,17 @@ function releaseBody(version: string): Record<string, unknown> {
   };
 }
 
+function nightlyBody(version: string): Record<string, unknown> {
+  return {
+    tag_name: "nightly",
+    html_url: "https://github.com/LankfordAI/omp-ui/releases/tag/nightly",
+    name: `Nightly ${version}`,
+    draft: false,
+    prerelease: true,
+    assets: [],
+  };
+}
+
 /**
  * Routes the two GETs the updater makes: the latest-release JSON and the
  * tag's SHA256SUMS.txt. `sumsText: null` answers the sums request with a 404.
@@ -134,6 +145,7 @@ function makeUpdater(overrides: Partial<AppUpdaterDeps> = {}): MadeUpdater {
     },
     hasLiveSessions,
     setQuitAuthorized,
+    getTrain: () => "stable",
     send: (channel, state) => sent.push({ channel, state: { ...state } }),
     channel: "app:updateState",
     platform: "linux",
@@ -363,6 +375,7 @@ describe("AppUpdater.download (deb/rpm/flatpak)", () => {
 interface FakeAutoUpdater extends AutoUpdaterLike {
   checkForUpdates: Mock<() => Promise<{ isUpdateAvailable: boolean }>>;
   downloadUpdate: Mock<() => Promise<unknown>>;
+  setFeedURL: Mock<AutoUpdaterLike["setFeedURL"]>;
   addQuitHandler: Mock<() => void>;
   quitAndInstall: Mock<() => void>;
   emitProgress: (percent: number) => void;
@@ -375,6 +388,8 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
   return {
     autoDownload: true,
     autoInstallOnAppQuit: true,
+    allowDowngrade: false,
+    setFeedURL: vi.fn(),
     on(event: string, cb: (arg: unknown) => void) {
       listeners.set(event, [...(listeners.get(event) ?? []), cb]);
     },
@@ -585,6 +600,114 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
   });
 });
 
+
+describe("AppUpdater update trains (issue #493)", () => {
+  const json = (body: unknown) => ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
+
+  it("fetches and offers same-base nightly as a release-page handoff", async () => {
+    let url = "";
+    const { updater } = makeUpdater({
+      getTrain: () => "nightly",
+      fetchImpl: async (input) => {
+        url = input;
+        return json(nightlyBody("1.0.0-nightly.20260911.abc1234"));
+      },
+      env: {},
+      exists: (path) => path === "/usr/bin/dpkg",
+    });
+    await updater.checkNow(true);
+    expect(url).toContain("/releases/tags/nightly");
+    expect(updater.state).toMatchObject({
+      status: "available",
+      latestVersion: "1.0.0-nightly.20260911.abc1234",
+      format: "unknown",
+    });
+  });
+
+  it("offers same-base stable after switching back from nightly", async () => {
+    const { updater } = makeUpdater({
+      currentVersion: "1.0.0-nightly.20260911.abc1234",
+      getTrain: () => "stable",
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.0.0") }),
+      env: {},
+      exists: (path) => path === "/usr/bin/dpkg",
+    });
+    await updater.checkNow(true);
+    expect(updater.state).toMatchObject({ status: "available", latestVersion: "1.0.0" });
+  });
+
+  it("orders same-base nightlies", async () => {
+    const currentVersion = "1.0.0-nightly.20260911.abc1234";
+    const equal = makeUpdater({
+      currentVersion,
+      getTrain: () => "nightly",
+      fetchImpl: async () => json(nightlyBody(currentVersion)),
+    });
+    await equal.updater.checkNow(true);
+    expect(equal.updater.state.status).toBe("up-to-date");
+
+    const newer = makeUpdater({
+      currentVersion,
+      getTrain: () => "nightly",
+      fetchImpl: async () => json(nightlyBody("1.0.0-nightly.20260912.0000000")),
+      env: {},
+      exists: () => true,
+    });
+    await newer.updater.checkNow(true);
+    expect(newer.updater.state.status).toBe("available");
+  });
+
+  it("sets the feed and downgrade policy on every train", async () => {
+    for (const train of ["nightly", "stable"] as const) {
+      const autoUpdater = makeFakeAutoUpdater();
+      const made = makeUpdater({
+        getTrain: () => train,
+        fetchImpl: train === "nightly"
+          ? async () => json(nightlyBody("1.0.0-nightly.20260911.abc1234"))
+          : updateFetch({ releaseBody: releaseBody("1.2.0") }),
+        autoUpdaterFactory: async () => autoUpdater,
+        env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      });
+      await made.updater.checkNow(false);
+      expect(autoUpdater.allowDowngrade).toBe(train === "nightly");
+      expect(autoUpdater.setFeedURL).toHaveBeenCalledWith(
+        train === "nightly"
+          ? { provider: "generic", url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/" }
+          : { provider: "github", owner: "LankfordAI", repo: "omp-ui" },
+      );
+    }
+  });
+
+  it("resets staged state and rejects stale other-train completion", async () => {
+    let train: "stable" | "nightly" = "stable";
+    const autoUpdater = makeFakeAutoUpdater();
+    const made = makeUpdater({
+      getTrain: () => train,
+      fetchImpl: async (url) => json(url.includes("/tags/nightly")
+        ? nightlyBody("1.0.0-nightly.20260911.abc1234")
+        : releaseBody("1.2.0")),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    await made.updater.checkNow(false);
+    autoUpdater.emitDownloaded();
+    made.updater.setInstallOnQuit(true);
+    made.dismissed.value = "1.2.0";
+    train = "nightly";
+    const resetAt = sent.length;
+    await made.updater.onTrainChanged();
+    expect(made.dismissed.value).toBeNull();
+    expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
+    expect(sent[resetAt]?.state).toMatchObject({ status: "idle", latestVersion: null, installOnQuit: false });
+    autoUpdater.emitDownloaded();
+    expect(made.updater.state.status).not.toBe("downloaded");
+  });
+});
 describe("resolveAutoUpdater", () => {
   it("unwraps the CJS default export (real electron-updater shape, issue #87)", () => {
     const autoUpdater = makeFakeAutoUpdater();

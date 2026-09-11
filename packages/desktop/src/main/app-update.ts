@@ -2,10 +2,12 @@ import { join } from "node:path";
 import { shell, type BrowserWindow } from "electron";
 import {
   APP_RELEASE_DOWNLOAD_BASE,
+  compareAppVersions,
   compareVersions,
   detectPackageFormat,
   downloadAppAsset,
   fetchLatestAppRelease,
+  fetchNightlyAppRelease,
   fetchSha256Sums,
   parseSemver,
   selectAsset,
@@ -15,6 +17,7 @@ import {
   type AppUpdateState,
   type DownloadFetchLike,
   type FetchLike,
+  type UpdateTrain,
 } from "@omp-ui/core";
 import { UpdateController, type UpdateControllerDeps } from "./update-controller";
 
@@ -42,6 +45,12 @@ export function isAutoUpdateFormat(
 export interface AutoUpdaterLike {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
+  allowDowngrade: boolean;
+  setFeedURL(
+    options:
+      | { provider: "github"; owner: string; repo: string }
+      | { provider: "generic"; url: string },
+  ): void;
   on(event: "download-progress", cb: (p: { percent: number }) => void): void;
   on(event: "update-downloaded", cb: (info: { version: string }) => void): void;
   on(event: "error", cb: (err: Error) => void): void;
@@ -63,6 +72,7 @@ export interface AppUpdaterDeps extends UpdateControllerDeps<AppUpdateState> {
   downloadsDir: string; // app.getPath("downloads")
   /** Main-process live-session authority, re-read immediately before restart. */
   hasLiveSessions: () => boolean;
+  getTrain: () => UpdateTrain;
   /**
    * Latches (true) / revokes (false) the main process's update-quit
    * authorization: bypasses the darwin hide-on-close and both live-session
@@ -164,6 +174,7 @@ export type AppUpdateEvent =
   | { t: "asset-download-progress"; percent: number | null }
   | { t: "asset-download-failed"; message: string }
   | { t: "asset-downloaded"; path: string }
+  | { t: "train-changed" }
   | { t: "dismiss" };
 
 /**
@@ -311,6 +322,20 @@ export function deriveAppUpdateState(
       return next(
         state({ status: "downloaded", downloadedPath: event.path, progress: null }),
       );
+    case "train-changed":
+      return next(
+        state({
+          status: "idle",
+          latestVersion: null,
+          releaseUrl: null,
+          releaseName: null,
+          progress: null,
+          downloadedPath: null,
+          error: null,
+          installOnQuit: false,
+        }),
+        { release: null, stage: null },
+      );
     case "dismiss":
       return next(
         state({
@@ -362,7 +387,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       parseSemver(deps.currentVersion) !== null;
     // The running version is fixed for this process, so stale dismissal
     // reaping happens once at construction.
-    this.reapDismissed(deps.currentVersion);
+    this.reapDismissed(deps.currentVersion, (a, b) => compareAppVersions(a, b, "nightly"));
     this.machine = { state: this.state, release: null, stage: null };
   }
 
@@ -389,12 +414,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       return this.state;
     }
     this.publish({ t: "check-begin" });
-    const release = await fetchLatestAppRelease(this.deps.fetchImpl);
+    const train = this.deps.getTrain();
+    const release = await (train === "nightly"
+      ? fetchNightlyAppRelease(this.deps.fetchImpl)
+      : fetchLatestAppRelease(this.deps.fetchImpl));
     if (release === null) {
       this.publish({ t: "unreachable", manual });
       return this.state;
     }
-    if (compareVersions(this.deps.currentVersion, release.version) >= 0) {
+    if (compareAppVersions(this.deps.currentVersion, release.version, train) >= 0) {
       this.publish({ t: "up-to-date", manual });
       return this.state;
     }
@@ -409,7 +437,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       await this.stageAutoUpdate(release, format, manual);
       return this.state;
     }
-    this.publish({ t: "available", release, format });
+    this.publish({ t: "available", release, format: train === "nightly" ? "unknown" : format });
     return this.state;
   }
 
@@ -448,6 +476,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
           }
         });
         autoUpdater.on("update-downloaded", (info) => {
+          // Ignore a completion queued by the old train after a switch.
+          if (this.machine.stage === null || this.machine.release?.version !== info.version) return;
           this.publish({ t: "stage-complete", version: info.version });
         });
         autoUpdater.on("error", (err) => {
@@ -464,6 +494,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
           this.publish({ t: "stage-failed", visible: this.machine.stage.visible, message: err.message });
         });
       }
+      const train = this.deps.getTrain();
+      autoUpdater.setFeedURL(
+        train === "nightly"
+          ? { provider: "generic", url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/" }
+          : { provider: "github", owner: "LankfordAI", repo: "omp-ui" },
+      );
+      // Same-base nightly is semver-older than stable; allow the opted-in
+      // nightly transition, then reset this flag on every stable stage.
+      autoUpdater.allowDowngrade = train === "nightly";
 
       const result = await autoUpdater.checkForUpdates();
       if (result?.isUpdateAvailable) {
@@ -596,6 +635,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       if (on) this.autoUpdater.addQuitHandler();
     }
     this.publish({ t: "install-on-quit", on });
+  }
+
+  /** Reset the old train's state and quietly check the new train (issue #493). */
+  async onTrainChanged(): Promise<void> {
+    this.deps.setDismissed(null);
+    this.installOnQuitArmed = false;
+    if (this.autoUpdater !== null) this.autoUpdater.autoInstallOnAppQuit = false;
+    this.publish({ t: "train-changed" });
+    await this.checkNow(false);
   }
 
   /**

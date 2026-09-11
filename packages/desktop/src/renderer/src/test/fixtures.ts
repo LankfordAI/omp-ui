@@ -23,6 +23,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     glassChrome: "subtle",
     localeId: "en",
     appUpdateCheckOnLaunch: true,
+    appUpdateTrain: "stable",
     ompUpdateCheckOnLaunch: true,
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,

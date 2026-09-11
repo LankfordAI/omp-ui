@@ -128,6 +128,7 @@ const VALID_ARGS = {
   rpcSend: ["tab-1", { type: "prompt", custom: undefined }],
   setAdvisorAutoReply: [true],
   setAppUpdateCheckOnLaunch: [true],
+  setAppUpdateTrain: ["nightly"],
   setAppUpdateInstallOnQuit: [false],
   setDefaultAdvisor: [true],
   setDefaultAgentMode: ["build"],

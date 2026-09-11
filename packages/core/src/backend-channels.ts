@@ -44,6 +44,7 @@ import type {
   SessionMode,
   SpawnRequest,
   TranscriptWidth,
+  UpdateTrain,
   WebSearchProviderSnapshot,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
@@ -80,6 +81,7 @@ import {
   str,
   trailingOptional,
   transcriptWidthCodec,
+  updateTrainCodec,
   worktreeReleaseOptionsCodec,
   type ArgCodec,
   type ArgCodecs,
@@ -265,6 +267,10 @@ export const BACKEND_CHANNELS = {
   setAppUpdateCheckOnLaunch: {
     channel: "settings:setAppUpdateCheckOnLaunch",
     ...request<[on: boolean], void>([bool()]),
+  },
+  setAppUpdateTrain: {
+    channel: "settings:setAppUpdateTrain",
+    ...request<[train: UpdateTrain], void>([updateTrainCodec]),
   },
   setOmpUpdateCheckOnLaunch: {
     channel: "settings:setOmpUpdateCheckOnLaunch",
