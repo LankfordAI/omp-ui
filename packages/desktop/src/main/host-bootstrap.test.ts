@@ -358,7 +358,7 @@ describe("HostBootstrap: no live host", () => {
       nonce: "nonce-".padEnd(43, "x"),
       createdAtMs: 1_000_000,
     });
-    expect(fs.statSync(cutoverHandoffPath(h.dataRoot)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(fs.statSync(cutoverHandoffPath(h.dataRoot)).mode & 0o777).toBe(0o600);
   });
 
   it("leaves no note once the data root has adopted a registry or journalled the relocation", async () => {
@@ -381,7 +381,7 @@ describe("HostBootstrap: no live host", () => {
     }
   });
 
-  it("installs the embedded seed when no host is installed, then starts it", async () => {
+  it.runIf(process.platform !== "win32")("installs the embedded seed when no host is installed, then starts it", async () => {
     const h = harness();
     h.deps.install.seedDir = seed("3.1.0");
     h.bootstrap.start();
@@ -473,7 +473,7 @@ describe("installEmbeddedHost", () => {
     expect(() => installEmbeddedHost(layout(null, mkTmp()), "linux")).toThrow("this build embeds no host");
   });
 
-  it("replaces a current pointer it installed and refuses one it did not", () => {
+  it.runIf(process.platform !== "win32")("replaces a current pointer it installed and refuses one it did not", () => {
     const l = layout(seed("2.0.0"), mkTmp());
     installEmbeddedHost(l, "linux");
     // Ours: a symlink into the install root.
@@ -498,7 +498,7 @@ describe("installEmbeddedHost", () => {
   });
 });
 
-describe("placeStableCommand (~/.local/bin/omp-ui)", () => {
+describe.runIf(process.platform !== "win32")("placeStableCommand (~/.local/bin/omp-ui)", () => {
   const root = "/data/omp-ui-host";
   const target = join(root, "current", "bin", "omp-ui");
 
