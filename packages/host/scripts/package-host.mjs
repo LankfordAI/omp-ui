@@ -183,10 +183,13 @@ function verifySignature(shasums, signature) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-node-keys-"));
   try {
     fs.chmodSync(home, 0o700);
-    const base = ["--batch", "--quiet", "--homedir", home];
-    const imported = capture("gpg", [...base, "--import", RELEASE_KEYS]);
+    fs.copyFileSync(RELEASE_KEYS, path.join(home, "keys.asc"));
+    fs.copyFileSync(shasums, path.join(home, "SHASUMS256.txt"));
+    fs.copyFileSync(signature, path.join(home, "SHASUMS256.txt.sig"));
+    const base = ["--batch", "--quiet", "--homedir", "."];
+    const imported = capture("gpg", [...base, "--import", "keys.asc"], { cwd: home });
     if (imported.status !== 0) throw new Error(`gpg --import failed:\n${imported.stderr}`);
-    const verified = capture("gpg", [...base, "--verify", signature, shasums]);
+    const verified = capture("gpg", [...base, "--verify", "SHASUMS256.txt.sig", "SHASUMS256.txt"], { cwd: home });
     if (verified.status !== 0) {
       throw new Error(`SHASUMS256.txt signature did not verify against the Node.js release keys:\n${verified.stderr}`);
     }
