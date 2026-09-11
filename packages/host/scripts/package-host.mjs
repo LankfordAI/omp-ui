@@ -243,9 +243,9 @@ async function fetchNode(laneName, allowUnsigned) {
   const member = `${prefix}/${lane.nodeBinary}`;
   const binary = path.join(cache, ...member.split("/"));
   if (!fs.existsSync(binary)) {
-    // tar reads every archive here: GNU tar the tarballs, bsdtar (macOS,
-    // Windows 10+) the zip as well.
-    run("tar", ["-xf", files.archive, "-C", cache, member]);
+    // Run inside the cache so every tar implementation receives local relative
+    // paths; a Windows drive colon is otherwise parsed as a remote archive.
+    run("tar", ["-xf", archive, member], { cwd: cache });
     if (!fs.existsSync(binary)) throw new Error(`${member} was not extracted from ${archive}`);
   }
   const reported = capture(binary, ["--version"]).stdout.trim();
