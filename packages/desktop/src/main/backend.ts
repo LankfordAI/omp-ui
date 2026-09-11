@@ -88,6 +88,7 @@ import {
   type ProjectOpenTarget,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
+import { HeadWatcherHub } from "./git-head-watchers";
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
@@ -120,6 +121,8 @@ export class MainBackend {
   private readonly remote: RemoteServerManager;
   /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
   private readonly remoteInstances: RemoteInstanceManager;
+  /** Per-project gitdir watchers (#498): churn answers with branch:changed. */
+  private readonly headWatchers: HeadWatcherHub;
   private readonly projectOpener = new ProjectOpener();
   /**
    * Provider credentials for every omp launch. Constructed before any spawn
@@ -242,19 +245,7 @@ export class MainBackend {
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
-    this.addSink((channel, args) => {
-      if (this.win.isDestroyed()) return;
-      const wc = this.win.webContents;
-      // A crashed renderer is not "destroyed" — sending into it throws
-      // "Render frame was disposed …" once per frame until the app is killed
-      // (issue #183).
-      if (wc.isDestroyed() || wc.isCrashed()) return;
-      try {
-        wc.send(channel, ...args);
-      } catch (err) {
-        this.noteSinkFailure(err);
-      }
-    });
+    this.addSink((channel, args) => this.sendToRenderers(channel, args));
     this.appUpdater = new AppUpdater({
       win,
       enabled: opts.appUpdateEnabled ?? app.isPackaged,
@@ -316,7 +307,14 @@ export class MainBackend {
       localInstanceId: () => this.registry.getSetting("instanceId"),
       localVersion: this.appVersion,
       send: (ch, args) => this.send(ch, ...args),
+      sendToRenderers: (ch, args) => this.sendToRenderers(ch, args),
       broadcast: () => this.broadcast(),
+    });
+    // Every registered project gets one gitdir watch (#498): a terminal
+    // checkout, a commit, a branch made or deleted outside this app moves the
+    // chip without a click or a focus change.
+    this.headWatchers = new HeadWatcherHub({
+      onChanged: (projectCwd) => this.send(CH.onBranchChanged, projectCwd, null),
     });
     // Startup hygiene (issue #262): a crash between `git worktree add` and
     // the registry write, or a lost registry, strands checkouts under the
@@ -371,6 +369,25 @@ export class MainBackend {
 
   private send(channel: string, ...args: unknown[]): void {
     for (const sink of this.sinks) sink(channel, args);
+  }
+
+  /**
+   * Delivers an event to this app's Electron window(s) only — never into
+   * `sinks`, so an event converted here can not re-enter a socket relay and
+   * loop across a mutual join (#498).
+   */
+  private sendToRenderers(channel: string, args: unknown[]): void {
+    if (this.win.isDestroyed()) return;
+    const wc = this.win.webContents;
+    // A crashed renderer is not "destroyed" — sending into it throws
+    // "Render frame was disposed …" once per frame until the app is killed
+    // (issue #183).
+    if (wc.isDestroyed() || wc.isCrashed()) return;
+    try {
+      wc.send(channel, ...args);
+    } catch (err) {
+      this.noteSinkFailure(err);
+    }
   }
 
   private sinkFailureLastLog = 0;
@@ -444,6 +461,7 @@ export class MainBackend {
         [CH.addProject]: async (raw: string) => {
           const resolved = await resolveProjectPath(raw);
           const record = this.registry.addProject(resolved);
+          void this.headWatchers.start(resolved);
           await this.broadcast();
           return record;
         },
@@ -453,6 +471,7 @@ export class MainBackend {
             throw new Error("project has live sessions — terminate them first");
           }
           this.sessions.stopProjectWatchers(projectPath);
+          this.headWatchers.stop(projectPath);
           const sessions = this.registry.sessions;
           const checkouts = sessions.flatMap((session) =>
             session.projectCwd === projectPath && session.worktree !== null
@@ -653,24 +672,36 @@ export class MainBackend {
         },
         [CH.getBranchDiff]: (projectCwd: string, base?: string | null) =>
           readBranchDiff(projectCwd, base ?? null),
-        // Stateless core calls: branch operations touch no registry/BackendState field,
-        // so these handlers never broadcast().
+        // Branch mutations answer through the branch:changed event (#498),
+        // never a BackendState broadcast: no registry/BackendState field
+        // changes here. The ws transport dispatches through this same table,
+        // so a joined instance's call emits on its owner too.
         [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) =>
           listBranches(projectCwd, opts),
-        [CH.checkoutBranch]: (projectCwd: string, name: string, opts?: { create?: boolean }) =>
-          checkoutBranch(projectCwd, name, opts),
-        [CH.pullBranch]: (projectCwd: string) => pullBranch(projectCwd),
+        [CH.checkoutBranch]: async (projectCwd: string, name: string, opts?: { create?: boolean }) => {
+          await checkoutBranch(projectCwd, name, opts);
+          this.send(CH.onBranchChanged, projectCwd, null);
+        },
+        [CH.pullBranch]: async (projectCwd: string) => {
+          await pullBranch(projectCwd);
+          this.send(CH.onBranchChanged, projectCwd, null);
+        },
         // Push answers git state through a structured PushResult rather than a
-        // rejection (issue #414); like pull it touches no BackendState field,
-        // so this handler never broadcasts.
-        [CH.pushBranch]: (projectCwd: string, branch: string, remote?: string | null) =>
-          pushBranch(projectCwd, branch, remote),
+        // rejection (issue #414); only a result that moved a ref emits.
+        [CH.pushBranch]: async (projectCwd: string, branch: string, remote?: string | null) => {
+          const result = await pushBranch(projectCwd, branch, remote);
+          if (result.kind === "pushed" || result.kind === "published")
+            this.send(CH.onBranchChanged, projectCwd, null);
+          return result;
+        },
         // Builds a URL only. Main never opens it: the renderer hands the result
         // to window.open, where setWindowOpenHandler's web-scheme guard decides.
         [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) =>
           pullRequestUrl(projectCwd, base, head),
-        [CH.createBranch]: (projectCwd: string, name: string, startPoint: string) =>
-          createBranch(projectCwd, name, startPoint),
+        [CH.createBranch]: async (projectCwd: string, name: string, startPoint: string) => {
+          await createBranch(projectCwd, name, startPoint);
+          this.send(CH.onBranchChanged, projectCwd, null);
+        },
         [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) =>
           resolveMergeDestination(projectCwd, base),
         [CH.getMergeBackStatus]: (
@@ -692,10 +723,14 @@ export class MainBackend {
               ? null
               : worktreePath,
           ),
-        [CH.mergeWorktreeBranch]: (projectCwd: string, branch: string, destination: string) =>
-          mergeWorktreeBranch(projectCwd, branch, destination, {
+        [CH.mergeWorktreeBranch]: async (projectCwd: string, branch: string, destination: string) => {
+          const result = await mergeWorktreeBranch(projectCwd, branch, destination, {
             scratchRoot: path.join(this.worktreesRoot, ".merge"),
-          }),
+          });
+          // A conflict stops mid-merge; already-merged moved nothing.
+          if (result.kind === "merged") this.send(CH.onBranchChanged, projectCwd, null);
+          return result;
+        },
         // The memory overview handler is a stateless core call like
         // getBranchDiff: it touches no registry/BackendState field and never
         // calls broadcast().
@@ -915,6 +950,7 @@ export class MainBackend {
   }
 
   hydrateAll(): Promise<void> {
+    this.headWatchers.startAll(this.registry.projects.map((p) => p.path));
     return this.sessions.hydrateAll();
   }
 
@@ -963,6 +999,7 @@ export class MainBackend {
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
     this.sessions.killAll();
+    this.headWatchers.disposeAll();
     this.remoteInstances.stop();
     void this.remote.stop();
   }

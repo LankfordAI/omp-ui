@@ -829,6 +829,16 @@ export const BACKEND_CHANNELS = {
   },
   onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: object]>() },
   onStateChanged: { channel: "state:changed", ...event<[state: BackendState]>() },
+  /**
+   * The project's checkout or branch list moved outside this client (#498): a
+   * mutating git call on any transport, or gitdir churn observed by the owner's
+   * watcher. instanceId null = this app's project; set = a joined instance's
+   * project, re-stamped by the joiner's RemoteInstanceManager.
+   */
+  onBranchChanged: {
+    channel: "branch:changed",
+    ...event<[projectCwd: string, instanceId: string | null]>(),
+  },
   toggleFavorite: {
     channel: "favorites:toggle",
     ...request<[key: string], void>([str()]),

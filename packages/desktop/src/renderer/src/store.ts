@@ -6,6 +6,7 @@ import type {
 // (core/plan, advisor-stats, mcp-status imports moved to the frame-reduction slice for #295)
 import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
+import { projectKey } from "./lib/project-key";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
 import {
@@ -280,6 +281,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
         syncLocale(state);
         reconcilePlanGates(state);
         rpcCommandSlice.reconcileGoals(state);
+      });
+      // #498: the checkout moved outside this client — a remote transport
+      // checkout executing on its owner, a host-side release switch, or a git
+      // command in a terminal. Re-read local refs only; upstream freshness stays
+      // on the focus/menu network paths. Skip projects no snapshot exists for:
+      // their chip will fetch on mount.
+      backend.onBranchChanged((projectCwd, instanceId) => {
+        const key = projectKey(instanceId ?? null, projectCwd);
+        if (get().branches[key] === undefined) return;
+        void get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId ?? null);
       });
       backend.onPtyData((tabId, data) => termWriters.get(tabId)?.(data));
       backend.onPtyExit((tabId, code) =>

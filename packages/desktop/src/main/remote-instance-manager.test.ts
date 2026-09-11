@@ -163,12 +163,16 @@ interface Harness {
   store: RemoteInstanceStore;
   file: string;
   sent: Array<{ channel: string; args: unknown[] }>;
+  /** Events delivered to local renderers only (#498) — never mirrored into sinks. */
+  rendered: Array<{ channel: string; args: unknown[] }>;
   timers: FakeTimer[];
   broadcasts: number;
   /** Resolves once a broadcast shows summaries satisfying `pred` (or immediately if they already do). */
   until(pred: (s: RemoteInstanceSummary[]) => boolean): Promise<RemoteInstanceSummary[]>;
   /** Resolves with the next mirrored event on `channel`. */
   nextSent(channel: string): Promise<unknown[]>;
+  /** Resolves with the next window-only delivery on `channel` (#498). */
+  nextWindow(channel: string): Promise<unknown[]>;
   /** Fires the most recent pending retry timer. */
   fireTimer(): void;
 }
@@ -183,10 +187,13 @@ function harness(opts: { localInstanceId?: string; file?: string } = {}): Harnes
   const timers: FakeTimer[] = [];
   const waiters: Array<{ pred: (s: RemoteInstanceSummary[]) => boolean; resolve: (s: RemoteInstanceSummary[]) => void }> = [];
   const sentWaiters: Array<{ channel: string; resolve: (args: unknown[]) => void }> = [];
+  const rendered: Harness["rendered"] = [];
+  const windowWaiters: Array<{ channel: string; resolve: (args: unknown[]) => void }> = [];
   const h = {
     store,
     file,
     sent,
+    rendered,
     timers,
     broadcasts: 0,
   } as Harness;
@@ -198,6 +205,11 @@ function harness(opts: { localInstanceId?: string; file?: string } = {}): Harnes
       sent.push({ channel, args });
       const i = sentWaiters.findIndex((w) => w.channel === channel);
       if (i !== -1) sentWaiters.splice(i, 1)[0]!.resolve(args);
+    },
+    sendToRenderers: (channel, args) => {
+      rendered.push({ channel, args });
+      const i = windowWaiters.findIndex((w) => w.channel === channel);
+      if (i !== -1) windowWaiters.splice(i, 1)[0]!.resolve(args);
     },
     broadcast: async () => {
       h.broadcasts += 1;
@@ -224,6 +236,7 @@ function harness(opts: { localInstanceId?: string; file?: string } = {}): Harnes
     return new Promise((resolve) => waiters.push({ pred, resolve }));
   };
   h.nextSent = (channel) => new Promise((resolve) => sentWaiters.push({ channel, resolve }));
+  h.nextWindow = (channel) => new Promise((resolve) => windowWaiters.push({ channel, resolve }));
   h.fireTimer = () => {
     const pending = timers.filter((t) => !t.cleared).at(-1);
     if (!pending) throw new Error("no pending retry timer");
@@ -477,6 +490,27 @@ describe("proxy and routing", () => {
     expect(h.manager.ownerOf("t-remote-1")).toBe(summary!.id);
     expect(h.broadcasts).toBeGreaterThan(before);
     expect(h.sent.map((s) => s.channel)).toEqual([CH.onPtyData]);
+  });
+
+  // #498: a host branch:changed is host-scoped (instanceId null). The joiner
+  // re-stamps it with the entry id and delivers to local renderers only —
+  // mirroring it into sinks would relay it back over the socket and loop on
+  // a mutual join.
+  it("re-stamps a host branch:changed for local renderers and never relays it", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    const delivered = h.nextWindow(CH.onBranchChanged);
+    host.emit(CH.onBranchChanged, ["/remote/a", null]);
+    expect(await delivered).toEqual(["/remote/a", instance.id]);
+
+    // Same socket, in order: the round trip proves the conversion ran before
+    // the reply — and no sink mirror means nothing reached a relay.
+    await h.manager.request(instance.id, CH.getState, []);
+    expect(h.sent.map((s) => s.channel)).toEqual([]);
+    expect(h.rendered).toEqual([{ channel: CH.onBranchChanged, args: ["/remote/a", instance.id] }]);
   });
 
   it("forwards viewed-tab reports to the owning instance and clears them on switch-away", async () => {
