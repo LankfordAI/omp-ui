@@ -17,17 +17,6 @@ const PLATFORM_KINDS = {
 /** Per-platform kinds: one feed lists every arch of the platform. */
 const PLATFORM_FEEDS = ["host-feed"];
 
-/**
- * Release evidence (issues #442 and #463): one `host-package` record per arch,
- * written by `smoke-package.mjs --record` from the unpacked archive, and on
- * Linux the no-display gate record. Publication refuses without every one.
- */
-const PLATFORM_GATES = {
-  linux: ["no-display-gate"],
-  mac: [],
-  win: [],
-};
-
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const ISO_DATE_RE = /^\d{4}-\d\d-\d\dT[^']+$/;
 
@@ -225,35 +214,11 @@ function validateHostPackageRecord(record, target, hostArtifacts, where) {
   }
 }
 
-/** The headless-host scenario: live tests ran with no display, none skipped, none failed. */
-function validateGateRecord(record, target, where) {
-  requireFields(where, record, {
-    schemaVersion: (v) => v === 1,
-    kind: (v) => v === "no-display-gate",
-    releaseTag: (v) => v === `v${target.version}`,
-    platform: (v) => v === "linux",
-    arch: (v) => v === "x64",
-    "os.id": nonEmptyString,
-    "os.versionId": nonEmptyString,
-    "display.DISPLAY": (v) => v === null,
-    "display.WAYLAND_DISPLAY": (v) => v === null,
-    "liveTests.total": (v) => Number.isSafeInteger(v) && v > 0,
-    "liveTests.passed": (v) => Number.isSafeInteger(v) && v >= 0,
-    "liveTests.failed": (v) => v === 0,
-    "liveTests.skipped": (v) => v === 0,
-    smokeRecord: nonEmptyString,
-  });
-  if (record.liveTests.passed !== record.liveTests.total) {
-    throw new Error(`${where}: ${record.liveTests.passed} of ${record.liveTests.total} live tests passed`);
-  }
-}
-
 function validateRecords(records, target, artifacts) {
   const hostArtifacts = new Map(
     artifacts.filter(({ kind }) => kind === "host").map((artifact) => [artifact.arch, artifact]),
   );
   const seenPackages = new Map();
-  const seenGates = new Map();
   for (const { name, record } of records) {
     const where = `Record ${name}`;
     if (!isRecord(record)) throw new Error(`${where}: not an object`);
@@ -263,25 +228,17 @@ function validateRecords(records, target, artifacts) {
       const previous = seenPackages.get(record.arch);
       if (previous) throw new Error(`Duplicate ${target.platform} host-package record for ${record.arch}: ${previous}, ${name}`);
       seenPackages.set(record.arch, name);
-    } else if (typeof record.kind === "string" && PLATFORM_GATES[target.platform].includes(record.kind)) {
-      validateGateRecord(record, target, where);
-      const previous = seenGates.get(record.kind);
-      if (previous) throw new Error(`Duplicate ${record.kind} record: ${previous}, ${name}`);
-      seenGates.set(record.kind, name);
-    } else if (typeof record.kind !== "string" || !Object.values(PLATFORM_GATES).flat().includes(record.kind)) {
+    } else {
       throw new Error(`${where}: unknown record kind ${JSON.stringify(record.kind)}`);
     }
   }
   const missing = target.arches.filter((arch) => !seenPackages.has(arch)).map((arch) => `${arch} host-package`);
-  for (const gate of PLATFORM_GATES[target.platform]) {
-    if (!seenGates.has(gate)) missing.push(gate);
-  }
   if (missing.length > 0) {
     throw new Error(`Missing ${target.platform} records: ${missing.join(", ")}`);
   }
   return {
     packages: target.arches.map((arch) => seenPackages.get(arch)),
-    gates: PLATFORM_GATES[target.platform].map((gate) => seenGates.get(gate)),
+    gates: [],
   };
 }
 

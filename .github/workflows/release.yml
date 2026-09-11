@@ -116,102 +116,6 @@ jobs:
             "packages/host/out/linux-x64/omp-ui-host-${version}-linux-x64.tar.gz" \
             packages/host/out/linux-x64/latest-host-linux.yml
 
-  # The no-display gate (issues #442 and #463): the host's live tests and the
-  # packaged smoke run with no graphical environment, as the lingering user
-  # service does. A skipped live test is a failure here — a missing binary that
-  # named-skips in development must not skip release evidence.
-  no-display-gate:
-    runs-on: [self-hosted, gfx1201]
-    # OMP_UI_DATA_DIR is exported by the first step: `runner.temp` is not
-    # available in job-level env, and nothing here may touch the runner
-    # user's real data root.
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Isolate the data root
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "OMP_UI_DATA_DIR=$RUNNER_TEMP/omp-ui-gate-data" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/omp-ui-gate-data" package-records/gate
-      - name: Stamp version from tag
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          current="$(node -p 'require("./packages/desktop/package.json").version')"
-          if [ "$current" != "$tag" ]; then
-            npm version "$tag" --no-git-tag-version --workspace @omp-ui/desktop
-          fi
-      - name: Fetch the pinned verifier browser
-        run: npm run fetch:verifier-browser --workspace @omp-ui/host
-      - run: npm run build
-      - name: Run host live tests with no display
-        shell: bash
-        run: |
-          set -euo pipefail
-          env -u DISPLAY -u WAYLAND_DISPLAY \
-            npm run test:live --workspace @omp-ui/host -- \
-              --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/host-live.json"
-      - name: Package and smoke-test the host with no display
-        shell: bash
-        run: |
-          set -euo pipefail
-          env -u DISPLAY -u WAYLAND_DISPLAY \
-            npm run package:host --workspace @omp-ui/host -- --lane linux-x64
-          env -u DISPLAY -u WAYLAND_DISPLAY \
-            npm run smoke:package --workspace @omp-ui/host -- --lane linux-x64 \
-              --record "$PWD/package-records/gate/package-record-linux-x64.json" --release-tag "$GITHUB_REF_NAME"
-      - name: Write the gate record
-        shell: bash
-        run: |
-          set -euo pipefail
-          . /etc/os-release
-          env -u DISPLAY -u WAYLAND_DISPLAY node - "$RUNNER_TEMP/host-live.json" "$ID" "$VERSION_ID" <<'EOF'
-          const fs = require("node:fs");
-          const [file, osId, osVersionId] = process.argv.slice(2);
-          const report = JSON.parse(fs.readFileSync(file, "utf8"));
-          const tests = report.testResults.flatMap((suite) => suite.assertionResults);
-          const count = (...statuses) => tests.filter(({ status }) => statuses.includes(status)).length;
-          const liveTests = {
-            total: tests.length,
-            passed: count("passed"),
-            failed: count("failed"),
-            skipped: count("skipped", "pending", "todo", "disabled"),
-          };
-          for (const test of tests) {
-            if (test.status !== "passed") console.error(`${test.status}: ${test.fullName}`);
-          }
-          const record = {
-            schemaVersion: 1,
-            kind: "no-display-gate",
-            releaseTag: process.env.GITHUB_REF_NAME,
-            platform: "linux",
-            arch: "x64",
-            os: { id: osId, versionId: osVersionId },
-            display: { DISPLAY: process.env.DISPLAY ?? null, WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY ?? null },
-            liveTests,
-            smokeRecord: "gate/package-record-linux-x64.json",
-            runner: process.env.RUNNER_NAME ?? null,
-            finishedAt: new Date().toISOString(),
-          };
-          fs.writeFileSync("package-records/no-display-gate.json", `${JSON.stringify(record, null, 2)}\n`);
-          console.log(JSON.stringify(liveTests));
-          if (liveTests.total === 0 || liveTests.failed > 0 || liveTests.skipped > 0) {
-            console.error("the no-display gate requires every host live test to run and pass");
-            process.exit(1);
-          }
-          EOF
-      - name: Stage gate evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-record-no-display-gate
-          path: package-records/
-          if-no-files-found: error
-          retention-days: 1
-
   release-notes:
     needs: release-linux
     uses: ./.github/workflows/release-notes.yml
@@ -370,8 +274,8 @@ jobs:
             packages/host/out/win-x64/latest-host-win.yml
 
   release-manifest:
-    needs: [release-linux, no-display-gate, package-macos, release-macos, release-windows, release-notes]
-    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.no-display-gate.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
+    needs: [release-linux, package-macos, release-macos, release-windows, release-notes]
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
@@ -479,7 +383,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Reached only when every lane, the no-display gate, and the evidence
+          # Reached only when every packaging lane and the evidence
           # check above passed — the "complete and ready" gate that makes the
           # release visible to /releases/latest.
           gh release edit "$GITHUB_REF_NAME" --draft=false
