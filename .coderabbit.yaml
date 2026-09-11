@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Advisory AI PR review for LankfordAI/omp-ui. Not a merge gate: this file adds
+# no workflow, no secret, and no required branch check.
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false
+  path_filters:
+    - "!package-lock.json"
+    - "!node_modules/**"
+    - "!**/dist/**"
+    - "!**/out/**"
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/AGENTS.md"
+      - files: "CONTEXT.md"
+        applyTo: "**/*"
+      - files: "docs/architecture.md"
+        applyTo: "**/*"
+
+chat:
+  auto_reply: true

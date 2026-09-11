@@ -217,6 +217,47 @@ npm run build
 
 The second and third commands assert that workspace metadata and `package-lock.json` agree. `npm ci` alone does not catch every workspace-version drift case.
 
+## Pull request reviews
+
+This repository uses [CodeRabbit](https://coderabbit.ai) for **advisory** AI
+reviews on pull requests. It is not a merge gate: there is no CodeRabbit GitHub
+Actions workflow, no required status check, and no secret, and merging stays a
+human decision. The behaviour lives in `.coderabbit.yaml` in the repository root
+so it is version controlled.
+
+Reviews use the *chill* profile, never auto-approve, keep their summary in the
+walkthrough, skip the walkthrough poem, and disable the docstring and unit-test
+generation finishing touches. `AGENTS.md`, `CONTEXT.md`, and
+`docs/architecture.md` are loaded as coding guidelines, with architecture applied
+to every path, so reviews respect the transport-agnostic core boundary of
+[ADR-0002](adr/0002-transport-agnostic-core.md) and the vocabulary in
+[CONTEXT.md](../CONTEXT.md).
+
+### Activation (organization owner)
+
+1. Install the CodeRabbit GitHub App from
+   [github.com/apps/coderabbit](https://github.com/apps/coderabbit), choosing
+   "Only select repositories" and selecting `LankfordAI/omp-ui`. An organization
+   owner must approve the installation.
+2. CodeRabbit detects the repository's open-source status and applies the OSS
+   entitlement. Eligibility and rate limits are managed by CodeRabbit, not by
+   `.coderabbit.yaml`, so this repository stores no key and needs no billing
+   setup.
+3. Open a pull request that contains `.coderabbit.yaml`. CodeRabbit reads the
+   configuration from the branch under review and posts an advisory review.
+
+### Manual review and configuration inspection
+
+On any pull request, drive the review from a comment:
+
+- `@coderabbitai review` runs, or re-runs, a review of the current head.
+- `@coderabbitai configuration` prints the resolved configuration in YAML with a
+  comment per setting naming its source — repository YAML, UI settings, or
+  defaults — which is how you confirm `.coderabbit.yaml` parsed and took effect.
+
+The schema URL in the first line of `.coderabbit.yaml` gives editor validation of
+the file itself.
+
 ## Documentation-only changes
 
 Do not add a runtime test solely to validate prose. For edited Markdown files, run this local path check and list the files after `-`. It checks relative links and image targets without making network requests:
