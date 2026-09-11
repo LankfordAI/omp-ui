@@ -207,8 +207,8 @@ jobs:
           set -euo pipefail
           mkdir release-assets
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*.AppImage'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.dmg'
-          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-preview-*.zip'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-*.dmg'
+          gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-mac-*.zip'
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
       - name: Plan release artifacts and generate metadata
         shell: bash

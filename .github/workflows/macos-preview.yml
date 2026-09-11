@@ -56,8 +56,8 @@ jobs:
         with:
           name: omp-ui-macos-${{ matrix.arch }}-${{ github.sha }}-${{ inputs.notarize == 'true' && 'notarized' || 'signed-only' }}
           path: |
-            packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.dmg
-            packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.zip
+            packages/desktop/dist/*-mac-${{ matrix.arch }}.dmg
+            packages/desktop/dist/*-mac-${{ matrix.arch }}.zip
             packages/desktop/dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
           if-no-files-found: error
           compression-level: 0

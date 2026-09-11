@@ -126,6 +126,7 @@ const mockBackend = {
   reportStallCap: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
+  onBranchChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
   onSessionHibernated: vi.fn(),
@@ -350,6 +351,7 @@ const {
   RpcCommandTimeoutError,
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,
+  TRANSCRIPT_FLUSH_MS,
   useStore,
 } = await import("../store");
 const { rpcCommandMachinery } = await import("../store/slices/rpc-command");
@@ -496,6 +498,7 @@ export const h = {
   QUEUE_SETTLE_REFRESH_MS,
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,
+  TRANSCRIPT_FLUSH_MS,
   RpcCommandTimeoutError,
   deriveSidebarSessionState,
   isLateAckCommand,

@@ -38,7 +38,7 @@ function classify(file, target) {
     const escapedArch = escapeRegExp(arch);
     if (target.platform === "mac") {
       const match = file.name.match(
-        new RegExp(`^omp-ui-${version}-mac-preview-${escapedArch}\\.(dmg|zip)$`),
+        new RegExp(`^omp-ui-${version}-mac-${escapedArch}\\.(dmg|zip)$`),
       );
       if (match) return { arch, kind: match[1] };
     }

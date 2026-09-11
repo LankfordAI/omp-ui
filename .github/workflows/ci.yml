@@ -27,6 +27,7 @@ jobs:
       - run: npm run typecheck
       - run: node --test scripts/release-artifacts.test.mjs
       - run: node --test scripts/release-notes.test.mjs
+      - run: node --test scripts/close-landed-issues.test.mjs
       - run: npm test
       - run: npm run test:live
       - run: npm run build

@@ -35,8 +35,12 @@ import {
 
 /**
  * Focus and visibility both fire on a single alt-tab back into the window;
- * one short debounce collapses that pair into one network refresh. Staleness
- * beyond this is absorbed by the store's own freshness window.
+ * one short debounce collapses that pair into one network refresh. Checkout
+ * staleness is absorbed by the store's branch:changed subscription (#498):
+ * the owner's git handlers emit it, the owner's gitdir watcher catches
+ * terminal git, and a joiner re-stamps a host's event with the host's
+ * instance id. That path reads local refs only — the upstream network read
+ * this debounce exists for stays on the focus/menu paths.
  */
 const NETWORK_REFRESH_DEBOUNCE_MS = 250;
 

@@ -32,8 +32,8 @@ esac
 
 shopt -s nullglob
 dist="packages/desktop/dist"
-dmgs=("$dist"/*-mac-preview-"$arch".dmg)
-zips=("$dist"/*-mac-preview-"$arch".zip)
+dmgs=("$dist"/*-mac-"$arch".dmg)
+zips=("$dist"/*-mac-"$arch".zip)
 
 if (( ${#dmgs[@]} != 1 )); then
   printf 'Expected exactly one %s DMG, found %s\n' "$arch" "${#dmgs[@]}" >&2
@@ -93,7 +93,7 @@ if [[ -z "$actual_team" || "$actual_team" != "$expected_team" ]]; then
 fi
 codesign --verify --strict --verbose=2 "$pty"
 # Gatekeeper assessment and stapling only hold for notarized artifacts; a
-# signed-only preview (Apple Notary Service outage — issue #124) is still
+# signed-only build (Apple Notary Service outage — issue #124) is still
 # verified for signature integrity, identity, and team.
 if [[ "$mode" == "full" ]]; then
   spctl --assess --type execute --verbose=4 "$app"

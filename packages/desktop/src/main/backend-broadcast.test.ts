@@ -21,6 +21,13 @@ import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 const handlers = vi.hoisted(
   () => new Map<string, (e: unknown, ...args: unknown[]) => unknown>(),
 );
+const branchMock = vi.hoisted(() => ({
+  checkoutBranch: vi.fn(),
+  pullBranch: vi.fn(),
+  pushBranch: vi.fn(),
+  createBranch: vi.fn(),
+  mergeWorktreeBranch: vi.fn(),
+}));
 const resolveSessionLocationMock = vi.hoisted(() => vi.fn());
 const RpcClientMock = vi.mocked(RpcClient);
 
@@ -46,6 +53,8 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     resolveSessionLocation: resolveSessionLocationMock,
     RpcClient: vi.fn(),
     watchLineageDir: vi.fn(() => () => {}),
+    watchGitHead: vi.fn(async () => () => {}),
+    ...branchMock,
   };
 });
 
@@ -521,5 +530,93 @@ describe("dispatch and state builds (issue #301)", () => {
       noteDesktop.mockRestore();
       viewedChanged.mockRestore();
     }
+  });
+});
+
+// #498: a branch mutation that succeeded must answer with one branch:changed
+// so every client — this window, remote browsers, joined instances — re-reads
+// the checkout. A refused or stateless answer (rejected push, conflict) must
+// not, and none of it may ride the BackendState broadcast.
+describe("branch:changed emission (issue #498)", () => {
+  const branchEvents = (): unknown[][] =>
+    sent.filter((e) => e.channel === CH.onBranchChanged).map((e) => e.args);
+
+  it("a successful checkout emits exactly one event with [cwd, null]", async () => {
+    branchMock.checkoutBranch.mockResolvedValue(undefined);
+
+    await invoke(CH.checkoutBranch, "/p/a", "feature");
+
+    expect(branchEvents()).toEqual([["/p/a", null]]);
+    expect(broadcastStates()).toHaveLength(0);
+  });
+
+  it("a refused checkout emits nothing", async () => {
+    branchMock.checkoutBranch.mockRejectedValue(new Error("would overwrite local changes"));
+
+    await expect(invoke(CH.checkoutBranch, "/p/a", "feature")).rejects.toThrow(
+      "would overwrite local changes",
+    );
+
+    expect(branchEvents()).toEqual([]);
+  });
+
+  it("pull and create emit; a rejected push emits nothing and keeps the PushResult contract", async () => {
+    branchMock.pullBranch.mockResolvedValue(undefined);
+    await invoke(CH.pullBranch, "/p/a");
+    expect(branchEvents()).toEqual([["/p/a", null]]);
+
+    branchMock.createBranch.mockResolvedValue(undefined);
+    await invoke(CH.createBranch, "/p/b", "feature", "main");
+    expect(branchEvents()).toEqual([
+      ["/p/a", null],
+      ["/p/b", null],
+    ]);
+
+    branchMock.pushBranch.mockResolvedValue({
+      kind: "rejected",
+      remote: "origin",
+      detail: "non-fast-forward",
+    });
+    await expect(invoke(CH.pushBranch, "/p/a", "feature")).resolves.toMatchObject({
+      kind: "rejected",
+    });
+    expect(branchEvents()).toHaveLength(2);
+
+    branchMock.pushBranch.mockResolvedValue({
+      kind: "pushed",
+      remote: "origin",
+      upstreamRef: "origin/feature",
+      commits: 1,
+    });
+    await expect(invoke(CH.pushBranch, "/p/a", "feature")).resolves.toMatchObject({
+      kind: "pushed",
+    });
+    expect(branchEvents()).toEqual([
+      ["/p/a", null],
+      ["/p/b", null],
+      ["/p/a", null],
+    ]);
+  });
+
+  it("merge-back emits only on merged", async () => {
+    branchMock.mergeWorktreeBranch.mockResolvedValue({
+      kind: "conflicts",
+      destination: "main",
+      commits: 0,
+      files: ["a.ts"],
+      conflictsLeftIn: null,
+    });
+    await invoke(CH.mergeWorktreeBranch, "/p/a", "feature", "main");
+    expect(branchEvents()).toEqual([]);
+
+    branchMock.mergeWorktreeBranch.mockResolvedValue({
+      kind: "merged",
+      destination: "main",
+      commits: 2,
+      files: [],
+      conflictsLeftIn: null,
+    });
+    await invoke(CH.mergeWorktreeBranch, "/p/a", "feature", "main");
+    expect(branchEvents()).toEqual([["/p/a", null]]);
   });
 });

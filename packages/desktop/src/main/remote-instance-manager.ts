@@ -37,6 +37,9 @@ export interface RemoteInstanceManagerDeps {
   localVersion: string;
   /** Mirrors a remote tab event into local sinks unchanged (MainBackend.send). */
   send: (channel: string, args: unknown[]) => void;
+  /** Delivers to this app's Electron window(s) only, never into sinks (#498):
+   *  a converted event must not re-enter a socket relay and loop on a mutual join. */
+  sendToRenderers: (channel: string, args: unknown[]) => void;
   /** Rebuilds and fans out BackendState (MainBackend.broadcast). */
   broadcast: () => Promise<void>;
   /** Test seams. */
@@ -426,6 +429,15 @@ export class RemoteInstanceManager {
       if (hasProjects) this.#adopt(entry, projects as ProjectGroup[]);
       if (hasFavorites) entry.modelFavorites = this.#favorites(favorites);
       if (hasProjects || hasFavorites) this.#set(entry, {});
+      return;
+    }
+    // #498: a host branch:changed is host-scoped (instanceId null). Re-stamp it
+    // with this entry's id and deliver to local renderers only — sending it into
+    // the sink set would relay it to other instances and loop on mutual joins.
+    if (channel === "branch:changed") {
+      const projectCwd = args[0];
+      if (typeof projectCwd === "string")
+        this.deps.sendToRenderers(channel, [projectCwd, entry.record.id]);
       return;
     }
     if (REMOTE_TAB_EVENTS.has(channel)) this.deps.send(channel, args);

@@ -6,7 +6,7 @@
 import type { StoreApi } from "zustand";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { formatDuration } from "../../lib/duration";
-import { field } from "../../lib/fields";
+import { field, isObj } from "../../lib/fields";
 import {
   parseModelInfo,
   parseSessionRuntime,
@@ -66,6 +66,8 @@ export interface TabRuntime {
   lastFrameAt?: number;
   pendingNotices: PendingNotice[];
   transcriptBatch?: TranscriptBatch;
+  /** performance.now() of this tab's last visual transcript commit (issue #481). */
+  transcriptLastFlushAt?: number;
   slashCommandItems: Map<string, string>;
   streamStallTimer?: number;
   compactionUsageGeneration?: number;
@@ -361,6 +363,27 @@ export function resetTabRuntimesForTests(): void {
 export const STREAM_STALL_THRESHOLD_MS = 30_000;
 export const STREAM_STALL_TICK_MS = 1_000;
 
+/**
+ * Per-tab pending transcript commit (issues #187, #481). AgentSessionEvent
+ * frames are reduced eagerly onto the batch's `items` — the reduce is cheap
+ * and the watchers (plan concerns, advisor reply) read through
+ * {@link effectiveItems}, so semantics stay frame-exact. The Zustand commit
+ * that re-renders the transcript is bounded two ways. A batch opened by a
+ * lifecycle frame commits on the next animation frame, exactly as #187
+ * shipped. A batch opened by a stream-delta frame — text/thinking/toolcall
+ * argument deltas or growing tool partial output — waits until at least
+ * {@link TRANSCRIPT_FLUSH_MS} has passed since the tab's last visual commit,
+ * no matter what the display refresh rate offers: an uncapped visible stream
+ * otherwise pays a full Markdown re-parse, reconciliation, and follow-pin
+ * forced layout once per animation frame (#481). The wait is a plain timer
+ * that skips harmlessly while the document is hidden, with one rAF fast path
+ * that flushes paint-aligned once the cap has elapsed; hidden windows stay
+ * silent because the pending batch simply waits (the #187 property), and a
+ * lifecycle frame that lands on a capped batch flushes it immediately so
+ * settled state is never held behind the cap.
+ */
+export const TRANSCRIPT_FLUSH_MS = 100;
+
 /** Command responses nest their payload under `data`. */
 const respData = (resp: unknown): unknown =>
   resp !== null &&
@@ -426,15 +449,22 @@ export function createMachinery(
   };
 
   /**
-   * Per-tab pending transcript commit (issue #187). AgentSessionEvent frames
-   * are reduced eagerly onto the batch's `items` — the reduce is cheap and the
-   * watchers (plan concerns, advisor reply) read through {@link effectiveItems},
-   * so semantics stay frame-exact — but the Zustand commit that re-renders the
-   * transcript is coalesced to one per animation frame, with a timer fallback
-   * so a hidden window (rAF paused) still converges. One commit per burst
-   * instead of one per frame is what keeps the renderer able to service input.
+   * True for frames that can only grow the streaming tail: their commits are
+   * what the #481 cap throttles. Every other transcript frame is lifecycle —
+   * message/tool boundaries and turn ends — and keeps #187's next-frame flush.
    */
-  const TRANSCRIPT_FLUSH_MS = 50;
+  const isStreamDeltaFrame = (frame: unknown): boolean => {
+    if (!isObj(frame)) return false;
+    if (frame.type === "tool_execution_update") return true;
+    if (frame.type !== "message_update") return false;
+    const ame = frame.assistantMessageEvent;
+    return (
+      isObj(ame) &&
+      (ame.type === "text_delta" ||
+        ame.type === "thinking_delta" ||
+        ame.type === "toolcall_delta")
+    );
+  };
 
   /** Committed items plus anything reduced but not yet flushed. */
   const effectiveItems = (tabId: string): RenderItem[] =>
@@ -461,7 +491,63 @@ export function createMachinery(
     cancelTranscriptBatch(tabId);
     const tab = get().rpc[tabId];
     if (!tab || tab.items === batch.items) return;
+    patchRuntime(tabId, { transcriptLastFlushAt: performance.now() });
     patchRpc(tabId, { items: batch.items });
+  };
+
+  /** #187's arm, verbatim semantics: one commit on the next animation frame. */
+  const armLifecycleBatch = (tabId: string, batch: TranscriptBatch): void => {
+    if (typeof window.requestAnimationFrame === "function") {
+      batch.raf = window.requestAnimationFrame(() => {
+        batch.raf = undefined;
+        flushTranscriptBatch(tabId);
+      });
+    } else {
+      batch.timer = window.setTimeout(() => {
+        batch.timer = undefined;
+        flushTranscriptBatch(tabId);
+      }, TRANSCRIPT_FLUSH_MS);
+    }
+  };
+
+  /**
+   * #481's arm for a batch opened by stream deltas. The wake timer owns the
+   * cadence: it flushes when the document is visible, and skips (re-arming
+   * itself) while hidden, so a background stream paints nothing and converges
+   * within one wake after the window returns. The rAF fast path costs one
+   * callback per batch: it flushes when the cap has already elapsed, which
+   * also converges immediately on the visible edge; while the cap is unmet it
+   * is a no-op that never re-arms.
+   */
+  const armDeltaBatch = (tabId: string, batch: TranscriptBatch): void => {
+    const wake = (): void => {
+      batch.timer = undefined;
+      if (tabRuntimes.get(tabId)?.transcriptBatch === undefined) return;
+      // Store tests run under node, where no document exists at all; the
+      // repo's convention for renderer globals applies (themes.ts).
+      if (typeof document !== "undefined" && document.hidden) {
+        batch.timer = window.setTimeout(wake, TRANSCRIPT_FLUSH_MS);
+        return;
+      }
+      flushTranscriptBatch(tabId);
+    };
+    batch.timer = window.setTimeout(wake, TRANSCRIPT_FLUSH_MS);
+    if (typeof window.requestAnimationFrame === "function") {
+      batch.raf = window.requestAnimationFrame(() => {
+        batch.raf = undefined;
+        if (tabRuntimes.get(tabId)?.transcriptBatch === undefined) return;
+        // Hidden windows never paint from the fast path either (real rAF
+        // simply stops firing; this keeps that property deterministic). The
+        // wake timer owns the batch while hidden, and never re-arms rAF.
+        if (typeof document !== "undefined" && document.hidden) return;
+        const last = runtime(tabId).transcriptLastFlushAt;
+        if (
+          last === undefined ||
+          performance.now() - last >= TRANSCRIPT_FLUSH_MS
+        )
+          flushTranscriptBatch(tabId);
+      });
+    }
   };
 
   const queueTranscriptFrame = (
@@ -472,23 +558,19 @@ export function createMachinery(
     if (!get().rpc[tabId]) return;
     const reduced = reduceEvent(effectiveItems(tabId), frame);
     const items = stall ? [...reduced, stall] : reduced;
+    const streaming = isStreamDeltaFrame(frame);
     const current = runtime(tabId).transcriptBatch;
     if (current) {
       patchRuntime(tabId, { transcriptBatch: { ...current, items } });
+      // Settled state never waits behind a capped batch: a lifecycle frame
+      // ending a message, a tool, or a turn commits at once.
+      if (!streaming) flushTranscriptBatch(tabId);
       return;
     }
     const batch: TranscriptBatch = { items };
     patchRuntime(tabId, { transcriptBatch: batch });
-    if (typeof window.requestAnimationFrame === "function") {
-      batch.raf = window.requestAnimationFrame(() =>
-        flushTranscriptBatch(tabId),
-      );
-    } else {
-      batch.timer = window.setTimeout(
-        () => flushTranscriptBatch(tabId),
-        TRANSCRIPT_FLUSH_MS,
-      );
-    }
+    if (streaming) armDeltaBatch(tabId, batch);
+    else armLifecycleBatch(tabId, batch);
   };
 
   const appendItem = (tabId: string, item: RenderItem): void => {

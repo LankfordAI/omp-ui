@@ -68,6 +68,7 @@ export { batched } from "./pty-batch";
 export { settledWithin } from "./promise-utils";
 export { BLOCKING_DIALOG_METHODS, isBlockingDialogMethod } from "./extension-dialog";
 export { watchLineageDir, type LineageEvent } from "./watcher";
+export { watchGitHead, type WatchGitHeadOptions } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export {

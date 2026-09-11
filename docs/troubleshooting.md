@@ -83,7 +83,7 @@ Open Settings → Updates. Inspect the omp-ui and omp binary sections separately
 
 Choose **Re-offer** in the matching section. It clears that dismissal and immediately checks again. Use **Check now** when there is no dismissed row. A dismissal never suppresses a later version.
 
-See [Releases](releases.md) for the supported update paths on Linux and the Windows and macOS previews.
+See [Releases](releases.md) for the supported update paths on Linux and macOS and for the Windows preview.
 
 ## A session is absent from the sidebar
 
@@ -182,7 +182,7 @@ The Linux installer downloads `SHA256SUMS.txt` and verifies the AppImage automat
 
 ### Check
 
-Use assets only from the project's GitHub Releases page. Confirm the platform and architecture before installing. Linux AppImage is supported. Windows and macOS builds are previews; Windows is unsigned, while macOS previews are signed and notarized.
+Use assets only from the project's GitHub Releases page. Confirm the platform and architecture before installing. Linux AppImage and macOS builds are supported. Windows is an unsigned preview; macOS is signed and notarized.
 
 ### Fix
 
