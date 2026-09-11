@@ -17,12 +17,27 @@ import { Button, Chip, Modal } from "./ui";
  * generation counter discards stale responses (no debounce needed — local
  * readdir is cheap). Rows are ranked here with the shared scorer, and matched
  * characters are highlighted. Enter with no row selected registers the
- * resolved path; a selected row descends into it instead.
+ * resolved path; a selected row descends into it instead. Tab on a selected
+ * row descends the same way; with the cursor uncommitted it completes the
+ * leaf shell-style from the rows on screen (issue #492).
  */
 
 /** String dirname for display paths — the renderer must not import node:path. */
 function parentOf(p: string): string {
   return p.replace(/\/[^/]+\/?$/, "") || "/";
+}
+
+/** Longest common prefix of the recalled names, compared case-insensitively
+ * and spelled as in the first name so Tab inserts real characters. */
+function commonPrefix(names: string[]): string {
+  const first = names[0] ?? "";
+  let len = first.length;
+  for (const name of names) {
+    let i = 0;
+    while (i < len && name[i]?.toLowerCase() === first[i]?.toLowerCase()) i += 1;
+    len = i;
+  }
+  return first.slice(0, len);
 }
 
 /** A list row: the ".." parent link or a real directory entry. */
@@ -49,6 +64,11 @@ export function ProjectPicker() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const gen = useRef(0);
+  // Tab-completion cycle (#492): the options Tab walks through, pinned to
+  // the exact query and parent dir that produced them — the browse a
+  // completion triggers may error (a finished leaf recalls nothing), so the
+  // cycle must not read live state. Typing ends it: the query changes.
+  const cycle = useRef<{ query: string; base: string; options: string[]; pos: number } | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -78,7 +98,9 @@ export function ProjectPicker() {
   // Fuzzy recall comes from the backend; ranking reuses the shared scorer so
   // the picker matches exactly like every other palette. Array.prototype.sort
   // is stable, so equal scores keep the backend's alphabetical order.
-  const dirs = leaf === ""
+  // In dirMode the leaf is the descended directory's own name ("~" when the
+  // query is bare) — never a filter over that directory's children.
+  const dirs = trailingSep || leaf === ""
     ? entries.map((entry) => ({ entry, hits: [] as number[], score: 0 }))
     : entries.flatMap((entry) => {
         const hit = fuzzyMatch(entry.name, leaf);
@@ -98,6 +120,56 @@ export function ProjectPicker() {
     } else {
       setQuery(`${row.entry.fullPath}/`);
     }
+  };
+
+  // Shell-style Tab completion of the leaf from the rows on screen (#492).
+  // One candidate completes to its real fullPath and descends — never query
+  // text. Several candidates first insert their longest common prefix (when
+  // it extends what was typed), then cycle in place under the resolved
+  // parent; Enter registers a cycled name via `exact`. The cycle list is
+  // pinned to the query that produced it — later browses recall fewer rows
+  // (a complete name matches only itself), so continuing must not re-derive
+  // candidates from them. Shift+Tab cycles backwards; typing ends the cycle
+  // because the pinned query stops matching.
+  const complete = (back = false): void => {
+    const state =
+      cycle.current !== null && cycle.current.query === query ? cycle.current : null;
+    if (state !== null) {
+      const n = state.options.length;
+      state.pos = (state.pos + (back ? -1 : 1) + n) % n;
+      const next = `${state.base}${state.options[state.pos]}`;
+      cycle.current = { query: next, base: state.base, options: state.options, pos: state.pos };
+      setQuery(next);
+      return;
+    }
+
+    if (browseError !== null) return;
+    const candidates = dirs.map((d) => d.entry);
+    if (candidates.length === 0) return;
+    if (candidates.length === 1) {
+      setQuery(`${candidates[0].fullPath}/`);
+      return;
+    }
+    // dirMode: the rows ARE the listing a shell would print; inserting a child
+    // name the user never began typing would complete nothing. Pick a row
+    // (ArrowDown+Tab/Enter) instead.
+    if (trailingSep || leaf === "") return;
+    const names = candidates.map((c) => c.name);
+    const cp = commonPrefix(names);
+    // The prefix only inserts when it extends what was typed; a fuzzy leaf
+    // ("al" vs alpha/axle) shares none, so Tab goes straight to cycling.
+    const extendsTyped =
+      cp.length > leaf.length && cp.slice(0, leaf.length).toLowerCase() === leaf.toLowerCase();
+    const options: string[] = [];
+    for (const name of extendsTyped ? [cp, ...names] : names) {
+      if (!options.some((o) => o.toLowerCase() === name.toLowerCase())) options.push(name);
+    }
+
+    const pos = back ? options.length - 1 : 0;
+    const base = parentPath === "/" ? "/" : `${parentPath}/`;
+    const next = `${base}${options[pos]}`;
+    cycle.current = { query: next, base, options, pos };
+    setQuery(next);
   };
 
   const submit = (path: string): void => {
@@ -128,6 +200,18 @@ export function ProjectPicker() {
     onEnter: consumeEnter,
   });
 
+  // The shared engine consumes Tab only when a row is selected (descend);
+  // with the cursor uncommitted, Tab belongs to completion. Even when there
+  // is nothing to complete the key is swallowed, so focus never walks to the
+  // modal's close button (#23).
+  function handleInputKey(event: ReactKeyboardEvent): void {
+    if (handleKey(event)) return;
+    if (event.key === "Tab") {
+      event.preventDefault();
+      complete(event.shiftKey);
+    }
+  }
+
   return (
     <Modal onClose={closeProjectPicker} width="w-[34rem]">
       {nickname !== null && (
@@ -152,7 +236,7 @@ export function ProjectPicker() {
           placeholder="~/path/to/project"
           aria-label={t("project.picker.pathLabel")}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKey}
+          onKeyDown={handleInputKey}
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
         />
         {!compact && <Chip mono>{formatHotkey("escape")}</Chip>}

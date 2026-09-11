@@ -1312,7 +1312,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.picker.addProject": "프로젝트 추가",
   "project.picker.navigate": "이동",
   "project.picker.openAdd": "열기/추가",
-  "project.picker.open": "열기",
+  "project.picker.open": "열기/완성",
   "project.picker.addTypedPath": "입력한 경로 추가",
 
   "project.open.files": "파일",

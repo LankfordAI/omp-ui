@@ -1438,7 +1438,7 @@ export const en = {
   "project.picker.addProject": "Add project",
   "project.picker.navigate": "navigate",
   "project.picker.openAdd": "open/add",
-  "project.picker.open": "open",
+  "project.picker.open": "open/complete",
   "project.picker.addTypedPath": "add typed path",
 
   "project.open.files": "Files",
