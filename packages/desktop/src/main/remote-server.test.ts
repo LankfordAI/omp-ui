@@ -119,7 +119,11 @@ afterEach(async () => {
   // killAll fires remote.stop() without awaiting; drain the manager's chain so the next test
   // does not race a closing listener onto its own port.
   await invoke(CH.setRemoteEnabled, false);
-  fs.rmSync(base, { recursive: true, force: true });
+  // addProject starts the project's gitdir probe (#498) without awaiting it, so a git child whose
+  // cwd is `base` can still be running here. Windows refuses to remove a live process's cwd and
+  // answers EBUSY; POSIX unlinks it regardless, which is why only the Windows lane sees this. Retry
+  // until the probe exits — the budget git.test.ts and worktree.test.ts use for the same race (#503).
+  fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe("remote server lifecycle", () => {
@@ -217,7 +221,8 @@ describe("remote server lifecycle", () => {
       ws.once("message", onMessage);
     });
 
-    // Any registry mutation broadcasts; addProject is the cheapest one with no child process.
+    // Any registry mutation broadcasts; addProject is the cheapest one that spawns no session. It
+    // does start the project's gitdir probe (#498), whose git child the afterEach must outwait (#503).
     await invoke(CH.addProject, base);
     const ev = await frame;
     expect(ev.t).toBe("ev");
