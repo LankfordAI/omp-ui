@@ -645,7 +645,7 @@ describe("mergeWorktreeBranch", () => {
     const parents = (await git(dir, ["log", "--format=%P", "-1", "main"])).trim().split(" ");
     expect(parents).toEqual([before, tip]);
     expect((await git(dir, ["log", "--format=%B", "-1", "main"])).trim()).toBe(
-      `Merge ${branch} into main (2 commits)\n\n- one\n- two (Fixes #7)\n\nFixes #7`,
+      `Merge work into main (2 commits)\n\n- one\n- two (Fixes #7)\n\nFixes #7`,
     );
   });
 
@@ -668,7 +668,7 @@ describe("mergeWorktreeBranch", () => {
       conflictsLeftIn: null,
     });
     expect((await git(dir, ["log", "--format=%B", "-1", "main"])).trim()).toBe(
-      `Merge ${branch}: fix: only change\n\nFixes #12`,
+      `fix: only change\n\nFixes #12`,
     );
   });
 
@@ -688,7 +688,7 @@ describe("mergeWorktreeBranch", () => {
 
     expect(result.kind).toBe("merged");
     expect((await git(dir, ["log", "--format=%B", "-1", "main"])).trim()).toBe(
-      `Merge ${branch}: one`,
+      "one",
     );
   });
 
@@ -739,7 +739,7 @@ describe("mergeWorktreeBranch", () => {
     expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
     // The generated message waits for the user's `git merge --continue`.
     expect(fs.readFileSync(path.join(dir, ".git", "MERGE_MSG"), "utf8")).toContain(
-      `Merge ${branch} into main (2 commits)`,
+      `Merge work into main (2 commits)`,
     );
   });
 

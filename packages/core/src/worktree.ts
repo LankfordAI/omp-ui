@@ -680,7 +680,7 @@ async function readDestinationPushFacts(
 /**
  * Full messages of the non-merge commits `destination` lacks, oldest first.
  * NUL-delimited so bodies with blank lines survive the split. Never fatal: a
- * failed read degrades to a bare "Merge <branch> into <destination>" subject
+ * failed read degrades to a bare "Merge work into <destination>" subject
  * rather than blocking the merge.
  */
 async function foldedCommitMessages(
@@ -709,7 +709,8 @@ async function foldedCommitMessages(
 /**
  * Runs the merge of `branch` into the current branch of `cwd`: one `--no-ff`
  * merge commit whose message records the session's work (issue #333) — the
- * folded commits' subjects and every closing reference they carry. A
+ * folded commits' subjects and every closing reference they carry — never the
+ * worktree branch name, which is local-only scaffolding (issue #490). A
  * fast-forward would leave no trace that a worktree session landed — and
  * finishing a worktree deletes the branch — so the merge commit is the only
  * durable record. Conflicts are detected by the `--diff-filter=U` probe and
@@ -724,7 +725,6 @@ async function mergeInto(
     (await git(cwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
   );
   const message = buildMergeMessage({
-    branch,
     destination,
     messages: await foldedCommitMessages(cwd, destination, branch),
   });

@@ -350,8 +350,8 @@ export function useFinishWorktree(tabId: string): FinishController {
       target = name;
     }
 
-    // 2. Rename before any merge, so the merge commit subject names the final
-    // branch (issue #386). A slice-reported failure just returns to idle.
+    // 2. Rename before any merge, so the surviving branch and its record carry
+    // the final name (issue #386). A slice-reported failure just returns to idle.
     const renameTo = rename.trim();
     if (outcome === "keep" && renameTo !== "" && renameTo !== branch) {
       setPhase({ s: "working", step: "renaming" });
