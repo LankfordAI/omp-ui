@@ -4,13 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Settings → Updates gains an *Update train* choice — stable, the default, or nightly: the nightly train follows the rolling `nightly` prerelease through its own update feeds, the prerelease flag keeps nightlies off the stable train, and switching trains is reversible — the remembered dismissal clears, a staged `Install when I quit` disarms, and a quiet re-check runs on the new train ([#493](https://github.com/LankfordAI/omp-ui/issues/493)).
-- Adding a project now recalls like every other palette: the picker's rows match a case-insensitive subsequence on the path's leaf, arrive ranked and highlighted by the shared fuzzy matcher, and a selection still descends by the row's real path ([#483](https://github.com/LankfordAI/omp-ui/issues/483)).
-- Tab in the project picker's path input completes the leaf like a shell: a unique match descends into it, several matches first insert their longest common prefix and then cycle in place (Shift+Tab backwards), the cycle is pinned to the listing the current query answered so a stale browse can never sink it, and Tab with nothing to complete is swallowed so focus stays in the input ([#492](https://github.com/LankfordAI/omp-ui/issues/492)).
-- Finishing a worktree session by merge no longer embeds the machine-local worktree branch name (`<project>/<base>/<hash>`) in the merge commit's subject: a single folded commit lends its own subject verbatim, clipped to 200 characters, a multi-commit fold reads `Merge work into <destination> (N commits)`, and the branch stays recoverable from the merge's second parent, so destination history keeps its conventional-commit shape ([#490](https://github.com/LankfordAI/omp-ui/issues/490)).
-- The nightly workflow's meta job no longer dies on a first dispatch — `gh` now runs with `GH_TOKEN`, and the latest-stable lookup no longer calls the nonexistent `gh release view --latest` flag — so a dispatch resolves its ref and bases the nightly version on the real latest stable ([#496](https://github.com/LankfordAI/omp-ui/issues/496), [#497](https://github.com/LankfordAI/omp-ui/issues/497)).
-
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.12.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.2). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
