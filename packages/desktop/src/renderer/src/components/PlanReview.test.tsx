@@ -778,6 +778,58 @@ describe("PlanReview worktree execution context (issue #313)", () => {
     expect(second).not.toBe(first);
   });
 
+  it("routes the worktree fields to the owning remote instance (issue #488)", async () => {
+    const INSTANCE = "inst-remote";
+    const local = stateWithSessions({ "local-tab": "Local planning session" });
+    const remoteProject = {
+      ...local.projects[0]!,
+      sessions: [{ ...sessionRecord(TAB, "Remote planning session"), worktree: null }],
+    };
+    // The joiner's local git has no such repo: emptyBranchList() shape
+    // (packages/core/src/branches.ts).
+    backendMock.listBranches.mockResolvedValue({
+      ...branches,
+      repoRoot: null,
+      current: null,
+      branches: [],
+      defaultBranch: null,
+    });
+    backendMock.remoteInstanceRequest.mockImplementation(async (_id, channel) => {
+      if (channel === "branch:list") return branches;
+      if (channel === "advisor:defaults") return { enabled: false, model: null };
+      return null;
+    });
+    useStore.setState({
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p", instanceId: INSTANCE })],
+      advisorDefaults: {},
+      branches: {},
+      rpc: { [TAB]: tabState() },
+      state: {
+        ...local,
+        remoteInstances: [remoteInstance({ id: INSTANCE, projects: [remoteProject] })],
+      },
+    });
+    render();
+    // The owning host's listing must land (via useExecutionBranch's mount
+    // refresh) before the worktree context row unlocks.
+    await act(async () => {});
+    await act(async () => {});
+    await act(async () => contextRow("worktree session").click());
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "branch:list",
+      ["/p", undefined],
+    );
+    const base = document.body.querySelector<HTMLSelectElement>("#plan-worktree-base")!;
+    expect([...base.options].map((o) => o.textContent)).toContain("feature/y");
+    expect(
+      document.body.querySelector<HTMLInputElement>("#plan-worktree-branch")!.value,
+    ).toMatch(/^p\/main\/[0-9a-f]{8}$/);
+  });
+
   it("picking the worktree context from a worktree planning session prefills the planning branch and hides the base (issue #316)", async () => {
     seed({ [TAB]: { path: "/wt/planning", branch: "omp-ui/planning1", base: "main" } });
     render();
