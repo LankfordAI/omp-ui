@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
+  BranchList,
   LiveState,
   OmpSettingsSnapshot,
   RemoteState,
@@ -745,5 +746,74 @@ describe("remote instance tabs (issue #416)", () => {
     expect(st.activeTabId).toBeNull();
     expect(st.rpc[RPC]).toBeUndefined();
     expect(st.focusedTabByProject).toEqual({});
+  });
+});
+// #498: the store listens for branch:changed and re-reads local refs for the
+// project whose checkout moved — never the network, and never a project it
+// holds no snapshot of (that chip fetches on mount).
+describe("branch:changed subscription (issue #498)", () => {
+  const list = (current: string): BranchList => ({
+    repoRoot: "/p",
+    current,
+    branches: [current],
+    defaultBranch: "main",
+    upstreamRef: null,
+    upstreamRemote: null,
+    hasUpstream: false,
+    ahead: 0,
+    behind: 0,
+    upstreamFetchedAt: null,
+    upstreamRefreshError: null,
+    defaultRemote: null,
+  });
+
+  // A fresh module per test: init() latches per evaluation.
+  async function subscribed(branches: Record<string, BranchList>) {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    fresh.setState({ branches });
+    await fresh.getState().init();
+    const onBranch = h.mockBackend.onBranchChanged.mock.calls[0]![0] as (
+      projectCwd: string,
+      instanceId: string | null,
+    ) => void;
+    return { fresh, onBranch };
+  }
+
+  it("a host event refreshes the local snapshot with local refs only", async () => {
+    const { fresh, onBranch } = await subscribed({ "/p": list("main") });
+    h.mockBackend.listBranches.mockResolvedValue(list("feature"));
+
+    onBranch("/p", null);
+
+    await vi.waitFor(() => expect(fresh.getState().branches["/p"]?.current).toBe("feature"));
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: false });
+  });
+
+  it("a re-stamped joined-instance event routes through the proxy", async () => {
+    const INSTANCE = "inst-a";
+    const { fresh, onBranch } = await subscribed({ [`${INSTANCE}::/p`]: list("main") });
+    h.mockBackend.remoteInstanceRequest.mockResolvedValue(list("feature"));
+
+    onBranch("/p", INSTANCE);
+
+    await vi.waitFor(() =>
+      expect(fresh.getState().branches[`${INSTANCE}::/p`]?.current).toBe("feature"),
+    );
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(INSTANCE, "branch:list", [
+      "/p",
+      { fetchUpstream: false },
+    ]);
+  });
+
+  it("a project with no snapshot triggers no git call", async () => {
+    const { onBranch } = await subscribed({});
+
+    onBranch("/p", null);
+    onBranch("/p", "inst-a");
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).not.toHaveBeenCalled();
   });
 });

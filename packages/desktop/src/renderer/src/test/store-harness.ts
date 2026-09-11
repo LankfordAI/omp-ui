@@ -126,6 +126,7 @@ const mockBackend = {
   reportStallCap: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
+  onBranchChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
   onSessionHibernated: vi.fn(),
