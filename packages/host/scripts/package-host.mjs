@@ -316,7 +316,8 @@ async function buildSea(nodeBinary, laneName, layout) {
 }
 
 function copyTree(from, to, filter) {
-  fs.cpSync(from, to, { recursive: true, filter });
+  // Framework links must stay relative when the host seed moves into a desktop bundle.
+  fs.cpSync(from, to, { recursive: true, filter, verbatimSymlinks: true });
 }
 
 /**
@@ -519,11 +520,12 @@ function archive(laneName, out, seed) {
   const name = `omp-ui-host-${version}-${laneName}.${lane.archive}`;
   const file = path.join(out, name);
   fs.rmSync(file, { force: true });
+  const input = path.relative(out, seed);
   if (lane.archive === "tar.gz") {
-    run("tar", ["-czf", file, "-C", seed, version]);
+    run("tar", ["-czf", name, "-C", input, version], { cwd: out });
   } else {
     // bsdtar (macOS, Windows 10+) picks the zip format from the suffix.
-    run("tar", ["-a", "-cf", file, "-C", seed, version]);
+    run("tar", ["-a", "-cf", name, "-C", input, version], { cwd: out });
   }
   log(`archived ${path.relative(hostRoot, file)} (${fs.statSync(file).size} bytes)`);
   return file;
