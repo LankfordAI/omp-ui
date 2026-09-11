@@ -362,6 +362,8 @@ function packageNodePty(nodeBinary, laneName, layout) {
     }
 
     const dest = path.join(layout, "lib", "node-pty");
+    fs.mkdirSync(dest, { recursive: true });
+    fs.copyFileSync(path.join(source, "package.json"), path.join(dest, "package.json"));
     copyTree(path.join(copy, "lib"), path.join(dest, "lib"), (source) => {
       return !source.endsWith(".test.js") && !source.endsWith(".js.map") && !source.endsWith(".d.ts");
     });
