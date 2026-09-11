@@ -902,6 +902,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
                   <WorktreeBranchFields
                     projectCwd={projectCwd}
+                    instanceId={instanceId}
                     branch={worktreeSel.branch}
                     onBranchChange={(b) =>
                       setWorktreeSel((prev) => (prev === null ? prev : { ...prev, branch: b }))

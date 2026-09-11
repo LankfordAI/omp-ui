@@ -27,6 +27,7 @@ const fixture: BranchList = {
 
 const backendMock = {
   listBranches: vi.fn(async () => fixture),
+  remoteInstanceRequest: vi.fn(async () => fixture),
   checkoutBranch: vi.fn(async () => {}),
   pullBranch: vi.fn(async () => {}),
   // Push answers git state through a structured result, never a rejection.
@@ -502,6 +503,37 @@ describe("BranchChip", () => {
       });
       expect(backendMock.listBranches).toHaveBeenCalledTimes(1);
       expect(backendMock.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("routes the focus refresh to the owning remote instance (issue #488)", async () => {
+    const INSTANCE = "inst-remote";
+    // Pre-populated remote key: the mount refresh stays quiet, only focus fires.
+    useStore.setState({ branches: { [`${INSTANCE}::/p`]: fixture } });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root!.render(<BranchChip projectCwd="/p" instanceId={INSTANCE} />));
+
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+      expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+        INSTANCE,
+        "branch:list",
+        ["/p", { fetchUpstream: true }],
+      );
+      expect(backendMock.listBranches).not.toHaveBeenCalled();
     } finally {
       visibility.mockRestore();
       vi.useRealTimers();

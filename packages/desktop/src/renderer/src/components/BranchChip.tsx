@@ -188,7 +188,7 @@ export function BranchChip({
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         timer = undefined;
-        void refreshBranches(projectCwd, { fetchUpstream: true });
+        void refreshBranches(projectCwd, { fetchUpstream: true }, instanceId);
       }, NETWORK_REFRESH_DEBOUNCE_MS);
     };
     window.addEventListener("focus", scheduleNetworkRefresh);
@@ -198,7 +198,7 @@ export function BranchChip({
       window.removeEventListener("focus", scheduleNetworkRefresh);
       document.removeEventListener("visibilitychange", scheduleNetworkRefresh);
     };
-  }, [projectCwd, refreshBranches]);
+  }, [projectCwd, instanceId, refreshBranches]);
 
   // Click-outside / Escape dismissal (issue #114), matching the terminal menu
   // in Sidebar.tsx. The trigger is *inside* rootRef, so a click on it is not an
