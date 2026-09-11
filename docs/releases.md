@@ -6,7 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - macOS release artifacts are named `omp-ui-<version>-mac-<arch>.dmg`/`.zip`, dropping the vestigial `-preview-` token, and macOS is documented as a supported release platform (#500).
 
-Nothing since [v0.12.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
@@ -66,7 +66,7 @@ Continue only when the selected file reports `OK`.
 
 ## How application updates behave
 
-Packaged Linux, Windows, and macOS builds check the latest stable GitHub release in the background at launch when the omp-ui launch check is enabled. The command palette can run the check on demand. Drafts and prereleases do not qualify. Background lookup, metadata, and download failures stay silent, as do no-update results. An on-demand check reports its staging progress and failures. Development builds and builds without a valid stamped version do not check.
+Packaged Linux, Windows, and macOS builds check their update train in the background at launch when the omp-ui launch check is enabled: the stable train, the default, reads the latest stable GitHub release, and the nightly train reads the rolling `nightly` prerelease (Settings → Updates, *Update train*). The command palette can run the check on demand. Drafts and prereleases never qualify for the stable train. Background lookup, metadata, and download failures stay silent, as do no-update results. An on-demand check reports its staging progress and failures. Development builds and builds without a valid stamped version do not check.
 
 AppImage, NSIS, and macOS installs use `electron-updater`. A background check downloads and verifies a newer release before the update card appears:
 
@@ -77,7 +77,7 @@ AppImage, NSIS, and macOS installs use `electron-updater`. A background check do
 A staged update does not install silently. `Restart now` asks for confirmation when live sessions exist, then quits, installs, and relaunches. `Install when I quit` arms the staged update for the next natural quit and can be undone. A natural quit still goes through the live-session quit guard. Once the user confirms a quit, omp-ui stops its processes; neither update choice preserves running work.
 On macOS, the wrapper download completes before Squirrel.Mac finishes its native preparation. After `Restart now`, omp-ui immediately displays `Applying update…` and removes the update actions. The app may remain open for several minutes while a large ZIP is prepared, then quits and relaunches automatically. A native preparation failure remains visible as an update error instead of leaving an apparently inert restart control.
 
-`Later` on an available offer remembers that release version during background checks. After an auto-updatable package is staged, `Later` only hides the ready card; it does not remove the staged download or undo `Install when I quit`. A manual check bypasses a remembered dismissal.
+`Later` on an available offer remembers that release version during background checks. After an auto-updatable package is staged, `Later` only hides the ready card; it does not remove the staged download or undo `Install when I quit`. A manual check bypasses a remembered dismissal. Switching trains clears a remembered dismissal, disarms `Install when I quit`, and re-checks quietly on the new train, so a switch always offers rather than reporting a false up to date.
 
 ### Legacy Linux installs
 
@@ -108,14 +108,16 @@ stable release, never the tree version. The files are delivered two ways: as
 14-day run artifacts, and on one rolling *prerelease* GitHub Release named
 `nightly`, which each run deletes and recreates at the packaged commit.
 
-Nightlies never touch an update channel. Drafts and prereleases do not qualify
-for any feed, as stated above, so the `nightly` release is invisible to
-`releases/latest`, to `packaging/install.sh`, and to the app's update check; the
-workflow uploads no feed files at all — not even the blockmaps and `latest*.yml`
-metadata that a stable release carries — and asserts this boundary before
-finishing. A nightly's version prefix equals the latest stable, so its update
-check compares equal and reports "no update available" until a newer stable
-ships.
+The `nightly` release carries the update feeds a stable release carries —
+`latest-linux.yml`, `latest.yml`, `latest-mac.yml`, and the NSIS blockmap — so
+the nightly train's in-app check and staged installs work end to end; the
+workflow asserts the feeds are present before finishing. The prerelease flag,
+not feed absence, is what keeps nightlies off the stable train: the `nightly`
+release stays invisible to `releases/latest`, to `packaging/install.sh`, and
+to the stable train's update check. A nightly's version prefix equals the
+latest stable, so the stable train's check compares equal and reports "no
+update available" until a newer stable ships; the nightly train's ordering
+instead ranks each newer nightly ahead and offers it (issue #493).
 
 ## Publish a release
 
