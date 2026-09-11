@@ -220,6 +220,9 @@ npm run lint
 npm install --package-lock-only
 git diff --exit-code package-lock.json
 npm run typecheck
+node --test scripts/release-artifacts.test.mjs
+node --test scripts/release-notes.test.mjs
+node --test scripts/close-landed-issues.test.mjs
 npm test
 npm run test:live
 npm run build

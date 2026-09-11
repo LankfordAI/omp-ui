@@ -1,0 +1,58 @@
+name: Close Landed Issues
+
+# Keyword auto-close is hard-wired to the default branch (issue #501), so a
+# merge into `develop` — the nightly train — would otherwise leave its issues
+# open until the promotion to `main`. Replaying `main` is a no-op safety net:
+# the script skips issues GitHub already closed.
+
+on:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: close-landed-issues-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  close:
+    # A branch-deletion push carries a ref that cannot be checked out.
+    if: ${{ github.event.deleted == false }}
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The landing range is only resolvable with real history.
+          fetch-depth: 0
+      - name: Resolve the landing range
+        id: range
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # A branch creation reports an all-zero `before`, and a force-push
+          # may not have the old tip in the fetched history; neither has a
+          # meaningful landing range, so skip rather than replay history.
+          if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] ||
+             ! git rev-parse --verify -q "${BEFORE}^{commit}" >/dev/null; then
+            echo "no landing range for this push (before=${BEFORE:-unset}) — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "range=${BEFORE}..${AFTER}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Close issues whose keywords landed
+        if: ${{ steps.range.outputs.skip == 'false' }}
+        shell: bash
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+          BRANCH: ${{ github.ref_name }}
+        run: node scripts/close-landed-issues.mjs --range "$RANGE" --branch "$BRANCH"
