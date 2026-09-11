@@ -7,6 +7,14 @@ on:
         description: Package version, with or without a leading v.
         required: true
         type: string
+      ref:
+        description: >-
+          Git ref (SHA preferred) to check out. Empty keeps the caller's
+          context commit; a nightly passes the packaged SHA so the lane steps
+          and the tree both come from that ref (issue #480).
+        required: false
+        type: string
+        default: ""
       notarize:
         description: Notarize and staple the signed package.
         required: true
@@ -35,6 +43,8 @@ jobs:
           TARGETS: ${{ inputs.targets }}
         run: echo "value=$TARGETS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22

@@ -401,7 +401,9 @@ export async function runCli(argv) {
     blob: (target) => `https://github.com/${repo}/blob/${tag}/${target}`,
   };
 
-  const previousTag = gitOrEmpty("describe", "--tags", "--abbrev=0", `${tag}^`).trim();
+  // Nightly builds recreate a `nightly` tag on trunk commits (issue #480);
+  // only stable v-tags may anchor a notes range.
+  const previousTag = gitOrEmpty("describe", "--tags", "--match", "v*", "--abbrev=0", `${tag}^`).trim();
   const range = previousTag ? `${previousTag}..${tag}` : tag;
 
   const records = git("log", "--format=%H%x1f%an%x1f%s%x1f%P%x1e", range).split("\x1e");

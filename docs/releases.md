@@ -95,6 +95,26 @@ omp-ui updates its managed `omp` binary separately from the desktop application.
 
 The binary never downloads without that click. omp-ui downloads to a temporary path, verifies that the candidate runs as `omp --version`, and atomically replaces the managed copy. A failure leaves the previous binary in place. Live sessions keep the binary they already started with; only new sessions use the installed version. The omp and omp-ui launch checks have separate switches.
 
+### Nightly builds
+
+The [Nightly workflow](../.github/workflows/nightly.yml) is manual-dispatch only:
+nothing schedules it, and no push or pull request triggers it. A dispatch resolves
+its `ref` input (default `main`) to one commit and packages that tip for Linux
+x64, Windows x64, and macOS arm64/x64 under the version
+`<latest-stable>-nightly.<UTC date>.<short SHA>` — the base follows the latest
+stable release, never the tree version. The files are delivered two ways: as
+14-day run artifacts, and on one rolling *prerelease* GitHub Release named
+`nightly`, which each run deletes and recreates at the packaged commit.
+
+Nightlies never touch an update channel. Drafts and prereleases do not qualify
+for any feed, as stated above, so the `nightly` release is invisible to
+`releases/latest`, to `packaging/install.sh`, and to the app's update check; the
+workflow uploads no feed files at all — not even the blockmaps and `latest*.yml`
+metadata that a stable release carries — and asserts this boundary before
+finishing. A nightly's version prefix equals the latest stable, so its update
+check compares equal and reports "no update available" until a newer stable
+ships.
+
 ## Publish a release
 
 The [release workflow](../.github/workflows/release.yml) runs for every pushed `v*` tag. The [electron-builder configuration](../packages/desktop/electron-builder.yml) defines the platform targets and the explicit Windows and macOS names. `packaging/install.sh` defines the AppImage name expected by the supported Linux installer.
@@ -104,7 +124,7 @@ The tag is the release version. Each platform job strips its leading `v`, compar
 The jobs run in this order:
 
 1. `release-linux` runs first on the self-hosted Linux runner. It installs dependencies, runs the repository typecheck and tests, stamps the version, builds the AppImage, and requires exactly one AppImage plus a `latest-linux.yml` that names it and contains SHA-512 metadata. It creates the GitHub release as a **draft** if it does not exist yet, with `--verify-tag`, a title equal to the version without `v`, and empty notes. It then uploads the AppImage and Linux metadata.
-2. `release-notes` depends on `release-linux`, so it starts once the draft exists and runs while the macOS and Windows builds are in flight. It checks out the full history, resolves the previous tag with `git describe --tags --abbrev=0 <tag>^`, lists the PRs merged between the two tags, groups commits by the issue or PR their subjects reference, lifts the tag's `## Unreleased` bullets into `## Highlights`, and writes the result into the draft. A failure of this job never blocks publishing: a published release with no notes beats a finished release stranded in draft, where the updater cannot see it.
+2. `release-notes` depends on `release-linux`, so it starts once the draft exists and runs while the macOS and Windows builds are in flight. It checks out the full history, resolves the previous tag with `git describe --tags --match "v*" --abbrev=0 <tag>^` (the `v*` match keeps the rolling `nightly` tag of issue #480 out of the range math), lists the PRs merged between the two tags, groups commits by the issue or PR their subjects reference, lifts the tag's `## Unreleased` bullets into `## Highlights`, and writes the result into the draft. A failure of this job never blocks publishing: a published release with no notes beats a finished release stranded in draft, where the updater cannot see it.
 3. `release-macos` and `release-windows` both depend on `release-linux`, so they start only after Linux succeeds and may run concurrently.
 4. `release-macos` expands to Apple Silicon and Intel jobs. Each installs dependencies, runs the macOS fd-sweep test, stamps the version, rebuilds `node-pty` for its architecture, and packages one DMG and one ZIP. Packaging uses the Developer ID certificate from `CSC_LINK` and `CSC_KEY_PASSWORD`. The release command disables electron-builder's built-in one-attempt notarization. A retrying `notarytool` script then submits the DMG with the Apple credentials, staples the app and DMG, and rebuilds the ZIP around the stapled app. Verification requires one thin app and native module for the requested architecture, a valid Developer ID signature from `APPLE_TEAM_ID`, Gatekeeper acceptance, and a valid app staple. Each job uploads its DMG, ZIP, and architecture-specific SHA-256 manifest.
 5. `release-windows` installs dependencies, runs the core and desktop Windows tests, stamps the version, ensures the required Spectre-mitigated MSVC libraries exist, rebuilds `node-pty` for Electron x64, and packages NSIS with certificate discovery disabled. Verification requires the unpacked app, x64 native modules, and ConPTY support files. The job then requires exactly one installer, its matching blockmap, and a `latest.yml` that names the installer and contains SHA-512 metadata before uploading all three. It performs no Authenticode signing; this is the unsigned preview accepted by [ADR-0015](adr/0015-unsigned-windows-nsis-preview.md).
