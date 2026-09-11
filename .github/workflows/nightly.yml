@@ -52,6 +52,7 @@ jobs:
         shell: bash
         env:
           GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
@@ -64,7 +65,7 @@ jobs:
           # version (it lags between tags on the trunk): stamped as
           # <stable>-nightly.<date>.<sha>, the app's update check compares equal
           # to stable and reports "no update available".
-          base="$(gh release view --latest --json tagName --jq .tagName)" || base=""
+          base="$(gh release view --json tagName --jq .tagName)" || base=""
           base="${base#v}"
           if [ -z "$base" ]; then
             base="$(gh api "repos/${GH_REPO}/contents/packages/desktop/package.json?ref=${sha}" --jq .content \
@@ -249,7 +250,7 @@ jobs:
           # the previous nightly's code. First run falls back to latest stable.
           prev="$(git ls-remote origin refs/tags/nightly | cut -f1)"
           if [ -z "$prev" ]; then
-            stable_tag="$(gh release view --latest --json tagName --jq .tagName)"
+            stable_tag="$(gh release view --json tagName --jq .tagName)"
             prev="$(git ls-remote origin "refs/tags/${stable_tag}" | cut -f1)"
           fi
           {
