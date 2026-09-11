@@ -29,10 +29,10 @@ const fixtures = {
   mac: {
     target: { platform: "mac", version, arches: ["arm64", "x64"] },
     names: [
-      "omp-ui-1.2.3-mac-preview-arm64.dmg",
-      "omp-ui-1.2.3-mac-preview-arm64.zip",
-      "omp-ui-1.2.3-mac-preview-x64.dmg",
-      "omp-ui-1.2.3-mac-preview-x64.zip",
+      "omp-ui-1.2.3-mac-arm64.dmg",
+      "omp-ui-1.2.3-mac-arm64.zip",
+      "omp-ui-1.2.3-mac-x64.dmg",
+      "omp-ui-1.2.3-mac-x64.zip",
     ],
   },
   win: {

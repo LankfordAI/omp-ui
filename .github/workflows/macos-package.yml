@@ -105,7 +105,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash packages/desktop/scripts/notarize-macos-preview.sh "${{ matrix.arch }}"
+        run: bash packages/desktop/scripts/notarize-macos.sh "${{ matrix.arch }}"
       - name: Verify signed macOS package
         shell: bash
         env:
@@ -120,8 +120,8 @@ jobs:
         with:
           name: macos-package-${{ matrix.arch }}
           path: |
-            packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.dmg
-            packages/desktop/dist/*-mac-preview-${{ matrix.arch }}.zip
+            packages/desktop/dist/*-mac-${{ matrix.arch }}.dmg
+            packages/desktop/dist/*-mac-${{ matrix.arch }}.zip
             packages/desktop/dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
           if-no-files-found: error
           compression-level: 0
@@ -137,8 +137,8 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           dist="packages/desktop/dist"
-          dmgs=("$dist"/*-mac-preview-"$ARCH".dmg)
-          zips=("$dist"/*-mac-preview-"$ARCH".zip)
+          dmgs=("$dist"/*-mac-"$ARCH".dmg)
+          zips=("$dist"/*-mac-"$ARCH".zip)
           (( ${#dmgs[@]} == 1 ))
           (( ${#zips[@]} == 1 ))
           gh release upload "$RELEASE_TAG" --clobber \

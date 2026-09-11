@@ -8,9 +8,9 @@ Install omp-ui, connect a model provider, register a project, and start your fir
 | --- | --- | --- |
 | Linux x64 | Supported | AppImage |
 | Windows x64 | Preview | Unsigned per-user NSIS installer |
-| macOS Apple Silicon and Intel | Preview | Developer ID signed and notarized DMG |
+| macOS Apple Silicon and Intel | Supported | Developer ID signed and notarized DMG |
 
-Linux AppImage is the supported release. Windows and macOS builds are previews.
+Linux AppImage and macOS DMGs are the supported releases. Windows builds are previews.
 
 ## Install on Linux
 
@@ -90,17 +90,17 @@ Run the installer. Windows reports **Unknown publisher** because this preview is
 
 The assisted installer installs for the current user without administrator elevation and lets you choose the installation directory.
 
-## Install the macOS preview
+## Install on macOS
 
 Choose the DMG that matches your Mac from the [latest GitHub release](https://github.com/LankfordAI/omp-ui/releases/latest):
 
-- Apple Silicon, including M-series processors: `omp-ui-<version>-mac-preview-arm64.dmg`
-- Intel: `omp-ui-<version>-mac-preview-x64.dmg`
+- Apple Silicon, including M-series processors: `omp-ui-<version>-mac-arm64.dmg`
+- Intel: `omp-ui-<version>-mac-x64.dmg`
 
 Download `SHA256SUMS.txt` beside the DMG. Verify only the asset you selected. For Apple Silicon, run:
 
 ```bash
-grep 'omp-ui-.*-mac-preview-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
+grep 'omp-ui-.*-mac-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
 ```
 
 For an Intel DMG, change `arm64` to `x64`. Continue only when the selected DMG reports `OK`.

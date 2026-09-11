@@ -34,7 +34,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   notarize: true
-  artifactName: ${productName}-${version}-mac-preview-${arch}.${ext}
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
   target:
     - dmg
     - zip

@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- macOS release artifacts are named `omp-ui-<version>-mac-<arch>.dmg`/`.zip`, dropping the vestigial `-preview-` token, and macOS is documented as a supported release platform (#500).
+
 Nothing since [v0.12.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
@@ -14,12 +16,12 @@ A release has exactly six distributable files. Replace `<version>` with the tag 
 |---|---|---|---|
 | Linux x64 | Supported | `omp-ui-<version>.AppImage` | Install and run omp-ui |
 | Windows x64 | Unsigned preview | `omp-ui-<version>-windows-preview-x64-setup.exe` | Per-user NSIS installer |
-| macOS Apple Silicon | Signed preview | `omp-ui-<version>-mac-preview-arm64.dmg` | Install omp-ui |
-| macOS Apple Silicon | Signed preview | `omp-ui-<version>-mac-preview-arm64.zip` | Squirrel.Mac update payload |
-| macOS Intel | Signed preview | `omp-ui-<version>-mac-preview-x64.dmg` | Install omp-ui |
-| macOS Intel | Signed preview | `omp-ui-<version>-mac-preview-x64.zip` | Squirrel.Mac update payload |
+| macOS Apple Silicon | Supported | `omp-ui-<version>-mac-arm64.dmg` | Install omp-ui |
+| macOS Apple Silicon | Supported | `omp-ui-<version>-mac-arm64.zip` | Squirrel.Mac update payload |
+| macOS Intel | Supported | `omp-ui-<version>-mac-x64.dmg` | Install omp-ui |
+| macOS Intel | Supported | `omp-ui-<version>-mac-x64.zip` | Squirrel.Mac update payload |
 
-[GitHub Releases](https://github.com/LankfordAI/omp-ui/releases/latest) is the application download and update channel. The Windows x64 work is recorded in [issue #125](https://github.com/LankfordAI/omp-ui/issues/125), and [ADR-0015](adr/0015-unsigned-windows-nsis-preview.md) keeps that installer an unsigned preview. Windows therefore reports an unknown publisher. The macOS packages are Developer ID signed and notarized previews. [Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) remains open until their physical-Mac update checks and supported-release gate are complete.
+The macOS packages are Developer ID signed and notarized. [Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) closed with that acceptance verified — notarized tagged artifacts and a physical-Mac self-update — so macOS is a supported release platform.
 
 Linux uses AppImage as its sole first-party supported format. Community packages may exist, but the project does not support them. The policy and cutover history are recorded in [ADR-0011](adr/0011-appimage-only-linux-distribution.md).
 
@@ -57,7 +59,7 @@ grep 'omp-ui-.*\.AppImage$' SHA256SUMS.txt | sha256sum -c -
 On macOS, verify the Apple Silicon DMG with:
 
 ```bash
-grep 'omp-ui-.*-mac-preview-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
+grep 'omp-ui-.*-mac-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
 ```
 
 Continue only when the selected file reports `OK`.

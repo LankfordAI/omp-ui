@@ -15,10 +15,10 @@ Install these tools before checking out the repository:
 `node-pty` ships Node-API prebuilds for Windows and macOS, so `npm install` compiles it only on Linux. Node-API is ABI-stable across Node and Electron, so the copy npm installs is the copy that ships in every package; nothing rebuilds it for Electron. Install the platform tools:
 
 - Linux: Python 3, `make`, and a C/C++ build toolchain. On Debian or Ubuntu, install them with `sudo apt install -y python3 make build-essential`.
-- macOS preview: Xcode command-line tools for `codesign`, `hdiutil`, and `notarytool`.
+- macOS: Xcode command-line tools for `codesign`, `hdiutil`, and `notarytool`.
 - Windows preview: no native toolchain; electron-builder bundles NSIS.
 
-Linux AppImage is the supported distribution. Windows and macOS packages are previews, but their development and packaging scripts remain available.
+Linux AppImage and macOS packages are the supported distributions. Windows packages are previews, but their development and packaging scripts remain available.
 
 ## Check out and install
 
@@ -121,7 +121,7 @@ The root `npm run package` command selects Linux. Use the desktop workspace scri
 # Supported Linux AppImage.
 npm run package:linux --workspace @omp-ui/desktop
 
-# macOS preview.
+# macOS package.
 npm run package:mac --workspace @omp-ui/desktop
 
 # Unsigned Windows x64 preview.
